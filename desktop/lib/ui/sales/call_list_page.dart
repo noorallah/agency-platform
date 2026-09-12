@@ -165,6 +165,7 @@ class _CallListPageState extends State<CallListPage> {
           SizedBox(
             width: 240,
             child: DropdownButtonFormField<String>(
+              isExpanded: true,
               initialValue: _salesmanId.isEmpty ? '' : _salesmanId,
               decoration: const InputDecoration(
                 labelText: 'Salesperson',
@@ -173,12 +174,12 @@ class _CallListPageState extends State<CallListPage> {
               items: [
                 const DropdownMenuItem<String>(
                   value: '',
-                  child: Text('Everyone'),
+                  child: Text('Everyone', overflow: TextOverflow.ellipsis),
                 ),
                 for (final candidate in _salesmen)
                   DropdownMenuItem<String>(
                     value: candidate.userId,
-                    child: Text(candidate.fullName),
+                    child: Text(candidate.fullName, overflow: TextOverflow.ellipsis),
                   ),
               ],
               onChanged: (value) {

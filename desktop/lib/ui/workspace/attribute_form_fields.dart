@@ -127,6 +127,7 @@ class _AttributeFormFieldState extends State<AttributeFormField> {
     return SizedBox(
       width: width,
       child: DropdownButtonFormField<String>(
+        isExpanded: true,
         key: ValueKey('attribute-${controller.definition.id}'),
         initialValue: current.isEmpty ? null : current,
         decoration: InputDecoration(labelText: _label, helperText: 'Choose one'),

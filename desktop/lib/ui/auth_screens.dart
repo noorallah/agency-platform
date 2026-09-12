@@ -319,13 +319,14 @@ class _LoginScreenState extends State<LoginScreen> {
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
                   DropdownButtonFormField<ThemeMode>(
+                    isExpanded: true,
                     initialValue: selectedMode,
                     decoration: const InputDecoration(labelText: 'Appearance'),
                     items: ThemeMode.values
                         .map(
                           (mode) => DropdownMenuItem(
                             value: mode,
-                            child: Text(mode.label),
+                            child: Text(mode.label, overflow: TextOverflow.ellipsis),
                           ),
                         )
                         .toList(),
@@ -350,6 +351,7 @@ class _LoginScreenState extends State<LoginScreen> {
                   if (widget.preferences.current.recentServers.isNotEmpty) ...[
                     const SizedBox(height: AppSpacing.md),
                     DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue:
                           widget.preferences.current.recentServers.first,
                       decoration:
@@ -358,7 +360,7 @@ class _LoginScreenState extends State<LoginScreen> {
                           .map(
                             (url) => DropdownMenuItem(
                               value: url,
-                              child: Text(url),
+                              child: Text(url, overflow: TextOverflow.ellipsis),
                             ),
                           )
                           .toList(),

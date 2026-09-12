@@ -166,6 +166,7 @@ class _NumberingSeriesEditorState extends State<NumberingSeriesEditor> {
           children: [
             if (_creating)
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: _documentTypeId,
                 decoration: const InputDecoration(
                   labelText: 'Document type',
@@ -175,7 +176,7 @@ class _NumberingSeriesEditorState extends State<NumberingSeriesEditor> {
                   for (final DocumentTypeRecord type in widget.documentTypes)
                     DropdownMenuItem<String>(
                       value: type.id,
-                      child: Text('${type.name} (${type.code})'),
+                      child: Text('${type.name} (${type.code})', overflow: TextOverflow.ellipsis),
                     ),
                 ],
                 onChanged: (String? value) =>

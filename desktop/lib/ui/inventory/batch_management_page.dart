@@ -315,6 +315,7 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
         SizedBox(
           width: 180,
           child: DropdownButtonFormField<String>(
+            isExpanded: true,
             initialValue: _statusFilter,
             decoration: const InputDecoration(labelText: 'Status'),
             items: [
@@ -1112,6 +1113,7 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: _status,
                     decoration: const InputDecoration(labelText: 'Status'),
                     items: const [
@@ -1256,6 +1258,7 @@ class _LotFormDialogState extends State<_LotFormDialog> {
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: _lotType,
                     decoration: const InputDecoration(labelText: 'Type'),
                     items: const [
@@ -1427,6 +1430,7 @@ class _SerialFormDialogState extends State<_SerialFormDialog> {
                   ),
                   const SizedBox(height: 12),
                   DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: _status,
                     decoration: const InputDecoration(labelText: 'Status'),
                     items: const [

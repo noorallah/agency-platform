@@ -1162,11 +1162,11 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
                 items: const [
                   DropdownMenuItem(
                     value: 'COLLECTED',
-                    child: Text('Money collected'),
+                    child: Text('Money collected', overflow: TextOverflow.ellipsis),
                   ),
                   DropdownMenuItem(
                     value: 'INVOICED',
-                    child: Text('Invoiced value'),
+                    child: Text('Invoiced value', overflow: TextOverflow.ellipsis),
                   ),
                 ],
                 onChanged: _saving
@@ -1196,11 +1196,11 @@ class _CommissionRuleDialogState extends State<CommissionRuleDialog> {
                 items: const [
                   DropdownMenuItem(
                     value: 'PERCENT',
-                    child: Text('Percentage of the value'),
+                    child: Text('Percentage of the value', overflow: TextOverflow.ellipsis),
                   ),
                   DropdownMenuItem(
                     value: 'PER_UNIT',
-                    child: Text('An amount for each unit sold'),
+                    child: Text('An amount for each unit sold', overflow: TextOverflow.ellipsis),
                   ),
                 ],
                 onChanged: _saving
@@ -1532,11 +1532,11 @@ class _LadderEditor extends StatelessWidget {
             items: const [
               DropdownMenuItem(
                 value: 'MARGINAL',
-                child: Text('Each band at its own rate'),
+                child: Text('Each band at its own rate', overflow: TextOverflow.ellipsis),
               ),
               DropdownMenuItem(
                 value: 'WHOLE_AMOUNT',
-                child: Text('Everything at the band reached'),
+                child: Text('Everything at the band reached', overflow: TextOverflow.ellipsis),
               ),
             ],
             onChanged:

@@ -204,6 +204,7 @@ class _PromotionDialogState extends State<PromotionDialog> {
                     const SizedBox(width: AppSpacing.md),
                     Expanded(
                       child: DropdownButtonFormField<String>(
+                        isExpanded: true,
                         initialValue: _status,
                         decoration:
                             const InputDecoration(labelText: 'Status'),

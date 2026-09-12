@@ -150,6 +150,7 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
                     DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue: document?.id,
                       decoration: const InputDecoration(
                         labelText: 'Returned against',
@@ -173,6 +174,7 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
                     ),
                     const SizedBox(height: AppSpacing.md),
                     DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue: _line?.id,
                       decoration: const InputDecoration(labelText: 'Line'),
                       items: [
@@ -193,6 +195,7 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
                     ),
                     const SizedBox(height: AppSpacing.md),
                     DropdownButtonFormField<String>(
+                      isExpanded: true,
                       initialValue: _warehouseId,
                       decoration: const InputDecoration(
                         labelText: 'Taken back into',
@@ -202,7 +205,7 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
                         for (final WarehouseRecord item in widget.warehouses)
                           DropdownMenuItem(
                             value: item.id,
-                            child: Text(item.displayName),
+                            child: Text(item.displayName, overflow: TextOverflow.ellipsis),
                           ),
                       ],
                       validator: (value) =>

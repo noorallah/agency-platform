@@ -1097,6 +1097,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         SizedBox(
           width: 220,
           child: DropdownButtonFormField<String?>(
+            isExpanded: true,
             initialValue: _categoryId,
             decoration: const InputDecoration(labelText: 'Category'),
             items: [
@@ -1104,7 +1105,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
               ..._controller.categories.map(
                 (category) => DropdownMenuItem(
                   value: category.id,
-                  child: Text(category.name),
+                  child: Text(category.name, overflow: TextOverflow.ellipsis),
                 ),
               )
             ],
@@ -1351,6 +1352,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
       SizedBox(
         width: 220,
         child: DropdownButtonFormField<String?>(
+          isExpanded: true,
           initialValue: value,
           decoration: InputDecoration(labelText: label),
           items: [
@@ -1835,13 +1837,14 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
           SizedBox(
             width: 260,
             child: DropdownButtonFormField<String>(
+              isExpanded: true,
               initialValue: _categoryId.isEmpty ? null : _categoryId,
               decoration: const InputDecoration(labelText: 'Category'),
               items: widget.categories
                   .map(
                     (category) => DropdownMenuItem(
                       value: category.id,
-                      child: Text(category.name),
+                      child: Text(category.name, overflow: TextOverflow.ellipsis),
                     ),
                   )
                   .toList(),
@@ -2181,18 +2184,19 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
           SizedBox(
             width: 320,
             child: DropdownButtonFormField<String>(
+              isExpanded: true,
               initialValue:
                   _taxProfileGroupCode.isEmpty ? null : _taxProfileGroupCode,
               decoration: const InputDecoration(labelText: 'Tax profile'),
               items: [
                 const DropdownMenuItem<String>(
                   value: '',
-                  child: Text('No tax profile'),
+                  child: Text('No tax profile', overflow: TextOverflow.ellipsis),
                 ),
                 ..._metadata.taxProfiles.map(
                   (profile) => DropdownMenuItem<String>(
                     value: profile.groupCode.isEmpty ? profile.code : profile.groupCode,
-                    child: Text('${profile.label} (${profile.code})'),
+                    child: Text('${profile.label} (${profile.code})', overflow: TextOverflow.ellipsis),
                   ),
                 ),
               ],
@@ -2470,6 +2474,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       SizedBox(
         width: 220,
         child: DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: value,
           decoration: InputDecoration(labelText: label),
           items: values
@@ -2495,12 +2500,13 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       SizedBox(
         width: 260,
         child: DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: value.isEmpty ? null : value,
           decoration: InputDecoration(labelText: label),
           items: [
             const DropdownMenuItem<String>(
               value: '',
-              child: Text('Not set'),
+              child: Text('Not set', overflow: TextOverflow.ellipsis),
             ),
             ...items,
           ],
@@ -2796,45 +2802,47 @@ class _BulkOperationDialogState extends State<_BulkOperationDialog> {
             mainAxisSize: MainAxisSize.min,
             children: [
               DropdownButtonFormField<_BulkOperationKind>(
+                isExpanded: true,
                 initialValue: _kind,
                 decoration: const InputDecoration(labelText: 'Operation'),
                 items: const [
                   DropdownMenuItem(
                     value: _BulkOperationKind.delete,
-                    child: Text('Bulk delete'),
+                    child: Text('Bulk delete', overflow: TextOverflow.ellipsis),
                   ),
                   DropdownMenuItem(
                     value: _BulkOperationKind.restore,
-                    child: Text('Bulk restore'),
+                    child: Text('Bulk restore', overflow: TextOverflow.ellipsis),
                   ),
                   DropdownMenuItem(
                     value: _BulkOperationKind.export,
-                    child: Text('Bulk export'),
+                    child: Text('Bulk export', overflow: TextOverflow.ellipsis),
                   ),
                   DropdownMenuItem(
                     value: _BulkOperationKind.statusChange,
-                    child: Text('Bulk status change'),
+                    child: Text('Bulk status change', overflow: TextOverflow.ellipsis),
                   ),
                   DropdownMenuItem(
                     value: _BulkOperationKind.categoryChange,
-                    child: Text('Bulk category change'),
+                    child: Text('Bulk category change', overflow: TextOverflow.ellipsis),
                   ),
                   DropdownMenuItem(
                     value: _BulkOperationKind.priceUpdate,
-                    child: Text('Bulk price update'),
+                    child: Text('Bulk price update', overflow: TextOverflow.ellipsis),
                   ),
                 ],
                 onChanged: (value) => setState(() => _kind = value ?? _kind),
               ),
               if (_kind == _BulkOperationKind.statusChange)
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: _status,
                   decoration: const InputDecoration(labelText: 'New status'),
                   items: const ['ACTIVE', 'INACTIVE', 'DRAFT', 'ARCHIVED']
                       .map(
                         (value) => DropdownMenuItem(
                           value: value,
-                          child: Text(value),
+                          child: Text(value, overflow: TextOverflow.ellipsis),
                         ),
                       )
                       .toList(),
@@ -2843,13 +2851,14 @@ class _BulkOperationDialogState extends State<_BulkOperationDialog> {
                 ),
               if (_kind == _BulkOperationKind.categoryChange)
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: _categoryId.isEmpty ? null : _categoryId,
                   decoration: const InputDecoration(labelText: 'New category'),
                   items: widget.categories
                       .map(
                         (category) => DropdownMenuItem(
                           value: category.id,
-                          child: Text(category.name),
+                          child: Text(category.name, overflow: TextOverflow.ellipsis),
                         ),
                       )
                       .toList(),
@@ -2867,6 +2876,7 @@ class _BulkOperationDialogState extends State<_BulkOperationDialog> {
                 ),
               if (_kind == _BulkOperationKind.export)
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: _format,
                   decoration: const InputDecoration(labelText: 'Format'),
                   items: const [

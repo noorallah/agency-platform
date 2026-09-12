@@ -1049,6 +1049,7 @@ class _TaxRulesTabState extends State<_TaxRulesTab> {
                 SizedBox(
                   width: 140,
                   child: DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: _formStatus,
                     isDense: true,
                     decoration: const InputDecoration(
@@ -1255,6 +1256,7 @@ class _TaxRulesTabState extends State<_TaxRulesTab> {
           SizedBox(
             width: 160,
             child: DropdownButtonFormField<String>(
+              isExpanded: true,
               initialValue: _kFieldKeys.contains(draft.fieldKey.text)
                   ? draft.fieldKey.text
                   : _kFieldKeys.first,
@@ -1281,6 +1283,7 @@ class _TaxRulesTabState extends State<_TaxRulesTab> {
           SizedBox(
             width: 150,
             child: DropdownButtonFormField<String>(
+              isExpanded: true,
               initialValue: _kOperators.contains(draft.operator)
                   ? draft.operator
                   : _kOperators.first,
@@ -1451,6 +1454,7 @@ class _TaxRulesTabState extends State<_TaxRulesTab> {
           SizedBox(
             width: 200,
             child: DropdownButtonFormField<String>(
+              isExpanded: true,
               initialValue: _kActionTypes.contains(draft.actionType)
                   ? draft.actionType
                   : _kActionTypes.first,

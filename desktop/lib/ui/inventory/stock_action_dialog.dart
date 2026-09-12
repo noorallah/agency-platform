@@ -243,6 +243,7 @@ class _StockActionDialogState extends State<StockActionDialog> {
           ],
         StockAction.writeOff => [
             DropdownButtonFormField<String>(
+              isExpanded: true,
               initialValue: _reason,
               decoration: const InputDecoration(labelText: 'Reason'),
               items: const [

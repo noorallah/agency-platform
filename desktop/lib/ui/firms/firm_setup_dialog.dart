@@ -177,6 +177,7 @@ class _FirmSetupDialogState extends State<FirmSetupDialog> {
         SizedBox(
           width: 200,
           child: DropdownButtonFormField<String>(
+            isExpanded: true,
             key: const ValueKey('firm-setup-profile'),
             initialValue: _chosenProfile,
             isDense: true,

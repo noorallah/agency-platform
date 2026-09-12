@@ -732,6 +732,7 @@ class _TaxSystemsTabState extends State<TaxSystemsTab> {
                 SizedBox(
                   width: 140,
                   child: DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: _formStatus,
                     isDense: true,
                     decoration: const InputDecoration(
@@ -1018,6 +1019,7 @@ class _TaxSystemsTabState extends State<TaxSystemsTab> {
             SizedBox(
               width: 110,
               child: DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: comp.status,
                 isDense: true,
                 decoration: const InputDecoration(
@@ -1748,6 +1750,7 @@ class _TaxProfilesTabState extends State<TaxProfilesTab> {
 
   Widget _buildSystemDropdown(ColorScheme cs) {
     return DropdownButtonFormField<String>(
+      isExpanded: true,
       initialValue: _selectedSystemId,
       decoration: InputDecoration(
         labelText: 'Tax System *',
@@ -1761,7 +1764,7 @@ class _TaxProfilesTabState extends State<TaxProfilesTab> {
       items: _systems
           .map((s) => DropdownMenuItem(
                 value: s.id,
-                child: Text('${s.code} — ${s.name}'),
+                child: Text('${s.code} — ${s.name}', overflow: TextOverflow.ellipsis),
               ))
           .toList(),
       onChanged: (v) {
@@ -1820,6 +1823,7 @@ class _TaxProfilesTabState extends State<TaxProfilesTab> {
                 SizedBox(
                   width: 140,
                   child: DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: _formStatus,
                     isDense: true,
                     decoration: const InputDecoration(

@@ -1015,6 +1015,7 @@ class _ConversionRuleDialogState extends State<ConversionRuleDialog> {
                 ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: _status,
                   decoration: const InputDecoration(labelText: 'Status'),
                   items: const [

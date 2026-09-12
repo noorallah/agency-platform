@@ -659,6 +659,7 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
       SizedBox(
         width: 220,
         child: DropdownButtonFormField<String>(
+          isExpanded: true,
           initialValue: value,
           decoration: InputDecoration(labelText: label),
           items: values
@@ -838,6 +839,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
       ));
     }
     return DropdownButtonFormField<String>(
+      isExpanded: true,
       initialValue: _customerGroupId,
       decoration: const InputDecoration(labelText: 'Customer group'),
       items: items,
@@ -1524,6 +1526,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     ValueChanged<String?> onChanged,
   ) =>
       DropdownButtonFormField<String>(
+        isExpanded: true,
         initialValue: value,
         decoration: InputDecoration(labelText: label),
         items: values
@@ -1555,6 +1558,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     ValueChanged<String?> onChanged,
   ) =>
       DropdownButtonFormField<String>(
+        isExpanded: true,
         initialValue: value,
         decoration: InputDecoration(labelText: label),
         items: values

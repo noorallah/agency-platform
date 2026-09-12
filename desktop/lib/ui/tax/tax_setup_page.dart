@@ -1067,6 +1067,7 @@ class _TaxSetupPageState extends State<TaxSetupPage> {
 
   Widget _buildStatusDropdown() {
     return DropdownButtonFormField<String>(
+      isExpanded: true,
       initialValue: _status,
       decoration: const InputDecoration(
         labelText: 'Status',

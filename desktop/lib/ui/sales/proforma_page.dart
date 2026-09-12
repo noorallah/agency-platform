@@ -412,6 +412,7 @@ class _RaiseProformaDialogState extends State<_RaiseProformaDialog> {
                 ),
                 const SizedBox(height: AppSpacing.md),
                 DropdownButtonFormField<String>(
+                  isExpanded: true,
                   initialValue: _orderId,
                   decoration: const InputDecoration(labelText: 'Sales order'),
                   items: [

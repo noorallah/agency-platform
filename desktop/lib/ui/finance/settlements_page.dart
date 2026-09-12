@@ -474,6 +474,7 @@ class _ApplyDialogState extends State<_ApplyDialog> {
               ),
               const SizedBox(height: AppSpacing.md),
               DropdownButtonFormField<String>(
+                isExpanded: true,
                 initialValue: _invoiceId,
                 decoration: const InputDecoration(labelText: 'Invoice'),
                 items: [

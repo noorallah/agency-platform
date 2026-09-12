@@ -401,6 +401,7 @@ class _SalesTargetDialogState extends State<_SalesTargetDialog> {
               children: [
                 Expanded(
                   child: DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: _period,
                     decoration: const InputDecoration(labelText: 'Runs'),
                     items: const [
@@ -417,6 +418,7 @@ class _SalesTargetDialogState extends State<_SalesTargetDialog> {
                 const SizedBox(width: AppSpacing.md),
                 Expanded(
                   child: DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: _basis,
                     decoration: const InputDecoration(labelText: 'Counts'),
                     items: const [

@@ -214,6 +214,7 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
           SizedBox(
             width: 180,
             child: DropdownButtonFormField<String>(
+              isExpanded: true,
               // Null is "everything", which is what triage starts from.
               initialValue: _source,
               decoration: const InputDecoration(labelText: 'Source'),

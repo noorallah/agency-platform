@@ -183,6 +183,7 @@ class _CreditSettingsDialogState extends State<CreditSettingsDialog> {
                   ],
                   const SizedBox(height: AppSpacing.lg),
                   DropdownButtonFormField<String>(
+                    isExpanded: true,
                     initialValue: _enforcement,
                     decoration: const InputDecoration(
                       labelText: 'When a customer reaches their limit',
