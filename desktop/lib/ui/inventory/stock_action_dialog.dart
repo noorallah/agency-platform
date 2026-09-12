@@ -18,10 +18,16 @@ enum StockAction {
 
 /// A warehouse, reduced to what this dialog needs.
 class WarehouseOption {
-  const WarehouseOption({required this.id, required this.name});
+  const WarehouseOption({required this.id, required this.name, this.code = ''});
 
   final String id;
   final String name;
+  final String code;
+
+  /// How the destination reads: the code first, the way every other
+  /// warehouse picker names one. Plan item 8.3 asked for `WHL_DC` and the
+  /// list offered "Bulk Goods Warehouse1", which nobody could match.
+  String get label => code.isEmpty ? name : '$code - $name';
 }
 
 /// Check what is about to be sent, in the words a storeman would use.
@@ -235,7 +241,7 @@ class _StockActionDialogState extends State<StockActionDialog> {
                   if (warehouse.id != widget.sourceWarehouseId)
                     DropdownMenuItem<String>(
                       value: warehouse.id,
-                      child: Text(warehouse.name, overflow: TextOverflow.ellipsis),
+                      child: Text(warehouse.label, overflow: TextOverflow.ellipsis),
                     ),
               ],
               onChanged: (value) => setState(() => _destination = value ?? ''),
