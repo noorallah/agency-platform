@@ -5,6 +5,7 @@ import '../../core/api/concurrency.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
+import '../../models/product.dart';
 import '../../models/uom_packaging.dart';
 import '../workspace/desktop_framework.dart';
 
@@ -49,6 +50,10 @@ class _UomManagementPageState extends State<UomManagementPage> {
   List<PackagingTypeRecord> _packaging = const [];
   List<ConversionRuleRecord> _conversions = const [];
   List<IndustryTemplateRecord> _templates = const [];
+
+  /// The firm's products, read beside the conversion rules so a rule can name
+  /// its product by code and the grid can show one.
+  List<Product> _products = const [];
 
   @override
   void initState() {
@@ -122,6 +127,10 @@ class _UomManagementPageState extends State<UomManagementPage> {
               .conversionRules(page: _page, pageSize: _rowsPerPage);
           _conversions = result.items;
           _total = result.total;
+          // Units and products, so the grid shows codes and the dialog offers
+          // them. The grid showed raw ids and the dialog asked for them.
+          _uoms = await widget.api.uoms(includeInactive: true);
+          _products = (await widget.api.products(pageSize: 100)).items;
           break;
         case UomManagementSection.industryTemplates:
           _templates =
@@ -311,19 +320,23 @@ class _UomManagementPageState extends State<UomManagementPage> {
       rowsPerPage: _rowsPerPage,
       selectedId: _selectedId,
       columns: const [
+        GridColumn(key: 'product', label: 'Product'),
         GridColumn(key: 'from_uom_id', label: 'From UOM'),
         GridColumn(key: 'to_uom_id', label: 'To UOM'),
         GridColumn(key: 'factor', label: 'Factor'),
-        GridColumn(key: 'version', label: 'Version'),
+        GridColumn(key: 'version', label: 'Revision'),
         GridColumn(key: 'effective', label: 'Effective From'),
         GridColumn(key: 'status', label: 'Status'),
       ],
       id: (row) => row.id,
       cells: (row) => [
-        row.fromUomId,
-        row.toUomId,
+        row.productId.isEmpty ? 'Firm-wide' : _productCode(row.productId),
+        _uomCode(row.fromUomId),
+        _uomCode(row.toUomId),
         row.conversionFactor,
-        row.version.toString(),
+        // The rule's own revision, not the optimistic-concurrency counter
+        // the column used to show.
+        row.versionNumber.toString(),
         row.effectiveFrom,
         row.status
       ],
@@ -517,23 +530,39 @@ class _UomManagementPageState extends State<UomManagementPage> {
     }
   }
 
+  String _uomCode(String id) {
+    for (final UomRecord uom in _uoms) {
+      if (uom.id == id) return uom.code;
+    }
+    return id;
+  }
+
+  String _productCode(String id) {
+    for (final Product product in _products) {
+      if (product.id == id) return product.code;
+    }
+    return id;
+  }
+
   Future<void> _openConversionDialog({ConversionRuleRecord? existing}) async {
-    final Json? payload = await _simpleDialog(
-      title:
-          existing == null ? 'Create Conversion Rule' : 'Edit Conversion Rule',
-      fields: [
-        _FieldSpec('from_uom_id', 'From UOM ID', existing?.fromUomId ?? ''),
-        _FieldSpec('to_uom_id', 'To UOM ID', existing?.toUomId ?? ''),
-        _FieldSpec(
-            'conversion_factor', 'Factor', existing?.conversionFactor ?? '1'),
-        _FieldSpec('version', 'Version', existing?.version.toString() ?? '1'),
-        _FieldSpec(
-            'effective_from',
-            'Effective From (YYYY-MM-DD)',
-            existing?.effectiveFrom ??
-                DateTime.now().toIso8601String().substring(0, 10)),
-        _FieldSpec('status', 'Status', existing?.status ?? 'ACTIVE'),
-      ],
+    if (_uoms.isEmpty) {
+      // Opened before the section finished loading, or from a section that
+      // does not load units; the dialog cannot offer what it has not read.
+      _uoms = await widget.api.uoms(includeInactive: true);
+      _products = (await widget.api.products(pageSize: 100)).items;
+      if (!mounted) return;
+    }
+    // Its own dialog rather than the generic text-field one. That one asked
+    // for "From UOM ID" and "To UOM ID" -- values nobody can type -- and sent
+    // a `version` key the server forbids, so every rule created from this
+    // screen was refused with "The request validation failed."
+    final Json? payload = await showDialog<Json>(
+      context: context,
+      builder: (context) => ConversionRuleDialog(
+        units: _uoms,
+        products: _products,
+        existing: existing,
+      ),
     );
     if (payload == null) return;
     try {
@@ -808,4 +837,204 @@ class _FieldSpec {
   final String key;
   final String label;
   final String initialValue;
+}
+
+/// Create or edit a conversion rule, naming its units and product by code.
+///
+/// Public so a test can drive it. Returns the payload to send, or null.
+class ConversionRuleDialog extends StatefulWidget {
+  const ConversionRuleDialog({
+    super.key,
+    required this.units,
+    required this.products,
+    this.existing,
+  });
+
+  final List<UomRecord> units;
+  final List<Product> products;
+  final ConversionRuleRecord? existing;
+
+  @override
+  State<ConversionRuleDialog> createState() => _ConversionRuleDialogState();
+}
+
+class _ConversionRuleDialogState extends State<ConversionRuleDialog> {
+  final GlobalKey<FormState> _form = GlobalKey<FormState>();
+  late String? _productId = _orNull(widget.existing?.productId);
+  late String? _fromUomId = _orNull(widget.existing?.fromUomId);
+  late String? _toUomId = _orNull(widget.existing?.toUomId);
+  late final TextEditingController _factor = TextEditingController(
+    text: widget.existing?.conversionFactor ?? '1',
+  );
+  late final TextEditingController _effectiveFrom = TextEditingController(
+    text: widget.existing?.effectiveFrom.isNotEmpty == true
+        ? widget.existing!.effectiveFrom
+        : DateTime.now().toIso8601String().substring(0, 10),
+  );
+  late String _status = widget.existing?.status.isNotEmpty == true
+      ? widget.existing!.status
+      : 'ACTIVE';
+
+  static String? _orNull(String? value) =>
+      value == null || value.isEmpty ? null : value;
+
+  @override
+  void dispose() {
+    _factor.dispose();
+    _effectiveFrom.dispose();
+    super.dispose();
+  }
+
+  /// A stored id that is not in the loaded list stays selectable, or the
+  /// dropdown asserts and the form saves as blank -- the geography picker's
+  /// trap.
+  List<DropdownMenuItem<String>> _unitItems() {
+    final List<DropdownMenuItem<String>> items = [
+      for (final UomRecord unit in widget.units)
+        DropdownMenuItem(
+          value: unit.id,
+          child: Text('${unit.code} — ${unit.name}'),
+        ),
+    ];
+    for (final String? chosen in <String?>[_fromUomId, _toUomId]) {
+      if (chosen != null && !widget.units.any((u) => u.id == chosen)) {
+        items.add(DropdownMenuItem(value: chosen, child: Text(chosen)));
+      }
+    }
+    return items;
+  }
+
+  List<DropdownMenuItem<String?>> _productItems() {
+    final List<DropdownMenuItem<String?>> items = [
+      const DropdownMenuItem<String?>(
+        value: null,
+        child: Text('Firm-wide (every product)'),
+      ),
+      for (final Product product in widget.products)
+        DropdownMenuItem<String?>(
+          value: product.id,
+          child: Text('${product.code} — ${product.name}'),
+        ),
+    ];
+    final String? chosen = _productId;
+    if (chosen != null && !widget.products.any((p) => p.id == chosen)) {
+      items.add(DropdownMenuItem<String?>(value: chosen, child: Text(chosen)));
+    }
+    return items;
+  }
+
+  void _save() {
+    if (!(_form.currentState?.validate() ?? false)) return;
+    final bool creating = widget.existing == null;
+    final Json payload = <String, dynamic>{
+      'from_uom_id': _fromUomId,
+      'to_uom_id': _toUomId,
+      'conversion_factor': _factor.text.trim(),
+      'effective_from': _effectiveFrom.text.trim(),
+      'status': _status,
+      // The product is decided when the rule is made. Sending it on an edit
+      // would move a firm-wide rule onto a product, or the reverse, from a
+      // field the person may not have touched.
+      if (creating && _productId != null) 'product_id': _productId,
+    };
+    Navigator.pop(context, payload);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bool creating = widget.existing == null;
+    return AlertDialog(
+      title: Text(creating ? 'Create Conversion Rule' : 'Edit Conversion Rule'),
+      content: SizedBox(
+        width: 520,
+        child: Form(
+          key: _form,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                DropdownButtonFormField<String?>(
+                  initialValue: _productId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(
+                    labelText: 'Product',
+                    helperText: "A product's own rule outranks the firm-wide "
+                        'one for the same pair of units.',
+                  ),
+                  items: _productItems(),
+                  onChanged:
+                      creating ? (v) => setState(() => _productId = v) : null,
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  initialValue: _fromUomId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'From unit'),
+                  items: _unitItems(),
+                  onChanged: (v) => setState(() => _fromUomId = v),
+                  validator: (v) => v == null ? 'Choose the unit converted from' : null,
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  initialValue: _toUomId,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'To unit'),
+                  items: _unitItems(),
+                  onChanged: (v) => setState(() => _toUomId = v),
+                  validator: (v) => v == null
+                      ? 'Choose the unit converted to'
+                      : v == _fromUomId
+                          ? 'The two units must differ'
+                          : null,
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _factor,
+                  keyboardType:
+                      const TextInputType.numberWithOptions(decimal: true),
+                  decoration: const InputDecoration(
+                    labelText: 'Factor',
+                    helperText: 'How many of the "to" unit one "from" unit holds.',
+                  ),
+                  validator: (v) {
+                    final double? parsed = double.tryParse((v ?? '').trim());
+                    return parsed == null || parsed <= 0
+                        ? 'A factor above zero is required'
+                        : null;
+                  },
+                ),
+                const SizedBox(height: 10),
+                TextFormField(
+                  controller: _effectiveFrom,
+                  decoration: const InputDecoration(
+                    labelText: 'Effective from (YYYY-MM-DD)',
+                  ),
+                  validator: (v) => DateTime.tryParse((v ?? '').trim()) == null
+                      ? 'A date is required'
+                      : null,
+                ),
+                const SizedBox(height: 10),
+                DropdownButtonFormField<String>(
+                  initialValue: _status,
+                  decoration: const InputDecoration(labelText: 'Status'),
+                  items: const [
+                    DropdownMenuItem(value: 'ACTIVE', child: Text('ACTIVE')),
+                    DropdownMenuItem(value: 'INACTIVE', child: Text('INACTIVE')),
+                  ],
+                  onChanged: (v) => setState(() => _status = v ?? 'ACTIVE'),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.pop(context),
+          child: const Text('Cancel'),
+        ),
+        FilledButton(onPressed: _save, child: const Text('Save')),
+      ],
+    );
+  }
 }
