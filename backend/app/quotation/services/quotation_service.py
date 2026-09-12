@@ -31,7 +31,7 @@ from app.core.utils.pricing import (
     resolve_bill_discount,
     resolve_line_discount,
 )
-from app.customers.models import Customer
+from app.customers.models import Customer, CustomerGroup
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentTypeDefinition,
@@ -44,6 +44,11 @@ from app.document_framework.services.transactional_document_service import (
 )
 from app.pricing.services.price_list_service import PriceListResolver
 from app.products.models import Product
+from app.promotions.schemas import (
+    PromotionEvaluationRequest,
+    PromotionLineRequest,
+)
+from app.promotions.services import PromotionService
 from app.quotation.models import (
     SalesQuotation,
     SalesQuotationAttachment,
@@ -70,6 +75,7 @@ from app.sales.services.scope_resolution import resolve_sales_scope
 from app.sales_order.models import SalesOrder
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
+from app.sales_order.services.sales_order_service import PromotionBenefits
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
@@ -726,6 +732,63 @@ class QuotationService(TransactionalDocumentService):
             return None
         return self._q(customer.default_discount_percent)
 
+    def _customer_group(self, customer_id: UUID) -> tuple[UUID | None, Decimal | None]:
+        """Return the customer's segment and what that segment is normally given.
+
+        None rather than zero for the rate, so the shared rule can tell "no
+        segment arrangement" from "a segment that agreed nothing".
+        """
+        customer = self._session.get(Customer, customer_id)
+        if customer is None or customer.customer_group_id is None:
+            return None, None
+        group = self._session.get(CustomerGroup, customer.customer_group_id)
+        if group is None or not group.is_active:
+            return None, None
+        rate = self._q(group.default_discount_percent)
+        return group.id, (rate if rate > ZERO else None)
+
+    def _promotions(
+        self,
+        row: SalesQuotation,
+        *,
+        lines: list[QuotationLineWrite],
+        grosses: list[Decimal],
+        customer_group_id: UUID | None,
+    ) -> PromotionBenefits:
+        """Ask the firm's promotions what this offer would earn.
+
+        Evaluated once per document, never committing, exactly as the sales
+        order does -- with one difference: **nothing is staged**. A quotation
+        is an offer, not a claim; the order it becomes stages its own pending
+        redemption when it is priced and claims it when it is approved.
+        """
+        outcome = PromotionService(self._session).evaluate(
+            PromotionEvaluationRequest(
+                transaction_type="SALES_QUOTATION",
+                transaction_date=row.quotation_date,
+                customer_id=row.customer_id,
+                customer_group_id=customer_group_id,
+                branch_id=row.branch_id,
+                territory_id=row.territory_id,
+                salesman_id=row.salesman_id,
+                lines=[
+                    PromotionLineRequest(
+                        line_number=index + 1,
+                        product_id=item.product_id,
+                        quantity=self._q(item.quantity),
+                        gross=grosses[index],
+                        caller_priced=(
+                            item.discount_percent is not None
+                            or item.discount_amount is not None
+                        ),
+                    )
+                    for index, item in enumerate(lines)
+                ],
+            ),
+            firm_scope=row.firm_id,
+        )
+        return PromotionBenefits(outcome)
+
     def _freight_shares(
         self,
         row: object,
@@ -844,7 +907,6 @@ class QuotationService(TransactionalDocumentService):
         # is what `header_discount_amount` does on a purchase order, and the
         # reason that shape is not copied here.
         products: list[Product] = []
-        priced: list[LineDiscount] = []
         grosses: list[Decimal] = []
         for item in lines:
             product = self._session.scalar(
@@ -855,17 +917,29 @@ class QuotationService(TransactionalDocumentService):
             if product is None:
                 raise ValidationError("Product not found for quotation line.")
             products.append(product)
-            gross = self._q(self._q(item.quantity) * self._q(item.unit_price))
-            grosses.append(gross)
-            priced.append(
-                resolve_line_discount(
-                    gross=gross,
-                    percent=item.discount_percent,
-                    amount=item.discount_amount,
-                    price_list_percent=prices.rate_for(item.product_id, item.quantity),
-                    customer_default=customer_discount,
-                )
+            grosses.append(self._q(self._q(item.quantity) * self._q(item.unit_price)))
+        # The firm's live offers and the customer's segment, asked once for the
+        # whole document the way a sales order asks them. A quotation that
+        # ignored both quoted a worse price than the order it became would
+        # have been given directly -- and since the conversion carries the
+        # quoted rate over as agreed, no offer ever reached such an order
+        # (plan item 9.4, 2026-09-13).
+        group_id, group_discount = self._customer_group(row.customer_id)
+        benefits = self._promotions(
+            row, lines=lines, grosses=grosses, customer_group_id=group_id
+        )
+        priced: list[LineDiscount] = [
+            resolve_line_discount(
+                gross=grosses[index],
+                percent=item.discount_percent,
+                amount=item.discount_amount,
+                promotion_amount=benefits.line_discount(index),
+                price_list_percent=prices.rate_for(item.product_id, item.quantity),
+                customer_default=customer_discount,
+                customer_group_default=group_discount,
             )
+            for index, item in enumerate(lines)
+        ]
         shares = self._bill_discount_shares(
             row,
             percent=bill_percent,
