@@ -170,6 +170,7 @@ class _StockActionDialogState extends State<StockActionDialog> {
                 Padding(
                   padding: const EdgeInsets.only(bottom: AppSpacing.md),
                   child: MaterialBanner(
+                    leading: const Icon(Icons.error_outline),
                     content: Text(_error!),
                     actions: [
                       TextButton(

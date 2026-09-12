@@ -51,4 +51,47 @@ void main() {
     expect(find.text('WH_NORTH - North Warehouse'), findsNothing);
     expect(find.text('Bulk Goods Warehouse1'), findsNothing);
   });
+
+  testWidgets('a refusal is shown in a banner with the error icon',
+      (tester) async {
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: StockActionDialog(
+            action: StockAction.transfer,
+            productLabel: 'Detergent Powder 1kg',
+            warehouseLabel: 'North Warehouse',
+            sourceWarehouseId: 'wh-north',
+            available: 4,
+            quarantined: 0,
+            warehouses: [
+              WarehouseOption(id: 'wh-dc', code: 'WHL_DC', name: 'Bulk'),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Quantity'), '10');
+    await tester.enterText(find.widgetWithText(TextField, 'Reference'), 'TRF-1');
+    await tester.tap(find.text('Move it to'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('WHL_DC - Bulk').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Transfer'));
+    await tester.pumpAndSettle();
+
+    final Finder banner = find.widgetWithText(
+      MaterialBanner,
+      'This location holds 4.0000, so 10.0000 cannot be moved out of it.',
+    );
+    expect(banner, findsOneWidget);
+    expect(
+      find.descendant(of: banner, matching: find.byIcon(Icons.error_outline)),
+      findsOneWidget,
+    );
+  });
 }

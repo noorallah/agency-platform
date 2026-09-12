@@ -253,6 +253,17 @@ class ThemeRegistry {
         dense: density == GridDensity.compact,
       ),
       textTheme: textTheme,
+      // Every banner in the client bar one carries a refusal, and an
+      // unstyled one reads as a plain paragraph -- "This location holds
+      // 4, so 10 cannot be moved out of it" went unnoticed on 2026-09-12
+      // (plan item 8.3). Styled once here rather than at ~20 sites; the one
+      // informational banner overrides its colour where it is built.
+      bannerTheme: MaterialBannerThemeData(
+        backgroundColor: tuned.errorContainer,
+        contentTextStyle:
+            textTheme.bodyMedium?.copyWith(color: tuned.onErrorContainer),
+        dividerColor: tuned.error,
+      ),
       dividerTheme: DividerThemeData(color: tuned.outlineVariant, space: 1),
       cardTheme: CardThemeData(
         color: tuned.surfaceContainerLowest,

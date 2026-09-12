@@ -831,6 +831,11 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
             children: [
               if (_locked) ...[
                 MaterialBanner(
+                  // A notice, not a refusal: the theme colours banners as
+                  // errors, and this one is the exception.
+                  backgroundColor:
+                      Theme.of(context).colorScheme.surfaceContainerHighest,
+                  contentTextStyle: Theme.of(context).textTheme.bodyMedium,
                   content: Text(
                     'This order is $_status, so it can no longer be rewritten. '
                     'Its lines are what stock and credit were committed '
