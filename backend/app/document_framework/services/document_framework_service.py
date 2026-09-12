@@ -615,7 +615,18 @@ class DocumentFrameworkService:
         )
         if counter is not None:
             return counter
-        start = 1 if rule.last_scope_signature else rule.next_sequence
+        legacy = self._legacy_counters(rule, scope_signature)
+        if legacy:
+            # The series continues from wherever the old keys had got to; the
+            # rows under the old keys are retired so this happens once.
+            start = max(row.next_sequence for row in legacy)
+            for row in legacy:
+                row.is_deleted = True
+                row.deleted_at = utc_now()
+                if actor_id is not None:
+                    row.updated_by = actor_id
+        else:
+            start = 1 if rule.last_scope_signature else rule.next_sequence
         counter = DocumentNumberSequence(
             firm_id=rule.firm_id,
             numbering_rule_id=rule.id,
@@ -627,6 +638,54 @@ class DocumentFrameworkService:
         self._session.add(counter)
         self._session.flush()
         return counter
+
+    def _legacy_counters(
+        self, rule: DocumentNumberingRule, scope_signature: str
+    ) -> list[DocumentNumberSequence]:
+        """Return the live counters this scope's series used to be kept under.
+
+        What goes into a scope signature has changed twice -- the year became
+        conditional on ``auto_reset``, then the branch and company on whether
+        the number prints them -- and each change moved the key an existing
+        series was stored under without moving the rows. The next document
+        then found no counter, started at one and collided with a number the
+        firm had already issued: every purchase return, sales invoice, sales
+        order and quotation in every seeded firm, found in manual testing on
+        2026-09-12 as a 409 on the first return raised after the second
+        change. A counter is read under the key its rule would give it
+        *today*, so a series survives the key changing shape.
+        """
+        rows = self._session.scalars(
+            select(DocumentNumberSequence).where(
+                DocumentNumberSequence.numbering_rule_id == rule.id,
+                DocumentNumberSequence.is_deleted.is_(False),
+            )
+        ).all()
+        return [
+            row
+            for row in rows
+            if row.scope_signature != scope_signature
+            and self._rekeyed_signature(rule, row.scope_signature) == scope_signature
+        ]
+
+    def _rekeyed_signature(self, rule: DocumentNumberingRule, signature: str) -> str:
+        """Return ``signature`` as `_scope_signature` would key it today.
+
+        A stored signature is ``year|branch|company``; each part is kept
+        only if the rule still counts on it. A year is kept only under
+        ``auto_reset`` and a branch or company only when the number prints
+        it, which is exactly the rule `_scope_signature` applies to a fresh
+        reservation.
+        """
+        parts = (signature.split("|") + ["", "", ""])[:3]
+        year, branch, company = parts
+        return "|".join(
+            [
+                year if rule.auto_reset else "",
+                branch if self._number_carries(rule, "branch_code") else "",
+                company if self._number_carries(rule, "company_code") else "",
+            ]
+        )
 
     def record_event(
         self, firm_id: UUID, data: DocumentLifecycleEventCreate, actor_id: UUID
@@ -806,6 +865,10 @@ class DocumentFrameworkService:
         )
         if counter is not None:
             sequence = counter.next_sequence
+        elif legacy := self._legacy_counters(rule, scope_signature):
+            # A preview writes nothing, so the old rows are left where they
+            # are; it still shows the number the reservation will issue.
+            sequence = max(row.next_sequence for row in legacy)
         else:
             sequence = 1 if rule.last_scope_signature else rule.next_sequence
         if rule.format_pattern:
