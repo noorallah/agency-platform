@@ -2122,6 +2122,33 @@ product id** (`physical_count_sheet_dialog.dart`), the same class as
 §31.3.
 
 
+### 31.14 What a saved sales document does not show (2026-09-13, mapping section 9)
+
+**Seen while writing the section 9 steps**, not yet on screen by the tester.
+
+- **No resolved discount percentage on any saved document.** The
+  quotation's detail card prints `qty × price` and the totals; the order
+  and invoice view dialogs' Discount column is the *amount*. The only way
+  to read the rate the server resolved is to reopen the editor (Revise on
+  a quotation, Edit on a draft order), where the box is refilled from the
+  stored `discount_percent`. A tester checking 9.1--9.5 has no other
+  route, and a salesman asking "what did this line get" has none at all
+  once the order is approved.
+- **The coupon is invisible after save**: no grid column, no header field
+  in `EnterpriseDocumentHeader`; only the draft order's editor shows it.
+- **Allocate and Reverse on a receipt are unlabelled icons** (tooltips
+  "Apply to an invoice" and "Reverse") on the Receipts list row.
+- **Invoice print copies are not defaulted**: `copy_labels` is empty until
+  the firm saves Print settings, so a first print carries one unlabelled
+  copy. The delivery challan defaults three labels; the invoice should
+  default two (ORIGINAL FOR RECIPIENT, DUPLICATE FOR SUPPLIER).
+- **The sales return and credit note Line pickers read `Line 1`** when
+  the source line has no description -- no product code, so two lines of
+  one document cannot be told apart by product.
+- **Sales order and sales invoice view dialogs print product and tax
+  profile ids** (already §31.3; the delivery note resolves them).
+
+
 ## 32. Seed a standard India geography master into every firm store
 
 Raised while verifying the customer place picker (plan item 4.3, 2026-09-09).
