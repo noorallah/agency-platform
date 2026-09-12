@@ -288,6 +288,13 @@ RESET_ORDER: tuple[str, ...] = (
     "ledger_balances",
     "customer_receivable_transactions",
     "opening_stock_batches",
+    # A count sheet is numbered from the PC series, so it goes with the
+    # counters below: left behind, the next count opened after a reset is
+    # refused as a duplicate of a number the surviving sheet holds -- found
+    # on 2026-09-12 (plan item 8.4), the same collision the sales-returns
+    # note at the top of this list describes.
+    "physical_count_lines",
+    "physical_counts",
     "stock_ledger_entries",
     "inventory_transactions",
     # A serial identifies one physical unit and RESTRICTs against the stock
@@ -299,6 +306,12 @@ RESET_ORDER: tuple[str, ...] = (
     "inventories",
     "product_valuations",
     "document_lifecycle_events",
+    # The framework's own generic document, numbered from the same series
+    # as everything else; nothing seeds it, but a row left behind would
+    # collide the same way a count sheet did.
+    "document_totals",
+    "document_lines",
+    "document_headers",
     "document_number_sequences",
     # The offers and what they gave away. Children first: a promotion's
     # conditions and actions reference it, and a superseded revision
