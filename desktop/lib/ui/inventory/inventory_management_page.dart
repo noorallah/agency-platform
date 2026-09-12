@@ -1404,7 +1404,11 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         quarantined: double.tryParse(row.quarantineQuantity) ?? 0,
         warehouses: [
           for (final WarehouseRecord warehouse in _warehouses)
-            WarehouseOption(id: warehouse.id, name: warehouse.name),
+            WarehouseOption(
+              id: warehouse.id,
+              code: warehouse.code,
+              name: warehouse.name,
+            ),
         ],
       ),
     );
