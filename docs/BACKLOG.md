@@ -1861,6 +1861,32 @@ export back through the write schema. The territory export still writes
 on each round; left as it is, since building that column needs a customer
 lookup per row and nobody has asked for it yet.
 
+### 31.8 No conversion rule could be created from the desktop (2026-09-12, plan item 6.8) -- fixed the same day
+
+**Seen.** Reading the screen ahead of driving it: the Create Conversion
+Rule dialog asked for "From UOM ID" and "To UOM ID" -- values nobody can
+type -- and sent a `version` key. `UomSchema` forbids unknown fields, so
+the server answered 422 "The request validation failed." to every rule
+created from the desktop; driven by hand to confirm. The grid showed the
+same raw ids, and its Version column showed the optimistic-concurrency
+counter rather than the rule's own revision, `version_number`.
+
+**Done.** `ConversionRuleDialog` names the product (or *Firm-wide*) and
+both units by code from dropdowns, refuses the same unit on both sides
+and a factor at or below zero before sending, and sends exactly the keys
+`ConversionRuleCreate` takes. The product is decided at creation and not
+sent on an edit, so a rule cannot be moved between firm-wide and a
+product from a field nobody touched. The grid shows codes, the product,
+and the revision. `conversion_rule_dialog_test.dart` pins the payload key
+by key. Precedence itself was verified against the server: with a
+firm-wide PACK→KG factor of 2 in place, DETER1K still converts 10 PACK to
+10 KG by its own rule, and a product with no rule of its own gets 20.
+
+**Still open.** The purchase-order line editor asks for the **Purchase
+UOM ID** the same way, so raising a line in a unit other than the
+product's default still means pasting an id. Same shape, same fix, a
+different screen; not done here.
+
 ## 32. Seed a standard India geography master into every firm store
 
 Raised while verifying the customer place picker (plan item 4.3, 2026-09-09).
