@@ -208,20 +208,22 @@ firm actually operates, so later modules can use what earlier ones produced.
 | 5.8a | Branches → Import → **Sample file** | A CSV is saved with the eleven column headings and one filled-in example row. Choosing that file as-is previews as "1 rows ready" and imports cleanly (the example code is `BR_NORTH`; a second import of the same file is refused as a duplicate, which is correct). Reopen the imported branch: display name, both address lines and the currency are filled in (multi-word headings were silently dropped until 2026-09-11 -- see BACKLOG §31.4). The same button is on Warehouses (whose sample names the branch by **code**, pre-filled with this firm's first branch, and imports as it is), Territories, Purchase Orders and the Inventory import wizard's toolbar. A refused import names the row and field, e.g. "Row 2: mobile — A valid E.164 phone number is required." |
 | 5.8b | Any import dialog, after a refusal | The message can be selected with the mouse, and the copy icon beside it puts the whole text on the clipboard. |
 | 5.9 | Branches → Export, Warehouses → Export | A save dialog opens, suggesting `branches.csv` / `warehouses.csv`; after saving, the notice names the full path, and the file holds the grid's rows in the **same columns the importer reads** (code, name, display_name, ... for branches), so it can be edited and imported back. Dismissing the dialog says no file was saved. (Both were unreachable until the route order was fixed, and until 2026-09-11 both fetched the CSV, dropped it and said "Export completed." -- see BACKLOG §31.5. Territories and Vendors export the same way; Customers and Products copy their CSV to the clipboard and say so.) |
-| 5.10 | Administration → Packaging Levels, pick a product, then **type** its carton barcode into "Scan or type a code" and press the scan button | The lookup resolves to the product and says how many base units it holds. No scanner is needed: a scanner only types the digits and presses Enter. In WHOLE01, `DETER1K` carries a `Case` level with barcode `890044465610` holding 12 base units (verified against the server on 2026-09-12). |
+| 5.10 | Administration → **Configuration** → **UOM & Packaging** → **Packaging Levels** (two levels down the sidebar tree, a parent row only expands; or Ctrl+K and type the screen's name), pick `DETER1K` in the Product dropdown, then **type** its carton barcode into "Scan or type a code" and click **Look up** | The lookup resolves to the product and says how many base units it holds. No scanner is needed: a scanner only types the digits and presses Enter. In WHOLE01, `DETER1K` carries a `Case` level with barcode `890044465610` holding 12 base units (verified against the server on 2026-09-12). |
 
 ## 6. Configuration
 
+Most of these screens sit under **Administration → Configuration**, a sidebar entry that expands into Business Profiles, Tax Configuration, UOM & Packaging and Numbering Series. A parent row only expands; the screens are the leaves. **Ctrl+K** opens any screen by its name and is the quickest way in.
+
 | # | Case | Expected |
 | --- | --- | --- |
-| 6.1 | Settings → Numbering series, as `whole01.admin` | New series, Edit and Retire are offered. As `whole01.sales1`, none are. |
+| 6.1 | Administration → Configuration → **Numbering Series**, as `whole01.admin` | New series, Edit and Retire are offered. As `whole01.sales1`, none are. |
 | 6.2 | Edit a series | **Next number is read-only**, with the reason. Only a new series may say where its counter starts. |
 | 6.3 | On a new series, switch off "include the financial year" while "restart each financial year" is on | The form says it would repeat a number in April. Saving anyway is refused by the server with the same sentence. |
 | 6.4 | Preview next on the sales invoice series | Matches the pattern, e.g. `SI-2026-2027-000010`. |
-| 6.5 | Administration → Business profiles → features | Toggling a feature the firm does not implement is refused. The six roadmap features cannot be switched on at all. |
-| 6.6 | Administration → Category attribute rules | A rule can be added; a product missing that attribute is then refused, naming it. |
-| 6.7 | Tax → rules, simulate | The simulator answers with the components and the matched rule. |
-| 6.8 | UOM → conversion rules | A product's own rule outranks the firm-wide one. |
+| 6.5 | Administration → Configuration → Business Profiles → **Feature Flags** | Toggling a feature the firm does not implement is refused. The six roadmap features cannot be switched on at all. |
+| 6.6 | Administration → Configuration → Business Profiles → **Mandatory Attributes** | A rule can be added; a product missing that attribute is then refused, naming it. |
+| 6.7 | Administration → Configuration → Tax Configuration → **Rule Simulator** | The simulator answers with the components and the matched rule. |
+| 6.8 | Administration → Configuration → UOM & Packaging → **Conversion Rules** | A product's own rule outranks the firm-wide one. |
 
 ## 7. Buying — order to payment
 

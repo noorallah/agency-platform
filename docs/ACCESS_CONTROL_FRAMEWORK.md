@@ -917,7 +917,7 @@ is split so that the role a policy constrains cannot rewrite it.
 | **Promotions** | The offers, their conditions and their stacking | `PROMOTION_VIEW` | `PROMOTION_MANAGE` | Sales › Promotions | `/api/v1/promotions` |
 | **Price lists** | The ladder of rates per product and quantity break | `PRICE_LIST_VIEW` | `PRICE_LIST_MANAGE` | Sales › Price Lists | `/api/v1/price-lists` |
 | **Sales targets** | The numbers a salesman is measured on | `SALES_TARGET_VIEW` | `SALES_TARGET_MANAGE` | Sales › Targets | `/api/v1/sales-targets` |
-| **UOM conversion rules** | How a purchase unit becomes an inventory unit | `UOM_VIEW` | `CONVERSION_RULE_MANAGE`, `PACKAGING_MANAGE`, `UOM_MANAGE` | Administration › UOM tabs | `/api/v1/uom-framework` |
+| **UOM conversion rules** | How a purchase unit becomes an inventory unit | `UOM_VIEW` | `CONVERSION_RULE_MANAGE`, `PACKAGING_MANAGE`, `UOM_MANAGE` | Administration › Configuration › UOM & Packaging | `/api/v1/uom-framework` |
 | **Tax rules** | Which rate applies to which transaction | `TAX_RULE_VIEW` | `TAX_RULE_CREATE` / `_UPDATE` / `_DELETE` | Administration › Tax Rules | `/api/v1/tax-framework/rules` |
 
 ## Layer 5 — Per-user preferences
