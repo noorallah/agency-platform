@@ -15,6 +15,7 @@ from app.core.exceptions import ValidationError
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentNumberingRule,
+    DocumentNumberSequence,
     DocumentStateDefinition,
     DocumentTypeDefinition,
 )
@@ -612,3 +613,87 @@ def test_a_counter_is_keyed_on_what_the_number_prints() -> None:
     assert reserve(per_branch.id, "WHL_HO") == "GRN-WHL_HO-2026-2027-000001"
     assert reserve(per_branch.id, "BR_NORTH") == "GRN-BR_NORTH-2026-2027-000001"
     assert reserve(per_branch.id, "WHL_HO") == "GRN-WHL_HO-2026-2027-000002"
+
+
+def test_a_series_survives_its_counter_key_changing_shape() -> None:
+    """A counter kept under an old key is continued, not restarted.
+
+    Found in manual testing on 2026-09-12, the afternoon after the scope
+    signature stopped keying on a branch the number does not print: the
+    seeded purchase returns' counter sat under ``2026-2027|WHL_HO|WHOLE01``
+    at 3, the next return looked for ``2026-2027||``, found nothing, started
+    at one and was refused as a duplicate of PR-2026-2027-000001. Every
+    document type whose number prints neither branch nor company had the
+    same shape in every seeded firm. A series is read under the key its
+    rule would give it today, the old rows are retired once, and a preview
+    shows the same number the reservation issues.
+    """
+    service, firm_id, type_id, actor_id = _numbering_setup()
+    rule = service.create_numbering_rule(
+        firm_id,
+        DocumentNumberingRuleCreate(
+            document_type_id=type_id,
+            code="RETURNS",
+            name="Returns",
+            prefix="PR",
+            include_financial_year=True,
+            include_branch_code=False,
+            include_company_code=False,
+            auto_reset=True,
+        ),
+        actor_id,
+    )
+    session = service._session
+    # Two branches' counters as the old key left them, and one for last year.
+    for signature, next_sequence in (
+        ("2026-2027|WHL_HO|WHOLE01", 3),
+        ("2026-2027|BR_NORTH|WHOLE01", 2),
+        ("2025-2026|WHL_HO|WHOLE01", 9),
+    ):
+        session.add(
+            DocumentNumberSequence(
+                firm_id=firm_id,
+                numbering_rule_id=rule.id,
+                scope_signature=signature,
+                next_sequence=next_sequence,
+            )
+        )
+    rule.last_scope_signature = "2026-2027|WHL_HO|WHOLE01"
+    session.flush()
+
+    preview = service.preview_number(
+        rule.id,
+        firm_id=firm_id,
+        document_date=date(2026, 9, 12),
+        financial_year_label="2026-2027",
+        branch_code="BR_NORTH",
+        company_code="WHOLE01",
+    )
+    assert preview == "PR-2026-2027-000003"
+
+    def reserve(branch: str) -> str:
+        return service.reserve_number(
+            rule.id,
+            firm_id=firm_id,
+            document_date=date(2026, 9, 12),
+            financial_year_label="2026-2027",
+            branch_code=branch,
+            company_code="WHOLE01",
+            actor_id=actor_id,
+        )
+
+    # Continues from the highest the old keys had reached this year.
+    assert reserve("BR_NORTH") == "PR-2026-2027-000003"
+    assert reserve("WHL_HO") == "PR-2026-2027-000004"
+
+    live = session.scalars(
+        select(DocumentNumberSequence).where(
+            DocumentNumberSequence.numbering_rule_id == rule.id,
+            DocumentNumberSequence.is_deleted.is_(False),
+        )
+    ).all()
+    assert {row.scope_signature: row.next_sequence for row in live} == {
+        "2026-2027||": 5,
+        # Last year's counter is another scope and is left alone.
+        "2025-2026|WHL_HO|WHOLE01": 9,
+    }

@@ -2074,6 +2074,26 @@ firm-wide series continues across branches, a per-branch series restarts
 per branch. The orphaned counter row the failed attempt created is
 harmless; nothing reads a signature that is no longer produced.
 
+**And then the fix orphaned every existing series (same day, the retest
+of 7.9).** The sentence above was true of the *failed attempt's* row and
+exactly wrong about every other one: the seeded returns' counter sat
+under the old key `2026-2027|WHL_HO|WHOLE01` at 3, the retest looked
+under the new key `2026-2027||`, found nothing, started at one and was
+refused as a duplicate of `PR-2026-2027-000001` -- the same 409 as
+before, for the opposite reason. Every document type whose number prints
+neither branch nor company had the same shape waiting in every seeded
+firm: sales invoices, sales orders, quotations, purchase invoices,
+credit notes, proformas and sales returns. Orders and receipts were
+spared only because their numbers print the branch, which is why the
+fresh run of 7.1--7.8 passed. **A change to what a counter is keyed on
+has to move the rows that are already keyed.** Done twice over:
+`20260912_0133` re-keys every live counter in every store the way
+`_scope_signature` keys it today, merging any that collapse onto one key
+at the highest `next_sequence`; and `_sequence_for` / `preview_number`
+adopt a counter kept under an old key on first use, so a store the
+migration has not reached still continues its series.
+`test_a_series_survives_its_counter_key_changing_shape` pins it.
+
 
 ## 32. Seed a standard India geography master into every firm store
 
