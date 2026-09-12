@@ -2188,7 +2188,7 @@ def _seed_beat_plan_stops(
     plan = session.scalar(
         select(BeatPlan).where(
             BeatPlan.firm_id == firm.id,
-            BeatPlan.code == f"{firm.code}-BP-MON",
+            BeatPlan.code == f"{firm.code}-BP-R1-MON",
             BeatPlan.is_deleted.is_(False),
         )
     )

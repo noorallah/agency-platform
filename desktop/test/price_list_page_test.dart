@@ -23,6 +23,8 @@ import 'package:agency_desktop/models/pricing.dart';
 import 'package:agency_desktop/models/product.dart';
 import 'package:agency_desktop/ui/pricing/price_list_dialog.dart';
 import 'package:agency_desktop/ui/pricing/price_list_page.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -91,6 +93,7 @@ class _PricingApi extends ApiClient {
   Json? savedBody;
   int? sentVersion;
   String? updatedId;
+  ApiException? refuseSaveWith;
 
   @override
   Future<PagedResult<PriceListRecord>> priceLists({
@@ -143,6 +146,7 @@ class _PricingApi extends ApiClient {
     updatedId = id;
     savedBody = body;
     sentVersion = expectedVersion;
+    if (refuseSaveWith != null) throw refuseSaveWith!;
     return _list();
   }
 }
@@ -200,6 +204,60 @@ void main() {
     expect(find.text('Shop One'), findsOneWidget);
   });
 
+  testWidgets('the details pane says where each break starts', (tester) async {
+    tester.view.physicalSize = const Size(1700, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _PricingApi api = _PricingApi(rows: [
+      _list(items: const <PriceListItemRecord>[
+        PriceListItemRecord(
+          productId: 'prd-1',
+          productCode: 'P001',
+          productName: 'Rice 25kg',
+          discountPercent: '2',
+        ),
+        PriceListItemRecord(
+          productId: 'prd-1',
+          productCode: 'P001',
+          productName: 'Rice 25kg',
+          minQuantity: '15',
+          discountPercent: '4.25',
+        ),
+      ]),
+    ]);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: PriceListPage(
+          api: api,
+          permissions: _permissions(),
+          hasActiveFirm: true,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Monsoon rates'));
+    // With double-click wired, a single tap resolves only after the
+    // double-tap timeout has passed.
+    await tester.pump(kDoubleTapTimeout);
+    await tester.pumpAndSettle();
+
+    // A ladder printed as two identical product lines at different rates
+    // reads as a mistake; the break quantity is what tells them apart.
+    expect(find.text('2%'), findsOneWidget);
+    expect(find.text('from 15: 4.25%'), findsOneWidget);
+
+    // And double-clicking the row opens the editor, as on every other grid.
+    final Finder cell = find.descendant(
+      of: find.byType(EnterpriseDataGrid<PriceListRecord>),
+      matching: find.text('Monsoon rates'),
+    );
+    await tester.tap(cell);
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tap(cell);
+    await tester.pumpAndSettle();
+    expect(find.byType(PriceListDialog), findsOneWidget);
+  });
+
   testWidgets('an edit sends the version it read as the precondition',
       (tester) async {
     final _PricingApi api = _PricingApi();
@@ -218,6 +276,26 @@ void main() {
     // The rates are replaced by what is sent, so without this a save that
     // lost a race would overwrite rates it never showed the user.
     expect(api.sentVersion, 7);
+  });
+
+  testWidgets('a lost race says the typing is still here', (tester) async {
+    final _PricingApi api = _PricingApi()
+      ..refuseSaveWith = const ApiException(
+        'The request conflicts with existing data. Please retry.',
+        statusCode: 409,
+      );
+    await _pumpDialog(tester, api, existing: _list(version: 3));
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    // The server's generic sentence says nothing about the form full of
+    // typing the user is holding; the shared message does.
+    expect(
+      find.textContaining('Somebody else saved this price list'),
+      findsOneWidget,
+    );
+    expect(find.byType(PriceListDialog), findsOneWidget);
   });
 
   testWidgets('moving an arrangement to everybody clears the customer',

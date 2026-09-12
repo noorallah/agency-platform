@@ -2,6 +2,7 @@
 
 # ruff: noqa: D102, D107
 
+import calendar
 from collections import defaultdict
 from datetime import date, timedelta
 from io import BytesIO
@@ -99,6 +100,21 @@ from app.sales.services.scope_resolution import route_profile_in_force
 #: Any geography master row. The lookup helper is shared by all six levels
 #: and must hand back the concrete type it was asked for.
 _GeoRowT = TypeVar("_GeoRowT", bound=BaseEntity)
+
+
+def _wrong_day(weekday: int, on_date: date) -> str:
+    """Say which day a round runs on and which day was asked about.
+
+    The ordinary reason a plan is not due -- it is the wrong weekday -- used
+    to be reported as no reason at all, so the call list badged the plan
+    "Not today" and said nothing else while every mis-configured case had a
+    sentence. ``weekday`` is ISO (1 = Monday), which ``calendar.day_name``
+    indexes from zero.
+    """
+    return (
+        f"Runs on {calendar.day_name[weekday - 1]}s; "
+        f"this is a {calendar.day_name[on_date.weekday()]}."
+    )
 
 
 class SalesTerritoryService:
@@ -2167,14 +2183,14 @@ class SalesTerritoryService:
         if plan_type == BeatPlanType.WEEKLY.value:
             if plan.weekday is None:
                 return False, "This weekly plan has no weekday set."
-            return (
-                (True, None) if plan.weekday == on_date.isoweekday() else (False, None)
-            )
+            if plan.weekday != on_date.isoweekday():
+                return False, _wrong_day(plan.weekday, on_date)
+            return True, None
         if plan_type == BeatPlanType.FORTNIGHTLY.value:
             if plan.weekday is None:
                 return False, "This fortnightly plan has no weekday set."
             if plan.weekday != on_date.isoweekday():
-                return False, None
+                return False, _wrong_day(plan.weekday, on_date)
             if plan.starts_on is None:
                 # Every other week counted from what? Guessing an anchor would
                 # put half of these rounds on the wrong week, so it says so.
@@ -2184,7 +2200,7 @@ class SalesTerritoryService:
             if plan.weekday is None or plan.week_of_month is None:
                 return False, "This monthly plan has no weekday or week set."
             if plan.weekday != on_date.isoweekday():
-                return False, None
+                return False, _wrong_day(plan.weekday, on_date)
             return (on_date.day - 1) // 7 + 1 == plan.week_of_month, None
         return False, "A custom plan's dates are not computed."
 

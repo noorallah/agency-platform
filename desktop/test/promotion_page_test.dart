@@ -207,6 +207,29 @@ void main() {
     );
   });
 
+  testWidgets('saving an active offer says a new revision was made',
+      (tester) async {
+    final _PromotionApi api =
+        _PromotionApi(rows: <PromotionRecord>[_promotion(code: 'BULK5')]);
+    await _pumpPage(tester, api);
+
+    await tester.tap(find.text('BULK5'));
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tap(find.text('BULK5'));
+    await tester.pumpAndSettle();
+    expect(find.byType(PromotionDialog), findsOneWidget);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    // An active offer is superseded rather than changed, and until the toast
+    // the only sign was a second row after Refresh.
+    expect(
+      find.textContaining('saved as a new revision'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('a benefit with no figure is refused before it is sent',
       (tester) async {
     final _PromotionApi api = _PromotionApi();

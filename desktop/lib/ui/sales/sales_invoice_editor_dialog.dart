@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/api/concurrency.dart';
 import '../../core/design/design_tokens.dart';
 import '../../models/entities.dart';
 import '../../models/customer.dart';
@@ -381,7 +382,8 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       // closed period, a credit limit -- and is more use than anything this
       // dialog could invent.
       setState(() {
-        _error = error.message;
+        _error =
+            saveFailureMessage(error, 'invoice', changesKept: true);
         _saving = false;
       });
     }

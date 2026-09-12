@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/api/concurrency.dart';
 import '../../core/design/design_tokens.dart';
 import '../../models/customer.dart';
 import '../../models/entities.dart';
@@ -164,7 +165,8 @@ class _PriceListDialogState extends State<PriceListDialog> {
       // The server's sentence names what is wrong -- a clashing code, a
       // scope it refuses -- and is more use than anything invented here.
       setState(() {
-        _error = error.message;
+        _error =
+            saveFailureMessage(error, 'price list', changesKept: true);
         _saving = false;
       });
     }

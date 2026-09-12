@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/api/concurrency.dart';
 import '../../core/design/design_tokens.dart';
 import '../../models/entities.dart';
 import '../../models/pricing.dart';
@@ -140,7 +141,8 @@ class _PromotionDialogState extends State<PromotionDialog> {
       setState(() {
         // The dialog stays open, so the typing survives a refusal and the
         // message says so.
-        _error = error.message;
+        _error =
+            saveFailureMessage(error, 'promotion', changesKept: true);
         _saving = false;
       });
     }
