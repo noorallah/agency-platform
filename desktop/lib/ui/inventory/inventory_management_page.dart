@@ -55,6 +55,25 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
   static const int _rowsPerPage = 20;
   static const String _preferencesKey = 'inventory_management';
 
+  static const List<String> _statusValues = ['', 'ACTIVE', 'INACTIVE', 'ARCHIVED', 'DRAFT', 'POSTED'];
+  static const List<String> _transactionTypeValues = [
+    '',
+    'OPENING_STOCK',
+    'GOODS_RECEIPT',
+    'GOODS_ISSUE',
+    'TRANSFER_IN',
+    'TRANSFER_OUT',
+    'ADJUSTMENT',
+    'PHYSICAL_COUNT',
+    'RESERVATION',
+    'RESERVATION_RELEASE',
+    'DAMAGE',
+    'EXPIRY',
+    'QUARANTINE',
+    'RETURN',
+    'CORRECTION',
+  ];
+
   final TextEditingController _search = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
 
@@ -226,6 +245,15 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         _branches = (results[0] as List<BranchRecord>);
         _warehouses = (results[1] as List<WarehouseRecord>);
         _products = (results[2] as List<Product>);
+        // A remembered filter is this machine's, not this firm's: an id
+        // saved in one firm and restored in another names nothing here,
+        // and a dropdown asked to show a value outside its list asserts
+        // and takes the whole section down (plan item 8.6, 2026-09-12).
+        if (!_branches.any((row) => row.id == _branchId)) _branchId = null;
+        if (!_warehouses.any((row) => row.id == _warehouseId)) {
+          _warehouseId = null;
+        }
+        if (!_products.any((row) => row.id == _productId)) _productId = null;
       });
     } on ApiException {
       // Keep inventory screens usable even if lookup metadata is partial.
@@ -804,16 +832,9 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
           SizedBox(
             width: 180,
             child: DropdownButtonFormField<String>(
-              initialValue: _status,
+              initialValue: _statusValues.contains(_status) ? _status : null,
               decoration: const InputDecoration(labelText: 'Status'),
-              items: const [
-                '',
-                'ACTIVE',
-                'INACTIVE',
-                'ARCHIVED',
-                'DRAFT',
-                'POSTED'
-              ]
+              items: _statusValues
                   .map(
                     (value) => DropdownMenuItem<String>(
                       value: value.isEmpty ? null : value,
@@ -828,25 +849,11 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
           SizedBox(
             width: 220,
             child: DropdownButtonFormField<String>(
-              initialValue: _transactionType,
+              initialValue: _transactionTypeValues.contains(_transactionType)
+                  ? _transactionType
+                  : null,
               decoration: const InputDecoration(labelText: 'Transaction type'),
-              items: const [
-                '',
-                'OPENING_STOCK',
-                'GOODS_RECEIPT',
-                'GOODS_ISSUE',
-                'TRANSFER_IN',
-                'TRANSFER_OUT',
-                'ADJUSTMENT',
-                'PHYSICAL_COUNT',
-                'RESERVATION',
-                'RESERVATION_RELEASE',
-                'DAMAGE',
-                'EXPIRY',
-                'QUARANTINE',
-                'RETURN',
-                'CORRECTION',
-              ]
+              items: _transactionTypeValues
                   .map(
                     (value) => DropdownMenuItem<String>(
                       value: value.isEmpty ? null : value,
@@ -1789,7 +1796,9 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
       SizedBox(
         width: 260,
         child: DropdownButtonFormField<String>(
-          initialValue: value,
+          // Never hand the dropdown a value its list does not hold: that is
+          // an assertion, not a blank field.
+          initialValue: items.any((item) => itemId(item) == value) ? value : null,
           decoration: InputDecoration(labelText: label),
           items: [
             const DropdownMenuItem<String>(value: null, child: Text('All')),
