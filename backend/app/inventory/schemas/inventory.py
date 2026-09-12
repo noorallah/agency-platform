@@ -601,6 +601,10 @@ class PhysicalCountLineResponse(InventorySchema):
     id: UUID
     line_number: int
     product_id: UUID
+    #: What the person walking the shelf reads: a sheet that printed the
+    #: product's id was unusable on the floor (plan item 8.4, 2026-09-12).
+    product_code: str = ""
+    product_name: str = ""
     batch_id: UUID | None
     expected_quantity: Decimal
     counted_quantity: Decimal | None
