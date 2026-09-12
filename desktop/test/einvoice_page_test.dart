@@ -72,6 +72,8 @@ class _EInvoiceApi extends ApiClient {
 Json _sandboxRegistration() => <String, dynamic>{
       'id': 'reg-1',
       'sales_invoice_id': 'inv-1',
+      'invoice_number': 'SI-2026-2027-000004',
+      'customer_name': 'Vijaya Super Stores',
       'mode': 'SANDBOX',
       'status': 'REGISTERED',
       'irn': 'SBXa1b2c3',
@@ -118,6 +120,18 @@ void main() {
       findsOneWidget,
     );
     expect(find.textContaining('nothing was filed'), findsOneWidget);
+  });
+
+  testWidgets('a registration names the invoice and the customer it is for',
+      (tester) async {
+    // A grid of references alone could not be matched to a bill (mapping
+    // section 12, 2026-09-13); the server now labels each row.
+    final _EInvoiceApi api =
+        _EInvoiceApi(registrations: <Json>[_sandboxRegistration()]);
+    await _pump(tester, api);
+    expect(find.text('Invoice'), findsWidgets);
+    expect(find.text('SI-2026-2027-000004'), findsOneWidget);
+    expect(find.text('Vijaya Super Stores'), findsOneWidget);
   });
 
   testWidgets('a failed registration shows what the portal said',

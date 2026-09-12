@@ -10,6 +10,8 @@ class EInvoiceRegistrationRecord {
   const EInvoiceRegistrationRecord({
     required this.id,
     required this.salesInvoiceId,
+    this.invoiceNumber = '',
+    this.customerName = '',
     required this.mode,
     required this.status,
     this.irn = '',
@@ -23,6 +25,10 @@ class EInvoiceRegistrationRecord {
 
   final String id;
   final String salesInvoiceId;
+
+  /// What the row is about, so a reference can be matched to a bill.
+  final String invoiceNumber;
+  final String customerName;
 
   /// SANDBOX or LIVE.
   final String mode;
@@ -48,6 +54,8 @@ class EInvoiceRegistrationRecord {
       EInvoiceRegistrationRecord(
         id: stringValue(json['id']),
         salesInvoiceId: stringValue(json['sales_invoice_id']),
+        invoiceNumber: stringValue(json['invoice_number']),
+        customerName: stringValue(json['customer_name']),
         mode: stringValue(json['mode']),
         status: stringValue(json['status']),
         irn: stringValue(json['irn']),

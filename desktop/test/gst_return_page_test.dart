@@ -65,6 +65,7 @@ class _ReturnsApi extends ApiClient {
 
 Json _gstr1() => <String, dynamic>{
       'gstin': '29AABCU9603R1ZM',
+      'unplaced_invoices': <String>['SI-2026-0009'],
       'b2b': <Json>[
         <String, dynamic>{
           'gstin': '29AAACR5055K1Z5',
@@ -160,6 +161,16 @@ void main() {
     expect(find.text('SI-2026-0001'), findsOneWidget);
     expect(find.text('29AAACR5055K1Z5'), findsOneWidget);
     expect(find.textContaining('Filing as 29AABCU9603R1ZM'), findsOneWidget);
+  });
+
+  testWidgets('an invoice the return could not place is named, not filed blank',
+      (tester) async {
+    // The server names it in unplaced_invoices rather than filing a B2CS row
+    // with no place of supply; the screen never showed the list (mapping
+    // section 12, 2026-09-13).
+    await _pump(tester, _ReturnsApi(one: _gstr1(), summary: _gstr3b()));
+    expect(find.textContaining('Invoices without a place of supply'), findsOneWidget);
+    expect(find.text('SI-2026-0009'), findsOneWidget);
   });
 
   testWidgets('the summary says it does not know the inward side',

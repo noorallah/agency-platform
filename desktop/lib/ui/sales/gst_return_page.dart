@@ -213,6 +213,8 @@ class _GstReturnPageState extends State<GstReturnPage> {
     final List<dynamic> b2cs = data['b2cs'] as List<dynamic>? ?? const [];
     final List<dynamic> cdnr = data['cdnr'] as List<dynamic>? ?? const [];
     final List<dynamic> hsn = data['hsn'] as List<dynamic>? ?? const [];
+    final List<dynamic> unplaced =
+        data['unplaced_invoices'] as List<dynamic>? ?? const [];
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -286,6 +288,17 @@ class _GstReturnPageState extends State<GstReturnPage> {
               ]),
           ],
           headers: const ['HSN', 'Rate', 'Quantity', 'Taxable', 'CGST', 'SGST'],
+        ),
+        const SizedBox(height: AppSpacing.md),
+        // The server names an invoice it could not place rather than filing
+        // a blank row the portal would reject; the screen never showed the
+        // list (mapping section 12, 2026-09-13).
+        _Section(
+          title: 'Invoices without a place of supply — named here, not filed',
+          headers: const ['Invoice'],
+          rows: [
+            for (final dynamic number in unplaced) [stringValue(number)],
+          ],
         ),
       ],
     );

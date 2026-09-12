@@ -45,6 +45,11 @@ class RegistrationResponse(BaseModel):
 
     id: UUID
     sales_invoice_id: UUID
+    #: What the grid needs to tell one registration from another: an id
+    #: alone left the screen a list of references nobody could match to a
+    #: bill (mapping section 12, 2026-09-13).
+    invoice_number: str = ""
+    customer_name: str = ""
     #: SANDBOX or LIVE. Never absent, so a rehearsal can never be read as a
     #: filing.
     mode: str
@@ -116,8 +121,19 @@ def list_registrations(
         page_size=page_size,
         status=registration_status,
     )
+    labels = EInvoiceService(db).invoice_labels(
+        firm_scope=scope.firm_id, invoice_ids=[row.sales_invoice_id for row in rows]
+    )
     return PaginatedResponse(
-        data=[RegistrationResponse.model_validate(row) for row in rows],
+        data=[
+            RegistrationResponse.model_validate(row).model_copy(
+                update={
+                    "invoice_number": labels.get(row.sales_invoice_id, ("", ""))[0],
+                    "customer_name": labels.get(row.sales_invoice_id, ("", ""))[1],
+                }
+            )
+            for row in rows
+        ],
         pagination=PaginationParams(page=page, page_size=page_size).metadata(total),
     )
 

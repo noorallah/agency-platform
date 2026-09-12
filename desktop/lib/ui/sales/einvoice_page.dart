@@ -344,12 +344,16 @@ class _EInvoicePageState extends State<EInvoicePage> {
       availableRowsPerPage: [_rows.length],
       selectedId: _selectedId,
       columns: const [
+        GridColumn(key: 'invoice', label: 'Invoice'),
+        GridColumn(key: 'customer', label: 'Customer'),
         GridColumn(key: 'reference', label: 'Reference'),
         GridColumn(key: 'eway', label: 'E-way bill'),
         GridColumn(key: 'actions', label: ''),
       ],
       id: (row) => row.id,
       cells: (row) => [
+        row.invoiceNumber.isEmpty ? '—' : row.invoiceNumber,
+        row.customerName.isEmpty ? '—' : row.customerName,
         // Mode and reference together, always. A reference shown alone is one
         // somebody eventually presents at a check post.
         row.isRegistered
@@ -360,8 +364,20 @@ class _EInvoicePageState extends State<EInvoicePage> {
       ],
       onSelect: (row) => setState(() => _selectedId = row.id),
       onPageChanged: (_) {},
-      cellBuilder: (columnIndex, value, row) =>
-          columnIndex == 2 ? _actions(row) : Text(value),
+      // A real reference is 64 characters and, printed whole, pushed the
+      // row's actions off the right of a 1366 screen; the cell truncates and
+      // the whole value is in its tooltip.
+      cellBuilder: (columnIndex, value, row) => switch (columnIndex) {
+        4 => _actions(row),
+        1 || 2 => Tooltip(
+            message: value,
+            child: SizedBox(
+              width: columnIndex == 2 ? 200 : 160,
+              child: Text(value, overflow: TextOverflow.ellipsis),
+            ),
+          ),
+        _ => Text(value),
+      },
     );
   }
 

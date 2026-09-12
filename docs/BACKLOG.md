@@ -2157,6 +2157,55 @@ product id** (`physical_count_sheet_dialog.dart`), the same class as
   order re-resolve the rest.
 
 
+### 31.15 Left open from mapping sections 10-13 (2026-09-13)
+
+Found by mapping the screens and driving the flows for the plan rewrite;
+each is a decision or a small feature rather than a broken behaviour.
+
+- **Journal Entries has no source-module filter.** The plan wanted one;
+  the page's only filter is the reference/description search, and the
+  module is visible only as "Posted by <module>" in each row's subtitle.
+  The API takes `accounting_period_id` and `status` and nothing about the
+  source. A dropdown over the thirteen posting modules is the obvious
+  shape; it needs a query parameter first.
+- **Ctrl+K masks a failing search route.** If `GET /api/v1/search`
+  throws, the shell silently falls back to an inventory-only search, so a
+  503 there reads as "inventory results". A visible notice would be
+  honest.
+- **GST Returns takes its period as two free-text dates**, not a month
+  picker, and a malformed one is caught only by the server.
+- **The e-way bill action is offered only on registered rows**, so "an
+  e-way bill against an unregistered invoice is refused" can only be shown
+  over HTTP. Fine as a design; the plan says so.
+- **The Loyalty page cannot answer "this customer's balance"**: no
+  customer filter and no balance column, though the API has both
+  (`loyaltyEntries(customerId:)`, `GET /loyalty/{customer_id}`). The
+  balances report is the route today.
+- **The price-list detail pane hides the break quantity**, so STANDING
+  reads as three identical product lines at 2 / 4.25 / 6.75 percent; the
+  grid's Products column counts rate rows, not products. Territory-scoped
+  lists cannot be created from the desktop (the third segment prints a
+  sentence).
+- **Promotions: no toast on create or edit**, so the only sign that an
+  edit superseded an active offer is a second row after Refresh; the
+  details pane prints conditions raw (`line_quantity GREATER_OR_EQUAL
+  25`); a condition on a product, customer, territory or route is typed
+  as a bare id.
+- **Targets cannot be set for a person from the desktop** -- the dialog
+  sends no `salesman_id`, so every desktop-made target is "Whole firm".
+- **A call list's "Not today" carries no reason for the ordinary case**
+  (weekday mismatch); only window and configuration cases produce a
+  sentence.
+- **The seeder never gives a beat plan explicit stops**: it looks for
+  `<FIRM>-BP-MON` where the codes are `<FIRM>-BP-R1-MON`, so every call
+  list falls back to the route's customers and the 20-minute durations
+  are never seen. One-line fix in `seed_multi_firm_demo.py`, visible after
+  a reseed.
+- **The commission collections report and the targets achievement report
+  are not in the report catalogue**; they exist only as their own
+  screens, and the catalogue guard polices `/reports/` paths only.
+
+
 ## 32. Seed a standard India geography master into every firm store
 
 Raised while verifying the customer place picker (plan item 4.3, 2026-09-09).
