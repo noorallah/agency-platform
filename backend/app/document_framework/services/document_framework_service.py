@@ -855,6 +855,12 @@ class DocumentFrameworkService:
         the rule, which is what a firm that numbers its invoices straight
         through wants and could not previously have.
         """
+        # The branch and the company are in the key only when they are in the
+        # number. Keying on them regardless gave each branch its own counter
+        # under a pattern that never printed the branch, so the first purchase
+        # return raised from a second branch was numbered PR-2026-2027-000001
+        # -- the number the first branch had already issued -- and refused by
+        # the unique key. Found in manual testing on 2026-09-12.
         return "|".join(
             [
                 (
@@ -862,7 +868,25 @@ class DocumentFrameworkService:
                     if rule.auto_reset
                     else ""
                 ),
-                branch_code or "",
-                company_code or "",
+                (
+                    (branch_code or "")
+                    if self._number_carries(rule, "branch_code")
+                    else ""
+                ),
+                (
+                    (company_code or "")
+                    if self._number_carries(rule, "company_code")
+                    else ""
+                ),
             ]
         )
+
+    @staticmethod
+    def _number_carries(rule: DocumentNumberingRule, part: str) -> bool:
+        """Whether the numbers this rule issues print the named part.
+
+        Either the flag says so, or the explicit format pattern names it.
+        """
+        flag = getattr(rule, f"include_{part}", False)
+        pattern = rule.format_pattern or ""
+        return bool(flag) or ("{" + part + "}") in pattern

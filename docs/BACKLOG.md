@@ -2050,6 +2050,31 @@ the sales side -- quotation, sales order, delivery note, sales invoice,
 sales return, credit note -- is not, and the same afternoon's evidence
 says it should be.
 
+### 31.12 A second branch's first return was numbered like the first branch's (2026-09-12, plan item 7.9) -- fixed the same day
+
+**Seen.** "The request conflicts with existing data." on saving the
+return, once the payload defect (§31.11) was out of the way. The server
+log: `UQ_purchase_returns_firm_return_number` refused
+`PR-2026-2027-000001`, a number the seeded returns already held.
+
+**Why.** `DocumentFrameworkService._scope_signature` keyed the counter on
+the branch and the company **always**, while `_build_document_number`
+prints them only when the rule says to. The purchase-return rule prints
+neither, so the first return raised under `BR_NORTH` opened a fresh
+counter at one and issued the number `WHL_HO` had issued months before.
+The model's own docstring said the scope is "whatever the rule includes
+in the number"; the code had drifted from it. The seeded stores never
+showed it because the seeder raises everything under one branch.
+
+**Done.** The signature carries the branch and the company only when the
+number prints them -- by flag, or by a `{branch_code}` /
+`{company_code}` placeholder in an explicit format pattern.
+`test_a_counter_is_keyed_on_what_the_number_prints` pins both shapes: a
+firm-wide series continues across branches, a per-branch series restarts
+per branch. The orphaned counter row the failed attempt created is
+harmless; nothing reads a signature that is no longer produced.
+
+
 ## 32. Seed a standard India geography master into every firm store
 
 Raised while verifying the customer place picker (plan item 4.3, 2026-09-09).
