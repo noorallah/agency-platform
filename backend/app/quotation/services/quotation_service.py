@@ -926,6 +926,7 @@ class QuotationService(TransactionalDocumentService):
             line.packaging_type_id = item.packaging_type_id
             line.unit_price = self._q(item.unit_price)
             line.discount_percent = line_discount.percent
+            line.discount_source = line_discount.source
             line.discount_amount = discount
             line.bill_discount_amount = bill_share
             line.freight_amount = freight_share

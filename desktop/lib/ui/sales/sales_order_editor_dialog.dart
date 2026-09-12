@@ -16,6 +16,7 @@ import '../workspace/desktop_framework.dart';
 /// line removed from the middle of the list has to take its own text with it
 /// -- parallel lists of controllers are how a deleted row leaves the quantity
 /// of the row below it behind.
+
 class _LineDraft {
   _LineDraft({
     required this.productId,
@@ -24,6 +25,8 @@ class _LineDraft {
     String free = '',
     String discountPercent = '',
     String discountAmount = '',
+    this.lastRate = '',
+    this.lastSource = '',
   })  : quantity = TextEditingController(text: quantity),
         unitPrice = TextEditingController(text: unitPrice),
         free = TextEditingController(text: free),
@@ -37,6 +40,11 @@ class _LineDraft {
   /// Goods thrown in with this line. Charged for at nothing, so it never
   /// enters the line's value -- but stock moves for it, and the order says so.
   final TextEditingController free;
+
+  /// The rate the stored line was priced at, and where it came from, when
+  /// it was resolved rather than typed: said under the blank box.
+  final String lastRate;
+  final String lastSource;
 
   /// Left blank on a new line **on purpose**. Blank is omitted from the
   /// payload, and absent is what lets the server apply the more specific
@@ -311,16 +319,20 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
         quantity: stringValue(line['quantity']),
         unitPrice: stringValue(line['unit_price']),
         free: _positiveOrBlank(line['free_quantity']),
-        // The stored rate is echoed **including a zero**, because the document
-        // is the record of what was agreed. Sending nothing instead would let
-        // a price list or a standing rate introduced since apply to a line
-        // that was priced without one.
-        //
-        // Only the rate: the amount stored beside it is the same deduction
-        // expressed as currency, and a flat amount wins over a rate, so
-        // sending both would pin the discount to a figure that no longer
-        // matches once somebody edits the quantity.
-        discountPercent: stringValue(line['discount_percent']),
+        // A typed rate is echoed **including a zero**, because the document
+        // is the record of what was agreed. A rate the server resolved is
+        // priced afresh: re-sending it as typed froze a ladder at its first
+        // step (plan item 9.2, 2026-09-13). Only the rate, never the amount
+        // beside it: a flat amount wins over a rate and would pin the
+        // discount to a figure that no longer matches once the quantity
+        // moves.
+        discountPercent: discountWasTyped(stringValue(line['discount_source']))
+            ? stringValue(line['discount_percent'])
+            : '',
+        lastRate: discountWasTyped(stringValue(line['discount_source']))
+            ? ''
+            : stringValue(line['discount_percent']),
+        lastSource: stringValue(line['discount_source']),
       )..priceEdited = true);
     }
   }
@@ -754,9 +766,11 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
                 enabled: !_locked,
                 decoration: InputDecoration(
                   labelText: 'Discount %',
-                  helperText: _customerDiscount.isEmpty
-                      ? 'Blank takes the arrangement on file.'
-                      : "Blank takes this customer's $_customerDiscount%.",
+                  helperText: line.lastRate.isNotEmpty
+                      ? lastPricedHelper(line.lastRate, line.lastSource)
+                      : _customerDiscount.isEmpty
+                          ? 'Blank takes the arrangement on file.'
+                          : "Blank takes this customer's $_customerDiscount%.",
                   helperMaxLines: 2,
                 ),
                 keyboardType: TextInputType.number,

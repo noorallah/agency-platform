@@ -69,6 +69,7 @@ Quotation _quote({
           'quantity': '5.0000',
           'unit_price': '250.0000',
           'discount_percent': '10.0000',
+          'discount_source': 'percent',
           'discount_amount': '125.0000',
           'tax_amount': '202.5000',
           'net_amount': '1327.5000',

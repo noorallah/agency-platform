@@ -14,6 +14,7 @@ import '../workspace/desktop_framework.dart';
 /// removed from the middle of the list has to take its own text with it —
 /// keeping three parallel lists of controllers is how a deleted row leaves the
 /// quantity of the row below it behind.
+
 class _LineDraft {
   _LineDraft({
     required this.productId,
@@ -21,6 +22,8 @@ class _LineDraft {
     String unitPrice = '0',
     String discount = '',
     String free = '',
+    this.lastRate = '',
+    this.lastSource = '',
   })  : quantity = TextEditingController(text: quantity),
         unitPrice = TextEditingController(text: unitPrice),
         discount = TextEditingController(text: discount),
@@ -30,6 +33,11 @@ class _LineDraft {
   final TextEditingController quantity;
   final TextEditingController unitPrice;
   final TextEditingController discount;
+
+  /// The rate the stored line was priced at, and where it came from, when
+  /// it was resolved rather than typed: said under the blank box.
+  final String lastRate;
+  final String lastSource;
 
   /// Goods thrown in with this line. Charged for at nothing, so it never
   /// enters the line's value -- but stock moves for it, and the bill says so.
@@ -153,18 +161,23 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
       // first is what made a revision quietly delete the rest of the offer:
       // the update replaces the whole collection with what is sent.
       for (final QuotationLine line in existing.lines) {
-        // What the document holds counts as typed: a revision must not have
-        // its agreed rates rewritten because the customer master moved.
+        // A rate somebody typed is what was agreed and is kept. A rate the
+        // server resolved is priced afresh: the arrangement it came from
+        // depends on the quantity and the day, and re-sending it as typed
+        // froze a ladder at its first step (plan item 9.2, 2026-09-13).
+        final bool typed = discountWasTyped(line.discountSource);
         _lines.add(_LineDraft(
           productId: line.productId,
           quantity: line.quantity,
           unitPrice: line.unitPrice,
-          discount: line.discountPercent,
+          discount: typed ? line.discountPercent : '',
+          lastRate: typed ? '' : line.discountPercent,
+          lastSource: typed ? '' : line.discountSource,
           free: (double.tryParse(line.freeQuantity) ?? 0) > 0
               ? line.freeQuantity
               : '',
         )
-          ..discountEdited = true
+          ..discountEdited = typed
           // What the offer holds is what was agreed; re-reading the product
           // master would rewrite a price somebody negotiated.
           ..priceEdited = true);
@@ -240,6 +253,9 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
   /// server knows which arrangement is in force on the day.
   String? _discountHelper(_LineDraft line) {
     if (line.discountEdited) return null;
+    if (line.lastRate.isNotEmpty) {
+      return lastPricedHelper(line.lastRate, line.lastSource);
+    }
     return _customerDiscount.isEmpty
         ? 'Blank takes any arrangement on file.'
         : "Blank takes this customer's $_customerDiscount%, "
