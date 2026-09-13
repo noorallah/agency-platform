@@ -152,6 +152,7 @@ def _check_store(store: _Store) -> _Result:
 
         _stock_against_the_ledger(connection, result)
         _every_period_balances(connection, result)
+        _balances_are_chained(connection, result)
         _customers_against_the_ledger(connection, result)
         _settlements_reached_the_ledger(connection, result)
         _approved_invoices_posted(connection, result)
@@ -265,6 +266,41 @@ def _every_period_balances(connection: object, result: _Result) -> None:
             result.failures.append(
                 f"{name} posts {debit} of debits against {credit} of credits"
             )
+
+
+def _balances_are_chained(connection: object, result: _Result) -> None:
+    """Each stored period must open where the account's previous period closed.
+
+    Postings can agree period by period while the stored balances do not: an
+    opening was copied once and never moved, so a line back-dated into an
+    earlier period left every later opening stale, and WHOLE01's September
+    trial balance read out by 58,719.61 with every posting correct (manual
+    plan item 13.2, 2026-09-14). The check above sums postings, which is why it
+    never saw it.
+    """
+    result.checked += 1
+    rows = connection.execute(  # type: ignore[attr-defined]
+        text(
+            "SELECT a.code, p.name, b.opening_balance, "
+            "       LAG(b.closing_balance) OVER ("
+            "         PARTITION BY b.ledger_account_id ORDER BY p.ends_on) "
+            "FROM ledger_balances b "
+            "JOIN accounting_periods p ON p.id = b.accounting_period_id "
+            "JOIN ledger_accounts a ON a.id = b.ledger_account_id"
+        )
+    ).all()
+    stale = [
+        (code, name, opening, previous)
+        for code, name, opening, previous in rows
+        if Decimal(str(opening)) != Decimal(str(previous or 0))
+    ]
+    if stale:
+        code, name, opening, previous = stale[0]
+        result.failures.append(
+            f"{len(stale)} stored balance(s) open away from the closing before "
+            f"them, first {code} in {name}: opens {opening}, previous closed "
+            f"{previous or 0} -- run alembic 20260914_0136 to re-chain them"
+        )
 
 
 def _customers_against_the_ledger(connection: object, result: _Result) -> None:
