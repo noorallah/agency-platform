@@ -170,8 +170,8 @@ class _GstReturnPageState extends State<GstReturnPage> {
   ///
   /// Both dates were free text and a malformed one was caught only by the
   /// server (plan item 12.1, BACKLOG 31.15). A return is filed by month, so the
-  /// arrows step a whole calendar month; the two boxes open a calendar for an
-  /// odd period. Every change reads the return again.
+  /// arrows step a whole calendar month; either box opens one range calendar
+  /// for an odd period. Every change reads the return again.
   Widget _periodPanel() => Padding(
         padding: const EdgeInsets.all(AppSpacing.md),
         child: Row(
@@ -211,32 +211,28 @@ class _GstReturnPageState extends State<GstReturnPage> {
   static DateTime _parse(String text, DateTime fallback) =>
       DateTime.tryParse(text.trim()) ?? fallback;
 
+  /// One calendar for both ends of the period: tap the first day, then the
+  /// last. Two separate pickers made choosing a range two trips (plan item
+  /// 12.1, 2026-09-13).
   Future<void> _pickDate({required bool isStart}) async {
     final DateTime now = DateTime.now();
     final DateTime from = _parse(_from.text, DateTime(now.year, now.month));
     final DateTime to = _parse(_to.text, DateTime(now.year, now.month + 1, 0));
-    final DateTime? picked = await showDatePicker(
+    final DateTimeRange? picked = await showDateRangePicker(
       context: context,
-      initialDate: isStart ? from : to,
+      initialDateRange: DateTimeRange(
+        start: from,
+        end: to.isBefore(from) ? from : to,
+      ),
       firstDate: DateTime(2000),
       lastDate: DateTime(now.year + 1, 12, 31),
-      helpText: isStart ? 'Return period from' : 'Return period to',
+      helpText: 'Return period',
+      saveText: 'Use this period',
     );
     if (picked == null || !mounted) return;
     setState(() {
-      if (isStart) {
-        _from.text = _iso(picked);
-        // A period that ends before it starts is one the server refuses;
-        // carry the end along to the close of the chosen month instead.
-        if (picked.isAfter(to)) {
-          _to.text = _iso(DateTime(picked.year, picked.month + 1, 0));
-        }
-      } else {
-        _to.text = _iso(picked);
-        if (picked.isBefore(from)) {
-          _from.text = _iso(DateTime(picked.year, picked.month));
-        }
-      }
+      _from.text = _iso(picked.start);
+      _to.text = _iso(picked.end);
     });
     await _load();
   }
