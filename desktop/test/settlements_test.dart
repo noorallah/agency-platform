@@ -55,6 +55,24 @@ class _SettlementApi extends ApiClient {
   }) async =>
       outstanding;
 
+  /// Every TCS preview asked for, so a test can see when the notice reloads.
+  final List<({String customerId, String amount})> tcsAsked = [];
+
+  @override
+  Future<Json> tcsPreview({
+    required String customerId,
+    required String amount,
+    required String on,
+  }) async {
+    tcsAsked.add((customerId: customerId, amount: amount));
+    return <String, dynamic>{
+      'applicable': true,
+      'tcs_amount': '3.42',
+      'taxable_amount': amount,
+      'rate_percent': '1.000',
+    };
+  }
+
   @override
   Future<Settlement> reverseSettlement({
     required SettlementDirection direction,
@@ -332,6 +350,43 @@ void main() {
       // "All of it applied" over an empty amount box reads as a tick against
       // a form nobody has filled in.
       expect(find.text('Enter the amount to apply it'), findsOneWidget);
+    });
+
+    testWidgets('the TCS notice appears when the customer is chosen last',
+        (tester) async {
+      // It was read only when the amount changed; choosing the customer
+      // afterwards cleared it and nothing brought it back (plan item 9.19).
+      final _SettlementApi api = _SettlementApi(rows: [_settlement()]);
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RecordSettlementDialog(
+              api: api,
+              direction: SettlementDirection.receipt,
+              parties: const [
+                PartyOption(id: 'c-1', code: 'WHOLE01C01', name: 'Vijaya'),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+        find.ancestor(of: find.text('Amount'), matching: find.byType(TextField)),
+        '341.61',
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('WHOLE01C01  Vijaya').last);
+      await tester.pumpAndSettle();
+
+      expect(api.tcsAsked.last, (customerId: 'c-1', amount: '341.61'));
+      expect(find.textContaining('Tax collected at source: 3.42'), findsOneWidget);
     });
 
     testWidgets('a reversed receipt still names what it had cleared',

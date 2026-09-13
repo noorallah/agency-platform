@@ -428,6 +428,12 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
             _tcs = null;
           });
           if (widget.direction.allocates) unawaited(_loadInvoices(value));
+          // The notice was read only when the amount changed, so a customer
+          // chosen after the amount cleared it and nothing brought it back
+          // (plan item 9.19, 2026-09-13).
+          if (widget.direction == SettlementDirection.receipt) {
+            unawaited(_loadTcs());
+          }
           if (widget.direction == SettlementDirection.receipt) {
             unawaited(_loadOrders(value));
           }
@@ -464,7 +470,13 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
             firstDate: DateTime(2000),
             lastDate: DateTime(2100),
           );
-          if (picked != null) setState(() => _date = picked);
+          if (picked == null) return;
+          setState(() => _date = picked);
+          // The threshold resets with the financial year, so the date is
+          // part of the answer.
+          if (widget.direction == SettlementDirection.receipt) {
+            unawaited(_loadTcs());
+          }
         },
         child: InputDecorator(
           decoration: InputDecoration(
