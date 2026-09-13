@@ -1317,6 +1317,7 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
                       id: option.label,
                       label: option.label,
                       group: option.group,
+                      detail: option.detail,
                     ),
                 ]
               : results[index];
@@ -1475,8 +1476,13 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
 
   Widget _permissionChip(FieldSpec field, AssignmentOption option) {
     final bool selected = _selections[field.key]!.contains(option.id);
+    // A single choice names what it is as well as its code: one chip among
+    // five reading only `EXP` could not be picked by somebody who knows the
+    // group as Direct Expenses. Many-choice fields such as permissions keep
+    // the bare code, where a name on each of 190 chips would bury them.
+    final String? detail = field.singleSelection ? option.detail : null;
     return FilterChip(
-      label: Text(option.label),
+      label: Text(detail == null ? option.label : '${option.label} · $detail'),
       labelStyle: Theme.of(context).textTheme.bodySmall,
       visualDensity: VisualDensity.compact,
       materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,

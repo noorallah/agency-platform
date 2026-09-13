@@ -191,8 +191,9 @@ void main() {
 
       await tester.enterText(
           find.widgetWithText(TextFormField, 'Attribute code'), 'SHADE');
-      // The category is offered as a chip labelled with its code.
-      await tester.tap(find.widgetWithText(FilterChip, 'MEDICINE'));
+      // The category is offered as a chip reading its code and name; what
+      // is submitted is still the code alone.
+      await tester.tap(find.widgetWithText(FilterChip, 'MEDICINE · Medicine'));
       await tester.pumpAndSettle();
       final Finder save = find.text('Save & Close');
       await tester.ensureVisible(save);

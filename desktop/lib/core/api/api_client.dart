@@ -2973,6 +2973,11 @@ class ApiClient {
         (json) => AssignmentOption(
           id: stringValue(json['id']),
           label: stringValue(json['code'] ?? json['name'] ?? json['email']),
+          detail: json['code'] != null &&
+                  json['name'] != null &&
+                  stringValue(json['name']) != stringValue(json['code'])
+              ? stringValue(json['name'])
+              : null,
           group:
               json['category'] == null ? null : stringValue(json['category']),
         ),
