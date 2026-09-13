@@ -10,6 +10,7 @@ import '../../models/entities.dart';
 import '../../models/finance.dart';
 import '../workspace/desktop_framework.dart';
 import 'journal_entry_dialog.dart';
+import 'journal_entry_view_dialog.dart';
 
 /// The journal: everything posted to the ledger, and a way to add to it.
 ///
@@ -292,6 +293,22 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
               ),
             ),
             const SizedBox(width: AppSpacing.md),
+            // The lines -- accounts, debits, credits -- were nowhere on this
+            // screen (plan item 10.9). Double-clicking a row does the same.
+            OutlinedButton.icon(
+              onPressed: selected == null
+                  ? null
+                  : () => unawaited(
+                        JournalEntryViewDialog.show(
+                          context,
+                          api: widget.api,
+                          entry: selected,
+                        ),
+                      ),
+              icon: const Icon(Icons.visibility_outlined),
+              label: const Text('View'),
+            ),
+            const SizedBox(width: AppSpacing.sm),
             if (_canPost)
               FilledButton.tonalIcon(
                 // Only a draft can be posted, and only what is selected.
@@ -347,7 +364,15 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
                   separatorBuilder: (_, __) => const Divider(height: 1),
                   itemBuilder: (context, index) {
                     final JournalEntry entry = _entries[index];
-                    return ListTile(
+                    return GestureDetector(
+                      onDoubleTap: () => unawaited(
+                        JournalEntryViewDialog.show(
+                          context,
+                          api: widget.api,
+                          entry: entry,
+                        ),
+                      ),
+                      child: ListTile(
                       selected: entry.id == selected?.id,
                       title: Text('${entry.referenceNumber}  ·  ${entry.journalDate}'),
                       subtitle: Text(
@@ -363,6 +388,7 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
                         StatusBadge(label: entry.status),
                       ]),
                       onTap: () => setState(() => _selected = entry),
+                    ),
                     );
                   },
                 ),

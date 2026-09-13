@@ -49,6 +49,21 @@ class _JournalApi extends ApiClient {
       PagedResult<JournalEntry>(items: entries, total: entries.length);
 
   @override
+  Future<PagedResult<LedgerAccount>> ledgerAccounts({
+    String? accountGroupId,
+    bool? isActive,
+  }) async =>
+      PagedResult<LedgerAccount>(
+        items: [
+          LedgerAccount.fromJson(
+              {'id': 'acc-ar', 'code': '1100', 'name': 'Trade Receivables'}),
+          LedgerAccount.fromJson(
+              {'id': 'acc-lp', 'code': '2600', 'name': 'Loyalty Payable'}),
+        ],
+        total: 2,
+      );
+
+  @override
   Future<JournalEntry> postJournalEntry(String id) async {
     posted = id;
     return entries.first;
@@ -219,6 +234,57 @@ void main() {
         find.widgetWithText(OutlinedButton, 'Reverse'),
       );
       expect(reverse.onPressed, isNull, reason: 'a draft has nothing to reverse');
+    });
+
+    testWidgets('an entry opens on its lines, accounts named', (tester) async {
+      // The screen listed a total and nothing else, so no debit or credit
+      // could be checked from the product (plan item 10.9).
+      final JournalEntry redeemed = JournalEntry.fromJson({
+        'id': 'je-loy',
+        'reference_number': 'LOY-RED-SI-1',
+        'journal_date': '2026-09-13',
+        'accounting_period_id': 'p-1',
+        'status': 'POSTED',
+        'total_debit': '100.00',
+        'total_credit': '100.00',
+        'is_balanced': true,
+        'source_module': 'loyalty',
+        'description': 'Loyalty redeemed LOY-RED-SI-1',
+        'lines': [
+          {
+            'ledger_account_id': 'acc-lp',
+            'line_number': 1,
+            'debit_amount': '100.00',
+            'credit_amount': '0.00',
+            'description': 'Loyalty redeemed',
+          },
+          {
+            'ledger_account_id': 'acc-ar',
+            'line_number': 2,
+            'debit_amount': '0.00',
+            'credit_amount': '100.00',
+            'description': 'Loyalty redeemed',
+          },
+        ],
+      });
+      final _JournalApi api = _JournalApi(entries: [redeemed]);
+      await _pumpList(tester, api);
+
+      await tester.tap(find.text('LOY-RED-SI-1  ·  2026-09-13'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(OutlinedButton, 'View'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('2600 Loyalty Payable'), findsOneWidget);
+      expect(find.text('1100 Trade Receivables'), findsOneWidget);
+      // Debit and credit lines plus the two totals, inside the dialog.
+      expect(
+        find.descendant(
+          of: find.byType(AlertDialog),
+          matching: find.text('100.00'),
+        ),
+        findsNWidgets(4),
+      );
     });
 
     testWidgets('an entry a document wrote says which', (tester) async {
