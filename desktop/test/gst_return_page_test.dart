@@ -172,9 +172,11 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.requested.last, endsWith('?$expected'));
 
-    await tester.tap(find.widgetWithText(TextField, 'From'));
+    // Either box opens one calendar for the whole range.
+    await tester.tap(find.widgetWithText(TextField, 'To'));
     await tester.pumpAndSettle();
-    expect(find.text('Return period from'), findsOneWidget);
+    expect(find.text('Return period'), findsOneWidget);
+    expect(find.text('Use this period'), findsOneWidget);
   });
 
   testWidgets('a registered buyer is shown invoice by invoice', (tester) async {
