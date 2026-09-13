@@ -447,6 +447,7 @@ void main() {
         'delivery_note_number': 'DN-1',
         'delivery_date': '2026-08-04',
         'customer_id': 'cust-1',
+        'customer_name': 'Classic Departmental Stores',
         'lines': [
           {
             'id': 'l1',
@@ -461,6 +462,10 @@ void main() {
 
       expect(note.sourceType, SalesReturnSource.deliveryNote);
       expect(note.number, 'DN-1');
+      // Whose it is, because the list mixes every customer's documents and a
+      // return raised against the wrong one credits the wrong customer.
+      expect(note.label, 'DN-1  ·  2026-08-04  ·  Classic Departmental Stores');
+      expect(_invoice().label, 'SI-2026-2027-000008  ·  2026-08-04');
       // Each document names its dispatched quantity differently; the picker
       // only cares that there is one.
       expect(note.lines.single.quantity, '6.0000');

@@ -734,6 +734,11 @@ class DeliveryNoteService(TransactionalDocumentService):
             raise ResourceNotFoundError("Delivery note not found.")
         return row
 
+    def _customer_name(self, customer_id: UUID) -> str:
+        """Name the customer so a picker of notes is not a list of numbers."""
+        customer = self._session.get(Customer, customer_id)
+        return "" if customer is None else (customer.display_name or customer.name)
+
     def note_response(self, row: DeliveryNote) -> DeliveryNoteResponse:
         """Render one delivery note row as its API contract."""
         lines = list(
@@ -763,6 +768,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             firm_id=row.firm_id,
             sales_order_id=row.sales_order_id,
             customer_id=row.customer_id,
+            customer_name=self._customer_name(row.customer_id),
             branch_id=row.branch_id,
             warehouse_id=row.warehouse_id,
             business_profile_id=row.business_profile_id,

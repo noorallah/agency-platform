@@ -208,6 +208,7 @@ class ReturnableDocument {
     required this.documentDate,
     required this.customerId,
     required this.lines,
+    this.customerName = '',
   });
 
   final String id;
@@ -215,9 +216,16 @@ class ReturnableDocument {
   final String number;
   final String documentDate;
   final String customerId;
+  final String customerName;
   final List<ReturnableLine> lines;
 
-  String get label => '$number  ·  $documentDate';
+  /// Number, date and whose it is. The picker mixes every customer's notes
+  /// and invoices, and with number and date alone a return was raised
+  /// against another customer's note and credited them (plan item 9.22,
+  /// 2026-09-13).
+  String get label => customerName.isEmpty
+      ? '$number  ·  $documentDate'
+      : '$number  ·  $documentDate  ·  $customerName';
 
   /// Read a delivery note, whose dispatched quantity is what went out.
   factory ReturnableDocument.fromDeliveryNote(Json json) => ReturnableDocument(
@@ -226,6 +234,7 @@ class ReturnableDocument {
         number: stringValue(json['delivery_note_number']),
         documentDate: stringValue(json['delivery_date']),
         customerId: stringValue(json['customer_id']),
+        customerName: stringValue(json['customer_name']),
         lines: _lines(json, 'current_delivery_quantity'),
       );
 
@@ -236,6 +245,7 @@ class ReturnableDocument {
         number: stringValue(json['invoice_number']),
         documentDate: stringValue(json['invoice_date']),
         customerId: stringValue(json['customer_id']),
+        customerName: stringValue(json['customer_name']),
         lines: _lines(json, 'current_invoice_quantity'),
       );
 
