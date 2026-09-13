@@ -1393,3 +1393,79 @@ def test_a_note_can_still_ship_at_a_price_of_its_own() -> None:
 
     assert line.unit_price == Decimal("0.0000")
     assert line.gross_amount == Decimal("0.0000")
+
+
+def test_dispatch_from_another_warehouse_releases_where_the_order_reserved() -> None:
+    """The reservation is let go where it was made, not where goods leave.
+
+    An order reserved in the north warehouse and shipped from the depot
+    released its reservation from the depot -- the note line's warehouse --
+    so the north warehouse kept a hold on stock nobody would ever ship, and
+    the depot's reserved quantity went down for an order it never held
+    (plan item 9.12, 2026-09-13).
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    north = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    depot = Warehouse(
+        firm_id=firm.id,
+        branch_id=branch.id,
+        code="WH-DEPOT",
+        name="Depot",
+        display_name="Depot",
+        status="ACTIVE",
+    )
+    session.add(depot)
+    session.commit()
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+    _stock(session, firm=firm, branch=branch, warehouse=north, product=product)
+    _stock(session, firm=firm, branch=branch, warehouse=depot, product=product)
+
+    order, order_line = _approved_order(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=north,
+        customer=customer,
+        product=product,
+        quantity=Decimal("12"),
+        actor_id=actor_id,
+    )
+    service = DeliveryNoteService(session)
+    note = service.create_note(
+        DeliveryNoteCreate(
+            sales_order_id=order.id,
+            delivery_date=date(2026, 8, 4),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=order_line.id,
+                    line_number=1,
+                    current_delivery_quantity=Decimal("5"),
+                    unit_price=Decimal("100"),
+                    warehouse_id=depot.id,
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    service.approve_note(note.id, firm_scope=firm.id, actor_id=actor_id)
+    service.dispatch_note(note.id, firm_scope=firm.id, actor_id=actor_id)
+
+    def _held(warehouse: Warehouse) -> tuple[Decimal, Decimal]:
+        rows = session.scalars(
+            select(InventoryRecord).where(
+                InventoryRecord.warehouse_id == warehouse.id,
+                InventoryRecord.product_id == product.id,
+            )
+        ).all()
+        return (
+            sum((Decimal(str(r.current_quantity)) for r in rows), Decimal("0")),
+            sum((Decimal(str(r.reserved_quantity)) for r in rows), Decimal("0")),
+        )
+
+    assert _held(north) == (Decimal("100"), Decimal("7"))
+    assert _held(depot) == (Decimal("95"), Decimal("0"))

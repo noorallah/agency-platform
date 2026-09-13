@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 from collections import defaultdict
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -90,6 +91,15 @@ def _source_product(
         return None
     source = source_lines.get(line_id)
     return None if source is None else source.product_id
+
+
+@dataclass(frozen=True)
+class _HeldAt:
+    """Where a sales order line's reservation sits: branch, warehouse, bay."""
+
+    branch_id: UUID
+    warehouse_id: UUID
+    storage_node_id: UUID | None
 
 
 class DeliveryNoteService(TransactionalDocumentService):
@@ -1423,6 +1433,29 @@ class DeliveryNoteService(TransactionalDocumentService):
                 )
             )
 
+    def _reservation_location(
+        self, source_line: SalesOrderLine, note: DeliveryNote
+    ) -> _HeldAt:
+        """Say where the sales order holds the stock this line ships.
+
+        ``SalesOrderService._reserve_inventory`` reserves at the order's
+        branch, and at the line's warehouse or else the order's, so the
+        release reads the same three. A line whose order cannot be read falls
+        back to the note's own location, which is what dispatch did before.
+        """
+        order = self._session.get(SalesOrder, source_line.sales_order_id)
+        if order is None:
+            return _HeldAt(
+                branch_id=note.branch_id,
+                warehouse_id=source_line.warehouse_id or note.warehouse_id,
+                storage_node_id=source_line.storage_node_id,
+            )
+        return _HeldAt(
+            branch_id=order.branch_id,
+            warehouse_id=source_line.warehouse_id or order.warehouse_id,
+            storage_node_id=source_line.storage_node_id,
+        )
+
     def _dispatch_inventory(self, *, row: DeliveryNote, actor_id: UUID) -> None:
         lines = list(
             self._session.scalars(
@@ -1472,14 +1505,21 @@ class DeliveryNoteService(TransactionalDocumentService):
                     "Reservation is insufficient for dispatch quantity."
                 )
             if release_qty > ZERO:
-                # Let the batches go in the order the goods will ship in, so
-                # the batch freed here is the one the allocation below draws
-                # from -- both rank by earliest expiry.
+                # The hold is let go where the order made it, which need not
+                # be where the goods leave: an order reserved in one warehouse
+                # and shipped from another released from the shipping one, so
+                # dispatch was refused ("Reserved quantity cannot become
+                # negative") or took another order's hold while the original
+                # stayed on the shelf for ever (plan item 9.12, 2026-09-13).
+                # Within the location the batches go in expiry order, so the
+                # batch freed is the one the allocation below draws from when
+                # the two locations are the same.
+                held_at = self._reservation_location(source_line, row)
                 release_split = self._inventory.allocate_for_release(
                     firm_scope=row.firm_id,
-                    branch_id=row.branch_id,
-                    warehouse_id=line.warehouse_id,
-                    storage_node_id=line.storage_node_id,
+                    branch_id=held_at.branch_id,
+                    warehouse_id=held_at.warehouse_id,
+                    storage_node_id=held_at.storage_node_id,
                     product_id=line.product_id,
                     quantity=release_qty,
                 )
@@ -1491,9 +1531,9 @@ class DeliveryNoteService(TransactionalDocumentService):
                     posted = self._inventory.release_sales_order_reservation(
                         firm_scope=row.firm_id,
                         actor_id=actor_id,
-                        branch_id=row.branch_id,
-                        warehouse_id=line.warehouse_id,
-                        storage_node_id=line.storage_node_id,
+                        branch_id=held_at.branch_id,
+                        warehouse_id=held_at.warehouse_id,
+                        storage_node_id=held_at.storage_node_id,
                         product_id=line.product_id,
                         reference_number=row.sales_order_reference,
                         transaction_date=row.delivery_date,
