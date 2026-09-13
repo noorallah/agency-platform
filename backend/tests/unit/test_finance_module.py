@@ -1,6 +1,6 @@
 """Finance master, journal posting, reporting, and API scope tests."""
 
-from datetime import date
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -357,8 +357,10 @@ def test_journal_entries_can_be_found_and_not_only_created() -> None:
 
     Everything the documents posted was unfindable unless somebody already knew
     its id, which is the same as not being there. The list is ordered by
-    journal date and then reference number, so two entries on one date keep a
-    stable order across pages instead of shuffling.
+    journal date, then by when each was posted, then by id, so two entries on
+    one date keep a stable order across pages -- and the one just posted is
+    first. Until 2026-09-13 the tie was the reference text, which buried an
+    invoice's SI- entry under the day's TCS- and SR- entries (plan item 9.16).
     """
     factory = _session_factory()
     session = factory()
@@ -368,8 +370,11 @@ def test_journal_entries_can_be_found_and_not_only_created() -> None:
     book = _Book(session, firm.id, actor_id)
     engine = JournalEntryEngine(session)
 
-    for day, reference in ((10, "JV-002"), (10, "JV-001"), (12, "JV-003")):
-        engine.create_entry(
+    posted = datetime(2026, 4, 12, 9, 0, tzinfo=UTC)
+    for minute, (day, reference) in enumerate(
+        ((10, "JV-002"), (10, "JV-001"), (12, "JV-003"))
+    ):
+        entry = engine.create_entry(
             firm_id=firm.id,
             journal_type_id=book.journal_type.id,
             voucher_type_id=book.voucher_type.id,
@@ -380,21 +385,23 @@ def test_journal_entries_can_be_found_and_not_only_created() -> None:
             lines=_sale_lines(book, "100"),
             actor_id=actor_id,
         )
+        # SQLite stamps to the second; say outright which was posted first.
+        entry.created_at = posted + timedelta(minutes=minute)
     session.commit()
 
     rows, total = engine.list_entries(firm_id=firm.id, page=1, page_size=10)
     assert total == 3
     assert [row.reference_number for row in rows] == [
         "JV-003",
-        "JV-002",
         "JV-001",
-    ], "newest date first, and the reference breaks a same-day tie"
+        "JV-002",
+    ], "newest date first, and the later posting breaks a same-day tie"
 
     # Paging is a window on that order, not a second one.
     first, _ = engine.list_entries(firm_id=firm.id, page=1, page_size=2)
     second, _ = engine.list_entries(firm_id=firm.id, page=2, page_size=2)
-    assert [row.reference_number for row in first] == ["JV-003", "JV-002"]
-    assert [row.reference_number for row in second] == ["JV-001"]
+    assert [row.reference_number for row in first] == ["JV-003", "JV-001"]
+    assert [row.reference_number for row in second] == ["JV-002"]
 
     searched, found = engine.list_entries(
         firm_id=firm.id, page=1, page_size=10, search="JV-002"
