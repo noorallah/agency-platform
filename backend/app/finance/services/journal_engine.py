@@ -432,6 +432,12 @@ class JournalEntryEngine:
             line.ledger_account.account_type, balance
         )
         balance.updated_by = actor_id
+        self._carry_into_later_periods(
+            entry,
+            line,
+            firm_id=firm_id,
+            actor_id=actor_id,
+        )
 
         self._session.add(
             GLPosting(
@@ -449,6 +455,56 @@ class JournalEntryEngine:
                 updated_by=actor_id,
             )
         )
+
+    def _carry_into_later_periods(
+        self,
+        entry: JournalEntry,
+        line: JournalLine,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> None:
+        """Move every later period's stored balance by what this line changed.
+
+        A period's opening is copied from the previous closing once, when the
+        account is first posted to in that period, and never looked at again.
+        So a line dated into August after September already held a balance
+        for the account moved August and left September opening where August
+        used to close: every trial balance and balance sheet from September on
+        disagreed with itself by that line. It happens routinely -- a bill
+        dated last month cancelled today, a commission payout for an old
+        month, two years of back-dated history -- and WHOLE01's September
+        trial balance read 612,368.97 against 671,088.58 (manual plan item
+        13.2, 2026-09-14) with every posting correct and 42 openings wrong.
+        A later period's movement is its own; only its opening and closing
+        move.
+        """
+        movement = (
+            line.debit_amount - line.credit_amount
+            if line.ledger_account.account_type in DEBIT_BALANCE_ACCOUNT_TYPES
+            else line.credit_amount - line.debit_amount
+        )
+        if movement == ZERO:
+            return
+        period = self._session.get(AccountingPeriod, entry.accounting_period_id)
+        if period is None:
+            return
+        later = self._session.scalars(
+            select(LedgerBalance)
+            .join(
+                AccountingPeriod,
+                AccountingPeriod.id == LedgerBalance.accounting_period_id,
+            )
+            .where(
+                LedgerBalance.ledger_account_id == line.ledger_account_id,
+                LedgerBalance.firm_id == firm_id,
+                AccountingPeriod.starts_on > period.ends_on,
+            )
+        ).all()
+        for balance in later:
+            balance.opening_balance = quantize_money(balance.opening_balance + movement)
+            balance.closing_balance = quantize_money(balance.closing_balance + movement)
+            balance.updated_by = actor_id
 
     def _opening_balance(
         self, ledger_account_id: UUID, accounting_period_id: UUID, *, firm_id: UUID

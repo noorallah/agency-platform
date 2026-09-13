@@ -35,6 +35,7 @@ from app.finance.models import (
     CostCenter,
     FinancialYear,
     GLPosting,
+    JournalEntry,
     JournalLine,
     JournalStatus,
     LedgerAccount,
@@ -591,6 +592,91 @@ def test_a_quiet_period_still_lists_the_balances_it_carries() -> None:
         select(LedgerBalance).where(LedgerBalance.accounting_period_id == may.id)
     ).all()
     assert stored == []
+
+
+def test_a_back_dated_posting_moves_every_later_period_it_sits_before() -> None:
+    """Posting into last month moves this month's opening, not only last month.
+
+    A period's opening was copied from the previous closing once, when the
+    account was first posted to there, and never again. A line dated into an
+    earlier period afterwards left every later opening where the earlier period
+    used to close, so WHOLE01's September trial balance read 612,368.97 against
+    671,088.58 with every posting correct (manual plan item 13.2, 2026-09-14).
+    """
+    factory = _session_factory()
+    session = factory()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    service = FinanceService(session)
+    engine = JournalEntryEngine(session)
+    may = service.create_accounting_period(
+        AccountingPeriodCreate(
+            financial_year_id=book.year.id,
+            period_number=2,
+            code="P2",
+            name="May 2026",
+            starts_on=date(2026, 5, 1),
+            ends_on=date(2026, 5, 31),
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    def post(period_id: UUID, on: date, reference: str, amount: str) -> None:
+        entry = engine.create_entry(
+            firm_id=firm.id,
+            journal_type_id=book.journal_type.id,
+            voucher_type_id=book.voucher_type.id,
+            accounting_period_id=period_id,
+            journal_date=on,
+            reference_number=reference,
+            description="Cash sale",
+            lines=_sale_lines(book, amount),
+            actor_id=actor_id,
+        )
+        engine.post_entry(entry.id, firm_id=firm.id, actor_id=actor_id)
+        session.commit()
+
+    # May is written first; April's sale arrives afterwards, back-dated.
+    post(may.id, date(2026, 5, 10), "JV-MAY", "40.00")
+    post(book.period.id, date(2026, 4, 20), "JV-APR", "100.00")
+
+    stored = {
+        balance.ledger_account_id: balance
+        for balance in session.scalars(
+            select(LedgerBalance).where(LedgerBalance.accounting_period_id == may.id)
+        )
+    }
+    cash = stored[book.cash.id]
+    assert cash.opening_balance == Decimal("100.00"), "April's sale is carried in"
+    assert cash.closing_balance == Decimal("140.00")
+    assert stored[book.sales.id].opening_balance == Decimal("100.00")
+
+    report = GeneralLedgerService(session).trial_balance(
+        firm_id=firm.id, accounting_period_id=may.id
+    )
+    assert report.total_debit == Decimal("140.00")
+    assert report.total_credit == Decimal("140.00")
+    assert report.is_balanced
+
+    # Reversing the April entry inside April takes it back out of May as well.
+    april = session.scalar(
+        select(JournalEntry).where(JournalEntry.reference_number == "JV-APR")
+    )
+    assert april is not None
+    engine.reverse_entry(
+        april.id,
+        firm_id=firm.id,
+        reference_number="JV-APR-REV",
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 30),
+        actor_id=actor_id,
+    )
+    session.commit()
+    session.refresh(cash)
+    assert cash.opening_balance == Decimal("0.00")
+    assert cash.closing_balance == Decimal("40.00")
 
 
 def test_a_statement_opens_at_the_balance_the_account_carries() -> None:
