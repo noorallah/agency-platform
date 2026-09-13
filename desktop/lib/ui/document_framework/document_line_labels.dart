@@ -1,3 +1,4 @@
+import '../../core/api/api_client.dart';
 import '../../models/product.dart';
 import '../../models/tax_framework.dart';
 import '../../models/uom_packaging.dart';
@@ -20,6 +21,38 @@ class DocumentLineLabels {
   final List<Product> products;
   final List<UomRecord> units;
   final List<TaxProfileRecord> taxProfiles;
+
+  /// Read the three lists a view resolves ids against.
+  ///
+  /// Each is read on its own and a failure costs only that list's names --
+  /// the line then prints the id, never nothing. The sales order and sales
+  /// invoice views never loaded these at all and printed a column of UUIDs
+  /// (plan section 9, 2026-09-13).
+  static Future<DocumentLineLabels> load(ApiClient api) async {
+    List<Product> products = const <Product>[];
+    List<UomRecord> units = const <UomRecord>[];
+    List<TaxProfileRecord> profiles = const <TaxProfileRecord>[];
+    try {
+      products = (await api.products(page: 1, pageSize: 100)).items;
+    } on ApiException {
+      // A name falls back to its id.
+    }
+    try {
+      units = await api.uoms(includeInactive: true);
+    } on ApiException {
+      // As above.
+    }
+    try {
+      profiles = (await api.taxProfiles(page: 1, pageSize: 100)).items;
+    } on ApiException {
+      // As above.
+    }
+    return DocumentLineLabels(
+      products: products,
+      units: units,
+      taxProfiles: profiles,
+    );
+  }
 
   /// `CODE — Name` for a known product; the id as given otherwise.
   String product(String id) {
