@@ -106,8 +106,13 @@ const List<ReportDefinition> reportCatalog = [
   ),
   ReportDefinition(
     id: 'delivery-note-partial',
-    label: 'Part-dispatched notes',
-    description: 'Notes where some of the line was left behind.',
+    // Named for what the endpoint answers: one row per live sales order with
+    // ordered, delivered and pending quantities and COMPLETED, PARTIAL or
+    // PENDING. It was called "Part-dispatched notes", which promised notes and
+    // only the partial ones, and listed 65 orders -- most of them complete
+    // (manual plan item 13.6, 2026-09-14).
+    label: 'Delivery progress by order',
+    description: 'Every live sales order: ordered, delivered, still to go.',
     path: '/api/v1/delivery-notes/reports/partial',
     area: ReportArea.operational,
   ),
