@@ -173,12 +173,18 @@ class _CallListPageState extends State<CallListPage> {
             icon: const Icon(Icons.chevron_right),
             onPressed: () => _shiftDay(1),
           ),
-          TextButton(
-            onPressed: () {
-              setState(() => _date = DateTime.now());
-              _load();
-            },
-            child: const Text('Today'),
+          // "Today" alone read as a caption naming the day shown (plan item
+          // 11.3); it is an action, and there is nothing to do when the
+          // screen is already on today.
+          TextButton.icon(
+            onPressed: _showingToday
+                ? null
+                : () {
+                    setState(() => _date = DateTime.now());
+                    _load();
+                  },
+            icon: const Icon(Icons.today),
+            label: const Text('Back to today'),
           ),
           SizedBox(
             width: 240,
