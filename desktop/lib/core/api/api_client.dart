@@ -3510,10 +3510,20 @@ class ApiClient {
   /// Runs a lifecycle action such as approve, cancel or post.
   ///
   /// `action` may be given with or without a leading slash.
+  /// Run one lifecycle action -- approve, dispatch, cancel, close -- on a
+  /// document.
+  ///
+  /// Always sends a JSON object. Cancel and close on sales orders, sales
+  /// invoices, delivery notes, purchase invoices and purchase returns declare
+  /// a body carrying an optional reason, so a request with no body at all was
+  /// refused with 422 "body: Field required" and those buttons had never
+  /// worked from the desktop (plan item 9.9, 2026-09-13). An action that takes
+  /// no body ignores the empty object.
   Future<Json> documentAction(String resource, String id, String action) =>
       request(
         'POST',
         '/api/v1/$resource/$id/${action.startsWith('/') ? action.substring(1) : action}',
+        body: const <String, dynamic>{},
       );
 
   // ---- price lists ---------------------------------------------------

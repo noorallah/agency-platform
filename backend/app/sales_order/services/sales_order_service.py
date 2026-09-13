@@ -597,8 +597,12 @@ class SalesOrderService(TransactionalDocumentService):
         }:
             raise ValidationError("Sales order is already closed for updates.")
         from_status = row.status
-        if row.status == SalesOrderStatus.APPROVED.value:
-            self._release_inventory(row, actor_id=actor_id)
+        # Whatever is still held goes back, whatever the status says. This
+        # checked for APPROVED alone, so an order a note had part-shipped
+        # (PARTIALLY_DELIVERED) kept the undelivered rest reserved for ever
+        # (2026-09-13). A draft holds nothing and a line with nothing held is
+        # skipped, so releasing unconditionally is safe.
+        self._release_inventory(row, actor_id=actor_id)
         # Whatever it took from an offer goes back, whether the order was
         # approved or still a draft: a pending claim on a cancelled order is
         # not going to become a real one.
@@ -806,8 +810,12 @@ class SalesOrderService(TransactionalDocumentService):
         }:
             raise ValidationError("Sales order is already closed for updates.")
         from_status = row.status
-        if row.status == SalesOrderStatus.APPROVED.value:
-            self._release_inventory(row, actor_id=actor_id)
+        # Whatever is still held goes back, whatever the status says. This
+        # checked for APPROVED alone, so an order a note had part-shipped
+        # (PARTIALLY_DELIVERED) kept the undelivered rest reserved for ever
+        # (2026-09-13). A draft holds nothing and a line with nothing held is
+        # skipped, so releasing unconditionally is safe.
+        self._release_inventory(row, actor_id=actor_id)
         row.status = SalesOrderStatus.CLOSED.value
         row.closed_at = utc_now()
         row.close_reason = reason.strip() if reason else None
@@ -1836,7 +1844,16 @@ class SalesOrderService(TransactionalDocumentService):
                 product_id=line.product_id,
                 quantity=line.reserved_quantity,
             )
+            # What is still held can be less than the line once a note has
+            # shipped part of it, and the movement's quantity is converted from
+            # the *entered* figure -- so passing the whole line released more
+            # than was held and was refused ("Reserved quantity cannot become
+            # negative"). Scale the entered figure to the share still reserved.
             entered_total = self._q(line.quantity + line.free_quantity)
+            if ZERO < line.reserved_quantity < line.reservable_quantity:
+                entered_total = self._q(
+                    entered_total * (line.reserved_quantity / line.reservable_quantity)
+                )
             for batch_id, released in allocation:
                 self._inventory.release_sales_order_reservation(
                     firm_scope=row.firm_id,
