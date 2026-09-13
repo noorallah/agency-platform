@@ -41,6 +41,19 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
   bool _loading = false;
   String? _error;
 
+  /// Shared by the sideways scroll view and its always-visible bar. A report
+  /// wider than the window had neither a bar nor any other sign that columns
+  /// lay off the right edge, and on a mouse the table could not be moved
+  /// sideways at all without knowing Shift+wheel (plan item 10.8,
+  /// 2026-09-13).
+  final ScrollController _horizontal = ScrollController();
+
+  @override
+  void dispose() {
+    _horizontal.dispose();
+    super.dispose();
+  }
+
   bool get _canView => widget.permissions.hasPermission('REPORT_VIEW');
 
   ReportArea get _area => widget.tabId == 'financial'
@@ -202,25 +215,39 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
                   title: 'Nothing to report',
                   message: 'This firm has nothing matching it yet.',
                 )
-              : SingleChildScrollView(
-                  padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-                  child: SingleChildScrollView(
-                    scrollDirection: Axis.horizontal,
-                    child: DataTable(
-                      columns: [
-                        for (final ReportColumn column in columns)
-                          DataColumn(
-                            label: Text(column.label),
-                            numeric: column.numeric,
-                          ),
-                      ],
-                      rows: [
-                        for (final Json row in _rows)
-                          DataRow(cells: [
+              // Sideways outside, up-and-down inside: the horizontal bar then
+              // sits at the bottom of the screen rather than under the last
+              // row, where a long report would hide it.
+              : Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+                  child: Scrollbar(
+                    key: const ValueKey<String>('report-horizontal-scrollbar'),
+                    controller: _horizontal,
+                    thumbVisibility: true,
+                    trackVisibility: true,
+                    child: SingleChildScrollView(
+                      controller: _horizontal,
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                      child: SingleChildScrollView(
+                        child: DataTable(
+                          columns: [
                             for (final ReportColumn column in columns)
-                              DataCell(Text(cellValue(row, column.key))),
-                          ]),
-                      ],
+                              DataColumn(
+                                label: Text(column.label),
+                                numeric: column.numeric,
+                              ),
+                          ],
+                          rows: [
+                            for (final Json row in _rows)
+                              DataRow(cells: [
+                                for (final ReportColumn column in columns)
+                                  DataCell(Text(cellValue(row, column.key))),
+                              ]),
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ),
