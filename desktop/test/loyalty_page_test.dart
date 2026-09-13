@@ -57,8 +57,8 @@ class _LoyaltyApi extends ApiClient {
 Json _settings({bool enabled = true, int? expiryMonths = 24}) =>
     <String, dynamic>{
       'is_enabled': enabled,
-      'points_per_amount': '2',
-      'amount_per_point': '1',
+      'points_per_amount': '2.0000',
+      'amount_per_point': '1.0000',
       'minimum_redemption_points': 50,
       'expiry_months': expiryMonths,
     };
@@ -112,7 +112,8 @@ void main() {
   testWidgets('the scheme is spelled out, expiry included', (tester) async {
     await _pump(tester, _LoyaltyApi(settings: _settings()));
 
-    expect(find.textContaining('2 points per 100'), findsOneWidget);
+    // The server sends four decimals; the banner must not repeat them.
+    expect(find.textContaining('2 points per 100, worth 1 each'), findsOneWidget);
     expect(find.textContaining('expire after 24 months'), findsOneWidget);
   });
 
