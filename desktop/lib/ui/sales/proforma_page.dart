@@ -362,6 +362,19 @@ class _ProformaPageState extends State<ProformaPage> {
 
 
 /// Choose the order a proforma will state, and the terms it carries.
+/// How an order reads in the Raise dialog: number, customer, total.
+///
+/// The list holds every customer's approved and delivered orders, and with a
+/// number and a total alone the wrong customer's order is easy to pick -- a
+/// sales return was raised against another customer's note for exactly that
+/// reason (plan items 9.22 and 9.25, 2026-09-13).
+String proformaOrderLabel(Json order) {
+  final String name = '${order['customer_name'] ?? ''}'.trim();
+  return name.isEmpty
+      ? '${order['order_number']} — ${order['grand_total']}'
+      : '${order['order_number']} — $name — ${order['grand_total']}';
+}
+
 class _RaiseProformaDialog extends StatefulWidget {
   const _RaiseProformaDialog({required this.orders});
 
@@ -420,8 +433,8 @@ class _RaiseProformaDialogState extends State<_RaiseProformaDialog> {
                       DropdownMenuItem<String>(
                         value: '${order['id']}',
                         child: Text(
-                          '${order['order_number']} — '
-                          '${order['grand_total']}',
+                          proformaOrderLabel(order),
+                          overflow: TextOverflow.ellipsis,
                         ),
                       ),
                   ],

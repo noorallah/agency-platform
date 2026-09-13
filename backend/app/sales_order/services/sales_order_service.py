@@ -914,6 +914,11 @@ class SalesOrderService(TransactionalDocumentService):
             ],
         )
 
+    def _customer_name(self, customer_id: UUID) -> str:
+        """Name the customer so a picker of orders is not a list of numbers."""
+        customer = self._session.get(Customer, customer_id)
+        return "" if customer is None else (customer.display_name or customer.name)
+
     def order_response(self, row: SalesOrder) -> SalesOrderResponse:
         """Render one sales order row as its API contract."""
         lines = list(
@@ -940,6 +945,7 @@ class SalesOrderService(TransactionalDocumentService):
             version=row.version,
             firm_id=row.firm_id,
             customer_id=row.customer_id,
+            customer_name=self._customer_name(row.customer_id),
             salesman_id=row.salesman_id,
             territory_id=row.territory_id,
             route_id=row.route_id,

@@ -174,6 +174,8 @@ def test_sales_order_creates_lifecycle_and_reservation() -> None:
 
     response = service.order_response(row)
     assert response.status == SalesOrderStatus.DRAFT
+    # Named, so a picker of orders says whose each one is (plan item 9.25).
+    assert response.customer_name == "Customer CUS-001"
     assert response.order_number.startswith("SO")
     assert response.grand_total == Decimal("400.0000")
     assert (

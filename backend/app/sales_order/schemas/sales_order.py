@@ -264,6 +264,9 @@ class SalesOrderResponse(SalesOrderSchema):
     version: int
     firm_id: UUID
     customer_id: UUID
+    #: Who the order is for, by name, so a picker of orders -- the
+    #: proforma's -- says whose each one is (plan item 9.25, 2026-09-13).
+    customer_name: str = ""
     salesman_id: UUID | None
     territory_id: UUID | None
     route_id: UUID | None

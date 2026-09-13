@@ -119,6 +119,24 @@ Future<void> _pump(
 }
 
 void main() {
+  test('an order in the Raise dialog says whose it is', () {
+    expect(
+      proformaOrderLabel(<String, dynamic>{
+        'order_number': 'SO-2026-2027-000020',
+        'customer_name': 'Vijaya Super Stores',
+        'grand_total': '1159.7040',
+      }),
+      'SO-2026-2027-000020 — Vijaya Super Stores — 1159.7040',
+    );
+    expect(
+      proformaOrderLabel(<String, dynamic>{
+        'order_number': 'SO-1',
+        'grand_total': '10',
+      }),
+      'SO-1 — 10',
+    );
+  });
+
   testWidgets('the workspace says it is not a tax invoice', (tester) async {
     await _pump(tester, _ProformaApi(rows: <Json>[_proforma()]));
 
