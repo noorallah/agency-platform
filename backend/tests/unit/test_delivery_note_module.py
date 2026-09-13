@@ -1531,3 +1531,88 @@ def test_ending_a_part_shipped_order_gives_back_the_rest_of_its_hold(
     ) == Decimal("96")
     session.refresh(order_line)
     assert order_line.reserved_quantity == Decimal("0")
+
+
+def test_dispatch_from_another_branchs_warehouse_finds_its_stock() -> None:
+    """Stock is looked for at the branch the warehouse belongs to.
+
+    A note takes its branch from the order. Shipping a North order from the
+    head office's depot looked for stock at North's branch paired with the
+    depot -- a location holding nothing -- and was refused, "Insufficient
+    available stock for dispatch line.", with 785 on the depot's shelf (plan
+    item 9.12, 2026-09-13). The transfer screen had the same shape in 8.3.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    north = _branch(session, firm_id=firm.id)
+    head_office = Branch(
+        firm_id=firm.id,
+        code="BR-HO",
+        name="Head Office",
+        display_name="Head Office",
+        status="ACTIVE",
+    )
+    session.add(head_office)
+    session.commit()
+    north_wh = _warehouse(session, firm_id=firm.id, branch_id=north.id)
+    depot = Warehouse(
+        firm_id=firm.id,
+        branch_id=head_office.id,
+        code="WH-DEPOT",
+        name="Depot",
+        display_name="Depot",
+        status="ACTIVE",
+    )
+    session.add(depot)
+    session.commit()
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+    _stock(session, firm=firm, branch=head_office, warehouse=depot, product=product)
+
+    order, order_line = _approved_order(
+        session,
+        firm=firm,
+        branch=north,
+        warehouse=north_wh,
+        customer=customer,
+        product=product,
+        quantity=Decimal("12"),
+        actor_id=actor_id,
+    )
+    service = DeliveryNoteService(session)
+    note = service.create_note(
+        DeliveryNoteCreate(
+            sales_order_id=order.id,
+            delivery_date=date(2026, 8, 4),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=order_line.id,
+                    line_number=1,
+                    current_delivery_quantity=Decimal("5"),
+                    unit_price=Decimal("100"),
+                    warehouse_id=depot.id,
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    service.approve_note(note.id, firm_scope=firm.id, actor_id=actor_id)
+    service.dispatch_note(note.id, firm_scope=firm.id, actor_id=actor_id)
+
+    def _held(warehouse: Warehouse, branch: Branch) -> tuple[Decimal, Decimal]:
+        rows = session.scalars(
+            select(InventoryRecord).where(
+                InventoryRecord.warehouse_id == warehouse.id,
+                InventoryRecord.branch_id == branch.id,
+                InventoryRecord.product_id == product.id,
+            )
+        ).all()
+        return (
+            sum((Decimal(str(r.current_quantity)) for r in rows), Decimal("0")),
+            sum((Decimal(str(r.reserved_quantity)) for r in rows), Decimal("0")),
+        )
+
+    assert _held(depot, head_office) == (Decimal("95"), Decimal("0"))
+    assert _held(north_wh, north) == (Decimal("0"), Decimal("7"))

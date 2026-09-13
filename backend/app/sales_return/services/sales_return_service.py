@@ -25,6 +25,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.batch_serial.services import BatchSerialService
+from app.branches.models import Warehouse
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
@@ -567,10 +568,21 @@ class SalesReturnService(TransactionalDocumentService):
             batch_id = self._resolve_return_batch(line)
             if batch_id is not None:
                 line.batch_id = batch_id
+            # The goods go back into the warehouse's own branch. The return's
+            # branch comes from the document it credits, and pairing it with
+            # another branch's warehouse was refused at completion, "Warehouse
+            # does not belong to the selected branch." (found beside plan item
+            # 9.12, 2026-09-13).
+            goods_branch_id = (
+                self._session.scalar(
+                    select(Warehouse.branch_id).where(Warehouse.id == warehouse_id)
+                )
+                or row.branch_id
+            )
             transaction = self._inventory.record_sales_return(
                 firm_scope=firm_scope,
                 actor_id=actor_id,
-                branch_id=row.branch_id,
+                branch_id=goods_branch_id,
                 warehouse_id=warehouse_id,
                 storage_node_id=line.storage_node_id,
                 product_id=line.product_id,

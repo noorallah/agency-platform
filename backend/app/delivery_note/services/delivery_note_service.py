@@ -1433,6 +1433,13 @@ class DeliveryNoteService(TransactionalDocumentService):
                 )
             )
 
+    def _warehouse_branch(self, warehouse_id: UUID, *, fallback: UUID) -> UUID:
+        """Return the branch a warehouse belongs to, or ``fallback`` if unknown."""
+        branch_id = self._session.scalar(
+            select(Warehouse.branch_id).where(Warehouse.id == warehouse_id)
+        )
+        return branch_id if branch_id is not None else fallback
+
     def _reservation_location(
         self, source_line: SalesOrderLine, note: DeliveryNote
     ) -> _HeldAt:
@@ -1488,9 +1495,17 @@ class DeliveryNoteService(TransactionalDocumentService):
             )
             if source_line is None:
                 raise ValidationError("Sales order line not found for dispatch.")
+            # Goods leave from the line's warehouse, which belongs to its own
+            # branch -- not necessarily the note's, which comes from the order.
+            # Pairing the note's branch with another branch's warehouse looked
+            # for stock at a location holding nothing and refused the dispatch
+            # (plan item 9.12, 2026-09-13).
+            goods_branch_id = self._warehouse_branch(
+                line.warehouse_id, fallback=row.branch_id
+            )
             available, _ = self._stock_snapshot(
                 firm_id=row.firm_id,
-                branch_id=row.branch_id,
+                branch_id=goods_branch_id,
                 warehouse_id=line.warehouse_id,
                 storage_node_id=line.storage_node_id,
                 product_id=line.product_id,
@@ -1562,7 +1577,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             # whole split.
             allocation = self._inventory.allocate_for_dispatch(
                 firm_scope=row.firm_id,
-                branch_id=row.branch_id,
+                branch_id=goods_branch_id,
                 warehouse_id=line.warehouse_id,
                 storage_node_id=line.storage_node_id,
                 product_id=line.product_id,
@@ -1584,7 +1599,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                 posted = self._inventory.record_delivery_note_dispatch(
                     firm_scope=row.firm_id,
                     actor_id=actor_id,
-                    branch_id=row.branch_id,
+                    branch_id=goods_branch_id,
                     warehouse_id=line.warehouse_id,
                     storage_node_id=line.storage_node_id,
                     product_id=line.product_id,
