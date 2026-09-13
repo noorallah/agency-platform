@@ -166,26 +166,91 @@ class _GstReturnPageState extends State<GstReturnPage> {
     );
   }
 
+  /// The period is chosen, not typed.
+  ///
+  /// Both dates were free text and a malformed one was caught only by the
+  /// server (plan item 12.1, BACKLOG 31.15). A return is filed by month, so the
+  /// arrows step a whole calendar month; the two boxes open a calendar for an
+  /// odd period. Every change reads the return again.
   Widget _periodPanel() => Padding(
         padding: const EdgeInsets.all(AppSpacing.md),
         child: Row(
           children: [
-            Expanded(
-              child: TextField(
-                controller: _from,
-                decoration: const InputDecoration(labelText: 'From'),
-              ),
+            IconButton(
+              tooltip: 'Previous month',
+              onPressed: () => _shiftMonth(-1),
+              icon: const Icon(Icons.chevron_left),
             ),
+            Expanded(child: _dateBox(_from, 'From', isStart: true)),
             const SizedBox(width: AppSpacing.lg),
-            Expanded(
-              child: TextField(
-                controller: _to,
-                decoration: const InputDecoration(labelText: 'To'),
-              ),
+            Expanded(child: _dateBox(_to, 'To', isStart: false)),
+            IconButton(
+              tooltip: 'Next month',
+              onPressed: () => _shiftMonth(1),
+              icon: const Icon(Icons.chevron_right),
             ),
           ],
         ),
       );
+
+  Widget _dateBox(
+    TextEditingController controller,
+    String label, {
+    required bool isStart,
+  }) =>
+      TextField(
+        controller: controller,
+        readOnly: true,
+        onTap: () => _pickDate(isStart: isStart),
+        decoration: InputDecoration(
+          labelText: label,
+          suffixIcon: const Icon(Icons.calendar_month),
+        ),
+      );
+
+  static DateTime _parse(String text, DateTime fallback) =>
+      DateTime.tryParse(text.trim()) ?? fallback;
+
+  Future<void> _pickDate({required bool isStart}) async {
+    final DateTime now = DateTime.now();
+    final DateTime from = _parse(_from.text, DateTime(now.year, now.month));
+    final DateTime to = _parse(_to.text, DateTime(now.year, now.month + 1, 0));
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: isStart ? from : to,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(now.year + 1, 12, 31),
+      helpText: isStart ? 'Return period from' : 'Return period to',
+    );
+    if (picked == null || !mounted) return;
+    setState(() {
+      if (isStart) {
+        _from.text = _iso(picked);
+        // A period that ends before it starts is one the server refuses;
+        // carry the end along to the close of the chosen month instead.
+        if (picked.isAfter(to)) {
+          _to.text = _iso(DateTime(picked.year, picked.month + 1, 0));
+        }
+      } else {
+        _to.text = _iso(picked);
+        if (picked.isBefore(from)) {
+          _from.text = _iso(DateTime(picked.year, picked.month));
+        }
+      }
+    });
+    await _load();
+  }
+
+  Future<void> _shiftMonth(int months) async {
+    final DateTime now = DateTime.now();
+    final DateTime from = _parse(_from.text, DateTime(now.year, now.month));
+    final DateTime start = DateTime(from.year, from.month + months);
+    setState(() {
+      _from.text = _iso(start);
+      _to.text = _iso(DateTime(start.year, start.month + 1, 0));
+    });
+    await _load();
+  }
 
   Widget _content() {
     if (_loading) return const Center(child: CircularProgressIndicator());

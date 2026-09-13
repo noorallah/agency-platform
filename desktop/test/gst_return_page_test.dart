@@ -153,6 +153,30 @@ Future<void> _pump(
 }
 
 void main() {
+  testWidgets('the period is chosen by month or calendar, not typed',
+      (tester) async {
+    // Both dates were free text, and a malformed one reached the server
+    // (plan item 12.1).
+    final _ReturnsApi api = _ReturnsApi();
+    await _pump(tester, api);
+    final TextField from = tester.widget<TextField>(
+      find.widgetWithText(TextField, 'From'),
+    );
+    expect(from.readOnly, isTrue);
+
+    final DateTime now = DateTime.now();
+    final DateTime previous = DateTime(now.year, now.month - 1);
+    String two(int n) => n.toString().padLeft(2, '0');
+    final String expected = '${previous.year}-${two(previous.month)}-01';
+    await tester.tap(find.byTooltip('Previous month'));
+    await tester.pumpAndSettle();
+    expect(api.requested.last, endsWith('?$expected'));
+
+    await tester.tap(find.widgetWithText(TextField, 'From'));
+    await tester.pumpAndSettle();
+    expect(find.text('Return period from'), findsOneWidget);
+  });
+
   testWidgets('a registered buyer is shown invoice by invoice', (tester) async {
     await _pump(tester, _ReturnsApi(one: _gstr1(), summary: _gstr3b()));
 

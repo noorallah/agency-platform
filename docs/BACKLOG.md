@@ -2172,8 +2172,8 @@ each is a decision or a small feature rather than a broken behaviour.
   throws, the shell silently falls back to an inventory-only search, so a
   503 there reads as "inventory results". A visible notice would be
   honest.
-- **GST Returns takes its period as two free-text dates**, not a month
-  picker, and a malformed one is caught only by the server.
+- *(Closed 2026-09-13: GST Returns' period is chosen with a calendar on
+  each box and Previous/Next month arrows; it was two free-text dates.)*
 - **The e-way bill action is offered only on registered rows**, so "an
   e-way bill against an unregistered invoice is refused" can only be shown
   over HTTP. Fine as a design; the plan says so.
