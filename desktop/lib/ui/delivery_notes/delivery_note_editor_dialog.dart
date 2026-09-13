@@ -597,8 +597,11 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
                                 in widget.warehouses)
                               DropdownMenuItem<String>(
                                 value: warehouse.id,
+                                // Code first, as every other picker reads:
+                                // the plan and the grids name warehouses by
+                                // code (plan item 9.12, 2026-09-13).
                                 child: Text(
-                                  warehouse.name,
+                                  '${warehouse.code} - ${warehouse.name}',
                                   overflow: TextOverflow.ellipsis,
                                 ),
                               ),
