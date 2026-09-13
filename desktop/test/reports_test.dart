@@ -244,6 +244,17 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(tester.takeException(), isNull);
+      // A bar that is always there, pinned under the table's viewport, and
+      // the columns off the right edge can be reached (plan item 10.8).
+      final Scrollbar bar = tester.widget<Scrollbar>(
+        find.byKey(const ValueKey<String>('report-horizontal-scrollbar')),
+      );
+      expect(bar.thumbVisibility, isTrue);
+      final ScrollController controller = bar.controller!;
+      expect(controller.position.maxScrollExtent, greaterThan(0));
+      controller.jumpTo(controller.position.maxScrollExtent);
+      await tester.pumpAndSettle();
+      expect(find.text('value 0.13'), findsOneWidget);
     });
 
     testWidgets('without REPORT_VIEW there is nothing to show', (tester) async {
