@@ -1309,7 +1309,6 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         delete: (_selectedIds.isNotEmpty || selected != null) && _canDelete
             ? _runBulkOperation
             : null,
-        globalSearch: _canExport ? _runBulkOperation : null,
       ),
       child: ManagementWorkspaceLayout(
         toolbar: toolbar,

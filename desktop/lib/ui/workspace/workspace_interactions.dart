@@ -163,3 +163,60 @@ Future<void> showWorkspaceContextMenu(
 
 Future<void> copyTextToClipboard(String value) =>
     Clipboard.setData(ClipboardData(text: value));
+
+/// Runs [onSearch] on Ctrl+K (Cmd+K on macOS) wherever keyboard focus is.
+///
+/// [WorkspaceShortcuts] hears a key only while focus sits inside it, and focus
+/// leaves the shell whenever the focused control goes away -- type in the
+/// Journal Entries search box, move to another screen, and focus falls back to
+/// the route above the shell, where Ctrl+K reached nothing (manual plan item
+/// 13.7, 2026-09-14). This listens to the keyboard itself. It stays quiet
+/// while anything is open on top of its own route, so a dialog keeps Ctrl+K
+/// for itself -- the search dialog uses it to put the cursor back in its box.
+class GlobalSearchShortcut extends StatefulWidget {
+  const GlobalSearchShortcut({
+    super.key,
+    required this.onSearch,
+    required this.child,
+  });
+
+  final VoidCallback onSearch;
+  final Widget child;
+
+  @override
+  State<GlobalSearchShortcut> createState() => _GlobalSearchShortcutState();
+}
+
+class _GlobalSearchShortcutState extends State<GlobalSearchShortcut> {
+  @override
+  void initState() {
+    super.initState();
+    HardwareKeyboard.instance.addHandler(_handle);
+  }
+
+  @override
+  void dispose() {
+    HardwareKeyboard.instance.removeHandler(_handle);
+    super.dispose();
+  }
+
+  bool _handle(KeyEvent event) {
+    if (event is! KeyDownEvent || event.logicalKey != LogicalKeyboardKey.keyK) {
+      return false;
+    }
+    final HardwareKeyboard keyboard = HardwareKeyboard.instance;
+    if (!(keyboard.isControlPressed || keyboard.isMetaPressed) ||
+        keyboard.isAltPressed ||
+        keyboard.isShiftPressed) {
+      return false;
+    }
+    if (!mounted) return false;
+    final ModalRoute<Object?>? route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) return false;
+    widget.onSearch();
+    return true;
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
