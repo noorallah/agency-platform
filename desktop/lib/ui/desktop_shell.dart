@@ -386,10 +386,8 @@ class _DesktopShellState extends State<DesktopShell> {
               modules.any((module) => module.id == requestedSection)
                   ? requestedSection
                   : modules.first.id;
-          return WorkspaceShortcuts(
-            bindings: WorkspaceShortcutBindings(
-              globalSearch: _openGlobalSearch,
-            ),
+          return GlobalSearchShortcut(
+            onSearch: () => unawaited(_openGlobalSearch()),
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final bool wide = constraints.maxWidth >= 1000;
@@ -760,7 +758,16 @@ class _DesktopShellState extends State<DesktopShell> {
     }
   }
 
-  Future<void> _openGlobalSearch() => showGlobalSearch(
+  bool _globalSearchOpen = false;
+
+  /// Open global search once. The purchase screens still bind Ctrl+K to this
+  /// through their own shortcuts, and the shell hears the same key press
+  /// directly, so a second call while the dialog is up is ignored.
+  Future<void> _openGlobalSearch() async {
+    if (_globalSearchOpen) return;
+    _globalSearchOpen = true;
+    try {
+      await showGlobalSearch(
         context,
         executor: _executeGlobalSearch,
         initialRecentQueries: _storedSearches(_recentSearchesKey),
@@ -770,6 +777,10 @@ class _DesktopShellState extends State<DesktopShell> {
         onSavedQueriesChanged: (values) =>
             _saveSearches(_savedSearchesKey, values),
       );
+    } finally {
+      _globalSearchOpen = false;
+    }
+  }
 
   Future<GlobalSearchResponse> _executeGlobalSearch(
     GlobalSearchRequest request,
