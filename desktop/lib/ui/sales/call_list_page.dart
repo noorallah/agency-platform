@@ -89,6 +89,22 @@ class _CallListPageState extends State<CallListPage> {
     }
   }
 
+  static const List<String> _weekdays = <String>[
+    'Monday',
+    'Tuesday',
+    'Wednesday',
+    'Thursday',
+    'Friday',
+    'Saturday',
+    'Sunday',
+  ];
+
+  /// The chosen day as people read it: "Monday 2026-09-14".
+  static String _dayLabel(DateTime value) =>
+      '${_weekdays[value.weekday - 1]} ${_isoDate(value)}';
+
+  bool get _showingToday => _isoDate(_date) == _isoDate(DateTime.now());
+
   static String _isoDate(DateTime value) =>
       '${value.year.toString().padLeft(4, '0')}-'
       '${value.month.toString().padLeft(2, '0')}-'
@@ -148,7 +164,9 @@ class _CallListPageState extends State<CallListPage> {
           TextButton.icon(
             onPressed: _pickDate,
             icon: const Icon(Icons.event),
-            label: Text(_isoDate(_date)),
+            // The weekday beside the date: a round is planned by weekday,
+            // and "2026-09-14" alone does not say which one that is.
+            label: Text(_dayLabel(_date)),
           ),
           IconButton(
             tooltip: 'Next day',
@@ -208,7 +226,13 @@ class _CallListPageState extends State<CallListPage> {
                     child: ListView(
                       padding: const EdgeInsets.all(16),
                       children: [
-                        for (final entry in entries) _EntryCard(entry: entry),
+                        for (final entry in entries)
+                          _EntryCard(
+                            entry: entry,
+                            day: _showingToday
+                                ? null
+                                : _weekdays[_date.weekday - 1],
+                          ),
                       ],
                     ),
                   );
@@ -223,7 +247,7 @@ class _CallListPageState extends State<CallListPage> {
         message: _loading
             ? 'Refreshing call list...'
             : '${running.length} of ${entries.length} plan(s) run on '
-                '${_isoDate(_date)}',
+                '${_dayLabel(_date)}',
       ),
     );
   }
@@ -231,9 +255,14 @@ class _CallListPageState extends State<CallListPage> {
 
 /// One plan's card: the round, who walks it, and the outlets in call order.
 class _EntryCard extends StatelessWidget {
-  const _EntryCard({required this.entry});
+  const _EntryCard({required this.entry, this.day});
 
   final CallListEntryRecord entry;
+
+  /// The weekday being shown when it is not today, or null for today. The
+  /// badge said "Runs today" / "Not today" whatever day was chosen, so
+  /// stepping to Monday still read as today (plan item 11.3, 2026-09-13).
+  final String? day;
 
   @override
   Widget build(BuildContext context) {
@@ -254,7 +283,9 @@ class _EntryCard extends StatelessWidget {
                   ),
                 ),
                 StatusBadge(
-                  label: entry.occurs ? 'Runs today' : 'Not today',
+                  label: day == null
+                      ? (entry.occurs ? 'Runs today' : 'Not today')
+                      : (entry.occurs ? 'Runs on $day' : 'Not on $day'),
                   tone: entry.occurs
                       ? StatusBadgeTone.success
                       : StatusBadgeTone.neutral,
@@ -285,7 +316,9 @@ class _EntryCard extends StatelessWidget {
               const SizedBox(height: 12),
               if (entry.stops.isEmpty)
                 Text(
-                  'This round runs today but has no outlets on it yet.',
+                  day == null
+                      ? 'This round runs today but has no outlets on it yet.'
+                      : 'This round runs on $day but has no outlets on it yet.',
                   style: theme.textTheme.bodySmall,
                 )
               else

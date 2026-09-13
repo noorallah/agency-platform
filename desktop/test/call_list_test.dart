@@ -175,6 +175,26 @@ void main() {
 
     expect(api.requestedDates.length, 2);
     expect(api.requestedDates.last, isNot(firstDate));
+    // And the screen says which day it is showing: the badge said "Runs
+    // today" whatever day was chosen (plan item 11.3).
+    const List<String> weekdays = <String>[
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+      'Sunday',
+    ];
+    final DateTime tomorrow = DateTime.now().add(const Duration(days: 1));
+    final String name = weekdays[tomorrow.weekday - 1];
+    expect(find.text('Runs today'), findsNothing);
+    expect(find.text('Runs on $name'), findsOneWidget);
+    expect(find.textContaining('$name ${api.requestedDates.last}'), findsWidgets);
+
+    await tester.tap(find.text('Today'));
+    await tester.pumpAndSettle();
+    expect(find.text('Runs today'), findsOneWidget);
   });
 
   testWidgets('picking a salesperson narrows the list to their rounds',
