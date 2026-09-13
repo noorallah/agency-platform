@@ -199,6 +199,24 @@ void main() {
     expect(delivering.initialValue, '6');
   });
 
+  testWidgets('a line names its warehouse by code, as the grids do', (
+    tester,
+  ) async {
+    // The picker listed names only, so "WHL_DC" -- how the plan and every
+    // grid name a warehouse -- could not be found in it (plan item 9.12).
+    final _DeliveryApi api = _DeliveryApi();
+    await _openEditor(tester, api, order: _order(reserved: '6'));
+
+    await tester.tap(
+      find.ancestor(
+        of: find.text('Warehouse *'),
+        matching: find.byType(DropdownButtonFormField<String>),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('MAIN - Main Warehouse'), findsWidgets);
+  });
+
   testWidgets('a line with nothing reserved says why it cannot ship', (
     tester,
   ) async {

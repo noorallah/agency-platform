@@ -90,7 +90,8 @@ class _OpenCountDialogState extends State<OpenCountDialog> {
                     for (final BranchRecord branch in widget.branches)
                       DropdownMenuItem<String>(
                         value: branch.id,
-                        child: Text(branch.name, overflow: TextOverflow.ellipsis),
+                        child: Text('${branch.code} - ${branch.name}',
+                            overflow: TextOverflow.ellipsis),
                       ),
                   ],
                   onChanged: (value) => setState(() => _branchId = value ?? ''),
@@ -107,7 +108,8 @@ class _OpenCountDialogState extends State<OpenCountDialog> {
                       DropdownMenuItem<String>(
                         value: warehouse.id,
                         child:
-                            Text(warehouse.name, overflow: TextOverflow.ellipsis),
+                            Text('${warehouse.code} - ${warehouse.name}',
+                                overflow: TextOverflow.ellipsis),
                       ),
                   ],
                   onChanged: (value) => setState(() => _warehouseId = value ?? ''),
