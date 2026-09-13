@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import '../platform/app_storage.dart';
 
 /// Severity, ordered. Anything below [AppLog.minimumLevel] is discarded before
 /// it costs a file write.
@@ -54,10 +55,7 @@ abstract final class AppLog {
 
   /// `%APPDATA%\.agency_platform\logs` on Windows, the equivalent elsewhere.
   static Directory defaultDirectory() {
-    final String? configured = Platform.environment['APPDATA'] ??
-        Platform.environment['XDG_CONFIG_HOME'] ??
-        Platform.environment['HOME'];
-    final String root = configured ?? Directory.current.path;
+    final String root = AppStorage.root;
     return Directory(
       '$root${Platform.pathSeparator}.agency_platform'
       '${Platform.pathSeparator}logs',

@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 
 import '../logging/app_log.dart';
+import '../platform/app_storage.dart';
 
 abstract class RefreshTokenStore {
   Future<String?> read();
@@ -94,11 +95,8 @@ class FileRefreshTokenStore implements RefreshTokenStore {
   final Directory _directory;
 
   static Directory _defaultDirectory() {
-    final String? configured = Platform.environment['APPDATA'] ??
-        Platform.environment['XDG_CONFIG_HOME'] ??
-        Platform.environment['HOME'];
     return Directory(
-      '${configured ?? Directory.current.path}${Platform.pathSeparator}.agency_platform',
+      '${AppStorage.root}${Platform.pathSeparator}.agency_platform',
     );
   }
 
