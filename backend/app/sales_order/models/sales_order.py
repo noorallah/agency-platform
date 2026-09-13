@@ -133,6 +133,13 @@ class SalesOrder(BaseEntity):
     #: than the quotation because the order is the document that is approved,
     #: and approval is when a claim can be counted -- an offer is not a claim.
     coupon_code: Mapped[str | None] = mapped_column(String(40))
+    #: Where `bill_discount_amount` came from: ``typed`` when the caller sent
+    #: a figure or a rate, ``promotion`` when an offer set it, ``none`` when
+    #: nothing did. Stored because the amount looks the same either way, and
+    #: an editor that refilled a promotion's figure as typed switched the
+    #: offer off on the next save (plan item 10.7, 2026-09-13). NULL on
+    #: orders saved before it existed, which an editor keeps as typed.
+    bill_discount_source: Mapped[str | None] = mapped_column(String(20))
     cancel_reason: Mapped[str | None] = mapped_column(Text)
     #: A hold is a **flag, not a status**, and that is the whole design. An
     #: order that is PARTIALLY_DELIVERED can be held, and releasing it has to

@@ -141,6 +141,13 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   /// discounted to and splits it back across them, so the tax falls with it.
   final TextEditingController _billDiscountPercent = TextEditingController();
   final TextEditingController _billDiscountAmount = TextEditingController();
+
+  /// What a promotion took off the whole order when it was last saved, shown
+  /// under the blank box rather than refilled into it: refilled, the next
+  /// save sent it as typed, and a typed figure switches the offer off (plan
+  /// item 10.7, 2026-09-13). Empty when the figure was typed or nothing gave
+  /// one.
+  String _billResolvedHelper = '';
   final TextEditingController _freightAmount = TextEditingController();
 
   final List<_LineDraft> _lines = <_LineDraft>[];
@@ -306,8 +313,23 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
     _remarks.text = stringValue(order['remarks']);
     // Blank rather than '0' where there was none, so the box reads as empty
     // and the payload omits it.
-    _billDiscountPercent.text = _positiveOrBlank(order['bill_discount_percent']);
-    _billDiscountAmount.text = _positiveOrBlank(order['bill_discount_amount']);
+    // Only what somebody typed comes back into the boxes. An order saved
+    // before the source was recorded (null) keeps the old behaviour.
+    final String billSource = stringValue(order['bill_discount_source']);
+    final String billAmount = _positiveOrBlank(order['bill_discount_amount']);
+    if (billSource == 'promotion' || billSource == 'none') {
+      _billDiscountPercent.text = '';
+      _billDiscountAmount.text = '';
+      _billResolvedHelper = billAmount.isEmpty
+          ? ''
+          : 'Last taken off: ${trimDiscountRate(billAmount)} by a promotion. '
+              'Blank prices it afresh.';
+    } else {
+      _billDiscountPercent.text =
+          _positiveOrBlank(order['bill_discount_percent']);
+      _billDiscountAmount.text = billAmount;
+      _billResolvedHelper = '';
+    }
     _freightAmount.text = _positiveOrBlank(order['freight_amount']);
 
     final List<dynamic> lines =
@@ -1054,9 +1076,12 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
                   child: TextFormField(
                     controller: _billDiscountAmount,
                     enabled: !_locked,
-                    decoration: const InputDecoration(
+                    decoration: InputDecoration(
                       labelText: 'Discount on the whole order',
-                      helperText: 'A flat figure. Beats the percentage.',
+                      helperText: _billResolvedHelper.isNotEmpty &&
+                              _billDiscountAmount.text.trim().isEmpty
+                          ? _billResolvedHelper
+                          : 'A flat figure. Beats the percentage.',
                       helperMaxLines: 2,
                     ),
                     keyboardType: TextInputType.number,

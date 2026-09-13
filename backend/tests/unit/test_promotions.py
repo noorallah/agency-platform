@@ -2061,3 +2061,60 @@ def test_a_promotion_report_never_reaches_another_firm() -> None:
     assert service.redemption_report(firm_scope=other.id) == []
     assert service.coupon_report(firm_scope=other.id) == []
     assert len(service.performance_report(firm_scope=shop.firm.id)) == 1
+
+
+def test_an_order_says_whether_its_whole_order_discount_was_typed() -> None:
+    """A promotion's bill discount must not come back as one somebody typed.
+
+    The order stores the amount applied whichever tier set it, and its
+    response carried neither where it came from nor the coupon. The desktop
+    editor refilled the box with a promotion's 200 as if typed and the Coupon
+    box with nothing, so one unchanged save switched the offer off twice
+    over: the typed figure outranks the promotion, and the coupon was gone
+    (plan item 10.7, 2026-09-13).
+    """
+    session = _session_factory()()
+    shop = _Shop(session)
+    _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="BIGBILL",
+        actions=[(PromotionActionType.BILL_DISCOUNT_AMOUNT, {"amount": "100"})],
+    )
+    service = SalesOrderService(session)
+    order = shop.order(coupon_code="WELCOME10")
+    response = service.order_response(order)
+    assert response.bill_discount_amount == Decimal("100.0000")
+    assert response.bill_discount_source == "promotion"
+    assert response.coupon_code == "WELCOME10"
+
+    def _resend(bill_amount: str | None) -> SalesOrderCreate:
+        return SalesOrderCreate(
+            customer_id=shop.customer.id,
+            branch_id=shop.branch.id,
+            warehouse_id=shop.warehouse.id,
+            order_date=date(2026, 8, 4),
+            coupon_code=response.coupon_code,
+            bill_discount_amount=None if bill_amount is None else Decimal(bill_amount),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=shop.product.id,
+                    quantity=Decimal("4"),
+                    unit_price=Decimal("250"),
+                )
+            ],
+        )
+
+    # Saved back as an editor that reads the source sends it: blank.
+    order = service.update_order(
+        order.id, _resend(None), firm_scope=shop.firm.id, actor_id=uuid4()
+    )
+    assert order.bill_discount_source == "promotion"
+    assert order.bill_discount_amount == Decimal("100.0000")
+    # Somebody typing a figure decides it, and the order says so.
+    order = service.update_order(
+        order.id, _resend("40"), firm_scope=shop.firm.id, actor_id=uuid4()
+    )
+    assert order.bill_discount_source == "typed"
+    assert order.bill_discount_amount == Decimal("40.0000")
