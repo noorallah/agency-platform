@@ -6,6 +6,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../branding/branding_config.dart';
 import 'desktop_preferences_service.dart';
+import '../platform/app_storage.dart';
 
 class DesktopWindowController with WindowListener {
   DesktopWindowController(this._preferences);
@@ -13,6 +14,9 @@ class DesktopWindowController with WindowListener {
   final DesktopPreferencesService _preferences;
 
   Future<void> initialize(BrandingConfig branding) async {
+    // A phone has one full-screen window and no window manager plugin;
+    // calling it there throws before the first frame.
+    if (!AppStorage.isDesktop) return;
     try {
       await windowManager.ensureInitialized();
       final Map<String, dynamic> state = _preferences.current.windowState;

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import '../platform/app_storage.dart';
 
 /// Whether an address is one the traffic to it cannot leave the local network.
 ///
@@ -311,11 +312,8 @@ class DesktopPreferencesService {
   bool get hasStoredPreferences => _hasStoredPreferences;
 
   static Directory _defaultDirectory() {
-    final String? configured = Platform.environment['APPDATA'] ??
-        Platform.environment['XDG_CONFIG_HOME'] ??
-        Platform.environment['HOME'];
     return Directory(
-      '${configured ?? Directory.current.path}${Platform.pathSeparator}.agency_platform',
+      '${AppStorage.root}${Platform.pathSeparator}.agency_platform',
     );
   }
 

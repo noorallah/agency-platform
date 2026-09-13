@@ -12,6 +12,7 @@ import 'core/diagnostics/report_queue.dart';
 import 'core/logging/app_log.dart';
 import 'core/preferences/desktop_preferences_service.dart';
 import 'core/preferences/desktop_window_controller.dart';
+import 'core/platform/app_storage.dart';
 
 const String _buildNumber =
     String.fromEnvironment('BUILD_NUMBER', defaultValue: 'Unknown');
@@ -40,6 +41,9 @@ Future<void> main() async {
 
 Future<void> _run() async {
   WidgetsFlutterBinding.ensureInitialized();
+  // Before anything writes a file: on Android this finds the app's own
+  // directory, on desktop it does nothing.
+  await AppStorage.initialize();
   AppLog.initialize(level: _configuredLogLevel());
   AppLog.info(
     'Startup: build $_buildNumber, level ${AppLog.minimumLevel.name}, '

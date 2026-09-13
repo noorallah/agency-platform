@@ -108,7 +108,7 @@ flutter test
 flutter test test/purchase_ux_test.dart      # single test file
 ```
 
-`./start.sh` (Git Bash) wraps clean/get/run with `--no-clean`, `--linux`, `--macos`, `--release` flags. Native runner directories are generated, not authoritative — regenerate with `flutter create --platforms=windows,linux,macos .` if missing. Windows secure-storage builds need Developer Mode enabled for plugin symlinks.
+`./start.sh` (Git Bash) wraps clean/get/run with `--no-clean`, `--linux`, `--macos`, `--release` flags. `desktop/build_android.ps1` builds an Android APK pointed at this PC's network address (`-Install` pushes it over USB); it needs the Android SDK, a backend started with `-BindHost 0.0.0.0` and port 8000 open, and exists to look at screens on a phone -- the layouts are still desktop layouts, so results there do not replace the desktop test plan. `AppStorage` (`desktop/lib/core/platform/app_storage.dart`) is the one place the app's file root is decided, because an Android process has no `APPDATA` or `HOME`. Native runner directories are generated, not authoritative — regenerate with `flutter create --platforms=windows,linux,macos .` if missing. Windows secure-storage builds need Developer Mode enabled for plugin symlinks.
 
 ## Backend architecture
 
