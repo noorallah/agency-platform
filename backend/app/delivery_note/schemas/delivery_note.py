@@ -225,6 +225,11 @@ class DeliveryNoteResponse(DeliveryNoteSchema):
     firm_id: UUID
     sales_order_id: UUID
     customer_id: UUID
+    #: Who the note is for, by name. A return's "Returned against" picker
+    #: listed every customer's notes by number and date alone, so a note of
+    #: the wrong customer was chosen and credited them instead (plan item
+    #: 9.22, 2026-09-13).
+    customer_name: str = ""
     branch_id: UUID
     warehouse_id: UUID
     business_profile_id: UUID | None

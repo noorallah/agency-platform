@@ -202,6 +202,8 @@ def test_delivery_note_creates_lifecycle_and_dispatches_inventory() -> None:
     response = service.note_response(row)
     assert response.status == DeliveryNoteStatus.DRAFT
     assert response.delivery_note_number.startswith("DN")
+    # Named, so a picker of notes says whose each one is (plan item 9.22).
+    assert response.customer_name == "Customer CUS-001"
     assert response.grand_total == Decimal("400.0000")
     assert (
         session.scalar(
