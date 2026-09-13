@@ -16,6 +16,7 @@ import 'call_order_dialog.dart';
 import 'territory_detail_dialog.dart';
 import 'territory_import_dialog.dart';
 import '../workspace/desktop_framework.dart';
+import 'territory_tree_dialog.dart';
 
 class SalesTerritoryManagementPage extends StatefulWidget {
   const SalesTerritoryManagementPage({
@@ -943,6 +944,26 @@ class _SalesTerritoryManagementPageState
         },
       );
 
+  Future<void> _openTreeWindow() async {
+    final TerritoryTreeChoice? choice = await TerritoryTreeDialog.show(
+      context,
+      tree: _tree,
+      canCreate: _canCreate,
+      hasParentFilter: _selectedParentId != null,
+    );
+    if (choice == null || !mounted) return;
+    switch (choice.action) {
+      case TerritoryTreeAction.filterList:
+        setState(() => _selectedParentId = choice.nodeId);
+        _loadAll(requestedPage: 1);
+      case TerritoryTreeAction.createChild:
+        _openEditor(parentId: choice.nodeId);
+      case TerritoryTreeAction.clearFilter:
+        setState(() => _selectedParentId = null);
+        _loadAll(requestedPage: 1);
+    }
+  }
+
   Widget _detailsPanel() => Card(
         clipBehavior: Clip.antiAlias,
         child: Column(
@@ -952,10 +973,22 @@ class _SalesTerritoryManagementPageState
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text(
-                    'Territory tree',
-                    style: Theme.of(context).textTheme.titleMedium,
-                  ),
+                  Row(children: [
+                    Expanded(
+                      child: Text(
+                        'Territory tree',
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    ),
+                    // The panel is narrow and the buttons above the tree take
+                    // most of it (plan item 11.1), so the whole tree also
+                    // opens in a window of its own.
+                    IconButton(
+                      tooltip: 'Open the tree in a larger window',
+                      onPressed: _openTreeWindow,
+                      icon: const Icon(Icons.open_in_new),
+                    ),
+                  ]),
                   const SizedBox(height: 8),
                   // The selected node's summary moved to the detail dialog,
                   // which has room for it. This panel is the tree.
