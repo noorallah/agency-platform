@@ -203,6 +203,29 @@ void main() {
     expect(find.textContaining('vehicle number'), findsWidgets);
   });
 
+  testWidgets('the selected row can raise its e-way bill from the toolbar',
+      (tester) async {
+    // With five columns the row's own buttons sit past the right edge of a
+    // laptop screen, and "Raise e-way bill" could not be found (plan item
+    // 12.6).
+    final _EInvoiceApi api =
+        _EInvoiceApi(registrations: <Json>[_sandboxRegistration()]);
+    await _pump(tester, api);
+
+    final Finder toolbarRaise =
+        find.widgetWithText(OutlinedButton, 'Raise bill');
+    expect(tester.widget<OutlinedButton>(toolbarRaise).onPressed, isNull,
+        reason: 'nothing selected yet');
+
+    await tester.tap(find.text('SI-2026-2027-000004'));
+    await tester.pumpAndSettle();
+    expect(tester.widget<OutlinedButton>(toolbarRaise).onPressed, isNotNull);
+
+    await tester.tap(toolbarRaise);
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextField, 'Distance (km)'), findsOneWidget);
+  });
+
   testWidgets('an e-way bill sends what the authority needs', (tester) async {
     final _EInvoiceApi api =
         _EInvoiceApi(registrations: <Json>[_sandboxRegistration()]);
