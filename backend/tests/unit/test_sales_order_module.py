@@ -717,3 +717,65 @@ def test_a_gift_the_caller_already_typed_is_not_doubled() -> None:
         select(SalesOrderLine).where(SalesOrderLine.sales_order_id == row.id)
     ).all()
     assert len(written) == 2, "the engine does not add a third"
+
+
+def test_orders_on_one_date_list_newest_first() -> None:
+    """Sorting by the business date alone left same-day rows in any order.
+
+    Every order raised today shares one order_date, and the grid sorts on it,
+    so the draft raised a minute ago sat fifth under today's date with
+    nothing to tell it from the rest (plan section 9, 2026-09-13). Within the
+    chosen column the newer row comes first, and the id settles a true tie.
+    """
+    from datetime import UTC, datetime, timedelta
+
+    from app.sales_order.schemas.sales_order import SalesOrderListFilters
+
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    service = SalesOrderService(session)
+
+    def _raise(made_at: datetime) -> SalesOrder:
+        row = service.create_order(
+            SalesOrderCreate(
+                customer_id=customer.id,
+                branch_id=branch.id,
+                warehouse_id=warehouse.id,
+                order_date=date(2026, 9, 13),
+                lines=[
+                    SalesOrderLineWrite(
+                        line_number=1,
+                        product_id=product.id,
+                        quantity=Decimal("1"),
+                        unit_price=Decimal("100"),
+                    )
+                ],
+            ),
+            firm_id=firm.id,
+            actor_id=uuid4(),
+        )
+        # SQLite stamps created_at to the second, so the three would tie.
+        row.created_at = made_at
+        session.commit()
+        return row
+
+    nine = datetime(2026, 9, 13, 9, 0, tzinfo=UTC)
+    first = _raise(nine)
+    second = _raise(nine + timedelta(minutes=30))
+    third = _raise(nine + timedelta(hours=2))
+
+    rows, total = service.list_orders(
+        firm_scope=firm.id,
+        filters=SalesOrderListFilters(),
+        page=1,
+        page_size=10,
+        search=None,
+        sort_by="order_date",
+        descending=True,
+    )
+    assert total == 3
+    assert [row.id for row in rows] == [third.id, second.id, first.id]

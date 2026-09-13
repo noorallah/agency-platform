@@ -247,7 +247,12 @@ class SalesOrderService(TransactionalDocumentService):
         rows = list(
             self._session.scalars(
                 statement.order_by(
-                    order_column.desc() if descending else order_column.asc()
+                    order_column.desc() if descending else order_column.asc(),
+                    # Same-day documents came back in arbitrary order, so the
+                    # order raised a minute ago sat fifth under today's date;
+                    # newest first within the chosen column, then a stable key.
+                    SalesOrder.created_at.desc(),
+                    SalesOrder.id.desc(),
                 )
                 .offset((page - 1) * page_size)
                 .limit(page_size)

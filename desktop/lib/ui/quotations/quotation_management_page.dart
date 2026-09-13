@@ -320,7 +320,8 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
           return ListTile(
             selected: row.id == _selected?.id,
             title: Text('${row.quotationNumber}  ·  ${row.grandTotal}'),
-            subtitle: Text(_standing(row)),
+            // The minute it was made tells today's quotations apart.
+            subtitle: Text(_withStamp(_standing(row), row.createdAt)),
             trailing: Row(mainAxisSize: MainAxisSize.min, children: [
               // Expiry is the fact a status word cannot carry: SENT reads the
               // same the day before and the day after the prices lapse.
@@ -337,6 +338,11 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
       );
 
   /// What has become of an offer, in one line.
+  String _withStamp(String text, String createdAt) {
+    final String stamp = createdStamp(createdAt);
+    return stamp.isEmpty ? text : '$text  ·  made $stamp';
+  }
+
   String _standing(Quotation row) {
     if (row.isConverted) return 'became ${row.convertedSalesOrderNumber}';
     if (row.isDeclined) {

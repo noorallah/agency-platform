@@ -691,6 +691,7 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
         columns: const [
           GridColumn(key: 'number', label: 'Invoice Number'),
           GridColumn(key: 'date', label: 'Invoice Date'),
+          GridColumn(key: 'created', label: 'Created'),
           GridColumn(key: 'reference', label: 'Reference'),
           GridColumn(key: 'status', label: 'Status'),
           GridColumn(key: 'total', label: 'Grand Total'),
@@ -701,6 +702,7 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
         cells: (item) => [
           '${item['invoice_number'] ?? '-'}',
           '${item['invoice_date'] ?? '-'}',
+          createdStamp(item['created_at']),
           '${item['reference_number'] ?? ''}',
           '${item['status'] ?? ''}',
           '${item['grand_total'] ?? '0'}',

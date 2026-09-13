@@ -199,6 +199,12 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
     await _act(row, 'cancel', reason: reason);
   }
 
+  /// The minute a return was made, or nothing when the server said nothing.
+  String _stamp(String createdAt) {
+    final String stamp = createdStamp(createdAt);
+    return stamp.isEmpty ? '' : '  ·  made $stamp';
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!_canView) {
@@ -292,8 +298,9 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
             subtitle: Text(
               row.hasMoved
                   ? '${row.totalRestockQuantity} restocked · '
-                      '${row.grandTotal} credited'
-                  : '${row.totalCurrentReturnQuantity} awaiting completion',
+                      '${row.grandTotal} credited${_stamp(row.createdAt)}'
+                  : '${row.totalCurrentReturnQuantity} awaiting completion'
+                      '${_stamp(row.createdAt)}',
             ),
             trailing: StatusBadge(label: row.status),
             onTap: () => setState(() => _selected = row),
