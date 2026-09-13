@@ -1469,3 +1469,65 @@ def test_dispatch_from_another_warehouse_releases_where_the_order_reserved() -> 
 
     assert _held(north) == (Decimal("100"), Decimal("7"))
     assert _held(depot) == (Decimal("95"), Decimal("0"))
+
+
+@pytest.mark.parametrize("action", ["close", "cancel"])
+def test_ending_a_part_shipped_order_gives_back_the_rest_of_its_hold(
+    action: str,
+) -> None:
+    """Closing or cancelling released stock only for an APPROVED order.
+
+    Once a note ships part of it the order reads PARTIALLY_DELIVERED, and
+    both actions checked for APPROVED alone -- so the undelivered remainder
+    stayed reserved for ever. Releasing it then over-released, because the
+    movement was converted from the whole line's entered quantity rather
+    than the share still held (found beside plan item 9.9, 2026-09-13).
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+    _stock(session, firm=firm, branch=branch, warehouse=warehouse, product=product)
+    order, order_line = _approved_order(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+        quantity=Decimal("10"),
+        actor_id=actor_id,
+    )
+    _dispatch(
+        session,
+        firm=firm,
+        order=order,
+        order_line=order_line,
+        quantity=Decimal("4"),
+        on=date(2026, 8, 4),
+        actor_id=actor_id,
+    )
+    session.refresh(order)
+    assert order.status == SalesOrderStatus.PARTIALLY_DELIVERED.value
+
+    orders = SalesOrderService(session)
+    end = orders.close_order if action == "close" else orders.cancel_order
+    end(order.id, firm_scope=firm.id, actor_id=actor_id, reason="customer gone")
+
+    records = session.scalars(
+        select(InventoryRecord).where(
+            InventoryRecord.warehouse_id == warehouse.id,
+            InventoryRecord.product_id == product.id,
+        )
+    ).all()
+    assert sum(
+        (Decimal(str(row.reserved_quantity)) for row in records), Decimal("0")
+    ) == Decimal("0")
+    assert sum(
+        (Decimal(str(row.current_quantity)) for row in records), Decimal("0")
+    ) == Decimal("96")
+    session.refresh(order_line)
+    assert order_line.reserved_quantity == Decimal("0")
