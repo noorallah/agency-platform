@@ -160,8 +160,12 @@ class _LoyaltyPageState extends State<LoyaltyPage> {
           Expanded(
             child: Text(
               on
-                  ? '${settings['points_per_amount']} points per 100, worth '
-                      '${settings['amount_per_point']} each $expiry. '
+                  // Trimmed: the server's four decimals read as
+                  // "2.0000 points per 100, worth 1.0000 each" (plan 10.8).
+                  ? '${trimDiscountRate('${settings['points_per_amount']}')} '
+                      'points per 100, worth '
+                      '${trimDiscountRate('${settings['amount_per_point']}')} '
+                      'each $expiry. '
                       'At least ${settings['minimum_redemption_points']} before '
                       'any can be spent.'
                   : 'No scheme is running: nobody is earning anything.',

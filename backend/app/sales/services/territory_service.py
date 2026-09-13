@@ -102,6 +102,12 @@ from app.sales.services.scope_resolution import route_profile_in_force
 _GeoRowT = TypeVar("_GeoRowT", bound=BaseEntity)
 
 
+def _ordinal(number: int) -> str:
+    """Spell a week of the month as people say it: first, second ... fifth."""
+    words = {1: "first", 2: "second", 3: "third", 4: "fourth", 5: "fifth"}
+    return words.get(number, f"{number}th")
+
+
 def _wrong_day(weekday: int, on_date: date) -> str:
     """Say which day a round runs on and which day was asked about.
 
@@ -2195,13 +2201,31 @@ class SalesTerritoryService:
                 # Every other week counted from what? Guessing an anchor would
                 # put half of these rounds on the wrong week, so it says so.
                 return False, "A fortnightly plan needs a start date to count from."
-            return (on_date - plan.starts_on).days // 7 % 2 == 0, None
+            if (on_date - plan.starts_on).days // 7 % 2 != 0:
+                # The off week was reported with no reason at all, so a
+                # fortnightly round read "Not today" beside nothing on the one
+                # day of the week it does run (plan item 11.4, 2026-09-13).
+                return False, (
+                    f"Runs every other {calendar.day_name[plan.weekday - 1]} "
+                    f"counted from {plan.starts_on.isoformat()}; this is the "
+                    "week between."
+                )
+            return True, None
         if plan_type == BeatPlanType.MONTHLY.value:
             if plan.weekday is None or plan.week_of_month is None:
                 return False, "This monthly plan has no weekday or week set."
             if plan.weekday != on_date.isoweekday():
                 return False, _wrong_day(plan.weekday, on_date)
-            return (on_date.day - 1) // 7 + 1 == plan.week_of_month, None
+            week = (on_date.day - 1) // 7 + 1
+            if week != plan.week_of_month:
+                # As for the fortnight: the right weekday in the wrong week
+                # said nothing.
+                return False, (
+                    f"Runs on the {_ordinal(plan.week_of_month)} "
+                    f"{calendar.day_name[plan.weekday - 1]} of the month; "
+                    f"this is the {_ordinal(week)}."
+                )
+            return True, None
         return False, "A custom plan's dates are not computed."
 
     def _call_list_stops(self, plan: BeatPlan) -> list[CallListStop]:

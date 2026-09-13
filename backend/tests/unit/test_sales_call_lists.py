@@ -570,3 +570,33 @@ def test_a_round_that_is_not_due_says_which_day_it_runs_on() -> None:
     assert service._occurs_on(fortnightly, monday)[1] == tuesday
     monthly = BeatPlan(plan_type="MONTHLY", weekday=2, week_of_month=2)
     assert service._occurs_on(monthly, monday)[1] == tuesday
+
+
+def test_the_off_week_and_the_wrong_week_say_so_too() -> None:
+    """The right weekday on a week the round does not run still gives a reason.
+
+    A fortnightly plan in its off week and a monthly plan on another week of
+    the month both answered "not today" with no reason (plan item 11.4,
+    2026-09-13), the same gap the wrong weekday had.
+    """
+    from datetime import date
+
+    from app.sales.models.territory import BeatPlan
+    from app.sales.services.territory_service import SalesTerritoryService
+
+    service = SalesTerritoryService.__new__(SalesTerritoryService)
+    fortnightly = BeatPlan(
+        plan_type="FORTNIGHTLY", weekday=2, starts_on=date(2026, 4, 7)
+    )
+    assert service._occurs_on(fortnightly, date(2027, 1, 12)) == (True, None)
+    assert service._occurs_on(fortnightly, date(2026, 10, 13)) == (
+        False,
+        "Runs every other Tuesday counted from 2026-04-07; this is the week "
+        "between.",
+    )
+    monthly = BeatPlan(plan_type="MONTHLY", weekday=2, week_of_month=2)
+    assert service._occurs_on(monthly, date(2026, 10, 13)) == (True, None)
+    assert service._occurs_on(monthly, date(2026, 10, 20)) == (
+        False,
+        "Runs on the second Tuesday of the month; this is the third.",
+    )
