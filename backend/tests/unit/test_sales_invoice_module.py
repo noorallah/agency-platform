@@ -2124,3 +2124,76 @@ def test_a_bill_can_still_charge_a_price_of_its_own() -> None:
 
     assert response.lines[0].unit_price == Decimal("0.0000")
     assert response.lines[0].gross_amount == Decimal("0.0000")
+
+
+def test_an_invoice_something_still_rests_on_is_not_cancelled() -> None:
+    """Money, a registration or a correction on a bill blocks its cancellation.
+
+    Cancelling reverses the invoice's journal and takes its whole total off
+    the customer's balance. It checked nothing else, so a bill with a receipt
+    applied, a live credit note or return, points spent on it, or a
+    registration with the tax authority could be cancelled, leaving the
+    receipt clearing a cancelled bill and the customer credited twice (found
+    reviewing plan item 12.2, 2026-09-13). The refusal names what is in the
+    way; once that is reversed or cancelled the invoice cancels as before.
+    """
+    from app.einvoice.models import EInvoiceRegistration
+    from app.settlements.models import Settlement, SettlementAllocation
+
+    session = _session_factory()()
+    firm = _firm(session)
+    service, invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=uuid4()
+    )
+    invoice = service.approve_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+
+    receipt = Settlement(
+        firm_id=firm.id,
+        direction="RECEIPT",
+        customer_id=invoice.customer_id,
+        settlement_number="RC-TEST-1",
+        settlement_date=date(2026, 8, 5),
+        amount=Decimal("100"),
+        allocated_amount=Decimal("100"),
+        unallocated_amount=Decimal("0"),
+        method="BANK",
+        ledger_account_id=uuid4(),
+        status="POSTED",
+        journal_entry_id=uuid4(),
+    )
+    session.add(receipt)
+    session.flush()
+    session.add(
+        SettlementAllocation(
+            firm_id=firm.id,
+            settlement_id=receipt.id,
+            sales_invoice_id=invoice.id,
+            amount=Decimal("100"),
+        )
+    )
+    registration = EInvoiceRegistration(
+        firm_id=firm.id,
+        sales_invoice_id=invoice.id,
+        mode="SANDBOX",
+        status="REGISTERED",
+        irn="SBXTEST",
+    )
+    session.add(registration)
+    session.commit()
+
+    with pytest.raises(ValidationError) as refused:
+        service.cancel_invoice(invoice.id, firm_scope=firm.id, actor_id=uuid4())
+    message = str(refused.value)
+    assert "RC-TEST-1" in message
+    assert "registration with the tax authority" in message
+    session.rollback()
+    assert session.get(SalesInvoice, invoice.id).status == "APPROVED"
+
+    receipt.status = "REVERSED"
+    registration.status = "CANCELLED"
+    session.commit()
+    cancelled = service.cancel_invoice(
+        invoice.id, firm_scope=firm.id, actor_id=uuid4(), reason="duplicate"
+    )
+    assert cancelled.status == "CANCELLED"
