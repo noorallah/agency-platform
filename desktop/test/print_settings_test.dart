@@ -27,11 +27,15 @@ String _accessToken(List<String> permissions) {
   return 'header.$claims.sig';
 }
 
+// A firm administrator's codes. The dialog gated saving on PLATFORM_SETTINGS,
+// which no firm role can hold, so the firm's own administrator saw the
+// settings read-only (plan item 9.17, 2026-09-13); these tests granted that
+// platform code and could not see it.
 PermissionService _permissions({bool mayManage = true}) => PermissionService()
   ..applyAccessToken(_accessToken(
     mayManage
-        ? const <String>['PLATFORM_VIEW', 'PLATFORM_SETTINGS']
-        : const <String>['PLATFORM_VIEW'],
+        ? const <String>['SETTINGS_VIEW', 'SETTINGS_UPDATE']
+        : const <String>['SETTINGS_VIEW'],
   ));
 
 class _TemplateApi extends ApiClient {

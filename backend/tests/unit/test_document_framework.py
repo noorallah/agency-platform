@@ -697,3 +697,22 @@ def test_a_series_survives_its_counter_key_changing_shape() -> None:
         # Last year's counter is another scope and is left alone.
         "2025-2026|WHL_HO|WHOLE01": 9,
     }
+
+
+def test_a_firm_administers_its_own_print_settings() -> None:
+    """Saving how a firm prints needs `SETTINGS_UPDATE`, not bare membership.
+
+    The save took only a firm scope, so any member -- a salesman included --
+    could change the firm's invoice title, bank details and copies. And the
+    desktop dialog gated the same save on `PLATFORM_SETTINGS`, a platform
+    code no firm role can hold, so the firm's own administrator was shown the
+    settings read-only and could not set the copies at all (plan item 9.17,
+    2026-09-13). Reading stays open to anyone who prints.
+    """
+    enforced = _codes_enforced_on("print-templates")
+    writes = {key: codes for key, codes in enforced.items() if key.startswith("PUT ")}
+    assert len(writes) == 1, f"expected one write route, found {sorted(writes)}"
+    for key, codes in writes.items():
+        assert (
+            "SETTINGS_UPDATE" in codes
+        ), f"{key} enforces {sorted(codes) or 'no permission code'}"

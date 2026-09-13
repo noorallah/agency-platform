@@ -392,10 +392,16 @@ def get_print_template(
 def set_print_template(
     document_type: str,
     payload: DocumentPrintTemplateWrite,
-    scope: RequiredFirmScope,
+    scope: SettingsUpdateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[DocumentPrintTemplateResponse]:
-    """Create or replace the firm's print template for one document type."""
+    """Create or replace the firm's print template for one document type.
+
+    `SETTINGS_UPDATE`, as for the firm's numbering series: how a firm's
+    documents look is its administrator's decision, and this took bare
+    membership, so any member could change the bank details a customer pays
+    into (plan item 9.17, 2026-09-13).
+    """
     data = DocumentPrintTemplateService(db).set(
         document_type,
         payload,

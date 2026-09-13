@@ -18,7 +18,7 @@ class PrintSettingsDialog extends StatefulWidget {
     required this.permissions,
     required this.documentType,
     required this.documentLabel,
-    this.managePermission = 'PLATFORM_SETTINGS',
+    this.managePermission = 'SETTINGS_UPDATE',
   });
 
   final ApiClient api;
@@ -30,7 +30,10 @@ class PrintSettingsDialog extends StatefulWidget {
   /// What to call it on screen: "sales invoice", "purchase order".
   final String documentLabel;
 
-  /// Reading is anyone who may see the document; changing is this.
+  /// Reading is anyone who may see the document; changing is this. It was
+  /// `PLATFORM_SETTINGS`, a platform code no firm role can hold, so a firm's
+  /// own administrator saw these settings read-only (plan item 9.17). The
+  /// server gates the save on `SETTINGS_UPDATE`.
   final String managePermission;
 
   @override
