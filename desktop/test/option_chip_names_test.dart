@@ -83,4 +83,54 @@ void main() {
     expect(find.text('EQ'), findsOneWidget, reason: 'a name equal to the code');
     expect(find.text('CA'), findsOneWidget, reason: 'no name to add');
   });
+
+  testWidgets('editing an account offers no group, type or code to change',
+      (tester) async {
+    // readOnlyWhenEditing reached the text box alone, so the edit form let a
+    // person pick another group and type, said it saved, and sent neither
+    // (manual plan item 13.1).
+    final _GroupsApi api = _GroupsApi();
+    await tester.binding.setSurfaceSize(const Size(1366, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final definition = ledgerAccountDefinition(api, _permissions());
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: CrudWorkspaceDialog(
+          title: 'Edit account',
+          fields: definition.fields,
+          values: const <String, dynamic>{
+            'account_group_id': 'g-exp',
+            'code': '9999',
+            'name': 'Manual test account',
+            'account_type': 'EXPENSE',
+            'description': '',
+            'requires_cost_center': false,
+            'requires_profit_center': false,
+            'is_active': true,
+          },
+          api: api,
+          mode: CrudDialogMode.edit,
+          onSave: (_) async {},
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    for (final FilterChip chip
+        in tester.widgetList<FilterChip>(find.byType(FilterChip))) {
+      expect(chip.onSelected, isNull, reason: 'the group is fixed');
+    }
+    final DropdownButton<String> type = tester.widget<DropdownButton<String>>(
+      find.byType(DropdownButton<String>),
+    );
+    expect(type.onChanged, isNull, reason: 'the type is fixed');
+    final TextField code = tester.widget<TextField>(
+      find.widgetWithText(TextField, 'Code'),
+    );
+    expect(code.readOnly, isTrue, reason: 'the code is fixed');
+    final TextField name = tester.widget<TextField>(
+      find.widgetWithText(TextField, 'Name'),
+    );
+    expect(name.readOnly, isFalse, reason: 'the name can still be changed');
+  });
 }
