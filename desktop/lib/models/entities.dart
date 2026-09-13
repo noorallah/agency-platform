@@ -14,8 +14,21 @@ class PagedResult<T> {
 }
 
 class AssignmentOption {
-  const AssignmentOption({required this.id, required this.label, this.group});
+  const AssignmentOption({
+    required this.id,
+    required this.label,
+    this.group,
+    this.detail,
+  });
   final String id, label;
+
+  /// The record's name, when [label] is its code and the two differ.
+  ///
+  /// A chip reading only `EXP` asked a person to know that it meant Direct
+  /// Expenses -- the Chart of Accounts form offered CA, CL, EQ, EXP and REV
+  /// and nothing else (manual plan item 13.1, 2026-09-14). Kept apart from
+  /// [label] because a code-valued field submits the label itself.
+  final String? detail;
 
   /// The heading this option belongs under, when the API names one.
   ///
