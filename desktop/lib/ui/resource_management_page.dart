@@ -563,9 +563,8 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
       barrierDismissible: false,
       builder: (dialogContext) => CrudWorkspaceDialog(
         title: widget.definition.title,
-        subtitle: item == null
-            ? null
-            : widget.definition.dialogSubtitle?.call(item),
+        subtitle:
+            item == null ? null : widget.definition.dialogSubtitle?.call(item),
         // Editing only: on create the record does not exist yet, so there is
         // nothing for a secondary action to act on.
         leadingAction: item == null || mode == CrudDialogMode.create
@@ -858,7 +857,8 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
                     items: [
                       DropdownMenuItem<String>(
                         value: null,
-                        child: Text('All ${filter.label.toLowerCase()}', overflow: TextOverflow.ellipsis),
+                        child: Text('All ${filter.label.toLowerCase()}',
+                            overflow: TextOverflow.ellipsis),
                       ),
                       for (final ResourceFilterOption option in [
                         ...filter.options,
@@ -866,7 +866,8 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
                       ])
                         DropdownMenuItem<String>(
                           value: option.value,
-                          child: Text(option.label, overflow: TextOverflow.ellipsis),
+                          child: Text(option.label,
+                              overflow: TextOverflow.ellipsis),
                         ),
                     ],
                     onChanged: _loading
@@ -1474,6 +1475,16 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
     return grouped;
   }
 
+  /// Whether this field may not be changed in the dialog as it is open.
+  ///
+  /// `readOnlyWhenEditing` reached the text box and nothing else, so the
+  /// Chart of Accounts edit form let a person pick another Account Group chip
+  /// and another Account Type, said it saved, and sent neither -- the payload
+  /// omits both on edit (manual plan item 13.1, 2026-09-14). Chips and
+  /// dropdowns ask the same question the text box does.
+  bool _locked(FieldSpec field) =>
+      widget.isReadOnly || (field.readOnlyWhenEditing && !widget.isCreating);
+
   Widget _permissionChip(FieldSpec field, AssignmentOption option) {
     final bool selected = _selections[field.key]!.contains(option.id);
     // A single choice names what it is as well as its code: one chip among
@@ -1489,7 +1500,7 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
       labelPadding: const EdgeInsets.symmetric(horizontal: 4),
       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 0),
       selected: selected,
-      onSelected: widget.isReadOnly
+      onSelected: _locked(field)
           ? null
           : (bool value) {
               _markDirty();
@@ -1598,7 +1609,7 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
               contentPadding: EdgeInsets.zero,
               title: Text(field.label),
               value: _booleans[field.key]!,
-              onChanged: widget.isReadOnly
+              onChanged: _locked(field)
                   ? null
                   : (value) {
                       _markDirty();
@@ -1707,10 +1718,11 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
             for (final String choice in choices)
               DropdownMenuItem<String>(
                 value: choice,
-                child: Text(choice.isEmpty ? 'Not set' : choice, overflow: TextOverflow.ellipsis),
+                child: Text(choice.isEmpty ? 'Not set' : choice,
+                    overflow: TextOverflow.ellipsis),
               ),
           ],
-          onChanged: widget.isReadOnly
+          onChanged: _locked(field)
               ? null
               : (value) => setState(() {
                     _controllers[field.key]?.text = value ?? '';
@@ -1728,7 +1740,7 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
           decoration: InputDecoration(
             labelText: field.label,
             helperText: field.helperText,
-            suffixIcon: widget.isReadOnly
+            suffixIcon: _locked(field)
                 ? null
                 : IconButton(
                     icon: const Icon(Icons.calendar_today_outlined, size: 18),
@@ -1765,8 +1777,7 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
       padding: const EdgeInsets.only(bottom: 12),
       child: TextFormField(
         controller: _controllers[field.key],
-        readOnly: widget.isReadOnly ||
-            (field.readOnlyWhenEditing && !widget.isCreating),
+        readOnly: _locked(field),
         maxLines: field.multiline ? 3 : 1,
         decoration: InputDecoration(
             labelText: field.label, helperText: field.helperText),

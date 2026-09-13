@@ -70,7 +70,14 @@ ResourceDefinition<LedgerAccount> ledgerAccountDefinition(
           optionsResource: 'finance/account-groups',
           singleSelection: true,
         ),
-        const FieldSpec(key: 'code', label: 'Code', requiredOnCreate: true),
+        // An account's code is not sent on edit either -- the update takes
+        // none -- so it is shown and not offered.
+        const FieldSpec(
+          key: 'code',
+          label: 'Code',
+          requiredOnCreate: true,
+          readOnlyWhenEditing: true,
+        ),
         const FieldSpec(key: 'name', label: 'Name', required: true),
         const FieldSpec(
           key: 'account_type',
@@ -79,7 +86,8 @@ ResourceDefinition<LedgerAccount> ledgerAccountDefinition(
           readOnlyWhenEditing: true,
           choices: ['ASSET', 'LIABILITY', 'EQUITY', 'INCOME', 'EXPENSE'],
         ),
-        const FieldSpec(key: 'description', label: 'Description', multiline: true),
+        const FieldSpec(
+            key: 'description', label: 'Description', multiline: true),
         // A line on the account must name a centre; the engine refuses it
         // otherwise. Set here, offered on the journal line, satisfied on
         // Cost Centres / Profit Centres.
@@ -123,7 +131,8 @@ ResourceDefinition<LedgerAccount> ledgerAccountDefinition(
         DetailLine('Type', account.accountType),
         DetailLine('Balance sheet', account.isBalanceSheet ? 'Yes' : 'No'),
         DetailLine('Profit and loss', account.isProfitLoss ? 'Yes' : 'No'),
-        if (account.requiresCostCenter) const DetailLine('Cost centre', 'Required'),
+        if (account.requiresCostCenter)
+          const DetailLine('Cost centre', 'Required'),
         if (account.requiresProfitCenter)
           const DetailLine('Profit centre', 'Required'),
         DetailLine('Status', account.isActive ? 'Active' : 'Inactive'),
