@@ -626,8 +626,12 @@ class _RegisterInvoiceDialogState extends State<_RegisterInvoiceDialog> {
                   for (final Json invoice in widget.invoices)
                     DropdownMenuItem<String>(
                       value: '${invoice['id']}',
+                      // Whose bill it is: the list holds every customer's
+                      // approved invoices, and number and total alone could
+                      // not find one customer's (plan item 12.5, 2026-09-13).
                       child: Text(
                         '${invoice['invoice_number']} — '
+                        '${invoice['customer_name'] ?? ''} — '
                         '${invoice['grand_total']}',
                         overflow: TextOverflow.ellipsis,
                       ),

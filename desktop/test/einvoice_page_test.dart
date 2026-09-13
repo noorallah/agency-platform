@@ -65,6 +65,19 @@ class _EInvoiceApi extends ApiClient {
       if (method == 'POST') sentBody = body;
       return <String, dynamic>{'data': registrations.firstOrNull};
     }
+    if (path == '/api/v1/sales-invoices') {
+      return <String, dynamic>{
+        'data': <Json>[
+          <String, dynamic>{
+            'id': 'inv-9',
+            'invoice_number': 'SI-2026-2027-000008',
+            'customer_name': 'Revise Check 2',
+            'grand_total': '2554.1100',
+            'status': 'APPROVED',
+          },
+        ],
+      };
+    }
     return <String, dynamic>{'data': const <Json>[]};
   }
 }
@@ -132,6 +145,24 @@ void main() {
     expect(find.text('Invoice'), findsWidgets);
     expect(find.text('SI-2026-2027-000004'), findsOneWidget);
     expect(find.text('Vijaya Super Stores'), findsOneWidget);
+  });
+
+  testWidgets('the register picker names whose invoice each one is',
+      (tester) async {
+    // Number and total alone could not find one customer's bill among every
+    // approved invoice the firm holds (plan item 12.5).
+    final _EInvoiceApi api = _EInvoiceApi(registrations: [_sandboxRegistration()]);
+    await _pump(tester, api);
+
+    await tester.tap(find.text('Register an invoice'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text('SI-2026-2027-000008 — Revise Check 2 — 2554.1100'),
+      findsWidgets,
+    );
   });
 
   testWidgets('a failed registration shows what the portal said',

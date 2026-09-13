@@ -742,6 +742,93 @@ class SalesInvoiceService(TransactionalDocumentService):
         )
         return row
 
+    def _assert_nothing_rests_on(self, row: SalesInvoice) -> None:
+        """Refuse to cancel a bill that money, a correction or a filing rests on.
+
+        Cancelling reverses the invoice's journal and takes its whole total off
+        the customer's balance. It used to check nothing else, so a bill with a
+        receipt applied, a live credit note or sales return, points spent on
+        it, or a registration with the tax authority could be cancelled --
+        leaving the receipt clearing a cancelled bill and the customer credited
+        twice (found reviewing plan item 12.2, 2026-09-13). Each of those has
+        its own undo -- reverse the receipt, cancel the note or return, cancel
+        the registration -- and doing that first is what keeps the books
+        telling one story. The refusal names what is in the way.
+        """
+        # Imported here: these modules import the invoice model, and a
+        # module-level import would tie the invoice service to all four.
+        from app.credit_note.models import CreditNote, CreditNoteStatus
+        from app.einvoice.models import EInvoiceRegistration, RegistrationStatus
+        from app.loyalty.models import LoyaltyEntry, LoyaltyEntryKind
+        from app.sales_return.models import SalesReturn, SalesReturnSource
+        from app.settlements.models import Settlement, SettlementAllocation
+
+        blockers: list[str] = []
+        receipts = self._session.scalars(
+            select(Settlement.settlement_number)
+            .join(
+                SettlementAllocation,
+                SettlementAllocation.settlement_id == Settlement.id,
+            )
+            .where(
+                SettlementAllocation.sales_invoice_id == row.id,
+                SettlementAllocation.is_deleted.is_(False),
+                Settlement.status == "POSTED",
+                Settlement.is_deleted.is_(False),
+            )
+            .distinct()
+        ).all()
+        if receipts:
+            blockers.append("money applied from " + ", ".join(sorted(receipts)))
+        notes = self._session.scalars(
+            select(CreditNote.credit_note_number).where(
+                CreditNote.sales_invoice_id == row.id,
+                CreditNote.status != CreditNoteStatus.CANCELLED.value,
+                CreditNote.is_deleted.is_(False),
+            )
+        ).all()
+        if notes:
+            blockers.append("credit note " + ", ".join(sorted(notes)))
+        returns = self._session.scalars(
+            select(SalesReturn.return_number)
+            .join(
+                SalesReturnSource, SalesReturnSource.sales_return_id == SalesReturn.id
+            )
+            .where(
+                SalesReturnSource.source_document_type == "SALES_INVOICE",
+                SalesReturnSource.source_document_id == row.id,
+                SalesReturn.status != "CANCELLED",
+                SalesReturn.is_deleted.is_(False),
+            )
+            .distinct()
+        ).all()
+        if returns:
+            blockers.append("sales return " + ", ".join(sorted(returns)))
+        spent = self._session.scalar(
+            select(func.count(LoyaltyEntry.id)).where(
+                LoyaltyEntry.sales_invoice_id == row.id,
+                LoyaltyEntry.kind == LoyaltyEntryKind.REDEEMED.value,
+                LoyaltyEntry.is_deleted.is_(False),
+            )
+        )
+        if spent:
+            blockers.append("loyalty points spent on it")
+        registered = self._session.scalar(
+            select(func.count(EInvoiceRegistration.id)).where(
+                EInvoiceRegistration.sales_invoice_id == row.id,
+                EInvoiceRegistration.status == RegistrationStatus.REGISTERED.value,
+                EInvoiceRegistration.is_deleted.is_(False),
+            )
+        )
+        if registered:
+            blockers.append("its registration with the tax authority")
+        if blockers:
+            raise ValidationError(
+                f"{row.invoice_number} cannot be cancelled while it has "
+                + "; ".join(blockers)
+                + ". Reverse or cancel those first."
+            )
+
     def cancel_invoice(
         self,
         invoice_id: UUID,
@@ -757,6 +844,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             SalesInvoiceStatus.CLOSED.value,
         }:
             raise ValidationError("This sales invoice can no longer be cancelled.")
+        self._assert_nothing_rests_on(row)
         before = row.status
         row.status = SalesInvoiceStatus.CANCELLED.value
         row.cancel_reason = reason
