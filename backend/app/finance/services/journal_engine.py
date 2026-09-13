@@ -339,10 +339,22 @@ class JournalEntryEngine:
                     JournalEntry.description.ilike(term),
                 )
             )
+        # Within a date, the order entries were posted in -- not their
+        # reference text. Sorting on the reference put every TCS-, SR- and
+        # SO- entry of the day above an invoice's SI- entry, so the journal
+        # an approval had just posted was buried (plan item 9.16, 2026-09-13).
         order = (
-            (JournalEntry.journal_date.desc(), JournalEntry.reference_number.desc())
+            (
+                JournalEntry.journal_date.desc(),
+                JournalEntry.created_at.desc(),
+                JournalEntry.id.desc(),
+            )
             if descending
-            else (JournalEntry.journal_date.asc(), JournalEntry.reference_number.asc())
+            else (
+                JournalEntry.journal_date.asc(),
+                JournalEntry.created_at.asc(),
+                JournalEntry.id.asc(),
+            )
         )
         rows = list(
             self._session.scalars(
