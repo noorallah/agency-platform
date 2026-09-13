@@ -42,6 +42,7 @@ from app.finance.services.control_accounts import (
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.finance.services.journal_engine import quantize_money as quantize_ledger
+from app.loyalty.models import LoyaltyEntry, LoyaltyEntryKind
 from app.purchase_invoice.models import PurchaseInvoice
 from app.sales_invoice.models import SalesInvoice
 from app.sales_order.models import SalesOrder
@@ -148,9 +149,34 @@ class SettlementService(TransactionalDocumentService):
             )
             .order_by(invoice.invoice_date.asc(), invoice.invoice_number.asc())
         ).all()
+        # Points spent on a customer's bill settle part of it too. The loyalty
+        # service's own cap subtracted them and this list did not, so a bill
+        # showed its full total here after points were spent on it and a
+        # receipt could collect that money again (plan item 10.9, 2026-09-13).
+        # The same derivation as `LoyaltyService._outstanding_of`.
+        spent: dict[UUID, Decimal] = {}
+        if is_receipt and rows:
+            spent = {
+                invoice_id: Decimal(str(total))
+                for invoice_id, total in self._session.execute(
+                    select(
+                        LoyaltyEntry.sales_invoice_id,
+                        func.coalesce(func.sum(LoyaltyEntry.amount), 0),
+                    )
+                    .where(
+                        LoyaltyEntry.firm_id == firm_id,
+                        LoyaltyEntry.sales_invoice_id.in_([row.id for row, _ in rows]),
+                        LoyaltyEntry.kind == LoyaltyEntryKind.REDEEMED.value,
+                        LoyaltyEntry.is_deleted.is_(False),
+                    )
+                    .group_by(LoyaltyEntry.sales_invoice_id)
+                ).all()
+            }
         records: list[OutstandingInvoiceRecord] = []
         for row, allocated_amount in rows:
-            already = quantize_ledger(Decimal(allocated_amount))
+            already = quantize_ledger(Decimal(allocated_amount)) + quantize_ledger(
+                spent.get(row.id, ZERO)
+            )
             total = quantize_ledger(row.grand_total)
             outstanding = total - already
             if outstanding <= ZERO:

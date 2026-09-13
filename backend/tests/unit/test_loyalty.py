@@ -670,3 +670,36 @@ def test_balances_leave_out_a_customer_holding_nothing() -> None:
     books.spend("100", on=date(2026, 6, 15))
 
     assert LoyaltyService(books.session).balances_report(firm_scope=books.firm.id) == []
+
+
+def test_points_spent_on_a_bill_come_off_what_the_receipts_screen_says_it_owes() -> (
+    None
+):
+    """One answer to "what does this bill still owe", whoever asks.
+
+    A redemption names its invoice and settles part of it, and the loyalty
+    service's own cap subtracted it. The receipts screen's outstanding list --
+    and the check that stops a receipt being applied beyond what a bill owes
+    -- counted only receipts, so the bill still showed its full total after
+    points were spent on it, and a later receipt could collect that money a
+    second time (plan item 10.9, 2026-09-13).
+    """
+    from app.settlements.services.settlement_service import ReceiptService
+
+    books = _Books(_session_factory()())
+    books.earn(books.invoice("SI-1", total="1000"))
+    later = books.invoice("SI-2", total="500")
+    LoyaltyService(books.session).redeem(
+        firm_scope=books.firm.id,
+        invoice_id=later.id,
+        points=Decimal("20"),
+        actor_id=books.actor_id,
+    )
+
+    owed = {
+        record.invoice_number: record.outstanding_amount
+        for record in ReceiptService(books.session).outstanding_invoices(
+            firm_id=books.firm.id, party_id=later.customer_id
+        )
+    }
+    assert owed["SI-2"] == Decimal("480.00")
