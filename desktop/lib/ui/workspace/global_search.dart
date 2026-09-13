@@ -315,10 +315,20 @@ class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
 
   Future<void> _openSelected() async {
     if (_selectedIndex < 0 || _selectedIndex >= _results.length) return;
-    final Future<void> Function()? onOpen = _results[_selectedIndex].onOpen;
-    if (onOpen != null) {
-      await onOpen();
-    }
+    await _open(_results[_selectedIndex]);
+  }
+
+  /// Close the search, then open the result.
+  ///
+  /// Opening navigated the shell behind the dialog and left the dialog up, so
+  /// Open Details and a double-click both read as doing nothing (manual plan
+  /// item 13.7, 2026-09-14). The dialog goes first; what the result opens --
+  /// a screen, or a details dialog of its own -- then lands in front.
+  Future<void> _open(GlobalSearchResultItem item) async {
+    final Future<void> Function()? onOpen = item.onOpen;
+    if (onOpen == null) return;
+    Navigator.of(context).pop();
+    await onOpen();
   }
 
   @override
@@ -433,7 +443,7 @@ class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
                                   setState(() => _selectedIndex = index),
                               onDoubleTap: item.onOpen == null
                                   ? null
-                                  : () async => item.onOpen!(),
+                                  : () => _open(item),
                               child: Card(
                                 color: selected
                                     ? Theme.of(context)

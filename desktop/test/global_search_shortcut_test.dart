@@ -1,3 +1,4 @@
+import 'package:agency_desktop/ui/workspace/global_search.dart';
 import 'package:agency_desktop/ui/workspace/workspace_interactions.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -80,6 +81,27 @@ void main() {
     expect(opened, 0);
   });
 
+  testWidgets('Open Details closes search before opening the result',
+      (tester) async {
+    // It navigated behind the dialog and left the dialog up (plan 13.7).
+    final List<String> events = await _searchAndOpen(tester, open: (t) async {
+      await t.tap(find.text('Open Details'));
+    });
+    expect(events, ['opened']);
+    expect(find.text('Global search'), findsNothing,
+        reason: 'the search dialog is not left on top');
+  });
+
+  testWidgets('double-clicking a result does the same', (tester) async {
+    final List<String> events = await _searchAndOpen(tester, open: (t) async {
+      await t.tap(find.text('Detergent Powder 1kg'));
+      await t.pump(const Duration(milliseconds: 50));
+      await t.tap(find.text('Detergent Powder 1kg'));
+    });
+    expect(events, ['opened']);
+    expect(find.text('Global search'), findsNothing);
+  });
+
   testWidgets('the listener goes away with the widget', (tester) async {
     int opened = 0;
     await tester.pumpWidget(MaterialApp(
@@ -93,4 +115,45 @@ void main() {
     await _pressCtrlK(tester);
     expect(opened, 0);
   });
+}
+
+Future<List<String>> _searchAndOpen(
+  WidgetTester tester, {
+  required Future<void> Function(WidgetTester tester) open,
+}) async {
+  final List<String> events = [];
+  await tester.binding.setSurfaceSize(const Size(1366, 900));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
+  await tester.pumpWidget(MaterialApp(
+    home: Builder(
+      builder: (context) => Scaffold(
+        body: TextButton(
+          onPressed: () => showGlobalSearch(
+            context,
+            executor: (request) async => GlobalSearchResponse(
+              results: [
+                GlobalSearchResultItem(
+                  id: 'p-1',
+                  title: 'Detergent Powder 1kg',
+                  onOpen: () async => events.add('opened'),
+                ),
+              ],
+              message: '1 result found.',
+              total: 1,
+            ),
+          ),
+          child: const Text('search'),
+        ),
+      ),
+    ),
+  ));
+  await tester.tap(find.text('search'));
+  await tester.pumpAndSettle();
+  await tester.enterText(find.byType(TextField).first, 'DETER');
+  await tester.testTextInput.receiveAction(TextInputAction.done);
+  await tester.pumpAndSettle();
+  expect(find.text('Detergent Powder 1kg'), findsOneWidget);
+  await open(tester);
+  await tester.pumpAndSettle();
+  return events;
 }
