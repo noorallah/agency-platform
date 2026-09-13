@@ -192,9 +192,17 @@ void main() {
     expect(find.text('Runs on $name'), findsOneWidget);
     expect(find.textContaining('$name ${api.requestedDates.last}'), findsWidgets);
 
-    await tester.tap(find.text('Today'));
+    await tester.tap(find.text('Back to today'));
     await tester.pumpAndSettle();
     expect(find.text('Runs today'), findsOneWidget);
+    // Already on today, the action has nothing to do and says so.
+    final TextButton back = tester.widget<TextButton>(
+      find.ancestor(
+        of: find.text('Back to today'),
+        matching: find.byWidgetPredicate((widget) => widget is TextButton),
+      ),
+    );
+    expect(back.onPressed, isNull);
   });
 
   testWidgets('picking a salesperson narrows the list to their rounds',
