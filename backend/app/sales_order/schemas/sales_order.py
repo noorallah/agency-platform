@@ -289,6 +289,13 @@ class SalesOrderResponse(SalesOrderSchema):
     #: What was taken off the whole document, and the rate it represents.
     bill_discount_percent: Decimal
     bill_discount_amount: Decimal
+    #: ``typed``, ``promotion`` or ``none``; NULL on orders saved before it
+    #: was recorded. What an editor needs to refill only what was typed.
+    bill_discount_source: str | None = None
+    #: The coupon presented. Absent from the response until 2026-09-13, so an
+    #: editor reopened an order with an empty Coupon box and saving it
+    #: removed the coupon and the offer it reached (plan item 10.7).
+    coupon_code: str | None = None
     #: What was charged for delivery, split across the lines and taxed there.
     freight_amount: Decimal = Decimal("0")
     line_discount_total: Decimal

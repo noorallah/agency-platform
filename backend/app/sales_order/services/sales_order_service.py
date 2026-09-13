@@ -966,6 +966,8 @@ class SalesOrderService(TransactionalDocumentService):
             customer_discount_percent=row.customer_discount_percent,
             bill_discount_percent=row.bill_discount_percent,
             bill_discount_amount=row.bill_discount_amount,
+            bill_discount_source=row.bill_discount_source,
+            coupon_code=row.coupon_code,
             freight_amount=row.freight_amount,
             line_discount_total=row.line_discount_total,
             subtotal=row.subtotal,
@@ -1575,16 +1577,18 @@ class SalesOrderService(TransactionalDocumentService):
             )
             for index, item in enumerate(lines)
         ]
+        bill_typed = bill_amount is not None or bill_percent is not None
+        row.bill_discount_source = (
+            "typed"
+            if bill_typed
+            else ("promotion" if benefits.bill_discount() is not None else "none")
+        )
         shares = self._bill_discount_shares(
             row,
             percent=bill_percent,
             # A bill discount the caller typed wins; a promotion's applies only
             # where they said nothing, the same precedence every line follows.
-            amount=(
-                bill_amount
-                if bill_amount is not None or bill_percent is not None
-                else benefits.bill_discount()
-            ),
+            amount=bill_amount if bill_typed else benefits.bill_discount(),
             taxables=[
                 self._q(gross - line.amount)
                 for gross, line in zip(grosses, priced, strict=True)

@@ -535,6 +535,44 @@ void main() {
       expect(find.textContaining('Ordered before tax: 285.00'), findsOneWidget);
     });
 
+    testWidgets(
+        "a promotion's discount on the whole order is said, not refilled, "
+        'and the coupon comes back', (tester) async {
+      // Refilled, the promotion's figure went back as typed and switched the
+      // offer off; with no coupon in the response the box opened empty and
+      // the save removed it (plan item 10.7).
+      final _OrderApi api = _api()
+        ..existing = (_draft()
+          ..['bill_discount_amount'] = '200.0000'
+          ..['bill_discount_source'] = 'promotion'
+          ..['coupon_code'] = 'WELCOME10');
+      await _pump(tester, api, orderId: 'so-1');
+
+      expect(
+        find.text('Last taken off: 200 by a promotion. Blank prices it afresh.'),
+        findsOneWidget,
+      );
+      expect(find.text('WELCOME10'), findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, 'Save order'));
+      await tester.pumpAndSettle();
+
+      expect(api.updated!.containsKey('bill_discount_amount'), isFalse);
+      expect(api.updated!['coupon_code'], 'WELCOME10');
+    });
+
+    testWidgets('a whole-order discount somebody typed is refilled as typed',
+        (tester) async {
+      final _OrderApi api = _api()
+        ..existing = (_draft()
+          ..['bill_discount_amount'] = '50.0000'
+          ..['bill_discount_source'] = 'typed');
+      await _pump(tester, api, orderId: 'so-1');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save order'));
+      await tester.pumpAndSettle();
+
+      expect(api.updated!['bill_discount_amount'], '50.0000');
+    });
+
     testWidgets('a correction carries the version it read as the precondition',
         (tester) async {
       final _OrderApi api = _api()..existing = _draft(version: 6);
