@@ -907,3 +907,46 @@ def _warehouse_value(session: Session, firm_id: UUID) -> Decimal:
         )
     )
     return Decimal(str(total or 0))
+
+
+def test_goods_returned_into_another_branchs_warehouse_land_on_its_row() -> None:
+    """A return restocks the warehouse's own branch, not the document's.
+
+    The return takes its branch from what it credits. Taking goods back into
+    a warehouse of another branch paired the two, and completing the return
+    was refused: "Warehouse does not belong to the selected branch." (found
+    beside plan item 9.12, 2026-09-13).
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    head_office = Branch(
+        firm_id=setup.firm.id,
+        code="BR-HO",
+        name="Head Office",
+        display_name="Head Office",
+        status="ACTIVE",
+    )
+    session.add(head_office)
+    session.commit()
+    depot = Warehouse(
+        firm_id=setup.firm.id,
+        branch_id=head_office.id,
+        code="WH-DEPOT",
+        name="Depot",
+        display_name="Depot",
+        status="ACTIVE",
+    )
+    session.add(depot)
+    session.commit()
+    setup.warehouse = depot
+
+    _, row = setup.completed(quantity=Decimal("2"))
+
+    rows = session.scalars(
+        select(InventoryRecord).where(
+            InventoryRecord.warehouse_id == depot.id,
+            InventoryRecord.product_id == setup.product.id,
+        )
+    ).all()
+    assert [r.branch_id for r in rows] == [head_office.id]
+    assert Decimal(str(rows[0].current_quantity)) == Decimal("2")
