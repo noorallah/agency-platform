@@ -43,3 +43,6 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Generated mobile builds (build_android.ps1); kept locally, never committed.
+/dist/
