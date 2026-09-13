@@ -583,6 +583,7 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
           GridColumn(key: 'number', label: 'Note Number'),
           GridColumn(key: 'order', label: 'Sales Order'),
           GridColumn(key: 'date', label: 'Delivery Date'),
+          GridColumn(key: 'created', label: 'Created'),
           GridColumn(key: 'status', label: 'Status'),
           GridColumn(key: 'total', label: 'Grand Total'),
         ],
@@ -593,6 +594,7 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
           item.deliveryNoteNumber,
           item.salesOrderReference,
           item.deliveryDate,
+          createdStamp(item.createdAt),
           item.status,
           item.grandTotal,
         ],
@@ -690,6 +692,7 @@ class _DeliveryNoteRecord {
     required this.additionalCharges,
     required this.roundOff,
     required this.grandTotal,
+    required this.createdAt,
     required this.branchId,
     required this.warehouseId,
     required this.remarks,
@@ -706,6 +709,7 @@ class _DeliveryNoteRecord {
   final String additionalCharges;
   final String roundOff;
   final String grandTotal;
+  final String createdAt;
   final String branchId;
   final String warehouseId;
   final String remarks;
@@ -729,6 +733,7 @@ class _DeliveryNoteRecord {
       additionalCharges: stringValue(json['additional_charges']),
       roundOff: stringValue(json['round_off']),
       grandTotal: stringValue(json['grand_total']),
+      createdAt: stringValue(json['created_at']),
       branchId: stringValue(json['branch_id']),
       warehouseId: stringValue(json['warehouse_id']),
       remarks: stringValue(json['remarks']),

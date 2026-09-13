@@ -180,7 +180,10 @@ class PurchaseReturnService(TransactionalDocumentService):
         rows = list(
             self._session.scalars(
                 statement.order_by(
-                    sort_column.desc() if descending else sort_column.asc()
+                    sort_column.desc() if descending else sort_column.asc(),
+                    # Newest first within the chosen column, then a stable key.
+                    PurchaseReturn.created_at.desc(),
+                    PurchaseReturn.id.desc(),
                 )
                 .offset((page - 1) * page_size)
                 .limit(page_size)

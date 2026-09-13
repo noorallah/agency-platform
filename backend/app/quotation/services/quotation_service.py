@@ -185,7 +185,12 @@ class QuotationService(TransactionalDocumentService):
         column = columns.get(sort_by, SalesQuotation.created_at)
         rows = list(
             self._session.scalars(
-                statement.order_by(column.desc() if descending else column.asc())
+                statement.order_by(
+                    column.desc() if descending else column.asc(),
+                    # Newest first within the chosen column, then a stable key.
+                    SalesQuotation.created_at.desc(),
+                    SalesQuotation.id.desc(),
+                )
                 .offset((page - 1) * page_size)
                 .limit(page_size)
             ).all()

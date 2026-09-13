@@ -78,6 +78,7 @@ class Quotation {
     required this.quotationNumber,
     required this.quotationDate,
     required this.validUntil,
+    this.createdAt = '',
     required this.customerReference,
     required this.paymentTerms,
     required this.deliveryTerms,
@@ -111,6 +112,7 @@ class Quotation {
 
   /// The last day the quoted prices stand.
   final String validUntil;
+  final String createdAt;
   final String customerReference;
   final String paymentTerms;
   final String deliveryTerms;
@@ -154,6 +156,7 @@ class Quotation {
         quotationNumber: stringValue(json['quotation_number']),
         quotationDate: stringValue(json['quotation_date']),
         validUntil: stringValue(json['valid_until']),
+        createdAt: stringValue(json['created_at']),
         customerReference: stringValue(json['customer_reference']),
         paymentTerms: stringValue(json['payment_terms']),
         deliveryTerms: stringValue(json['delivery_terms']),

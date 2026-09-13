@@ -194,7 +194,10 @@ class DeliveryNoteService(TransactionalDocumentService):
         rows = list(
             self._session.scalars(
                 statement.order_by(
-                    order_column.desc() if descending else order_column.asc()
+                    order_column.desc() if descending else order_column.asc(),
+                    # Newest first within the chosen column, then a stable key.
+                    DeliveryNote.created_at.desc(),
+                    DeliveryNote.id.desc(),
                 )
                 .offset((page - 1) * page_size)
                 .limit(page_size)

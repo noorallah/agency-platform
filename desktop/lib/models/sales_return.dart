@@ -114,6 +114,7 @@ class SalesReturn {
     required this.warehouseId,
     required this.returnNumber,
     required this.returnDate,
+    this.createdAt = '',
     required this.customerReturnNumber,
     required this.returnReason,
     required this.status,
@@ -135,6 +136,7 @@ class SalesReturn {
   final String warehouseId;
   final String returnNumber;
   final String returnDate;
+  final String createdAt;
   final String customerReturnNumber;
   final String returnReason;
   final String status;
@@ -172,6 +174,7 @@ class SalesReturn {
         warehouseId: stringValue(json['warehouse_id']),
         returnNumber: stringValue(json['return_number']),
         returnDate: stringValue(json['return_date']),
+        createdAt: stringValue(json['created_at']),
         customerReturnNumber: stringValue(json['customer_return_number']),
         returnReason: stringValue(json['return_reason']),
         status: stringValue(json['status']),

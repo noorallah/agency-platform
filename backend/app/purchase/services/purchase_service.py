@@ -185,7 +185,12 @@ class PurchaseService(TransactionalDocumentService):
         order_by = sort_column.desc() if descending else sort_column.asc()
         rows = list(
             self._session.scalars(
-                statement.order_by(order_by)
+                statement.order_by(
+                    order_by,
+                    # Newest first within the chosen column, then a stable key.
+                    PurchaseOrder.created_at.desc(),
+                    PurchaseOrder.id.desc(),
+                )
                 .offset((page - 1) * page_size)
                 .limit(page_size)
             ).all()

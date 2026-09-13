@@ -610,6 +610,7 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         columns: const [
           GridColumn(key: 'number', label: 'Order Number'),
           GridColumn(key: 'date', label: 'Order Date'),
+          GridColumn(key: 'created', label: 'Created'),
           GridColumn(key: 'reference', label: 'Reference'),
           GridColumn(key: 'status', label: 'Status'),
           GridColumn(key: 'total', label: 'Grand Total'),
@@ -620,6 +621,9 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         cells: (item) => [
           '${item['order_number'] ?? '-'}',
           '${item['order_date'] ?? '-'}',
+          // Every order raised today shares one date; the minute it was made is
+          // what tells the draft just created from the rest.
+          createdStamp(item['created_at']),
           '${item['reference_number'] ?? ''}',
           // The hold rides on the status cell rather than taking a column of
           // its own: a held order that looked identical to a live one in the
