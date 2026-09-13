@@ -39,6 +39,13 @@ class _EInvoicePageState extends State<EInvoicePage> {
   final Map<String, EWayBillRecord> _bills = <String, EWayBillRecord>{};
   String? _error;
   String? _selectedId;
+
+  EInvoiceRegistrationRecord? get _selectedRow {
+    for (final EInvoiceRegistrationRecord row in _rows) {
+      if (row.id == _selectedId) return row;
+    }
+    return null;
+  }
   bool _loading = true;
 
   bool get _mayView => widget.permissions.hasPermission('EINVOICE_VIEW');
@@ -300,6 +307,31 @@ class _EInvoicePageState extends State<EInvoicePage> {
             icon: const Icon(Icons.verified_outlined),
             label: const Text('Register an invoice'),
           ),
+          // The same actions as the row's last column, for the selected row.
+          // With five columns the row's buttons sit past the right edge of a
+          // laptop screen, and the owner could not find "Raise e-way bill"
+          // at all (plan item 12.6, 2026-09-13).
+          if (_mayManage) ...[
+            OutlinedButton.icon(
+              onPressed: _selectedRow != null &&
+                      _selectedRow!.isRegistered &&
+                      _bills[_selectedRow!.salesInvoiceId] == null
+                  ? () => _raiseEwayBill(_selectedRow!)
+                  : null,
+              icon: const Icon(Icons.local_shipping_outlined),
+              // Short, and not "E-way bill" (the column header): the toolbar has to
+              // fit a 1366 window beside Register.
+              label: const Text('Raise bill'),
+            ),
+            OutlinedButton.icon(
+              onPressed: _selectedRow != null &&
+                      (_bills[_selectedRow!.salesInvoiceId]?.isGenerated ?? false)
+                  ? () => _cancelEwayBill(_selectedRow!)
+                  : null,
+              icon: const Icon(Icons.cancel_outlined),
+              label: const Text('Cancel bill'),
+            ),
+          ],
         ],
       ),
       searchPanel: const SizedBox.shrink(),
