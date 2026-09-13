@@ -9,6 +9,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/document_framework.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../document_framework/document_status_gate.dart';
+import '../document_framework/document_line_labels.dart';
 import '../document_framework/document_view_dialog.dart';
 import '../../models/entities.dart';
 import '../workspace/desktop_framework.dart';
@@ -101,10 +102,20 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
   Map<String, dynamic>? _selected;
   Map<String, dynamic> _summary = const {};
 
+  /// What the invoice view prints for a line's product, unit and tax profile.
+  DocumentLineLabels _labels = const DocumentLineLabels();
+
+  Future<void> _loadLabels() async {
+    final DocumentLineLabels labels = await DocumentLineLabels.load(widget.api);
+    if (!mounted) return;
+    setState(() => _labels = labels);
+  }
+
   @override
   void initState() {
     super.initState();
     unawaited(_load());
+    unawaited(_loadLabels());
   }
 
   @override
@@ -275,14 +286,14 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
         final Map<String, dynamic> item = Map<String, dynamic>.from(line);
         return DocumentLineSnapshot(
           lineNumber: (item['line_number'] as num?)?.toInt() ?? 0,
-          product: '${item['product_id'] ?? ''}',
+          product: _labels.product('${item['product_id'] ?? ''}'),
           description: (item['description'] as String?) ?? '',
-          uom: '${item['invoice_uom_id'] ?? ''}',
+          uom: _labels.unit('${item['invoice_uom_id'] ?? ''}'),
           packaging: '${item['packaging_type_id'] ?? ''}',
           quantity: '${item['current_invoice_quantity'] ?? '0'}',
           unitPrice: '${item['unit_price'] ?? '0'}',
           discount: '${item['discount_amount'] ?? '0'}',
-          taxProfile: '${item['tax_profile_id'] ?? ''}',
+          taxProfile: _labels.taxProfile('${item['tax_profile_id'] ?? ''}'),
           amount: '${item['gross_amount'] ?? '0'}',
           netAmount: '${item['net_amount'] ?? '0'}',
           remarks: (item['remarks'] as String?) ?? '',
