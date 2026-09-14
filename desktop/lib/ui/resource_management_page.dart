@@ -46,7 +46,8 @@ class FieldSpec {
   ///
   /// The user form's Roles are ignored when a Job template is named, and the
   /// chips stayed clickable beside the job that overrode them, which read as
-  /// though both counted (manual plan item 17.4c, 2026-09-15).
+  /// though both counted (manual plan item 17.4c, 2026-09-15). Choosing
+  /// something there also clears what was picked here.
   final String? lockedWhileSet;
   final bool required, requiredOnCreate, multiline, boolean;
   final String? optionsResource;
@@ -1534,6 +1535,15 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
                     _selections[field.key]!.clear();
                   }
                   _selections[field.key]!.add(option.id);
+                  // A choice here decides any field locked while it is set,
+                  // so whatever was picked there no longer counts: clear it
+                  // rather than leave greyed-out picks the save will ignore
+                  // (the owner's request at manual plan item 17.4c).
+                  for (final FieldSpec dependent in widget.fields) {
+                    if (dependent.lockedWhileSet == field.key) {
+                      _selections[dependent.key]?.clear();
+                    }
+                  }
                 } else {
                   _selections[field.key]!.remove(option.id);
                 }
