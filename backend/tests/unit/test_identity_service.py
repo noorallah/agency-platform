@@ -741,6 +741,37 @@ def test_user_preferences_are_versioned_and_require_active_firm_membership() -> 
             user.id, UserPreferencesUpdate(default_firm_id=inactive_firm.id)
         )
 
+    # Somebody whose reach is every firm may remember any active firm, member
+    # or not -- the desktop saves it as part of switching (plan item 16.5) --
+    # and still not a firm that is switched off.
+    other_firm = Firm(
+        name="Reached by designation",
+        code="REACH01",
+        country="IN",
+        currency_code="INR",
+        financial_year_start=date(2026, 4, 1),
+    )
+    session.add(other_firm)
+    session.flush()
+    with pytest.raises(BusinessRuleError, match="active firm membership"):
+        service.update_user_preferences(
+            user.id, UserPreferencesUpdate(default_firm_id=other_firm.id)
+        )
+    reached = service.update_user_preferences(
+        user.id,
+        UserPreferencesUpdate(default_firm_id=other_firm.id),
+        every_firm=True,
+    )
+    assert reached.default_firm_id == other_firm.id
+    other_firm.is_active = False
+    session.flush()
+    with pytest.raises(BusinessRuleError, match="active firm membership"):
+        service.update_user_preferences(
+            user.id,
+            UserPreferencesUpdate(default_firm_id=other_firm.id),
+            every_firm=True,
+        )
+
     reset = service.reset_user_preferences(user.id)
     assert reset.preferred_theme == "light"
     assert reset.preferred_palette == "neutral"
