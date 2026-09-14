@@ -175,9 +175,7 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
       setState(() {
         _summary = summary;
         _invoices = invoices;
-        _total = page['pagination'] is Map
-            ? (page['pagination']['total'] as num?)?.toInt() ?? invoices.length
-            : invoices.length;
+        _total = pagedTotal(page, fallback: invoices.length);
         _selected = selected;
         _history = history;
       });

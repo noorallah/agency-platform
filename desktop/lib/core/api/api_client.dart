@@ -96,6 +96,20 @@ class AuthTokens {
   }
 }
 
+/// How many records a paged list response holds in all, not on this page.
+///
+/// The server names it `pagination.total_records`. Three document screens read
+/// `pagination.total`, which is never sent, fell back to the rows on the page,
+/// and so reported "20 records" and offered no second page: FOOD01's 49
+/// delivery notes showed as 20 (manual plan item 13.9c3, 2026-09-15).
+int pagedTotal(Json page, {required int fallback}) {
+  final dynamic pagination = page['pagination'];
+  if (pagination is! Map) return fallback;
+  return (pagination['total_records'] as num?)?.toInt() ??
+      (pagination['total'] as num?)?.toInt() ??
+      fallback;
+}
+
 class ApiClient {
   ApiClient({
     required this.baseUrl,

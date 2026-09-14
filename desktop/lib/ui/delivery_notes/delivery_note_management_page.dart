@@ -321,7 +321,7 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
       setState(() {
         _summary = summary;
         _notes = notes;
-        _total = page['pagination'] is Map ? (page['pagination']['total'] as num?)?.toInt() ?? notes.length : notes.length;
+        _total = pagedTotal(page, fallback: notes.length);
         _selected = selected;
       });
     } catch (error) {
