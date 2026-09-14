@@ -10,9 +10,8 @@ import '../workspace/paged_fetch.dart';
 /// awaits `showDialog` and then disposes it disposes it *mid-animation*, and
 /// the field rebuilding during the exit throws "A TextEditingController was
 /// used after being disposed" -- written twice in this repo before
-/// `askForReason` existed. There is no text field here, but the same rule
-/// applies to the future: the dialog loads its own list and holds its own
-/// state.
+/// `askForReason` existed. So the search box's controller is created and
+/// disposed here, and the dialog loads its own list and holds its own state.
 ///
 /// Returns the chosen template, or null for a dismissal.
 Future<UserTemplate?> pickUserTemplate(
@@ -37,7 +36,32 @@ class _ApplyTemplateDialog extends StatefulWidget {
 
 class _ApplyTemplateDialogState extends State<_ApplyTemplateDialog> {
   late Future<List<UserTemplate>> _templates;
+  final TextEditingController _search = TextEditingController();
   String? _selectedId;
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  /// The jobs matching what was typed, by name, code, description or role.
+  ///
+  /// Eleven platform jobs plus a firm's own are more than a glance takes in,
+  /// and the owner asked to filter them on the dialog itself (manual plan
+  /// section 17, 2026-09-15). A role code finds every job that grants it.
+  List<UserTemplate> _matching(List<UserTemplate> rows) {
+    final String term = _search.text.trim().toLowerCase();
+    if (term.isEmpty) return rows;
+    return [
+      for (final UserTemplate row in rows)
+        if (row.name.toLowerCase().contains(term) ||
+            row.code.toLowerCase().contains(term) ||
+            row.description.toLowerCase().contains(term) ||
+            row.roleCodes.any((code) => code.toLowerCase().contains(term)))
+          row,
+    ];
+  }
 
   @override
   void initState() {
@@ -72,12 +96,13 @@ class _ApplyTemplateDialogState extends State<_ApplyTemplateDialog> {
             if (snapshot.hasError) {
               return Center(child: Text('${snapshot.error}'));
             }
-            final List<UserTemplate> rows = snapshot.data ?? const [];
-            if (rows.isEmpty) {
+            final List<UserTemplate> all = snapshot.data ?? const [];
+            if (all.isEmpty) {
               return const Center(
                 child: Text('No job templates are available.'),
               );
             }
+            final List<UserTemplate> rows = _matching(all);
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
@@ -88,36 +113,72 @@ class _ApplyTemplateDialogState extends State<_ApplyTemplateDialog> {
                   style: theme.textTheme.bodySmall,
                 ),
                 const SizedBox(height: 12),
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: rows.length,
-                    itemBuilder: (context, index) {
-                      final UserTemplate row = rows[index];
-                      final bool chosen = row.id == _selectedId;
-                      // A selectable ListTile rather than RadioListTile: that
-                      // widget's `groupValue`/`onChanged` pair is deprecated
-                      // in favour of a RadioGroup ancestor, and one tile is
-                      // not worth an ancestor.
-                      return ListTile(
-                        selected: chosen,
-                        onTap: () => setState(() => _selectedId = row.id),
-                        leading: Icon(
-                          chosen
-                              ? Icons.radio_button_checked
-                              : Icons.radio_button_unchecked,
-                        ),
-                        title: Text(row.name),
-                        // What the job actually gets. A template chosen by
-                        // name alone is a permission decision made blind.
-                        subtitle: Text(
-                          row.roleCodes.isEmpty
-                              ? row.description
-                              : row.roleCodes.join(', '),
-                        ),
-                      );
-                    },
+                TextField(
+                  controller: _search,
+                  autofocus: true,
+                  decoration: InputDecoration(
+                    labelText: 'Search jobs',
+                    hintText: 'Name, code or role, e.g. cashier',
+                    prefixIcon: const Icon(Icons.search),
+                    isDense: true,
+                    suffixIcon: _search.text.isEmpty
+                        ? null
+                        : IconButton(
+                            tooltip: 'Clear',
+                            icon: const Icon(Icons.clear),
+                            onPressed: () => setState(_search.clear),
+                          ),
                   ),
+                  onChanged: (_) => setState(() {
+                    // A choice the filter hides is not one Apply should act
+                    // on without the person seeing it.
+                    if (_selectedId != null &&
+                        !_matching(all).any((row) => row.id == _selectedId)) {
+                      _selectedId = null;
+                    }
+                  }),
                 ),
+                const SizedBox(height: 8),
+                if (rows.isEmpty)
+                  Expanded(
+                    child: Center(
+                      child: Text(
+                        'No job matches "${_search.text.trim()}".',
+                        style: theme.textTheme.bodyMedium,
+                      ),
+                    ),
+                  )
+                else
+                  Expanded(
+                    child: ListView.builder(
+                      itemCount: rows.length,
+                      itemBuilder: (context, index) {
+                        final UserTemplate row = rows[index];
+                        final bool chosen = row.id == _selectedId;
+                        // A selectable ListTile rather than RadioListTile: that
+                        // widget's `groupValue`/`onChanged` pair is deprecated
+                        // in favour of a RadioGroup ancestor, and one tile is
+                        // not worth an ancestor.
+                        return ListTile(
+                          selected: chosen,
+                          onTap: () => setState(() => _selectedId = row.id),
+                          leading: Icon(
+                            chosen
+                                ? Icons.radio_button_checked
+                                : Icons.radio_button_unchecked,
+                          ),
+                          title: Text(row.name),
+                          // What the job actually gets. A template chosen by
+                          // name alone is a permission decision made blind.
+                          subtitle: Text(
+                            row.roleCodes.isEmpty
+                                ? row.description
+                                : row.roleCodes.join(', '),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
               ],
             );
           },

@@ -214,6 +214,47 @@ void main() {
       expect(find.text('INVENTORY_MANAGER'), findsOneWidget);
     });
 
+    testWidgets('a search box filters the jobs by name, code or role',
+        (tester) async {
+      // Asked for by the owner during manual plan section 17: a dozen jobs
+      // are more than a glance takes in.
+      final _Api api = _Api(templates: [
+        _template(),
+        _template(
+            id: 't-2',
+            code: 'warehouse',
+            name: 'Warehouse',
+            roleCodes: const ['INVENTORY_MANAGER']),
+      ]);
+      await _open(tester, api);
+
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Search jobs'), 'inventory');
+      await tester.pumpAndSettle();
+      expect(find.text('Warehouse'), findsOneWidget);
+      expect(find.text('Counter Sales'), findsNothing);
+
+      // Choose one, then filter it away: Apply is not left acting on a job
+      // nobody can see.
+      await tester.tap(find.text('Warehouse'));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Search jobs'), 'billing');
+      await tester.pumpAndSettle();
+      expect(find.text('Counter Sales'), findsOneWidget);
+      expect(
+        tester
+            .widget<FilledButton>(find.widgetWithText(FilledButton, 'Apply'))
+            .onPressed,
+        isNull,
+      );
+
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Search jobs'), 'nobody');
+      await tester.pumpAndSettle();
+      expect(find.text('No job matches "nobody".'), findsOneWidget);
+    });
+
     testWidgets('says the roles are replaced, and editable afterwards',
         (tester) async {
       // The decision behind the whole feature: a template is where an
