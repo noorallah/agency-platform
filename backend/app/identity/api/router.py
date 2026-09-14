@@ -236,7 +236,7 @@ def update_my_preferences(
 ) -> ApiResponse[UserPreferencesResponse]:
     """Update only the authenticated user's preferences partially."""
     preferences = _service(db, settings).update_user_preferences(
-        _actor_id(principal), data
+        _actor_id(principal), data, every_firm=principal.may_act_in_any_firm
     )
     return ApiResponse(data=UserPreferencesResponse.model_validate(preferences))
 

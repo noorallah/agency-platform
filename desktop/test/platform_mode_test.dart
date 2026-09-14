@@ -1,5 +1,6 @@
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/auth/session_controller.dart';
+import 'package:agency_desktop/core/preferences/user_preferences.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/desktop_shell.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -20,7 +21,45 @@ AssignedFirm _firm(String id, {bool primary = false}) => AssignedFirm(
       isPrimary: primary,
     );
 
+/// Serves one firm list and refuses to remember the last firm.
+class _RefusingPreferencesApi extends ApiClient {
+  _RefusingPreferencesApi(this.assigned)
+      : super(
+          baseUrl: 'http://localhost:8000',
+          accessToken: () => null,
+          refreshAccessToken: () async => false,
+          activeFirmId: () => null,
+        );
+
+  final List<AssignedFirm> assigned;
+
+  @override
+  Future<List<AssignedFirm>> myFirms() async => assigned;
+
+  @override
+  Future<UserPreferences> updateUserPreferences(Json changes) async =>
+      throw const ApiException(
+        'Default firm must be an active firm membership for this user.',
+      );
+}
+
 void main() {
+  test('a refused "last firm" save does not cancel the switch', () async {
+    // An all-firms administrator switching into a firm they were not a
+    // member of was refused that save, and the switch went with it: SNTEST01
+    // could not be opened at all (manual plan item 16.5, 2026-09-15).
+    final SessionController controller = SessionController(
+      baseUrl: 'http://localhost:8000',
+      isPlatformAdmin: () => true,
+    );
+    controller.api = _RefusingPreferencesApi([_firm('sn')]);
+    await controller.refreshFirms();
+
+    await controller.switchFirm('sn');
+
+    expect(controller.currentFirm?.id, 'sn');
+  });
+
   group('where a session lands', () {
     final List<AssignedFirm> firms = [
       _firm('a'),
@@ -33,8 +72,7 @@ void main() {
       // the user menu, and read the other way round the flag meant nothing
       // to anybody who ever switched. `primary_firm_test.dart` has the rest.
       expect(
-        SessionController.resolveLandingFirm(firms, 'c',
-                isPlatformAdmin: false)
+        SessionController.resolveLandingFirm(firms, 'c', isPlatformAdmin: false)
             ?.id,
         'b',
       );
@@ -91,7 +129,8 @@ void main() {
       expect(controller(platformAdmin: false).canWorkWithoutAFirm, isFalse);
     });
 
-    test('and is refused rather than silently emptying their sidebar', () async {
+    test('and is refused rather than silently emptying their sidebar',
+        () async {
       await expectLater(
         controller(platformAdmin: false).switchFirm(null),
         throwsA(isA<ApiException>()),

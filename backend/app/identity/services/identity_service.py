@@ -360,23 +360,42 @@ class IdentityService:
         return preferences
 
     def update_user_preferences(
-        self, user_id: UUID, data: UserPreferencesUpdate
+        self,
+        user_id: UUID,
+        data: UserPreferencesUpdate,
+        *,
+        every_firm: bool = False,
     ) -> UserPreferences:
-        """Apply a partial update to the authenticated user's preferences."""
+        """Apply a partial update to the authenticated user's preferences.
+
+        `every_firm` is a platform administrator whose reach is `ALL_FIRMS`.
+        They may work in any active firm without a membership -- `list_my_firms`
+        offers them every one -- so their last firm must be any active firm too.
+        Checked against memberships alone, switching into a firm they were not
+        a member of was refused here, and the desktop, which saves the choice
+        as part of switching, could not open that firm at all (manual plan item
+        16.5, 2026-09-15).
+        """
         preferences = self.get_user_preferences(user_id)
         changes = data.model_dump(exclude_unset=True)
         if "default_firm_id" in changes and changes["default_firm_id"] is not None:
             firm_id = cast(UUID, changes["default_firm_id"])
-            membership = self._session.scalar(
-                select(UserFirm.id)
-                .join(Firm, Firm.id == UserFirm.firm_id)
-                .where(
-                    UserFirm.user_id == user_id,
-                    UserFirm.firm_id == firm_id,
-                    UserFirm.is_active.is_(True),
-                    UserFirm.is_deleted.is_(False),
-                    Firm.is_active.is_(True),
-                    Firm.is_deleted.is_(False),
+            live_firm = (Firm.is_active.is_(True), Firm.is_deleted.is_(False))
+            membership = (
+                self._session.scalar(
+                    select(Firm.id).where(Firm.id == firm_id, *live_firm)
+                )
+                if every_firm
+                else self._session.scalar(
+                    select(UserFirm.id)
+                    .join(Firm, Firm.id == UserFirm.firm_id)
+                    .where(
+                        UserFirm.user_id == user_id,
+                        UserFirm.firm_id == firm_id,
+                        UserFirm.is_active.is_(True),
+                        UserFirm.is_deleted.is_(False),
+                        *live_firm,
+                    )
                 )
             )
             if membership is None:

@@ -109,6 +109,7 @@ class SessionController extends ChangeNotifier {
     }
     return _attemptedUsername;
   }
+
   /// Where the shell opens: the screen this **user** was last on.
   ///
   /// The server's `default_landing_page` first, because it is the user's and
@@ -405,11 +406,20 @@ class SessionController extends ChangeNotifier {
       ),
     );
     if (_currentFirm?.id == firm.id) return;
-    final UserPreferences updated =
-        await api.updateUserPreferences({'default_firm_id': firm.id});
+    // Switch first, then remember it. Remembering the last firm is a
+    // convenience for the next sign-in; it used to come first, so a refused
+    // save -- an all-firms administrator choosing a firm they were not a
+    // member of (plan item 16.5) -- cancelled the switch itself and the firm
+    // could not be opened at all.
     _currentFirm = firm;
     _firmContextVersion++;
-    await _applyServerPreferences(updated);
+    try {
+      final UserPreferences updated =
+          await api.updateUserPreferences({'default_firm_id': firm.id});
+      await _applyServerPreferences(updated);
+    } on ApiException catch (error) {
+      AppLog.warn('Last firm not saved on the server: ${error.message}');
+    }
     registerActivity();
     notifyListeners();
   }
