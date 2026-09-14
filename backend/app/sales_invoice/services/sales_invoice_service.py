@@ -680,7 +680,21 @@ class SalesInvoiceService(TransactionalDocumentService):
             raise ValidationError("Only draft sales invoices can be approved.")
         # Approval is what puts the amount on the customer's account, so it is
         # the last point at which a limit can still be enforced.
-        customer = self._session.get(Customer, row.customer_id)
+        #
+        # The customer is locked while the limit is judged and the balance
+        # raised. Two approvals for one customer that both read the balance
+        # before either posted would each see headroom the other was about to
+        # use; the version check refused the second only as a generic conflict,
+        # never with the credit decision. Locked, the second waits, reads the
+        # balance the first left (`populate_existing`, not the copy this session
+        # may already hold) and is judged on it (2026-09-15). Per customer, so
+        # approvals for different customers do not queue.
+        customer = self._session.scalar(
+            select(Customer)
+            .where(Customer.id == row.customer_id)
+            .with_for_update()
+            .execution_options(populate_existing=True)
+        )
         if customer is not None:
             CreditControlService(self._session).assert_within_limit(
                 customer, additional_amount=self._q(row.grand_total)

@@ -14,7 +14,7 @@ from typing import get_args
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -648,6 +648,52 @@ def test_a_blocking_firm_refuses_to_approve_past_the_credit_limit() -> None:
     assert (
         session.get(SalesInvoice, invoice_id).status == SalesInvoiceStatus.DRAFT.value
     )
+
+
+def test_approval_locks_the_customer_while_it_judges_the_limit() -> None:
+    """Two approvals for one customer are judged one after the other.
+
+    Approval reads the balance, checks the limit and raises the balance. Read
+    without a lock, two simultaneous approvals each saw the headroom the other
+    was about to take, and the loser was refused as a generic version conflict
+    rather than on credit. SQLite ignores FOR UPDATE, so what this asserts is
+    that the statement asks for the lock and refreshes the row it locks.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=uuid4()
+    )
+    service, invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)
+    customers_table = Customer.__table__
+    locked_reads: list[bool] = []
+
+    def capture(
+        conn: object,
+        clauseelement: object,
+        multiparams: object,
+        params: object,
+        execution_options: object,
+    ) -> None:
+        froms = getattr(clauseelement, "get_final_froms", lambda: [])()
+        if customers_table in froms:
+            locked_reads.append(
+                getattr(clauseelement, "_for_update_arg", None) is not None
+                and bool(
+                    clauseelement.get_execution_options().get(  # type: ignore[attr-defined]
+                        "populate_existing"
+                    )
+                )
+            )
+
+    engine = session.get_bind()
+    event.listen(engine, "before_execute", capture)
+    try:
+        service.approve_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+    finally:
+        event.remove(engine, "before_execute", capture)
+
+    assert True in locked_reads, "the credit check must lock and refresh the customer"
 
 
 def test_the_default_policy_lets_the_same_invoice_through() -> None:
