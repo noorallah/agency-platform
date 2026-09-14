@@ -464,6 +464,71 @@ void main() {
       expect(got.single?.password, 'Str0ng!');
     });
 
+    testWidgets('a refused create keeps the form and says why on it',
+        (tester) async {
+      // The dialog closed first and created after, so a weak password threw
+      // away everything typed (manual plan item 18.3).
+      final List<CloneUserDetails?> got = <CloneUserDetails?>[];
+      int attempts = 0;
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Builder(
+              builder: (context) => TextButton(
+                onPressed: () async => got.add(
+                  await askForCloneDetails(
+                    context,
+                    sourceName: 'Asha',
+                    submit: (details) async {
+                      attempts++;
+                      if (details.password == 'weak') {
+                        throw const ApiException(
+                          'Password does not meet the configured policy.',
+                          statusCode: 422,
+                          details: [
+                            'must contain at least 12 characters',
+                            'must contain a symbol',
+                          ],
+                        );
+                      }
+                    },
+                  ),
+                ),
+                child: const Text('open'),
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Full name'), 'Clone Test');
+      await tester.enterText(find.widgetWithText(TextFormField, 'Email'),
+          'clone.test@agency.local');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Initial password'), 'weak');
+      await tester.tap(find.widgetWithText(FilledButton, 'Create'));
+      await tester.pumpAndSettle();
+
+      expect(got, isEmpty, reason: 'the dialog stays open');
+      expect(find.textContaining('does not meet the configured policy'),
+          findsOneWidget);
+      expect(find.textContaining('must contain a symbol'), findsOneWidget);
+      expect(find.text('Clone Test'), findsOneWidget);
+      expect(find.text('clone.test@agency.local'), findsOneWidget);
+
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Initial password'),
+          'Welcome@12345');
+      await tester.tap(find.widgetWithText(FilledButton, 'Create'));
+      await tester.pumpAndSettle();
+
+      expect(attempts, 2);
+      expect(got.single?.email, 'clone.test@agency.local');
+    });
+
     testWidgets('a dismissal creates nobody', (tester) async {
       final List<CloneUserDetails?> got = await open(tester);
 
