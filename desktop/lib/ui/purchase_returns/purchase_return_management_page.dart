@@ -234,9 +234,7 @@ class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementP
       setState(() {
         _summary = summary;
         _returns = returns;
-        _total = page['pagination'] is Map
-            ? (page['pagination']['total'] as num?)?.toInt() ?? returns.length
-            : returns.length;
+        _total = pagedTotal(page, fallback: returns.length);
         _selected = selected;
         _history = history;
       });
