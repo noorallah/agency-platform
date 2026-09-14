@@ -498,16 +498,18 @@ policy." and nothing is created.
 
 ## 19. Setting a firm up from the platform side
 
-Sign in as `superadmin@agency.local` (tier 2). This is the flow a platform
-operator uses when a new firm is created.
+Sign in as `superadmin@agency.local` / **`Password@123`** (tier 2; its scope must
+be back at `ALL_FIRMS` after section 16). This is the flow a platform operator
+uses when a new firm is created. Re-derived on 2026-09-15.
 
 | # | Case | Expected |
 | --- | --- | --- |
-| 19.1 | Administration → User Templates → New | An **Offered to** picker appears, which a firm administrator does not see. |
-| 19.2 | Create a template with **Offered to** set to one firm | Created. Origin shows that firm. |
-| 19.3 | Sign in as `whole01.admin` and open User Templates | The template from 19.2 is **not** listed, unless you chose WHOLE01. Before this, a template written for one firm was offered to every firm. |
-| 19.4 | As the platform user, create one with **Offered to** left blank | Offered to every firm — which is right for a job every firm has, and is why the field says so. |
-| 19.5 **(HTTP)** | As `whole01.admin`, `POST /api/v1/user-templates` with `firm_id` naming a different firm | `422`, "You can only act within your own firm." Refused, not silently redirected. |
+| 19.1 | Administration → User Templates → New | An **Offered to** picker appears in the General section -- one chip per firm reading `CODE · Name`, helper "Leave blank to offer this job to every firm." -- which a firm administrator does not see. It is create-only. |
+| 19.2 | New: Template code `food-night`, Job name `Food Night`, Roles `CASHIER`, **Offered to** the `FOOD01 · …` chip → Save | Created. For the platform user Origin reads **One firm** (the grid does not name which). |
+| 19.3 | Sign in as `whole01.admin` and open User Templates | `food-night` from 19.2 is **not** listed (it would be, as **This firm**, had you chosen WHOLE01). Before this, a template written for one firm was offered to every firm. |
+| 19.4 | As the platform user, New: `every-night`, `Every Night`, Roles `CASHIER`, **Offered to** left blank → Save | Offered to every firm — which is right for a job every firm has, and is why the field says so. Origin reads **Every firm**, and the platform user may still edit it. |
+| 19.4a | Sign in as `whole01.admin` → User Templates → select `every-night` | Listed, Origin **Every firm**, subtitle "… · Offered to every firm". **Edit** and **Delete** are disabled. **(HTTP)** `PATCH /api/v1/user-templates/{id}` or `DELETE` with this token → `422`, "This template is offered to every firm, so only a platform administrator can change or retire it." *(Until 2026-09-15 it read "This firm" and any firm administrator could rename or retire it -- #383.)* Afterwards, as the platform user, **Delete** `food-night` and `every-night`. |
+| 19.5 **(HTTP)** | As `whole01.admin`, `POST /api/v1/user-templates` with a valid `role_ids` and `firm_id` naming a different firm | `422` `business_rule_violation`, "You can only act within your own firm." (re-driven 2026-09-15; nothing created). Refused, not silently redirected. *(An empty `role_ids` is refused first, by validation.)* |
 
 ---
 
