@@ -3513,6 +3513,9 @@ ResourceDefinition<PlatformUser> userDefinition(
             : 'Held in your firm only. '
                 'Ignored when a job template is named above.',
         optionsResource: 'roles',
+        // Naming a job decides the roles, so the chips lock while one is
+        // chosen rather than looking as though they still count.
+        lockedWhileSet: 'template_id',
         section: 'Security',
       ),
       // What a firm administrator cannot edit here but must be able to see.
