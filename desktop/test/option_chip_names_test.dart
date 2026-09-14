@@ -120,6 +120,56 @@ void main() {
     );
   });
 
+  testWidgets('roles lock while a job is chosen, and unlock when it is cleared',
+      (tester) async {
+    // A named job decides the roles; the chips stayed clickable beside it
+    // (manual plan item 17.4c).
+    final _GroupsApi api = _GroupsApi();
+    await tester.binding.setSurfaceSize(const Size(1366, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: CrudWorkspaceDialog(
+          title: 'New user',
+          fields: const [
+            FieldSpec(
+              key: 'template_id',
+              label: 'Job template',
+              optionsResource: 'user-templates',
+              singleSelection: true,
+            ),
+            FieldSpec(
+              key: 'role_ids',
+              label: 'Roles in this firm',
+              optionsResource: 'roles',
+              lockedWhileSet: 'template_id',
+            ),
+          ],
+          values: const <String, dynamic>{},
+          api: api,
+          mode: CrudDialogMode.create,
+          onSave: (_) async {},
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    // The fake serves the same three options to both fields: the job chips are
+    // the single-selection ones and carry the name, the role chips do not.
+    FilterChip roleChip() => tester.widget<FilterChip>(
+          find.widgetWithText(FilterChip, 'CA').last,
+        );
+    expect(roleChip().onSelected, isNotNull, reason: 'no job chosen yet');
+
+    await tester.tap(find.widgetWithText(FilterChip, 'EXP · Direct Expenses'));
+    await tester.pumpAndSettle();
+    expect(roleChip().onSelected, isNull, reason: 'the job decides the roles');
+
+    await tester.tap(find.widgetWithText(FilterChip, 'EXP · Direct Expenses'));
+    await tester.pumpAndSettle();
+    expect(roleChip().onSelected, isNotNull, reason: 'job cleared, roles back');
+  });
+
   testWidgets('editing an account offers no group, type or code to change',
       (tester) async {
     // readOnlyWhenEditing reached the text box alone, so the edit form let a

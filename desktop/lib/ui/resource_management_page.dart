@@ -37,8 +37,17 @@ class FieldSpec {
     this.kind = FieldKind.text,
     this.alwaysReadOnly = false,
     this.fullWidth,
+    this.lockedWhileSet,
   });
   final String key, label;
+
+  /// The key of another choice field that, once something is chosen in it,
+  /// decides this one -- so this one is locked until that choice is cleared.
+  ///
+  /// The user form's Roles are ignored when a Job template is named, and the
+  /// chips stayed clickable beside the job that overrode them, which read as
+  /// though both counted (manual plan item 17.4c, 2026-09-15).
+  final String? lockedWhileSet;
   final bool required, requiredOnCreate, multiline, boolean;
   final String? optionsResource;
 
@@ -1495,7 +1504,10 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
   /// omits both on edit (manual plan item 13.1, 2026-09-14). Chips and
   /// dropdowns ask the same question the text box does.
   bool _locked(FieldSpec field) =>
-      widget.isReadOnly || (field.readOnlyWhenEditing && !widget.isCreating);
+      widget.isReadOnly ||
+      (field.readOnlyWhenEditing && !widget.isCreating) ||
+      (field.lockedWhileSet != null &&
+          (_selections[field.lockedWhileSet]?.isNotEmpty ?? false));
 
   Widget _permissionChip(FieldSpec field, AssignmentOption option) {
     final bool selected = _selections[field.key]!.contains(option.id);
