@@ -1649,6 +1649,21 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             Text(field.label, style: Theme.of(context).textTheme.titleSmall),
+            // The helper said what a choice here does -- "Ignored when a job
+            // template is named above", "Leave blank to offer this job to
+            // every firm" -- and a chip field never drew it, so the sentence a
+            // row of the test plan checks was nowhere on screen (manual plan
+            // item 17.4c, 2026-09-15). Text fields show theirs under the box.
+            if (field.helperText != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  field.helperText!,
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+              ),
             if (_loadingOptions)
               const Padding(
                 padding: EdgeInsets.only(top: 12),

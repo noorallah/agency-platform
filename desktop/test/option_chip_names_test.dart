@@ -84,6 +84,42 @@ void main() {
     expect(find.text('CA'), findsOneWidget, reason: 'no name to add');
   });
 
+  testWidgets('a chip field shows the helper text that says what it does',
+      (tester) async {
+    // "Ignored when a job template is named above." was written under the
+    // Roles chips and never drawn (manual plan item 17.4c).
+    final _GroupsApi api = _GroupsApi();
+    await tester.binding.setSurfaceSize(const Size(1366, 900));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: CrudWorkspaceDialog(
+          title: 'New user',
+          fields: const [
+            FieldSpec(
+              key: 'role_ids',
+              label: 'Roles in this firm',
+              helperText: 'Held in your firm only. '
+                  'Ignored when a job template is named above.',
+              optionsResource: 'roles',
+            ),
+          ],
+          values: const <String, dynamic>{},
+          api: api,
+          mode: CrudDialogMode.create,
+          onSave: (_) async {},
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text(
+          'Held in your firm only. Ignored when a job template is named above.'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('editing an account offers no group, type or code to change',
       (tester) async {
     // readOnlyWhenEditing reached the text box alone, so the edit form let a
