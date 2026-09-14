@@ -13,6 +13,12 @@ String refusalMessage(ApiException error) {
   final List<String> lines = <String>[];
   if (details is List) {
     for (final Object? item in details) {
+      // A rule the server states as plain sentences -- the password policy
+      // answers "must contain a symbol" and the like -- is shown as it is.
+      if (item is String && item.trim().isNotEmpty) {
+        lines.add(item.trim());
+        continue;
+      }
       if (item is! Map) continue;
       final String field = '${item['field'] ?? ''}'.replaceFirst(
         RegExp(r'^body\.'),

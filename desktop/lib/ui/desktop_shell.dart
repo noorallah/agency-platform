@@ -3130,18 +3130,24 @@ Future<String> _cloneUser(
   ApiClient api,
   PlatformUser source,
 ) async {
+  PlatformUser? clone;
+  // Created from inside the dialog, so a refusal is shown on the form with
+  // what was typed still in it rather than after the dialog has closed.
   final CloneUserDetails? details = await askForCloneDetails(
     context,
     sourceName: source.fullName.isEmpty ? source.email : source.fullName,
+    submit: (details) async {
+      clone = await api.cloneUser(
+        source.id,
+        email: details.email,
+        fullName: details.fullName,
+        password: details.password,
+      );
+    },
   );
-  if (details == null) return '';
-  final PlatformUser clone = await api.cloneUser(
-    source.id,
-    email: details.email,
-    fullName: details.fullName,
-    password: details.password,
-  );
-  return '${clone.fullName} was created with the same access as '
+  final PlatformUser? created = clone;
+  if (details == null || created == null) return '';
+  return '${created.fullName} was created with the same access as '
       '${source.fullName}, and must change their password on first sign-in.';
 }
 

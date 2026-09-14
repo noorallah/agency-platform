@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../core/api/api_client.dart';
+import '../workspace/api_refusal.dart';
+
 /// The three things that do not cross over when somebody is hired like
 /// somebody else.
 class CloneUserDetails {
@@ -20,20 +23,28 @@ class CloneUserDetails {
 /// after being disposed" -- written twice in this repo in one afternoon before
 /// `askForReason` existed.
 ///
+/// [submit], when given, creates the person from inside the dialog. A refusal
+/// -- a password the policy rejects, an address already taken -- is shown on
+/// the form and every box keeps what was typed. The dialog used to close
+/// first and create after, so the refusal arrived with the typing already
+/// gone (manual plan item 18.3, 2026-09-15).
+///
 /// Returns null for a dismissal.
 Future<CloneUserDetails?> askForCloneDetails(
   BuildContext context, {
   required String sourceName,
+  Future<void> Function(CloneUserDetails details)? submit,
 }) =>
     showDialog<CloneUserDetails>(
       context: context,
-      builder: (_) => _CloneUserDialog(sourceName: sourceName),
+      builder: (_) => _CloneUserDialog(sourceName: sourceName, submit: submit),
     );
 
 class _CloneUserDialog extends StatefulWidget {
-  const _CloneUserDialog({required this.sourceName});
+  const _CloneUserDialog({required this.sourceName, this.submit});
 
   final String sourceName;
+  final Future<void> Function(CloneUserDetails details)? submit;
 
   @override
   State<_CloneUserDialog> createState() => _CloneUserDialogState();
@@ -44,6 +55,8 @@ class _CloneUserDialogState extends State<_CloneUserDialog> {
   final TextEditingController _email = TextEditingController();
   final TextEditingController _name = TextEditingController();
   final TextEditingController _password = TextEditingController();
+  bool _saving = false;
+  String? _error;
 
   @override
   void dispose() {
@@ -110,29 +123,57 @@ class _CloneUserDialogState extends State<_CloneUserDialog> {
                     ? 'An initial password is required.'
                     : null,
               ),
+              if (_error != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  _error!,
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: theme.colorScheme.error),
+                ),
+              ],
             ],
           ),
         ),
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.of(context).pop(),
+          onPressed: _saving ? null : () => Navigator.of(context).pop(),
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: () {
-            if (!(_form.currentState?.validate() ?? false)) return;
-            Navigator.of(context).pop(
-              CloneUserDetails(
-                email: _email.text.trim(),
-                fullName: _name.text.trim(),
-                password: _password.text,
-              ),
-            );
-          },
-          child: const Text('Create'),
+          onPressed: _saving ? null : _create,
+          child: Text(_saving ? 'Creating…' : 'Create'),
         ),
       ],
     );
+  }
+
+  Future<void> _create() async {
+    if (!(_form.currentState?.validate() ?? false)) return;
+    final CloneUserDetails details = CloneUserDetails(
+      email: _email.text.trim(),
+      fullName: _name.text.trim(),
+      password: _password.text,
+    );
+    final Future<void> Function(CloneUserDetails details)? submit =
+        widget.submit;
+    if (submit != null) {
+      setState(() {
+        _saving = true;
+        _error = null;
+      });
+      try {
+        await submit(details);
+      } on ApiException catch (error) {
+        if (!mounted) return;
+        setState(() {
+          _saving = false;
+          _error = refusalMessage(error);
+        });
+        return;
+      }
+    }
+    if (!mounted) return;
+    Navigator.of(context).pop(details);
   }
 }
