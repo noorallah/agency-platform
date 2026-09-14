@@ -477,16 +477,24 @@ The other half of section 17, and the more common one: an administrator
 usually has a person in mind rather than a written-down job. Sign in as
 `whole01.admin`.
 
+Facts re-derived on 2026-09-15: clone **Asha** (`whole01.sales1`, role
+`SALES_EXECUTIVE`, member of WHOLE01 only) -- cloning never changes the source.
+The dialog checks only that the three boxes are filled and the email has an `@`;
+the **server** applies the password policy: at least **12 characters** with an
+upper-case letter, a lower-case letter, a digit and a symbol (`Welcome@12345`
+passes). A weaker one is refused with "Password does not meet the configured
+policy." and nothing is created.
+
 | # | Case | Expected |
 | --- | --- | --- |
-| 18.1 | Administration → Users → pick somebody with roles → **Hire like this person** | A dialog naming them, saying the new user gets the same roles and firms and **none** of their personal details, password or history. |
-| 18.2 | Press Create with the form empty | Refused, field by field. Nothing is created. |
+| 18.1 | Administration → Users → select **Asha (WHOLE01 Sales)** → **Hire like this person** | Dialog "Hire like this person": "The new user gets the same roles and firms as Asha (WHOLE01 Sales), and none of their personal details, password or history. You can edit their roles afterwards like any other user." Boxes **Full name**, **Email**, **Initial password** ("They must change it when they first sign in."). |
+| 18.2 | Press Create with the form empty | Refused under each box: "Give the new person a name.", "An email is required.", "An initial password is required." Nothing is created. |
 | 18.3 | Type a name, an email with no `@`, a password → Create | "That is not an email." |
-| 18.4 | Fill it in properly → Create | Created. The message names both people. |
-| 18.5 | Open the new user | Same roles as the source. **Blank** mobile, employee code, department, joining date. |
-| 18.6 | Sign in as the new user with the password you typed | Forced to change it. A password somebody else chose is not a password. |
+| 18.4 | Full name `Clone Test`, Email `clone.test@agency.local`, Initial password `Welcome@12345` → Create. *(Optionally first try `short` as the password: refused by the server with the policy message.)* | Created: "Clone Test was created with the same access as Asha (WHOLE01 Sales), and must change their password on first sign-in." |
+| 18.5 | Open the new user | Same roles as the source (`SALES_EXECUTIVE` in WHOLE01) and the same firm. **Blank** mobile, employee code, department, joining date. |
+| 18.6 | Sign out; sign in as `clone.test@agency.local` / `Welcome@12345` | Forced to change it before anything else opens. A password somebody else chose is not a password. |
 | 18.7 | Change the new user's roles, then re-open the source | The source is unchanged. A clone is a starting point, not a link. |
-| 18.8 | As `whole01.sales1`, open the users grid | No **Hire like this person**. It needs `ROLE_ASSIGN`, `ROLE_VIEW` and `USER_CREATE` — copying access is granting access. |
+| 18.8 | As `whole01.sales1`, look for the users grid | **Administration is not offered at all** (15.1), so there is no users grid and no **Hire like this person**. The action needs `ROLE_ASSIGN`, `ROLE_VIEW` and `USER_CREATE` — copying access is granting access. |
 
 ## 19. Setting a firm up from the platform side
 
