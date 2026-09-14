@@ -543,6 +543,36 @@ def test_a_platform_caller_naming_no_firm_still_writes_a_platform_template() -> 
     assert template.firm_id is None
 
 
+def test_a_firm_cannot_change_a_template_the_platform_offered_everyone() -> None:
+    """A platform-written template with no firm is every firm's, not one firm's.
+
+    Only seeded templates were guarded, so a firm administrator could rename,
+    rebundle or retire a job the platform had offered to every firm.
+    """
+    service, session = _service()
+    firm = _firm(session, "F1")
+    everyone = service.create_user_template(
+        UserTemplateCreate(
+            code="everyone", name="Everyone", role_ids=[_role_id(session, "VIEWER")]
+        ),
+        ACTOR,
+        None,
+    )
+
+    with pytest.raises(BusinessRuleError, match="offered to every firm"):
+        service.update_user_template(
+            everyone.id, UserTemplateUpdate(name="Ours now"), ACTOR, firm.id
+        )
+    with pytest.raises(BusinessRuleError, match="offered to every firm"):
+        service.delete_user_template(everyone.id, ACTOR, firm.id)
+
+    # The platform still can.
+    renamed = service.update_user_template(
+        everyone.id, UserTemplateUpdate(name="Everyone, renamed"), ACTOR, None
+    )
+    assert renamed.name == "Everyone, renamed"
+
+
 def test_a_firm_caller_cannot_write_into_another_firm() -> None:
     """Refused rather than ignored.
 

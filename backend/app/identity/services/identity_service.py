@@ -1099,6 +1099,7 @@ class IdentityService:
         template = self._get_user_template(template_id, firm_scope)
         if template.is_system:
             raise BusinessRuleError("Platform templates cannot be edited.")
+        self._assert_template_is_the_callers(template, firm_scope)
         values = data.model_dump(exclude_unset=True)
         role_ids = values.pop("role_ids", None)
         for field, value in values.items():
@@ -1134,6 +1135,7 @@ class IdentityService:
         template = self._get_user_template(template_id, firm_scope)
         if template.is_system:
             raise BusinessRuleError("Platform templates cannot be deleted.")
+        self._assert_template_is_the_callers(template, firm_scope)
         template.is_deleted = True
         template.deleted_at = utc_now()
         template.deleted_by = actor_id
@@ -1235,6 +1237,29 @@ class IdentityService:
         if named is not None and named != firm_scope:
             raise BusinessRuleError("You can only act within your own firm.")
         return firm_scope
+
+    @staticmethod
+    def _assert_template_is_the_callers(
+        template: UserTemplate, firm_scope: UUID | None
+    ) -> None:
+        """Refuse a firm caller changing a template offered to every firm.
+
+        A platform caller who names no firm writes a template with no firm, and
+        that is offered to every firm exactly as a seeded one is -- but only
+        ``is_system`` was guarded, so any firm administrator could rename, rebundle
+        or retire a job every other firm was hiring into (found reviewing manual
+        plan section 19, 2026-09-15). A firm sees such a template and uses it;
+        changing it is the platform's call.
+
+        Raises:
+            BusinessRuleError: If a firm caller names a template with no firm.
+
+        """
+        if firm_scope is not None and template.firm_id is None:
+            raise BusinessRuleError(
+                "This template is offered to every firm, so only a platform "
+                "administrator can change or retire it."
+            )
 
     def _get_user_template(
         self, template_id: UUID, firm_scope: UUID | None = None
