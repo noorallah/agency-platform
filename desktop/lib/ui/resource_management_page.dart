@@ -519,16 +519,29 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
     }
   }
 
+  /// The dialog's subtitle, saying why a read-only record cannot be edited.
+  ///
+  /// Double-clicking a row opens the view, so the refusal wired to Edit never
+  /// ran there, and a system role opened read-only with nothing to say why
+  /// (manual plan item 13.9, 2026-09-15). A notice shown behind the dialog is
+  /// easy to miss anyway; the reason belongs on the dialog that is open.
+  String? _subtitleFor(T item, CrudDialogMode mode) {
+    final String? subtitle = widget.definition.dialogSubtitle?.call(item);
+    final String? why = mode == CrudDialogMode.view &&
+            !(widget.definition.canEdit?.call(item) ?? true)
+        ? widget.definition.editRefusal?.call(item)
+        : null;
+    if (why == null) return subtitle;
+    return subtitle == null ? why : '$subtitle  ·  $why';
+  }
+
   Future<void> _openDialog(CrudDialogMode requested, [T? item]) async {
     CrudDialogMode mode = requested;
     if (mode == CrudDialogMode.edit &&
         item != null &&
         !(widget.definition.canEdit?.call(item) ?? true)) {
-      final String? why = widget.definition.editRefusal?.call(item);
-      if (why != null) {
-        NotificationService.show(context, why,
-            kind: AppNotificationKind.information);
-      }
+      // Why it cannot be edited is said on the view that opens -- see
+      // [_subtitleFor] -- rather than in a notice behind the dialog.
       // The refusal is about writing. The row is still one somebody meant
       // to look at, and a notice with nothing behind it reads as "the screen
       // is broken" -- which is how a deleted user's Restore, which lives in
@@ -563,8 +576,7 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
       barrierDismissible: false,
       builder: (dialogContext) => CrudWorkspaceDialog(
         title: widget.definition.title,
-        subtitle:
-            item == null ? null : widget.definition.dialogSubtitle?.call(item),
+        subtitle: item == null ? null : _subtitleFor(item, mode),
         // Editing only: on create the record does not exist yet, so there is
         // nothing for a secondary action to act on.
         leadingAction: item == null || mode == CrudDialogMode.create
