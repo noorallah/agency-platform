@@ -161,9 +161,15 @@ void main() {
         );
     expect(roleChip().onSelected, isNotNull, reason: 'no job chosen yet');
 
+    // Pick a role first, then the job: the pick is cleared, not left greyed.
+    await tester.tap(find.widgetWithText(FilterChip, 'CA').last);
+    await tester.pumpAndSettle();
+    expect(roleChip().selected, isTrue);
+
     await tester.tap(find.widgetWithText(FilterChip, 'EXP · Direct Expenses'));
     await tester.pumpAndSettle();
     expect(roleChip().onSelected, isNull, reason: 'the job decides the roles');
+    expect(roleChip().selected, isFalse, reason: 'earlier picks are cleared');
 
     await tester.tap(find.widgetWithText(FilterChip, 'EXP · Direct Expenses'));
     await tester.pumpAndSettle();
