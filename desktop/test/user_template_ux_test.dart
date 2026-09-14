@@ -136,6 +136,62 @@ Future<List<UserTemplate?>> _open(WidgetTester tester, _Api api) async {
 }
 
 void main() {
+  group('who may change a template', () {
+    UserTemplate template({String? firmId, bool isSystem = false}) =>
+        UserTemplate(
+          id: 't-9',
+          code: 'night-counter',
+          name: 'Night Counter',
+          description: '',
+          firmId: firmId,
+          isActive: true,
+          isSystem: isSystem,
+          roleIds: const [],
+          roleCodes: const ['CASHIER'],
+        );
+    const List<String> admin = [
+      'ROLE_VIEW',
+      'ROLE_CREATE',
+      'ROLE_UPDATE',
+      'ROLE_DELETE',
+    ];
+
+    test("a template offered to every firm is not a firm's to change", () {
+      // A platform administrator's template with no firm read "This firm" and
+      // could be edited and retired by any firm administrator (plan section 19).
+      final definition =
+          userTemplateDefinition(_UsersApi(), _permissions(admin));
+      final UserTemplate everyone = template();
+
+      expect(definition.cells(everyone)[3], 'Every firm');
+      expect(definition.canEdit!(everyone), isFalse);
+      expect(definition.canUseAction!(ToolbarAction.edit, everyone), isFalse);
+      expect(definition.canUseAction!(ToolbarAction.delete, everyone), isFalse);
+    });
+
+    test("a firm's own template is theirs", () {
+      final definition =
+          userTemplateDefinition(_UsersApi(), _permissions(admin));
+      final UserTemplate ours = template(firmId: 'firm-1');
+
+      expect(definition.cells(ours)[3], 'This firm');
+      expect(definition.canEdit!(ours), isTrue);
+      expect(definition.canUseAction!(ToolbarAction.delete, ours), isTrue);
+    });
+
+    test(
+        'the platform may change what it offered everyone, not the seeded jobs',
+        () {
+      final definition = userTemplateDefinition(_UsersApi(), _platformAdmin());
+
+      expect(definition.canEdit!(template()), isTrue);
+      expect(definition.cells(template())[3], 'Every firm');
+      expect(definition.cells(template(firmId: 'firm-2'))[3], 'One firm');
+      expect(definition.canEdit!(template(isSystem: true)), isFalse);
+      expect(definition.cells(template(isSystem: true))[3], 'Platform');
+    });
+  });
+
   _firmFilterTests();
 
   group('the template picker', () {
@@ -577,7 +633,8 @@ void main() {
       // The directory is theirs anyway. Nothing typed is a request for the
       // whole of it, and the server leaves out the firm's own people.
       final _LookupApi api = _LookupApi(results: [
-        _lookupRow(id: 'u-1', name: 'Asha Rao', email: 'asha@elsewhere.example'),
+        _lookupRow(
+            id: 'u-1', name: 'Asha Rao', email: 'asha@elsewhere.example'),
         _lookupRow(id: 'u-2', name: 'Bala Iyer', email: 'bala@nowhere.example'),
       ]);
 
@@ -586,7 +643,8 @@ void main() {
       expect(api.terms, [''], reason: 'searched once, before anything typed');
       expect(find.text('Asha Rao'), findsOneWidget);
       expect(find.text('Bala Iyer'), findsOneWidget);
-      expect(find.textContaining('Leave blank to list everyone'), findsOneWidget);
+      expect(
+          find.textContaining('Leave blank to list everyone'), findsOneWidget);
       expect(find.text('Type a name or email to search.'), findsNothing);
     });
 
@@ -935,7 +993,8 @@ class _LookupApi extends ApiClient {
     int pageSize = 100,
   }) async {
     if (page == 1) terms.add(term);
-    return PagedResult(items: page == 1 ? results : const [], total: results.length);
+    return PagedResult(
+        items: page == 1 ? results : const [], total: results.length);
   }
 
   @override
@@ -1117,7 +1176,6 @@ void _firmFilterTests() {
     });
   });
 }
-
 
 class _FirmFilterApi extends ApiClient {
   _FirmFilterApi()

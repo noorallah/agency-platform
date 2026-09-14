@@ -697,8 +697,10 @@ class _DesktopShellState extends State<DesktopShell> {
                 // "Platform" rather than "No firm": for an administrator with
                 // the designation it is a place to be working, not an absence.
                 compact
-                    ? (current?.code ?? (platformIsAChoice ? 'Platform' : 'No firm'))
-                    : (current?.name ?? (platformIsAChoice ? 'Platform' : 'No firm')),
+                    ? (current?.code ??
+                        (platformIsAChoice ? 'Platform' : 'No firm'))
+                    : (current?.name ??
+                        (platformIsAChoice ? 'Platform' : 'No firm')),
                 overflow: TextOverflow.ellipsis,
               ),
             ),
@@ -1533,7 +1535,9 @@ class _FirmSwitcherDialogState extends State<_FirmSwitcherDialog> {
                         // difference between switching and the primary is
                         // visible where switching happens.
                         subtitle: Text(
-                          firm.isPrimary ? '${firm.code}  ·  primary' : firm.code,
+                          firm.isPrimary
+                              ? '${firm.code}  ·  primary'
+                              : firm.code,
                         ),
                         trailing: firm.id == widget.activeFirmId
                             ? const Icon(Icons.check, size: 18)
@@ -1683,7 +1687,7 @@ class _AdministrationWorkspaceState extends State<_AdministrationWorkspace> {
         ),
       'user-templates' => ResourceManagementPage<UserTemplate>(
           api: widget.api,
-          definition: _userTemplateDefinition(
+          definition: userTemplateDefinition(
             widget.api,
             widget.permissions,
             showFrame: false,
@@ -1994,8 +1998,7 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
         'vendors' =>
           'Manage enterprise vendor masters with contacts, addresses, banking, and tax details.',
         'vendor-categories' => 'Group vendors by what they supply.',
-        'vendor-types' =>
-          'Classify vendors by the kind of supplier they are.',
+        'vendor-types' => 'Classify vendors by the kind of supplier they are.',
         'branches' =>
           'Manage branch hierarchy, managers, and operational status.',
         'warehouses' =>
@@ -3270,9 +3273,8 @@ ResourceDefinition<PlatformUser> userDefinition(
       // Deleted is platform-wide, so it overrides any firm chosen; Active
       // and Inactive narrow the live rows and compose with the firm, which
       // is the whole reason the two are separate dropdowns.
-      firmId: filters['status'] == deletedStatus
-          ? ''
-          : (filters['firm_id'] ?? ''),
+      firmId:
+          filters['status'] == deletedStatus ? '' : (filters['firm_id'] ?? ''),
       deletedOnly: filters['status'] == deletedStatus,
       inactiveOnly: filters['status'] == inactiveStatus,
       activeOnly: filters['status'] == activeStatus,
@@ -3991,7 +3993,35 @@ ResourceDefinition<PlatformUser> userFirmAssignmentDefinition(
 /// everything a user has -- an email, a password, memberships, an audit trail,
 /// a login history -- and the clone quietly inherits whatever was edited after
 /// the template was written. A bundle carries only what the job needs.
-ResourceDefinition<UserTemplate> _userTemplateDefinition(
+/// Whether a template is outside this caller's hands.
+///
+/// A seeded template, and one a platform administrator wrote for no particular
+/// firm, are both offered to every firm; a firm administrator uses them and may
+/// not change them. Only the seeded kind was treated so, and a template offered
+/// to every firm read "This firm" with Edit and Delete enabled (manual plan
+/// section 19, 2026-09-15). A platform administrator may change both kinds
+/// they wrote; the seeded ones stay fixed for everybody.
+bool _platformOwned(UserTemplate template, PermissionService permissions) =>
+    template.isSystem ||
+    (template.firmId == null && !permissions.isPlatformAdmin);
+
+/// Where a template comes from, in the words the grid and dialog use.
+String _templateOrigin(
+  UserTemplate template,
+  PermissionService permissions, {
+  bool long = false,
+}) {
+  if (template.isSystem) return long ? 'Provided by the platform' : 'Platform';
+  if (template.firmId == null) {
+    return long ? 'Offered to every firm' : 'Every firm';
+  }
+  if (permissions.isPlatformAdmin) {
+    return long ? 'Offered to one firm' : 'One firm';
+  }
+  return long ? "This firm's own" : 'This firm';
+}
+
+ResourceDefinition<UserTemplate> userTemplateDefinition(
   ApiClient api,
   PermissionService permissions, {
   bool showFrame = true,
@@ -4004,7 +4034,7 @@ ResourceDefinition<UserTemplate> _userTemplateDefinition(
           'Name a job once, and hire into it without reassembling its access.',
       dialogSubtitle: (template) => <String>[
         '${template.code} — ${template.name}',
-        template.isSystem ? 'Provided by the platform' : "This firm's own",
+        _templateOrigin(template, permissions, long: true),
       ].join('  ·  '),
       headers: const ['Code', 'Name', 'Roles', 'Origin', 'Status'],
       sortFields: const ['code', 'name', null, null, null],
@@ -4013,7 +4043,7 @@ ResourceDefinition<UserTemplate> _userTemplateDefinition(
         template.name,
         // The whole point of the row: what the job actually gets.
         template.roleCodes.isEmpty ? '—' : template.roleCodes.join(', '),
-        template.isSystem ? 'Platform' : 'This firm',
+        _templateOrigin(template, permissions),
         template.isActive ? 'Active' : 'Inactive',
       ],
       id: (template) => template.id,
@@ -4021,14 +4051,15 @@ ResourceDefinition<UserTemplate> _userTemplateDefinition(
       // A platform template is offered to every firm, so no single firm may
       // edit or retire it. The server refuses both; saying so on the row is
       // what stops somebody trying.
-      canEdit: (template) => !template.isSystem,
+      canEdit: (template) => !_platformOwned(template, permissions),
       // Two gates, and they answer different questions. The permission gate
       // asks whether this user may edit templates at all; the row gate asks
       // whether *this* template is theirs to edit. The server refuses a
       // platform one either way -- disabling the button is what stops somebody
       // filling in a form that was never going to save.
       canUseAction: (action, selected) {
-        final bool platformOwned = selected?.isSystem ?? false;
+        final bool platformOwned =
+            selected != null && _platformOwned(selected, permissions);
         if (platformOwned &&
             (action == ToolbarAction.edit || action == ToolbarAction.delete)) {
           return false;
