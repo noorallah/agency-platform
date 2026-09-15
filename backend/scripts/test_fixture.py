@@ -714,13 +714,19 @@ def build_clone_source(built: Built) -> None:
     built.say("Source roles", "SALES_EXECUTIVE in TEST01 only")
 
 
+def build_template_offering(built: Built) -> None:
+    """Make a platform admin to write templates, and a TEST01 admin to read them."""
+    build_firm_admin(built)
+    build_platform_admin(built)
+
+
 #: Every fixture, what it builds, and the cases that name it.
 FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "firm-admin": (
         "A fresh firm administrator of TEST01.",
         build_firm_admin,
         "TC-ROLE-001..004, TC-PLAT-005, TC-ME-007, TC-FIRM-016, "
-        "TC-TMPL-001..004, TC-TMPL-011",
+        "TC-TMPL-001..004, TC-TMPL-011, TC-TMPL-015",
     ),
     "custom-role": (
         "firm-admin + a custom role with the four Night Desk codes.",
@@ -740,7 +746,7 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "platform-admin": (
         "An ALL_FIRMS platform administrator who belongs to no firm.",
         build_platform_admin,
-        "TC-PLAT-001..003, TC-ME-006, TC-FIRM-001..003",
+        "TC-PLAT-001..003, TC-ME-006, TC-FIRM-001..003, TC-TMPL-012",
     ),
     "platform-admin-member": (
         "An ALL_FIRMS platform administrator who belongs to both test firms.",
@@ -801,6 +807,11 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         "firm-admin + a TEST01 seller to hire somebody like.",
         build_clone_source,
         "TC-HIRE-001..004",
+    ),
+    "template-offering": (
+        "firm-admin + platform-admin: one writes templates, one reads them.",
+        build_template_offering,
+        "TC-TMPL-013, TC-TMPL-014",
     ),
 }
 

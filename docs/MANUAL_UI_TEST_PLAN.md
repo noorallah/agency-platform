@@ -458,42 +458,21 @@ for 18.4.
 
 ## 19. Setting a firm up from the platform side
 
-Sign in as `superadmin@agency.local` (tier 2; its scope must be back at
-`ALL_FIRMS` after section 16). **Its seeded password `Password@123` was changed
-by the owner on 2026-09-15** — use the current one; guessing locks the account.
-This is the flow a platform operator uses when a new firm is created.
-Re-derived on 2026-09-15 and **run clean on 2026-09-15**: 19.1–19.5 all met the
-expectations below unchanged.
+**Moved to `docs/INDEPENDENT_TEST_CASES.md` on 2026-09-16**, as TC-TMPL-012 to
+015. TEST02 plays FOOD01's part and TEST01 WHOLE01's, and each case deletes the
+template it wrote.
 
-**Where it lives.** User Templates is its own leaf in the Administration
-sidebar (`user-templates`), not inside the Roles and Permissions group. It
-carries `requiresFirm: false`, so it opens in Platform mode with no firm
-selected — which is the point, since a platform operator has no own firm.
+**Left over from the 2026-09-15 run:** an `every-night` template offered to
+every firm (CASHIER) is still live — 19.4a's clean-up did not happen. It shows
+in every firm's User Templates as **Every firm**; delete it as a platform
+administrator.
 
-| # | Case | Expected |
-| --- | --- | --- |
-| 19.1 | Administration → User Templates → New | An **Offered to** picker appears in the General section -- one chip per firm reading `CODE · Name`, helper "Leave blank to offer this job to every firm." -- which a firm administrator does not see. It is create-only. |
-| 19.2 | New: **Template code** `food-night`, **Job name** `Food Night`, **Offered to** the `FOOD01 · …` chip, then the **Roles** section → `CASHIER` → Save | Created. For the platform user Origin reads **One firm** (the grid does not name which); the dialog subtitle does, as "`food-night — Food Night` · Offered to one firm". Not **Every firm** (the `firm_id` never left the form) and not **This firm** (the wording #383 fixed) — either means 19.3 will fail too. |
-| 19.3 | Sign in as `whole01.admin` and open User Templates | `food-night` from 19.2 is **not** listed (it would be, as **This firm**, had you chosen WHOLE01). Before this, a template written for one firm was offered to every firm. |
-| 19.4 | As the platform user, New: `every-night`, `Every Night`, Roles `CASHIER`, **Offered to** left blank → Save | Offered to every firm — which is right for a job every firm has, and is why the field says so. Origin reads **Every firm**, and the platform user may still edit it. |
-| 19.4a | Sign in as `whole01.admin` → User Templates → select `every-night` | Listed, Origin **Every firm**, subtitle "… · Offered to every firm". **Edit** and **Delete** are disabled. **(HTTP)** `PATCH /api/v1/user-templates/{id}` or `DELETE` with this token → `422`, "This template is offered to every firm, so only a platform administrator can change or retire it." *(Until 2026-09-15 it read "This firm" and any firm administrator could rename or retire it -- #383.)* Afterwards, as the platform user, **Delete** `food-night` and `every-night`. |
-| 19.5 **(HTTP)** | As `whole01.admin`, `POST /api/v1/user-templates` with a non-empty `role_ids` and a `firm_id` that is not WHOLE01's | `422` `business_rule_violation`, "You can only act within your own firm." (re-driven 2026-09-15; nothing created — check the grid afterwards). Refused, not silently redirected. |
-
-**Two things worth knowing before you drive 19.5**, both of which decide whether
-the row is even runnable:
-
-- **The `firm_id` does not have to be a real other firm.** `_target_firm`
-  (`app/identity/services/identity_service.py`) refuses a firm caller naming
-  *any* firm but their own, and for a firm caller it never looks the firm up —
-  so `11111111-1111-1111-1111-111111111111` takes the same branch and gives the
-  same message. That matters practically: `whole01.admin` **cannot discover
-  ELEC01's id at all**, because `/api/v1/firms` is platform-only. A row that
-  required a real one would strand whoever ran it.
-- **`role_ids` must be non-empty and well-formed**, or the body is refused by
-  validation before the service is reached and you are testing pydantic rather
-  than the firm check. Its *contents* are never examined here: `_target_firm`
-  runs first, ahead of `_assert_roles_are_assignable`, so any role id from your
-  own firm does.
+| Old row | Case |
+| --- | --- |
+| 19.1 | TC-TMPL-012 |
+| 19.2, 19.3 | TC-TMPL-013 |
+| 19.4, 19.4a | TC-TMPL-014 |
+| 19.5 | TC-TMPL-015 |
 
 ---
 

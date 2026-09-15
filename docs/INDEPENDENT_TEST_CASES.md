@@ -7,7 +7,7 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Converted so far:** plan sections 16, 17, 18, 25 (the pilot), 26, 26a and 27 — see the
+**Converted so far:** plan sections 16 to 19, 25 (the pilot), 26, 26a and 27 — see the
 table of contents below. Other sections move here one at a time; until then
 they stay in the plan.
 
@@ -379,6 +379,73 @@ digit, symbol.
   - Step 1: **Administration is not offered**, so there is no Hire like this person.
   - Step 2: **403**. The action needs `ROLE_ASSIGN` — somebody who may open accounts but not grant access must not be able to copy access instead.
 - **Leaves:** nothing new.
+
+---
+
+## Templates from the platform side — which firms a job is offered to
+
+A platform caller's scope resolves to no firm, and for a template no firm used
+to mean **every** firm — so a job written while setting up one firm was
+published to all of them. **Offered to** names the firm; blank still means
+every firm, deliberately.
+
+**These cases write platform-wide rows.** A template offered to every firm
+appears in every firm's list, the demo firms included, until it is deleted —
+each case ends by deleting what it made.
+
+### TC-TMPL-012 — A platform administrator chooses who a job is offered to
+
+- **Covers:** plan 19.1
+- **Fixture:** `platform-admin`
+- **Steps:** sign in as the fixture's **Platform admin** (on Platform) → Administration → **User Templates** → **New**.
+- **Expect:** the tab opens with no firm selected — it carries `requiresFirm: false`, since a platform operator has no firm of their own. The General section has an **Offered to** picker: one chip per firm reading `CODE · Name`, helper "Leave blank to offer this job to every firm." A firm administrator's form has no such field. It is create-only.
+- **Leaves:** nothing (cancel the form).
+
+### TC-TMPL-013 — A job offered to one firm is not offered to another
+
+- **Covers:** plan 19.2, 19.3
+- **Fixture:** `template-offering`
+- **Steps**
+  1. As the fixture's **Platform admin**, User Templates → New: code `<suffix>-t2-night`, name `T2 Night`, **Offered to** the `TEST02 · …` chip, Roles `CASHIER` → Save.
+  2. Sign in as the fixture's **Firm admin** (TEST01) → User Templates.
+  3. As the platform admin again, delete `<suffix>-t2-night`.
+- **Expect**
+  - Step 1: created. Origin reads **One firm**; the subtitle reads "`<suffix>-t2-night — T2 Night` · Offered to one firm". **Every firm** would mean the firm never left the form; **This firm** is the wording #383 fixed — either means step 2 fails too.
+  - Step 2: `<suffix>-t2-night` is **not** listed.
+- **Data**
+  ```sql
+  select t.code, f.code as offered_to from platform.user_templates t
+  left join platform.firms f on f.id = t.firm_id
+  where t.code = '<suffix>-t2-night';
+  ```
+  `TEST02`.
+- **Leaves:** nothing, once deleted.
+
+### TC-TMPL-014 — A job offered to every firm is the platform's to change
+
+- **Covers:** plan 19.4, 19.4a
+- **Fixture:** `template-offering`
+- **Steps**
+  1. As the fixture's **Platform admin**, New: `<suffix>-every-night`, `Every Night`, Roles `CASHIER`, **Offered to blank** → Save. Edit its name → Save.
+  2. Sign in as the fixture's **Firm admin** → User Templates → select `<suffix>-every-night`.
+  3. **(HTTP)** As the firm admin: `PATCH /api/v1/user-templates/{id}` `{"name": "y"}`, then `DELETE /api/v1/user-templates/{id}`.
+  4. As the platform admin, **Delete** it.
+- **Expect**
+  - Step 1: Origin **Every firm**, and the platform admin may still edit it.
+  - Step 2: listed, Origin **Every firm**, subtitle "… · Offered to every firm". **Edit** and **Delete** disabled.
+  - Step 3: **422** on both, "This template is offered to every firm, so only a platform administrator can change or retire it."
+  - Step 4: gone from every firm's list.
+- **Leaves:** nothing, once deleted.
+
+### TC-TMPL-015 — A firm administrator cannot write a template for another firm
+
+- **Covers:** plan 19.5
+- **Fixture:** `firm-admin`
+- **Steps (HTTP)** — as the fixture's firm admin with `X-Firm-ID` of TEST01: `POST /api/v1/user-templates` `{"code": "<suffix>-x", "name": "X", "firm_id": "11111111-1111-1111-1111-111111111111", "role_ids": ["<CASHIER's id>"]}`.
+- **Expect:** **422**, "You can only act within your own firm." Nothing created. Refused, not silently redirected.
+  - The `firm_id` need not be a real firm: for a firm caller any firm but their own takes the same branch, and a firm administrator cannot read `/api/v1/firms` to find one anyway.
+  - `role_ids` must be non-empty and well formed, or validation refuses the body first and the case tests pydantic rather than the firm check. CASHIER's id: `select id from platform.roles where code = 'CASHIER'`.
+- **Leaves:** a firm admin user.
 
 ---
 
