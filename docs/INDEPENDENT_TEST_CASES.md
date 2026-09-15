@@ -7,7 +7,7 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Converted so far:** plan sections 2 to 13, 15 and 16 to 27 (25 was the pilot) — see the
+**Converted so far:** plan sections 2 to 27 (25 was the pilot) — see the
 table of contents below. Other sections move here one at a time; until then
 they stay in the plan.
 
@@ -1381,6 +1381,73 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 - **Steps:** sign in on the desktop, end **agency_desktop** in Task Manager, start it again and sign in as the fixture's **Platform admin** (the queued report is sent then). Settings → **Diagnostics** → Source **Desktop** → Search; open the **UnexpectedTermination** group's first occurrence. Then Source **Server**, any group's first occurrence.
 - **Expect:** Desktop: the UnexpectedTermination count one higher than before; occurrences / first seen / last seen / versions chips; the newest occurrence shows Firm, User and "Leading up to it" breadcrumbs ("Previous session started at … ended without a clean exit…") — no Request and no stack trace. Server: **Request <request_id>** and the stack trace.
 - **Leaves:** one more crash report.
+
+---
+
+## Concurrency — two people, one record
+
+Run these with **two clients** on one server (or two windows of one client),
+**A** and **B**, both signed in as the same fixture's firm admin. An editor that
+saves from **inside** its dialog — customer, sales order, sales invoice,
+product, price list, promotion, coupon, customer group, target, payout
+adjustment — says on a lost race, keeping the dialog open with the typing in
+it: *"Somebody else saved this <thing> while you were editing it. Your changes
+are still here and have not been sent. Copy anything you need, then close and
+reopen to see theirs."* An editor that closes first — branch, warehouse,
+quotation, batch, lot, serial number, beat plan, place, territory, tax
+component — says in a red toast: *"Somebody else saved this <thing> while you
+were editing it. Your changes were not saved. Open it again to see theirs and
+redo yours."*
+
+### TC-CONC-001 — Two people editing one customer
+
+- **Covers:** plan 14.1
+- **Fixture:** `customer-master`
+- **Steps:** on **A** and **B**: Masters → Customers → double-click `<SUFFIX>-CM`. On A change the phone → **Save**. On B change the phone to something else → **Save**.
+- **Expect:** A saves ("Customer updated."). B is refused **inside the editor** with the sentence naming `customer`; the dialog stays open with B's typed phone still in the box. Cancel B; reopen: A's phone.
+- **Leaves:** the customer with A's phone.
+
+### TC-CONC-002 — The same race on an order, a product and a price list
+
+- **Covers:** plan 14.2
+- **Fixture:** `selling-firm`
+- **Steps:** create a draft Sales Order for `<SUFFIX>-C01` first (any line). Then, on A and B: open that draft → **Edit**, change **Remarks** on both, Save A then B. Repeat on Masters → Products → `<SUFFIX>-DET` (Description) and Sales → Price Lists → `STANDING` (the **Name** — the dialog has no Description).
+- **Expect:** B is refused each time with the sentence naming `sales order`, `product`, `price list`; typing kept, dialog open.
+- **Leaves:** three records with A's edits.
+
+### TC-CONC-003 — Saving unchanged does not move the version
+
+- **Covers:** plan 14.3
+- **Fixture:** `customer-master`
+- **Steps:** on A alone, double-click `<SUFFIX>-CM`, change nothing → Save; do it again. **(HTTP)** `GET /api/v1/customers/{id}` before and after; compare the `ETag`.
+- **Expect:** accepted both times; the `ETag` and the body's `version` are **the same before and after** — so a client re-sending the same `If-Match` is still accepted. *(Driven: `"2"` before and after an unchanged PUT.)*
+- **Leaves:** unchanged.
+
+### TC-CONC-004 — Two approvals of one order
+
+- **Covers:** plan 14.4
+- **Fixture:** `selling-firm`
+- **Steps:** create a draft order for `<SUFFIX>-C01`. On A and B select it in the grid. **Approve** on A; then **Approve** on B, whose grid still says DRAFT.
+- **Expect:** A: the row reads APPROVED. B: a red toast — "Only draft sales orders can be approved." (A finished first) or the conflict sentence (both in flight) — never a silent no-op, never a 500. Refresh B: APPROVED once.
+- **Leaves:** an approved order.
+
+### TC-CONC-005 — The last use of a coupon goes to one order
+
+- **Covers:** plan 14.5
+- **Fixture:** `selling-firm`
+- **Steps**
+  1. Sales → Promotions → **Coupons** → `WELCOME10B` → Edit → **Total claims allowed** `1` → Save.
+  2. Raise two draft orders for `<SUFFIX>-C01` with **Coupon** `WELCOME10B`, one on each client. Approve both.
+- **Expect:** the first approves; the second is refused **by name**: "Coupon WELCOME10B has been used as often as it allows. Re-save the document to price it without." — not silently repriced. A claim counts only at approval, under a lock on the promotion. (`test_the_refusal_is_for_the_race_two_orders_priced_before_either_approved` covers the true race.)
+- **Leaves:** one approved order with the coupon, one draft; the coupon exhausted in the fixture's store.
+
+### TC-CONC-006 — Two accruals of one payout period
+
+- **Covers:** plan 14.6
+- **Fixture:** `commission-firm`
+- **Steps:** on A and B: Sales → Commission → **Payouts** → **Accrue period**, this month on both; **Accrue** on A, then on B.
+- **Expect:** A: "2 payout(s) accrued." B: "A commission payout already covers part of that period for this salesman (…)." — a **409** by name, never a 500. The database holds the rule (`UQ_commission_payouts_period_active`); the service supplies the sentence.
+- **Leaves:** two draft payouts.
 
 ---
 

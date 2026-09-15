@@ -433,16 +433,23 @@ raised and dispatched its own note.
 
 ## 14. Concurrency and two machines
 
-Run these with two clients pointed at one server (or two windows of one client; the second `Start-Process` launch is a second client). Sign both in as `whole01.admin`. An editor that saves from **inside** its dialog -- customer, sales order, sales invoice, product, price list, promotion, coupon, customer group, target, payout adjustment -- shows this sentence on a lost race and keeps the dialog open with the typing in it: `Somebody else saved this <thing> while you were editing it. Your changes are still here and have not been sent. Copy anything you need, then close and reopen to see theirs.` An editor that closes first and saves after -- branch, warehouse, quotation, batch, lot, serial number, beat plan, place, territory, tax component -- cannot keep the typing, so it says so in a red toast instead: `Somebody else saved this <thing> while you were editing it. Your changes were not saved. Open it again to see theirs and redo yours.` Until 2026-09-13 six of them (price list, promotion, customer group, sales invoice, target, packaging level) showed the server's generic "The request conflicts with existing data. Please retry." instead. Server-side facts: driven on 2026-09-13, a second approval of one order and a second accrual of one payout period were both refused rather than answered with a 500, and an unchanged save left the version where it was.
+**Moved to `docs/INDEPENDENT_TEST_CASES.md` on 2026-09-16**, as TC-CONC-001 to
+006, on fixture records rather than `WHOLE01C03`, `SO-2026-2027-000012`,
+`TOOTH150`, `STANDING` and May/June 2025 payouts — so the coupon limit a case
+sets, and the payouts it accrues, stay in a store of the run's own and need no
+clearing afterwards. Re-driven: an unchanged save kept `ETag "2"`; a second
+approval answered "Only draft sales orders can be approved."; the second order
+on a one-use coupon was refused by name; a second accrual of a period answered
+409 with the sentence.
 
-| # | Case | Expected |
-| --- | --- | --- |
-| 14.1 | On **A** and **B**: Masters → Customers → double-click `WHOLE01C03` (Classic Departmental Stores, phone +919999900001 on 2026-09-14). On A change the phone, **Save**. On B change the phone to something else, **Save**. | A saves ("Customer updated."). B is refused **inside the editor** with the sentence above naming `customer`, the dialog stays open, B's typed phone is still in the box. Cancel B; reopen: A's phone is there. |
-| 14.2 | The same on a **sales order** (Sales Orders → `SO-2026-2027-000012`, Anand Agencies, DRAFT → **Edit**, change **Remarks** on both), a **product** (Masters → Products → `TOOTH150`, edit the Description) and a **price list** (Sales → Price Lists, double-click `STANDING`, change the **Name** -- the dialog has no Description). | B refused each time with the sentence naming `sales order`, `product`, `price list`; typing kept, dialog open. |
-| 14.3 | On A alone: double-click `WHOLE01C03`, change nothing, **Save**. Then double-click again, **Save** again. **(HTTP)** `GET /api/v1/customers/{id}` twice around it and compare the `ETag`. | Accepted both times. The `ETag` (and `version` in the body) is **the same before and after** -- an unchanged save must not move the version, so a client re-sending the same `If-Match` is still accepted. |
-| 14.4 | On A and B: Sales Orders, select `SO-2026-2027-000019` (Anand Agencies, DRAFT, 1,079.42 -- one of the two drafts in WHOLE01 on 2026-09-14) in both grids. **Approve** on A (there is no confirmation). Then **Approve** on B, whose grid still says DRAFT. | A: the grid reloads and the row reads APPROVED (there is no success toast on this page). B: a red toast, either "Only draft sales orders can be approved." (A finished first) or the conflict sentence (both in flight); never a silent no-op and never a 500. Refresh B: APPROVED once. |
-| 14.5 | Both clients approve a document that would claim the **last** use of a coupon. | Covered by `test_the_refusal_is_for_the_race_two_orders_priced_before_either_approved` in `backend/tests/unit/test_promotions.py`: the loser is **refused by name**, not silently repriced. The promotion editor has no redemption limit field, so by hand use the coupon's: Sales → Promotions → **Coupons** → `WELCOME10` (offer WELCOME, 2.5% off every line, used 4 times on 2026-09-14) → Edit → **Total claims allowed** `5` → Save. Raise two DRAFT orders for `WHOLE01C01` with **Coupon** `WELCOME10`, one on each client, then approve both: the first approves, the second is refused "Coupon WELCOME10 has been used as often as it allows. Re-save the document to price it without." Clear **Total claims allowed** afterwards and cancel the leftover draft. |
-| 14.6 | On A and B: Sales → Commission → **Payouts** → **Accrue period**, From `2025-06-01` To `2025-06-30` on both (no payout covers June 2025 on 2026-09-14; the existing ones are May 2025 and April-June 2026), **Accrue** on A then on B. | A: "2 payout(s) accrued as drafts." B: "A commission payout already covers part of that period for this salesman (2025-06-01 to 2025-06-30)." -- a 409 by name, never a 500. The database holds the rule (`UQ_commission_payouts_period_active`), the service supplies the sentence. **Cancel** A's two drafts afterwards (the row's Cancel action: "... cancelled. The period is free to accrue again."). |
+| Old row | Case |
+| --- | --- |
+| 14.1 | TC-CONC-001 |
+| 14.2 | TC-CONC-002 |
+| 14.3 | TC-CONC-003 |
+| 14.4 | TC-CONC-004 |
+| 14.5 | TC-CONC-005 |
+| 14.6 | TC-CONC-006 |
 
 ## 15. Permissions
 

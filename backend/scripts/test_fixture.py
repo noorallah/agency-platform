@@ -2963,7 +2963,7 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "customer-master": (
         "firm-admin + seller + a fully described customer, segments, places.",
         build_customer_master,
-        "TC-CUST-001..004, TC-CUST-006",
+        "TC-CUST-001..004, TC-CUST-006, TC-CONC-001, TC-CONC-003",
     ),
     "invoiced-part-paid": (
         "invoiced, with 200 of the 590 invoice collected.",
@@ -3028,7 +3028,8 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "selling-firm": (
         "A Wholesale firm of the run's own priced like WHOLE01: lists, offers, TCS.",
         build_selling_firm,
-        "TC-SELL-001..006, TC-INCENT-001, TC-INCENT-002, TC-INCENT-004",
+        "TC-SELL-001..006, TC-INCENT-001, TC-INCENT-002, TC-INCENT-004, "
+        "TC-CONC-002, TC-CONC-004, TC-CONC-005",
     ),
     "selling-ordered": (
         "selling-firm + Vijaya's order for 12 (coupon WELCOME10), approved.",
@@ -3058,7 +3059,7 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "commission-firm": (
         "territory-firm + commission rules, targets, and three sales collected.",
         build_commission_firm,
-        "TC-INCENT-006..008",
+        "TC-INCENT-006..008, TC-CONC-006",
     ),
     "loyalty-points": (
         "selling-invoiced + 200 loyalty points credited to Vijaya.",
