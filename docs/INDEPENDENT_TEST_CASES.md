@@ -7,7 +7,7 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Converted so far:** plan sections 2 to 6 and 16 to 27 (25 was the pilot) — see the
+**Converted so far:** plan sections 2 to 7 and 16 to 27 (25 was the pilot) — see the
 table of contents below. Other sections move here one at a time; until then
 they stay in the plan.
 
@@ -582,6 +582,109 @@ name.
   - Step 2: the line shows **Base Qty 10**, not 20 — the product's factor of 1 outranks the firm-wide 2. (Ranked explicitly rather than by NULL sort, which PostgreSQL and SQLite order oppositely.)
 - **Data (HTTP):** the order's line carries `conversion_factor` 1 and `base_quantity` 10. *(Driven with two firm-wide PACK→KG rules at 2 in place: still 10.)*
 - **Leaves:** a firm-wide rule and a draft order in the fixture's store.
+
+---
+
+## Buying — order to payment
+
+Four documents: a purchase order, goods receipts against it, a supplier
+invoice against a receipt, and a purchase return. **Completing a receipt
+posts stock; cancelling a completed one reverses the stock and the journal;
+approving an invoice posts the payable; completing a return takes stock back
+off.** Everything else is paperwork.
+
+Each stage has a fixture, so any step can be taken on its own. They all buy
+**this run's own product**, which starts with **nothing on hand** — every
+stock figure below is absolute, not "up by N from where you started".
+
+| Fixture | Starts you with |
+| --- | --- |
+| `buy-ready` | a vendor `<SUFFIX>-V` and a product `<SUFFIX>-B`, 0 on hand |
+| `po-approved` | … and an **approved** purchase order for 10 at 100 |
+| `po-received` | … and receipts of **4** and **6**, both completed — 10 on hand |
+| `po-invoiced` | … and an **approved** supplier invoice for the receipt of 6 (708.00 with GST) |
+
+Purchase orders are **Purchases → Purchase Orders**; receipts, invoices and
+returns have their own sidebar modules; payments are **Finance → Payments**;
+stock is **Inventory → Inventory** and **Inventory → Stock Ledger**. Every
+screen reads once when opened: **Refresh** after acting elsewhere.
+
+### TC-BUY-001 — Raising a purchase order, and the approval that cannot be skipped
+
+- **Covers:** plan 7.1, 7.2, 7.3
+- **Fixture:** `buy-ready`
+- **Steps**
+  1. As the fixture's **Firm admin**, Purchases → Purchase Orders → **New**: vendor `<SUFFIX>-V`, branch `HO`, warehouse `MAIN`, today; **Add Line**: product `<SUFFIX>-B`, quantity **10**, unit price **100** (the units fill from the product, PIECE) → **Save**. Open it.
+  2. Select the draft: look at the toolbar and inside the view.
+  3. **Submit**, then **Approve**.
+- **Expect**
+  - Step 1: status **DRAFT**, number `PO-TEST01-HO-2026-2027-…`; the Line Items table names the product as `<SUFFIX>-B — Bought Item <suffix>` and the unit `PIECE`; the Approval banner reads "Submit this draft to send it for approval."
+  - Step 2: **Approve is not offered** on a draft — only Submit. **(HTTP)** `POST /api/v1/purchases/{id}/approve` on a draft → **422**, "Only submitted purchase orders can be approved. Submit the order first."
+  - Step 3: toasts "… submitted for approval." and "… approved."; status **APPROVED**, the grid updating without the dialog closing.
+- **Leaves:** an approved order.
+
+### TC-BUY-002 — Editing an approved order withdraws the approval
+
+- **Covers:** plan 7.4
+- **Fixture:** `po-approved`
+- **Steps:** as the fixture's **Firm admin**, select the fixture's order → **Edit** → dialog **Editing withdraws the approval** → **Edit anyway**. Type a line remark and change the order remarks → **Save**. Then **Submit** and **Approve** again.
+- **Expect:** saved as **DRAFT**; the remark survives reopening; the view's **History** shows the approval withdrawn (audit `purchase.approval_withdrawn`). An edit no longer decides the status — the update body cannot write one. After Submit and Approve: APPROVED again.
+- **Leaves:** the order, re-approved.
+
+### TC-BUY-003 — Receiving part of an order, then the rest
+
+- **Covers:** plan 7.5, 7.6
+- **Fixture:** `po-approved`
+- **Steps**
+  1. As the fixture's **Firm admin**, Goods Receipts → **New** → **Purchase Order** picker (approved orders only) → the fixture's order. Set Accepted to **4**, warehouse `MAIN` → **Save Receipt** → select the draft → **Complete**.
+  2. Purchases → the order. Inventory → Inventory and Stock Ledger, filtered to `<SUFFIX>-B`.
+  3. Goods Receipts → New against the same order → Accepted defaults to **6** → Save, Complete.
+- **Expect**
+  - Step 1: the line arrives with Accepted 10 and "Ordered 10 · already received 0"; after save, "Goods receipt GRN-… created as a draft. Complete it to post the stock."; after Complete, status **COMPLETED**.
+  - Step 2: the order reads **PARTIALLY_RECEIVED**; `<SUFFIX>-B` in MAIN holds **4**; the Stock Ledger shows `GOODS_RECEIPT` +4 referencing the GRN.
+  - Step 3: the line says "already received 4"; after Complete the order reads **RECEIVED**, MAIN holds **10**, and a second `GOODS_RECEIPT` entry appears.
+- **Leaves:** a fully received order.
+
+### TC-BUY-004 — Cancelling a completed receipt undoes its stock and its journal
+
+- **Covers:** plan 7.7
+- **Fixture:** `po-received`
+- **Steps:** as the fixture's **Firm admin**, Goods Receipts → select the **receipt of 4** → **Cancel**. Then the order, the Inventory row and the Stock Ledger for `<SUFFIX>-B`; Finance → Journal Entries.
+- **Expect:** status **CANCELLED**; the ledger shows `GOODS_RECEIPT_REVERSAL` **−4** against that GRN; MAIN holds **6**; the order drops back to **PARTIALLY_RECEIVED**; the journal shows the reversal, crediting inventory with what the movement removed.
+- **Leaves:** 6 on hand; one cancelled receipt.
+
+### TC-BUY-005 — A receipt that has been invoiced cannot be cancelled
+
+- **Covers:** plan 7.8
+- **Fixture:** `po-invoiced`
+- **Steps:** as the fixture's **Firm admin**, Goods Receipts → select the **receipt of 6** (the one the fixture invoiced) → **Cancel**.
+- **Expect:** refused — "Goods receipt GRN-… has been invoiced, so cancelling it would leave the accrual and the payable disagreeing. Cancel the purchase invoice first, or raise a purchase return." Nothing changes. *(A purchase invoice cannot be raised from the desktop — BACKLOG §31.9 — which is why the fixture raises it.)*
+- **Leaves:** unchanged.
+
+### TC-BUY-006 — Returning damaged goods to the supplier
+
+- **Covers:** plan 7.9
+- **Fixture:** `po-received`
+- **Steps:** as the fixture's **Firm admin**, Purchase Returns → **New** → **Goods Receipt** picker (completed receipts only) → the **receipt of 6**. On its line set **Returning** **2**, click the **Damaged** chip → **Save Return** → select the draft → **Approve** → **Complete**. Then Inventory, Stock Ledger, Journal Entries, and Reports → Operational Reports → **Damaged goods returned**.
+- **Expect:** after save, "Purchase return PR-2026-2027-… created as a draft. Approving and completing it is what takes the stock off."; after Complete, **COMPLETED**. MAIN holds **8**. The Stock Ledger shows the return of 2 referencing the PR (the API reads `transaction_type: RETURN`). The journal shows the return's entry; the damaged-goods report lists the line. Open the return: product and unit read as code and name, not ids.
+- **Leaves:** 8 on hand; a completed return.
+
+### TC-BUY-007 — The purchasing reports have rows
+
+- **Covers:** plan 7.10
+- **Fixture:** `po-approved`
+- **Steps:** as the fixture's **Firm admin**, Reports → **Operational Reports**: Purchase order register, Orders not yet received, Overdue purchase orders, Orders by supplier, Orders by buyer, Purchases by product.
+- **Expect:** each opens with a row count in the header. The register and "not yet received" include the fixture's order; by supplier names `Fixture Supplier <suffix>`; by product names `Bought Item <suffix>`. Overdue and by buyer may be empty in TEST01 — an empty report reads "Nothing to report", never a blank grid.
+- **Leaves:** unchanged.
+
+### TC-BUY-008 — Paying the supplier
+
+- **Covers:** plan 7.11
+- **Fixture:** `po-invoiced`
+- **Steps:** as the fixture's **Firm admin**, Finance → **Payments → Record Payment**: **Paid to** `<SUFFIX>-V`; **Amount** the bill's Outstanding (708.00); **Method** Bank; **Oldest first** → **Record payment**. Open Record Payment again for the same vendor.
+- **Expect:** toast "PY-… recorded and posted to the ledger." *(The plan said `PAY-`; the series prefix is `PY`.)* The second time, the bill is gone from the list. Journal Entries shows the payment: Dr Accounts Payable / Cr Bank.
+- **Data (HTTP):** `GET /api/v1/payments/parties?search=<SUFFIX>` lists the vendor by code and name.
+- **Leaves:** a paid supplier invoice.
 
 ---
 

@@ -250,23 +250,26 @@ simulator cases run in TEST01.
 
 ## 7. Buying — order to payment
 
-All as `whole01.admin` in WHOLE01, on a build from `main` at or after 2026-09-12 (PRs #317, #319, #321 fixed three refusals in this flow). Purchase orders live under **Purchases → Purchase Orders**; receipts, invoices and returns each have their own sidebar module (**Goods Receipts**, **Purchase Invoices**, **Purchase Returns**); payments are **Finance → Payments**; stock is **Inventory → Inventory** (rows per product and warehouse) and **Inventory → Stock Ledger** (every movement with the balance after it). Lifecycle buttons (Submit, Approve, Complete, Cancel, Close) sit on the toolbar and act on the selected row; on the purchase order they are also inside the view dialog. A receipt's or return's Complete/Cancel fires straight away with no confirmation; only the order's Cancel and Close ask for a reason. Every screen reads once when opened: click **Refresh** after acting somewhere else.
+**Moved to `docs/INDEPENDENT_TEST_CASES.md` on 2026-09-16**, as TC-BUY-001 to
+008. The rows were one chain in WHOLE01 — each receipt, cancellation and
+return building on the last, with stock "relative to where you started". Four
+fixtures now start at each stage (`buy-ready`, `po-approved`, `po-received`,
+`po-invoiced`) with a product of the run's own that begins at zero, so every
+figure is absolute and there is nothing to clean up before a fresh run.
 
-**Before starting a fresh run:** Administration → Configuration → UOM & Packaging → Conversion Rules -- delete any *Firm-wide* PACK→KG rule left from 6.8. Goods Receipts → Draft filter -- Cancel any draft receipt left from an earlier run. Note DETER1K's Current in WH_NORTH on the Inventory tab; every stock figure below is relative to it.
+Two corrections: the payment series prefix is **`PY-`**, not `PAY-`; and 7.8
+no longer needs a seeded WHOLE01 invoice, because the fixture raises one.
 
-| # | Case | Expected |
-| --- | --- | --- |
-| 7.1 | Purchases → Purchase Orders → **New**. Vendor `WHOLE01V01`, branch `BR_NORTH`, warehouse `WH_NORTH`, purchase date today; **Add Line**: product `DETER1K`, quantity **10**, unit price **100**; the line's Purchase UOM and Inventory UOM fill in from the product (`KG`, `KG`). **Save**. | The order appears with status **DRAFT** and a `PO-WHOLE01-BR_NORTH-2026-2027-...` number. Open it: the Line Items table shows the product as `DETER1K — ...`, the unit as `KG`, and a scrollbar under the table; the Approval banner reads "Submit this draft to send it for approval." |
-| 7.2 | Select the draft: look at the toolbar and inside the view | **Approve is not offered** on a draft -- only **Submit** is -- and the Approval banner reads "Submit this draft to send it for approval." The server refuses an approval of a draft with "Submit the order first." for any client that tries; the desktop does not let you try. |
-| 7.3 | **Submit**, then **Approve** | Toasts "... submitted for approval." and "... approved."; status **APPROVED**; the grid updates without the dialog closing. |
-| 7.4 | Select the approved order → **Edit** → dialog **Editing withdraws the approval** → **Edit anyway**. Type a line remark and change the order remarks. **Save**. | Saved: status **DRAFT** again, the remark survives on reopening, and the view's **History** section shows the approval withdrawn. Then **Submit** and **Approve** once more. |
-| 7.5 | **Goods Receipts → New**. **Purchase Order** picker (approved orders only) → yours. The line arrives with **Accepted** defaulted to 10 and "Ordered 10 · already received 0". Set Accepted to **4**, **Warehouse** `WH_NORTH`, **Save Receipt**. Select the draft → **Complete**. | After save: "Goods receipt GRN-... created as a draft. Complete it to post the stock." After Complete: "... updated.", status **COMPLETED**; Purchases → the order reads **PARTIALLY_RECEIVED**; Inventory → DETER1K in WH_NORTH is up by 4, and the Stock Ledger shows a `GOODS_RECEIPT` entry for the GRN with the balance after it. |
-| 7.6 | Goods Receipts → New against the same order: the line says "already received 4", Accepted defaults to **6**. Save, Complete. | The order reads **RECEIVED**; stock is up by 10 in all; a second `GOODS_RECEIPT` entry in the ledger. |
-| 7.7 | Select the **first** receipt (the 4) → **Cancel** | Status **CANCELLED**; the ledger shows `GOODS_RECEIPT_REVERSAL` −4 against that GRN and DETER1K in WH_NORTH is up by **6** from where it started (10 − 4); the order drops back to **PARTIALLY_RECEIVED**; Finance → Journal shows the reversal. Then from `backend\`: `.\.venv\Scripts\python.exe scripts\verify_sample_data.py` -- all five checks pass. |
-| 7.8 | Goods Receipts → select the **seeded** `GRN-WHOLE01-WHL_HO-2026-2027-000006` (purchase invoice `PI-2026-2027-000006` was raised against it and approved) → **Cancel** | Refused: "Goods receipt ... has been invoiced, so cancelling it would leave the accrual and the payable disagreeing. Cancel the purchase invoice first, or raise a purchase return." Nothing changes. *(A purchase invoice cannot be raised from the desktop -- BACKLOG §31.9 -- so the case uses a seeded one.)* |
-| 7.9 | **Purchase Returns → New**. **Goods Receipt** picker (completed receipts only) → your second receipt (the 6). On its line set **Returning** to **2**, click the **Damaged** chip, **Save Return**. Select the draft → **Approve**, then **Complete**. | After save: "Purchase return PR-2026-2027-... created as a draft. Approving and completing it is what takes the stock off." (numbered after the seeded returns, not `000001`). After Complete: status **COMPLETED**; the ledger shows `PURCHASE_RETURN` −2 and DETER1K in WH_NORTH is up by **4** from the start; Finance → Journal shows the return's entry; Reports → Operational Reports → **Damaged goods returned** lists the line. Open the return: product and unit read as code and name, not ids. |
-| 7.10 | Reports → **Operational Reports**: `Purchase order register`, `Orders not yet received`, `Overdue purchase orders`, `Orders by supplier`, `Orders by buyer`, `Purchases by product` | Each opens with rows and a row count in the header. The register holds the seeded orders plus yours; not-yet-received and overdue each hold the seeded APPROVED orders; the three by-... reports are populated. |
-| 7.11 | Finance → **Payments → Record Payment**. **Paid to** `WHOLE01V01`; **Amount**: the Outstanding of the oldest bill listed under **Apply to bills**; **Method** Bank; **Oldest first**; **Record payment**. | Toast "PAY-... recorded and posted to the ledger." Open Record Payment again for the same vendor: that bill's Outstanding is 0 or gone; Finance → Journal shows the payment (Dr Accounts Payable / Cr Bank). |
+| Old row | Case |
+| --- | --- |
+| 7.1, 7.2, 7.3 | TC-BUY-001 |
+| 7.4 | TC-BUY-002 |
+| 7.5, 7.6 | TC-BUY-003 |
+| 7.7 | TC-BUY-004 |
+| 7.8 | TC-BUY-005 |
+| 7.9 | TC-BUY-006 |
+| 7.10 | TC-BUY-007 |
+| 7.11 | TC-BUY-008 |
 
 ## 8. Stock
 

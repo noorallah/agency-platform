@@ -635,6 +635,141 @@ def run_places(built: Built, admin: Api) -> tuple[Json, Json, Json, Json]:
     return dict(india), dict(state), dict(district), dict(city)
 
 
+def purchase_chain(built: Built, stage: str) -> dict[str, str]:
+    """Buy this run's own product from this run's own vendor, up to a stage.
+
+    ``buy-ready`` makes the vendor and a product with nothing on hand;
+    ``approved`` adds a purchase order for 10 at 100, submitted and approved;
+    ``received`` completes two goods receipts against it, 4 then 6;
+    ``invoiced`` approves a supplier invoice for the 6. The product starts at
+    zero, so every stock figure in the cases is absolute. Through the routes
+    the desktop calls, except the invoice, which no screen raises yet.
+    """
+    stages = ("buy-ready", "approved", "received", "invoiced")
+    admin = built.admin.as_user(built.admin.token or "", built.firms[TEST01.code])
+    today = date.today().isoformat()
+    tag = built.suffix.upper()
+    ids: dict[str, str] = {}
+    warehouse = admin.call("GET", "/api/v1/warehouses?page_size=5")[0]
+    branch = admin.call("GET", "/api/v1/branches?page_size=5")[0]
+    units = admin.call("GET", "/api/v1/uom-framework/uoms?page_size=100")
+    piece = next(u["id"] for u in units if u["code"] == "PIECE")
+    vendor = admin.call(
+        "POST",
+        "/api/v1/vendors",
+        {"code": f"{tag}-V", "name": f"Fixture Supplier {built.suffix}"},
+    )
+    product = admin.call(
+        "POST",
+        "/api/v1/products",
+        {
+            "code": f"{tag}-B",
+            "name": f"Bought Item {built.suffix}",
+            "product_type": "STOCK_ITEM",
+            "tax_profile_group_code": "GST_18_LOCAL",
+            "purchase_price": "100",
+            "selling_price": "150",
+            "base_uom_id": piece,
+            "inventory_uom_id": piece,
+            "sales_uom_id": piece,
+            "purchase_uom_id": piece,
+        },
+    )
+    ids.update(vendor=str(vendor["id"]), product=str(product["id"]))
+    built.say("Vendor", f"{tag}-V  (Fixture Supplier {built.suffix})")
+    built.say("Product", f"{tag}-B  (Bought Item {built.suffix}), 0 on hand")
+    built.say("Warehouse", f"{warehouse['code']} under branch {branch['code']}")
+    if stages.index(stage) < 1:
+        return ids
+    order = admin.call(
+        "POST",
+        "/api/v1/purchases",
+        {
+            "branch_id": branch["id"],
+            "warehouse_id": warehouse["id"],
+            "vendor_id": vendor["id"],
+            "purchase_date": today,
+            "lines": [
+                {
+                    "product_id": product["id"],
+                    "ordered_quantity": "10",
+                    "unit_price": "100",
+                    "purchase_uom_id": piece,
+                    "inventory_uom_id": piece,
+                }
+            ],
+        },
+    )
+    admin.call("POST", f"/api/v1/purchases/{order['id']}/submit")
+    order = admin.call("POST", f"/api/v1/purchases/{order['id']}/approve")
+    order_line = admin.call("GET", f"/api/v1/purchases/{order['id']}")["lines"][0]
+    ids["order"] = str(order["id"])
+    built.say("Purchase order", f"{order.get('po_number')} for 10 at 100, APPROVED")
+    if stages.index(stage) < 2:
+        return ids
+    receipts = []
+    for quantity in ("4", "6"):
+        receipt = admin.call(
+            "POST",
+            "/api/v1/goods-receipts",
+            {
+                "purchase_order_id": order["id"],
+                "receipt_date": today,
+                "lines": [
+                    {
+                        "purchase_order_line_id": order_line["id"],
+                        "line_number": 1,
+                        "current_receipt_quantity": quantity,
+                        "warehouse_id": warehouse["id"],
+                    }
+                ],
+            },
+        )
+        receipt = admin.call("POST", f"/api/v1/goods-receipts/{receipt['id']}/complete")
+        receipts.append(receipt)
+        built.say(f"Receipt of {quantity}", f"{receipt.get('grn_number')}, COMPLETED")
+    ids.update(receipt_4=str(receipts[0]["id"]), receipt_6=str(receipts[1]["id"]))
+    if stages.index(stage) < 3:
+        return ids
+    receipt_line = admin.call("GET", f"/api/v1/goods-receipts/{receipts[1]['id']}")[
+        "lines"
+    ][0]
+    invoice = admin.call(
+        "POST",
+        "/api/v1/purchase-invoices",
+        {
+            "vendor_id": vendor["id"],
+            "branch_id": branch["id"],
+            "invoice_date": today,
+            "supplier_invoice_number": f"{tag}-SUP-1",
+            "supplier_invoice_date": today,
+            "source_documents": [
+                {
+                    "source_document_type": "GOODS_RECEIPT",
+                    "source_document_id": receipts[1]["id"],
+                }
+            ],
+            "lines": [
+                {
+                    "source_document_type": "GOODS_RECEIPT",
+                    "source_document_id": receipts[1]["id"],
+                    "source_document_line_id": receipt_line["id"],
+                    "line_number": 1,
+                    "current_invoice_quantity": "6",
+                    "unit_price": "100",
+                }
+            ],
+        },
+    )
+    invoice = admin.call("POST", f"/api/v1/purchase-invoices/{invoice['id']}/approve")
+    ids["invoice"] = str(invoice["id"])
+    built.say(
+        "Supplier invoice",
+        f"{invoice.get('invoice_number')} ({tag}-SUP-1) for the 6, APPROVED",
+    )
+    return ids
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -1470,6 +1605,32 @@ def build_config_firm(built: Built) -> None:
     built.say("Its own rule", "PACK -> KG, factor 1")
 
 
+def _buyer(built: Built, stage: str) -> None:
+    """Make a TEST01 firm admin and a purchase of this run's own, to a stage."""
+    build_firm_admin(built)
+    built.ids.update(purchase_chain(built, stage))
+
+
+def build_buy_ready(built: Built) -> None:
+    """Make a firm admin, a vendor and a product with nothing on hand."""
+    _buyer(built, "buy-ready")
+
+
+def build_po_approved(built: Built) -> None:
+    """Make buy-ready plus an approved purchase order for 10."""
+    _buyer(built, "approved")
+
+
+def build_po_received(built: Built) -> None:
+    """Make po-approved with all 10 received: receipts of 4 and 6, completed."""
+    _buyer(built, "received")
+
+
+def build_po_invoiced(built: Built) -> None:
+    """Make po-received with the receipt of 6 billed on an approved invoice."""
+    _buyer(built, "invoiced")
+
+
 #: Every fixture, what it builds, and the cases that name it.
 FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "firm-admin": (
@@ -1651,6 +1812,26 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         "ready-firm + a vendor and a product with its own PACK->KG rule.",
         build_config_firm,
         "TC-CONF-004, TC-CONF-006",
+    ),
+    "buy-ready": (
+        "firm-admin + a vendor and a product with nothing on hand.",
+        build_buy_ready,
+        "TC-BUY-001",
+    ),
+    "po-approved": (
+        "buy-ready + an approved purchase order for 10 at 100.",
+        build_po_approved,
+        "TC-BUY-002, TC-BUY-003, TC-BUY-007",
+    ),
+    "po-received": (
+        "po-approved + receipts of 4 and 6, both completed.",
+        build_po_received,
+        "TC-BUY-004, TC-BUY-006",
+    ),
+    "po-invoiced": (
+        "po-received + an approved supplier invoice for the receipt of 6.",
+        build_po_invoiced,
+        "TC-BUY-005, TC-BUY-008",
     ),
 }
 
