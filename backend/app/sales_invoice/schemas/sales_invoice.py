@@ -349,6 +349,13 @@ class SalesInvoiceLineResponse(SalesInvoiceSchema):
     source_document_line_id: UUID
     source_document_line_number: int
     product_id: UUID
+    # `description` is nullable and every seeded document leaves it null, so
+    # without these a client holding a line has only a UUID to label it with.
+    # Optional rather than required: five other line responses already carry
+    # them this way, and a product deleted after the sale must not stop the
+    # bill that sold it being read.
+    product_code: str | None = None
+    product_name: str | None = None
     description: str | None
     delivered_quantity: Decimal
     already_invoiced_quantity: Decimal

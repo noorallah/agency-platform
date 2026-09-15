@@ -30,8 +30,45 @@ PermissionService _permissions({
         'permissions': perms,
       }));
 
+/// One document the picker might be offered, in the shape the list returns.
+///
+/// `description` is null on every one of them, because it is null on every
+/// real document too -- nothing populates it. That is the premise of the
+/// labelling test below rather than an omission here.
+Json _document({
+  required String id,
+  required String number,
+  required String status,
+  String productName = 'Toothpaste 100g',
+  bool withLines = true,
+}) =>
+    <String, dynamic>{
+      'id': id,
+      'invoice_number': number,
+      'delivery_note_number': number,
+      'invoice_date': '2026-09-01',
+      'delivery_date': '2026-09-01',
+      'customer_id': 'cust-1',
+      'customer_name': 'Kumar Stores',
+      'status': status,
+      'lines': withLines
+          ? <Json>[
+              <String, dynamic>{
+                'id': '$id-line-1',
+                'line_number': 1,
+                'product_id': 'prod-1',
+                'product_name': productName,
+                'description': null,
+                'current_invoice_quantity': '7.0000',
+                'current_delivery_quantity': '7.0000',
+                'unit_price': '84.0000',
+              },
+            ]
+          : const <Json>[],
+    };
+
 class _CreditNoteApi extends ApiClient {
-  _CreditNoteApi({this.notes = const []})
+  _CreditNoteApi({this.notes = const [], this.invoices, this.deliveryNotes})
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -40,8 +77,34 @@ class _CreditNoteApi extends ApiClient {
         );
 
   final List<Json> notes;
+
+  /// What the two unfiltered document lists answer. Null means "the default
+  /// set" -- an approved invoice, a cancelled one, an approved invoice with
+  /// no lines, and a delivery note -- which is what the picker has to sort
+  /// out. The fake used to answer an empty list for both, which is why no
+  /// test here had ever populated the picker at all.
+  final List<Json>? invoices;
+  final List<Json>? deliveryNotes;
   final List<String> requested = <String>[];
   int? sentVersion;
+
+  List<Json> get _invoices =>
+      invoices ??
+      <Json>[
+        _document(id: 'inv-1', number: 'SI-2026-0009', status: 'APPROVED'),
+        _document(id: 'inv-2', number: 'SI-2026-0010', status: 'CANCELLED'),
+        _document(
+            id: 'inv-3',
+            number: 'SI-2026-0011',
+            status: 'APPROVED',
+            withLines: false),
+      ];
+
+  List<Json> get _deliveryNotes =>
+      deliveryNotes ??
+      <Json>[
+        _document(id: 'dn-1', number: 'DN-2026-0004', status: 'COMPLETED'),
+      ];
 
   @override
   Future<Json> request(
@@ -63,6 +126,12 @@ class _CreditNoteApi extends ApiClient {
         'data': notes,
         'pagination': <String, dynamic>{'total_records': notes.length},
       };
+    }
+    if (path.contains('/sales-invoices')) {
+      return <String, dynamic>{'data': _invoices};
+    }
+    if (path.contains('/delivery-notes')) {
+      return <String, dynamic>{'data': _deliveryNotes};
     }
     return <String, dynamic>{'data': const <Json>[]};
   }
@@ -194,5 +263,67 @@ void main() {
     await tester.tap(find.text('Approve'));
     await tester.pumpAndSettle();
     expect(api.requested, contains('POST /api/v1/credit-notes/cn-1/approve'));
+  });
+
+  testWidgets('the invoice picker offers only bills there is something to credit on',
+      (tester) async {
+    // The list behind this picker is the sales-return one: the 50 most recent
+    // delivery notes and the 50 most recent invoices, unfiltered. A delivery
+    // note is not a bill, a cancelled invoice charged nobody, and an invoice
+    // with no lines has nothing to correct -- and choosing any of the three
+    // gave an empty Line dropdown with no word about why, which is what made
+    // the screen look broken on 2026-09-15.
+    final _CreditNoteApi api = _CreditNoteApi(notes: <Json>[_note()]);
+    await _pump(tester, api);
+
+    await tester.tap(find.text('Raise credit note'));
+    await tester.pumpAndSettle();
+
+    // **Open the dropdown before asserting.** A closed
+    // `DropdownButtonFormField` renders only its selected item, so
+    // `findsNothing` on the others holds whatever the list contains -- the
+    // first cut of this test passed with the filter reverted, which is no
+    // test at all.
+    await tester.tap(find.byType(DropdownButtonFormField<String>).first);
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('SI-2026-0009'), findsWidgets);
+    expect(find.textContaining('SI-2026-0010'), findsNothing,
+        reason: 'cancelled: it charged nobody');
+    expect(find.textContaining('SI-2026-0011'), findsNothing,
+        reason: 'no lines: nothing to credit');
+    expect(find.textContaining('DN-2026-0004'), findsNothing,
+        reason: 'a delivery note is not a bill');
+  });
+
+  testWidgets('a line is named by its product, not by "Line 1"',
+      (tester) async {
+    // `description` is null on every real document line, so the picker fell
+    // back to "Line N" for all of them -- a dropdown of indistinguishable
+    // rows on a screen whose whole job is choosing which supply to correct.
+    // The server now sends `product_name` beside it.
+    final _CreditNoteApi api = _CreditNoteApi(notes: <Json>[_note()]);
+    await _pump(tester, api);
+
+    await tester.tap(find.text('Raise credit note'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('Toothpaste 100g'), findsWidgets);
+    expect(find.text('Line 1'), findsNothing);
+  });
+
+  testWidgets('with nothing creditable it says so rather than showing an empty form',
+      (tester) async {
+    final _CreditNoteApi api = _CreditNoteApi(
+      notes: <Json>[_note()],
+      invoices: const <Json>[],
+      deliveryNotes: const <Json>[],
+    );
+    await _pump(tester, api);
+
+    await tester.tap(find.text('Raise credit note'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('No approved invoice to credit'), findsOneWidget);
   });
 }

@@ -2243,3 +2243,33 @@ def test_an_invoice_something_still_rests_on_is_not_cancelled() -> None:
         invoice.id, firm_scope=firm.id, actor_id=uuid4(), reason="duplicate"
     )
     assert cancelled.status == "CANCELLED"
+
+
+def test_a_bill_line_names_the_product_it_sold() -> None:
+    """A line the client cannot label is a line nobody can choose.
+
+    `description` is nullable and nothing populates it -- not the seeder, not
+    the chain, not the desktop -- so a client holding a line had only
+    `product_id`, a UUID, to put on screen. Both pickers that read an invoice
+    line fall back to "Line 1" when the description is empty, which is what
+    the credit-note dialog showed for every invoice in a seeded store: a
+    dropdown of indistinguishable rows, on a screen whose whole job is
+    choosing which supply to correct.
+
+    Five other line responses already carried `product_name`; this one and the
+    delivery note's did not, which is the whole defect. Found on 2026-09-15 by
+    driving the credit-note screen, not by reading the code -- nothing was
+    wrong enough to fail a test, the field simply was not there.
+    """
+    setup = _Billing(_session_factory()())
+
+    response = setup.bill(
+        dispatch_quantity=Decimal("4"),
+        quantity=Decimal("4"),
+        unit_price=None,
+    )
+
+    line = response.lines[0]
+    assert line.description is None, "the premise: nothing fills this in"
+    assert line.product_name == setup.product.name
+    assert line.product_code == setup.product.code

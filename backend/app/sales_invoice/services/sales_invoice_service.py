@@ -1027,6 +1027,12 @@ class SalesInvoiceService(TransactionalDocumentService):
             customer_invoice_number=row.customer_invoice_number,
             current_id=row.id,
         )
+        # One query for every product on the document rather than one per
+        # line. `description` is nullable and the seeded documents leave it
+        # null, so a client with only `product_id` to work with can label a
+        # line nothing better than "Line 1" -- which is what the credit-note
+        # and sales-return pickers were reduced to.
+        products = self._products_named(lines)
         return SalesInvoiceResponse(
             id=row.id,
             firm_id=row.firm_id,
@@ -1072,7 +1078,10 @@ class SalesInvoiceService(TransactionalDocumentService):
             is_deleted=row.is_deleted,
             created_at=row.created_at,
             updated_at=row.updated_at,
-            lines=[self._line_response(item, taxes[item.id]) for item in lines],
+            lines=[
+                self._line_response(item, taxes[item.id], products.get(item.product_id))
+                for item in lines
+            ],
             sources=[self._source_response(item) for item in sources],
             attachments=[self._attachment_response(item) for item in attachments],
             notes=[self._note_response(item) for item in notes],
@@ -2891,10 +2900,28 @@ class SalesInvoiceService(TransactionalDocumentService):
             updated_at=row.updated_at,
         )
 
+    def _products_named(self, lines: list[SalesInvoiceLine]) -> dict[UUID, Product]:
+        """Return the products a document's lines name, keyed by id.
+
+        One query for the whole document. Soft-deleted products are included
+        deliberately: a line names what was sold, and a product retired since
+        still has to be nameable on the bill that sold it.
+        """
+        ids = {line.product_id for line in lines}
+        if not ids:
+            return {}
+        return {
+            product.id: product
+            for product in self._session.scalars(
+                select(Product).where(Product.id.in_(ids))
+            ).all()
+        }
+
     def _line_response(
         self,
         row: SalesInvoiceLine,
         taxes: list[SalesInvoiceLineTax] | None = None,
+        product: Product | None = None,
     ) -> SalesInvoiceLineResponse:
         return SalesInvoiceLineResponse(
             id=row.id,
@@ -2906,6 +2933,8 @@ class SalesInvoiceService(TransactionalDocumentService):
             source_document_line_id=row.source_document_line_id,
             source_document_line_number=row.source_document_line_number,
             product_id=row.product_id,
+            product_code=getattr(product, "code", None),
+            product_name=getattr(product, "name", None),
             description=row.description,
             delivered_quantity=row.delivered_quantity,
             already_invoiced_quantity=row.already_invoiced_quantity,

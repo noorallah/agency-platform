@@ -209,6 +209,7 @@ class ReturnableDocument {
     required this.customerId,
     required this.lines,
     this.customerName = '',
+    this.status = '',
   });
 
   final String id;
@@ -218,6 +219,15 @@ class ReturnableDocument {
   final String customerId;
   final String customerName;
   final List<ReturnableLine> lines;
+
+  /// The document's own status.
+  ///
+  /// The list it comes from is unfiltered -- the 50 most recent of each kind
+  /// -- so a cancelled invoice is offered like any other. A credit note may
+  /// only correct a bill that was actually issued, so the picker filters on
+  /// this rather than leaving somebody to choose one and find nothing to
+  /// credit.
+  final String status;
 
   /// Number, date and whose it is. The picker mixes every customer's notes
   /// and invoices, and with number and date alone a return was raised
@@ -235,6 +245,7 @@ class ReturnableDocument {
         documentDate: stringValue(json['delivery_date']),
         customerId: stringValue(json['customer_id']),
         customerName: stringValue(json['customer_name']),
+        status: stringValue(json['status']),
         lines: _lines(json, 'current_delivery_quantity'),
       );
 
@@ -246,6 +257,7 @@ class ReturnableDocument {
         documentDate: stringValue(json['invoice_date']),
         customerId: stringValue(json['customer_id']),
         customerName: stringValue(json['customer_name']),
+        status: stringValue(json['status']),
         lines: _lines(json, 'current_invoice_quantity'),
       );
 
@@ -284,12 +296,20 @@ class ReturnableLine {
     return '$lineNumber. $name  ·  $quantity';
   }
 
+  /// The product's name first, then the line's own text.
+  ///
+  /// `description` is nullable on every document line and the seeded
+  /// documents leave it null, so reading it alone left both the credit-note
+  /// and sales-return pickers offering "Line 1" and nothing else -- a choice
+  /// nobody can make. `product_name` is what the server now sends beside it.
   factory ReturnableLine.fromJson(Json json, {required String quantityKey}) =>
       ReturnableLine(
         id: stringValue(json['id']),
         lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
         productId: stringValue(json['product_id']),
-        description: stringValue(json['description']),
+        description: stringValue(json['description']).isNotEmpty
+            ? stringValue(json['description'])
+            : stringValue(json['product_name']),
         quantity: stringValue(json[quantityKey]),
         unitPrice: stringValue(json['unit_price']),
       );

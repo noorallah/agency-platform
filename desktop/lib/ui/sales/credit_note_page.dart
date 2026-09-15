@@ -350,8 +350,17 @@ class _CreditNoteDialogState extends State<CreditNoteDialog> {
     try {
       final List<ReturnableDocument> all =
           await widget.api.returnableDocuments();
+      // Invoices, and only ones that were actually issued. The list behind
+      // this is the sales-return picker: the 50 most recent notes and the 50
+      // most recent invoices, unfiltered. A delivery note is not a bill and a
+      // cancelled invoice charged nobody, so offering either gives a
+      // selection with nothing to credit and no word about why -- which is
+      // how this screen came to look broken.
       final List<ReturnableDocument> invoices = all
-          .where((row) => row.sourceType == SalesReturnSource.salesInvoice)
+          .where((row) =>
+              row.sourceType == SalesReturnSource.salesInvoice &&
+              row.status == 'APPROVED' &&
+              row.lines.isNotEmpty)
           .toList();
       if (!mounted) return;
       setState(() {
