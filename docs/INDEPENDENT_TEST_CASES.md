@@ -7,7 +7,7 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Converted so far:** plan sections 2 to 12, 15 and 16 to 27 (25 was the pilot) — see the
+**Converted so far:** plan sections 2 to 13, 15 and 16 to 27 (25 was the pilot) — see the
 table of contents below. Other sections move here one at a time; until then
 they stay in the plan.
 
@@ -1264,6 +1264,123 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
   - Journal: `TCS-RC-…` entries separate from the receipts' own; View reads **Dr 1100 Trade Receivables / Cr 2500 TCS Payable** — 2500, not Output Tax.
 - **Data (HTTP):** `GET /api/v1/tcs/collections` → `tcs_amount`, `rate_percent`, `without_pan: true`.
 - **Leaves:** unchanged.
+
+---
+
+## Finance, reports and the rest of the platform
+
+Finance is a flat list of tabs; Reports has **Operational Reports** and
+**Financial Reports**; accounting periods live under **Masters →
+Configuration → Financial Years**. Trial Balance, Profit & Loss and Balance
+Sheet each take an **Accounting period**: pick the same one on all three.
+
+The cases that change a firm's books — a new account, a closed period, a cost
+centre, an account that demands one — use `ready-firm`, a store of the run's
+own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
+
+### TC-FIN-001 — A new ledger account, and what cannot change afterwards
+
+- **Covers:** plan 13.1
+- **Fixture:** `ready-firm`
+- **Steps:** as the fixture's **Firm admin**, Finance → **Chart of Accounts** → **New**: group chip **REV** first, code `9999`, name `Manual test account`, type EXPENSE → Save. Then group **EXP · Direct Expenses** → Save. Select it → **Edit**.
+- **Expect:** with REV: "A ledger account must share its group's account type." With EXP: the row appears (Code, Account, Type, Status). No Delete on the toolbar. On Edit, group, type and code are fixed; only Name, Description, the two "Requires a …" boxes and **Active** change.
+- **Leaves:** account 9999 in the fixture's store.
+
+### TC-FIN-002 — The three statements balance and agree
+
+- **Covers:** plan 13.2, 13.3
+- **Fixture:** `selling-paid`
+- **Steps:** as the fixture's **Firm admin**, Finance → **Trial Balance**, this month's period; then **Profit & Loss** and **Balance Sheet**, the same period.
+- **Expect:** the trial balance has Code, Account, Type, Opening, Debit, Credit, Closing, a Total row and a **Balanced** chip — 1100 Trade Receivables among the rows. P&L: Income and Expenses with a Net profit or loss row (This period, Year to date). Balance Sheet: Assets, Liabilities, Equity with Retained earnings brought forward and Result for the year, chip **Balanced**. They agree: Total assets = Liabilities and equity; the sheet's Result for the year = the P&L's year-to-date net; total debit = total credit. *(The figures are this fixture's own; the relationships are the test.)*
+- **Leaves:** unchanged.
+
+### TC-FIN-003 — A closed period refuses a posting; its trail says who closed it
+
+- **Covers:** plan 13.5, 13.8
+- **Fixture:** `ready-firm`
+- **Steps**
+  1. As the fixture's **Firm admin**, Journal Entries → **New Entry**: period June 2026, any journal and voucher type, date 2026-06-15, reference `MT-CLOSE-1`, lines `5000 Purchases` Dr 100 and `1000 Cash` Cr 100 → **Save Draft**.
+  2. Masters → Configuration → **Financial Years** → the year → **June 2026** → **Close**.
+  3. Journal Entries → the draft → **Post**.
+  4. Reopen June (**Open**) → Post again.
+  5. Settings → Audit Logs → Action `finance.accounting_period.updated` (in full) → Search. Then sign in as the fixture's **Platform admin**, stay on Platform, and run the same search.
+- **Expect**
+  - Step 2: "June 2026 is closed. Nothing further can be booked into it."
+  - Step 3: refused: "Accounting period P03 is closed and cannot accept postings." (June is P03 in an April year.)
+  - Step 4: "Journal entry MT-CLOSE-1 posted." The trial balance for a later month still reads **Balanced**.
+  - Step 5: in the firm, the caption "The trail for Ready <suffix>…" and **two** rows (closed, reopened); `finance` alone would find nothing (exact match). On Platform the same search finds **nothing** — finance events stay in the firm's trail.
+- **Leaves:** a posted June entry.
+
+### TC-FIN-004 — Journal entries say which module posted them
+
+- **Covers:** plan 13.4
+- **Fixture:** `selling-paid`
+- **Steps:** Finance → Journal Entries; search each: `SI-2026-2027-000001`, `DN-`, `RC-2026-2027-000001`, `TCS-RC-2026-2027-000001`; open each with **View**.
+- **Expect:** each row's subtitle is the entry's description; the View dialog's first line reads "POSTED · posted by <module> · <description>" — sales_invoice, delivery_note, settlements, tcs. The search matches reference or description; there is no source-module filter (BACKLOG §31.15).
+- **Leaves:** unchanged.
+
+### TC-FIN-005 — Every report opens, and an empty one says so
+
+- **Covers:** plan 13.6
+- **Fixture:** `selling-paid`
+- **Steps:** Reports → **Operational Reports** and **Financial Reports**: open every entry.
+- **Expect:** each renders with `N row(s)` in the header, or — when empty — "Nothing to report / This firm has nothing matching it yet." rather than a blank grid. The sales order register, delivery note register and invoice reports hold the fixture's documents; the purchase reports are empty (this store bought nothing).
+- **Leaves:** unchanged.
+
+### TC-FIN-006 — Ctrl+K finds a product and lands on its screen
+
+- **Covers:** plan 13.7
+- **Fixture:** `product-master`
+- **Steps:** as the fixture's **Firm admin**, type in any search box, move to another screen, press **Ctrl+K**, type `<SUFFIX>-PM` → Search; select the result → **Open Details**.
+- **Expect:** the dialog opens wherever focus is; one result, **Slot Check <suffix>** (a product), "1 result found."; Open Details closes the search and lands on **Masters → Products**. **(HTTP)** `GET /api/v1/search?query=<SUFFIX>-PM` → 200 (the parameter is `query`; `q` answers 422).
+- **Leaves:** unchanged.
+
+### TC-FIN-007 — Cost and profit centres, and an account that demands one
+
+- **Covers:** plan 13.9d, 13.9e
+- **Fixture:** `ready-firm`
+- **Steps**
+  1. Finance → **Cost Centres** → New `SALES`, `Sales` → Save; New `SALES` again. Finance → **Profit Centres** → New `NORTH`, `North` → Save.
+  2. Chart of Accounts → Edit `5000 Purchases` → tick **Requires a cost centre** → Save. Journal Entries → New Entry → choose 5000 on a line.
+  3. **(HTTP)** `POST /api/v1/finance/journal-entries` with a 5000 line and no `cost_center_id`.
+  4. Untick the flag.
+- **Expect**
+  - Step 1: the rows appear; the second SALES: "A cost centre with this code already exists." No Delete on either grid — deactivate with Active.
+  - Step 2: a **Cost centre \*** dropdown on that line and no other; with SALES chosen the entry saves.
+  - Step 3: **422**, "Ledger account 5000 requires a cost centre."
+- **Leaves:** centres SALES and NORTH.
+
+### TC-FIN-008 — A blocking credit policy refuses the approval
+
+- **Covers:** plan 13.9c3 (credit half)
+- **Fixture:** `policy-firm` — BLOCK at 100%; Anand's limit 1,000; a draft order for 20 detergent.
+- **Steps:** as the fixture's **Firm admin**, Customers → toolbar **Settings**; Cancel. Sales Orders → the fixture's draft → **Approve**.
+- **Expect:** the policy reads **Warn, then block**, warn 80, block 100. Approve is refused: "Anand Agencies <suffix> would be at 179.9% of a 1000.00 credit limit. Collect payment or raise the limit before continuing." The order stays DRAFT.
+- **Leaves:** unchanged.
+
+### TC-FIN-009 — A firm that does not type delivery notes
+
+- **Covers:** plan 13.9c3 (stages half)
+- **Fixture:** `policy-firm` — delivery-note stage off; Vijaya's order for 4, approved.
+- **Steps:** as the fixture's **Firm admin**, Sales Invoices → **Sales stages** icon. Look for Delivery Notes in the sidebar. Then Sales Invoices → New → bill the fixture's **order** (4) → Create draft → Approve. Reports → Operational → **Delivery note register**.
+- **Expect:** Sales stages shows **Delivery note** switched off, and **Delivery Notes is not in the sidebar** — a stage the firm does not type is hidden. The invoice approves straight off the order; the service raises and dispatches the note itself (the order reads **DELIVERED**), and the register lists that note. *(Whether a hidden screen should hide notes that exist is an open product question, not a defect.)*
+- **Leaves:** a billed, delivered order.
+
+### TC-FIN-010 — Roles and Permissions are one sidebar entry with two addresses
+
+- **Covers:** plan 13.9, 13.9b, 13.9c
+- **Fixture:** `firm-admin`
+- **Steps:** as the fixture's **Firm admin**, look at the Administration sidebar; open **Roles & Permissions**; switch the strip to Permissions. Ctrl+K a permission code (e.g. `CUSTOMER_VIEW`) → open it. Sign out and in.
+- **Expect:** **one** entry, Roles & Permissions, with a Roles / Permissions strip; switching keeps the entry highlighted and the heading. Ctrl+K lands on **Permissions** directly; after signing in again the last screen restores to the same half. (Creating and editing roles is TC-ROLE-001 and TC-ROLE-002.)
+- **Leaves:** a firm admin user.
+
+### TC-FIN-011 — A crash report reaches Diagnostics
+
+- **Covers:** plan 13.10
+- **Fixture:** `platform-admin`
+- **Steps:** sign in on the desktop, end **agency_desktop** in Task Manager, start it again and sign in as the fixture's **Platform admin** (the queued report is sent then). Settings → **Diagnostics** → Source **Desktop** → Search; open the **UnexpectedTermination** group's first occurrence. Then Source **Server**, any group's first occurrence.
+- **Expect:** Desktop: the UnexpectedTermination count one higher than before; occurrences / first seen / last seen / versions chips; the newest occurrence shows Firm, User and "Leading up to it" breadcrumbs ("Previous session started at … ended without a clean exit…") — no Request and no stack trace. Server: **Request <request_id>** and the stack trace.
+- **Leaves:** one more crash report.
 
 ---
 

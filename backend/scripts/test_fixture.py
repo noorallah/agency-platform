@@ -2730,6 +2730,82 @@ def build_compliance_firm(built: Built) -> None:
     )
 
 
+def build_policy_firm(built: Built) -> None:
+    """Make selling-firm with a blocking credit policy and no delivery-note stage.
+
+    The two once-empty paths MEDI01 and FOOD01 carry in the demo: credit
+    enforcement BLOCK (warn 80, block 100) with Anand on a 1,000 limit and a
+    draft order for 20 detergent that would breach it; and the delivery-note
+    stage switched off, with an approved order of Vijaya's for 4 to bill
+    straight off the order.
+    """
+    build_selling_firm(built)
+    tag = built.suffix.upper()
+    firm = built.known[f"{tag}-S"]
+    admin = built.admin.as_user(built.admin.token or "", built.firms[firm.code])
+    today = date.today().isoformat()
+    warehouse = by_code(admin, "/api/v1/warehouses", "MAIN")
+    branch = by_code(admin, "/api/v1/branches", "HO")
+    product = admin.call("GET", f"/api/v1/products?search={tag}-DET")[0]
+    admin.call(
+        "PUT",
+        "/api/v1/customers/credit-settings",
+        {"enforcement": "BLOCK", "warn_at_percent": "80", "block_at_percent": "100"},
+    )
+    anand = admin.call("GET", f"/api/v1/customers?search={tag}-C02")[0]
+    row = admin.call("GET", f"/api/v1/customers/{anand['id']}")
+    admin.call(
+        "PUT",
+        f"/api/v1/customers/{anand['id']}",
+        {
+            **{k: row[k] for k in ("code", "name", "customer_type", "currency_code")},
+            "credit_limit": "1000",
+        },
+    )
+
+    def order(customer_id: str, quantity: str) -> Json:
+        return dict(
+            admin.call(
+                "POST",
+                "/api/v1/sales-orders",
+                {
+                    "customer_id": customer_id,
+                    "order_date": today,
+                    "warehouse_id": warehouse["id"],
+                    "branch_id": branch["id"],
+                    "lines": [
+                        {
+                            "line_number": 1,
+                            "product_id": product["id"],
+                            "quantity": quantity,
+                            "unit_price": "84",
+                        }
+                    ],
+                },
+            )
+        )
+
+    blocked = order(anand["id"], "20")
+    admin.call(
+        "PUT",
+        "/api/v1/sales-orders/workflow-settings",
+        {
+            "quotation_stage": True,
+            "sales_order_stage": True,
+            "delivery_note_stage": False,
+        },
+    )
+    vijaya = admin.call("GET", f"/api/v1/customers?search={tag}-C01")[0]
+    shortcut = order(vijaya["id"], "4")
+    admin.call("POST", f"/api/v1/sales-orders/{shortcut['id']}/approve")
+    built.say("Credit policy", "BLOCK: warn at 80%, block at 100%; Anand's limit 1,000")
+    built.say("Draft to block", f"{blocked.get('order_number')}: Anand, 20 x 84")
+    built.say("Sales stages", "delivery note switched off")
+    built.say(
+        "Order to bill", f"{shortcut.get('order_number')}: Vijaya, 4 x 84, approved"
+    )
+
+
 #: Every fixture, what it builds, and the cases that name it.
 FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "firm-admin": (
@@ -2785,7 +2861,8 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "ready-firm": (
         "A finished firm of this run's own, its admin, and a posted receipt.",
         build_ready_firm,
-        "TC-FIRM-014, TC-FIRM-015, TC-FIELD-001..012",
+        "TC-FIRM-014, TC-FIRM-015, TC-FIELD-001..012, TC-FIN-001, TC-FIN-003, "
+        "TC-FIN-007",
     ),
     "shared-pair": (
         "A firm admin in each of TESTSH1 and TESTSH2, in the shared store.",
@@ -2901,7 +2978,7 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "product-master": (
         "firm-admin + a TEST01 product with every slot and a Case barcode.",
         build_product_master,
-        "TC-MAST-003, TC-MAST-008",
+        "TC-MAST-003, TC-MAST-008, TC-FIN-006",
     ),
     "branch-master": (
         "A TEST02 admin, a default branch and warehouse, and two import files.",
@@ -2971,7 +3048,7 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "selling-paid": (
         "selling-invoiced + receipts of 241.60 and 341.61 + the 7 billed.",
         build_selling_paid,
-        "TC-SELL-014, TC-COMP-007",
+        "TC-SELL-014, TC-COMP-007, TC-FIN-002, TC-FIN-004, TC-FIN-005",
     ),
     "territory-firm": (
         "A Wholesale firm of the run's own with routes, rounds, salespeople, beats.",
@@ -2992,6 +3069,11 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         "A GST-registered firm of the run's own: B2B and B2C bills, e-invoices.",
         build_compliance_firm,
         "TC-COMP-001..006",
+    ),
+    "policy-firm": (
+        "selling-firm + a blocking credit policy + the delivery-note stage off.",
+        build_policy_firm,
+        "TC-FIN-008, TC-FIN-009",
     ),
 }
 
