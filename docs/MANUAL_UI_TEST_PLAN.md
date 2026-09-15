@@ -142,29 +142,31 @@ firm actually operates, so later modules can use what earlier ones produced.
 
 ## 2. Login, session and firm context
 
-| # | Case | Expected |
-| --- | --- | --- |
-| 2.1 | Log in as `master.ops`, no firm chosen | Only platform screens are reachable. Firm-owned lists say a firm must be chosen, not "no records". |
-| 2.2 | Choose WHOLE01, then ELEC01, from the firm switcher | Every open list reloads. No row from the previous firm survives the switch. |
-| 2.3 | Log in as `whole01.admin` | The firm switcher offers WHOLE01 only. |
-| 2.4 | Leave the app idle past the access-token lifetime, then click anything | It refreshes silently and the action completes. You should not be asked to log in again. |
-| 2.5 | Log out, then press Back | No cached screen is reachable. |
-| 2.6 | Log in with a wrong password three times | Each refusal takes about as long as a correct one. A wrong address and a wrong password should not feel different. |
-| 2.7 | Two more wrong passwords (five in all), then the **right** one | The fifth wrong password is refused with "This account is locked after too many failed sign-in attempts. You can try again in 15:00." and the clock **counts down on screen** a second at a time; the right password after it is refused the same way with the time left. When it reaches zero the banner reads "The lock on this account has lifted. You can sign in now." The four attempts before it said only "Invalid email or password." `scripts/sql/check_identity_data.sql` §5 shows the fifth attempt as `locked` and the sixth as `account_locked`. |
-| 2.8 | As `whole01.admin` (or `master.ops`), Users → Edit that person → tick **Clear login lock** → Save, then sign in as them with the right password | Signs in at once. The lock cleared and the failed count reset. |
-| 2.9 | Do nothing else and wait 15 minutes instead of unlocking, then sign in | Also signs in: the lock lifts by itself. |
-| 2.10 | Users → Edit → untick **Active**, save; sign in as them. Then set **Expires at** to a moment in the past instead and try again | Refused with "This account is inactive. Ask an administrator to reactivate it." History says `account_unavailable`. The expired case says "This account has expired. Ask an administrator to extend it." A wrong password on either still says only "Invalid email or password." Retick Active and clear the date. |
-| 2.11 | Users → New with **Require password change** on; sign in as the new user | The change-password screen, and nothing else reachable. A password of 8 characters, or one with no symbol, is refused with the rule named; 12 characters with upper, lower, digit and symbol is accepted, and the app opens. |
-| 2.12 | Change your own roles as `master.ops` while signed in on another window as that user | The other window is signed out on its next request. Roles, firms and password changes all revoke sessions. |
-| 2.13 | Users → select that user → **Delete**; then Users → New with the same email | Deleted from the grid; the audit trail keeps the row. The address is accepted again: soft delete releases it. The new user has **no** roles or firms -- a new person to the system, not the old one back. |
-| 2.13b | As `master.ops`: delete a user, choose **Deleted** in the Users grid's **Status** filter, open them (status **Deleted**, Edit and Delete dead, View opens) → **Restore** in the dialog footer; sign in as them | Back in the grid with their old firms and roles, and the old password works. |
-| 2.13c | Delete a user, create a new one with the same address, then **Status** → Deleted → open the old one → Restore | Refused: "Another live account now holds this email address." Restore before re-onboarding, not after. |
-| 2.13d | As `whole01.admin`, look for the Firm filter's **Deleted** choice and for **Restore** | Neither is offered. A deleted user is invisible to a firm's grid; restoring is a platform administrator's. `GET /api/v1/users?deleted_only=true` on their token lists live rows only. |
-| 2.13d | As `master.ops`: untick **Active** on a test user, then choose **Inactive** in the Users grid's **Status** filter | Only the switched-off people, from every firm; the deleted ones are not among them. Then pick a firm as well: only the inactive people **in that firm**. |
-| 2.14 | As `whole01.admin`, try to delete somebody who also belongs to ELEC01, and try to delete `master.ops` as anybody | Both refused, with the reason: a shared user's profile is a platform administrator's, and a platform administrator cannot be deleted at all. |
-| 2.15 | Lock a firm test user out, e.g. `rr@rr.com`, with five wrong passwords. Then sign in as **`master.ops`** (a platform administrator; `whole01.admin` does not have this button, see 2.17) → Users → open them → **Reset password** in the dialog footer, set `Temp-Passw0rd!!`, leave "Require a new password" on, save. Sign in as the test user with `Temp-Passw0rd!!` | The lock is gone: they sign in at once with the temporary password and land on the change-password screen. Their other window, if any, is signed out. |
-| 2.16 | Same, as `master.ops`, with "Require a new password" **off** | They sign in and the app opens straight away -- a handover, where the password you set is theirs to keep. |
-| 2.17 | As `master.ops`, open your own row → Reset password | Refused: change your own from My profile. As `whole01.admin`, open anybody: no **Reset password** in the footer. |
+**Moved to `docs/INDEPENDENT_TEST_CASES.md` on 2026-09-16**, as TC-SESS-001 to
+011. The person locked out, switched off, deleted and restored is the
+`lock-target` fixture's own user rather than `rr@rr.com` or a spare account,
+and WHOLE01/ELEC01 are TEST01/TEST02.
+
+Driving the rows found one disagreement, recorded as **D-2-1** rather than
+decided: 2.10 says a wrong password on an inactive or expired account still
+answers "Invalid email or password.", and the server names the state instead.
+
+| Old row | Case |
+| --- | --- |
+| 2.1 | TC-PLAT-002 |
+| 2.2 | TC-SESS-001 |
+| 2.3 | TC-PLAT-005 |
+| 2.4, 2.5 | TC-SESS-002 |
+| 2.6, 2.7 | TC-SESS-003 |
+| 2.8, 2.9 | TC-SESS-004 |
+| 2.10 | TC-SESS-005 |
+| 2.11 | TC-SESS-006 |
+| 2.12 | TC-ROLE-008 (an edit that changes somebody's access signs them out) |
+| 2.13 | TC-SESS-007 |
+| 2.13b, 2.13c | TC-SESS-008 |
+| 2.13d (both rows) | TC-SESS-009 |
+| 2.14 | TC-SESS-010 |
+| 2.15, 2.16, 2.17 | TC-SESS-011 |
 
 ## 3. Firm isolation — the core of this application
 

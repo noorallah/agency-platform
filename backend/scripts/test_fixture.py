@@ -995,6 +995,50 @@ def build_outsider_added(built: Built) -> None:
     built.say("Added", "to TEST01 by its admin, as Counter Sales")
 
 
+def build_lock_target(built: Built) -> None:
+    """Make an ordinary TEST01 user to lock out, switch off, delete and restore.
+
+    Beside a firm admin and a platform admin, because the cases on this person
+    turn on which of the two may act: a firm admin clears a lock, only a
+    platform admin sees the deleted, restores them, or sets a password.
+    """
+    build_firm_admin(built)
+    build_platform_admin(built)
+    user_id = new_user(built, "target", "Lock Target")
+    firm_roles(built, user_id, TEST01, ["SALES_EXECUTIVE"])
+    built.firms_used = [TEST01.code]
+    built.say("Target", f"{built.email('target')} / {FIXTURE_PASSWORD}")
+    built.say("Roles", "SALES_EXECUTIVE in TEST01")
+
+
+def build_isolation_pair(built: Built) -> None:
+    """Make a customer of this run's own in each of TEST01 and TEST02.
+
+    Named so a search for the other firm's one is a real isolation check: the
+    same suffix, different letters, and the name of neither firm's customer
+    can appear in the other.
+    """
+    build_platform_admin(built)
+    tag = built.suffix.upper()
+    for firm, letter in ((TEST01, "ONE"), (TEST02, "TWO")):
+        inside = built.admin.as_user(built.admin.token or "", built.firms[firm.code])
+        inside.call(
+            "POST",
+            "/api/v1/customers",
+            {
+                "code": f"{tag}-{letter}",
+                "name": f"Isolation {letter.title()} {built.suffix}",
+                "customer_type": "BUSINESS",
+                "currency_code": "INR",
+            },
+        )
+        built.say(
+            f"In {firm.code}",
+            f"{tag}-{letter}  (Isolation {letter.title()} {built.suffix})",
+        )
+    built.firms_used = [TEST01.code, TEST02.code]
+
+
 #: Every fixture, what it builds, and the cases that name it.
 FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "firm-admin": (
@@ -1003,7 +1047,7 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         "TC-ROLE-001..004, TC-PLAT-005, TC-ME-007, TC-FIRM-016, "
         "TC-TMPL-001..004, TC-TMPL-011, TC-TMPL-015, TC-USER-003, TC-USER-004, "
         "TC-USER-009, TC-GRANT-002..004, TC-GRANT-006, TC-GRANT-008, TC-CASH-004, "
-        "TC-AUDIT-003, TC-AUDIT-005, TC-LOOK-005",
+        "TC-AUDIT-003, TC-AUDIT-005, TC-LOOK-005, TC-SESS-002, TC-SESS-006",
     ),
     "custom-role": (
         "firm-admin + a custom role with the four Night Desk codes.",
@@ -1029,7 +1073,7 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "platform-admin-member": (
         "An ALL_FIRMS platform administrator who belongs to both test firms.",
         build_platform_admin_member,
-        "TC-PLAT-004",
+        "TC-PLAT-004, TC-SESS-010",
     ),
     "two-firm-user": (
         "An ordinary user in TEST01 and TEST02, with roles in both tiers.",
@@ -1094,7 +1138,7 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "shared-member": (
         "firm-admin + platform-admin + a TEST01/TEST02 user + a TEST02-only one.",
         build_shared_member,
-        "TC-USER-002, TC-USER-006..008, TC-RTIER-001, TC-RTIER-008",
+        "TC-USER-002, TC-USER-006..008, TC-RTIER-001, TC-RTIER-008, TC-SESS-010",
     ),
     "shared-member-roles": (
         "shared-member, with Shared Member holding a role in each tier.",
@@ -1130,6 +1174,16 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         "outsider, already added to TEST01 as Counter Sales.",
         build_outsider_added,
         "TC-LOOK-003, TC-LOOK-004",
+    ),
+    "lock-target": (
+        "firm-admin + platform-admin + an ordinary TEST01 user to act on.",
+        build_lock_target,
+        "TC-SESS-003..005, TC-SESS-007..009, TC-SESS-011",
+    ),
+    "isolation-pair": (
+        "platform-admin + a customer of this run's own in each test firm.",
+        build_isolation_pair,
+        "TC-SESS-001, TC-ISO (see the doc)",
     ),
 }
 
