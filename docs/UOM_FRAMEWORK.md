@@ -326,3 +326,11 @@ tax profiles in `docs/TAX_FRAMEWORK.md`.
   ELEC01's products sell in the unit they stock in and correctly get no rule.
 - **A product's units live on `products`, not in a config table.** The second
   home was dropped in `20260812_0068`; see above.
+
+---
+
+## Which modules convert, and which deliberately do not
+
+*Moved out of `CLAUDE.md` on 2026-09-15 when that file passed the 150k-character limit.*
+
+**UOM & packaging** (`app/uom`) — `docs/UOM_FRAMEWORK.md` is the reference: the seven unit slots a product carries, effective-dated conversion rules, and the resolution order (the product's own rule before the firm-wide one, ranked explicitly rather than by NULL sort). **Eight** document modules call `convert_quantity` per line -- `purchase`, `goods_receipt`, `purchase_invoice`, `purchase_return`, `sales_order`, `delivery_note`, `sales_invoice`, `sales_return` -- plus `inventory`, taking a `factor = 1` short-circuit only when the units match. `quotation` deliberately does not: it moves no stock, and the conversion happens when it becomes an order, because `convert_quotation` builds that order through `SalesOrderService.create_order`.

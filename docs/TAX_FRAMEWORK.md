@@ -281,3 +281,11 @@ first two; the **split** changes, and the split is what the GST return needs.
 | Tests | `backend/tests/unit/test_tax_framework.py` |
 | Configuration UI | `desktop/lib/ui/tax/tax_configuration_page.dart` |
 | Simulator UI | `desktop/lib/ui/tax/tax_rule_simulator_page.dart` |
+
+---
+
+## Rule matching — the order, and the id-comparison defect
+
+*Moved out of `CLAUDE.md` on 2026-09-15 when that file passed the 150k-character limit.*
+
+**Tax framework / rule engine** (`app/tax`) — `docs/TAX_FRAMEWORK.md` is the reference: how systems, components and profiles relate, what a profile actually holds, effective-dated rates, and the rule evaluation order (ACTIVE rules ordered by `priority ASC, code ASC, version_number DESC`, **first match wins and evaluation stops**). Rules attach to the transaction, never to a product; the product contributes `tax_profile_group_code`, `product_category_id` and `product_type` to the matching context. **A condition written against an id never matched until 2026-09-08**: the condition's value is stored as text and the context carries a UUID, and `_normalize_compare` uppercased the string while rendering the UUID lowercase -- so the seeded `INTERSTATE_GST_*` rules, each `tax_profile_id EQUALS <id>`, fired for nobody, and every interstate sale in every seeded firm was charged CGST and SGST instead of IGST. `docs/TAX_FRAMEWORK.md` had recorded IGST 180 for that case on 2026-08-12, so it regressed after being verified. Found by driving the GST template and reading the simulator's `decisions`, which said "tax_profile_id failed EQUALS" for a rule naming exactly the profile it had been given; `test_a_condition_written_against_a_profile_id_matches_that_profile` binds it.

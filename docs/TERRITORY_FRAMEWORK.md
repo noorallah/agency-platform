@@ -317,3 +317,11 @@ and holiday rescheduling; territory ownership history; the `salesman` →
 `salesperson` rename across model, API and permission codes; geography's two
 competing retire flags (`is_active` and soft delete, where the lists filter only
 the second, so an inactive country still appears).
+
+---
+
+## Two rules to know before touching it
+
+*Moved out of `CLAUDE.md` on 2026-09-15 when that file passed the 150k-character limit.*
+
+**Territory, routes & beats** (`app/sales`) — `docs/TERRITORY_FRAMEWORK.md` is the reference: the firm-configurable hierarchy, what makes a node a route, the three keys on a customer assignment, how a beat plan becomes a call list, and how a sale gets filed against a round. Two rules to know before touching it. **A route's effective window is enforced** as of 2026-08-16 — it decides both whether a beat plan calls the round and whether a document may be tagged with it, judged on the document's own date. And **`PUT /{id}/customers` replaces the whole list**, with `visit_sequence` as position in it, so membership and order travel together; omitting `is_primary` means *leave it alone*, because sending it back would demote the round somebody chose and collide with the one-primary-per-shop key.

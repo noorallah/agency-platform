@@ -35,6 +35,25 @@ _CLAUDE = _ROOT / "CLAUDE.md"
 _BACKEND = _ROOT / "backend"
 _DESKTOP = _ROOT / "desktop"
 
+#: The docs the narrative half of `CLAUDE.md` moved into on 2026-09-15, when
+#: that file passed the 150k-character limit. They are read here as well,
+#: because a guard that stays behind when the prose leaves protects the
+#: pointer and not the claim -- and these files hold most of the identifiers
+#: this test exists to check. Only the files that received moved prose are
+#: listed: `docs/` at large was never guarded and adding it here would be a
+#: separate change with its own failures to work through.
+_MOVED = (
+    "docs/TENANCY_AND_STORES.md",
+    "docs/API_AND_PERSISTENCE_CONVENTIONS.md",
+    "docs/PRICING_AND_PROMOTIONS.md",
+    "docs/LEDGER_POSTING_RULES.md",
+    "docs/COMMISSION_FRAMEWORK.md",
+    "docs/SALES_CHAIN_RULES.md",
+    "docs/DEMO_DATA.md",
+    "docs/CUSTOM_FIELDS_FRAMEWORK.md",
+    "docs/GEOGRAPHY_MASTERS.md",
+)
+
 #: Anything the file puts in backticks. It uses them for paths, identifiers,
 #: commands, permission codes and prose emphasis alike, so each candidate is
 #: classified below rather than checked blindly.
@@ -82,7 +101,13 @@ _NOT_OURS = {
 
 @lru_cache(maxsize=1)
 def _text() -> str:
-    return _CLAUDE.read_text(encoding="utf-8")
+    """`CLAUDE.md` and the docs its narrative moved into, as one body."""
+    parts = [_CLAUDE.read_text(encoding="utf-8")]
+    for name in _MOVED:
+        path = _ROOT / name
+        if path.exists():
+            parts.append(path.read_text(encoding="utf-8"))
+    return chr(10).join(parts)
 
 
 @lru_cache(maxsize=1)
@@ -135,7 +160,8 @@ def test_every_path_it_names_exists() -> None:
             continue
         missing.append(item)
     assert not missing, (
-        "CLAUDE.md names these files and they do not exist:\n  "
+        "CLAUDE.md or a doc it moved prose into names these files "
+        "and they do not exist:\n  "
         + "\n  ".join(sorted(missing))
         + "\n\nFix the path, or add it to `_DELIBERATELY_ABSENT` with the "
         "reason it is named while gone."
@@ -154,7 +180,8 @@ def test_every_migration_it_names_exists() -> None:
     assert named, "the revision pattern found nothing -- the shape moved"
     absent = sorted(named - present)
     assert not absent, (
-        "CLAUDE.md names these migrations and they are not in "
+        "CLAUDE.md or a doc it moved prose into names these migrations "
+        "and they are not in "
         "alembic/versions:\n  " + "\n  ".join(absent)
     )
 
@@ -180,7 +207,8 @@ def test_every_identifier_it_names_is_findable() -> None:
             continue
         missing.append(item)
     assert not missing, (
-        "CLAUDE.md names these and they appear nowhere in either "
+        "CLAUDE.md or a doc it moved prose into names these and they "
+        "appear nowhere in either "
         "application:\n  "
         + "\n  ".join(sorted(missing))
         + "\n\nEither the name is wrong, or the thing was removed and the "

@@ -20,6 +20,23 @@ Enterprise ERP platform with a FastAPI backend and Flutter desktop client.
 - `docs/MULTI_INDUSTRY_ERP_ARCHITECTURE.md`
 - `docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md`
 
+### Rules and the defects behind them
+
+`CLAUDE.md` holds the imperative half of every rule this codebase enforces;
+these hold the narrative half — which defect, on what date, found how. They were
+split out on 2026-09-15 when `CLAUDE.md` outgrew a single context window.
+
+- `docs/TENANCY_AND_STORES.md` — how a request finds a firm's data
+- `docs/ACCESS_CONTROL_FRAMEWORK.md` — roles, permissions, memberships, hiring
+- `docs/API_AND_PERSISTENCE_CONVENTIONS.md` — routers, schemas, concurrency, migrations
+- `docs/PRICING_AND_PROMOTIONS.md` — discounts, price lists, promotions, loyalty
+- `docs/LEDGER_POSTING_RULES.md` — what posts to the ledger, and at what value
+- `docs/SALES_CHAIN_RULES.md` — the sales chain and what may be skipped
+- `docs/COMMISSION_FRAMEWORK.md` — rules, ladders, scope and payouts
+- `docs/CUSTOM_FIELDS_FRAMEWORK.md` — the attribute framework
+- `docs/GEOGRAPHY_MASTERS.md` — the geography masters and the area picker
+- `docs/DEMO_DATA.md` — what the seeders produce, and what building history exposes
+
 ### Desktop UX and design system
 
 - `docs/DESIGN_SYSTEM.md` (enterprise baseline)
