@@ -948,6 +948,53 @@ def build_accountant(built: Built) -> None:
     built.say("Roles", "ACCOUNTANT in TEST01, nothing else")
 
 
+def build_outsider(built: Built) -> None:
+    """Make somebody TEST01 does not employ, and an administrator of each tier.
+
+    **Outsider** works in TEST02 alone, as a cashier there -- somebody
+    TEST01's admin can look up and bring in, but must not learn anything
+    about beyond a name and an address.
+    """
+    build_firm_admin(built)
+    build_platform_admin(built)
+    user_id = new_user(built, "outsider", "Outsider", firms=(TEST02,))
+    firm_roles(built, user_id, TEST02, ["CASHIER"])
+    built.firms_used = [TEST01.code, TEST02.code]
+    built.say("Outsider", f"{built.email('outsider')}  (TEST02 only, CASHIER there)")
+
+
+def build_outsider_added(built: Built) -> None:
+    """Make outsider, already added to TEST01 by its admin as Counter Sales.
+
+    The same two calls Add existing user makes: the membership write, which
+    merges for a firm admin, and the template.
+    """
+    build_outsider(built)
+    firm_admin = built.as_("admin")
+    user_id = built.ids["outsider"]
+    firm_admin.call(
+        "PUT",
+        f"/api/v1/users/{user_id}/firms",
+        {
+            "assignments": [
+                {
+                    "firm_id": built.firms[TEST01.code],
+                    "is_primary": False,
+                    "is_active": True,
+                }
+            ]
+        },
+    )
+    templates = firm_admin.call("GET", "/api/v1/user-templates?page_size=100")
+    counter = next(row for row in templates if row["code"] == "counter-sales")
+    firm_admin.call(
+        "POST",
+        f"/api/v1/users/{user_id}/apply-template",
+        {"template_id": counter["id"]},
+    )
+    built.say("Added", "to TEST01 by its admin, as Counter Sales")
+
+
 #: Every fixture, what it builds, and the cases that name it.
 FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "firm-admin": (
@@ -956,7 +1003,7 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         "TC-ROLE-001..004, TC-PLAT-005, TC-ME-007, TC-FIRM-016, "
         "TC-TMPL-001..004, TC-TMPL-011, TC-TMPL-015, TC-USER-003, TC-USER-004, "
         "TC-USER-009, TC-GRANT-002..004, TC-GRANT-006, TC-GRANT-008, TC-CASH-004, "
-        "TC-AUDIT-003, TC-AUDIT-005",
+        "TC-AUDIT-003, TC-AUDIT-005, TC-LOOK-005",
     ),
     "custom-role": (
         "firm-admin + a custom role with the four Night Desk codes.",
@@ -1017,7 +1064,7 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "sales-executive": (
         "A TEST01 user holding SALES_EXECUTIVE alone.",
         build_sales_executive,
-        "TC-TMPL-009, TC-GRANT-007, TC-AUDIT-006",
+        "TC-TMPL-009, TC-GRANT-007, TC-AUDIT-006, TC-LOOK-005",
     ),
     "manual-hire": (
         "firm-admin + a TEST01 user with two roles picked by hand.",
@@ -1042,7 +1089,7 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "template-offering": (
         "firm-admin + platform-admin: one writes templates, one reads them.",
         build_template_offering,
-        "TC-TMPL-013, TC-TMPL-014",
+        "TC-TMPL-013, TC-TMPL-014, TC-LOOK-007",
     ),
     "shared-member": (
         "firm-admin + platform-admin + a TEST01/TEST02 user + a TEST02-only one.",
@@ -1073,6 +1120,16 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         "A TEST01 user holding ACCOUNTANT alone.",
         build_accountant,
         "TC-CASH-003",
+    ),
+    "outsider": (
+        "firm-admin + platform-admin + a TEST02-only cashier TEST01 can hire.",
+        build_outsider,
+        "TC-LOOK-001, TC-LOOK-002, TC-LOOK-006",
+    ),
+    "outsider-added": (
+        "outsider, already added to TEST01 as Counter Sales.",
+        build_outsider_added,
+        "TC-LOOK-003, TC-LOOK-004",
     ),
 }
 

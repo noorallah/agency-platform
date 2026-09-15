@@ -7,7 +7,7 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Converted so far:** plan sections 16 to 23, 25 (the pilot), 26, 26a and 27 — see the
+**Converted so far:** plan sections 16 to 27 (25 was the pilot) — see the
 table of contents below. Other sections move here one at a time; until then
 they stay in the plan.
 
@@ -919,6 +919,123 @@ needs `DIAGNOSTICS_VIEW`, which `FIRM_ADMIN` does not hold.
 - **Steps:** sign in as the fixture's **Seller**; read the sidebar.
 - **Expect:** **no Settings** — the module absent, not an empty Settings. A module that opens and does nothing reads as broken rather than withheld.
 - **Leaves:** a seller.
+
+---
+
+## Hiring somebody who already has an account
+
+`list_users` is scoped to the caller's own members, so a firm administrator
+could not find — or learn the existence of — somebody who already works
+elsewhere. `GET /api/v1/users/lookup` is a deliberate, narrow opening for that
+one job, and **one route answers two callers differently**:
+
+| | A firm administrator | A platform administrator |
+| --- | --- | --- |
+| Term | at least **3** characters | any, including none |
+| Results | at most **10**, no paging | the ordinary paging |
+| Members of the firm | listed, marked **Already in this firm** | **left out** — they are in the grid |
+| Firms named | never | never |
+
+### TC-LOOK-001 — Looking somebody up
+
+- **Covers:** plan 24.1 – 24.7
+- **Fixture:** `outsider` — Outsider works in TEST02 alone.
+- **Steps**
+  1. Sign in as the fixture's **Firm admin** → Administration → Users → **Add existing user**, with no row selected.
+  2. Type `t0`.
+  3. Type `<suffix>.outs`; then clear and type `Outsider (<suffix>)`.
+  4. Type `<suffix>`.
+  5. Type `zzqq-nobody`.
+- **Expect**
+  - Step 1: a search box. Offered with nothing selected — the person is not in the grid, which is the point.
+  - Step 2: nothing searched: "Type at least 3 characters to look somebody up."
+  - Step 3: Outsider, found by **email** and then by **name**. A result shows the name, the email, and **nothing else** — no firm is named anywhere on it.
+  - Step 4: Outsider, and **Fixture Firm Admin (<suffix>)** marked **Already in this firm** with Add disabled.
+  - Step 5: "Nobody matches. They may not have an account yet — use New."
+- **Data (HTTP):** as the firm admin, `GET /api/v1/users/lookup?q=<suffix>` → each row `{id, full_name, email, already_a_member}` and nothing more.
+- **Leaves:** unchanged.
+
+### TC-LOOK-002 — Adding them, with a job
+
+- **Covers:** plan 24.8
+- **Fixture:** `outsider`
+- **Steps:** as the fixture's **Firm admin**, Add existing user → `<suffix>.outs` → pick Outsider → **Job template** Counter Sales → Add.
+- **Expect:** "Outsider (<suffix>) was added to this firm." They appear in TEST01's grid. The Job template field's helper reads "Optional. You can set their roles afterwards."
+- **Data**
+  ```sql
+  select f.code, uf.is_primary from platform.user_firms uf
+  join platform.firms f on f.id = uf.firm_id
+  join platform.users u on u.id = uf.user_id
+  where u.email = '<suffix>.outsider@fixtures.local' and uf.is_deleted = false;
+  ```
+  TEST02 (primary) and TEST01 — adding merged, it did not replace.
+- **Leaves:** Outsider in TEST01 as Counter Sales.
+
+### TC-LOOK-003 — Their profile is not yours; their roles here are
+
+- **Covers:** plan 24.9, 24.9a, 24.10
+- **Fixture:** `outsider-added` — Outsider is already in TEST01 as Counter Sales.
+- **Steps**
+  1. As the fixture's **Firm admin**, select **Outsider (<suffix>)** → **Edit**; double-click the row; the context menu's Edit.
+  2. Select them → **Apply job template** → Warehouse → Apply. Then **Roles by firm**.
+  3. Sign in as the fixture's **Platform admin** → Users → Outsider → Edit.
+- **Expect**
+  - Step 1: all three open **read-only**, the subtitle saying they also work in another firm, so their profile is managed by a platform administrator, and Roles by firm is what to use.
+  - Step 2: both work. Roles by firm shows **one section, TEST01** — not TEST02, though they work there: the dialog offers only firms you hold `USER_CREATE` in.
+  - Step 3: **editable** — correct, not a hole. A platform administrator sees every firm, so nothing is hidden from them, and they are exactly who step 1's message points to.
+- **Leaves:** Outsider on Warehouse in TEST01.
+
+### TC-LOOK-004 — Adding somebody tells you nothing about their other firms
+
+- **Covers:** plan 24.11, 24.12, 24.13
+- **Fixture:** `outsider-added`
+- **Steps (HTTP)**
+  1. As the fixture's firm admin (`X-Firm-ID` TEST01): `GET /api/v1/users/{Outsider's id}/firms`.
+  2. As the fixture's platform admin: the same.
+  3. As the platform admin: `GET /api/v1/users/{id}/firms/{TEST02 id}/roles` and `.../{TEST01 id}/roles`.
+- **Expect**
+  1. **Only TEST01.** It returned every membership until 2026-09-06, on a route gated only by `ROLE_VIEW`.
+  2. Both firms, TEST02 primary.
+  3. TEST02 still exactly `CASHIER`; TEST01 `BILLING_EXECUTIVE` and `CASHIER` from Counter Sales. Adding them to TEST01 touched nothing in TEST02.
+- **Leaves:** unchanged.
+
+### TC-LOOK-005 — Reaching across firms is not reading your own people
+
+- **Covers:** plan 24.14, 24.15, 24.16
+- **Fixture:** `sales-executive` and `firm-admin` (two runs, or any two)
+- **Steps**
+  1. Sign in as the `sales-executive` fixture's **Seller**; look for Administration → Users.
+  2. **(HTTP)** As the seller with `X-Firm-ID` TEST01: `GET /api/v1/users/lookup?q=fixtures`.
+  3. **(HTTP)** As the `firm-admin` fixture's firm admin: `GET /api/v1/users/lookup?q=`, then `?q=fixtures.local&page=2&page_size=2`.
+- **Expect**
+  1. No Administration at all, so no Add existing user.
+  2. **403** — the lookup needs `USER_CREATE`, deliberately not `USER_VIEW`.
+  3. **422**, "Type at least 3 characters to look somebody up." — an empty term is the shortest of all. Page 2: **empty**, and a plain `?q=fixtures.local` returns **10** however many match: a firm caller gets "is this them?", not "who works here?".
+- **Leaves:** unchanged.
+
+### TC-LOOK-006 — A platform administrator gets the directory
+
+- **Covers:** plan 24.17, 24.18, 24.19, 24.20
+- **Fixture:** `outsider`
+- **Steps**
+  1. Sign in as the fixture's **Platform admin**, switch into **TEST01** → Users → **Add existing user**.
+  2. Type `e`; clear the box.
+  3. Type `<suffix>.outs`, pick Outsider, Add, close. Open Add existing user again and type `<suffix>`.
+  4. **(HTTP)** As the platform admin with `X-Firm-ID` TEST01: `GET /api/v1/users/lookup?q=&page=1&page_size=2`.
+- **Expect**
+  - Step 1: the dialog **opens already listing** everyone with an account who is not in TEST01, no typing. Helper: "Leave blank to list everyone not yet in this firm." TEST01's own people are **not** listed, and no platform administrator is — the fixture's firm admin and platform admin are both absent.
+  - Step 2: filtered on one character; the three-character rule is a firm caller's. Clearing brings the full list back.
+  - Step 3: Outsider is added, and **absent** the second time. A firm caller's lookup *flags* a member; a platform caller's directory *excludes* them.
+  - Step 4: two rows and a `pagination` block whose `total_records` is everybody not in TEST01.
+- **Leaves:** Outsider in TEST01 with no roles there.
+
+### TC-LOOK-007 — User-Firm Assignments is a platform administrator's tab
+
+- **Covers:** plan 24.21, 24.22
+- **Fixture:** `template-offering` (a firm admin and a platform admin)
+- **Steps:** open Administration as the fixture's **Firm admin**; then as its **Platform admin**, with no firm and then with TEST01 selected.
+- **Expect:** the firm admin sees Users, Roles & Permissions and User Templates — **no User-Firm Assignments**; Users → Edit → Firms and Add existing user are their ways to the same thing. The platform admin sees **User-Firm Assignments**, with the Firm filter, either way. A tab-level `requiresPlatformAdmin`, because a platform administrator passes code checks by designation.
+- **Leaves:** unchanged.
 
 ---
 
