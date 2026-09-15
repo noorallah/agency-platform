@@ -17,6 +17,7 @@ class AuditLogEntry {
     required this.actorId,
     this.actorName = '',
     this.actorEmail = '',
+    this.entityLabel = '',
     required this.firmId,
     required this.beforeData,
     required this.afterData,
@@ -37,6 +38,11 @@ class AuditLogEntry {
   /// has since been deleted, or where nobody did it.
   final String actorName;
   final String actorEmail;
+
+  /// Who it was done **to**, where the subject is a person. Empty for every
+  /// other entity type, and the screen then says nothing rather than falling
+  /// back to the id.
+  final String entityLabel;
 
   /// The actor as somebody would name them, falling back through what is
   /// known. Never the raw id: an id on screen is what this exists to replace.
@@ -85,6 +91,7 @@ class AuditLogEntry {
       actorId: stringValue(json['actor_id']),
       actorName: stringValue(json['actor_name']),
       actorEmail: stringValue(json['actor_email']),
+      entityLabel: stringValue(json['entity_label']),
       firmId: stringValue(json['firm_id']),
       beforeData: side(json['before_data']),
       afterData: side(json['after_data']),

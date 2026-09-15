@@ -859,6 +859,12 @@ def test_the_trail_says_which_job_somebody_was_moved_into() -> None:
     assert recorded["template_code"] == "counter-sales"
     assert recorded["template_id"] == str(rows[0].id)
     assert len(recorded["role_ids"]) == 2
+    # The codes beside the ids, for the reason `template_code` is beside
+    # `template_id`: a role can be retired and an id alone then points at a
+    # row nobody can name. Without them the row says which job was applied
+    # and not what access it granted, which is the more important half --
+    # the owner read exactly that on screen at plan step 23.4b, 2026-09-15.
+    assert recorded["role_codes"] == ["BILLING_EXECUTIVE", "CASHIER"]
     assert entry.entity_id == person.id
     assert entry.actor_id == ACTOR
 

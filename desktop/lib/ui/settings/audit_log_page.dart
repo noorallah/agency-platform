@@ -230,9 +230,18 @@ class _AuditLogPageState extends State<AuditLogPage> {
           Text(row.action, style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: AppSpacing.sm),
           Text(
-            '${row.entityType} · ${row.entityId}',
+            // The subject named where it is a person, with the id kept
+            // beside it: the id is what a support request quotes, and the
+            // name is what makes the row readable. Every other entity type
+            // has only the id, which is honest -- resolving them would mean
+            // knowing what each `entity_type` points at.
+            row.entityLabel.isEmpty
+                ? '${row.entityType} · ${row.entityId}'
+                : '${row.entityType} · ${row.entityLabel}',
             style: Theme.of(context).textTheme.bodySmall,
           ),
+          if (row.entityLabel.isNotEmpty)
+            Text(row.entityId, style: Theme.of(context).textTheme.bodySmall),
           Text('By ${row.actorLabel}',
               style: Theme.of(context).textTheme.bodySmall),
           Text(row.createdAt, style: Theme.of(context).textTheme.bodySmall),

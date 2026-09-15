@@ -25,6 +25,12 @@ class AuditLogResponse(BaseModel):
     # deleted, or where the row records something nobody did.
     actor_name: str | None = None
     actor_email: str | None = None
+    # Who it was **done to**, where that is knowable. Filled for
+    # `entity_type == "user"` only: user administration is what fills the
+    # platform trail, and resolving the rest would mean knowing what each of
+    # dozens of `entity_type` values points at. Null elsewhere, and the screen
+    # falls back to saying nothing rather than to the id.
+    entity_label: str | None = None
     firm_id: UUID | None
     before_data: dict[str, object] | None
     after_data: dict[str, object] | None

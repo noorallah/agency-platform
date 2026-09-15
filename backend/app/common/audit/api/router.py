@@ -117,19 +117,27 @@ def _named(rows: Sequence[AuditLog], platform_db: Session) -> list[AuditLogRespo
     the point of having one.
     """
     responses = [AuditLogResponse.model_validate(row) for row in rows]
-    actor_ids = {row.actor_id for row in responses if row.actor_id is not None}
-    if not actor_ids:
+    wanted = {row.actor_id for row in responses if row.actor_id is not None}
+    # The subject as well as the actor, where the subject is a person. A row
+    # saying somebody's roles were set is of little use if it names neither
+    # who did it nor who it was done to.
+    wanted |= {row.entity_id for row in responses if row.entity_type == "user"}
+    if not wanted:
         return responses
     people = {
         user_id: (full_name, email)
         for user_id, full_name, email in platform_db.execute(
-            select(User.id, User.full_name, User.email).where(User.id.in_(actor_ids))
+            select(User.id, User.full_name, User.email).where(User.id.in_(wanted))
         )
     }
     for response in responses:
         found = people.get(response.actor_id) if response.actor_id else None
         if found is not None:
             response.actor_name, response.actor_email = found
+        if response.entity_type == "user":
+            subject = people.get(response.entity_id)
+            if subject is not None:
+                response.entity_label = f"{subject[0]} · {subject[1]}"
     return responses
 
 
