@@ -7,7 +7,7 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Converted so far:** plan sections 25 (the pilot), 26 and 26a — see the
+**Converted so far:** plan sections 25 (the pilot), 26, 26a and 27 — see the
 table of contents below. Other sections move here one at a time; until then
 they stay in the plan.
 
@@ -46,12 +46,14 @@ Fixtures work in two firms of their own, each in a schema of its own:
 | --- | --- | --- |
 | **TEST01** | `test_fixtures` | almost every case |
 | **TEST02** | `test_fixtures_2` | cases needing somebody in two firms, or two firms kept apart |
+| **TESTSH1**, **TESTSH2** | `firm_shared` | only the cases *about* the shared store; built the first time `shared-pair` runs |
+| `<SUFFIX>-U`, `-F`, `-R` | `fx_<suffix>_u` … | the firm-setup cases, which need a firm nobody has finished; a new one per run |
 
 The demo firms are never touched, and a table check against those schemas
 shows only test data. The first fixture run builds both — create, provision,
 open the books, GST template, head office, the Wholesale profile — through the
 same endpoints plan section 27 tests; every later run finds them and moves on.
-`scripts	est_fixture.py baseline` does only that.
+`scripts\test_fixture.py baseline` does only that.
 
 **One setup step is not an API call, on purpose.** Nothing in the API grants
 the platform-administrator designation — a `platform_admins` row is
@@ -502,6 +504,545 @@ being signed in and nothing else.
   ```
   `authorization_version` up by one (every session ends, including this one); one `password_history` row holding the old hash. Audit `identity.password_changed`. The server also refuses any of the last five passwords.
 - **Leaves:** a two-firm user whose password is `Str0ng-Passw0rd!`.
+
+---
+
+## Firms — creating one and finishing it
+
+A firm is created in one place and finished in several: storage, business
+profile, books, tax, first branch and people are each a separate act.
+**Administration → Firms** creates it, and **Set up** on that grid shows each
+step and does four of them.
+
+**These cases make firms of their own.** Creating a firm, provisioning it and
+opening its books for the first time are the behaviours under test, so they
+cannot run against TEST01, which was finished long ago. The fixtures build
+firms whose code and schema carry the run's suffix — `T0916ABCD-F` in schema
+`fx_t0916abcd_f` — so no two runs meet. A firm with no data costs nothing; a
+dedicated one leaves its schema behind. Provisioning runs the migrations, so
+`unfinished-firm` and `ready-firm` take a minute or two.
+
+| Fixture | Builds |
+| --- | --- |
+| `unprovisioned-firm` | a platform admin, and a `SCHEMA` firm whose storage is **not** built |
+| `unfinished-firm` | a platform admin, and a `SCHEMA` firm that is provisioned and **nothing else** — no profile, books, tax, branch or members |
+| `ready-firm` | a platform admin, a **finished** `SCHEMA` firm (Wholesale), its firm admin, a `VIEWER`, two product categories, a customer, and a 500.00 cash receipt that has posted |
+
+### TC-FIRM-001 — Firms is an Administration tab that needs no firm
+
+- **Covers:** plan 27.1, 27.2
+- **Fixture:** `platform-admin`
+- **Steps**
+  1. Sign in as the fixture's **Platform admin**. The header reads **Platform**.
+  2. Open **Administration** → **Firms**.
+  3. Select TEST01 and open it with **Open this firm**; look through **Masters**.
+- **Expect**
+  - Step 2: the list of every firm. This is the one Administration tab that works with no firm selected.
+  - Step 3: **no Firms** under Masters. It moved to Administration on 2026-09-06 — as a Masters tab it needed a firm, so creating a firm was reachable only from inside another one.
+- **Leaves:** a platform administrator.
+
+### TC-FIRM-002 — Creating a shared firm, and reaching it at once
+
+- **Covers:** plan 27.3, 27.4, 27.8, 27.10, 27.15, 27.16
+- **Fixture:** `platform-admin`
+- **Steps**
+  1. Sign in as the fixture's **Platform admin**. Administration → **Firms** → **New**.
+  2. Type only a name, e.g. `Created <suffix>`, and save.
+  3. Fill the rest: code **`<suffix>-s` in lower case** (e.g. `t0916abcd-s`), country `IN`, currency `INR`, financial year start `2026-04-01`, deployment mode **SHARED**. Save.
+  4. Select the new row.
+  5. Press **Open this firm**, then open the firm switcher.
+- **Expect**
+  - Step 2: refused. The five required fields are `name`, `code`, `country` (2 letters), `currency_code` (3 letters) and `financial_year_start`; everything else is optional.
+  - Step 3: saves. The code is stored **upper case** — `T0916ABCD-S` — as are country and currency. The follow-up message names the next step.
+  - Step 4: **Open this firm** enabled — a shared firm is ready at once. **Provision storage** hidden; there is nothing to build.
+  - Step 5: "Working in …" names the new firm, the header shows it, the sidebar grows. **The firm is in the switcher.** That is the half that was broken: the switcher was read once at sign-in, so a firm created minutes earlier was refused as "not assigned to this user".
+- **Data**
+  ```sql
+  select code, deployment_mode, schema_name, provisioned_at, created_at
+  from   platform.firms where code = '<SUFFIX>-S';
+  ```
+  `SHARED`, no schema of its own. Audit `firm.created` on the platform trail.
+- **Leaves:** a platform administrator, and a firm `<SUFFIX>-S` in the shared store with nothing in it. Delete it from the Firms grid if you like.
+
+### TC-FIRM-003 — What firm creation refuses
+
+- **Covers:** plan 27.5, 27.6, 27.7, 27.9
+- **Fixture:** `platform-admin`
+- **Steps (HTTP)** — sign in as the fixture's platform admin and send `POST /api/v1/firms`, each time with `name`, `country: "IN"`, `currency_code: "INR"`, `financial_year_start: "2026-04-01"` and `deployment_mode: "SHARED"`, varying one thing:
+  1. `code: "WHOLE01"`
+  2. `code: "BAD CODE"`
+  3. `code: "<SUFFIX>-Z"`, `country: "IND"`
+  4. `code: "<SUFFIX>-Y"`, `deployment_mode: "DATABASE"`, `database_name: "fx_nope"`, `connection_profile: "NOPE"`
+- **Expect**
+  1. **409**, "Firm code, GST number, or PAN number already exists." Unique among *live* firms only — a deleted firm releases its code.
+  2. **422**, the code "should match pattern `^[A-Z0-9_-]+$`" — no spaces, no dots.
+  3. **422**, country "should have at most 2 characters".
+  4. **422**, "Connection profile 'NOPE' is not configured. Configured profiles: REMOTE_A." Refused at creation, not at first use — otherwise the firm would provision nothing and fail far from the request that caused it.
+- **Leaves:** nothing; every request was refused.
+
+### TC-FIRM-004 — A dedicated firm cannot be opened until it is provisioned
+
+- **Covers:** plan 27.11, 27.12, 27.13
+- **Fixture:** `unprovisioned-firm`
+- **Steps**
+  1. Sign in as the fixture's **Platform admin**. Administration → **Firms**; select the fixture's **New firm**.
+  2. Press **Provision storage**. Wait — it runs the migrations. Refresh and select the row again.
+  3. Press **Provision storage** again.
+- **Expect**
+  - Step 1: **Open this firm disabled** — its schema has no tables, so switching in would answer errors on every screen. **Provision storage** enabled.
+  - Step 2: **Open this firm** now enabled; the row carries a provisioned date.
+  - Step 3: succeeds and reports it was already provisioned. Every step is create-if-missing, so this is also the repair action after a server was unreachable.
+- **Data**
+  ```sql
+  select provisioned_at, provisioning_error from platform.firms where code = '<SUFFIX>-U';
+  select count(*) from information_schema.tables where table_schema = 'fx_<suffix>_u';
+  ```
+  `provisioned_at` set, no error, and the schema now holds the firm tables — none of the platform's (`users`, `firms`, `user_firms` are pruned). Audit `firm.storage_provisioned`.
+- **Leaves:** the firm, now provisioned.
+
+### TC-FIRM-005 — A firm's storage routing is fixed at creation
+
+- **Covers:** plan 27.14
+- **Fixture:** `unprovisioned-firm`
+- **Steps (HTTP)** — as the fixture's platform admin, `GET /api/v1/firms/{id}` for the fixture's firm, then `PUT` it back with `name`, `code`, `country`, `currency_code`, `financial_year_start` as read and `deployment_mode: "SHARED"`.
+- **Expect:** **422**, "Firm storage routing cannot be changed after creation (currently SCHEMA/fx_<suffix>_u). Migrate the firm's data first." Nothing moves a firm's rows between stores.
+- **Leaves:** the firm, unchanged.
+
+### TC-FIRM-006 — The setup panel on a firm whose storage is not built
+
+- **Covers:** plan 27.23e
+- **Fixture:** `unprovisioned-firm`
+- **Steps**
+  1. Sign in as the fixture's **Platform admin**. Administration → Firms → select the fixture's firm → **Set up**.
+  2. **(HTTP)** Before pressing anything, `POST /api/v1/firms/{id}/open-books`, `.../apply-tax-template` and `.../create-default-branch`.
+  3. On the panel, press **Provision storage**.
+- **Expect**
+  - Step 1: **Cannot post documents yet.** Storage is **missing** with a **Provision storage** button. Business profile, Books, Tax, Geography and Branches read "Cannot be checked until the firm's storage is provisioned." with no button and no hint. People reads "Nobody belongs to this firm yet. Only a platform administrator can open it."
+  - Step 2: three **422**s — "Provision the firm's storage before opening its books.", "… before applying a tax template.", "… before creating its first branch."
+  - Step 3: the list re-reads; Storage is done and Books now offers **Open the books**.
+- **Leaves:** the firm, provisioned.
+
+### TC-FIRM-007 — The setup panel says what an unfinished firm still needs
+
+- **Covers:** plan 27.23, 27.23a, 27.23b
+- **Fixture:** `unfinished-firm`
+- **Steps**
+  1. Sign in as the fixture's **Platform admin**. Administration → Firms → select the fixture's firm → **Set up**.
+  2. **(HTTP)** `GET /api/v1/firms/{id}/readiness`.
+  3. From `backend`: `.\.venv\Scripts\python.exe scripts\check_firm_readiness.py <SUFFIX>-F`
+- **Expect**
+  - Step 1: titled `Set up <SUFFIX>-F`; **Cannot post documents yet.** Seven rows — Storage and Books **Required**, the rest **Recommended**:
+
+    | Row | Reads | Offers |
+    | --- | --- | --- |
+    | Storage | SCHEMA storage provisioned. | done |
+    | Business profile | None assigned. The firm runs as GENERIC … | a profile dropdown and **Assign** |
+    | Books | No chart of accounts. Nothing can post until the books are opened. | **Open the books** |
+    | Tax | No tax profiles or rules. … | **Apply GST template** |
+    | Geography | No country in the store. … | a hint: Territories → Geography Masters; the GST template adds the country |
+    | Branches and warehouses | … 0 branches, 0 warehouses so far. | **Create head office and main warehouse** |
+    | People | Nobody belongs to this firm yet. … | a hint: Users → Add existing user, or User-Firm Assignments |
+  - Step 2: **200**, `can_post: false`, `ready: false`, the same seven `steps` with `status` DONE / MISSING and `required`.
+  - Step 3: the same seven rows from the same implementation, and that it **cannot post** because the books are not open.
+- **Leaves:** the firm, unchanged.
+
+### TC-FIRM-008 — Opening the books, once
+
+- **Covers:** plan 27.23c, 27.23d
+- **Fixture:** `unfinished-firm`
+- **Steps**
+  1. Sign in as the fixture's **Platform admin** → Firms → the fixture's firm → **Set up** → **Open the books**.
+  2. Press **Refresh**. Then **(HTTP)** `POST /api/v1/firms/{id}/open-books` again.
+  3. Settings → **Audit Logs**, on Platform.
+- **Expect**
+  - Step 1: the notice names the year: "Books opened for the year starting 2026-04-01" — the year *today* falls in, aligned to the firm's year start. Books re-reads as done: "24 accounts, 1 financial year, 12 periods, all 24 control accounts mapped, and a period open today." The button is gone, and the verdict reads **Can post documents. The recommended steps are still open.**
+  - Step 2: nothing changes. The response: "The books were already open; nothing was created.", `already_open: true`, every count 0.
+  - Step 3: **one** `firm.books_opened` row for this firm, with the counts (5 groups, 24 accounts, 12 periods, 2 types, 24 mappings) — not two. An audit row saying books were opened with every count at zero would be a lie, so the second call writes none.
+- **Data**
+  ```sql
+  select count(*) from fx_<suffix>_f.ledger_accounts;          -- 24
+  select count(*) from fx_<suffix>_f.accounting_periods;       -- 12
+  select count(*) from fx_<suffix>_f.firm_control_accounts;    -- 24
+  select action, created_at from platform.audit_logs
+  where  entity_id = '<firm id>' order by created_at;
+  ```
+- **Leaves:** the firm with its books open.
+
+### TC-FIRM-009 — The GST template, once
+
+- **Covers:** plan 27.23f, 27.23h
+- **Fixture:** `unfinished-firm`
+- **Steps**
+  1. As the fixture's **Platform admin**, open **Set up** on the fixture's firm → Tax row → **Apply GST template**.
+  2. **(HTTP)** `POST /api/v1/firms/{id}/apply-tax-template` again; then once more with `{"template": "US"}`.
+  3. Open this firm → Administration → Configuration → **Tax Configuration**.
+- **Expect**
+  - Step 1: "GST set up: 8 tax profiles and 6 rules." Tax re-reads as "1 tax system, 8 profiles, 6 rules", and **Geography flips to done** ("1 country in the store") — the template adds India to a store that has no country.
+  - Step 2: "The firm already has a tax system; nothing was created.", `already_configured: true`. With `US`: **422**, only `IN_GST` exists. One `firm.tax_template_applied` audit row, not two.
+  - Step 3: the system, four components and eight profiles, editable.
+- **Leaves:** the firm with GST set up.
+
+### TC-FIRM-010 — Assigning the business profile from the panel
+
+- **Covers:** plan 27.23g
+- **Fixture:** `unfinished-firm`
+- **Steps**
+  1. As the fixture's **Platform admin**, stay on **Platform** (no firm open) and open **Set up** on the fixture's firm.
+  2. Business profile row: look at **Assign** before choosing; choose **Wholesale**; press **Assign**.
+- **Expect**
+  - Assign is dead until a profile is chosen. The dropdown lists the **firm's own** catalogue (`GET /api/v1/business-framework/firms/{id}/profiles`), which is why this works with no firm open.
+  - "Business profile set to Wholesale." The row re-reads "Assigned: WHOLESALE." and the picker is gone.
+- **Leaves:** the firm on the Wholesale profile.
+
+### TC-FIRM-011 — Head office and main warehouse, once
+
+- **Covers:** plan 27.23i
+- **Fixture:** `unfinished-firm`
+- **Steps**
+  1. As the fixture's **Platform admin**, **Set up** on the fixture's firm → Branches and warehouses → **Create head office and main warehouse**.
+  2. **(HTTP)** `POST /api/v1/firms/{id}/create-default-branch` again.
+  3. Open this firm → Masters → **Branches**, then **Warehouses**.
+- **Expect**
+  - Step 1: "Created branch HO and warehouse MAIN. Rename them on their own screens." The row reads "1 branch, 1 warehouse". The verdict stays **Cannot post documents yet.** — the books are still shut in this run; that is TC-FIRM-008's step, not this one's.
+  - Step 2: "The firm already has a branch and a warehouse; nothing was created.", `already_present: true`.
+  - Step 3: `HO` Head Office, default; `MAIN` under it.
+- **Leaves:** the firm with a branch and a warehouse.
+
+### TC-FIRM-012 — Profile Assignment, the other way to set a profile
+
+- **Covers:** plan 27.18, 27.19, 27.20
+- **Fixture:** `unfinished-firm`
+- **Steps**
+  1. As the fixture's **Platform admin**, switch into **TEST01** (the screen needs *some* firm open).
+  2. Administration → Configuration → Business Profiles → **Profile Assignment**.
+  3. Select the fixture's firm, open it, choose **Retail**, save. Re-open the row.
+- **Expect**
+  - Step 2: a grid of **every** firm, not only TEST01 — the screen names the firm in the URL rather than reading `X-Firm-ID`.
+  - Step 3: saved against the fixture's firm, not TEST01; re-opening shows Retail. The **Business profile** dropdown is populated — empty, or "The database is temporarily unavailable", means no firm is open.
+- **Data**
+  ```sql
+  select p.code from fx_<suffix>_f.firm_business_profiles a
+  join   fx_<suffix>_f.business_profiles p on p.id = a.business_profile_id
+  where  a.is_deleted = false;
+  ```
+  `RETAIL`, in the fixture firm's own store. TEST01's own assignment is still `WHOLESALE`.
+- **Leaves:** the firm on the Retail profile.
+
+### TC-FIRM-013 — Masters need no books; posting does
+
+- **Covers:** plan 27.24, 27.25
+- **Fixture:** `unfinished-firm`
+- **Steps**
+  1. As the fixture's **Platform admin**, open the fixture's firm. Masters → **Customers** → New: code `C1`, name `Before books`, type Business, currency INR. Save.
+  2. **(HTTP)** `POST /api/v1/receipts` with `X-Firm-ID` of the fixture's firm: `{"party_id": "<C1's id>", "settlement_date": "<today>", "amount": "100.00", "method": "CASH"}`.
+- **Expect**
+  - Step 1: saves. Masters do not need the books.
+  - Step 2: **422**, "No ledger account is configured for CASH. Set the firm's control accounts before posting this document." The posting service refuses rather than guesses — the design working, not a broken firm.
+- **Leaves:** a customer `C1` in the fixture's firm; no receipt.
+
+### TC-FIRM-014 — What "finished" looks like
+
+- **Covers:** plan 27.26
+- **Fixture:** `ready-firm`
+- **Steps:** sign in as the fixture's **Platform admin** → Administration → Firms → the fixture's firm → **Set up**.
+- **Expect:** **Finished. Every step is done.** — "24 accounts, 1 financial year, 12 periods, all 24 control accounts mapped, and a period open today"; Assigned: WHOLESALE; 1 tax system, 8 profiles, 6 rules; 1 country; 1 branch, 1 warehouse; **2 members**. No buttons. The contrast with TC-FIRM-007 is the point.
+- **Leaves:** the firm, unchanged.
+
+### TC-FIRM-015 — Control accounts: held once something has posted
+
+- **Covers:** plan 27.23j
+- **Fixture:** `ready-firm`
+- **Steps**
+  1. Sign in as the fixture's **Firm admin** → Finance → **Control Accounts**.
+  2. Hover the lock on **Accounts receivable**.
+  3. On **Rounding**, press **Change**. Open the account picker; look at **Save** before choosing. Choose `4000 Sales`, Save. Then change it back to `4900 Rounding`.
+  4. **(HTTP)** `PUT /api/v1/finance/control-accounts/ACCOUNTS_RECEIVABLE` with `{"ledger_account_id": "<any other ASSET account>"}`.
+  5. Sign in as the fixture's **Viewer** → Finance → Control Accounts.
+- **Expect**
+  - Step 1: 24 rows, one per posting purpose, each with the account it posts to and the classifications it may use. **Accounts receivable** and **Cash** show a lock and **1 posted** with no Change — the fixture's receipt posted one line to each. Every other row offers **Change**.
+  - Step 2: "1 posted line on this account. Re-pointing it would leave two accounts each holding part of one story; post a transfer entry and map a new account from the next period instead."
+  - Step 3: the picker lists only **INCOME and EXPENSE** accounts — what Rounding may post to. Save is dead until a *different* account is chosen. The notice reads "Rounding posts to 4000 Sales.", then "Rounding posts to 4900 Rounding."
+  - Step 4: **422**, "Accounts receivable has 1 posted line on 1100 Trade Receivables. Re-pointing it would leave two accounts each holding part of one story; post a transfer entry and map the new account from the next period instead."
+  - Step 5: the tab is there and read-only — **no Change, no Map**. The server agrees: a `PUT` as the viewer is **403**.
+- **Data**
+  ```sql
+  select purpose, ledger_account_id, updated_at from fx_<suffix>_r.firm_control_accounts
+  where  purpose in ('ACCOUNTS_RECEIVABLE', 'CASH', 'ROUNDING');
+  ```
+- **Leaves:** the firm, with Rounding back where it was.
+
+### TC-FIRM-016 — A firm administrator cannot reach firms at all
+
+- **Covers:** plan 27.21, 27.22, 27.23a (the 403 half), 27.26a
+- **Fixture:** `firm-admin`
+- **Steps**
+  1. Sign in as the fixture's **Firm admin** → **Administration**.
+  2. **(HTTP)** As that user: `GET /api/v1/firms`, `POST /api/v1/firms` (any body), `GET /api/v1/firms/{TEST01's id}/readiness`, `POST /api/v1/firms/{TEST01's id}/open-books`.
+- **Expect**
+  - Step 1: **no Firms** tab and **no Business Profiles** group, so no setup panel. `FIRM_VIEW` and `PLATFORM_VIEW` are platform codes no firm role can hold.
+  - Step 2: **403** for all four. No permission code can grant them. What they would show, a firm administrator reads as their own Finance → Chart of Accounts and Financial Years.
+- **Leaves:** a firm admin user.
+
+---
+
+## Custom fields — how a profile reaches a record
+
+A definition applies to a record when it targets the record's entity type
+**and** is either unscoped or scoped to the firm's business profile. **NULL
+means every profile, not none.** `docs/BUSINESS_PROFILE_FRAMEWORK.md`, "How a
+firm resolves its attributes", is the reference.
+
+**Only a platform administrator writes definitions and rules** — a firm
+administrator is refused `/business-framework/attribute-definitions` with 403
+— and both screens live in a firm's store, so they need a firm open. Cases
+here define as the fixture's **Platform admin** inside the fixture's firm, and
+enter records as whichever account the case names.
+
+**Every case runs in `ready-firm`'s own store**, because they make fields
+mandatory and change the firm's profile. In TEST01 that would break every
+other case that saves a customer or a product.
+
+> **The product form is not the customer form.** A customer, vendor, branch or
+> warehouse form offers every field that *applies*. The product form offers
+> only fields a **Mandatory Attributes** rule names for the product's
+> category — mandatory or not — and no Attributes tab at all when there is
+> none. So a product field needs a rule before it can be seen. Three plan rows
+> assumed otherwise; see *Known defects* at the end of this section.
+
+### TC-FIELD-001 — Unscoped applies everywhere; scoped to another profile, nowhere here
+
+- **Covers:** plan 27.27, 27.28, 27.29, 27.30
+- **Fixture:** `ready-firm`
+- **Steps**
+  1. Sign in as the fixture's **Platform admin**; switch into the fixture's firm. Administration → Configuration → Business Profiles → **Dynamic Attributes**.
+  2. **New**: code `SHELF_NOTE`, name `Shelf note`, TEXT, entity type `PRODUCT`, business profile **blank**. Save.
+  3. **New**: code `PHARMA_NOTE`, name `Pharma note`, TEXT, entity type `PRODUCT`, business profile **Pharmacy**. Save.
+  4. **(HTTP)** `GET /api/v1/business-framework/attribute-definitions/applicable?entity_type=PRODUCT` with the fixture firm's `X-Firm-ID`.
+  5. Mandatory Attributes → **New**: category `FXAMB`, attribute `Shelf note`, mandatory **off**, profile blank. Save. Then Masters → **Products** → New → category **Fixture Ambient** → **Attributes** tab.
+- **Expect**
+  - Step 1: the definitions in *this firm's* store — the seeded ones (Batch Number, Expiry Date, IMEI …) — each showing its entity type and the profile it is narrowed to.
+  - Steps 2–3: both save.
+  - Step 4: `definitions` includes **SHELF_NOTE** and **not** PHARMA_NOTE. Scoping is what stops one industry's field appearing everywhere.
+  - Step 5: an **Attributes** tab with a **Shelf note** box. Before the rule, a product in that category had no Attributes tab at all.
+- **Leaves:** two definitions and one optional rule in the fixture firm.
+
+### TC-FIELD-002 — A mandatory definition reaches every category
+
+- **Covers:** plan 27.31
+- **Fixture:** `ready-firm`
+- **Steps**
+  1. As the fixture's **Platform admin** in the fixture's firm, Dynamic Attributes → New: `BIN_CODE`, `Bin code`, TEXT, `PRODUCT`, profile blank, **mandatory on**. Save.
+  2. **(HTTP)** `POST /api/v1/products` with `X-Firm-ID`: `{"code": "NOBIN", "name": "No bin", "product_type": "STOCK_ITEM", "category_id": "<FXAMB's id>"}`.
+  3. The same with `"attributes": [{"attribute_definition_id": "<BIN_CODE's id>", "value": "A-1"}]` and code `BIN1`.
+- **Expect**
+  - Step 2: **422**, "Required attributes are missing.", naming BIN_CODE's id in `missing_attribute_definition_ids`. The flag on the definition applies to **every** category it reaches — blunt, and the one with a history.
+  - Step 3: saves.
+  - On the desktop this cannot be done at all: see defect **D-27-2**.
+- **Leaves:** a mandatory definition and one product in the fixture firm. Any later product in this firm needs a bin code.
+
+### TC-FIELD-003 — A rule makes a field mandatory for one category only
+
+- **Covers:** plan 27.32
+- **Fixture:** `ready-firm`
+- **Steps**
+  1. As the fixture's **Platform admin** in the fixture's firm, Dynamic Attributes → New: `COLD_CHAIN_ID`, `Cold chain id`, TEXT, `PRODUCT`, profile blank, mandatory **off**.
+  2. Mandatory Attributes → **New**: profile **Wholesale**, category `FXCHL`, attribute `Cold chain id`, **mandatory on**.
+  3. Products → New, category **Fixture Chilled**, code `CH1`, leave Cold chain id empty, Save. Fill it, Save.
+  4. Products → New, category **Fixture Ambient**, code `AM1`, Save.
+- **Expect**
+  - Step 3: the Attributes tab shows **Cold chain id** as required; empty is refused on the form ("Required business attributes are missing."); filled, it saves.
+  - Step 4: saves — no Attributes tab, nothing asked. Other categories are untouched.
+- **Data**
+  ```sql
+  select r.category_code, d.code, r.is_mandatory
+  from   fx_<suffix>_r.category_attribute_rules r
+  join   fx_<suffix>_r.attribute_definitions d on d.id = r.attribute_definition_id
+  where  r.is_deleted = false;
+  ```
+- **Leaves:** a definition, a rule and two products in the fixture firm.
+
+### TC-FIELD-004 — A rule naming a field this firm cannot see enforces nothing on the server
+
+- **Covers:** plan 27.33
+- **Fixture:** `ready-firm`
+- **Steps**
+  1. As the fixture's **Platform admin** in the fixture's firm, Dynamic Attributes → New: `RX_CLASS`, `Rx class`, TEXT, `PRODUCT`, profile **Pharmacy**.
+  2. Mandatory Attributes → New: profile **Wholesale**, category `FXAMB`, attribute `Rx class`, mandatory **on**. Save.
+  3. **(HTTP)** `POST /api/v1/products`: code `RX0`, category FXAMB, no attributes.
+  4. **(HTTP)** `GET /api/v1/products/metadata?category_id=<FXAMB's id>`.
+- **Expect**
+  - Step 2: accepted — not an error.
+  - Step 3: **saves**. The server intersects the rules with what applies to this firm, and a Pharmacy field does not.
+  - Step 4: **fails today** — `required_attribute_definition_ids` lists RX_CLASS. The form reads that list, so on the desktop no FXAMB product can be saved in this firm: see defect **D-27-3**.
+- **Leaves:** a definition, a rule and one product in the fixture firm. Retire the rule to make FXAMB usable on the desktop again.
+
+### TC-FIELD-005 — Changing the firm's profile hides a field and keeps its value
+
+- **Covers:** plan 27.34, 27.35
+- **Fixture:** `ready-firm`
+- **Steps**
+  1. As the fixture's **Platform admin** in the fixture's firm: Dynamic Attributes → New `WS_GRADE`, `Wholesale grade`, TEXT, `PRODUCT`, profile **Wholesale**. Mandatory Attributes → New: profile **Wholesale**, category `FXAMB`, `Wholesale grade`, mandatory **off**.
+  2. Products → New, category Fixture Ambient, code `GR1`, Wholesale grade `A`. Save.
+  3. Set Up on the firm (from Platform) or Profile Assignment: change the firm to **Retail**. Open `GR1` again.
+  4. Change the firm back to **Wholesale**. Open `GR1` again.
+- **Expect**
+  - Step 3: the **Attributes tab is gone** and nothing warned you. The value is still stored (below). This is `docs/BACKLOG.md` §16.
+  - Step 4: the field and its value `A` are back. Nothing was lost; it stopped being *read*.
+- **Data**
+  ```sql
+  select d.code, v.value_text from fx_<suffix>_r.product_attribute_values v
+  join   fx_<suffix>_r.attribute_definitions d on d.id = v.attribute_definition_id
+  join   fx_<suffix>_r.products p on p.id = v.product_id
+  where  p.code = 'GR1';
+  ```
+  `WS_GRADE | A` under both profiles.
+- **Leaves:** the fixture firm back on Wholesale, with one more product.
+
+### TC-FIELD-006 — Changing a definition's data type strands its values
+
+- **Covers:** plan 27.36
+- **Fixture:** `ready-firm`
+- **Steps**
+  1. As the fixture's **Platform admin** in the fixture's firm, create `LOT_NOTE`, TEXT, `PRODUCT`, profile blank, and an optional rule for it on `FXAMB`. Create product `LN1` in Fixture Ambient with Lot note `abc`.
+  2. Edit `LOT_NOTE` and change its data type to **NUMBER**. Save.
+- **Expect:** accepted, **with no warning**. The stored value stays where it was: `value_text = 'abc'`, `value_number` empty, beside a definition that now says NUMBER. Record this as expected-but-wrong — it is §16's first lifecycle guard. *(Driven: `GET /api/v1/products/{id}` still returns the row with `value_text: "abc"`. What the product form shows for it was not checked.)*
+- **Data:** the query from TC-FIELD-005 with `p.code = 'LN1'`, plus `value_number`.
+- **Leaves:** a definition now NUMBER, with a text value stranded.
+
+### TC-FIELD-007 — A customer carries a custom field, and an edit leaves it alone
+
+- **Covers:** plan 27.36a, 27.36b
+- **Fixture:** `ready-firm`
+- **Steps**
+  1. As the fixture's **Platform admin** in the fixture's firm, Dynamic Attributes → New: entity type `CUSTOMER`, code `DRUG_LICENCE_NO`, name `Drug licence no`, TEXT, mandatory **off**.
+  2. Sign in as the fixture's **Firm admin** → Masters → Customers → New.
+  3. Fill the General tab (code `DLC`, name `Licence Holder`), then **Custom fields**: `DL-4471`. Save. Reopen.
+  4. Edit the phone on the General tab (`+919800000001`), Save, reopen Custom fields.
+- **Expect**
+  - Step 2: a **Custom fields** tab with one box, **Drug licence no**.
+  - Step 3: the value is there. **(HTTP)** `GET /api/v1/customers/{id}`: `attributes` carries one row with `value_text: "DL-4471"`.
+  - Step 4: the licence is still there. A form sends `attributes` only once it has read the definitions, and an update that omits them leaves them alone.
+- **Data**
+  ```sql
+  select v.value_text, v.updated_at from fx_<suffix>_r.customer_attribute_values v
+  join   fx_<suffix>_r.customers c on c.id = v.customer_id where c.code = 'DLC';
+  ```
+- **Leaves:** a definition and a customer in the fixture firm.
+
+### TC-FIELD-008 — A mandatory customer field is refused on the form and on the server
+
+- **Covers:** plan 27.36c
+- **Fixture:** `ready-firm`
+- **Steps**
+  1. As the fixture's **Platform admin** in the fixture's firm, create `DRUG_LICENCE_NO` for `CUSTOMER` as in TC-FIELD-007, with **mandatory on**.
+  2. As the fixture's **Firm admin**: Customers → New, fill General, leave the licence empty, Save.
+  3. **(HTTP)** `POST /api/v1/customers` with `code`, `name`, `customer_type: "BUSINESS"`, `currency_code: "INR"` and no attributes.
+- **Expect**
+  - Step 2: refused on the form, **"Drug licence no is required."** Nothing sent.
+  - Step 3: **422**, "Required attributes are missing."
+- **Leaves:** a mandatory customer definition in the fixture firm. Every later customer there needs a licence.
+
+### TC-FIELD-009 — A vendor field belongs to vendors only
+
+- **Covers:** plan 27.36d
+- **Fixture:** `ready-firm`
+- **Steps**
+  1. As the fixture's **Platform admin** in the fixture's firm, Dynamic Attributes → New: entity type `VENDOR`, `SUPPLIER_TIER`, `Supplier tier`, NUMBER.
+  2. As the fixture's **Firm admin**: Masters → Vendors → New (or Edit one) → **Custom fields**: `2`. Save, reopen.
+  3. Customers → New: look at Custom fields.
+  4. **(HTTP)** `POST /api/v1/customers` carrying `"attributes": [{"attribute_definition_id": "<SUPPLIER_TIER's id>", "value": "2"}]`.
+- **Expect**
+  - Step 2: one numeric box, Supplier tier; `2` after reopening.
+  - Step 3: not offered.
+  - Step 4: **422**, "One or more attributes do not apply to this record."
+- **Leaves:** a vendor definition and a vendor in the fixture firm.
+
+### TC-FIELD-010 — Branches and warehouses carry their own fields
+
+- **Covers:** plan 27.36d2
+- **Fixture:** `ready-firm`
+- **Steps**
+  1. As the fixture's **Platform admin** in the fixture's firm, Dynamic Attributes → New: entity type `BRANCH`, `FSSAI_LICENCE`, TEXT. And another: entity type `WAREHOUSE`, `DOCK_COUNT`, NUMBER.
+  2. As the fixture's **Firm admin**: Masters → Branches → Edit `HO`; Masters → Warehouses → Edit `MAIN`.
+- **Expect:** a **Custom fields** heading at the foot of each dialog with **its own** box only — FSSAI licence on the branch, Dock count on the warehouse. Type a value, Save, reopen: it is there. The branch is **still the default** — saving the dialog does not clear what it does not show.
+- **Data:** `fx_<suffix>_r.branch_attribute_values`, `fx_<suffix>_r.warehouse_attribute_values`.
+- **Leaves:** two definitions and two values in the fixture firm.
+
+### TC-FIELD-011 — A field with fixed choices
+
+- **Covers:** plan 27.36d3
+- **Fixture:** `ready-firm`
+- **Steps**
+  1. As the fixture's **Platform admin** in the fixture's firm, Dynamic Attributes → New: `PRODUCT`, `STORAGE_TEMPERATURE`, `Storage temperature`, TEXT, **Allowed values** `Ambient, Chilled, Frozen`. Then Mandatory Attributes → New: category `FXAMB`, Storage temperature, mandatory **off**.
+  2. Products → New, category Fixture Ambient, code `PEAS`, Attributes → Storage temperature.
+  3. Choose **Frozen**, Save, reopen.
+  4. **(HTTP)** `PUT /api/v1/products/{PEAS id}` with `code`, `name`, `product_type`, `category_id` and `"attributes": [{"attribute_definition_id": "<id>", "value": "Cold"}]`.
+  5. Edit the definition: remove `Frozen`. Reopen `PEAS`; then change its name and Save.
+  6. Edit the definition: set the data type to NUMBER with the values still filled. Save.
+- **Expect**
+  - Step 2: a **dropdown** of the three, not a text box.
+  - Step 3: Frozen is selected.
+  - Step 4: **422**, "Attribute STORAGE_TEMPERATURE must be one of: Ambient, Chilled, Frozen."
+  - Step 5: Frozen still shows, selectable. **The save fails today**: the server refuses the unchanged value with "must be one of: Ambient, Chilled" — see defect **D-27-4**. The plan expected it to save unchanged.
+  - Step 6: **422**, "Only a TEXT attribute can carry allowed values."
+- **Leaves:** a definition, a rule and a product in the fixture firm.
+
+### TC-FIELD-012 — Reading a firm's fields needs the firm, and nothing else
+
+- **Covers:** plan 27.36e
+- **Fixture:** `ready-firm`
+- **Steps (HTTP)** — as the fixture's **Firm admin**:
+  1. `GET /api/v1/business-framework/attribute-definitions/applicable?entity_type=CUSTOMER` with `X-Firm-ID` of the fixture's firm.
+  2. The same without `X-Firm-ID`.
+  3. `POST /api/v1/business-framework/attribute-definitions` with any body, with `X-Firm-ID`.
+- **Expect**
+  1. **200**: `entity_type`, `definitions` (what this firm's profile allows) and `mandatory_ids`. Membership is the whole gate — the forms of anybody who can open a customer need it.
+  2. **403**, "Select a firm to read its custom fields."
+  3. **403**. Reading the fields a form offers is not writing the catalogue.
+- **Leaves:** nothing.
+
+### TC-FIELD-013 — A unit is shared by the store; its custom-field values are per firm
+
+- **Covers:** plan 27.36d4
+- **Fixture:** `shared-pair`
+- **Touches the shared store.** A UOM is one row for every firm in `firm_shared`, MEDI01 and FOOD01 included. The case writes a *value* (per firm, TESTSH1's own) and one definition, which every firm in the store will see — delete it at the end.
+- **Steps**
+  1. Sign in as the fixture's **Platform admin**, switch into **TESTSH1**, Dynamic Attributes → New: entity type `UOM`, code `<SUFFIX>_PACK_NOTE` (upper case), TEXT.
+  2. **(HTTP)** As the fixture's **TESTSH1 admin**, `GET /api/v1/uom-framework/uoms?page_size=100` and pick a unit, e.g. `BAG`. `PUT /api/v1/uom-framework/uoms/{id}` with only `{"attributes": [{"attribute_definition_id": "<id>", "value": "TESTSH1 note"}]}`.
+  3. **(HTTP)** As the fixture's **TESTSH2 admin**, list the units and find the same id.
+  4. Delete the definition (Dynamic Attributes, as the platform admin).
+- **Expect**
+  - Step 2: **200**; the unit's `attributes` carries "TESTSH1 note". The update is partial — nothing else about the unit changes.
+  - Step 3: the **same unit**, with `attributes` **empty**. The unit is one row; the values are per firm.
+  - No desktop form shows UOM custom fields yet.
+- **Data**
+  ```sql
+  select firm_id, uom_id, value_text from firm_shared.uom_attribute_values
+  where  value_text = 'TESTSH1 note';
+  ```
+  One row, carrying TESTSH1's firm id.
+- **Leaves:** one stored value for TESTSH1 (harmless once the definition is gone).
+
+### TC-FIELD-014 — The shared store has one custom-field catalogue
+
+- **Covers:** plan 27.37
+- **Fixture:** `shared-pair`
+- **Touches the shared store**, deliberately — it is the case. Delete the definition at the end.
+- **Steps**
+  1. Sign in as the fixture's **Platform admin**, switch into **TESTSH1**, Dynamic Attributes → New: `CUSTOMER`, code `<SUFFIX>_SHARED_CHECK`, TEXT.
+  2. Switch into **TESTSH2** → Dynamic Attributes.
+  3. Delete it.
+- **Expect:** step 2 — **it is there.** `attribute_definitions` carries no `firm_id`, so every firm in `firm_shared` — TESTSH1, TESTSH2, MEDI01 and FOOD01 — edits one set. A firm in its own schema, like `ready-firm`'s, does not have this. It is the reason `docs/BACKLOG.md` §16 exists.
+- **Leaves:** nothing, once deleted.
+
+### Known defects found while writing these cases
+
+Recorded for the owner, **not fixed** — this pass changes documents only.
+
+- **D-27-1 — The product form never offers a field that merely applies.** `ProductService._category_attribute_ids` builds the form's field list from `category_attribute_rules` alone; customers, vendors, branches and warehouses use `/attribute-definitions/applicable`. An unscoped PRODUCT definition with no rule is offered on no product. Plan 27.30 expected it to appear.
+- **D-27-2 — A mandatory PRODUCT definition blocks every product on the desktop.** The server refuses a product without it ("Required attributes are missing.") while the form, per D-27-1, has no box to fill. Plan 27.31.
+- **D-27-3 — An "inert" rule is not inert on the desktop.** `mandatory_ids` in `AttributeService` intersects rules with what applies; `_category_attribute_ids` does not, so `/products/metadata` lists a rule naming another profile's field as *required*. The form then refuses an empty box, and a filled one is refused by the server as "do not apply" — no product in that category can be saved from the desktop. Plan 27.33 said this is not an error. Two implementations of one question; they disagree.
+- **D-27-4 — A value removed from a field's allowed list cannot be saved back.** `_coerce` validates every value sent, changed or not, so editing anything else on a product that still holds a retired choice is refused — if the form resends it, which it appears to. Plan 27.36d3 expected it to save unchanged.
 
 ---
 

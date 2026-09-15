@@ -63,6 +63,7 @@ class FixtureFirm:
     code: str
     schema: str
     name: str
+    mode: str = "SCHEMA"
 
 
 #: The firms every fixture works in. Fixed codes and schemas, so a table check
@@ -71,6 +72,14 @@ class FixtureFirm:
 TEST01 = FixtureFirm("TEST01", "test_fixtures", "Test Fixtures Firm")
 TEST02 = FixtureFirm("TEST02", "test_fixtures_2", "Test Fixtures Second Firm")
 FIXTURE_FIRMS = (TEST01, TEST02)
+
+#: Two firms in the **shared** store, for the only cases that are about sharing
+#: one: a unit of measure every firm in the store reads, and a custom-field
+#: catalogue with no firm column. Built the first time `shared-pair` runs, and
+#: never otherwise, because anything added to `firm_shared`'s catalogue is
+#: visible to MEDI01 and FOOD01 as well.
+TESTSH1 = FixtureFirm("TESTSH1", "firm_shared", "Test Shared Firm One", "SHARED")
+TESTSH2 = FixtureFirm("TESTSH2", "firm_shared", "Test Shared Firm Two", "SHARED")
 
 #: Every account a fixture creates signs in with this. Twelve characters or
 #: more, upper, lower, digit and symbol -- the policy -- and not a secret: it
@@ -175,34 +184,47 @@ def _suffix() -> str:
 # ---------------------------------------------------------------------------
 
 
+def create_firm(admin: Api, firm: FixtureFirm) -> Json:
+    """Find a fixture firm by code, or create its record, and return the row.
+
+    Creation only records the intent -- nothing is provisioned, opened or
+    assigned -- which is exactly the state plan section 27 starts from.
+    """
+    found = admin.call("GET", f"/api/v1/firms?search={firm.code}&page_size=10")
+    row = next((item for item in found if item.get("code") == firm.code), None)
+    if row is not None:
+        return dict(row)
+    print(f"  creating {firm.code} ({firm.mode}, {firm.schema})")
+    body: Json = {
+        "name": firm.name,
+        "code": firm.code,
+        "country": "IN",
+        "currency_code": "INR",
+        "financial_year_start": "2026-04-01",
+        "deployment_mode": firm.mode,
+        "notes": "Built by scripts/test_fixture.py. Test data only.",
+    }
+    if firm.mode == "SCHEMA":
+        body["schema_name"] = firm.schema
+    return dict(admin.call("POST", "/api/v1/firms", body))
+
+
+def provision_firm(admin: Api, firm: FixtureFirm, row: Json) -> str:
+    """Build a dedicated firm's tables if they are not there, and return its id."""
+    firm_id = str(row["id"])
+    if firm.mode != "SHARED" and not row.get("provisioned_at"):
+        print(f"  provisioning {firm.code} (runs the migrations; a minute or two)")
+        admin.call("POST", f"/api/v1/firms/{firm_id}/provision")
+    return firm_id
+
+
 def ensure_firm(admin: Api, firm: FixtureFirm) -> str:
     """Find or build one fixture firm until it can post, and return its id.
 
     Every step is one the API already makes idempotent, so a half-built firm --
     a provision that timed out, say -- is finished by running this again.
     """
-    found = admin.call("GET", f"/api/v1/firms?search={firm.code}&page_size=10")
-    row = next((item for item in found if item.get("code") == firm.code), None)
-    if row is None:
-        print(f"  creating {firm.code} (schema {firm.schema})")
-        row = admin.call(
-            "POST",
-            "/api/v1/firms",
-            {
-                "name": firm.name,
-                "code": firm.code,
-                "country": "IN",
-                "currency_code": "INR",
-                "financial_year_start": "2026-04-01",
-                "deployment_mode": "SCHEMA",
-                "schema_name": firm.schema,
-                "notes": "Built by scripts/test_fixture.py. Test data only.",
-            },
-        )
-    firm_id = str(row["id"])
-    if not row.get("provisioned_at"):
-        print(f"  provisioning {firm.code} (runs the migrations; a minute or two)")
-        admin.call("POST", f"/api/v1/firms/{firm_id}/provision")
+    firm_id = provision_firm(admin, firm, create_firm(admin, firm))
     readiness = admin.call("GET", f"/api/v1/firms/{firm_id}/readiness")
     steps = {step["key"]: step["status"] for step in readiness["steps"]}
     base = f"/api/v1/firms/{firm_id}"
@@ -270,6 +292,9 @@ class Built:
     ids: dict[str, str] = field(default_factory=dict)
     tokens: dict[str, str] = field(default_factory=dict)
     firms_used: list[str] = field(default_factory=lambda: [TEST01.code])
+    known: dict[str, FixtureFirm] = field(
+        default_factory=lambda: {firm.code: firm for firm in FIXTURE_FIRMS}
+    )
 
     def say(self, label: str, value: str) -> None:
         """Record one line of the handover block."""
@@ -278,6 +303,19 @@ class Built:
     def email(self, handle: str) -> str:
         """Return the address of this run's user with the given handle."""
         return f"{self.suffix}.{handle}@fixtures.local"
+
+    def add_firm(self, firm: FixtureFirm, firm_id: str) -> None:
+        """Make a firm this run built available to the blocks below."""
+        self.firms[firm.code] = firm_id
+        self.known[firm.code] = firm
+
+    def run_firm(self, letter: str, name: str) -> FixtureFirm:
+        """Describe a firm of this run's own: code, schema and name all carry it."""
+        return FixtureFirm(
+            f"{self.suffix.upper()}-{letter}",
+            f"fx_{self.suffix}_{letter.lower()}",
+            f"{name} {self.suffix}",
+        )
 
     def as_(self, handle: str, firm: FixtureFirm | None = TEST01) -> Api:
         """Return a client signed in as this run's user, inside a firm."""
@@ -492,12 +530,111 @@ def build_two_firm_user(built: Built) -> None:
     built.say("Roles", "SALES_EXECUTIVE in TEST01; CUSTOMER_SUPPORT in every firm")
 
 
+def build_unprovisioned_firm(built: Built) -> None:
+    """Make a platform admin and a SCHEMA firm of this run's own, not provisioned."""
+    build_platform_admin(built)
+    firm = built.run_firm("U", "Unprovisioned")
+    built.add_firm(firm, str(create_firm(built.admin, firm)["id"]))
+    built.firms_used = [firm.code]
+    built.say("New firm", f"{firm.code}  ({firm.name}), SCHEMA, not provisioned")
+
+
+def build_unfinished_firm(built: Built) -> None:
+    """Make a platform admin and a provisioned SCHEMA firm with nothing else.
+
+    No profile, no books, no tax, no branch, nobody in it: every row of the
+    setup panel still to do, so the first press of each button is the one the
+    case is about.
+    """
+    build_platform_admin(built)
+    firm = built.run_firm("F", "Unfinished")
+    row = create_firm(built.admin, firm)
+    built.add_firm(firm, provision_firm(built.admin, firm, row))
+    built.firms_used = [firm.code]
+    built.say("New firm", f"{firm.code}  ({firm.name}), SCHEMA, provisioned only")
+
+
+def build_ready_firm(built: Built) -> None:
+    """Make a finished firm of this run's own, with a firm admin and a receipt.
+
+    Its own store, so the custom-field cases can make a field mandatory, or
+    change the firm's profile, without breaking anybody else's case. The
+    receipt posts to Accounts receivable and Cash, which is what locks those
+    two control accounts -- the half of the Control Accounts screen a fresh
+    firm cannot show.
+    """
+    build_platform_admin(built)
+    firm = built.run_firm("R", "Ready")
+    firm_id = ensure_firm(built.admin, firm)
+    built.add_firm(firm, firm_id)
+    built.firms_used = [firm.code]
+    user_id = new_user(built, "readyadmin", "Ready Firm Admin", firms=(firm,))
+    firm_roles(built, user_id, firm, ["FIRM_ADMIN"])
+    viewer_id = new_user(built, "readyviewer", "Ready Firm Viewer", firms=(firm,))
+    firm_roles(built, viewer_id, firm, ["VIEWER"])
+    inside = built.admin.as_user(built.admin.token or "", firm_id)
+    # A fresh store holds no product category, and a Mandatory Attributes rule
+    # is written against one -- two, so "this category only" can be seen.
+    for code, name in (("FXAMB", "Fixture Ambient"), ("FXCHL", "Fixture Chilled")):
+        inside.call("POST", "/api/v1/products/categories", {"code": code, "name": name})
+    customer = inside.call(
+        "POST",
+        "/api/v1/customers",
+        {
+            "code": "FXCUST",
+            "name": f"Fixture Customer {built.suffix}",
+            "customer_type": "BUSINESS",
+            "currency_code": "INR",
+        },
+    )
+    receipt = inside.call(
+        "POST",
+        "/api/v1/receipts",
+        {
+            "party_id": customer["id"],
+            "settlement_date": date.today().isoformat(),
+            "amount": "500.00",
+            "method": "CASH",
+            "narration": "Posted by scripts/test_fixture.py to lock two accounts.",
+        },
+    )
+    built.say("New firm", f"{firm.code}  ({firm.name}), SCHEMA, finished, WHOLESALE")
+    built.say("Firm admin", f"{built.email('readyadmin')} / {FIXTURE_PASSWORD}")
+    built.say("Viewer", f"{built.email('readyviewer')} / {FIXTURE_PASSWORD}  (VIEWER)")
+    built.say("Categories", "FXAMB (Fixture Ambient), FXCHL (Fixture Chilled)")
+    built.say("Customer", f"FXCUST  (Fixture Customer {built.suffix})")
+    built.say(
+        "Receipt",
+        f"{receipt.get('settlement_number', '?')}, 500.00 cash -- "
+        "Accounts receivable and Cash now hold posted lines",
+    )
+
+
+def build_shared_pair(built: Built) -> None:
+    """Make a platform admin, and a firm admin in each shared-store test firm.
+
+    The platform administrator is for Dynamic Attributes, which only a
+    platform administrator may write to. Both firms get the Wholesale profile,
+    as TEST01 has, so the screens a case names are the ones on offer.
+    """
+    build_platform_admin(built)
+    for firm, handle in ((TESTSH1, "shadmin1"), (TESTSH2, "shadmin2")):
+        firm_id = str(create_firm(built.admin, firm)["id"])
+        _ensure_profile(built.admin, firm, firm_id)
+        built.add_firm(firm, firm_id)
+        user_id = new_user(built, handle, f"{firm.code} Admin", firms=(firm,))
+        firm_roles(built, user_id, firm, ["FIRM_ADMIN"])
+        built.say(f"{firm.code} admin", f"{built.email(handle)} / {FIXTURE_PASSWORD}")
+    built.firms_used = [TESTSH1.code, TESTSH2.code]
+    built.say("Shared store", "both firms live in firm_shared, beside MEDI01, FOOD01")
+
+
 #: Every fixture, what it builds, and the cases that name it.
 FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "firm-admin": (
         "A fresh firm administrator of TEST01.",
         build_firm_admin,
-        "TC-ROLE-001..004, TC-PLAT-005, TC-ME-007",
+        "TC-ROLE-001..004, TC-PLAT-005, TC-ME-007, TC-FIRM-016",
     ),
     "custom-role": (
         "firm-admin + a custom role with the four Night Desk codes.",
@@ -517,7 +654,7 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "platform-admin": (
         "An ALL_FIRMS platform administrator who belongs to no firm.",
         build_platform_admin,
-        "TC-PLAT-001..003, TC-ME-006",
+        "TC-PLAT-001..003, TC-ME-006, TC-FIRM-001..003",
     ),
     "platform-admin-member": (
         "An ALL_FIRMS platform administrator who belongs to both test firms.",
@@ -528,6 +665,26 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         "An ordinary user in TEST01 and TEST02, with roles in both tiers.",
         build_two_firm_user,
         "TC-ME-001..005, TC-ME-008",
+    ),
+    "unprovisioned-firm": (
+        "platform-admin + a SCHEMA firm of this run's own, not provisioned.",
+        build_unprovisioned_firm,
+        "TC-FIRM-004..006",
+    ),
+    "unfinished-firm": (
+        "platform-admin + a provisioned SCHEMA firm with nothing else done.",
+        build_unfinished_firm,
+        "TC-FIRM-007..013",
+    ),
+    "ready-firm": (
+        "A finished firm of this run's own, its admin, and a posted receipt.",
+        build_ready_firm,
+        "TC-FIRM-014, TC-FIRM-015, TC-FIELD-001..012",
+    ),
+    "shared-pair": (
+        "A firm admin in each of TESTSH1 and TESTSH2, in the shared store.",
+        build_shared_pair,
+        "TC-FIELD-013, TC-FIELD-014",
     ),
 }
 
@@ -572,7 +729,7 @@ def main() -> int:
         print(f"\nStopped: {error}", file=sys.stderr)
         return 1
 
-    schemas = {firm.code: firm.schema for firm in FIXTURE_FIRMS}
+    schemas = {code: firm.schema for code, firm in built.known.items()}
     width = max(len(label) for label, _ in [*built.lines, ("Tables", "")])
     print(f"\nFixture '{args.fixture}' ready")
     for label, value in built.lines:

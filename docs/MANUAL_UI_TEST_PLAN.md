@@ -930,149 +930,62 @@ firm** — seven on this database when converted, not "all four" — and
 
 ## 27. Creating a firm and setting it up
 
-**Sign in as `master.ops@agency.local`.** Not `platform-admin@agency.local`,
-which this section used to name: that account is created at startup from
-`AGENCY_BOOTSTRAP_ADMIN_PASSWORD` and its password is changed on first use, so
-on a database anybody has signed into it no longer takes the value in
-`config/.env`. Both hold the same designation and `ALL_FIRMS` scope, so nothing
-about the cases changes -- only which account can reach them. On a *fresh*
-database the bootstrap account is the only one that exists, and `master.ops`
-comes from the demo seeder.
+**Moved to `docs/INDEPENDENT_TEST_CASES.md` on 2026-09-16**, as TC-FIRM-001 to
+016 and TC-FIELD-001 to 014. The cases no longer share `SNTEST02`: each run of
+a fixture builds a firm of its own, so the first press of **Open the books** is
+always a first press.
 
-Only a platform administrator can do any of 27.1--27.20. `require_platform_admin()`
-guards every `/api/v1/firms` route and never reads a permission, so `FIRM_CREATE`
-gates the desktop's **New** button and nothing else.
+Driving them corrected the section in these places:
 
-*Verified against the code on 2026-09-15: every route this section drives is
-there — `POST /{firm_id}/provision`, `GET /{firm_id}/readiness`, `POST
-/{firm_id}/open-books`, `POST /{firm_id}/apply-tax-template`, `POST
-/{firm_id}/create-default-branch`, and `GET`/`PUT /finance/control-accounts`.
-**One row was wrong and is corrected: 27.23j** — see it for why. One thing
-before you start:
-**`SNTEST02` may already exist** from an earlier run of this section, in which
-case 27.4 answers 409 rather than saving and every row after it is testing the
-wrong firm. Check Administration → Firms first and use a fresh code
-(`SNTEST03`, and so on) if it is taken — the code is unique among live firms,
-so even a soft-deleted one releases it but a live one does not.*
+- **27.23i** "with People already done, the verdict reads Finished" -- a firm a
+  platform administrator creates has **no members**, so People stays missing
+  and the verdict does not reach Finished until somebody is added.
+- **27.26** now runs against `ready-firm` rather than WHOLE01: one financial
+  year and twelve periods, not three and thirty-six.
+- **27.23j**'s locked half needs something posted. `ready-firm` posts a
+  receipt, which holds **Accounts receivable** and **Cash** at one line each,
+  and adds a `VIEWER` for the read-only half.
+- **27.36d4** named WHOLE01 and MEDI01 as firms sharing a store; they do not.
+  Only `firm_shared` holds more than one firm, so the case uses the fixture's
+  own **TESTSH1** and **TESTSH2** there.
+- **27f**: only a platform administrator writes definitions and rules (a firm
+  administrator gets 403), and the **product** form offers only fields a
+  Mandatory Attributes rule names. Four plan rows met product defects, written
+  up as D-27-1 to D-27-4 at the end of the Custom fields cases and not fixed.
 
-### 27a. Creating the record
-
-| # | Case | Expect |
-| --- | --- | --- |
-| 27.1 | Administration → **Firms**, on **Platform** | The list of all firms. This is the one Administration tab that needs no firm selected. |
-| 27.2 | Masters → look for Firms | Not there. It moved on 2026-09-06; a firm's own master data needs a firm, so creating a firm was reachable only from inside another one. |
-| 27.3 | **New** → save with only a name | Refused. `name`, `code`, `country` (2 letters), `currency_code` (3 letters) and `financial_year_start` are the five required fields; everything else is optional. |
-| 27.4 | Enter code `sntest02` in lower case | Stored as `SNTEST02`. Code, country and currency are upper-cased on the way in. |
-| 27.5 **(HTTP)** | `POST /api/v1/firms` with code `WHOLE01` | **409**, "Firm code, GST number, or PAN number already exists." The three are unique among *live* firms only, so a soft-deleted firm releases its code. |
-| 27.6 **(HTTP)** | Same with code `BAD CODE` | **422**. The pattern is `^[A-Z0-9_-]+$` -- no spaces, no dots. |
-| 27.7 **(HTTP)** | Same with `country: "IND"` | **422**. Two letters, ISO-style. |
-| 27.8 | Create with deployment mode `SHARED` | Saves. The follow-up message names the next step. |
-| 27.9 **(HTTP)** | Create with mode `DATABASE` and `connection_profile: "NOPE"` | **422**, "Connection profile 'NOPE' is not configured. Configured profiles: REMOTE_A." Refused at creation rather than at first use -- otherwise the firm provisions nothing and fails far from the request that caused it. |
-
-### 27b. What creation does and does not do
-
-| # | Case | Expect |
-| --- | --- | --- |
-| 27.10 | Select the new `SHARED` row | **Open this firm** enabled -- a shared firm is ready at once. **Provision storage** hidden; there is nothing to provision. |
-| 27.11 | Create a second firm with mode `SCHEMA` | **Open this firm** **disabled** -- its schema has no tables, so switching in would answer errors on every screen. **Provision storage** enabled. |
-| 27.12 | Press **Provision storage**, refresh, select it again | **Open this firm** now enabled. The response carries `provisioned_at`. |
-| 27.13 | Press **Provision storage** again | Succeeds, reporting it was already provisioned. Every step is create-if-missing, so this is also the repair action after a target server was unreachable. |
-| 27.14 **(HTTP)** | `PUT /api/v1/firms/{id}` changing `deployment_mode` | **422**, "Firm storage routing cannot be changed after creation (currently SCHEMA/…). Migrate the firm's data first." Nothing moves a firm's rows between stores, so the routing is fixed at creation. Verified 2026-09-06. |
-
-### 27c. Reaching the new firm
-
-| # | Case | Expect |
-| --- | --- | --- |
-| 27.15 | Press **Open this firm** | "Working in …". The header shows it and the sidebar grows the whole application. |
-| 27.16 | Open the firm switcher | The new firm is listed. **This is the half that was broken**: the switcher is read once at sign-in, so without the refresh a firm created minutes earlier was not in it and `switchFirm` refused it as "not assigned to this user". |
-| 27.17 | Go back to **Platform** and look at Administration | There is **no Configuration heading**. Every one of its eighteen descendants lives in a firm's store, so with no firm it had nothing under it -- and until 2026-09-06 it was offered anyway and opened nothing. |
-
-### 27d. Setting the business profile
-
-**Not** *Masters → Firm Settings*, which this section said until 2026-09-06 and
-which does not exist. It is **Administration → Configuration → Business
-Profiles → Profile Assignment**, and it needs a firm selected.
-
-| # | Case | Expect |
-| --- | --- | --- |
-| 27.18 | With any firm open: Administration → Configuration → Business Profiles → **Profile Assignment** | A grid of **every** firm, not just the one you are in. The screen names the firm in the URL rather than reading `X-Firm-ID`. |
-| 27.19 | Select the new firm, open it, choose a profile, save | Saved against that firm. The **Business profile** dropdown must be populated -- if it is empty or the dialog says "The database is temporarily unavailable", you are in platform mode with no firm selected, and the catalogue it reads lives in each firm's store. |
-| 27.20 | Re-open the row | The profile you chose is shown. Until it is set the firm trades as GENERIC, with the features and modules of no particular industry. |
-| 27.21 | Sign in as `whole01.admin@agency.local` → Administration | **No** Firms tab and **no** Business Profiles group. `FIRM_VIEW` and `PLATFORM_VIEW` are platform codes no firm role can hold. |
-| 27.22 **(HTTP)** | As `whole01.admin`, `GET` and `POST /api/v1/firms` | **403** for both. Measured 2026-09-06. No permission code can grant this. |
-
-### 27e. The firm is not finished — the setup panel says what it needs
-
-A provisioned firm with a profile still cannot trade. It needs a chart of
-accounts, a financial year, open periods, journal and voucher types, and a
-mapped control account for each of the 24 posting purposes. As of 2026-09-08
-**Set up** on the Firms grid shows every step and opens the books itself.
-
-| # | Case | Expect |
-| --- | --- | --- |
-| 27.23 | Administration → Firms, select `SNTEST02` → **Set up** | A panel titled `Set up SNTEST02`. The verdict reads **Cannot post documents yet.** Seven rows: Storage, Business profile, Books, Tax, Geography, Branches and warehouses, People. Storage and Books say **Required**, the rest **Recommended**. Books says "No chart of accounts" with an **Open the books** button; the rows with no button name the screen they are done on. |
-| 27.23a **(HTTP)** | `GET /api/v1/firms/{id}/readiness` as `master.ops` | 200, `can_post: false`, the same seven steps with `status` DONE / MISSING and `required`. As `whole01.admin`: **403**. |
-| 27.23b | From `backend`, run `.\.venv\Scripts\python.exe scripts\check_firm_readiness.py SNTEST02` | The same seven rows, from the same implementation, and **`CANNOT post -- books not open`**. |
-| 27.23c | Press **Open the books** | The notice names the year: "Books opened for the year starting 2026-04-01" (the year *today* falls in, aligned to the firm's year start -- not the firm's `financial_year_start` if that is years old). The list re-reads: Books is done, "24 accounts, 1 financial year, 12 periods, all 24 control accounts mapped, and a period open today", the button is gone, and the verdict reads **Can post documents. The recommended steps are still open.** |
-| 27.23d | Press **Refresh**, then **(HTTP)** `POST /api/v1/firms/{id}/open-books` again | Nothing changes; the response says "The books were already open; nothing was created." with `already_open: true`. Settings → Audit Logs on the platform trail shows **one** `firm.books_opened` row with the counts, not two. |
-| 27.23e | Create a `SCHEMA` firm, do **not** provision it, open **Set up** | Storage is **missing** with a **Provision storage** button on the row; every store-side step reads "Cannot be checked until the firm's storage is provisioned" with no button and no hint. Press it: the list re-reads and Books now offers **Open the books**. **(HTTP)** `POST .../open-books` on such a firm before provisioning: **422**, "Provision the firm's storage before opening its books." |
-| 27.23f | On the panel, Tax row → **Apply GST template** | The notice reads "GST set up: 8 tax profiles and 6 rules." Tax re-reads as done, "1 tax system, 8 profiles, 6 rules", and **Geography** flips to done too -- the template adds India if the store has no country. Press it again **(HTTP)** `POST /api/v1/firms/{id}/apply-tax-template`: "The firm already has a tax system; nothing was created.", `already_configured: true`, and one `firm.tax_template_applied` audit row, not two. Open this firm → Administration → Configuration → Tax Configuration: the system, four components and eight profiles are there, editable. |
-| 27.23g | Business profile row → choose **Wholesale** in the dropdown → **Assign** | "Business profile set to Wholesale." and the row re-reads as "Assigned: WHOLESALE" with the picker gone. The dropdown listed the **firm's own** catalogue (`GET /api/v1/business-framework/firms/{id}/profiles`), so this works from platform mode with no firm open -- Profile Assignment still needs one. Assign is dead until a profile is chosen. |
-| 27.23h | **(HTTP)** `POST .../apply-tax-template` with `{"template": "US"}` | **422**. Only `IN_GST` exists. |
-| 27.23i | Branches and warehouses row → **Create head office and main warehouse** | "Created branch HO and warehouse MAIN. Rename them on their own screens." The row re-reads as done, "1 branch, 1 warehouse", and with People already done the verdict reads **Finished. Every step is done.** Open this firm → Masters → Branches: `HO` Head Office, default; Warehouses: `MAIN` under it. Press it again **(HTTP)**: "The firm already has a branch and a warehouse; nothing was created." On a firm that named its own branch first, only the warehouse is created, under that branch. |
-| 27.23j | Open this firm → Finance → **Control Accounts** | 24 rows, one per posting purpose, each showing the account it posts to and which classifications it may post to. On a fresh firm every row offers **Change**. As `whole01.admin` on WHOLE01: Accounts receivable, Sales revenue, Output tax, Inventory and the rest that trading has touched show a lock and "N posted" with no picker -- hover for why; only the purposes nothing has posted to (Rounding, TCS payable, the loyalty pair) offer Change. Change one: the picker lists only accounts of the allowed classification; Save is dead until a different account is chosen; the notice reads "Rounding posts to …". **(HTTP)** `PUT /api/v1/finance/control-accounts/ACCOUNTS_RECEIVABLE` on WHOLE01 with any other asset account: **422**, "Accounts receivable has N posted lines on 1100 Trade Receivables. Re-pointing it would leave two accounts each holding part of one story…". To see the **read-only** half -- the tab present, no Change, no Map -- you need somebody holding `VIEWER`, and **no seeded demo user does**: make one (Users → New, job template **Read Only**) or grant `VIEWER` to a spare account. *(Corrected 2026-09-15: this row said `whole01.sales1` holds `VIEWER`. It does not — `seed_multi_firm_demo.py` calls `set_user_roles` with `SALES_EXECUTIVE` alone, which replaces rather than adds, and that role carries no `ACCOUNT_VIEW`. As written the row shows **no Finance tab at all**, which is the *other* half of the sentence, so it would read as broken gating rather than as the plan being wrong. The `VIEWER`-holding users, `auditor.multi1/2`, come from `generate_sample_data.py` and are not in the four demo firms.)* |
-| 27.24 | In the new firm, create a customer and a product | Both save. Masters do not need the books. |
-| 27.25 | On a firm whose books are **not** open, raise a sales invoice and try to **approve** it | **Refused.** `DocumentPostingService` refuses rather than guesses. This is the design working, not a fault in the new firm -- open the books first. |
-| 27.26 | **Set up** on `WHOLE01` | **Finished. Every step is done.** -- 24 accounts, 3 financial years, 36 periods, all 24 control accounts mapped; a profile, tax, a country, a branch and a warehouse, and members. No buttons. The contrast is the point: it shows what "finished" looks like. |
-| 27.26a | Sign in as `whole01.admin` → Administration | No Firms tab, so no panel; and **(HTTP)** both routes answer **403**. Their result is visible to a firm administrator as their own Finance → Chart of Accounts and Financial Years. |
-
-### 27f. Custom fields and mandatory fields
-
-How a profile reaches a product. `docs/BUSINESS_PROFILE_FRAMEWORK.md`,
-"How a firm resolves its attributes", is the reference. Stay signed in as
-`master.ops` **with a firm selected** -- both screens live in that firm's
-store, so platform mode does not offer them.
-
-A definition applies when it targets the entity type **and** is either
-unscoped or scoped to the firm's profile. **NULL means every profile, not
-none** -- that is the whole grammar of the table, and reading it backwards is
-what put an IMEI on a pharmacy's products in `20260801_0011`.
-
-| # | Case | Expect |
-| --- | --- | --- |
-| 27.27 | Administration → Configuration → Business Profiles → **Dynamic Attributes** | The definitions in *this firm's* store. Each row shows its entity type and which profile it is narrowed to. |
-| 27.28 | New → entity type `PRODUCT`, leave **business profile** blank | Applies to every profile. This is what a field every firm needs looks like. |
-| 27.29 | New → entity type `PRODUCT`, business profile = **something other than this firm's** | Saved, and **not** offered on this firm's products. Scoping is what stops one industry's field appearing everywhere. |
-| 27.30 | Masters → Products → New | The field from 27.28 appears; the one from 27.29 does not. |
-| 27.31 | Set 27.28's definition **mandatory**, then create a product without it | Refused. The flag on the definition applies to **every** category it reaches -- blunt, and the one with a history. |
-| 27.32 | Clear that flag. Administration → Configuration → Business Profiles → **Mandatory Attributes** → New, naming one category | Required for that category only. Products in other categories still save without it. |
-| 27.33 | Add a mandatory rule naming a definition scoped to **another** profile | Accepted and **inert** -- `mandatory_ids` intersects the rules against what applies, so a rule this firm cannot see enforces nothing. Not an error. |
-| 27.34 | Create a product carrying a value, then change the firm's business profile in Profile Assignment | The field **stops appearing** and its value is still in `product_attribute_values`. Nothing warns you; this is `docs/BACKLOG.md` §16. |
-| 27.35 | Change the profile back | The field and its value reappear. Nothing was lost -- it stopped being *read*. |
-| 27.36 | Change a definition's **data type** after a product carries a value | Accepted with no warning, and the value stops being read -- it sits in the old typed column. Record this as expected-but-wrong; it is §16's first lifecycle guard. |
-
-**Customers and vendors carry the same fields as of 2026-09-08.** Stay in
-the same firm.
-
-| # | Case | Expect |
-| --- | --- | --- |
-| 27.36a | Dynamic Attributes → New → entity type `CUSTOMER`, code `DRUG_LICENCE_NO`, TEXT, mandatory **off**; then Masters → Customers → New | A **Custom fields** tab with one box, Drug licence no. Type `DL-4471`, fill the rest, Save. Reopen: the value is there. **(HTTP)** `GET /api/v1/customers/{id}`: `attributes` carries one row with `value_text: "DL-4471"`. |
-| 27.36b | Edit the same customer's phone from the General tab and Save | The licence is still there. The form sends `attributes` only once it has read the definitions; an update that omits them leaves them alone. |
-| 27.36c | Set the definition **mandatory**, then Customers → New with the box empty → Save | Refused on the form: "Drug licence no is required." Nothing sent. **(HTTP)** `POST /api/v1/customers` without it: **422**, "Required attributes are missing." |
-| 27.36d | New definition, entity type `VENDOR`, `SUPPLIER_TIER`, NUMBER; Masters → Vendors → Edit a vendor → **Custom fields** | One numeric box, Supplier tier. Type `2`, Save, reopen: `2`. The customer form does **not** offer it, and **(HTTP)** sending its id on a customer answers **422**, "One or more attributes do not apply to this record." |
-| 27.36d2 | New definition, entity type `BRANCH`, `FSSAI_LICENCE`; Masters → Branches → Edit `HO` | A **Custom fields** heading at the foot of the dialog with one box. Type a value, Save, reopen: it is there. The same for a `WAREHOUSE` definition on Masters → Warehouses. Each dialog asks for its own entity type only. |
-| 27.36d3 | Dynamic Attributes → New: entity type `PRODUCT`, `STORAGE_TEMPERATURE`, TEXT, **Allowed values** `Ambient, Chilled, Frozen`; then Masters → Products → New → Attributes | The field is a **dropdown** of the three, not a text box. Choose one, save, reopen: it is selected. **(HTTP)** `PUT` the product with `"Cold"` for it: **422**, "Attribute STORAGE_TEMPERATURE must be one of: Ambient, Chilled, Frozen." Edit the definition and remove `Frozen`: a product already holding Frozen still shows it, selectable, and saves unchanged. Set the data type to NUMBER with values still filled: **422**, "Only a TEXT attribute can carry allowed values." |
-| 27.36d4 **(HTTP)** | Define a `UOM` attribute, then `PUT /api/v1/uom-framework/uoms/{id}` with `attributes` as `whole01.admin`, and `GET` the unit as `medi01.admin` (a SHARED firm sharing the store) | WHOLE01 reads its value back; MEDI01 reads an empty `attributes` on the same unit. The unit is one row for every firm in the store; its custom-field values are per firm. A `TAX_PROFILE` attribute on `PUT /api/v1/tax-framework/profiles/{id}` round-trips the same way. No desktop form shows either yet. |
-| 27.36e **(HTTP)** | `GET /api/v1/business-framework/attribute-definitions/applicable?entity_type=CUSTOMER` with `X-Firm-ID`, as `whole01.sales1` | 200: the customer definitions this firm's profile allows and `mandatory_ids`. Membership of the firm is the whole gate. Without `X-Firm-ID`: **403**, "Select a firm to read its custom fields." |
-
-**If the firm is `SHARED`**, one more case, and it is the reason §16 exists:
-
-| # | Case | Expect |
-| --- | --- | --- |
-| 27.37 | Add a definition in your new `SHARED` firm, then open Dynamic Attributes as `medi01.admin@agency.local` | **It is there.** `attribute_definitions` carries no `firm_id`, so every firm in `firm_shared` edits one set. A firm in its own schema or database does not have this. |
-
-Delete the test firms afterwards, or leave them; a firm with no data costs
-nothing. A `SCHEMA` firm leaves its schema behind either way.
+| Old row | Case |
+| --- | --- |
+| 27.1, 27.2 | TC-FIRM-001 |
+| 27.3, 27.4, 27.8, 27.10, 27.15, 27.16 | TC-FIRM-002 |
+| 27.5, 27.6, 27.7, 27.9 | TC-FIRM-003 |
+| 27.11, 27.12, 27.13 | TC-FIRM-004 |
+| 27.14 | TC-FIRM-005 |
+| 27.17 | TC-PLAT-002 |
+| 27.18, 27.19, 27.20 | TC-FIRM-012 |
+| 27.21, 27.22, 27.26a | TC-FIRM-016 |
+| 27.23, 27.23a, 27.23b | TC-FIRM-007 (the 403 half of 27.23a: TC-FIRM-016) |
+| 27.23c, 27.23d | TC-FIRM-008 |
+| 27.23e | TC-FIRM-006 |
+| 27.23f, 27.23h | TC-FIRM-009 |
+| 27.23g | TC-FIRM-010 |
+| 27.23i | TC-FIRM-011 |
+| 27.23j | TC-FIRM-015 |
+| 27.24, 27.25 | TC-FIRM-013 |
+| 27.26 | TC-FIRM-014 |
+| 27.27, 27.28, 27.29, 27.30 | TC-FIELD-001 |
+| 27.31 | TC-FIELD-002 |
+| 27.32 | TC-FIELD-003 |
+| 27.33 | TC-FIELD-004 |
+| 27.34, 27.35 | TC-FIELD-005 |
+| 27.36 | TC-FIELD-006 |
+| 27.36a, 27.36b | TC-FIELD-007 |
+| 27.36c | TC-FIELD-008 |
+| 27.36d | TC-FIELD-009 |
+| 27.36d2 | TC-FIELD-010 |
+| 27.36d3 | TC-FIELD-011 |
+| 27.36d4 | TC-FIELD-013 (the `TAX_PROFILE` half is not a case: its `PUT` needs the whole profile, components included) |
+| 27.36e | TC-FIELD-012 |
+| 27.37 | TC-FIELD-014 |
 
 ## Appendix — driving the API by hand
 
