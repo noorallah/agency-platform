@@ -7,7 +7,7 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Converted so far:** plan sections 16 to 20, 25 (the pilot), 26, 26a and 27 — see the
+**Converted so far:** plan sections 16 to 20a, 25 (the pilot), 26, 26a and 27 — see the
 table of contents below. Other sections move here one at a time; until then
 they stay in the plan.
 
@@ -567,6 +567,129 @@ their own firm, through **Roles by firm**.
 ### Known defects found while writing these cases
 
 - **D-20-1 — Asking for roles on somebody in no firm refuses after the account is made.** `saveAssignments` runs after the create and after the membership write, so the refusal "Save them without roles, then use Add existing user…" arrives when the user already exists in no firm. The message reads as if nothing was saved; pressing Save again answers 409. Checking before the create, in the form's own validation, would make the message true.
+
+---
+
+## Roles in two tiers — every firm, and one firm
+
+A **global** role (`user_roles.firm_id IS NULL`) applies in every firm the
+person belongs to; a **firm** role applies in that firm only. One writer per
+tier: a platform administrator's user form writes the global set (**Roles in
+every firm**); **Roles by firm** on the Users grid writes one firm's set, for
+either administrator. A firm administrator's form writes their own firm's set
+(**Roles in this firm**) and cannot remove a global grant.
+
+The defect behind the screen: the single Roles box wrote through a path that
+replaced every row regardless of firm, so a platform administrator pressing
+Save without changing anything collapsed each firm's separate roles into one
+global grant.
+
+### TC-RTIER-001 — The platform form writes the global set; Roles by firm writes one firm
+
+- **Covers:** plan 20a.1, 20a.2, 20a.3, 20a.4, 20a.5
+- **Fixture:** `shared-member` — Shared Member is in TEST02 and TEST01 with no roles.
+- **Steps**
+  1. Sign in as the fixture's **Platform admin** → Users → edit **Shared Member (<suffix>)**. Read the roles field.
+  2. Set it to `VIEWER` → Save & Close.
+  3. Select the row → **Roles by firm**.
+  4. Give TEST01 `SALES_MANAGER` → that section's **Save**.
+  5. Give TEST02 `CASHIER` → its Save.
+- **Expect**
+  - Step 1: labelled **Roles in every firm**, saying it applies in every firm, including ones added later.
+  - Step 3: a section per firm they belong to — TEST01 and TEST02, no others. `VIEWER` once at the top under **Applies in every firm**, greyed and unclickable. Each Save is enabled only once its own firm changed.
+  - Step 5: TEST02 saved; TEST01 still shows `SALES_MANAGER` — one Save, one firm.
+- **Data (HTTP)** as the platform admin: `GET /api/v1/users/{id}/roles` → VIEWER; `.../firms/{TEST01 id}/roles` → SALES_MANAGER; `.../firms/{TEST02 id}/roles` → CASHIER.
+- **Leaves:** Shared Member with a role in each tier.
+
+### TC-RTIER-002 — Saving the form unchanged keeps every firm's own roles
+
+- **Covers:** plan 20a.6, 20a.8d
+- **Fixture:** `shared-member-roles` — VIEWER everywhere, SALES_MANAGER in TEST01, CASHIER in TEST02.
+- **Steps**
+  1. As the fixture's **Platform admin**, edit **Shared Member (<suffix>)** → **Save** without changing anything.
+  2. **Roles by firm**.
+- **Expect:** TEST01 still SALES_MANAGER, TEST02 still CASHIER, VIEWER still under Applies in every firm. **The regression case**: before the fix both firms ended up holding every role, globally. One writer per tier, so neither save can touch the other's rows.
+- **Leaves:** unchanged.
+
+### TC-RTIER-003 — Each administrator sees the tier they cannot write
+
+- **Covers:** plan 20a.6b, 20a.6c, 20a.6d
+- **Fixture:** `shared-member-roles`
+- **Steps**
+  1. As the fixture's **Firm admin** (TEST01), Users → open **Shared Member (<suffix>)** (it opens read-only, TC-USER-002) and look under Security.
+  2. As the fixture's **Platform admin**, edit the same person.
+  3. As the platform admin, Roles by firm → clear TEST02's CASHIER → Save; reopen the form.
+- **Expect**
+  - Step 1: **Also applies here** shows `VIEWER`, read-only. A global grant applies in their firm, so hiding it made the form report less than the person could do.
+  - Step 2: no Also applies here — the roles field already *is* the global set. Instead **Roles in specific firms**, read-only: `TEST01: SALES_MANAGER · TEST02: CASHIER`.
+  - Step 3: only `TEST01: SALES_MANAGER`. A firm holding nothing is left out rather than shown empty.
+- **Leaves:** Shared Member without the TEST02 role.
+
+### TC-RTIER-004 — A firm administrator's Roles by firm is their firm only, and cannot clear a global grant
+
+- **Covers:** plan 20a.7, 20a.8, 20a.8j
+- **Fixture:** `shared-member-roles`
+- **Steps**
+  1. As the fixture's **Firm admin**, Users → select **Shared Member (<suffix>)** → **Roles by firm**.
+  2. Remove `SALES_MANAGER` → Save.
+- **Expect**
+  - Step 1: **one section, TEST01**, with chips that respond. TEST02 is not listed — its Save would be refused by name. `VIEWER` shown greyed under Applies in every firm, not clearable. This dialog used to read the platform-only firm list, answer 403 and show a firm administrator no firm at all.
+  - Step 2: removed in TEST01; VIEWER survives. A firm administrator may not undo a platform grant.
+- **Leaves:** Shared Member with no TEST01 role.
+
+### TC-RTIER-005 — A platform administrator's New writes the global tier only
+
+- **Covers:** plan 20a.8b, 20a.8c, 20a.8e
+- **Fixture:** `platform-admin`
+- **Steps**
+  1. As the fixture's **Platform admin**, Users → **New**; read the Security section.
+  2. Create `<suffix>.global1@fixtures.local`: Firms TEST01 and TEST02, Roles in every firm `CUSTOMER_SUPPORT` → Save. Select them → **Roles by firm**.
+  3. Create `<suffix>.global2@fixtures.local` in TEST01 with **Job template** Read Only → Save → Roles by firm.
+- **Expect**
+  - Step 1: **Job template**, **Roles in every firm**, and nothing that names a firm. **Apply roles to** is gone.
+  - Step 2: both firm sections **empty**; CUSTOMER_SUPPORT under **Applies in every firm**.
+  - Step 3: VIEWER under Applies in every firm — the job's roles land in the same tier the Roles field writes.
+- **Leaves:** two users.
+
+### TC-RTIER-006 — The firm switcher has no say in where a role lands
+
+- **Covers:** plan 20a.8f, 20a.8g
+- **Fixture:** `shared-member-roles`
+- **Steps**
+  1. As the fixture's **Platform admin**, switch into **TEST01**. Users → edit **Shared Member (<suffix>)**.
+  2. Add `CUSTOMER_SUPPORT` to the roles field → Save → Roles by firm.
+- **Expect**
+  - Step 1: **one** roles field, **Roles in every firm**, plus the read-only **Roles in specific firms** listing both firms — TEST01 included. No second column. The helper says a role in one firm only is set under Roles by firm.
+  - Step 2: CUSTOMER_SUPPORT under **Applies in every firm**; no firm section changed.
+- **Leaves:** Shared Member with a second global role.
+
+### TC-RTIER-007 — A firm administrator's form
+
+- **Covers:** plan 20a.8h, 20a.8i
+- **Fixture:** `two-tier-hire` — global VIEWER and CUSTOMER_SUPPORT; TEST01 ACCOUNTANT and INVENTORY_MANAGER.
+- **Steps**
+  1. As the fixture's **Firm admin**, Users → edit **Two Tier Hire (<suffix>)**.
+  2. Press **Roles by firm** in the dialog footer; close it. Close the form, open it in **view**, press it again.
+- **Expect**
+  - Step 1: the roles field labelled **Roles in this firm** (ACCOUNTANT, INVENTORY_MANAGER) and **Also applies here** showing CUSTOMER_SUPPORT and VIEWER read-only. Nothing names a firm.
+  - Step 2: the per-firm editor opens without closing the form, from edit and from view.
+- **Leaves:** unchanged.
+
+### TC-RTIER-008 — The server holds a firm administrator to their firm, and a role to a membership
+
+- **Covers:** plan 20a.9, 20a.9b, 20a.10 (and the refusal 20a.8k shows)
+- **Fixture:** `shared-member`
+- **Steps (HTTP)**
+  1. As the fixture's firm admin (`X-Firm-ID` TEST01): `PUT /api/v1/users/{Shared Member}/firms/{TEST02 id}/roles` `{"ids": ["<CASHIER id>"]}`.
+  2. `GET /api/v1/users/{Shared Member}/firms/{TEST02 id}/roles`, then the same for TEST01.
+  3. As the fixture's platform admin: `PUT /api/v1/users/{TEST02 Only}/firms/{TEST01 id}/roles` `{"ids": ["<CASHIER id>"]}`.
+  4. As the firm admin: `GET /api/v1/users/{TEST02 Only}/firms`.
+- **Expect**
+  1. **422**, "You can only set roles in firms you administer."
+  2. **422**, "You can only read roles in firms you administer." — the read used to answer for any firm. TEST01: **200**.
+  3. **422**, "Add the user to this firm before giving them a role in it." A role there would sit in the table and stay out of the token.
+  4. **200** and an **empty** list — a firm administrator learns nothing about which firms somebody outside theirs belongs to. *(Plan 20a.8k's screen message, "This person belongs to no firm you administer.", needs the Roles by firm dialog open on such a person, and a TEST02-only person is not in TEST01's grid to open it from; this is the server's half of the same rule.)*
+- **Leaves:** unchanged.
 
 ---
 

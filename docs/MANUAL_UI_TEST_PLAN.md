@@ -507,51 +507,26 @@ Two changes from the row text:
 
 ## 20a. Roles: global and firm-level
 
-Two tiers. A **platform** administrator writes the global set on the user
-form (**Roles in every firm**); either administrator writes one firm's set
-under **Roles by firm** on the Users grid. They are additive, and a firm
-administrator cannot remove a global grant.
+**Moved to `docs/INDEPENDENT_TEST_CASES.md` on 2026-09-16**, as TC-RTIER-001
+to 008. "A user who belongs to two firms — create one first" is the
+`shared-member` fixture; the roles 20a.6 onwards start from are
+`shared-member-roles`.
 
-The defect behind the screen: the single Roles box wrote through a path that
-replaced every row regardless of firm, so a platform administrator pressing
-Save without changing anything collapsed each firm's separate roles into one
-global grant.
+**20a.8k** ("This person belongs to no firm you administer.") is not a case of
+its own: the dialog has to be opened on somebody outside the firm
+administrator's firm, and such a person is not in their grid. TC-RTIER-008
+covers the server's half of the same rule.
 
-Use a user who belongs to **two** firms — create one and add both memberships
-first.
-
-*Re-derived 2026-09-15: every label and refusal below still matches the code
-(`Roles in every firm` / `Roles in this firm`, `Also applies here`, `Roles in
-specific firms`, "This person belongs to no firm you administer."). No changes.
-Note the ordering trap — 20a.6b and 20a.8h both need a user who is in **your**
-firm, and 20a.8j needs one in two, so make both before you start.*
-
-| # | Case | Expect |
-| --- | --- | --- |
-| 20a.1 | As `master.ops`, Administration → Users → edit that user | The roles field is labelled **Roles in every firm**, and says it applies in every firm including ones added later. |
-| 20a.2 | Set it to `VIEWER` and save | Saved as the global set. |
-| 20a.3 | Select the row → **Roles by firm** | A section per firm the person belongs to — and **not** firms they do not belong to. `VIEWER` appears once at the top under **Applies in every firm**, greyed and unclickable. |
-| 20a.4 | Give WHOLE01 `SALES_MANAGER`, press its **Save** | Saved for WHOLE01. Each firm has its own Save, enabled only once that firm changed. |
-| 20a.5 | Give ELEC01 `CASHIER`, save | Saved for ELEC01. WHOLE01 still shows `SALES_MANAGER` — one Save affects one firm. |
-| 20a.6 | Re-open the user form and press **Save** without changing anything | **Both firms keep their own roles.** This is the regression case: before the fix, WHOLE01 and ELEC01 both ended up holding every role, globally. |
-| 20a.6b | Sign in as `whole01.admin` → Users → **edit** that person | Under Security, **Also applies here** shows the global roles as read-only text, or `None`. A firm administrator could not see them at all before: a global grant applies in their firm, so the form reported less than the person could do. |
-| 20a.6c | As `master.ops`, edit the same person | **Also applies here** is absent — the Roles field above already *is* their global set. In its place, **Roles in specific firms** shows what each firm holds, read-only: `WHOLE01: SALES_MANAGER · ELEC01: CASHIER`, or `None`. Each caller sees the tier they cannot write. |
-| 20a.6d | Give someone roles in one firm and none in another, then re-open | Only the firm holding roles is listed. A firm with none is left out rather than shown empty, so the line stays readable as firms are added. |
-| 20a.7 | Sign in as `whole01.admin` → Users → that person → **Roles by firm** | One section, WHOLE01. `VIEWER` is shown greyed under **Applies in every firm** and cannot be cleared. |
-| 20a.8 | Remove `SALES_MANAGER` in WHOLE01 and save | Removed in WHOLE01. `VIEWER` survives — a firm administrator may not undo a platform grant. |
-| 20a.8b | As `master.ops`, Users → **New** | Under Security: **Job template**, **Roles in every firm**, and nothing that names a firm. **Apply roles to** is gone — the form writes the global tier only, and Roles by firm is the only place a firm-tier role is written. |
-| 20a.8c | Create a user: two firms, a role | Granted globally. Check with **Roles by firm**: both firm sections are empty; the role sits under **Applies in every firm**. |
-| 20a.8d | Give one firm a role from **Roles by firm**, then re-open the form and Save it unchanged | The firm keeps its role and the global set is unchanged — one writer per tier, so neither save can touch the other's rows. |
-| 20a.8e | Create another naming a **job template** | The job's roles land globally, the same tier the Roles field would have written. |
-| 20a.8f | As `master.ops` **with a firm selected**, edit a user | **One** roles field under Security, **Roles in every firm**, plus the read-only **Roles in specific firms** listing every firm the person holds roles in — the selected one included. No second column. The helper says a role in one firm only is set under Roles by firm. |
-| 20a.8g | Add a role there and save, then check **Roles by firm** | It is under **Applies in every firm**; no firm section changed. The switcher has no say in where a role lands. |
-| 20a.8h | Sign in as `whole01.admin` → Users → edit somebody in WHOLE01 | The roles field is labelled **Roles in this firm** and **Also applies here** shows the global grants read-only. Nothing names a firm. |
-| 20a.8i | Press **Roles by firm** in the dialog footer (edit **or** view) | The per-firm editor opens without closing the form. Offered to anyone holding `ROLE_ASSIGN` and `ROLE_VIEW`. |
-| 20a.8j | As `whole01.admin`, select a person who is in WHOLE01 **and** ELEC01 → **Roles by firm** | **One section, WHOLE01**, with chips that respond and a Save that lands. This was the broken case: the dialog read the platform-only firm list, answered 403, and showed a firm administrator an error and no firm at all. ELEC01 is not listed — its Save would be refused by name. |
-| 20a.8k | As `whole01.admin`, open Roles by firm on somebody who is in ELEC01 only | "This person belongs to no firm you administer." — not "belongs to no firm yet", which would be false. |
-| 20a.9 **(HTTP)** | As `whole01.admin`, `PUT /api/v1/users/{id}/firms/{ELEC01 id}/roles` | Refused: "You can only set roles in firms you administer." |
-| 20a.9b **(HTTP)** | As `whole01.admin`, `GET /api/v1/users/{id}/firms/{ELEC01 id}/roles` | Refused the same way: "You can only read roles in firms you administer." The read used to answer for any firm. `.../firms/{WHOLE01 id}/roles` still answers 200. |
-| 20a.10 **(HTTP)** | As `master.ops`, `PUT /api/v1/users/{id}/firms/{firm}/roles` for a firm the user is **not** a member of | Refused: "Add the user to this firm before giving them a role in it." A role there would sit in the table and stay out of the token. |
+| Old row | Case |
+| --- | --- |
+| 20a.1 – 20a.5 | TC-RTIER-001 |
+| 20a.6, 20a.8d | TC-RTIER-002 |
+| 20a.6b, 20a.6c, 20a.6d | TC-RTIER-003 |
+| 20a.7, 20a.8, 20a.8j | TC-RTIER-004 |
+| 20a.8b, 20a.8c, 20a.8e | TC-RTIER-005 |
+| 20a.8f, 20a.8g | TC-RTIER-006 |
+| 20a.8h, 20a.8i | TC-RTIER-007 |
+| 20a.8k, 20a.9, 20a.9b, 20a.10 | TC-RTIER-008 |
 
 ---
 
