@@ -3874,13 +3874,49 @@ ResourceDefinition<PlatformUser> userDefinition(
       // was. Nothing here names a firm: that is Roles by firm's job, and the
       // firm switcher deliberately has no say in where a role lands.
       final String template = stringValue(values['template_id']);
+      final List<String> roles = _ids(values['role_ids']);
+
+      // **A firm caller cannot write roles onto somebody who is in no firm.**
+      //
+      // `set_user_roles` resolves the user with `_get_user(user_id,
+      // firm_scope)`, and for a firm caller that demands an active membership
+      // in the caller's own firm -- which the write above has just removed.
+      // So creating a user with the Firms box deliberately cleared answered
+      // **"User not found."** on a user who had just been created, leaving the
+      // record behind and a retry answering 409 on the email. A user in no
+      // firm is allowed and documented (USER_ADMINISTRATION_GUIDE §7b), so
+      // this was the one path that could not be walked from the desktop.
+      //
+      // Note the comment above about memberships going first: somebody had
+      // already fixed the **ordering** for this class of bug. Ordering does
+      // not help when the membership set is empty -- writing firms first is
+      // what causes it here. A platform caller never saw it, because their
+      // `firm_scope` is None and `_get_user` does not filter.
+      //
+      // Nothing to write is simply not written. Asking for roles anyway is
+      // refused **here**, in words, rather than sent to come back as a 404
+      // about a user who exists.
+      if (_ids(values['firm_ids']).isEmpty && !permissions.isPlatformAdmin) {
+        if (template.isNotEmpty || roles.isNotEmpty) {
+          throw const ApiException(
+            'Somebody in no firm cannot be given roles here, because roles '
+            'are held per firm. Save them without roles, then use Add '
+            'existing user to bring them into this firm and set what they do.',
+          );
+        }
+        return;
+      }
+
       if (template.isNotEmpty) {
         // The same `apply_user_template` the grid action calls, so the
         // firm-scope check that refuses a platform or cross-firm role applies
         // here too and there is one implementation of it rather than two.
         await api.applyUserTemplate(id, template);
       } else {
-        await api.setUserRoles(id, _ids(values['role_ids']));
+        // Still sent when empty: on an edit, clearing somebody's roles is a
+        // real instruction, and that path has a membership to resolve
+        // through.
+        await api.setUserRoles(id, roles);
       }
     },
   );
