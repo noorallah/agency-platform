@@ -749,15 +749,15 @@ here or in `tests/integration/`, nowhere else.*
 | # | Case | Expected |
 | --- | --- | --- |
 | 23.1 | Sign in as `superadmin@agency.local`, no firm selected → Settings → Audit Logs | The **platform** trail: user, role and firm administration. Answered 403 between 2026-09-05 and 2026-09-06. |
-| 23.2 | Same user, select WHOLE01 → Settings → Audit Logs | **That firm's** trail, not the platform's. Also 403 in that window. |
+| 23.2 | Same user. **Firm switcher at the top → WHOLE01** (the header changes from Platform and the sidebar grows Sales, Purchases, Inventory…), then Settings → Audit Logs | **That firm's** trail, not the platform's. Concretely: firm-owned work — customers, invoices, stock — rather than the `identity.login` and `user.created` rows of 23.1. Selecting a firm is what sets `X-Firm-ID`, and `audit_scope` reads **one** trail chosen by it. Also 403 in that window. |
 | 23.3 | As `whole01.admin` → Settings | The module opens with **Audit Logs** in it. It used to open empty — offered on `SETTINGS_VIEW`, with both tabs demanding codes the role did not hold. |
 | 23.4 | Read it | WHOLE01's history and nothing else. **Every row names the person who did it and, where the subject is a person, who it was done to** (#407, #409) — before those it named neither, and a trail that cannot be read is not a trail. |
-| 23.4a | Promote somebody (Users → Apply job template), then re-open Settings → Audit Logs **as `whole01.admin`** | The promotion is listed, naming the template **and the role codes it granted** — `role_codes` beside `role_ids` since #409, for the same reason `template_code` is beside `template_id`: an id alone points at a row nobody can name, and without the codes the row says which job was applied and not what access it gave. It is written to the *platform* store — user administration is a platform path — and the firm's trail now merges the platform rows carrying this firm's id. |
-| 23.4b | Check the order around it | Newest first across both stores, not the firm's rows followed by the platform's. |
+| 23.4a | As `whole01.admin`: Administration → Users → select a throwaway account → **Apply job template** → pick any job → apply. Then Settings → **Audit Logs** | The promotion is listed, naming the template **and the role codes it granted** — `role_codes` beside `role_ids` since #409, for the same reason `template_code` is beside `template_id`: an id alone points at a row nobody can name, and without the codes the row says which job was applied and not what access it gave. It is written to the *platform* store — user administration is a platform path — and the firm's trail now merges the platform rows carrying this firm's id. |
+| 23.4b | Read the **timestamps** immediately above and below the promotion | Strictly descending straight through it — the promotion interleaved by time among the firm's own rows, with nothing marking it as having come from another store. **A block** of user-administration rows at one end, with invoices and stock in a separate block, means the stores were concatenated rather than merged. `list_events_with` takes `page * page_size` from **each** store and slices the combined order, because paging them separately repeats and drops rows at every boundary. Getting this wrong would not fail 23.4a — the promotion would still be there, just in the wrong place. *(If today's rows are bunched within minutes, page back: the seeded history spans two years, so any grouping shows plainly at that boundary.)* |
 | 23.4c | Filter by action `user_template.applied` — **typed in full** | The filter reaches both stores. Filtering one and not the other would answer a half-truth, and the kind that reads as correct because something came back. *(In full because the box is **exact match**: typing `user` finds nothing. That is BACKLOG 31.17, raised at 13.8 and met again here.)* |
 | 23.5 | Look for **Diagnostics** | **Not there.** `DIAGNOSTICS_VIEW` is deliberately withheld — error reports are telemetry for whoever maintains the product, not something a firm owns. |
 | 23.6 **(HTTP)** | `GET /api/v1/audit-logs` with a `whole01.admin` token and **no** `X-Firm-ID` | `403`. Reading the platform trail needs platform authority. |
-| 23.7 | As `whole01.sales1` → Settings | Not offered at all. |
+| 23.7 | Sign in as `whole01.sales1@agency.local` / `DemoAdmin@12345` and look at the sidebar | **No Settings at all** — the module absent, not an empty Settings. That contrast is the row: `FIRM_ADMIN` used to get it offered and every tab inside refused, which is worse than not having it, because a module that opens and does nothing reads as broken rather than as withheld. `SALES_EXECUTIVE` holds six codes and none of `SETTINGS_VIEW`, `AUDIT_LOG_VIEW` or `DIAGNOSTICS_VIEW`, so it gets the honest answer. |
 
 ---
 
@@ -767,14 +767,25 @@ here or in `tests/integration/`, nowhere else.*
 could not find — or even learn the existence of — a person who already works
 elsewhere. Sign in as `whole01.admin`.
 
-*Verified against `lookup_users` on 2026-09-15, no changes: gated on
-`USER_CREATE` rather than `USER_VIEW` (24.15), a firm caller must send three
-characters and gets at most ten **whatever `page` says** (24.2, 24.20), a
-platform caller may send nothing (24.17). The **User-Firm Assignments** tab
-carries `requiresPlatformAdmin: true`, which is what 24.21 and 24.22 are
-checking — a flag rather than a permission code, because a platform
-administrator passes code checks by designation. The section deliberately
-drives **one route answering two callers differently** — 24.2–24.16 are the firm caller's narrow
+*Validated end to end against the code on 2026-09-15, before the run, with
+**no changes needed** — every string this section asserts was read off the
+screen that renders it rather than inferred from the permission table, which
+is the mistake 21.4 and 22.4 were both made with.*
+
+| Row | Checked against |
+| --- | --- |
+| 24.2, 24.16 | `LOOKUP_MINIMUM_TERM = 3`; the refusal reads "Type at least 3 characters to look somebody up." |
+| 24.5 | The result row is `title: fullName`, `subtitle: email` and a trailing badge. **No firm is rendered anywhere on it** |
+| 24.6 | The badge reads exactly **"Already in this firm"**, and `enabled: !row.alreadyAMember` disables Add |
+| 24.7 | "Nobody matches. They may not have an account yet — use New." |
+| 24.8 | The dialog does carry a **Job template** field, helper "Optional. You can set their roles afterwards." |
+| 24.11, 24.12 | `list_user_firms` takes `_firms_the_caller_may_staff(principal)`; a platform caller's reach is `None` and still sees them all |
+| 24.15 | The lookup is gated on `USER_CREATE`, which `SALES_EXECUTIVE` does not hold |
+| 24.17, 24.18 | `listsEveryone` sets the minimum term to **0** and the helper to "Leave blank to list everyone not yet in this firm." |
+| 24.20 | `LOOKUP_LIMIT = 10`, and `page`/`page_size` are ignored for a firm caller |
+| 24.21, 24.22 | The **User-Firm Assignments** tab carries `requiresPlatformAdmin: true` — a flag rather than a permission code, because a platform administrator passes code checks by designation |
+
+*The section deliberately drives **one route answering two callers differently** — 24.2–24.16 are the firm caller's narrow
 lookup (three characters, ten results, no paging, no firm ever named) and
 24.17–24.20 the platform caller's directory (empty term lists everyone not in
 the firm, ordinary paging). Two routes would have meant two implementations of
