@@ -955,7 +955,8 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         build_firm_admin,
         "TC-ROLE-001..004, TC-PLAT-005, TC-ME-007, TC-FIRM-016, "
         "TC-TMPL-001..004, TC-TMPL-011, TC-TMPL-015, TC-USER-003, TC-USER-004, "
-        "TC-USER-009, TC-GRANT-002..004, TC-GRANT-006, TC-GRANT-008, TC-CASH-004",
+        "TC-USER-009, TC-GRANT-002..004, TC-GRANT-006, TC-GRANT-008, TC-CASH-004, "
+        "TC-AUDIT-003, TC-AUDIT-005",
     ),
     "custom-role": (
         "firm-admin + a custom role with the four Night Desk codes.",
@@ -976,7 +977,7 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         "An ALL_FIRMS platform administrator who belongs to no firm.",
         build_platform_admin,
         "TC-PLAT-001..003, TC-ME-006, TC-FIRM-001..003, TC-TMPL-012, "
-        "TC-USER-005, TC-RTIER-005",
+        "TC-USER-005, TC-RTIER-005, TC-AUDIT-001, TC-AUDIT-002",
     ),
     "platform-admin-member": (
         "An ALL_FIRMS platform administrator who belongs to both test firms.",
@@ -1016,12 +1017,12 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "sales-executive": (
         "A TEST01 user holding SALES_EXECUTIVE alone.",
         build_sales_executive,
-        "TC-TMPL-009, TC-GRANT-007",
+        "TC-TMPL-009, TC-GRANT-007, TC-AUDIT-006",
     ),
     "manual-hire": (
         "firm-admin + a TEST01 user with two roles picked by hand.",
         build_manual_hire,
-        "TC-TMPL-005, TC-USER-001",
+        "TC-TMPL-005, TC-USER-001, TC-AUDIT-004",
     ),
     "two-tier-hire": (
         "firm-admin + platform-admin + a user with roles in both tiers.",

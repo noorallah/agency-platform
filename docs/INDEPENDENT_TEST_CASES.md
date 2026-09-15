@@ -7,7 +7,7 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Converted so far:** plan sections 16 to 22, 25 (the pilot), 26, 26a and 27 — see the
+**Converted so far:** plan sections 16 to 23, 25 (the pilot), 26, 26a and 27 — see the
 table of contents below. Other sections move here one at a time; until then
 they stay in the plan.
 
@@ -845,6 +845,80 @@ Balance, Profit & Loss, Balance Sheet.
 - **Steps:** sign in as the fixture's **Firm admin** → Finance.
 - **Expect:** all twelve tabs.
 - **Leaves:** a firm admin user.
+
+---
+
+## The audit trail
+
+`GET /api/v1/audit-logs` reads **one** trail chosen by firm context: no
+`X-Firm-ID` plus platform authority gives the platform trail; `X-Firm-ID`
+gives that firm's. A firm's trail is **its own store plus the platform rows
+that carry its id** — hiring, role edits, promotions — merged by time on the
+read. The unit suite cannot see that merge (it builds one schema holding every
+table), so these cases are where it is checked.
+
+Settings is offered on any of `SETTINGS_VIEW`, `AUDIT_LOG_VIEW`,
+`DIAGNOSTICS_VIEW`; Audit Logs needs `AUDIT_LOG_VIEW` and no firm; Diagnostics
+needs `DIAGNOSTICS_VIEW`, which `FIRM_ADMIN` does not hold.
+
+### TC-AUDIT-001 — A platform administrator reads the platform trail
+
+- **Covers:** plan 23.1
+- **Fixture:** `platform-admin`
+- **Steps:** sign in as the fixture's **Platform admin**, no firm selected → Settings → **Audit Logs**.
+- **Expect:** the **platform** trail — user, role and firm administration: `identity.login`, `user.created`, `user.firm_roles_set` and the like, including the fixture's own setup a moment ago. Each row names who did it. *(Answered 403 between 2026-09-05 and 09-06: the designation had moved claims and the check had not.)*
+- **Leaves:** a platform administrator.
+
+### TC-AUDIT-002 — Selecting a firm switches to that firm's trail
+
+- **Covers:** plan 23.2
+- **Fixture:** `platform-admin`
+- **Steps:** as the fixture's **Platform admin**, switch into **TEST01** (the header changes from Platform, the sidebar grows) → Settings → Audit Logs.
+- **Expect:** **TEST01's** trail — firm-owned work such as `customer.created`, `sales_invoice.created`, `settlement.receipt.recorded` from fixtures that sold or took money in TEST01 — with platform rows carrying TEST01's id interleaved. Not the platform trail of TC-AUDIT-001: selecting a firm is what sets `X-Firm-ID`.
+- **Leaves:** a platform administrator.
+
+### TC-AUDIT-003 — A firm administrator reads their own firm's history, naming people
+
+- **Covers:** plan 23.3, 23.4, 23.5
+- **Fixture:** `firm-admin`
+- **Steps:** sign in as the fixture's **Firm admin** → **Settings**; read Audit Logs; look for Diagnostics.
+- **Expect**
+  - Settings opens with **Audit Logs** in it. It used to open empty — offered on `SETTINGS_VIEW` with both tabs demanding codes the role lacked.
+  - TEST01's history and nothing else. **Every row names the person who did it** and, where the subject is a person, who it was done to (#407, #409).
+  - **No Diagnostics.** Error reports are telemetry for whoever maintains the product, not something a firm owns.
+- **Leaves:** a firm admin user.
+
+### TC-AUDIT-004 — A promotion lands in the firm's trail, in time order, and a filter reaches both stores
+
+- **Covers:** plan 23.4a, 23.4b, 23.4c
+- **Fixture:** `manual-hire`
+- **Steps**
+  1. As the fixture's **Firm admin**: Masters → Customers → New `<SUFFIX>-A`, name `Audit Before <suffix>` → Save.
+  2. Administration → Users → **Manual Hire (<suffix>)** → **Apply job template** → Counter Sales → Apply.
+  3. Customers → New `<SUFFIX>-B`, name `Audit After <suffix>` → Save.
+  4. Settings → **Audit Logs**. Read the top rows.
+  5. Filter by action `user_template.applied` — **typed in full**.
+- **Expect**
+  - Step 4: from the top, `customer.created` (Audit After), `user_template.applied` and `user.roles_set` (both naming Manual Hire), `customer.created` (Audit Before) — **strictly descending timestamps straight through**. The promotion is written to the *platform* store (user administration is a platform path) and the customers to TEST01's; nothing marks which came from where. A block of user-administration rows at one end and customers in another means the stores were concatenated, not merged. The promotion names the template **and the role codes it granted** — `role_codes` beside `role_ids`, `template_code` beside `template_id`.
+  - Step 5: the promotion is found. A filter that reached one store and not the other would answer a half-truth that reads as correct because something came back. *(Exact match: `user` finds nothing — BACKLOG 31.17.)*
+- **Data (HTTP)**, as the firm admin with `X-Firm-ID` TEST01: `GET /api/v1/audit-logs?page_size=10` shows the order; `?action=user_template.applied` returns the row with `after_data.role_codes: ["BILLING_EXECUTIVE", "CASHIER"]`.
+- **Leaves:** two customers in TEST01 and Manual Hire on Counter Sales.
+
+### TC-AUDIT-005 — The platform trail needs platform authority
+
+- **Covers:** plan 23.6
+- **Fixture:** `firm-admin`
+- **Steps (HTTP):** `GET /api/v1/audit-logs` as the fixture's firm admin with **no** `X-Firm-ID`.
+- **Expect:** **403**.
+- **Leaves:** a firm admin user.
+
+### TC-AUDIT-006 — Somebody with none of the three codes has no Settings at all
+
+- **Covers:** plan 23.7
+- **Fixture:** `sales-executive`
+- **Steps:** sign in as the fixture's **Seller**; read the sidebar.
+- **Expect:** **no Settings** — the module absent, not an empty Settings. A module that opens and does nothing reads as broken rather than withheld.
+- **Leaves:** a seller.
 
 ---
 

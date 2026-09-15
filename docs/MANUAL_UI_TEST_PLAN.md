@@ -575,44 +575,20 @@ seeds, is the `accountant` fixture.
 
 ## 23. The audit trail
 
-Two things here, and the first is a regression that shipped on 2026-09-05 and
-was found on 2026-09-06: moving the platform designation into its own claim
-left two checks looking for it in the old place, so **no platform administrator
-could read any audit trail at all**.
+**Moved to `docs/INDEPENDENT_TEST_CASES.md` on 2026-09-16**, as TC-AUDIT-001 to
+006. 23.4a's "throwaway account" is the `manual-hire` fixture's user, and
+23.4b's check of the merge no longer depends on two years of seeded history:
+the case writes a customer, applies a template and writes another customer, so
+the platform row must land between the two firm rows.
 
-**Run 2026-09-15: 23.1–23.7 all passed, and reading the trail cost two fixes.**
-Every row worked as written; what did not work was the trail itself being
-*readable*. It named nobody — `AuditLogResponse` carried `actor_id` and no
-name, so the list gave an action and an entity type (the same two words for
-every row a busy day produces) and the detail gave a UUID. Then the subject
-was a UUID too, and a promotion's `role_ids` were bare UUIDs beside a
-`template_code` that exists precisely because an id alone names nothing.
-Fixed in #407 and #409. **None of it was a row failing**; it was the screen
-being unusable while every row passed.
-
-*Verified against the code on 2026-09-15, no changes. The Settings module takes
-**any** of `SETTINGS_VIEW` / `AUDIT_LOG_VIEW` / `DIAGNOSTICS_VIEW`; Audit Logs
-demands `AUDIT_LOG_VIEW` and carries `requiresFirm: false`, which is what makes
-23.1 work with no firm selected; Diagnostics demands `DIAGNOSTICS_VIEW`, which
-`FIRM_ADMIN` does not hold. `audit_scope` refuses the platform trail without
-platform authority, as 23.6 expects. One thing the rows do not say: 23.4a–23.4c
-are the **merge**, and the unit suite cannot see it — it builds one SQLite
-schema holding every table, so both stores resolve to the same session there
-and merging would double every row. If the merge is broken you will find it
-here or in `tests/integration/`, nowhere else.*
-
-| # | Case | Expected |
-| --- | --- | --- |
-| 23.1 | Sign in as `superadmin@agency.local`, no firm selected → Settings → Audit Logs | The **platform** trail: user, role and firm administration. Answered 403 between 2026-09-05 and 2026-09-06. |
-| 23.2 | Same user. **Firm switcher at the top → WHOLE01** (the header changes from Platform and the sidebar grows Sales, Purchases, Inventory…), then Settings → Audit Logs | **That firm's** trail, not the platform's. Concretely: firm-owned work — customers, invoices, stock — rather than the `identity.login` and `user.created` rows of 23.1. Selecting a firm is what sets `X-Firm-ID`, and `audit_scope` reads **one** trail chosen by it. Also 403 in that window. |
-| 23.3 | As `whole01.admin` → Settings | The module opens with **Audit Logs** in it. It used to open empty — offered on `SETTINGS_VIEW`, with both tabs demanding codes the role did not hold. |
-| 23.4 | Read it | WHOLE01's history and nothing else. **Every row names the person who did it and, where the subject is a person, who it was done to** (#407, #409) — before those it named neither, and a trail that cannot be read is not a trail. |
-| 23.4a | As `whole01.admin`: Administration → Users → select a throwaway account → **Apply job template** → pick any job → apply. Then Settings → **Audit Logs** | The promotion is listed, naming the template **and the role codes it granted** — `role_codes` beside `role_ids` since #409, for the same reason `template_code` is beside `template_id`: an id alone points at a row nobody can name, and without the codes the row says which job was applied and not what access it gave. It is written to the *platform* store — user administration is a platform path — and the firm's trail now merges the platform rows carrying this firm's id. |
-| 23.4b | Read the **timestamps** immediately above and below the promotion | Strictly descending straight through it — the promotion interleaved by time among the firm's own rows, with nothing marking it as having come from another store. **A block** of user-administration rows at one end, with invoices and stock in a separate block, means the stores were concatenated rather than merged. `list_events_with` takes `page * page_size` from **each** store and slices the combined order, because paging them separately repeats and drops rows at every boundary. Getting this wrong would not fail 23.4a — the promotion would still be there, just in the wrong place. *(If today's rows are bunched within minutes, page back: the seeded history spans two years, so any grouping shows plainly at that boundary.)* |
-| 23.4c | Filter by action `user_template.applied` — **typed in full** | The filter reaches both stores. Filtering one and not the other would answer a half-truth, and the kind that reads as correct because something came back. *(In full because the box is **exact match**: typing `user` finds nothing. That is BACKLOG 31.17, raised at 13.8 and met again here.)* |
-| 23.5 | Look for **Diagnostics** | **Not there.** `DIAGNOSTICS_VIEW` is deliberately withheld — error reports are telemetry for whoever maintains the product, not something a firm owns. |
-| 23.6 **(HTTP)** | `GET /api/v1/audit-logs` with a `whole01.admin` token and **no** `X-Firm-ID` | `403`. Reading the platform trail needs platform authority. |
-| 23.7 | Sign in as `whole01.sales1@agency.local` / `DemoAdmin@12345` and look at the sidebar | **No Settings at all** — the module absent, not an empty Settings. That contrast is the row: `FIRM_ADMIN` used to get it offered and every tab inside refused, which is worse than not having it, because a module that opens and does nothing reads as broken rather than as withheld. `SALES_EXECUTIVE` holds six codes and none of `SETTINGS_VIEW`, `AUDIT_LOG_VIEW` or `DIAGNOSTICS_VIEW`, so it gets the honest answer. |
+| Old row | Case |
+| --- | --- |
+| 23.1 | TC-AUDIT-001 |
+| 23.2 | TC-AUDIT-002 |
+| 23.3, 23.4, 23.5 | TC-AUDIT-003 |
+| 23.4a, 23.4b, 23.4c | TC-AUDIT-004 |
+| 23.6 | TC-AUDIT-005 |
+| 23.7 | TC-AUDIT-006 |
 
 ---
 
