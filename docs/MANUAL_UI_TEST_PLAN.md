@@ -835,29 +835,28 @@ difference is the design rather than an inconsistency to report.*
 
 ## 25. A firm's own roles and its own templates
 
-The point of this one: **you are not limited to what the platform shipped.**
-A role is a bundle of permissions, a template is a bundle of roles, and a firm
-administrator may write both. Sign in as `whole01.admin`.
+**Moved to `docs/INDEPENDENT_TEST_CASES.md` on 2026-09-16** — the pilot for
+cases that run on their own, in any order, from a fixture
+(`backend/scripts/test_fixture.py`) instead of from whatever an earlier row
+left behind. This section was chosen first because it was the worst chain:
+25.7 needed 25.2's role and 25.10 deleted it, so 25.9 could never be run twice.
 
-| # | Case | Expected |
-| --- | --- | --- |
-| 25.1 | Administration → Roles & Permissions → **Roles** | The **twelve** firm roles — `FIRM_ADMIN`, `FIRM_MANAGER`, `SALES_MANAGER`, `SALES_EXECUTIVE`, `PURCHASE_MANAGER`, `PURCHASE_EXECUTIVE`, `INVENTORY_MANAGER`, `ACCOUNTANT`, `BILLING_EXECUTIVE`, `CASHIER`, `CUSTOMER_SUPPORT`, `VIEWER`. **None of the four platform ones**: `PLATFORM_ADMIN`, `SUPPORT_ADMIN`, `LICENSE_ADMIN` and `SYSTEM_AUDITOR`. *(The fourth was missing from this row until 2026-09-15; 16 seeded roles, 12 of them a firm's.)* |
-| 25.2 | **New** → **Role code** `night-desk`, **Name** `Night Desk`. The **Permissions** picker is on this same form, in its own section — tick them now (25.3) or save and edit later; the code is read-only once saved → Save | Created. The row's subtitle reads **Custom role** where the seeded twelve read **System role**, and only custom roles offer Edit. That it belongs to WHOLE01 is not on this grid — it shows at 25.6, where a template bundling it reads Origin **This firm**, and would show as its absence from ELEC01's role list. |
-| 25.3 | Open it → **Permissions** | **167 of the 189 codes** — 30 permission groups, 22 of them platform (`platform`, `firm`, `system_administration`, `high_risk`). Re-derived 2026-09-15; a count carries the date it was taken, so re-run it rather than trusting this one if it matters. Tick `SALES_VIEW`, `CUSTOMER_VIEW`, **`RECEIPT_VIEW` and `RECEIPT_CREATE`** — both receipt codes. *(Corrected 2026-09-15: the row ticked `RECEIPT_CREATE` alone, and a user holding that without `RECEIPT_VIEW` cannot reach the Receipts screen at all — Finance opens on `RECEIPT_VIEW`, not `RECEIPT_CREATE` — so 25.8's "exactly what you ticked" would have read as a failure. The seeded `CASHIER` carries the same comment in `system_seed.py`: a cashier who can record money and not look at what they recorded cannot do the job.)* |
-| 25.4 | Look for `FIRM_CREATE`, `PLATFORM_SETTINGS`, `VOID_INVOICE`, `AUDIT_LOG_VIEW` | **Not in the list at all.** `list_permissions` filters `PLATFORM_PERMISSION_CODES` out of a firm-scoped read, so the platform codes are not merely refused on assignment — they are never offered, and `set_role_permissions` refuses them again if one is named directly. |
-| 25.4a | Now look at what **you** can do: Settings → Audit Logs, still as `whole01.admin` | It opens, on your own firm's trail. So you **hold** `AUDIT_LOG_VIEW` and cannot **grant** it — and that is not a contradiction. `PLATFORM_PERMISSION_CODES` answers "what may a firm administrator not *grant*", which is a different question from what they may hold; `AUDIT_LOG_VIEW` sits in the `system_administration` group and was granted to `FIRM_ADMIN` directly on 2026-09-06, beside `SETTINGS_VIEW` and `SETTINGS_UPDATE`, which had always been there for the same reason. *(Added 2026-09-15. Worth doing once: confusing the two sets is how a permission's reach gets misjudged, and this is the clearest place in the plan to see the difference.)* |
-| 25.5 | New role with code `platform_admin` → Save | Refused on the form: **"'platform_admin' is reserved. Choose a different role code."** The pattern `^[a-z0-9._-]+$` *permits* that spelling — it requires lowercase — so the refusal has to come from the service, and it does, for the designation and all sixteen seeded codes, case-insensitively. Before 2026-09-05 this went through, and a firm administrator who assigned it to themselves signed in as a platform administrator. |
-| 25.6 | Administration → **User Templates** → New → **Template code** `night-desk-job`, **Job name** `Night Desk`, **Roles** → tick **Night Desk** → Save | Created, Origin **This firm**. A template may bundle any role you may assign — and this is the first place the grid *says* the role is WHOLE01's. |
-| 25.7 | Users → New → name, email, a password of **12+ characters**, **Job template** = Night Desk, **Roles** left empty, Firms as prefilled → Save | The new user holds `night-desk` and nothing else — confirm with **Roles by firm** on their row. |
-| 25.8 | Sign in as that user (forced password change first) | Sidebar: **Sales**, **Masters** (customers) and **Finance** holding only **Receipts**, with **Record Receipt** offered. Nothing else — no Purchases, no Inventory, no Administration. Exactly the four codes, rendered as screens. |
-| 25.9 | As `whole01.admin`, edit **Night Desk**, untick `RECEIPT_CREATE`, Save. Then go back to the other user's window and click anything | **They are signed out on their next request** — you do not have to ask them to; `set_role_permissions` revokes every holder's tokens. Signed back in, Finance → Receipts is still there and **Record Receipt is gone**. A role is not versioned: editing it changes everybody holding it, immediately. |
-| 25.10 | Delete **Night Desk** while that user still holds it | **It is deleted.** No refusal, no warning, no count of who holds it. The only guard in `delete_role` is against system roles. |
-| 25.10a | Back in that user's window, click anything | **Signed out** — deletion revokes holders' tokens, the same as an edit. Signed back in: an **empty sidebar**, and nothing on screen says why. Know who is on a role before deleting it; the Assignments column on the roles grid is where to look. *(Recorded as the behaviour, not a defect. Whether deleting a held role should refuse, or warn with the count, is the owner's call — the same question 20.2b answered for users in no firm.)* |
+Converting it also corrected 25.8, which had said a role holder sees Sales,
+Masters and Finance. The desktop's own visibility logic says eight modules —
+Quotations, Sales Orders, Delivery Notes, Sales Invoices and Sales Returns are
+modules of their own, not tabs of Sales — and that list is in TC-ROLE-007.
 
-> **Tidy up:** 25.2–25.7 leave a role, a template and a user in WHOLE01.
-> Remove them or reseed.
-
----
+| Old row | Case |
+| --- | --- |
+| 25.1 | TC-ROLE-001 |
+| 25.2, 25.3, 25.4 | TC-ROLE-002 |
+| 25.4a | TC-ROLE-004 |
+| 25.5 | TC-ROLE-003 |
+| 25.6 | TC-ROLE-005 |
+| 25.7 | TC-ROLE-006 |
+| 25.8 | TC-ROLE-007 |
+| 25.9 | TC-ROLE-008 |
+| 25.10, 25.10a | TC-ROLE-009 |
 
 ---
 
