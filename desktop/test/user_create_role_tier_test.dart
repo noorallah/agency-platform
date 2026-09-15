@@ -454,6 +454,68 @@ void main() {
       return api;
     }
 
+    test('somebody saved into no firm is not then asked for roles', () async {
+      // A user in no firm is allowed and documented (USER_ADMINISTRATION_GUIDE
+      // §7b), and it was the one path the desktop could not walk. The firms
+      // write removes the membership, and `set_user_roles` then resolves the
+      // user with `_get_user(user_id, firm_scope)` -- which for a firm caller
+      // demands an active membership in the caller's own firm. So the roles
+      // call answered **"User not found."** on somebody created seconds
+      // earlier, leaving the record behind and a retry answering 409 on the
+      // email. Plan step 20.2b, found 2026-09-15.
+      //
+      // Note the existing test above: somebody had already fixed the
+      // **ordering** for this class of bug. Ordering does not help when the
+      // membership set is empty.
+      final _CreateApi api = await save(
+        {
+          'firm_ids': '',
+          'primary_firm_id': '',
+          'role_ids': '',
+          'template_id': '',
+        },
+        platformAdmin: false,
+      );
+
+      expect(api.calls, ['firms'], reason: 'nothing to write is not written');
+    });
+
+    test('a platform caller in no firm still writes the global tier', () async {
+      // Their `firm_scope` is None, so `_get_user` does not filter and the
+      // write resolves. Global roles on a firmless user are legitimate, and
+      // clearing them has to stay possible.
+      final _CreateApi api = await save({
+        'firm_ids': '',
+        'primary_firm_id': '',
+        'role_ids': '',
+        'template_id': '',
+      });
+
+      expect(api.calls, ['firms', 'globalRoles']);
+    });
+
+    test('a firm caller asking for roles in no firm is refused in words',
+        () async {
+      // Sending it anyway would come back as a 404 about a user who exists,
+      // which reads as a broken screen rather than a rule.
+      await expectLater(
+        save(
+          {
+            'firm_ids': '',
+            'primary_firm_id': '',
+            'role_ids': 'role-1',
+            'template_id': '',
+          },
+          platformAdmin: false,
+        ),
+        throwsA(isA<ApiException>().having(
+          (error) => error.message,
+          'message',
+          contains('in no firm cannot be given roles'),
+        )),
+      );
+    });
+
     test('memberships are written before roles', () async {
       // The service refuses a role for somebody in no firm, so the order is
       // the difference between a hire that works and one that is refused.

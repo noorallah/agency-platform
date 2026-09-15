@@ -608,6 +608,15 @@ void main() {
     // The one-step version. Before this the form could only take individual
     // roles, so hiring a counter clerk meant creating the user, finding them
     // in the grid, and applying a template as a second act.
+    //
+    // Every payload below names a firm. It used to send `firm_ids: ''` as a
+    // don't-care, which is not a payload the form can produce: `ownFirm`
+    // prefills the caller's active firm on create. That mattered once the
+    // no-firm case grew a rule of its own (plan 20.2b, 2026-09-15) -- a firm
+    // caller asking for roles on somebody in no firm is now refused in words,
+    // because the server would answer 404 about a user who exists. These
+    // tests are about which of Job template and Roles wins, and naming a firm
+    // changes nothing about that.
     ResourceDefinition<PlatformUser> definition(_UsersApi api) =>
         userDefinition(
           api,
@@ -652,7 +661,7 @@ void main() {
       await definition(api).saveAssignments!('u-1', <String, dynamic>{
         'template_id': 't-1',
         'role_ids': '',
-        'firm_ids': '',
+        'firm_ids': 'firm-1',
       });
 
       expect(api.calls, contains('template:t-1'));
@@ -665,7 +674,7 @@ void main() {
       await definition(api).saveAssignments!('u-1', <String, dynamic>{
         'template_id': '',
         'role_ids': 'r-1,r-2',
-        'firm_ids': '',
+        'firm_ids': 'firm-1',
       });
 
       expect(api.calls, contains('roles:r-1,r-2'));
@@ -680,7 +689,7 @@ void main() {
       await definition(api).saveAssignments!('u-1', <String, dynamic>{
         'template_id': 't-1',
         'role_ids': 'r-9',
-        'firm_ids': '',
+        'firm_ids': 'firm-1',
       });
 
       expect(api.calls, contains('template:t-1'));
@@ -694,7 +703,7 @@ void main() {
 
       await definition(api).saveAssignments!('u-1', <String, dynamic>{
         'role_ids': 'r-3',
-        'firm_ids': '',
+        'firm_ids': 'firm-1',
       });
 
       expect(api.calls, contains('roles:r-3'));

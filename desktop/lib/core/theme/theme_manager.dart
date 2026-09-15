@@ -281,6 +281,22 @@ class ThemeRegistry {
           horizontal: AppSpacing.md,
           vertical: spacing.fieldGap,
         ),
+        // **Helper and error text may wrap.**
+        //
+        // Flutter defaults both to a single line and clips the rest without a
+        // word. Half this application's helpers are a sentence -- "Lower case,
+        // digits, dots, dashes. Unique in this firm." needs **three** lines in
+        // a two-column form at 360 wide, and was rendered in a 19-pixel box
+        // showing one. That is the "showing half text" reported on 2026-09-15:
+        // not a label, not a padding, not a density. A helper nobody can read
+        // to the end is worse than none, because it looks like a rendering
+        // fault rather than a truncation.
+        //
+        // `auth_screens.dart` had already passed `helperMaxLines: 2` by hand
+        // for the same reason, which is the tell that this belonged in the
+        // theme: one screen working around a default every other screen has.
+        helperMaxLines: 3,
+        errorMaxLines: 3,
         hintStyle:
             textTheme.bodyMedium?.copyWith(color: tuned.onSurfaceVariant),
         labelStyle:
