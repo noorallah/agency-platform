@@ -915,6 +915,39 @@ def build_loyalty_viewer(built: Built) -> None:
     built.say("Roles", "SALES_MANAGER in TEST01 (LOYALTY_VIEW, not the settings code)")
 
 
+def build_cashier(built: Built) -> None:
+    """Make a TEST01 cashier holding CASHIER alone, and a customer to take from.
+
+    CASHIER alone is the point: the seeded Counter Sales template pairs it with
+    BILLING_EXECUTIVE, which is what hid a cashier's empty sidebar.
+    """
+    user_id = new_user(built, "cashier", "Fixture Cashier")
+    firm_roles(built, user_id, TEST01, ["CASHIER"])
+    admin = built.admin.as_user(built.admin.token or "", built.firms[TEST01.code])
+    tag = built.suffix.upper()
+    admin.call(
+        "POST",
+        "/api/v1/customers",
+        {
+            "code": f"{tag}-TILL",
+            "name": f"Till Customer {built.suffix}",
+            "customer_type": "BUSINESS",
+            "currency_code": "INR",
+        },
+    )
+    built.say("Cashier", f"{built.email('cashier')} / {FIXTURE_PASSWORD}")
+    built.say("Roles", "CASHIER in TEST01, nothing else")
+    built.say("Customer", f"{tag}-TILL  (Till Customer {built.suffix})")
+
+
+def build_accountant(built: Built) -> None:
+    """Make a TEST01 user holding ACCOUNTANT alone; none is seeded anywhere."""
+    user_id = new_user(built, "accountant", "Fixture Accountant")
+    firm_roles(built, user_id, TEST01, ["ACCOUNTANT"])
+    built.say("Accountant", f"{built.email('accountant')} / {FIXTURE_PASSWORD}")
+    built.say("Roles", "ACCOUNTANT in TEST01, nothing else")
+
+
 #: Every fixture, what it builds, and the cases that name it.
 FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "firm-admin": (
@@ -922,7 +955,7 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         build_firm_admin,
         "TC-ROLE-001..004, TC-PLAT-005, TC-ME-007, TC-FIRM-016, "
         "TC-TMPL-001..004, TC-TMPL-011, TC-TMPL-015, TC-USER-003, TC-USER-004, "
-        "TC-USER-009, TC-GRANT-002..004, TC-GRANT-006, TC-GRANT-008",
+        "TC-USER-009, TC-GRANT-002..004, TC-GRANT-006, TC-GRANT-008, TC-CASH-004",
     ),
     "custom-role": (
         "firm-admin + a custom role with the four Night Desk codes.",
@@ -1029,6 +1062,16 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         "A TEST01 SALES_MANAGER: reads the loyalty scheme, cannot change it.",
         build_loyalty_viewer,
         "TC-GRANT-005",
+    ),
+    "cashier": (
+        "A TEST01 user holding CASHIER alone, and a customer to take money from.",
+        build_cashier,
+        "TC-CASH-001, TC-CASH-002",
+    ),
+    "accountant": (
+        "A TEST01 user holding ACCOUNTANT alone.",
+        build_accountant,
+        "TC-CASH-003",
     ),
 }
 

@@ -7,7 +7,7 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Converted so far:** plan sections 16 to 21, 25 (the pilot), 26, 26a and 27 — see the
+**Converted so far:** plan sections 16 to 22, 25 (the pilot), 26, 26a and 27 — see the
 table of contents below. Other sections move here one at a time; until then
 they stay in the plan.
 
@@ -789,6 +789,61 @@ only matters for accounts you already had open.
 - **Fixture:** `firm-admin`
 - **Steps (HTTP)** — as the fixture's firm admin with `X-Firm-ID` TEST01: `GET /api/v1/credit-notes`, `/api/v1/proforma-invoices`, `/api/v1/einvoice/registrations`, `/api/v1/loyalty/settings`, `/api/v1/tcs/settings`.
 - **Expect:** **200** on all five. They answered 403 before `20260906_0130`. The screens being offered is the desktop honouring the claims; these are the claims being there.
+- **Leaves:** a firm admin user.
+
+---
+
+## A cashier can see the till
+
+`CASHIER` holds exactly `RECEIPT_CREATE`, `RECEIPT_VIEW`, `PAYMENT_CREATE` and
+`PAYMENT_VIEW`, and was offered **no module at all**: Receipts and Payments are
+Finance tabs, Finance was gated on `ACCOUNT_VIEW`, and a tab naming no codes
+inherits its module's. Finance now takes any of `ACCOUNT_VIEW`, `RECEIPT_VIEW`,
+`PAYMENT_VIEW`, **and every tab names its own code** — both halves are
+load-bearing.
+
+Finance's twelve tabs: Chart of Accounts, Control Accounts, Cost Centres,
+Profit Centres, Journal Entries, Receipts, Payments, Refunds, Ledgers, Trial
+Balance, Profit & Loss, Balance Sheet.
+
+### TC-CASH-001 — A cashier gets Finance, holding Receipts and Payments only
+
+- **Covers:** plan 22.0, 22.1, 22.2, 22.3
+- **Fixture:** `cashier` — `CASHIER` alone, no job template. That combination is the whole setup: the seeded Counter Sales template pairs CASHIER with BILLING_EXECUTIVE, which is what hid the bug.
+- **Steps:** sign in as the fixture's **Cashier**; read the sidebar; open Finance.
+- **Expect:** **Finance** is in the sidebar (before the fix the sidebar was empty), with exactly **Receipts** and **Payments**. **None** of Chart of Accounts, Control Accounts, Cost Centres, Profit Centres, Journal Entries, Ledgers, Trial Balance, Profit & Loss, Balance Sheet, Refunds. Widening the module without gating its tabs would have handed a cashier the ledger.
+- **Data (HTTP):** as the cashier with `X-Firm-ID` TEST01, `GET /api/v1/finance/ledger-accounts` → **403**.
+- **Leaves:** a cashier.
+
+### TC-CASH-002 — Recording a receipt, with a searchable party picker
+
+- **Covers:** plan 22.4, 22.4a
+- **Fixture:** `cashier`
+- **Steps**
+  1. As the fixture's **Cashier**, Finance → Receipts → **Record Receipt**.
+  2. In the party picker, type part of the fixture's customer code (`<SUFFIX>-TI`); clear it; type part of its name (`Till Customer`); then type `zzzz-nobody`.
+  3. Choose **<SUFFIX>-TILL**, amount `100`, method Cash → save.
+- **Expect**
+  - Step 1: the dialog opens with the picker filled. **This failed until 2026-09-15** with "You do not have permission to perform this action." — the picker read `GET /api/v1/customers`, which needs `CUSTOMER_VIEW`, so the role was blocked one step short of the only thing it exists to do. The money screens read `GET /api/v1/receipts/parties` now (#403).
+  - Step 2: both narrow the list, each option reading `CODE  Name` on one line; a search matching nobody says so under the field rather than showing an empty sheet.
+  - Step 3: the receipt is recorded and listed.
+- **Data (HTTP):** as the cashier, `GET /api/v1/customers` → **403**, while `GET /api/v1/receipts/parties?search=<SUFFIX>` → **200** with `id`, `code` and `name` only.
+- **Leaves:** a receipt of 100 from the fixture's customer in TEST01.
+
+### TC-CASH-003 — An accountant keeps all twelve
+
+- **Covers:** plan 22.5
+- **Fixture:** `accountant` — `ACCOUNTANT` alone. No accountant is seeded in any demo firm.
+- **Steps:** sign in as the fixture's **Accountant** → Finance.
+- **Expect:** **all twelve** tabs. `ACCOUNTANT` carries `ACCOUNT_VIEW`, `JOURNAL_VIEW`, `RECEIPT_VIEW`, `PAYMENT_VIEW`, `LEDGER_VIEW`, `TRIAL_BALANCE_VIEW`, `PROFIT_LOSS_VIEW` and `BALANCE_SHEET_VIEW`; every code now on a tab is one whoever held `ACCOUNT_VIEW` already had, so nobody lost one.
+- **Leaves:** an accountant.
+
+### TC-CASH-004 — A firm administrator keeps all twelve
+
+- **Covers:** plan 22.6
+- **Fixture:** `firm-admin`
+- **Steps:** sign in as the fixture's **Firm admin** → Finance.
+- **Expect:** all twelve tabs.
 - **Leaves:** a firm admin user.
 
 ---
