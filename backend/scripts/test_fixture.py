@@ -2224,6 +2224,188 @@ def build_selling_paid(built: Built) -> None:
     _selling_stage(built, "paid")
 
 
+def build_territory_firm(built: Built) -> None:
+    """Make a Wholesale firm of this run's own with WHOLE01's territory shape.
+
+    Region -> North and South zones -> three routes: N1 (weekly, Mon Wed Fri,
+    Asha; round Revise Check then Classic), N2 (fortnightly, Tue Thu, Bala;
+    round Vijaya) and S1 (weekly, Tue Thu, Asha; round Anand). A weekly beat
+    plan for each working day of each route, a fortnightly COLL on N2 from
+    2026-04-07 and a monthly MTH on S1's second Tuesday. A fifth customer on
+    no route, and a stocked product to raise an order with.
+    """
+    admin = _own_trading_firm(built, "T", "Territory", "WHOLESALE")
+    tag = built.suffix.upper()
+    base = "/api/v1/sales-territories"
+    firm = built.known[f"{tag}-T"]
+    # Reading a new store's hierarchy answers defaults that are not saved --
+    # fresh ids on every read -- so a territory named against them is refused
+    # as "not active" (defect D-11-1). Saving the same levels makes them real.
+    current = admin.call("GET", f"{base}/hierarchy-levels")
+    saved = admin.call(
+        "PUT",
+        f"{base}/hierarchy-levels",
+        {
+            "max_levels": current["max_levels"],
+            "levels": [
+                {
+                    key: level[key]
+                    for key in (
+                        "level_order",
+                        "level_code",
+                        "display_name",
+                        "is_mandatory",
+                    )
+                }
+                for level in current["levels"]
+            ],
+        },
+    )
+    levels = {level["level_code"]: level["id"] for level in saved["levels"]}
+    route_type = admin.call(
+        "POST", f"{base}/route-types", {"code": "SALES", "name": "Sales Route"}
+    )
+    people = {}
+    for handle, name in (("asha", "Asha"), ("bala", "Bala")):
+        user_id = new_user(built, handle, f"{name} Sales", firms=(firm,))
+        firm_roles(built, user_id, firm, ["SALES_EXECUTIVE"])
+        people[handle] = user_id
+
+    def node(
+        code: str, name: str, level: str, parent: str | None, route: Json | None
+    ) -> str:
+        body: Json = {
+            "code": code,
+            "name": name,
+            "hierarchy_level_id": levels[level],
+            "parent_id": parent,
+        }
+        if route is not None:
+            body["route_profile"] = {"route_type_id": route_type["id"], **route}
+        return str(admin.call("POST", base, body)["id"])
+
+    region = node(f"{tag}-RGN", "Chennai Region", "REGION", None, None)
+    north = node(f"{tag}-T-N", "North Zone", "TERRITORY", region, None)
+    south = node(f"{tag}-T-S", "South Zone", "TERRITORY", region, None)
+    routes = {
+        "N1": node(
+            f"{tag}-R-N1",
+            "North Sales Beat",
+            "ROUTE",
+            north,
+            {"visit_frequency": "WEEKLY", "working_days": [1, 3, 5]},
+        ),
+        "N2": node(
+            f"{tag}-R-N2",
+            "North Collections",
+            "ROUTE",
+            north,
+            {"visit_frequency": "FORTNIGHTLY", "working_days": [2, 4]},
+        ),
+        "S1": node(
+            f"{tag}-R-S1",
+            "South Sales Beat",
+            "ROUTE",
+            south,
+            {"visit_frequency": "WEEKLY", "working_days": [2, 4]},
+        ),
+    }
+    customers = {}
+    for key, name in (
+        ("C1", "Revise Check"),
+        ("C2", "Classic Stores"),
+        ("C3", "Vijaya Stores"),
+        ("C4", "Anand Agencies"),
+        ("SN", "Not Yet Routed"),
+    ):
+        customers[key] = admin.call(
+            "POST",
+            "/api/v1/customers",
+            {
+                "code": f"{tag}-{key}",
+                "name": f"{name} {built.suffix}",
+                "customer_type": "BUSINESS",
+                "currency_code": "INR",
+            },
+        )["id"]
+    for route, keys, person in (
+        ("N1", ["C1", "C2"], "asha"),
+        ("N2", ["C3"], "bala"),
+        ("S1", ["C4"], "asha"),
+    ):
+        admin.call(
+            "PUT",
+            f"{base}/{routes[route]}/customers",
+            {
+                "entries": [
+                    {"customer_id": customers[k], "visit_sequence": n}
+                    for n, k in enumerate(keys, start=1)
+                ]
+            },
+        )
+        admin.call(
+            "PUT",
+            f"{base}/{routes[route]}/salesmen",
+            {"assignments": [{"user_id": people[person], "is_primary": True}]},
+        )
+    names = {1: "MON", 2: "TUE", 3: "WED", 4: "THU", 5: "FRI"}
+    plans = []
+    for route, days in (("N1", [1, 3, 5]), ("N2", [2, 4]), ("S1", [2, 4])):
+        position = {"N1": "R1", "N2": "R2", "S1": "R3"}[route]
+        for day in days:
+            code = f"{tag}-BP-{position}-{names[day]}"
+            admin.call(
+                "POST",
+                f"{base}/beat-plans",
+                {
+                    "code": code,
+                    "name": f"{names[day].title()} round {position}",
+                    "territory_id": routes[route],
+                    "plan_type": "WEEKLY",
+                    "weekday": day,
+                },
+            )
+            plans.append(code)
+    admin.call(
+        "POST",
+        f"{base}/beat-plans",
+        {
+            "code": f"{tag}-BP-COLL",
+            "name": "Collections, alternate Tuesdays",
+            "territory_id": routes["N2"],
+            "plan_type": "FORTNIGHTLY",
+            "weekday": 2,
+            "starts_on": "2026-04-07",
+        },
+    )
+    admin.call(
+        "POST",
+        f"{base}/beat-plans",
+        {
+            "code": f"{tag}-BP-MTH",
+            "name": "Second Tuesday review",
+            "territory_id": routes["S1"],
+            "plan_type": "MONTHLY",
+            "weekday": 2,
+            "week_of_month": 2,
+        },
+    )
+    warehouse = by_code(admin, "/api/v1/warehouses", "MAIN")
+    branch = by_code(admin, "/api/v1/branches", "HO")
+    stocked_product(built, admin, warehouse, branch)
+    built.say("Asha", f"{built.email('asha')} / {FIXTURE_PASSWORD}  (N1, S1)")
+    built.say("Bala", f"{built.email('bala')} / {FIXTURE_PASSWORD}  (N2)")
+    built.say("Region", f"{tag}-RGN > {tag}-T-N (North), {tag}-T-S (South)")
+    built.say("N1", f"{tag}-R-N1 weekly Mon Wed Fri, Asha: {tag}-C1 then {tag}-C2")
+    built.say("N2", f"{tag}-R-N2 fortnightly Tue Thu, Bala: {tag}-C3")
+    built.say("S1", f"{tag}-R-S1 weekly Tue Thu, Asha: {tag}-C4")
+    built.say("On no route", f"{tag}-SN  (Not Yet Routed {built.suffix})")
+    built.say(
+        "Beat plans", f"{len(plans)} weekly, {tag}-BP-COLL (N2), {tag}-BP-MTH (S1)"
+    )
+    built.say("Product", f"{tag}-P, 50 in MAIN")
+
+
 #: Every fixture, what it builds, and the cases that name it.
 FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "firm-admin": (
@@ -2466,6 +2648,11 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         "selling-invoiced + receipts of 241.60 and 341.61 + the 7 billed.",
         build_selling_paid,
         "TC-SELL-014",
+    ),
+    "territory-firm": (
+        "A Wholesale firm of the run's own with routes, rounds, salespeople, beats.",
+        build_territory_firm,
+        "TC-TERR-001..005",
     ),
 }
 

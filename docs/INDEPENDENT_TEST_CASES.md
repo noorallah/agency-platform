@@ -7,7 +7,7 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Converted so far:** plan sections 2 to 9, 15 and 16 to 27 (25 was the pilot) — see the
+**Converted so far:** plan sections 2 to 9, 11, 15 and 16 to 27 (25 was the pilot) — see the
 table of contents below. Other sections move here one at a time; until then
 they stay in the plan.
 
@@ -994,6 +994,82 @@ promotion, or the customer's standing rate).
   - Step 1: "PI-… raised. Issue it when the customer needs it." then "PI-… issued."; a `PI` series number; **nothing** posted; Outstanding unchanged; the pane says "Not a tax invoice — no input tax credit is available against this document."
   - Step 2: the proforma's lines and totals are unchanged — snapshotted when it was raised.
 - **Leaves:** an issued proforma and a cancelled order.
+
+---
+
+## Territory, routes and beats
+
+A firm of the run's own with WHOLE01's territory shape, from the
+`territory-firm` fixture (a minute or two). Geography, Route Types, Beat
+Plans, Call Lists, Coverage and Route Builder are under **Sales**.
+
+| | Route | Frequency, days | Salesperson | Round, in order |
+| --- | --- | --- | --- | --- |
+| North Zone | `<SUFFIX>-R-N1` North Sales Beat | weekly, Mon Wed Fri | Asha | `<SUFFIX>-C1` Revise Check, `<SUFFIX>-C2` Classic Stores |
+| North Zone | `<SUFFIX>-R-N2` North Collections | fortnightly, Tue Thu | Bala | `<SUFFIX>-C3` Vijaya Stores |
+| South Zone | `<SUFFIX>-R-S1` South Sales Beat | weekly, Tue Thu | Asha | `<SUFFIX>-C4` Anand Agencies |
+
+Beat plans: one weekly plan per working day per route (`-BP-R1-MON`, `-R1-WED`,
+`-R1-FRI`, `-R2-TUE`, `-R2-THU`, `-R3-TUE`, `-R3-THU`), **`-BP-COLL`**
+fortnightly on Tuesdays from 2026-04-07 (N2), and **`-BP-MTH`** on the second
+Tuesday (S1). `<SUFFIX>-SN` is on no route. Sign in as the fixture's **Firm
+admin**.
+
+### TC-TERR-001 — The territory tree
+
+- **Covers:** plan 11.1, 11.2
+- **Fixture:** `territory-firm`
+- **Steps**
+  1. Sales → **Geography**; select any row; the right-hand **Territory tree** → **Expand all**. Click the icon beside its title ("Open the tree in a larger window"); try Collapse all / Expand all; Close.
+  2. Double-click `<SUFFIX>-R-N1` → **Details**; then **Customers** and **Salespeople**.
+- **Expect**
+  - Step 1: Chennai Region (Region) → North Zone and South Zone (Territory) → North Sales Beat and North Collections under North, South Sales Beat under South (Route), each node with its code and full path; the grid's Hierarchy column carries the path.
+  - Step 2: **Route** section: Route type **Sales Route**, Visit frequency **Weekly**, Working days **Mon, Wed, Fri**, Runs from **Always**, Runs until **No end**. 2 customers, both active; Salespeople 1. Customers: Revise Check, Classic Stores. Salespeople: Asha Sales.
+- **Leaves:** unchanged.
+
+### TC-TERR-002 — A call list for a Monday, with reasons for every plan that does not run
+
+- **Covers:** plan 11.3
+- **Fixture:** `territory-firm`
+- **Steps:** Sales → **Call Lists**. Move to **Monday 2026-09-21** (› Next day or the date button), Salesperson Everyone. Then **Back to today**.
+- **Expect:** the date button reads "Monday 2026-09-21"; the status bar "1 of 9 plan(s) run on Monday 2026-09-21". `-BP-R1-MON` is badged **Runs on Monday** and calls Revise Check then Classic Stores (the route's round, in order). Every other plan is **Not on Monday** with its reason — e.g. `-BP-R1-FRI` "Runs on Fridays; this is a Monday."
+- **Data (HTTP):** `GET /api/v1/sales-territories/call-lists?date=2026-09-21` → nine `entries`, one with `occurs: true`.
+- **Leaves:** unchanged.
+
+### TC-TERR-003 — Fortnightly and monthly plans, and why they skip a week
+
+- **Covers:** plan 11.4
+- **Fixture:** `territory-firm`
+- **Steps:** Call Lists: date **2027-01-12**, then **2026-10-13**, then **2026-10-20**.
+- **Expect**
+  - 2027-01-12 (a second Tuesday and an even fortnight from 2026-04-07): "4 of 9 plan(s) run" — `-R2-TUE` and `-COLL` (both Vijaya), `-R3-TUE` and `-MTH` (both Anand).
+  - 2026-10-13 (second Tuesday, off fortnight): `-COLL` **Not on Tuesday**, "Runs every other Tuesday counted from 2026-04-07; this is the week between."; `-MTH` runs.
+  - 2026-10-20 (third Tuesday): `-COLL` runs; `-MTH` "Runs on the second Tuesday of the month; this is the third."
+- **Leaves:** unchanged.
+
+### TC-TERR-004 — Building a round, and saving one unchanged
+
+- **Covers:** plan 11.5, 11.6
+- **Fixture:** `territory-firm`
+- **Steps**
+  1. Sales → **Route Builder** → Route being built `<SUFFIX>-R-N1` (right: 1. Revise Check, 2. Classic Stores). Tick **On no route yet** → **Find** → double-click `<SUFFIX>-SN` (stop 3) → drag it by ≡ above the first stop → **Save round and order**. Choose the route again.
+  2. **Remove from round** on SN → Save. Then choose N1 again, change nothing → Save.
+- **Expect**
+  - Step 1: "3 outlet(s) on North Sales Beat, in order."; reopened: 1. SN, 2. Revise Check, 3. Classic Stores — the stops moved without a collision.
+  - Step 2: "2 outlet(s) on North Sales Beat, in order." both times; the same two stops in the same order. The status bar says "Saving replaces the whole round with the list on the right." — which is why the screen refuses to save a round it could not read.
+- **Leaves:** N1's round as the fixture made it.
+
+### TC-TERR-005 — A salesperson must cover the customer's route
+
+- **Covers:** plan 11.7
+- **Fixture:** `territory-firm`
+- **Steps:** Sales Orders → **New Order** for `<SUFFIX>-C4` (Anand, on S1, covered by Asha): ships from MAIN, **Salesman Bala**, one line `<SUFFIX>-P` qty 1 → Create draft. Then Asha → Create draft. Then Salesman blank → Create draft → reopen.
+- **Expect:** Bala is refused in the editor's banner: "The selected salesperson is not assigned to this territory." — nothing saved. Asha saves. Blank saves and, reopened, the salesman is **Asha**, supplied by the customer's route.
+- **Leaves:** two draft orders.
+
+### Known defects found while writing these cases
+
+- **D-11-1 — A new firm's territory hierarchy is not saved until somebody saves it, and reading it invents ids.** `GET /api/v1/sales-territories/hierarchy-levels` on a fresh store answers REGION / TERRITORY / ROUTE with a **different config id and level ids on every read** — defaults built and never committed. Creating a territory against one of those ids is refused: "Configured hierarchy level is not active." Saving the hierarchy (the same levels, unchanged) makes them real; the fixture does that. Whether the desktop's Geography screen saves first was not checked — if it does not, a new firm cannot create its first territory.
 
 ---
 

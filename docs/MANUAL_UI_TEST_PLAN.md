@@ -358,17 +358,25 @@ All as `whole01.admin` in WHOLE01. Price Lists, Promotions, Commission and Targe
 
 ## 11. Territory, routes and beats
 
-All as `whole01.admin`. Geography, Route Types, Beat Plans, Call Lists, Coverage and Route Builder are children of the sidebar entry called just **Sales** (under Masters, above Quotations). Seed: `WHOLE01-RGN` Chennai Region → `WHOLE01-T-N` North Zone and `WHOLE01-T-S` South Zone → routes, as the store holds them on 2026-09-13: `WHOLE01-R-N1` North Sales Beat (weekly, Mon/Wed/Fri, **Asha**, round: Revise Check 2 then Classic Departmental Stores), `WHOLE01-R-N2` North Collections (fortnightly, Tue/Thu, **Bala**, round: Vijaya Super Stores), `WHOLE01-R-S1` South Sales Beat (weekly, Tue/Thu, **Asha**, round: Anand Agencies). No beat plan has stops of its own, so a call list calls the route's round. Beat plans: one weekly plan per working day per route (`WHOLE01-BP-R1-MON`, `-R1-WED`, `-R1-FRI`, `-R2-TUE`, `-R2-THU`, `-R3-TUE`, `-R3-THU`), `WHOLE01-BP-COLL` fortnightly on Tuesdays from 2026-04-07, and `WHOLE01-BP-MTH` monthly on the 2nd Tuesday.
+**Moved to `docs/INDEPENDENT_TEST_CASES.md` on 2026-09-16**, as TC-TERR-001 to
+005. The `territory-firm` fixture builds WHOLE01's shape in a store of the
+run's own — region, two zones, three routes with the same frequencies, days,
+salespeople and rounds, the nine beat plans — so the call lists answer the same
+days the same way (driven: 1 of 9 on a Monday; 4 of 9 on 2027-01-12; the
+fortnight and second-Tuesday reasons word for word), and 11.5's temporary
+reordering and 11.7's drafts land in that store, not WHOLE01's.
 
-| # | Case | Expected |
-| --- | --- | --- |
-| 11.1 | Sales → **Geography**. Select any row: the right-hand **Territory tree** panel. **Expand all**. The panel is narrow, so click the icon beside its title (tooltip "Open the tree in a larger window", added 2026-09-13): the whole tree opens in a window, already expanded, with Expand all / Collapse all and each node's menu (Filter list, Quick create child). Try Collapse all / Expand all, then Close. | Chennai Region (Region) → North Zone and South Zone (Territory) → North Sales Beat and North Collections under North, South Sales Beat under South (Route); each node shows its code and full path. The grid's Hierarchy column carries the full path for every row. |
-| 11.2 | Double-click `WHOLE01-R-N1` (North Sales Beat) → **Details** tab; then glance at **Customers** and **Salespeople**. | Section **Route**: Route type **Sales Route**, Visit frequency **Weekly**, Working days **Mon, Wed, Fri**, Runs from **Always**, Runs until **No end**. Counts above: 2 customers, both active, Salespeople 1. Customers tab: Revise Check 2, Classic Departmental Stores. Salespeople tab: Asha (WHOLE01 Sales). |
-| 11.3 | Sales → **Call Lists**. It opens on today (Back to today greyed out). Use › (**Next day**) or the date button to land on a **Monday**, Salesperson **Everyone**; then **Back to today**. | The date button reads "Monday 2026-09-14" (the weekday was not shown until 2026-09-13). Status bar "1 of 9 plan(s) run on Monday 2026-09-14". On any day but today the badges read **Runs on Monday** / **Not on Monday** (they said "Runs today" whatever day was chosen until 2026-09-13). `WHOLE01-BP-R1-MON` is badged **Runs on Monday** and calls Revise Check 2 then Classic Departmental Stores (the route's round, in order). Every other plan is badged **Not on Monday** with its reason, e.g. `WHOLE01-BP-R1-FRI` "Runs on Fridays; this is a Monday." |
-| 11.4 | With the date button pick **2027-01-12** (a second Tuesday that is also an even fortnight from 2026-04-07), then **2026-10-13**, then **2026-10-20**. | On 2027-01-12, "4 of 9 plan(s) run on Tuesday 2027-01-12": `WHOLE01-BP-R2-TUE` and the fortnightly `WHOLE01-BP-COLL` (both Vijaya), `WHOLE01-BP-R3-TUE` and the monthly `WHOLE01-BP-MTH` (both Anand) read **Runs on Tuesday**. On **2026-10-13** (a second Tuesday in the off fortnight) COLL reads **Not on Tuesday**, "Runs every other Tuesday counted from 2026-04-07; this is the week between."; on **2026-10-20** MTH reads "Runs on the second Tuesday of the month; this is the third." *(Both gave no reason at all until 2026-09-13.)* |
-| 11.5 | Sales → **Route Builder**: **Route being built** `WHOLE01-R-N1`. The right shows the round (1. Revise Check 2, 2. Classic Departmental Stores). Tick **On no route yet**, **Find**, double-click `SN` on the left to add it (stop 3), drag it by its ≡ handle above the first stop, **Save round and order**. | Toast "3 outlet(s) on North Sales Beat, in order." Choose the route again: 1. SN, 2. Revise Check 2, 3. Classic Departmental Stores -- the stops moved without a collision. Afterwards ✕ **Remove from round** on SN and Save: "2 outlet(s) on North Sales Beat, in order." |
-| 11.6 | Route Builder: choose `WHOLE01-R-N1`, let the round load on the right, change nothing, **Save round and order**. | Toast "2 outlet(s) on North Sales Beat, in order."; choosing the route again shows the same two stops in the same order. The status bar says "Saving replaces the whole round with the list on the right." -- which is why the screen clears the panel before reading and refuses to save a round it could not read ("This round could not be read, so it cannot be saved over."). |
-| 11.7 | Sales Orders → **New Order** for `WHOLE01C02` (Anand, on South Sales Beat, covered by **Asha**): **Ships from** `WHL_DC`, **Salesman** `Bala`, one line `DETER1K` qty 1, **Create draft**. | Refused, in the editor's banner: "The selected salesperson is not assigned to this territory." -- nothing is saved (driven over HTTP 2026-09-13: no order created). Choosing Asha saves ("Order drafted..."); leaving Salesman blank saves and, reopened, the order's salesman is Asha, supplied by the customer's route. Cancel the saved drafts afterwards (Cancel works on this screen since 2026-09-13). |
+Building it found **D-11-1**: a new store's hierarchy levels are invented
+afresh on every read and refused when a territory names one, until somebody
+saves the hierarchy. Recorded, not fixed.
+
+| Old row | Case |
+| --- | --- |
+| 11.1, 11.2 | TC-TERR-001 |
+| 11.3 | TC-TERR-002 |
+| 11.4 | TC-TERR-003 |
+| 11.5, 11.6 | TC-TERR-004 |
+| 11.7 | TC-TERR-005 |
 
 ## 12. Compliance
 
