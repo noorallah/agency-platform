@@ -7,7 +7,7 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Converted so far:** plan sections 2 to 7 and 16 to 27 (25 was the pilot) — see the
+**Converted so far:** plan sections 2 to 8 and 16 to 27 (25 was the pilot) — see the
 table of contents below. Other sections move here one at a time; until then
 they stay in the plan.
 
@@ -685,6 +685,112 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 - **Expect:** toast "PY-… recorded and posted to the ledger." *(The plan said `PAY-`; the series prefix is `PY`.)* The second time, the bill is gone from the list. Journal Entries shows the payment: Dr Accounts Payable / Cr Bank.
 - **Data (HTTP):** `GET /api/v1/payments/parties?search=<SUFFIX>` lists the vendor by code and name.
 - **Leaves:** a paid supplier invoice.
+
+---
+
+## Stock
+
+Everything here lives under **Inventory**, in two groups that must be clicked
+open: **Stock** (Inventory, Opening Stock, Physical Count, Stock Ledger,
+Transactions, Stock Summary, Stock Search) and **Batch & Serial** (Batches,
+Lots, Serial Numbers, Expiry Monitor). Transfer, Write off and Quarantine are
+toolbar buttons on the Inventory tab and act on the selected row.
+
+Batches with expiry dates and serial numbers need a business profile that
+enables them, and TEST01's Wholesale profile does not — so those cases run in
+a firm of the run's own on the **Pharmacy** or **Electronics** profile, which
+the fixture builds (a minute or two).
+
+### TC-STOCK-001 — The summary and the rows agree; the ledger explains the balance
+
+- **Covers:** plan 8.1, 8.2
+- **Fixture:** `po-received` — `<SUFFIX>-B` received 4 then 6 into MAIN: 10 on hand.
+- **Steps**
+  1. As the fixture's **Firm admin**, Inventory → Stock → **Inventory**, filter Product `<SUFFIX>-B` → Apply. Then **Stock Summary**.
+  2. Inventory → Stock → **Stock Ledger**, filter Product `<SUFFIX>-B` → Apply; open one row's detail (eye icon). Then Transaction type `GOODS_RECEIPT` → Apply.
+- **Expect**
+  - Step 1: one row, MAIN, Current **10**, Available 10, Reserved 0; the summary's figure for the product agrees.
+  - Step 2: two `GOODS_RECEIPT` rows, +4 and +6, each naming its GRN, with the balance after each; the last equals Current. The detail dialog is titled "Ledger details". Filtering by type leaves the two. *(Known: the type list offers values the server never writes and lacks some it does — BACKLOG §31.13.)*
+- **Leaves:** unchanged.
+
+### TC-STOCK-002 — Moving stock between warehouses posts no journal
+
+- **Covers:** plan 8.3
+- **Fixture:** `stock-ready` — 50 of `<SUFFIX>-P` in MAIN; an empty warehouse `<SUFFIX>-W2` under HO.
+- **Steps**
+  1. As the fixture's **Firm admin**, Inventory → Stock → Inventory → select the `<SUFFIX>-P` / MAIN row → **Transfer**: quantity **3**, **Move it to** `<SUFFIX>-W2 - Overflow <suffix>`, reference `<SUFFIX>-TRF` → **Transfer**.
+  2. Refresh; Stock Ledger for the product; Finance → Journal Entries.
+  3. Transfer again with quantity **999**.
+- **Expect**
+  - Step 1: the dialog "Transfer stock" says how much is available; toast "Stock transferred."
+  - Step 2: MAIN **47**, `<SUFFIX>-W2` **3** (a row appears), the product's total unchanged at 50. Ledger: `TRANSFER_OUT` 3 at MAIN and `TRANSFER_IN` 3 at W2, both `<SUFFIX>-TRF`. Journal: **no** entry — the footnote says why.
+  - Step 3: refused in the dialog, in a red banner with the error icon: "The source holds 47.0000 available, so 999 cannot be transferred out of it." — before anything is sent.
+- **Leaves:** 47 in MAIN, 3 in W2.
+
+### TC-STOCK-003 — Writing off, and holding stock back
+
+- **Covers:** plan 8.3a, 8.3b
+- **Fixture:** `stock-ready`
+- **Steps**
+  1. As the fixture's **Firm admin**, select `<SUFFIX>-P` / MAIN → **Write off**: quantity **1**, reason Damage, reference `<SUFFIX>-WO` → Write off. Check the ledger and Journal Entries.
+  2. **Quarantine** → **Hold back**, quantity **2**, reference `<SUFFIX>-QH` → Hold back. Then Quarantine → **Release**, quantity 2, reference `<SUFFIX>-QR` → Release.
+  3. Quarantine → Hold back with quantity **999**.
+- **Expect**
+  - Step 1: "Stock written off."; MAIN **49**; ledger `WRITE_OFF` 1 `<SUFFIX>-WO`; the journal shows it (Dr Inventory Adjustment / Cr Inventory).
+  - Step 2: "Quarantine updated."; ledger `QUARANTINE_HOLD`, then `QUARANTINE_RELEASE`; **no** journal for either. Note what the row shows between hold and release — **(HTTP)** the inventory row read `current_quantity` 47, `available_quantity` 47, `quarantine_quantity` 2 after holding 2 of 49 (driven); the plan expected Current to stay put while Available fell, so record which way the screen shows it.
+  - Step 3: refused by name: "There is … to hold, so 999 cannot be."
+- **Leaves:** 49 in MAIN, nothing held.
+
+### TC-STOCK-004 — A physical count posts only what was counted
+
+- **Covers:** plan 8.4
+- **Fixture:** `stock-ready`
+- **Steps:** as the fixture's **Firm admin**, Inventory → Stock → **Physical Count** → **Open Count**: branch HO, warehouse MAIN, today → Open. On the sheet find `<SUFFIX>-P - Fixture Product <suffix>` (code and name, never an id); type **49** in Counted (Expected is 50); leave every other line blank. **Save progress**, close, reopen from the list → **Post count** → confirm.
+- **Expect:** "PC-… opened over N lines." (N is every product in MAIN — other runs' too). Difference reads `-1` while typing. The list reads "1 of N lines counted", then "N lines · posted". After posting: MAIN **49**; ledger `ADJUSTMENT` −1 referencing the count; Journal Entries shows the adjustment; the uncounted lines moved nothing. The posted sheet is read-only: "Posted. The differences are in the ledger."
+- **Leaves:** 49 in MAIN; a posted count.
+
+### TC-STOCK-005 — Dispatch draws the earliest-expiring batch first
+
+- **Covers:** plan 8.5, 8.6
+- **Fixture:** `pharma-firm` — `<SUFFIX>-AMX` in three batches of 10: `-B1` **expired 30 days ago**, `-B2` expiring in 20 days, `-B3` in 400; an approved order for **5**.
+- **Steps**
+  1. Sign in as the fixture's **Firm admin** → Inventory → **Batch & Serial** → **Batches**, search `<SUFFIX>-B`.
+  2. Delivery Notes → **New** → the fixture's order for 5 → read "Expected to ship from — earliest expiry first, decided at dispatch" → **Save** → **Approve** → **Dispatch**.
+  3. Batches again; Stock Ledger for `<SUFFIX>-AMX`.
+  4. Inventory → Batch & Serial → **Expiry Monitor**.
+- **Expect**
+  - Step 1: three batches, 10 available each, with their expiry dates.
+  - Step 2–3: status DISPATCHED; ledger `DISPATCH` −5 referencing the note. **Which batch lost 5 is the question.** Driven on 2026-09-16, it was **`-B1`, the expired one** — see defect **D-8-1**. Record which batch the preview named and which lost stock.
+  - Step 4: the six cards — Expired Today, Expire in 7 Days, Expire in 30 Days, Total Expired, Quarantine, Recalled — with `-B1` counted as expired and `-B2` inside 30 days; then the **All Batches** grid (Batch #, Product, Status, Qty, Available, Expiry Date, Warehouse).
+- **Leaves:** a dispatched note.
+
+### TC-STOCK-006 — A delivery short of stock saves but will not dispatch
+
+- **Covers:** plan 8.7
+- **Fixture:** `pharma-firm` — `<SUFFIX>-SHT` has **3** on hand and an approved order for **10**.
+- **Steps:** as the fixture's **Firm admin**, Delivery Notes → **New** → the order for 10 → read the preview → Save → Approve → **Dispatch**.
+- **Expect:** the preview ends "Short by … — there is not enough available stock to cover this line." Saving is allowed; **Dispatch is refused** with the server's sentence, "Insufficient available stock for dispatch line."; the note stays **APPROVED** and the ledger shows no DISPATCH.
+- **Leaves:** an approved, undispatched note.
+
+### TC-STOCK-007 — A remembered filter from another firm is dropped
+
+- **Covers:** plan 8.6a
+- **Fixture:** `pharma-firm` — its platform admin can open both TEST01 and the fixture's firm.
+- **Steps:** sign in as the fixture's **Platform admin**; switch into **TEST01** → Inventory → Stock → Inventory → filter by any product → Apply. Switch into the fixture's firm → the same tab.
+- **Expect:** the tab renders; the remembered TEST01 filter is dropped (the panel reads "Filters" with none active) and choosing the firm's own warehouse works. *(A remembered id from another firm used to take the section down with "This section failed to render".)*
+- **Leaves:** unchanged.
+
+### TC-STOCK-008 — Serial numbers carry their warranty
+
+- **Covers:** plan 8.8
+- **Fixture:** `electronics-firm` — `<SUFFIX>-MIX`, 5 on hand, serials `<SUFFIX>-MIX-0001` to `-0005`.
+- **Steps:** as the fixture's **Firm admin**, Inventory → Batch & Serial → **Serial Numbers**; search `<SUFFIX>-MIX-`; open one row's detail; filter Status AVAILABLE.
+- **Expect:** five rows, status AVAILABLE, Warranty End a year from today, warehouse MAIN. The detail is titled "Serial: <SUFFIX>-MIX-0001" with warranty start and end and the warehouse. The Status filter keeps all five.
+- **Leaves:** unchanged.
+
+### Known defects found while writing these cases
+
+- **D-8-1 — Dispatch drew an expired batch.** In a Pharmacy firm with batches expired 30 days ago, expiring in 20 days and in 400 days, dispatching 5 took them from the **expired** batch — its status still AVAILABLE. "Earliest expiry first" read literally does that; for a pharmacy it ships expired medicine. Whether an expired batch should be skipped, refused or warned about is the owner's call.
 
 ---
 

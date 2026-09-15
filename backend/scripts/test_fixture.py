@@ -52,7 +52,7 @@ import urllib.error
 import urllib.request
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
-from datetime import date
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -65,6 +65,7 @@ class FixtureFirm:
     schema: str
     name: str
     mode: str = "SCHEMA"
+    profile: str = "WHOLESALE"
 
 
 #: The firms every fixture works in. Fixed codes and schemas, so a table check
@@ -252,7 +253,7 @@ def ensure_firm(admin: Api, firm: FixtureFirm) -> str:
 
 
 def _ensure_profile(admin: Api, firm: FixtureFirm, firm_id: str) -> None:
-    """Give a fixture firm the Wholesale profile, as WHOLE01 has.
+    """Give a fixture firm its business profile -- Wholesale, as WHOLE01 has.
 
     Without one the firm trades as GENERIC, whose module set is not the one
     the demo firms show -- and the desktop's sidebar filters on it, so a case
@@ -266,14 +267,14 @@ def _ensure_profile(admin: Api, firm: FixtureFirm, firm_id: str) -> None:
     if any(row and row.get("business_profile_id") for row in rows):
         return
     profiles = admin.call("GET", f"/api/v1/business-framework/firms/{firm_id}/profiles")
-    wholesale = next((p for p in profiles if p.get("code") == "WHOLESALE"), None)
-    if wholesale is None:
-        raise FixtureError(f"{firm.code}'s store offers no WHOLESALE profile.")
-    print(f"  {firm.code}: assigning the Wholesale business profile")
+    wanted = next((p for p in profiles if p.get("code") == firm.profile), None)
+    if wanted is None:
+        raise FixtureError(f"{firm.code}'s store offers no {firm.profile} profile.")
+    print(f"  {firm.code}: assigning the {firm.profile} business profile")
     admin.call(
         "PUT",
         f"/api/v1/business-framework/firms/{firm_id}/profile-assignment",
-        {"business_profile_id": wholesale["id"], "is_active": True},
+        {"business_profile_id": wanted["id"], "is_active": True},
     )
 
 
@@ -310,12 +311,15 @@ class Built:
         self.firms[firm.code] = firm_id
         self.known[firm.code] = firm
 
-    def run_firm(self, letter: str, name: str) -> FixtureFirm:
+    def run_firm(
+        self, letter: str, name: str, profile: str = "WHOLESALE"
+    ) -> FixtureFirm:
         """Describe a firm of this run's own: code, schema and name all carry it."""
         return FixtureFirm(
             f"{self.suffix.upper()}-{letter}",
             f"fx_{self.suffix}_{letter.lower()}",
             f"{name} {self.suffix}",
+            profile=profile,
         )
 
     def as_(self, handle: str, firm: FixtureFirm | None = TEST01) -> Api:
@@ -438,8 +442,8 @@ def sales_chain(built: Built, firm: FixtureFirm = TEST01) -> dict[str, str]:
     """
     admin = built.admin.as_user(built.admin.token or "", built.firms[firm.code])
     tag = built.suffix.upper()
-    warehouse = admin.call("GET", "/api/v1/warehouses?page_size=5")[0]
-    branch = admin.call("GET", "/api/v1/branches?page_size=5")[0]
+    warehouse = by_code(admin, "/api/v1/warehouses", "MAIN")
+    branch = by_code(admin, "/api/v1/branches", "HO")
     product = stocked_product(built, admin, warehouse, branch)
     customer = admin.call(
         "POST",
@@ -595,6 +599,21 @@ def _sell(
     }
 
 
+def by_code(admin: Api, path: str, code: str) -> Json:
+    """Return the row with this code from a list, never the list's first row.
+
+    List order is not a promise: a warehouse another run added can come back
+    first, and a fixture that took ``[0]`` put its stock there instead of in
+    MAIN. The default branch and warehouse the setup panel makes are HO and
+    MAIN in every fixture firm.
+    """
+    rows = admin.call("GET", f"{path}?search={code}&page_size=100")
+    match = next((row for row in rows if row.get("code") == code), None)
+    if match is None:
+        raise FixtureError(f"No row with code {code} at {path}.")
+    return dict(match)
+
+
 def run_places(built: Built, admin: Api) -> tuple[Json, Json, Json, Json]:
     """Make a state, district and city of this run's own under India.
 
@@ -650,8 +669,8 @@ def purchase_chain(built: Built, stage: str) -> dict[str, str]:
     today = date.today().isoformat()
     tag = built.suffix.upper()
     ids: dict[str, str] = {}
-    warehouse = admin.call("GET", "/api/v1/warehouses?page_size=5")[0]
-    branch = admin.call("GET", "/api/v1/branches?page_size=5")[0]
+    warehouse = by_code(admin, "/api/v1/warehouses", "MAIN")
+    branch = by_code(admin, "/api/v1/branches", "HO")
     units = admin.call("GET", "/api/v1/uom-framework/uoms?page_size=100")
     piece = next(u["id"] for u in units if u["code"] == "PIECE")
     vendor = admin.call(
@@ -1308,8 +1327,8 @@ def build_customer_master(built: Built) -> None:
             ],
         },
     )
-    warehouse = admin.call("GET", "/api/v1/warehouses?page_size=5")[0]
-    branch = admin.call("GET", "/api/v1/branches?page_size=5")[0]
+    warehouse = by_code(admin, "/api/v1/warehouses", "MAIN")
+    branch = by_code(admin, "/api/v1/branches", "HO")
     stocked_product(built, admin, warehouse, branch)
     built.ids["customer"] = str(customer["id"])
     built.say("Customer", f"{tag}-CM  (Master Check {built.suffix})")
@@ -1631,6 +1650,208 @@ def build_po_invoiced(built: Built) -> None:
     _buyer(built, "invoiced")
 
 
+def build_stock_ready(built: Built) -> None:
+    """Make a TEST01 firm admin, 50 of a product in MAIN, and a second warehouse."""
+    build_firm_admin(built)
+    tag = built.suffix.upper()
+    admin = built.admin.as_user(built.admin.token or "", built.firms[TEST01.code])
+    warehouse = by_code(admin, "/api/v1/warehouses", "MAIN")
+    branch = by_code(admin, "/api/v1/branches", "HO")
+    stocked_product(built, admin, warehouse, branch)
+    admin.call(
+        "POST",
+        "/api/v1/warehouses",
+        {
+            "branch_id": branch["id"],
+            "code": f"{tag}-W2",
+            "name": f"Overflow {built.suffix}",
+        },
+    )
+    built.say("Product", f"{tag}-P  (Fixture Product {built.suffix}), 50 in MAIN")
+    built.say(
+        "Second warehouse", f"{tag}-W2  (Overflow {built.suffix}), under HO, empty"
+    )
+
+
+def _own_trading_firm(built: Built, letter: str, name: str, profile: str) -> Api:
+    """Finish a firm of this run's own on a profile, with a firm admin in it."""
+    build_platform_admin(built)
+    firm = built.run_firm(letter, name, profile)
+    firm_id = ensure_firm(built.admin, firm)
+    built.add_firm(firm, firm_id)
+    built.firms_used = [firm.code]
+    user_id = new_user(built, "tradeadmin", f"{name} Admin", firms=(firm,))
+    firm_roles(built, user_id, firm, ["FIRM_ADMIN"])
+    built.say("New firm", f"{firm.code}  ({firm.name}), SCHEMA, finished, {profile}")
+    built.say("Firm admin", f"{built.email('tradeadmin')} / {FIXTURE_PASSWORD}")
+    return built.admin.as_user(built.admin.token or "", firm_id)
+
+
+def build_pharma_firm(built: Built) -> None:
+    """Make a Pharmacy firm of this run's own with batches to dispatch.
+
+    `<SUFFIX>-AMX` holds three batches of 10: one already expired, one
+    expiring in 20 days, one in 400. An approved order takes 5 of it, and a
+    second product with 3 on hand has an approved order for 10.
+    """
+    admin = _own_trading_firm(built, "P", "Pharmacy", "PHARMACY")
+    tag = built.suffix.upper()
+    today = date.today()
+    warehouse = by_code(admin, "/api/v1/warehouses", "MAIN")
+    branch = by_code(admin, "/api/v1/branches", "HO")
+    units = admin.call("GET", "/api/v1/uom-framework/uoms?page_size=100")
+    piece = next(u["id"] for u in units if u["code"] == "PIECE")
+
+    def product(code: str, name: str, batches: bool) -> Json:
+        return dict(
+            admin.call(
+                "POST",
+                "/api/v1/products",
+                {
+                    "code": code,
+                    "name": name,
+                    "product_type": "STOCK_ITEM",
+                    "tax_profile_group_code": "GST_12_LOCAL",
+                    "selling_price": "100",
+                    "purchase_price": "60",
+                    "base_uom_id": piece,
+                    "inventory_uom_id": piece,
+                    "sales_uom_id": piece,
+                    "purchase_uom_id": piece,
+                    "track_batch": batches,
+                    "track_expiry": batches,
+                },
+            )
+        )
+
+    amox = product(f"{tag}-AMX", f"Amoxicillin {built.suffix}", True)
+    short = product(f"{tag}-SHT", f"Scarce Syrup {built.suffix}", False)
+    lines: list[Json] = [
+        {
+            "product_id": amox["id"],
+            "quantity": "10",
+            "unit_cost": "60",
+            "batch_number": f"{tag}-B{n}",
+            "expiry_date": (today + timedelta(days=days)).isoformat(),
+        }
+        for n, days in ((1, -30), (2, 20), (3, 400))
+    ]
+    lines.append({"product_id": short["id"], "quantity": "3", "unit_cost": "60"})
+    opening = admin.call(
+        "POST",
+        "/api/v1/inventory/opening-stock",
+        {
+            "warehouse_id": warehouse["id"],
+            "branch_id": branch["id"],
+            "reference_number": f"{tag}-OS",
+            "posting_date": today.isoformat(),
+            "lines": lines,
+        },
+    )
+    admin.call("POST", f"/api/v1/inventory/opening-stock/{opening['id']}/post")
+    customer = admin.call(
+        "POST",
+        "/api/v1/customers",
+        {
+            "code": f"{tag}-RX",
+            "name": f"Clinic {built.suffix}",
+            "customer_type": "BUSINESS",
+            "currency_code": "INR",
+        },
+    )
+    numbers = []
+    for item, quantity in ((amox, "5"), (short, "10")):
+        order = admin.call(
+            "POST",
+            "/api/v1/sales-orders",
+            {
+                "customer_id": customer["id"],
+                "order_date": today.isoformat(),
+                "warehouse_id": warehouse["id"],
+                "branch_id": branch["id"],
+                "lines": [
+                    {
+                        "line_number": 1,
+                        "product_id": item["id"],
+                        "quantity": quantity,
+                        "unit_price": "100",
+                    }
+                ],
+            },
+        )
+        admin.call("POST", f"/api/v1/sales-orders/{order['id']}/approve")
+        numbers.append(order.get("order_number"))
+    built.say(
+        "Batched product",
+        f"{tag}-AMX: {tag}-B1 (expired), -B2 (20 days), -B3 (400 days), 10 each",
+    )
+    built.say("Scarce product", f"{tag}-SHT: 3 on hand")
+    built.say("Customer", f"{tag}-RX  (Clinic {built.suffix})")
+    built.say(
+        "Orders",
+        f"{numbers[0]} for 5 {tag}-AMX; {numbers[1]} for 10 {tag}-SHT; both approved",
+    )
+
+
+def build_electronics_firm(built: Built) -> None:
+    """Make an Electronics firm of this run's own with serialised stock."""
+    admin = _own_trading_firm(built, "E", "Electronics", "ELECTRONICS")
+    tag = built.suffix.upper()
+    today = date.today()
+    warehouse = by_code(admin, "/api/v1/warehouses", "MAIN")
+    branch = by_code(admin, "/api/v1/branches", "HO")
+    units = admin.call("GET", "/api/v1/uom-framework/uoms?page_size=100")
+    piece = next(u["id"] for u in units if u["code"] == "PIECE")
+    mixer = admin.call(
+        "POST",
+        "/api/v1/products",
+        {
+            "code": f"{tag}-MIX",
+            "name": f"Mixer Grinder {built.suffix}",
+            "product_type": "STOCK_ITEM",
+            "tax_profile_group_code": "GST_18_LOCAL",
+            "base_uom_id": piece,
+            "inventory_uom_id": piece,
+            "sales_uom_id": piece,
+            "purchase_uom_id": piece,
+            "track_serial": True,
+        },
+    )
+    opening = admin.call(
+        "POST",
+        "/api/v1/inventory/opening-stock",
+        {
+            "warehouse_id": warehouse["id"],
+            "branch_id": branch["id"],
+            "reference_number": f"{tag}-OS",
+            "posting_date": today.isoformat(),
+            "lines": [
+                {"product_id": mixer["id"], "quantity": "5", "unit_cost": "2000"}
+            ],
+        },
+    )
+    admin.call("POST", f"/api/v1/inventory/opening-stock/{opening['id']}/post")
+    for n in range(1, 6):
+        admin.call(
+            "POST",
+            "/api/v1/batch-serial/serials",
+            {
+                "product_id": mixer["id"],
+                "warehouse_id": warehouse["id"],
+                "branch_id": branch["id"],
+                "serial_number": f"{tag}-MIX-{n:04d}",
+                "warranty_start": today.isoformat(),
+                "warranty_end": (today + timedelta(days=365)).isoformat(),
+                "current_owner": None,
+                "asset_reference": None,
+            },
+        )
+    built.say(
+        "Serialised product", f"{tag}-MIX  (Mixer Grinder {built.suffix}), 5 on hand"
+    )
+    built.say("Serials", f"{tag}-MIX-0001 to -0005, warranty one year from today")
+
+
 #: Every fixture, what it builds, and the cases that name it.
 FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "firm-admin": (
@@ -1826,12 +2047,27 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "po-received": (
         "po-approved + receipts of 4 and 6, both completed.",
         build_po_received,
-        "TC-BUY-004, TC-BUY-006",
+        "TC-BUY-004, TC-BUY-006, TC-STOCK-001",
     ),
     "po-invoiced": (
         "po-received + an approved supplier invoice for the receipt of 6.",
         build_po_invoiced,
         "TC-BUY-005, TC-BUY-008",
+    ),
+    "stock-ready": (
+        "firm-admin + 50 of a product in MAIN + an empty second warehouse.",
+        build_stock_ready,
+        "TC-STOCK-002..004",
+    ),
+    "pharma-firm": (
+        "A Pharmacy firm of the run's own: batches, expiries, two orders.",
+        build_pharma_firm,
+        "TC-STOCK-005..007",
+    ),
+    "electronics-firm": (
+        "An Electronics firm of the run's own: a serialised product.",
+        build_electronics_firm,
+        "TC-STOCK-008",
     ),
 }
 
