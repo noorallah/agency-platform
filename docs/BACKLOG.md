@@ -2644,3 +2644,44 @@ the shape to copy is there.
 the policy up front, as Change password does, rather than only on refusal.
 Stating it costs a helper line under a field somebody fills in once; not
 stating it costs a round trip every time somebody types a short password.
+
+---
+
+### 31.17 The audit trail cannot be searched, only matched exactly (2026-09-15, plan section 23; first raised at 13.8)
+
+**Action** and **Entity type** on Settings → Audit Logs are exact-match:
+`AuditLog.action == filters.action` in `AuditLogReader._apply`. Typing `user`
+finds nothing; only `user_template.applied`, in full, does. The boxes are
+therefore usable by somebody who already knows the vocabulary and by nobody
+else, which is the opposite of who needs them.
+
+Raised at 13.8 during section 13 as "owner may want real filters", left open,
+and met again at 23.4c -- the owner asked for "search text on screen like
+browser". That phrasing is worth keeping, because it names the expectation:
+somebody looking at a screen full of rows expects to narrow it by typing part
+of what they can see.
+
+**What to build.**
+
+- **Partial and case-insensitive matching** on both existing boxes (`ilike`),
+  so `user` matches `user.created`, `user.roles_set` and
+  `user_template.applied`.
+- **One free-text box** spanning action, entity type and the actor's name and
+  email. `actor_name` / `actor_email` arrived in #407, so the join that makes
+  a name searchable is already there.
+
+**Why not a literal Ctrl+F.** Flutter paints text rather than structuring it,
+so a browser-style find over the rendered screen would mean building a text
+index per screen. Searching the data is the honest equivalent and is what
+every other grid here already does -- the audit screen is the odd one out,
+having been given exact filters instead of the whitelisted `search` parameter
+the list endpoints share.
+
+**Worth checking at the same time.** Whether any other screen was given
+exact-match filters where the rest of the application offers `search`. The
+audit screen was found by using it; there is no guard that would report a
+second one.
+
+**Cost.** Three lines in `_apply`, a field on `AuditLogFilters`, a query
+parameter, one box on the screen, and tests for each -- including one that a
+partial term matches, which is the thing that is wrong today.
