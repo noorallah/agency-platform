@@ -719,7 +719,8 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "firm-admin": (
         "A fresh firm administrator of TEST01.",
         build_firm_admin,
-        "TC-ROLE-001..004, TC-PLAT-005, TC-ME-007, TC-FIRM-016, TC-TMPL-001..004, TC-TMPL-011",
+        "TC-ROLE-001..004, TC-PLAT-005, TC-ME-007, TC-FIRM-016, "
+        "TC-TMPL-001..004, TC-TMPL-011",
     ),
     "custom-role": (
         "firm-admin + a custom role with the four Night Desk codes.",

@@ -444,28 +444,17 @@ tier becomes that one and the person holds three.
 
 ## 18. Hiring like an existing person
 
-The other half of section 17, and the more common one: an administrator
-usually has a person in mind rather than a written-down job. Sign in as
-`whole01.admin`.
+**Moved to `docs/INDEPENDENT_TEST_CASES.md` on 2026-09-16**, as TC-HIRE-001 to
+004. The source is the `clone-source` fixture's own seller in TEST01 rather
+than Asha, and each case that needs a clone makes it, so 18.7 no longer waits
+for 18.4.
 
-Facts re-derived on 2026-09-15: clone **Asha** (`whole01.sales1`, role
-`SALES_EXECUTIVE`, member of WHOLE01 only) -- cloning never changes the source.
-The dialog checks only that the three boxes are filled and the email has an `@`;
-the **server** applies the password policy: at least **12 characters** with an
-upper-case letter, a lower-case letter, a digit and a symbol (`Welcome@12345`
-passes). A weaker one is refused with "Password does not meet the configured
-policy." and nothing is created.
-
-| # | Case | Expected |
-| --- | --- | --- |
-| 18.1 | Administration → Users → select **Asha (WHOLE01 Sales)** → **Hire like this person** | Dialog "Hire like this person": "The new user gets the same roles and firms as Asha (WHOLE01 Sales), and none of their personal details, password or history. You can edit their roles afterwards like any other user." Boxes **Full name**, **Email**, **Initial password** ("They must change it when they first sign in."). |
-| 18.2 | Press Create with the form empty | Refused under each box: "Give the new person a name.", "An email is required.", "An initial password is required." Nothing is created. |
-| 18.3 | Type a name, an email with no `@`, a password → Create; then a proper email with the password `short` → Create | "That is not an email." under Email. With `short` the **server** refuses, and the refusal shows **on the dialog** in red -- "Password does not meet the configured policy." with its reasons ("must contain at least 12 characters", "must contain a symbol", …) -- while every box keeps what was typed. *(Until 2026-09-15 the dialog closed before creating, so a refusal arrived with the typing gone -- #392.)* |
-| 18.4 | Full name `Clone Test`, Email `clone.test@agency.local`, Initial password `Welcome@12345` → Create. *(Optionally first try `short` as the password: refused by the server with the policy message.)* | Created: "Clone Test was created with the same access as Asha (WHOLE01 Sales), and must change their password on first sign-in." |
-| 18.5 | Open the new user | Same roles as the source (`SALES_EXECUTIVE` in WHOLE01) and the same firm. **Blank** mobile, employee code, department, joining date; **Also applies here** reads None. |
-| 18.6 | Sign out; sign in as `clone.test@agency.local` / `Welcome@12345` | A **Set a new password** screen opens instead of the application -- Current password, New password, Confirm new password, **Update password** -- and nothing else opens until it is done (e.g. `CloneTest@2026`). Afterwards the user works with Asha's access and no Administration. A password somebody else chose is not a password. |
-| 18.7 | Add `CUSTOMER_SUPPORT` to Clone Test's Roles in this firm → Save & Close; then open Asha (close without saving) | Clone Test holds SALES_EXECUTIVE and CUSTOMER_SUPPORT; Asha still exactly SALES_EXECUTIVE. A clone is a starting point, not a link. |
-| 18.8 | As `whole01.sales1`, look for the users grid | **Administration is not offered at all** (15.1), so there is no users grid and no **Hire like this person**. The action needs `ROLE_ASSIGN`, `ROLE_VIEW` and `USER_CREATE` — copying access is granting access. |
+| Old row | Case |
+| --- | --- |
+| 18.1, 18.2, 18.3 | TC-HIRE-001 |
+| 18.4, 18.5, 18.6 | TC-HIRE-002 |
+| 18.7 | TC-HIRE-003 |
+| 18.8 | TC-HIRE-004 |
 
 ## 19. Setting a firm up from the platform side
 

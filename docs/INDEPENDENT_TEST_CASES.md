@@ -7,7 +7,7 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Converted so far:** plan sections 16, 17, 25 (the pilot), 26, 26a and 27 — see the
+**Converted so far:** plan sections 16, 17, 18, 25 (the pilot), 26, 26a and 27 — see the
 table of contents below. Other sections move here one at a time; until then
 they stay in the plan.
 
@@ -308,6 +308,77 @@ offered to every firm; cases count only the eleven.
 - **Steps (HTTP)** — find the `PLATFORM_ADMIN` role's id (`select id from platform.roles where code = 'PLATFORM_ADMIN'`; a firm admin's role list never shows it). As the fixture's firm admin, with `X-Firm-ID` of TEST01: `POST /api/v1/user-templates` `{"code": "<suffix>-bad", "name": "Bad", "role_ids": ["<that id>"]}`.
 - **Expect:** **422**, "A template cannot bundle platform or cross-firm roles." Nothing created. That role carries every permission code; a template able to name it would be a second door onto the same room.
 - **Leaves:** a firm admin user.
+
+---
+
+## Hiring like an existing person
+
+The other half of templates, and the more common one: an administrator usually
+has a person in mind rather than a written-down job. **Hire like this person**
+copies roles and firm memberships and nothing that belongs to the person.
+
+The dialog checks only that the boxes are filled and the email has an `@`; the
+**server** applies the password policy — twelve characters, upper, lower,
+digit, symbol.
+
+### TC-HIRE-001 — The dialog, and what it refuses
+
+- **Covers:** plan 18.1, 18.2, 18.3
+- **Fixture:** `clone-source`
+- **Steps**
+  1. Sign in as the fixture's **Firm admin** → Administration → Users → select **Source Seller (<suffix>)** → **Hire like this person**.
+  2. Press **Create** with the form empty.
+  3. Name `Clone Test`, email `not-an-email`, any password → Create.
+  4. Email `<suffix>.clone@fixtures.local`, password `short` → Create.
+- **Expect**
+  - Step 1: "Hire like this person": "The new user gets the same roles and firms as Source Seller (<suffix>), and none of their personal details, password or history. You can edit their roles afterwards like any other user." Boxes **Full name**, **Email**, **Initial password** ("They must change it when they first sign in.").
+  - Step 2: under each box — "Give the new person a name.", "An email is required.", "An initial password is required." Nothing created.
+  - Step 3: "That is not an email." under Email.
+  - Step 4: the **server** refuses, shown **on the dialog** in red: "Password does not meet the configured policy." with its reasons — must contain at least 12 characters, an uppercase letter, a digit, a symbol. Every box keeps what was typed.
+- **Leaves:** a firm admin and a source seller; nothing cloned.
+
+### TC-HIRE-002 — A clone gets the access, not the person
+
+- **Covers:** plan 18.4, 18.5, 18.6
+- **Fixture:** `clone-source`
+- **Steps**
+  1. As the fixture's **Firm admin**, Hire like this person on **Source Seller (<suffix>)**: `Clone Test <suffix>`, `<suffix>.clone@fixtures.local`, `Welcome@12345` → Create.
+  2. Open the new user.
+  3. Sign out; sign in as `<suffix>.clone@fixtures.local` / `Welcome@12345`. Set the new password to `CloneTest@2026x`.
+- **Expect**
+  - Step 1: "Clone Test <suffix> was created with the same access as Source Seller (<suffix>), and must change their password on first sign-in."
+  - Step 2: `SALES_EXECUTIVE` in TEST01 and TEST01 as their firm (primary) — the same as the source. **Blank** mobile, employee code, department, joining date; **Also applies here** reads None.
+  - Step 3: a **Set a new password** screen instead of the application — Current password, New password, Confirm new password, **Update password** — and nothing else opens until it is done. Afterwards: the source's access and no Administration. A password somebody else chose is not a password.
+- **Data**
+  ```sql
+  select email, force_password_change, employee_code, joining_date, created_at
+  from   platform.users where email = '<suffix>.clone@fixtures.local';
+  ```
+  `force_password_change` true until step 3, false after. Audit `user.cloned` carrying the source's id.
+- **Leaves:** a clone in TEST01 with its own password.
+
+### TC-HIRE-003 — A clone is a starting point, not a link
+
+- **Covers:** plan 18.7
+- **Fixture:** `clone-source`
+- **Steps**
+  1. As the fixture's **Firm admin**, make a clone of **Source Seller (<suffix>)** as in TC-HIRE-002 step 1.
+  2. Edit the clone: add `CUSTOMER_SUPPORT` under Roles in this firm → Save & Close.
+  3. Open **Source Seller (<suffix>)**; close without saving.
+- **Expect:** the clone holds `SALES_EXECUTIVE` and `CUSTOMER_SUPPORT`; the source still holds exactly `SALES_EXECUTIVE`.
+- **Leaves:** a clone with one extra role.
+
+### TC-HIRE-004 — Copying access is granting access
+
+- **Covers:** plan 18.8
+- **Fixture:** `clone-source`
+- **Steps**
+  1. Sign in as the fixture's **Source** (a `SALES_EXECUTIVE`) and look for the users grid.
+  2. **(HTTP)** As the source, with `X-Firm-ID` of TEST01: `POST /api/v1/users/{their own id}/clone` with `{"email": "<suffix>.x@fixtures.local", "full_name": "x", "password": "Welcome@12345"}`.
+- **Expect**
+  - Step 1: **Administration is not offered**, so there is no Hire like this person.
+  - Step 2: **403**. The action needs `ROLE_ASSIGN` — somebody who may open accounts but not grant access must not be able to copy access instead.
+- **Leaves:** nothing new.
 
 ---
 
