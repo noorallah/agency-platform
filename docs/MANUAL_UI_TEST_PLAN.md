@@ -532,39 +532,28 @@ covers the server's half of the same rule.
 
 ## 21. The five modules a firm administrator could not open
 
-`_operational_permissions` is the list `FIRM_ADMIN` and `FIRM_MANAGER` are
-built from, and five groups had never been added to it. Sign in as
-`whole01.admin`. **If you were already signed in when this shipped, sign out
-and back in** — a token carries the claims it was minted with.
+**Moved to `docs/INDEPENDENT_TEST_CASES.md` on 2026-09-16**, as TC-GRANT-001 to
+008, in TEST01. The credit note case no longer needs an approved invoice from
+WHOLE01's history: the `invoiced` fixture sells this run's own product through
+order, delivery note and invoice, and leaves one invoice approved and one
+cancelled so the picker has something to exclude. 21.4b's "somebody holding
+`LOYALTY_VIEW` but not the settings code" is the `loyalty-viewer` fixture
+(`SALES_MANAGER`).
 
-**Run 2026-09-15: 21.1–21.8 all passed, and two defects were found on the way**
-— neither of them the thing this section was written to check. Both were
-visible only by looking at a screen: the invoice lines with no product name
-(#398) and the loyalty scheme with no editor (#399). The section's own subject,
-the five permission groups reaching `FIRM_ADMIN`, was sound throughout. That is
-worth knowing before running the rest of the plan: **a row passing tells you
-about the row, and the screen it opens is worth reading anyway.**
+TEST01's loyalty scheme is **off**, not WHOLE01's running one, so TC-GRANT-004
+switches it on to read the banner and back off at the end.
 
-*Verified against `system_seed.py` on 2026-09-15: `_operational_permissions`
-now names all five groups, `loyalty` carries `LOYALTY_MANAGE_SETTINGS` and
-`tcs` carries `TCS_MANAGE`, so 21.4 and 21.5 get their settings screens. 21.6
-holds too — `whole01.sales1` is seeded with `SALES_EXECUTIVE` alone, which is
-six read/create codes and none of the five groups. Only 21.7's location
-changed.*
-
-| # | Case | Expected |
-| --- | --- | --- |
-| 21.1 | Sales → Credit Notes → **Raise credit note** → pick an approved invoice and a line, enter an amount below what that line was charged → **Raise** | Offered, and opens. The dialog is titled **Raise a credit note** and its save button reads **Raise** — this screen is hand-built, not the standard CRUD grid, so nothing here is called **New** or **Save**. Once the draft exists, **Approve** and **Cancel** are **row actions** on the right, not toolbar buttons: the screen hides Approve rather than letting the server refuse after the click, so its presence *is* the approve gate this row checks. Leave it a draft — approving posts the credit and reverses declared output tax. *(Steps written out 2026-09-15 after the run: "draft, approve and the approve gate are all reachable" is right and tells you none of the labels. At 1366 the actions column is tight; if Approve needs scrolling to reach, report that separately.)* |
-| 21.1a | Look at what the **Invoice** picker offers | Approved sales invoices that have lines, and nothing else — no `DN-…`, no cancelled invoice. Each **Line** names its product, not `Line 1`. *(Both were defects, found here on 2026-09-15 and fixed in #398. `sales_invoice` and `delivery_note` were the only two line responses carrying no `product_name`, and `description` is nullable and populated by nothing, so every line in a seeded store read `Line 1` — a dropdown of indistinguishable rows on a screen whose whole job is choosing which supply to correct. Separately the picker is fed the **sales-return** list, unfiltered, so a cancelled invoice and an invoice with no lines were both selectable and each gave an empty Line dropdown with no word about why.)* |
-| 21.2 | Sales → Proforma | Offered, and opens with a real screen — a grid or a proper empty state, never a "coming soon" placeholder. That is the whole row: `PROFORMA_VIEW` came to `FIRM_ADMIN` in the same migration as the rest. Worth knowing what you are looking at: a proforma states what an approved order **will** be charged, for a buyer who needs the figure before the goods move, and it **posts nothing** — neither of its tables carries a `journal_entry_id` or a `receivable_transaction_id`, deliberately. Its number comes from its own `PI` series rather than the tax invoice's, so the invoice series a GST return declares has no gap it cannot explain. |
-| 21.3 | Sales → E-Invoice | Offered, opens, **and the mode reads `SANDBOX` wherever it is shown**. If it reads LIVE anywhere, stop — that is not cosmetic. `mode` is NOT NULL on both e-invoice tables with **no server default**, because a default is one migration away from a firm silently believing it is filing; the sandbox marks every reference it mints `SBX…` so a number carried away from its row still says what it is, and `portal_for("LIVE")` raises rather than falling back. |
-| 21.4 | Masters → Loyalty | Offered, and opens. The banner states the scheme: points per 100, what one is worth, the minimum to redeem, and whether they expire. |
-| 21.4a | **Scheme settings** on the toolbar → change the minimum to redeem → Save, and watch the banner | The dialog opens, saves, and the banner re-reads with the new figure. Switch **Points expire** off and save: the banner reads "and never expire". *(Added 2026-09-15. The row above used to read "Settings included — `LOYALTY_MANAGE_SETTINGS` is granted", which was true of the **permission** and never of a screen: `PUT /api/v1/loyalty/settings` existed, the code was seeded and granted, and `api_client.dart` carried only the GET — so the scheme was readable and unchangeable from the desktop, and the conversion rate deciding what every customer's credit is worth was API-only. The orphan-route guard could not see it, because it asks whether a **path** is named rather than whether a **method** is, and the write was masked by its own read. Found by driving 21.4.)* |
-| 21.4b | Sign in as somebody holding `LOYALTY_VIEW` but not `LOYALTY_MANAGE_SETTINGS` and open the same dialog | It **opens**, read-only, saying "Changing the scheme needs the manage loyalty settings permission." Offered rather than hidden on purpose: the banner states the rate, so whoever is asked why a balance is what it is should reach the rule behind it. `LOYALTY_MANAGE_SETTINGS` is not granted to `SALES_MANAGER`, on the same reasoning as the credit and TCS policies — whoever a scheme constrains must not rewrite what it is worth. |
-| 21.5 | Sales → TCS → **Settings** on the toolbar | Offered, opens, and the Settings dialog opens and saves. `TCS_VIEW` reads, `TCS_MANAGE` writes, and both are in the group. Expect `is_enabled` **off** — it defaults false so shipping the feature charged nobody — and leave it off unless you want TCS collected on every receipt in your test data. *(Unlike Loyalty before #399, this editor has always existed; checked 2026-09-15 rather than assumed, after the Loyalty row turned out to promise a screen that was never built.)* |
-| 21.6 | Sign out, sign in as **`whole01.sales1@agency.local`** / `DemoAdmin@12345` (Asha, `SALES_EXECUTIVE`). Open **Sales**, then **Masters** | **Sales is offered** — `SALES_VIEW` is one of their six codes — and none of its four appear: no **Credit Notes**, no **Proforma**, no **E-Invoice**, no **TCS**. **Masters** has no **Loyalty**. `SALES_EXECUTIVE` holds exactly `CUSTOMER_VIEW`, `TERRITORY_VIEW`, `SALES_QUOTATION_CREATE`, `SALES_ORDER_CREATE`, `SALES_INVOICE_CREATE`, `SALES_VIEW`. What this row really checks is that the fix was a **grant to `FIRM_ADMIN`**, not a widening of the gates: any of the five appearing here means a tab lost its own code and its module gate is carrying it alone — the wrong-direction fix 22.3 watches for on Finance. *(The four-in-Sales, one-in-Masters split was added 2026-09-15; "try all five" does not say where to look.)* |
-| 21.7 | Administration → Firms | **Still not offered**, deliberately. Deciding which firms exist is not a firm's own business — `FIRM_VIEW` is a platform code no firm role may hold. *(Corrected 2026-09-15: the row said **Masters** → Firms. The tab moved to Administration when platform mode arrived — filed under Masters it was a firm's own master data, so the screen that **creates** a firm was reachable only from inside another firm and invisible to a platform administrator. Looking under Masters now finds nothing there for anybody, which passes this row for the wrong reason.)* |
-| 21.8 **(HTTP)** | As `whole01.admin`, with `X-Firm-ID` set, loop the five: `GET /api/v1/{credit-notes, proforma-invoices, einvoice/registrations, loyalty/settings, tcs/settings}` | `200` on all five. They answered `403` before `20260906_0130`. This closes the section from the server's side: the screens being offered is the desktop honouring the claims, and these five are the claims actually being there. Both halves matter — a token carries what it was minted with, so somebody signed in from before the migration would find the screens missing while the API said yes, which is why the note at the top of this section says to sign out and back in. |
+| Old row | Case |
+| --- | --- |
+| 21.1, 21.1a | TC-GRANT-001 |
+| 21.2 | TC-GRANT-002 |
+| 21.3 | TC-GRANT-003 |
+| 21.4, 21.4a | TC-GRANT-004 |
+| 21.4b | TC-GRANT-005 |
+| 21.5 | TC-GRANT-006 |
+| 21.6 | TC-GRANT-007 |
+| 21.7 | TC-FIRM-016 |
+| 21.8 | TC-GRANT-008 |
 
 ---
 

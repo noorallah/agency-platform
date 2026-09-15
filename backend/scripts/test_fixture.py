@@ -425,6 +425,154 @@ def designate_platform_admin(built: Built, user_id: str, scope: str) -> None:
         session.commit()
 
 
+def sales_chain(built: Built, firm: FixtureFirm = TEST01) -> dict[str, str]:
+    """Sell this run's own product to this run's own customer, end to end.
+
+    Product (GST 18 local, PIECE), 50 opening stock at 60, a sales order for
+    10 at 100, approved; a delivery note for all 10, approved and dispatched;
+    an invoice for 5 off that note, **approved** -- it posts -- and a second
+    for the other 5, **cancelled** while a draft. Everything through the same
+    routes the desktop calls, so each step meets the rules a person would.
+    Returns the ids, keyed by what they are.
+    """
+    admin = built.admin.as_user(built.admin.token or "", built.firms[firm.code])
+    today = date.today().isoformat()
+    tag = built.suffix.upper()
+    warehouse = admin.call("GET", "/api/v1/warehouses?page_size=5")[0]
+    branch = admin.call("GET", "/api/v1/branches?page_size=5")[0]
+    units = admin.call("GET", "/api/v1/uom-framework/uoms?page_size=100")
+    piece = next(u["id"] for u in units if u["code"] == "PIECE")
+    product = admin.call(
+        "POST",
+        "/api/v1/products",
+        {
+            "code": f"{tag}-P",
+            "name": f"Fixture Product {built.suffix}",
+            "product_type": "STOCK_ITEM",
+            "tax_profile_group_code": "GST_18_LOCAL",
+            "selling_price": "100",
+            "purchase_price": "60",
+            "base_uom_id": piece,
+            "inventory_uom_id": piece,
+            "sales_uom_id": piece,
+            "purchase_uom_id": piece,
+        },
+    )
+    customer = admin.call(
+        "POST",
+        "/api/v1/customers",
+        {
+            "code": f"{tag}-C",
+            "name": f"Fixture Buyer {built.suffix}",
+            "customer_type": "BUSINESS",
+            "currency_code": "INR",
+        },
+    )
+    opening = admin.call(
+        "POST",
+        "/api/v1/inventory/opening-stock",
+        {
+            "warehouse_id": warehouse["id"],
+            "branch_id": branch["id"],
+            "reference_number": f"{tag}-OS",
+            "posting_date": today,
+            "lines": [
+                {"product_id": product["id"], "quantity": "50", "unit_cost": "60"}
+            ],
+        },
+    )
+    admin.call("POST", f"/api/v1/inventory/opening-stock/{opening['id']}/post")
+    order = admin.call(
+        "POST",
+        "/api/v1/sales-orders",
+        {
+            "customer_id": customer["id"],
+            "order_date": today,
+            "warehouse_id": warehouse["id"],
+            "branch_id": branch["id"],
+            "lines": [
+                {
+                    "line_number": 1,
+                    "product_id": product["id"],
+                    "quantity": "10",
+                    "unit_price": "100",
+                }
+            ],
+        },
+    )
+    admin.call("POST", f"/api/v1/sales-orders/{order['id']}/approve")
+    order_line = admin.call("GET", f"/api/v1/sales-orders/{order['id']}")["lines"][0]
+    note = admin.call(
+        "POST",
+        "/api/v1/delivery-notes",
+        {
+            "sales_order_id": order["id"],
+            "delivery_date": today,
+            "lines": [
+                {
+                    "sales_order_line_id": order_line["id"],
+                    "line_number": 1,
+                    "current_delivery_quantity": "10",
+                }
+            ],
+        },
+    )
+    admin.call("POST", f"/api/v1/delivery-notes/{note['id']}/approve")
+    admin.call("POST", f"/api/v1/delivery-notes/{note['id']}/dispatch")
+    note_line = admin.call("GET", f"/api/v1/delivery-notes/{note['id']}")["lines"][0]
+
+    def invoice(quantity: str) -> Json:
+        return dict(
+            admin.call(
+                "POST",
+                "/api/v1/sales-invoices",
+                {
+                    "customer_id": customer["id"],
+                    "branch_id": branch["id"],
+                    "invoice_date": today,
+                    "source_documents": [
+                        {
+                            "source_document_type": "DELIVERY_NOTE",
+                            "source_document_id": note["id"],
+                        }
+                    ],
+                    "lines": [
+                        {
+                            "source_document_type": "DELIVERY_NOTE",
+                            "source_document_id": note["id"],
+                            "source_document_line_id": note_line["id"],
+                            "line_number": 1,
+                            "current_invoice_quantity": quantity,
+                        }
+                    ],
+                },
+            )
+        )
+
+    approved = invoice("5")
+    approved = admin.call("POST", f"/api/v1/sales-invoices/{approved['id']}/approve")
+    cancelled = invoice("5")
+    admin.call(
+        "POST",
+        f"/api/v1/sales-invoices/{cancelled['id']}/cancel",
+        {"reason": "Cancelled by scripts/test_fixture.py"},
+    )
+    built.say("Product", f"{tag}-P  (Fixture Product {built.suffix}), 50 in MAIN")
+    built.say("Customer", f"{tag}-C  (Fixture Buyer {built.suffix})")
+    built.say("Sales order", f"{order.get('order_number')} for 10, approved")
+    built.say("Delivery note", f"{note.get('delivery_note_number')} for 10, dispatched")
+    built.say("Invoice", f"{approved.get('invoice_number')} for 5, APPROVED")
+    built.say("Cancelled", f"{cancelled.get('invoice_number')} for 5, CANCELLED")
+    return {
+        "product": str(product["id"]),
+        "customer": str(customer["id"]),
+        "order": str(order["id"]),
+        "note": str(note["id"]),
+        "invoice": str(approved["id"]),
+        "cancelled_invoice": str(cancelled["id"]),
+    }
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -753,6 +901,20 @@ def build_shared_member_roles(built: Built) -> None:
     )
 
 
+def build_invoiced(built: Built) -> None:
+    """Make a TEST01 firm admin and a sale of this run's own, invoiced."""
+    build_firm_admin(built)
+    built.ids.update(sales_chain(built))
+
+
+def build_loyalty_viewer(built: Built) -> None:
+    """Make somebody in TEST01 who may read the loyalty scheme and not change it."""
+    user_id = new_user(built, "loyaltyview", "Loyalty Viewer")
+    firm_roles(built, user_id, TEST01, ["SALES_MANAGER"])
+    built.say("Loyalty viewer", f"{built.email('loyaltyview')} / {FIXTURE_PASSWORD}")
+    built.say("Roles", "SALES_MANAGER in TEST01 (LOYALTY_VIEW, not the settings code)")
+
+
 #: Every fixture, what it builds, and the cases that name it.
 FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "firm-admin": (
@@ -760,7 +922,7 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         build_firm_admin,
         "TC-ROLE-001..004, TC-PLAT-005, TC-ME-007, TC-FIRM-016, "
         "TC-TMPL-001..004, TC-TMPL-011, TC-TMPL-015, TC-USER-003, TC-USER-004, "
-        "TC-USER-009",
+        "TC-USER-009, TC-GRANT-002..004, TC-GRANT-006, TC-GRANT-008",
     ),
     "custom-role": (
         "firm-admin + a custom role with the four Night Desk codes.",
@@ -821,7 +983,7 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "sales-executive": (
         "A TEST01 user holding SALES_EXECUTIVE alone.",
         build_sales_executive,
-        "TC-TMPL-009",
+        "TC-TMPL-009, TC-GRANT-007",
     ),
     "manual-hire": (
         "firm-admin + a TEST01 user with two roles picked by hand.",
@@ -857,6 +1019,16 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         "shared-member, with Shared Member holding a role in each tier.",
         build_shared_member_roles,
         "TC-RTIER-002..004, TC-RTIER-006",
+    ),
+    "invoiced": (
+        "firm-admin + a sale of this run's own: order, note, approved invoice.",
+        build_invoiced,
+        "TC-GRANT-001",
+    ),
+    "loyalty-viewer": (
+        "A TEST01 SALES_MANAGER: reads the loyalty scheme, cannot change it.",
+        build_loyalty_viewer,
+        "TC-GRANT-005",
     ),
 }
 

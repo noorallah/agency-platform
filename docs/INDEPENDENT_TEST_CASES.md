@@ -7,7 +7,7 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Converted so far:** plan sections 16 to 20a, 25 (the pilot), 26, 26a and 27 — see the
+**Converted so far:** plan sections 16 to 21, 25 (the pilot), 26, 26a and 27 — see the
 table of contents below. Other sections move here one at a time; until then
 they stay in the plan.
 
@@ -693,6 +693,106 @@ global grant.
 
 ---
 
+## The five modules a firm administrator could not open
+
+`FIRM_ADMIN` is built from `_operational_permissions`, a hand-kept list, and
+five permission groups had never been added to it: `credit_note`, `proforma`,
+`einvoice`, `loyalty` and `tcs`. Each shipped with a module, a screen and a
+seeded gate that the role running the firm could not open. Granted in
+`20260906_0130`.
+
+**A token carries the claims it was minted with** — a session from before a
+grant changes shows the old screens. Fixture accounts are always new, so this
+only matters for accounts you already had open.
+
+### TC-GRANT-001 — Credit notes: raise one against an approved invoice
+
+- **Covers:** plan 21.1, 21.1a
+- **Fixture:** `invoiced` — a sale of this run's own in TEST01: one invoice for 5 **APPROVED**, one **CANCELLED**.
+- **Steps**
+  1. Sign in as the fixture's **Firm admin** → Sales → **Credit Notes** → **Raise credit note**.
+  2. Open the **Invoice** picker and look for the fixture's two invoice numbers and its delivery note number.
+  3. Pick the approved invoice; open **Line**.
+  4. Enter an amount below what the line was charged (it was charged 590.00: 5 × 100 plus 18% GST) → **Raise**.
+- **Expect**
+  - Step 1: the dialog is titled **Raise a credit note**, its button reads **Raise** — this screen is hand-built, so nothing is called New or Save.
+  - Step 2: the **approved** invoice is offered; the **cancelled** one is not, and no `DN-…` number is. Approved sales invoices with lines, and nothing else.
+  - Step 3: the line names its product — **Fixture Product <suffix>** — not `Line 1`.
+  - Step 4: a draft is listed. **Approve** and **Cancel** are **row actions** on the right, not toolbar buttons; Approve being there *is* the approve gate this case checks. Leave it a draft — approving posts the credit and reverses declared output tax.
+- **Data (HTTP):** `GET /api/v1/credit-notes` with `X-Firm-ID` TEST01 lists the draft against the fixture's invoice.
+- **Leaves:** a draft credit note in TEST01.
+
+### TC-GRANT-002 — Proforma opens
+
+- **Covers:** plan 21.2
+- **Fixture:** `firm-admin`
+- **Steps:** as the fixture's **Firm admin**, Sales → **Proforma**.
+- **Expect:** offered, and a real screen — a grid or a proper empty state, never a "coming soon" placeholder. A proforma states what an approved order **will** be charged and **posts nothing**; its number comes from its own `PI` series, not the tax invoice's.
+- **Leaves:** a firm admin user.
+
+### TC-GRANT-003 — E-Invoice opens, and never says LIVE
+
+- **Covers:** plan 21.3
+- **Fixture:** `firm-admin`
+- **Steps:** as the fixture's **Firm admin**, Sales → **E-Invoice**.
+- **Expect:** offered and opens. Wherever a mode is shown it reads **`SANDBOX`**; if it reads LIVE anywhere, stop — that is not cosmetic. `mode` is NOT NULL with no server default on both e-invoice tables, and the sandbox marks every reference it mints `SBX…`. *(TEST01 has registered nothing, so the grid may be empty and show no mode at all; that passes.)*
+- **Leaves:** a firm admin user.
+
+### TC-GRANT-004 — Loyalty: the banner states the scheme, and a firm can change it
+
+- **Covers:** plan 21.4, 21.4a
+- **Fixture:** `firm-admin`
+- **TEST01's scheme is shared by every run.** It starts **off**; switch it back off at the end.
+- **Steps**
+  1. As the fixture's **Firm admin**, Masters → **Loyalty**. Read the banner.
+  2. **Scheme settings** → switch **Scheme is running** on; **Minimum to redeem** `50`; **Points expire** off → Save.
+  3. Scheme settings → switch **Scheme is running** off → Save.
+- **Expect**
+  - Step 1: "No scheme is running: nobody is earning anything."
+  - Step 2: the dialog saves and the banner re-reads: "1 points per 100, worth 1 each and never expire. At least 50 before any can be spent."
+  - Step 3: back to "No scheme is running…".
+  - *Until #399 there was no editor at all: the settings route, the code and the grant existed, and the desktop carried only the read.*
+- **Data (HTTP):** `GET /api/v1/loyalty/settings` with `X-Firm-ID` TEST01 after each save.
+- **Leaves:** TEST01's scheme off, minimum 50.
+
+### TC-GRANT-005 — Loyalty settings are readable by somebody who cannot change them
+
+- **Covers:** plan 21.4b
+- **Fixture:** `loyalty-viewer` — `SALES_MANAGER`, which holds `LOYALTY_VIEW` and not `LOYALTY_MANAGE_SETTINGS`.
+- **Steps**
+  1. Sign in as the fixture's **Loyalty viewer** → Masters → Loyalty → **Scheme settings**.
+  2. **(HTTP)** As them, `PUT /api/v1/loyalty/settings` with the body `GET` returned.
+- **Expect**
+  - Step 1: it **opens**, read-only, saying "Changing the scheme needs the manage loyalty settings permission." Offered rather than hidden on purpose: whoever is asked why a balance is what it is should reach the rule behind it.
+  - Step 2: **403**. Whoever a scheme constrains must not rewrite what it is worth.
+- **Leaves:** a sales manager.
+
+### TC-GRANT-006 — TCS settings open, and TCS is off
+
+- **Covers:** plan 21.5
+- **Fixture:** `firm-admin`
+- **Steps:** as the fixture's **Firm admin**, Sales → **TCS** → **Settings**; save without changing anything.
+- **Expect:** offered, opens and saves. **Collect under section 206C(1H)** is off — it defaults false so shipping the feature charged nobody. Leave it off: on, every receipt in TEST01 collects TCS, and other cases record receipts there.
+- **Leaves:** a firm admin user.
+
+### TC-GRANT-007 — The fix was a grant, not a wider gate
+
+- **Covers:** plan 21.6
+- **Fixture:** `sales-executive`
+- **Steps:** sign in as the fixture's **Seller**; open **Sales**, then **Masters**.
+- **Expect:** Sales is offered — `SALES_VIEW` is one of their six codes — with **no** Credit Notes, Proforma, E-Invoice or TCS; Masters has **no** Loyalty. Any of the five appearing means a tab lost its own code and its module gate is carrying it alone.
+- **Leaves:** a seller.
+
+### TC-GRANT-008 — The server grants all five
+
+- **Covers:** plan 21.8
+- **Fixture:** `firm-admin`
+- **Steps (HTTP)** — as the fixture's firm admin with `X-Firm-ID` TEST01: `GET /api/v1/credit-notes`, `/api/v1/proforma-invoices`, `/api/v1/einvoice/registrations`, `/api/v1/loyalty/settings`, `/api/v1/tcs/settings`.
+- **Expect:** **200** on all five. They answered 403 before `20260906_0130`. The screens being offered is the desktop honouring the claims; these are the claims being there.
+- **Leaves:** a firm admin user.
+
+---
+
 ## Roles — a firm's own roles and templates
 
 A permission is a capability, a **role** names a set of permissions, a
@@ -941,7 +1041,7 @@ section 27. Cases name the firms that must be there, never how many.
 - **Expect**
   - Step 2: a **Platform** entry at the top with a tick beside it, then **every active firm** — TEST01, TEST02, WHOLE01, ELEC01, MEDI01, FOOD01 among them — **although this account is a member of none**.
   - Step 3: a notification names TEST01. The sidebar grows **Masters, Sales, Quotations, Sales Orders, Delivery Notes, Sales Invoices, Sales Returns, Purchases, Purchase Invoices, Purchase Returns, Goods Receipts, Inventory, Finance, Reports**. Administration gains its configuration tabs (Numbering Series through Industry Templates). **Licensing goes away** — it is a platform screen.
-  - Step 4: the screen **loads** — an empty list, since TEST01 has no orders — with no error. Before the fix this module was offered and this screen failed.
+  - Step 4: the screen **loads** with no error — whatever orders fixtures have raised in TEST01, or none. Before the fix this module was offered and this screen failed.
   - Step 5: **"Working on the platform. No firm is selected."** The firm-owned modules go away again.
 - **Data (HTTP)** — the switcher's source:
   ```
