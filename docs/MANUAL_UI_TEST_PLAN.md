@@ -665,6 +665,14 @@ built from, and five groups had never been added to it. Sign in as
 `whole01.admin`. **If you were already signed in when this shipped, sign out
 and back in** — a token carries the claims it was minted with.
 
+**Run 2026-09-15: 21.1–21.8 all passed, and two defects were found on the way**
+— neither of them the thing this section was written to check. Both were
+visible only by looking at a screen: the invoice lines with no product name
+(#398) and the loyalty scheme with no editor (#399). The section's own subject,
+the five permission groups reaching `FIRM_ADMIN`, was sound throughout. That is
+worth knowing before running the rest of the plan: **a row passing tells you
+about the row, and the screen it opens is worth reading anyway.**
+
 *Verified against `system_seed.py` on 2026-09-15: `_operational_permissions`
 now names all five groups, `loyalty` carries `LOYALTY_MANAGE_SETTINGS` and
 `tcs` carries `TCS_MANAGE`, so 21.4 and 21.5 get their settings screens. 21.6
@@ -674,7 +682,8 @@ changed.*
 
 | # | Case | Expected |
 | --- | --- | --- |
-| 21.1 | Sales → Credit Notes | Offered, and opens. Draft, approve and the approve gate are all reachable. |
+| 21.1 | Sales → Credit Notes → **Raise credit note** → pick an approved invoice and a line, enter an amount below what that line was charged → **Raise** | Offered, and opens. The dialog is titled **Raise a credit note** and its save button reads **Raise** — this screen is hand-built, not the standard CRUD grid, so nothing here is called **New** or **Save**. Once the draft exists, **Approve** and **Cancel** are **row actions** on the right, not toolbar buttons: the screen hides Approve rather than letting the server refuse after the click, so its presence *is* the approve gate this row checks. Leave it a draft — approving posts the credit and reverses declared output tax. *(Steps written out 2026-09-15 after the run: "draft, approve and the approve gate are all reachable" is right and tells you none of the labels. At 1366 the actions column is tight; if Approve needs scrolling to reach, report that separately.)* |
+| 21.1a | Look at what the **Invoice** picker offers | Approved sales invoices that have lines, and nothing else — no `DN-…`, no cancelled invoice. Each **Line** names its product, not `Line 1`. *(Both were defects, found here on 2026-09-15 and fixed in #398. `sales_invoice` and `delivery_note` were the only two line responses carrying no `product_name`, and `description` is nullable and populated by nothing, so every line in a seeded store read `Line 1` — a dropdown of indistinguishable rows on a screen whose whole job is choosing which supply to correct. Separately the picker is fed the **sales-return** list, unfiltered, so a cancelled invoice and an invoice with no lines were both selectable and each gave an empty Line dropdown with no word about why.)* |
 | 21.2 | Sales → Proforma | Offered, and opens. |
 | 21.3 | Sales → E-Invoice | Offered, and opens. Check the mode badge reads SANDBOX. |
 | 21.4 | Masters → Loyalty | Offered, and opens. The banner states the scheme: points per 100, what one is worth, the minimum to redeem, and whether they expire. |
