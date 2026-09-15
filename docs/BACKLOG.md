@@ -2615,3 +2615,32 @@ is in flight, as the document editors already do.
 
 **Cost.** A migration seeding three document types and rules into every
 store, a few lines in the three service methods, the dialog, and tests.
+
+---
+
+### 31.16 A refused password does not say which rule it broke (2026-09-15, plan section 22)
+
+Setting an initial password of 11 characters is refused with **"Password does
+not meet the configured policy."** and nothing else. The server already sends
+the answer: `validate_password_policy` (`app/core/validation/common.py`)
+raises with `details` holding the specific violations -- `["must contain at
+least 12 characters"]` -- one per rule broken. The form drops them and shows
+the summary line alone.
+
+Met while making a test user during section 22. The cost is a guessing game
+at exactly the moment somebody is being careful: the minimum is 12, and
+nothing on screen says 12, or uppercase, or a symbol, or which of them was
+missing.
+
+**What to do.** `ApiException` already carries structured detail elsewhere --
+`refusalMessage` in the user dialog lists plain-string details, added in #392
+-- so this is a matter of using it where a password is set rather than new
+machinery. Three places set one: Users → New, the administrator's password
+reset, and My profile → Change password. The third already states the policy
+beside the box (`ChangePasswordPolicy.check` mirrors the server's rules), so
+the shape to copy is there.
+
+**Worth deciding at the same time.** Whether the New-user form should state
+the policy up front, as Change password does, rather than only on refusal.
+Stating it costs a helper line under a field somebody fills in once; not
+stating it costs a round trip every time somebody types a short password.
