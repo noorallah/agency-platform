@@ -427,16 +427,17 @@ Run these with two clients pointed at one server (or two windows of one client; 
 
 ## 15. Permissions
 
-Sign in as `whole01.sales1@agency.local` (Asha, `SALES_EXECUTIVE`: `CUSTOMER_VIEW`, `TERRITORY_VIEW`, `SALES_VIEW` and the three `SALES_*_CREATE` codes -- nothing else). The point is that the **server** refuses, not merely that the button is hidden: every refusal below was driven over HTTP with this user's token on 2026-09-13 and answered `403`. To drive them yourself, sign in with `POST /api/v1/auth/login` (see the appendix) and send `X-Firm-ID: 30c66274-60e9-4789-97d9-138a7a1fdc61`.
+**Moved to `docs/INDEPENDENT_TEST_CASES.md` on 2026-09-16**, as TC-PERM-001 to
+003, on the `sales-executive` fixture's own seller in TEST01 rather than Asha.
+Re-driven with that token: the two reads answer 200 and all six writes 403,
+before any record is looked up, so no seeded payout or credit note id is
+needed.
 
-| # | Case | Expected |
-| --- | --- | --- |
-| 15.1 | Look for **Administration** in the sidebar, and Numbering Series under it. | **Administration is not offered at all** -- none of its tabs' codes is Asha's. **(HTTP)** `PUT .../numbering-rules/{id}` → `403`. `GET /api/v1/document-framework/numbering-rules` answers **200**: any member of the firm may read how documents are numbered, and only `SETTINGS_UPDATE` may change it (re-driven 2026-09-14; this row used to claim 403 for the read). |
-| 15.2 | Masters → Customers → **Settings** (the credit-policy button on the toolbar). | The dialog **opens read-only**: the fields show the firm's policy but are disabled, **Save** is greyed (only **Close** works) and a notice reads "Changing the policy needs the manage customer settings permission." Somebody the policy warns may read the rule behind the warning. **(HTTP)** `PUT /api/v1/customers/credit-settings` → `403`. |
-| 15.3 | Expand **Sales** in the sidebar and look for **Commission**. | **Not in the sidebar** (`COMMISSION_VIEW` missing). Under Sales Asha sees only the territory screens (Geography, Call Lists, Beat Plans, Coverage and the rest, on `TERRITORY_VIEW`); Price Lists, Promotions, Targets, Proforma, E-Invoice and GST Returns are hidden too, each on its own view code -- that is expected, not a fault. **(HTTP)** `POST /api/v1/commission/payouts/{id}/approve` and `.../pay` (any seeded payout id from the admin's Payouts view) → `403`. |
-| 15.4 | Look for **Credit Notes** under Sales. | **Not offered** (`CREDIT_NOTE_VIEW` missing). **(HTTP)** `POST /api/v1/credit-notes/{id}/approve` → `403`. Drafting is bookkeeping; approving reverses a declared tax. |
-| 15.5 | Look for **TCS** under Sales. | **Not offered** (`TCS_VIEW` missing). **(HTTP)** `PUT /api/v1/tcs/settings` → `403`. |
-| 15.6 **(HTTP)** | Call the six writes above with Asha's token: `PUT` numbering rule, `PUT` credit settings, payout `approve`, payout `pay`, credit note `approve`, `PUT` TCS settings. | `403` every time (re-driven 2026-09-14 and again during the owner's run on 2026-09-15; the two reads, numbering rules and credit settings, answer 200), body `{"success": false, "error": {"code": "authorization_denied", ...}}`. A hidden button is not a control. |
+| Old row | Case |
+| --- | --- |
+| 15.1, 15.3, 15.4, 15.5 | TC-PERM-001 (the screens) and TC-PERM-003 (the routes) |
+| 15.2 | TC-PERM-002 and TC-PERM-003 |
+| 15.6 | TC-PERM-003 |
 
 ## 16. Who a user is — the four tiers
 

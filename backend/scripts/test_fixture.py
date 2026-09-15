@@ -2294,7 +2294,8 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "sales-executive": (
         "A TEST01 user holding SALES_EXECUTIVE alone.",
         build_sales_executive,
-        "TC-TMPL-009, TC-GRANT-007, TC-AUDIT-006, TC-LOOK-005, TC-CONF-001",
+        "TC-TMPL-009, TC-GRANT-007, TC-AUDIT-006, TC-LOOK-005, TC-CONF-001, "
+        "TC-PERM-001..003",
     ),
     "manual-hire": (
         "firm-admin + a TEST01 user with two roles picked by hand.",

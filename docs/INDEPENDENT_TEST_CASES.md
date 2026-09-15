@@ -7,7 +7,7 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Converted so far:** plan sections 2 to 9 and 16 to 27 (25 was the pilot) — see the
+**Converted so far:** plan sections 2 to 9, 15 and 16 to 27 (25 was the pilot) — see the
 table of contents below. Other sections move here one at a time; until then
 they stay in the plan.
 
@@ -994,6 +994,43 @@ promotion, or the customer's standing rate).
   - Step 1: "PI-… raised. Issue it when the customer needs it." then "PI-… issued."; a `PI` series number; **nothing** posted; Outstanding unchanged; the pane says "Not a tax invoice — no input tax credit is available against this document."
   - Step 2: the proforma's lines and totals are unchanged — snapshotted when it was raised.
 - **Leaves:** an issued proforma and a cancelled order.
+
+---
+
+## Permissions — the server refuses, not only the button
+
+`SALES_EXECUTIVE` holds `CUSTOMER_VIEW`, `TERRITORY_VIEW`, `SALES_VIEW` and the
+three `SALES_*_CREATE` codes, nothing else. A hidden button is not a control:
+each case below checks the screen **and** the route behind it.
+
+### TC-PERM-001 — What a salesperson is not offered
+
+- **Covers:** plan 15.1, 15.3, 15.4, 15.5
+- **Fixture:** `sales-executive`
+- **Steps:** sign in as the fixture's **Seller**. Look for Administration; expand **Sales** and look for Commission, Credit Notes and TCS.
+- **Expect:** **no Administration** at all. Under Sales, the territory screens (on `TERRITORY_VIEW`) and none of **Commission**, **Credit Notes**, **TCS** — nor Price Lists, Promotions, Targets, Proforma, E-Invoice or GST Returns, each hidden on its own view code. That is expected, not a fault.
+- **Leaves:** a seller.
+
+### TC-PERM-002 — The credit policy opens read-only
+
+- **Covers:** plan 15.2
+- **Fixture:** `sales-executive`
+- **Steps:** as the fixture's **Seller**, Masters → Customers → toolbar **Settings**.
+- **Expect:** the dialog **opens read-only** — the policy's fields shown but disabled, Save greyed, only Close works — with "Changing the policy needs the manage customer settings permission."
+- **Leaves:** a seller.
+
+### TC-PERM-003 — Six writes, six refusals; two reads allowed
+
+- **Covers:** plan 15.1, 15.2, 15.3, 15.4, 15.5, 15.6 (the HTTP halves)
+- **Fixture:** `sales-executive`
+- **Steps (HTTP)** — sign in as the fixture's seller (`POST /api/v1/auth/login`) and send, with `X-Firm-ID` of TEST01:
+  1. `GET /api/v1/document-framework/numbering-rules`, then `PUT /api/v1/document-framework/numbering-rules/{any listed id}` `{"name": "x"}`.
+  2. `GET /api/v1/customers/credit-settings`, then `PUT` it `{"enforcement": "OFF"}`.
+  3. `POST /api/v1/commission/payouts/{any id}/approve` and `/pay`.
+  4. `POST /api/v1/credit-notes/{any id}/approve`.
+  5. `PUT /api/v1/tcs/settings` `{"is_enabled": true}`.
+- **Expect:** both **reads answer 200** — any member may read how documents are numbered and the credit rule that warns them. **All six writes answer 403**, body `{"success": false, "error": {"code": "authorization_denied", …}}`. The id need not exist: the permission is checked before the record is looked up.
+- **Leaves:** nothing.
 
 ---
 
