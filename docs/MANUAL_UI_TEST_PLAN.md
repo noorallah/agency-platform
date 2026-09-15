@@ -623,6 +623,13 @@ built from, and five groups had never been added to it. Sign in as
 `whole01.admin`. **If you were already signed in when this shipped, sign out
 and back in** — a token carries the claims it was minted with.
 
+*Verified against `system_seed.py` on 2026-09-15: `_operational_permissions`
+now names all five groups, `loyalty` carries `LOYALTY_MANAGE_SETTINGS` and
+`tcs` carries `TCS_MANAGE`, so 21.4 and 21.5 get their settings screens. 21.6
+holds too — `whole01.sales1` is seeded with `SALES_EXECUTIVE` alone, which is
+six read/create codes and none of the five groups. Only 21.7's location
+changed.*
+
 | # | Case | Expected |
 | --- | --- | --- |
 | 21.1 | Sales → Credit Notes | Offered, and opens. Draft, approve and the approve gate are all reachable. |
@@ -664,11 +671,16 @@ was found on 2026-09-06: moving the platform designation into its own claim
 left two checks looking for it in the old place, so **no platform administrator
 could read any audit trail at all**.
 
-*Re-derived 2026-09-15, no changes. One thing to expect that the rows do not
-say: 23.4a–23.4c are the **merge**, and the unit suite cannot see it — it
-builds one SQLite schema holding every table, so both stores resolve to the
-same session there and merging would double every row. If the merge is broken
-you will find it here or in `tests/integration/`, nowhere else.*
+*Verified against the code on 2026-09-15, no changes. The Settings module takes
+**any** of `SETTINGS_VIEW` / `AUDIT_LOG_VIEW` / `DIAGNOSTICS_VIEW`; Audit Logs
+demands `AUDIT_LOG_VIEW` and carries `requiresFirm: false`, which is what makes
+23.1 work with no firm selected; Diagnostics demands `DIAGNOSTICS_VIEW`, which
+`FIRM_ADMIN` does not hold. `audit_scope` refuses the platform trail without
+platform authority, as 23.6 expects. One thing the rows do not say: 23.4a–23.4c
+are the **merge**, and the unit suite cannot see it — it builds one SQLite
+schema holding every table, so both stores resolve to the same session there
+and merging would double every row. If the merge is broken you will find it
+here or in `tests/integration/`, nowhere else.*
 
 | # | Case | Expected |
 | --- | --- | --- |
@@ -691,8 +703,14 @@ you will find it here or in `tests/integration/`, nowhere else.*
 could not find — or even learn the existence of — a person who already works
 elsewhere. Sign in as `whole01.admin`.
 
-*Re-derived 2026-09-15, no changes. The section deliberately drives **one route
-answering two callers differently** — 24.2–24.16 are the firm caller's narrow
+*Verified against `lookup_users` on 2026-09-15, no changes: gated on
+`USER_CREATE` rather than `USER_VIEW` (24.15), a firm caller must send three
+characters and gets at most ten **whatever `page` says** (24.2, 24.20), a
+platform caller may send nothing (24.17). The **User-Firm Assignments** tab
+carries `requiresPlatformAdmin: true`, which is what 24.21 and 24.22 are
+checking — a flag rather than a permission code, because a platform
+administrator passes code checks by designation. The section deliberately
+drives **one route answering two callers differently** — 24.2–24.16 are the firm caller's narrow
 lookup (three characters, ten results, no paging, no firm ever named) and
 24.17–24.20 the platform caller's directory (empty term lists everyone not in
 the firm, ordinary paging). Two routes would have meant two implementations of
@@ -737,9 +755,9 @@ administrator may write both. Sign in as `whole01.admin`.
 
 | # | Case | Expected |
 | --- | --- | --- |
-| 25.1 | Administration → Roles & Permissions → **Roles** | The twelve firm roles. **Not** `PLATFORM_ADMIN`, `SUPPORT_ADMIN` or `LICENSE_ADMIN`. |
+| 25.1 | Administration → Roles & Permissions → **Roles** | The **twelve** firm roles — `FIRM_ADMIN`, `FIRM_MANAGER`, `SALES_MANAGER`, `SALES_EXECUTIVE`, `PURCHASE_MANAGER`, `PURCHASE_EXECUTIVE`, `INVENTORY_MANAGER`, `ACCOUNTANT`, `BILLING_EXECUTIVE`, `CASHIER`, `CUSTOMER_SUPPORT`, `VIEWER`. **None of the four platform ones**: `PLATFORM_ADMIN`, `SUPPORT_ADMIN`, `LICENSE_ADMIN` and `SYSTEM_AUDITOR`. *(The fourth was missing from this row until 2026-09-15; 16 seeded roles, 12 of them a firm's.)* |
 | 25.2 | New → code `night-desk`, name `Night Desk` → Save | Created, and it belongs to WHOLE01. |
-| 25.3 | Open it → **Permissions** | **167 of the 189 codes** (counted 2026-09-05 — re-derive rather than trusting it, see below). Tick `SALES_VIEW`, `RECEIPT_CREATE`, `CUSTOMER_VIEW`. |
+| 25.3 | Open it → **Permissions** | **167 of the 189 codes** — 30 permission groups, 22 of them platform (`platform`, `firm`, `system_administration`, `high_risk`). Re-derived 2026-09-15; a count carries the date it was taken, so re-run it rather than trusting this one if it matters. Tick `SALES_VIEW`, `RECEIPT_CREATE`, `CUSTOMER_VIEW`. |
 | 25.4 | Look for `FIRM_CREATE`, `PLATFORM_SETTINGS`, `VOID_INVOICE`, `AUDIT_LOG_VIEW` | **Not in the list at all.** `list_permissions` filters `PLATFORM_PERMISSION_CODES` out of a firm-scoped read, so the platform codes are not merely refused on assignment — they are never offered, and `set_role_permissions` refuses them again if one is named directly. |
 | 25.4a | Now look at what **you** can do: Settings → Audit Logs, still as `whole01.admin` | It opens, on your own firm's trail. So you **hold** `AUDIT_LOG_VIEW` and cannot **grant** it — and that is not a contradiction. `PLATFORM_PERMISSION_CODES` answers "what may a firm administrator not *grant*", which is a different question from what they may hold; `AUDIT_LOG_VIEW` sits in the `system_administration` group and was granted to `FIRM_ADMIN` directly on 2026-09-06, beside `SETTINGS_VIEW` and `SETTINGS_UPDATE`, which had always been there for the same reason. *(Added 2026-09-15. Worth doing once: confusing the two sets is how a permission's reach gets misjudged, and this is the clearest place in the plan to see the difference.)* |
 | 25.5 | New role with code `platform_admin` | Refused — the designation and the twelve seeded codes are reserved, case-insensitively. |
@@ -827,6 +845,12 @@ membership is not what decides the landing.*
 `GET /api/v1/me` names the signed-in person; `PUT /api/v1/me/primary-firm` is
 theirs to call. Use a user who belongs to **two** firms.
 
+*Verified against the code on 2026-09-15, no changes. All three routes exist
+(`/me`, `/me/firms`, `/me/primary-firm`) and are gated on being signed in and
+nothing else, which is what 26a.10 checks — `whole01.sales1` holds
+`SALES_EXECUTIVE`, six codes, none of them `USER_VIEW`, so it is the right
+account for 26a.8 and 26a.10.*
+
 | # | Step | Expect |
 | --- | --- | --- |
 | 26a.1 | Sign in, open the account menu (top right) | The first row is your **full name** with your **email** under it -- not the address you typed, and not the word "User". The status bar shows the same name. |
@@ -862,7 +886,12 @@ Only a platform administrator can do any of 27.1--27.20. `require_platform_admin
 guards every `/api/v1/firms` route and never reads a permission, so `FIRM_CREATE`
 gates the desktop's **New** button and nothing else.
 
-*Re-derived 2026-09-15, no changes to the cases. One thing before you start:
+*Verified against the code on 2026-09-15: every route this section drives is
+there — `POST /{firm_id}/provision`, `GET /{firm_id}/readiness`, `POST
+/{firm_id}/open-books`, `POST /{firm_id}/apply-tax-template`, `POST
+/{firm_id}/create-default-branch`, and `GET`/`PUT /finance/control-accounts`.
+**One row was wrong and is corrected: 27.23j** — see it for why. One thing
+before you start:
 **`SNTEST02` may already exist** from an earlier run of this section, in which
 case 27.4 answers 409 rather than saving and every row after it is testing the
 wrong firm. Check Administration → Firms first and use a fresh code
@@ -934,7 +963,7 @@ mapped control account for each of the 24 posting purposes. As of 2026-09-08
 | 27.23g | Business profile row → choose **Wholesale** in the dropdown → **Assign** | "Business profile set to Wholesale." and the row re-reads as "Assigned: WHOLESALE" with the picker gone. The dropdown listed the **firm's own** catalogue (`GET /api/v1/business-framework/firms/{id}/profiles`), so this works from platform mode with no firm open -- Profile Assignment still needs one. Assign is dead until a profile is chosen. |
 | 27.23h | **(HTTP)** `POST .../apply-tax-template` with `{"template": "US"}` | **422**. Only `IN_GST` exists. |
 | 27.23i | Branches and warehouses row → **Create head office and main warehouse** | "Created branch HO and warehouse MAIN. Rename them on their own screens." The row re-reads as done, "1 branch, 1 warehouse", and with People already done the verdict reads **Finished. Every step is done.** Open this firm → Masters → Branches: `HO` Head Office, default; Warehouses: `MAIN` under it. Press it again **(HTTP)**: "The firm already has a branch and a warehouse; nothing was created." On a firm that named its own branch first, only the warehouse is created, under that branch. |
-| 27.23j | Open this firm → Finance → **Control Accounts** | 24 rows, one per posting purpose, each showing the account it posts to and which classifications it may post to. On a fresh firm every row offers **Change**. As `whole01.admin` on WHOLE01: Accounts receivable, Sales revenue, Output tax, Inventory and the rest that trading has touched show a lock and "N posted" with no picker -- hover for why; only the purposes nothing has posted to (Rounding, TCS payable, the loyalty pair) offer Change. Change one: the picker lists only accounts of the allowed classification; Save is dead until a different account is chosen; the notice reads "Rounding posts to …". **(HTTP)** `PUT /api/v1/finance/control-accounts/ACCOUNTS_RECEIVABLE` on WHOLE01 with any other asset account: **422**, "Accounts receivable has N posted lines on 1100 Trade Receivables. Re-pointing it would leave two accounts each holding part of one story…". `whole01.sales1` holds `VIEWER`, which carries `ACCOUNT_VIEW`, so the tab shows for them **read-only** -- no Change, no Map; a role without `ACCOUNT_VIEW` has no Finance tab at all. |
+| 27.23j | Open this firm → Finance → **Control Accounts** | 24 rows, one per posting purpose, each showing the account it posts to and which classifications it may post to. On a fresh firm every row offers **Change**. As `whole01.admin` on WHOLE01: Accounts receivable, Sales revenue, Output tax, Inventory and the rest that trading has touched show a lock and "N posted" with no picker -- hover for why; only the purposes nothing has posted to (Rounding, TCS payable, the loyalty pair) offer Change. Change one: the picker lists only accounts of the allowed classification; Save is dead until a different account is chosen; the notice reads "Rounding posts to …". **(HTTP)** `PUT /api/v1/finance/control-accounts/ACCOUNTS_RECEIVABLE` on WHOLE01 with any other asset account: **422**, "Accounts receivable has N posted lines on 1100 Trade Receivables. Re-pointing it would leave two accounts each holding part of one story…". To see the **read-only** half -- the tab present, no Change, no Map -- you need somebody holding `VIEWER`, and **no seeded demo user does**: make one (Users → New, job template **Read Only**) or grant `VIEWER` to a spare account. *(Corrected 2026-09-15: this row said `whole01.sales1` holds `VIEWER`. It does not — `seed_multi_firm_demo.py` calls `set_user_roles` with `SALES_EXECUTIVE` alone, which replaces rather than adds, and that role carries no `ACCOUNT_VIEW`. As written the row shows **no Finance tab at all**, which is the *other* half of the sentence, so it would read as broken gating rather than as the plan being wrong. The `VIEWER`-holding users, `auditor.multi1/2`, come from `generate_sample_data.py` and are not in the four demo firms.)* |
 | 27.24 | In the new firm, create a customer and a product | Both save. Masters do not need the books. |
 | 27.25 | On a firm whose books are **not** open, raise a sales invoice and try to **approve** it | **Refused.** `DocumentPostingService` refuses rather than guesses. This is the design working, not a fault in the new firm -- open the books first. |
 | 27.26 | **Set up** on `WHOLE01` | **Finished. Every step is done.** -- 24 accounts, 3 financial years, 36 periods, all 24 control accounts mapped; a profile, tax, a country, a branch and a warehouse, and members. No buttons. The contrast is the point: it shows what "finished" looks like. |
