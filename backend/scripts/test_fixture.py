@@ -53,6 +53,7 @@ import urllib.request
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass, field
 from datetime import date, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -2270,6 +2271,7 @@ def build_territory_firm(built: Built) -> None:
         user_id = new_user(built, handle, f"{name} Sales", firms=(firm,))
         firm_roles(built, user_id, firm, ["SALES_EXECUTIVE"])
         people[handle] = user_id
+        built.ids[handle] = user_id
 
     def node(
         code: str, name: str, level: str, parent: str | None, route: Json | None
@@ -2404,6 +2406,229 @@ def build_territory_firm(built: Built) -> None:
         "Beat plans", f"{len(plans)} weekly, {tag}-BP-COLL (N2), {tag}-BP-MTH (S1)"
     )
     built.say("Product", f"{tag}-P, 50 in MAIN")
+
+
+def _bill_and_collect(
+    admin: Api, customer_id: str, product_id: str, quantity: str, price: str
+) -> Json:
+    """Order, dispatch, bill and collect in full; return the approved invoice."""
+    today = date.today().isoformat()
+    warehouse = by_code(admin, "/api/v1/warehouses", "MAIN")
+    branch = by_code(admin, "/api/v1/branches", "HO")
+    order = admin.call(
+        "POST",
+        "/api/v1/sales-orders",
+        {
+            "customer_id": customer_id,
+            "order_date": today,
+            "warehouse_id": warehouse["id"],
+            "branch_id": branch["id"],
+            "lines": [
+                {
+                    "line_number": 1,
+                    "product_id": product_id,
+                    "quantity": quantity,
+                    "unit_price": price,
+                    "discount_percent": "0",
+                }
+            ],
+        },
+    )
+    admin.call("POST", f"/api/v1/sales-orders/{order['id']}/approve")
+    order_line = admin.call("GET", f"/api/v1/sales-orders/{order['id']}")["lines"][0]
+    note = admin.call(
+        "POST",
+        "/api/v1/delivery-notes",
+        {
+            "sales_order_id": order["id"],
+            "delivery_date": today,
+            "lines": [
+                {
+                    "sales_order_line_id": order_line["id"],
+                    "line_number": 1,
+                    "current_delivery_quantity": quantity,
+                }
+            ],
+        },
+    )
+    admin.call("POST", f"/api/v1/delivery-notes/{note['id']}/approve")
+    admin.call("POST", f"/api/v1/delivery-notes/{note['id']}/dispatch")
+    note_line = admin.call("GET", f"/api/v1/delivery-notes/{note['id']}")["lines"][0]
+    invoice = admin.call(
+        "POST",
+        "/api/v1/sales-invoices",
+        {
+            "customer_id": customer_id,
+            "branch_id": branch["id"],
+            "invoice_date": today,
+            "source_documents": [
+                {
+                    "source_document_type": "DELIVERY_NOTE",
+                    "source_document_id": note["id"],
+                }
+            ],
+            "lines": [
+                {
+                    "source_document_type": "DELIVERY_NOTE",
+                    "source_document_id": note["id"],
+                    "source_document_line_id": note_line["id"],
+                    "line_number": 1,
+                    "current_invoice_quantity": quantity,
+                }
+            ],
+        },
+    )
+    invoice = admin.call("POST", f"/api/v1/sales-invoices/{invoice['id']}/approve")
+    owed = str(Decimal(str(invoice["grand_total"])).quantize(Decimal("0.01")))
+    admin.call(
+        "POST",
+        "/api/v1/receipts",
+        {
+            "party_id": customer_id,
+            "settlement_date": today,
+            "amount": owed,
+            "method": "BANK",
+            "allocations": [{"invoice_id": invoice["id"], "amount": owed}],
+        },
+    )
+    return dict(invoice)
+
+
+def build_commission_firm(built: Built) -> None:
+    """Make territory-firm with commission rules, targets, and sales collected.
+
+    Firm-wide 4% of money collected; Asha 15% on `<SUFFIX>-P` alone; Bala a
+    ladder -- 2% to 50,000 then 4%, nothing below 1,000, a 2% bonus when his
+    target is met. Asha sells `<SUFFIX>-P` and a second product to Anand and
+    Revise Check; Bala sells the second product to Vijaya; every bill is
+    collected in full today. This month's targets: Asha's small and met,
+    Bala's large and missed.
+    """
+    build_territory_firm(built)
+    firm = built.known[f"{built.suffix.upper()}-T"]
+    admin = built.admin.as_user(built.admin.token or "", built.firms[firm.code])
+    tag = built.suffix.upper()
+    today = date.today()
+    month_start = today.replace(day=1).isoformat()
+    next_month = (today.replace(day=28) + timedelta(days=4)).replace(day=1)
+    month_end = (next_month - timedelta(days=1)).isoformat()
+    users = {handle: built.ids[handle] for handle in ("asha", "bala")}
+    main = by_code(admin, "/api/v1/warehouses", "MAIN")
+    head = by_code(admin, "/api/v1/branches", "HO")
+    product_p = admin.call("GET", f"/api/v1/products?search={tag}-P")[0]
+    units = admin.call("GET", "/api/v1/uom-framework/uoms?page_size=100")
+    piece = next(u["id"] for u in units if u["code"] == "PIECE")
+    product_q = admin.call(
+        "POST",
+        "/api/v1/products",
+        {
+            "code": f"{tag}-Q",
+            "name": f"Other Product {built.suffix}",
+            "product_type": "STOCK_ITEM",
+            "tax_profile_group_code": "GST_18_LOCAL",
+            "selling_price": "100",
+            "purchase_price": "60",
+            "base_uom_id": piece,
+            "inventory_uom_id": piece,
+            "sales_uom_id": piece,
+            "purchase_uom_id": piece,
+        },
+    )
+    opening = admin.call(
+        "POST",
+        "/api/v1/inventory/opening-stock",
+        {
+            "warehouse_id": main["id"],
+            "branch_id": head["id"],
+            "reference_number": f"{tag}-OSQ",
+            "posting_date": today.isoformat(),
+            "lines": [
+                {"product_id": product_q["id"], "quantity": "200", "unit_cost": "60"}
+            ],
+        },
+    )
+    admin.call("POST", f"/api/v1/inventory/opening-stock/{opening['id']}/post")
+    rule = {"effective_from": "2026-04-01", "basis": "COLLECTED"}
+    admin.call("POST", "/api/v1/commission/rules", {**rule, "percentage": "4"})
+    admin.call(
+        "POST",
+        "/api/v1/commission/rules",
+        {
+            **rule,
+            "salesman_id": users["asha"],
+            "product_id": product_p["id"],
+            "percentage": "15",
+        },
+    )
+    admin.call(
+        "POST",
+        "/api/v1/commission/rules",
+        {
+            **rule,
+            "salesman_id": users["bala"],
+            "percentage": "0",
+            "minimum_amount": "1000",
+            "bonus_percentage": "2",
+            "slabs": [
+                {"from_amount": "0", "to_amount": "50000", "percentage": "2"},
+                {"from_amount": "50000", "to_amount": None, "percentage": "4"},
+            ],
+        },
+    )
+    customers = {
+        key: admin.call("GET", f"/api/v1/customers?search={tag}-{key}")[0]["id"]
+        for key in ("C1", "C3", "C4")
+    }
+    _bill_and_collect(admin, customers["C4"], product_p["id"], "20", "100")
+    _bill_and_collect(admin, customers["C1"], product_q["id"], "30", "100")
+    _bill_and_collect(admin, customers["C3"], product_q["id"], "40", "100")
+    for handle, amount in (("asha", "1000"), ("bala", "100000")):
+        admin.call(
+            "POST",
+            "/api/v1/sales-targets",
+            {
+                "salesman_id": users[handle],
+                "period_start": month_start,
+                "period_end": month_end,
+                "target_amount": amount,
+            },
+        )
+    built.say(
+        "Rules",
+        "firm-wide 4% collected; Asha 15% on -P; "
+        "Bala 2% to 50,000 then 4%, floor 1,000, bonus 2%",
+    )
+    built.say(
+        "Asha sold", f"20 {tag}-P to {tag}-C4 and 30 {tag}-Q to {tag}-C1, collected"
+    )
+    built.say("Bala sold", f"40 {tag}-Q to {tag}-C3, collected")
+    built.say(
+        "Targets",
+        f"{month_start}..{month_end}: Asha 1,000 (met), Bala 100,000 (missed)",
+    )
+
+
+def build_loyalty_points(built: Built) -> None:
+    """Make selling-invoiced with 200 points credited to Vijaya by hand.
+
+    The invoice earned under 10 points, and 50 are needed before any can be
+    spent; an adjustment is the scheme's own way to credit a goodwill
+    balance, and posts nothing.
+    """
+    _selling_stage(built, "invoiced")
+    firm = built.known[f"{built.suffix.upper()}-S"]
+    admin = built.admin.as_user(built.admin.token or "", built.firms[firm.code])
+    customer = admin.call(
+        "GET", f"/api/v1/customers?search={built.suffix.upper()}-C01"
+    )[0]
+    admin.call(
+        "POST",
+        "/api/v1/loyalty/adjust",
+        {"customer_id": customer["id"], "points": "200", "reason": "Fixture goodwill"},
+    )
+    built.say(
+        "Points", "200 credited to Vijaya by adjustment, plus what the invoice earned"
+    )
 
 
 #: Every fixture, what it builds, and the cases that name it.
@@ -2627,12 +2852,12 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "selling-firm": (
         "A Wholesale firm of the run's own priced like WHOLE01: lists, offers, TCS.",
         build_selling_firm,
-        "TC-SELL-001..006",
+        "TC-SELL-001..006, TC-INCENT-001, TC-INCENT-002, TC-INCENT-004",
     ),
     "selling-ordered": (
         "selling-firm + Vijaya's order for 12 (coupon WELCOME10), approved.",
         build_selling_ordered,
-        "TC-SELL-007..009, TC-SELL-017",
+        "TC-SELL-007..009, TC-SELL-017, TC-INCENT-003",
     ),
     "selling-delivered": (
         "selling-ordered + notes for 5 and 7, dispatched.",
@@ -2653,6 +2878,16 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         "A Wholesale firm of the run's own with routes, rounds, salespeople, beats.",
         build_territory_firm,
         "TC-TERR-001..005",
+    ),
+    "commission-firm": (
+        "territory-firm + commission rules, targets, and three sales collected.",
+        build_commission_firm,
+        "TC-INCENT-006..008",
+    ),
+    "loyalty-points": (
+        "selling-invoiced + 200 loyalty points credited to Vijaya.",
+        build_loyalty_points,
+        "TC-INCENT-005",
     ),
 }
 

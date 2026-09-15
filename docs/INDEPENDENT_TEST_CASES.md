@@ -7,7 +7,7 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Converted so far:** plan sections 2 to 9, 11, 15 and 16 to 27 (25 was the pilot) — see the
+**Converted so far:** plan sections 2 to 11, 15 and 16 to 27 (25 was the pilot) — see the
 table of contents below. Other sections move here one at a time; until then
 they stay in the plan.
 
@@ -1070,6 +1070,116 @@ admin**.
 ### Known defects found while writing these cases
 
 - **D-11-1 — A new firm's territory hierarchy is not saved until somebody saves it, and reading it invents ids.** `GET /api/v1/sales-territories/hierarchy-levels` on a fresh store answers REGION / TERRITORY / ROUTE with a **different config id and level ids on every read** — defaults built and never committed. Creating a territory against one of those ids is refused: "Configured hierarchy level is not active." Saving the hierarchy (the same levels, unchanged) makes them real; the fixture does that. Whether the desktop's Geography screen saves first was not checked — if it does not, a new firm cannot create its first territory.
+
+---
+
+## Pricing, promotions and incentives
+
+Price Lists, Promotions, Commission and Targets are under **Sales**; Loyalty
+under **Masters**; the promotion and loyalty reports under **Reports**.
+Pricing and loyalty cases use the selling fixtures (see *Selling*, above);
+commission uses `commission-firm`:
+
+| Fixture | Starts you with |
+| --- | --- |
+| `loyalty-points` | `selling-invoiced` — Vijaya's invoice for 483.21 — plus **200 points** credited to Vijaya by adjustment |
+| `commission-firm` | `territory-firm` plus: firm-wide **4%** of money collected; **Asha 15%** on `<SUFFIX>-P` only; **Bala** a ladder (2% to 50,000 then 4%, nothing below 1,000, 2% bonus when his target is met). Asha sold 20 `-P` (2,360.00) and 30 `-Q` (3,540.00); Bala 40 `-Q` (4,720.00); **all collected** today. This month's targets: Asha 1,000 (met), Bala 100,000 (missed) |
+
+### TC-INCENT-001 — A price list is a ladder, and a promotion still outranks it
+
+- **Covers:** plan 10.1, 10.2
+- **Fixture:** `selling-firm`
+- **Steps**
+  1. As the fixture's **Firm admin**, Sales → **Price Lists** → select `STANDING` (do not open it).
+  2. Double-click `STANDING` → **Add product**: `<SUFFIX>-DET`, From qty **25**, Discount % **8** → Save.
+  3. Quotations → New for `<SUFFIX>-C01`, DET qty **30** → Create draft → Revise.
+- **Expect**
+  - Step 1: the pane reads `STANDING · applies to Everyone`, "In force from 2000-01-01", and three rates for DET: `2%`, `from 15: 4.25%`, `from 18: 6.75%`. Products column 3 (it counts rate rows).
+  - Step 2: "Price list saved."; a fourth line `from 25: 8%`.
+  - Step 3: "Last priced at **7.5**% by a promotion" — BULK5 outranks the list at 25+.
+- **Leaves:** STANDING with a 25 break, in the fixture's store only.
+
+### TC-INCENT-002 — Editing an active promotion makes a new revision
+
+- **Covers:** plan 10.3
+- **Fixture:** `selling-firm`
+- **Steps:** Sales → **Promotions** → select `BULK5` → Edit → change only the Description → Save. Read the list and the selected row's pane.
+- **Expect:** "Promotion BULK5 saved as a new revision; the one you opened is now inactive."; a second BULK5 row appears. The pane reads "BULK5 · revision 2 · applies at 10" and "Applies when: line_quantity GREATER_OR_EQUAL 25.0000". An active offer is superseded, never rewritten — and its claims and limits follow the version group, not the row.
+- **Leaves:** BULK5 at revision 2.
+
+### TC-INCENT-003 — Promotion reports count a claim once, at approval
+
+- **Covers:** plan 10.4, 10.5, 10.6
+- **Fixture:** `selling-ordered` — one approved order used coupon `WELCOME10`.
+- **Steps:** Reports → Operational Reports → **Promotion performance**, **Coupon performance**, **Promotion claims**.
+- **Expect**
+  - Performance: `WELCOME` with 1 claim; BULK5, BIGORDER and CLEARANCE listed with 0.
+  - Coupons: `WELCOME10` with 1 claim; `WELCOME10B` listed at **0** — a code nobody presented is still listed.
+  - Claims: one row — WELCOME, coupon WELCOME10, Vijaya Stores <suffix>, SALES_ORDER, the order's number, benefit 25.20, **CLAIMED**.
+- **Leaves:** unchanged.
+
+### TC-INCENT-004 — An offer that does not stack ends the stack
+
+- **Covers:** plan 10.7
+- **Fixture:** `selling-firm`
+- **Steps:** Sales Orders → New for `<SUFFIX>-C01`: DET **60** at 84 (gross 5,040) → Create draft → Edit. Then Save order unchanged → Edit again.
+- **Expect:** under the line's blank box "Last priced at **7.5**% by a promotion" (BULK5); the **Discount on the whole order** box blank with "Last taken off: 200 by a promotion." (BIGORDER). CLEARANCE (1% at 40+, priority 30) did **not** apply: BIGORDER (priority 20) ends the stack. Both survive the unchanged save.
+- **Data (HTTP):** the order: `line_discount_total` 378.00, `bill_discount_amount` 200.00 (`bill_discount_source` promotion), grand total 5,265.16.
+- **Leaves:** a draft order.
+
+### TC-INCENT-005 — Loyalty: the scheme, a balance, and spending points settles a bill
+
+- **Covers:** plan 10.8, 10.9, 10.10, 10.11
+- **Fixture:** `loyalty-points`
+- **Steps**
+  1. Masters → **Loyalty**. Reports → Financial Reports → **Loyalty balances**.
+  2. Sales Invoices → select Vijaya's approved invoice → **Use points** → 100 → **Use them**.
+  3. Journal Entries → the top `LOY-RED-SI-…` → View. Customers → C01.
+  4. Use points again, 5000.
+  5. Reports → Operational Reports → **Points about to lapse**.
+- **Expect**
+  - Step 1: the banner "2 points per 100, worth 1 each and expire after 24 months. At least 50 before any can be spent."; the balances report lists Vijaya with **200** points worth 200.00.
+  - Step 2: "100 points used on SI-…".
+  - Step 3: Dr **2600 Loyalty Payable 100.00** / Cr **1100 Trade Receivables 100.00**. Outstanding **383.21** — 100 lower; the invoice's total and tax unchanged: the bill is **settled**, not discounted.
+  - Step 4: refused outright: "That customer holds 100.0000 points, not 5000.0000." No journal.
+  - Step 5: **empty** — nothing in this store is within 90 days of lapsing. *(WHOLE01's aged batches, and the oldest-first spending they showed, need points two years old; a fixture cannot age them.)*
+- **Leaves:** 100 points spent.
+
+### TC-INCENT-006 — Commission blends rates per line, and a ladder's floor is a round number
+
+- **Covers:** plan 10.12, 10.13
+- **Fixture:** `commission-firm`
+- **Steps:** as the fixture's **Firm admin**, Sales → **Commission** → **Collected** view, from `2026-04-01` to the end of this month → **Show**. Then Sales → **Targets** → **Achievement** for this month.
+- **Expect**
+  - **Asha**: collected **5,900.00**, commission **495.60** — 15% of 2,360 on `-P` plus 4% of 3,540 on everything else: **8.4%**, neither of the two rates that govern her. Target **Met**.
+  - **Bala**: collected **4,720.00**, commission **94.40** — exactly **2.00%**, the bottom band; above the 1,000 floor; target **Missed**, so no bonus.
+  - Achievement: Asha 1,000 target achieved; Bala 100,000 wanted, 4,720 invoiced (4.72%), 95,280 short.
+- **Data (HTTP):** `GET /api/v1/commission/report?from_date=2026-04-01&to_date=<month end>`; `GET /api/v1/sales-targets/achievement?from_date=…&to_date=…`.
+- **Leaves:** unchanged.
+
+### TC-INCENT-007 — Payouts: accrue, approve, pay, cancel
+
+- **Covers:** plan 10.14
+- **Fixture:** `commission-firm`
+- **Steps**
+  1. Commission → **Payouts** → **Accrue period** for this month → Accrue.
+  2. On Bala's DRAFT look for Pay; **Approve**; then **Pay** (paid on today, from `1000 Cash`).
+  3. **Cancel** Asha's draft.
+  4. Accrue the same period again.
+- **Expect**
+  - Step 1: "2 payout(s) accrued." — Asha **495.60**, Bala **94.40**, both DRAFT.
+  - Step 2: no Pay on a draft (**(HTTP)** paying it: 422, "Only an approved payout can be paid. Approve it first, which is what recognises the debt."). Approve: "… approved. The cost and the debt are on the ledger."; Pay: "… paid." Journal Entries: `COMM-YYYYMM-<id>` (Dr Commission Expense / Cr Commission Payable) and `COMM-YYYYMM-<id>-PAY` (Dr Commission Payable / Cr Cash).
+  - Step 3: "… cancelled. The period is free to accrue again." — nothing posted, because a draft had no journal.
+  - Step 4: refused — "A commission payout already covers part of that period for this salesman (…)." Bala's paid payout still holds it; accruing for Asha alone would succeed.
+- **Leaves:** Bala paid, Asha cancelled.
+
+### TC-INCENT-008 — Whoever states a debt must not move the cash
+
+- **Covers:** plan 10.15
+- **Fixture:** `commission-firm`
+- **Steps:** sign in as the fixture's **Asha** (`SALES_EXECUTIVE`), expand Sales. **(HTTP)** as Asha: `GET /api/v1/commission/payouts`; `POST /api/v1/commission/payouts/{any id}/approve` and `/pay`.
+- **Expect:** no Commission, Targets, Price Lists or Promotions under Sales. All three calls **403**.
+- **Leaves:** unchanged.
 
 ---
 
