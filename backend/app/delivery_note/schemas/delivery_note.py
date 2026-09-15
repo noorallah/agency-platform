@@ -174,6 +174,11 @@ class DeliveryNoteLineResponse(DeliveryNoteSchema):
     line_number: int
     sales_order_line_id: UUID
     product_id: UUID
+    # As on the sales invoice line: `description` is nullable and the seeded
+    # documents leave it null, so a client holding a line otherwise has only
+    # a UUID to label it with.
+    product_code: str | None = None
+    product_name: str | None = None
     description: str | None
     ordered_quantity: Decimal
     reserved_quantity: Decimal

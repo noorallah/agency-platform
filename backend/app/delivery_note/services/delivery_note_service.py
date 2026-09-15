@@ -762,6 +762,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                 )
             ).all()
         )
+        products = self._products_named(lines)
         return DeliveryNoteResponse(
             id=row.id,
             version=row.version,
@@ -807,7 +808,10 @@ class DeliveryNoteService(TransactionalDocumentService):
             is_deleted=row.is_deleted,
             created_at=row.created_at,
             updated_at=row.updated_at,
-            lines=[self._line_response(item) for item in lines],
+            lines=[
+                self._line_response(item, products.get(item.product_id))
+                for item in lines
+            ],
             attachments=[self._attachment_response(item) for item in attachments],
             notes=[self._note_response(item) for item in notes],
             duplicate_warning=self._duplicate_warning(row),
@@ -2155,5 +2159,30 @@ class DeliveryNoteService(TransactionalDocumentService):
     def _note_response(self, row: DeliveryNoteNote) -> DeliveryNoteNoteResponse:
         return DeliveryNoteNoteResponse.model_validate(row)
 
-    def _line_response(self, row: DeliveryNoteLine) -> DeliveryNoteLineResponse:
-        return DeliveryNoteLineResponse.model_validate(row)
+    def _products_named(self, lines: list[DeliveryNoteLine]) -> dict[UUID, Product]:
+        """Return the products a note's lines name, keyed by id.
+
+        One query for the whole document rather than one per line. Soft-deleted
+        products are included deliberately: a line names what was dispatched,
+        and a product retired since still has to be nameable on the note that
+        shipped it.
+        """
+        ids = {line.product_id for line in lines}
+        if not ids:
+            return {}
+        return {
+            product.id: product
+            for product in self._session.scalars(
+                select(Product).where(Product.id.in_(ids))
+            ).all()
+        }
+
+    def _line_response(
+        self, row: DeliveryNoteLine, product: Product | None = None
+    ) -> DeliveryNoteLineResponse:
+        return DeliveryNoteLineResponse.model_validate(row).model_copy(
+            update={
+                "product_code": getattr(product, "code", None),
+                "product_name": getattr(product, "name", None),
+            }
+        )
