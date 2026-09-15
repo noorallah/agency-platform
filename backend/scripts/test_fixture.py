@@ -1415,6 +1415,61 @@ def build_branch_master(built: Built) -> None:
     built.say("Import, clean", str(good))
 
 
+def build_config_firm(built: Built) -> None:
+    """Make ready-firm, plus a vendor and a product bought in packs of one kg.
+
+    A store of the run's own, because the cases here change what a whole
+    store holds: a firm-wide conversion rule reaches every product in it, and
+    a business profile's features reach every firm on the profile.
+    `<SUFFIX>-DET` carries its own PACK to KG rule at a factor of 1.
+    """
+    build_ready_firm(built)
+    firm = built.known[f"{built.suffix.upper()}-R"]
+    tag = built.suffix.upper()
+    admin = built.admin.as_user(built.admin.token or "", built.firms[firm.code])
+    units = {
+        u["code"]: u["id"]
+        for u in admin.call("GET", "/api/v1/uom-framework/uoms?page_size=100")
+    }
+    admin.call(
+        "POST",
+        "/api/v1/vendors",
+        {"code": f"{tag}-V", "name": f"Pack Supplier {built.suffix}"},
+    )
+    product = admin.call(
+        "POST",
+        "/api/v1/products",
+        {
+            "code": f"{tag}-DET",
+            "name": f"Detergent 1kg {built.suffix}",
+            "product_type": "STOCK_ITEM",
+            "tax_profile_group_code": "GST_18_LOCAL",
+            "purchase_price": "100",
+            "base_uom_id": units["KG"],
+            "inventory_uom_id": units["KG"],
+            "sales_uom_id": units["PACK"],
+            "purchase_uom_id": units["PACK"],
+        },
+    )
+    admin.call(
+        "POST",
+        "/api/v1/uom-framework/conversion-rules",
+        {
+            "product_id": product["id"],
+            "from_uom_id": units["PACK"],
+            "to_uom_id": units["KG"],
+            "conversion_factor": "1",
+            "effective_from": "2020-01-01",
+        },
+    )
+    built.say("Vendor", f"{tag}-V  (Pack Supplier {built.suffix})")
+    built.say(
+        "Product",
+        f"{tag}-DET  (Detergent 1kg {built.suffix}): buy in PACK, stock in KG",
+    )
+    built.say("Its own rule", "PACK -> KG, factor 1")
+
+
 #: Every fixture, what it builds, and the cases that name it.
 FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "firm-admin": (
@@ -1424,7 +1479,7 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         "TC-TMPL-001..004, TC-TMPL-011, TC-TMPL-015, TC-USER-003, TC-USER-004, "
         "TC-USER-009, TC-GRANT-002..004, TC-GRANT-006, TC-GRANT-008, TC-CASH-004, "
         "TC-AUDIT-003, TC-AUDIT-005, TC-LOOK-005, TC-SESS-002, TC-SESS-006, "
-        "TC-ISO-004",
+        "TC-ISO-004, TC-CONF-001..003, TC-CONF-005",
     ),
     "custom-role": (
         "firm-admin + a custom role with the four Night Desk codes.",
@@ -1485,7 +1540,7 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "sales-executive": (
         "A TEST01 user holding SALES_EXECUTIVE alone.",
         build_sales_executive,
-        "TC-TMPL-009, TC-GRANT-007, TC-AUDIT-006, TC-LOOK-005",
+        "TC-TMPL-009, TC-GRANT-007, TC-AUDIT-006, TC-LOOK-005, TC-CONF-001",
     ),
     "manual-hire": (
         "firm-admin + a TEST01 user with two roles picked by hand.",
@@ -1591,6 +1646,11 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         "A TEST02 admin, a default branch and warehouse, and two import files.",
         build_branch_master,
         "TC-MAST-004..007",
+    ),
+    "config-firm": (
+        "ready-firm + a vendor and a product with its own PACK->KG rule.",
+        build_config_firm,
+        "TC-CONF-004, TC-CONF-006",
     ),
 }
 

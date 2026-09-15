@@ -231,18 +231,22 @@ TC-FIELD-001 and TC-FIELD-003 in a firm of the run's own — and by defect
 
 ## 6. Configuration
 
-Most of these screens sit under **Administration → Configuration**, a sidebar entry that expands into Business Profiles, Tax Configuration, UOM & Packaging and Numbering Series. A parent row only expands; the screens are the leaves. **Ctrl+K** opens any screen by its name and is the quickest way in.
+**Moved to `docs/INDEPENDENT_TEST_CASES.md` on 2026-09-16**, as TC-CONF-001 to
+006. The cases that change a whole store — a business profile's features, a
+firm-wide conversion rule — run in the `config-firm` fixture's own store, so
+nothing is left behind in a firm another case reads, and "delete the firm-wide
+rule afterwards" is no longer a step anybody can forget. The numbering and
+simulator cases run in TEST01.
 
-| # | Case | Expected |
-| --- | --- | --- |
-| 6.1 | Administration → Configuration → **Numbering Series**, as `whole01.admin`. Then the same screen in the second client as `whole01.sales1` (same password). | As the admin, **New series**, **Edit** and **Retire** are offered on the toolbar. As `whole01.sales1`, none of the three are. |
-| 6.2 | Select the sales invoice series → **Edit** → scroll to the foot of the form, below the **Active** switch. Then click **New series** and look at the same spot. | On an existing series: a locked row with a padlock reading `Next number: N` and the reason ("The counter belongs to the server, which advances it under a lock..."); no box to type in. Change the Name, save, reopen: the next number is unchanged. On a new series: a **Start numbering at** box instead, helper "Usually 1...". |
-| 6.3 | **New series**: pick a document type, give it a code and name, switch **Restart numbering each financial year** on, switch **Include the financial year** off, Save. | A warning under the switches says the first document of April would repeat one from March, and to include the year or turn the restart off. The save is refused by the server with the same sentence and nothing is created. Switch Include the financial year back on and save: created. |
-| 6.4 | Select the sales invoice series → **Preview next**, twice. | Matches the pattern, e.g. `SI-2026-2027-000010`, is the number 6.2 showed locked, and is the same both times: a preview issues nothing. |
-| 6.5 | **As `master.ops`** with WHOLE01 selected (the Business Profiles branch is platform administration, gated on `PLATFORM_VIEW`; a firm administrator does not see it, by design): Administration → Configuration → Business Profiles → **Profiles**, edit `WHOLESALE`, and in the **Enabled features** picker tick `IMEI`, then Save | The save is refused with "These features are not implemented yet and cannot be enabled: IMEI." and the profile is unchanged. The six roadmap features (`IMEI`, `KITCHEN_MANAGEMENT`, `PRESCRIPTION_REQUIRED`, `PROJECT_MANAGEMENT`, `RECIPE_MANAGEMENT`, `SERVICE_CONTRACTS`) cannot be switched on at all; `COMMISSION` is no longer one of them. Ticking an ordinary feature such as `BARCODE` saves. The **Feature Flags** leaf beside it is the catalogue itself (name, description, active), not where a profile's features are chosen. The refusal appears in the summary at the top of the form, which scrolls into view; the dialog stays open and the profile's other fields are **not** written either (until 2026-09-12 they were -- BACKLOG §31.6). |
-| 6.6 | As `master.ops` (WHOLE01), same branch → **Mandatory Attributes** → **New**: profile `WHOLESALE`, category `Core Products`, attribute `MANUFACTURER`, mandatory ticked, Save. Then as `whole01.admin`: Products → **New**, fill the required fields, category Core Products, **Attributes** tab (appears once a category is chosen) with Manufacturer left empty, Save. Afterwards untick or delete the rule. | The product save is refused, naming `MANUFACTURER` as required for that category; nothing is created. Fill Manufacturer in and save: created. (Two optional rules, `PACK_SIZE` and `COUNTRY_OF_ORIGIN`, are seeded on WHOLESALE already.) |
-| 6.7 | Administration → Configuration → Tax Configuration → **Rule Simulator** (any WHOLE01 user with `TAX_SIMULATE`, e.g. `whole01.admin`). Transaction Type `SALES_INVOICE`, **Tax Profile** `GST_18_LOCAL`, Invoice Value `1000`, Run Simulation. Then change Transaction Type to `SALES_INTERSTATE` and run again. | Local: no rule matched, components CGST 9% = 90 and SGST 9% = 90, total 180. Interstate: matched rule `INTERSTATE_GST_18`, one component IGST 18% = 180, total 180, and the evaluation trace shows the rule matched. (Until 2026-09-12 the screen sent no profile and offered types no rule names, so every run answered zero and "No rule matched" -- BACKLOG §31.7.) |
-| 6.8 | Administration → Configuration → UOM & Packaging → **Conversion Rules**, as `whole01.admin`. The grid lists three product rules by code (`DETER1K` PACK→KG factor 1, `SHAMP180` BOTTLE→ML 180, `TOOTH150` TUBE→G 150). Click **Add**: Product left as *Firm-wide*, From unit `PACK`, To unit `KG`, Factor `2`, Save. Then Purchases → New order for `DETER1K`, quantity 10, **Purchase UOM** `PACK — Pack` from the line's dropdown (choosing the product fills its default units first; until 2026-09-12 these were id boxes), save and open the order. | The firm-wide rule appears in the grid beside the product rules. The order line shows **Base Qty 10**, not 20: the product's own factor of 1 outranks the firm-wide 2 (verified against the server: 10 PACK of DETER1K converts to 10 KG with the firm-wide rule in place, and to 20 KG for a product with no rule of its own). Delete the firm-wide rule afterwards. (Until 2026-09-12 the Add dialog asked for unit **ids** and sent a key the server forbids, so no rule could be created from the desktop at all.) |
+| Old row | Case |
+| --- | --- |
+| 6.1, 6.2 | TC-CONF-001 |
+| 6.3 | TC-CONF-002 |
+| 6.4 | TC-CONF-003 |
+| 6.5 | TC-CONF-004 |
+| 6.6 | TC-FIELD-003 |
+| 6.7 | TC-CONF-005 |
+| 6.8 | TC-CONF-006 |
 
 ## 7. Buying — order to payment
 

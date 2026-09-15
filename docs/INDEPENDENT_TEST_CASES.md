@@ -7,7 +7,7 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Converted so far:** plan sections 2 to 5 and 16 to 27 (25 was the pilot) — see the
+**Converted so far:** plan sections 2 to 6 and 16 to 27 (25 was the pilot) — see the
 table of contents below. Other sections move here one at a time; until then
 they stay in the plan.
 
@@ -502,6 +502,86 @@ warehouse rename its capability flags.
 - **Expect:** resolves to **Slot Check <suffix>**, level **Case**, **12** base units. No scanner needed: a scanner only types the digits and presses Enter.
 - **Data (HTTP):** `GET /api/v1/uom-framework/barcode-lookup?code=<barcode>` → `product_code`, `level_name: Case`, `base_quantity: 12`, `matched_field: barcode`.
 - **Leaves:** unchanged.
+
+---
+
+## Configuration — numbering, profiles, tax and units
+
+Most of these screens sit under **Administration → Configuration** (a parent
+row only expands; the screens are its leaves). **Ctrl+K** opens any screen by
+name.
+
+### TC-CONF-001 — Numbering series: who may change one, and a counter nobody types
+
+- **Covers:** plan 6.1, 6.2
+- **Fixture:** `firm-admin` and `sales-executive`
+- **Steps**
+  1. Sign in as the `firm-admin` fixture's **Firm admin** → Administration → Configuration → **Numbering Series**.
+  2. Select **SALES_INVOICE_DEFAULT** → Edit → scroll below the **Active** switch. Change the Name, save, reopen.
+  3. Press **New series** and look at the same spot.
+  4. Sign in as the `sales-executive` fixture's **Seller** and open the same screen.
+- **Expect**
+  - Step 1: **New series**, **Edit** and **Retire** offered.
+  - Step 2: a locked row with a padlock, `Next number: N`, and the reason ("The counter belongs to the server, which advances it under a lock..."); no box to type in. After the rename the next number is unchanged.
+  - Step 3: a **Start numbering at** box instead, helper "Usually 1...".
+  - Step 4: the list loads, and **none** of the three buttons is offered.
+- **Leaves:** a renamed sales invoice series in TEST01.
+
+### TC-CONF-002 — A yearly restart without the year is refused
+
+- **Covers:** plan 6.3
+- **Fixture:** `firm-admin`
+- **Steps**
+  1. As the fixture's **Firm admin**, Numbering Series → **New series**: document type Sales Invoice, code `<SUFFIX>-SI`, name `Check <suffix>`, **Restart numbering each financial year** on, **Include the financial year** off → Save.
+  2. Switch Include the financial year on → Save.
+- **Expect**
+  - Step 1: a warning under the switches says the first document of April would repeat one from March; the save is refused with the server's sentence — "This rule restarts its numbering every financial year, so the number has to include the year -- without it the first document of each new year repeats a number the firm has already issued. …" — and nothing is created.
+  - Step 2: created.
+- **Leaves:** a second sales invoice series in TEST01 (not the default).
+
+### TC-CONF-003 — Previewing the next number issues nothing
+
+- **Covers:** plan 6.4
+- **Fixture:** `firm-admin`
+- **Steps:** as the fixture's **Firm admin**, select **SALES_INVOICE_DEFAULT** → **Preview next**, twice.
+- **Expect:** a number matching the pattern — `SI-2026-2027-00000N` — equal to the locked `Next number` and the **same both times**. A preview issues nothing.
+- **Data (HTTP):** `GET /api/v1/document-framework/numbering-rules/{id}/preview`, twice → the same string.
+- **Leaves:** unchanged.
+
+### TC-CONF-004 — A roadmap feature cannot be switched on
+
+- **Covers:** plan 6.5
+- **Fixture:** `config-firm` — a store of the run's own, so a profile edit here reaches no other firm.
+- **Steps**
+  1. Sign in as the fixture's **Platform admin**, switch into the fixture's firm → Administration → Configuration → Business Profiles → **Profiles** → edit **WHOLESALE** → in **Enabled features** tick **IMEI** → Save.
+  2. Untick IMEI; tick **BARCODE** (if it is not already) → Save.
+- **Expect**
+  - Step 1: refused in the summary at the top of the form, which scrolls into view: "These features are not implemented yet and cannot be enabled: IMEI." The dialog stays open and **nothing** is written — not the features, and not the profile's other fields (until 2026-09-12 they were — BACKLOG §31.6). The six roadmap features: `IMEI`, `KITCHEN_MANAGEMENT`, `PRESCRIPTION_REQUIRED`, `PROJECT_MANAGEMENT`, `RECIPE_MANAGEMENT`, `SERVICE_CONTRACTS`.
+  - Step 2: saves. The **Feature Flags** leaf beside it is the catalogue, not where a profile's features are chosen.
+- **Data (HTTP):** `PUT /api/v1/business-framework/profiles/{WHOLESALE id}/features` with the current ids plus IMEI's → **422**, the same sentence.
+- **Leaves:** the fixture store's WHOLESALE profile, with BARCODE on.
+
+### TC-CONF-005 — The tax simulator: CGST and SGST within a state, IGST across
+
+- **Covers:** plan 6.7
+- **Fixture:** `firm-admin`
+- **Steps:** as the fixture's **Firm admin**, Administration → Configuration → Tax Configuration → **Rule Simulator**. Transaction type `SALES_INVOICE`, tax profile `GST_18_LOCAL`, invoice value `1000` → Run Simulation. Then transaction type `SALES_INTERSTATE` → Run.
+- **Expect:** local — no rule matched, CGST 9% = 90 and SGST 9% = 90, total **180**. Interstate — matched rule **`INTERSTATE_GST_18`**, one component IGST 18% = 180, total **180**, and the trace shows the rule matched. (TEST01's rules come from the GST template, the same six the demo firms carry.)
+- **Data (HTTP):** `POST /api/v1/tax-framework/simulate` with the same values → `total_tax_amount` 180 both times; `matched_rule_id` null, then INTERSTATE_GST_18's id.
+- **Leaves:** unchanged.
+
+### TC-CONF-006 — A product's own conversion outranks the firm-wide one
+
+- **Covers:** plan 6.8
+- **Fixture:** `config-firm` — `<SUFFIX>-DET` is bought in PACK and stocked in KG, with its own PACK→KG rule at factor **1**.
+- **Steps**
+  1. As the fixture's **Platform admin** in the fixture's firm (or its **Firm admin**), Administration → Configuration → UOM & Packaging → **Conversion Rules** → **Add**: Product *Firm-wide*, From `PACK`, To `KG`, Factor `2` → Save.
+  2. Purchases → Purchase Orders → New: vendor `<SUFFIX>-V`, product `<SUFFIX>-DET`, quantity **10**, Purchase UOM `PACK — Pack` → Save; open the order.
+- **Expect**
+  - Step 1: the firm-wide rule appears beside the product's own.
+  - Step 2: the line shows **Base Qty 10**, not 20 — the product's factor of 1 outranks the firm-wide 2. (Ranked explicitly rather than by NULL sort, which PostgreSQL and SQLite order oppositely.)
+- **Data (HTTP):** the order's line carries `conversion_factor` 1 and `base_quantity` 10. *(Driven with two firm-wide PACK→KG rules at 2 in place: still 10.)*
+- **Leaves:** a firm-wide rule and a draft order in the fixture's store.
 
 ---
 
