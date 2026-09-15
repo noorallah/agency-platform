@@ -1,5 +1,12 @@
 # Manual UI test plan
 
+> **Since 2026-09-16 the cases live in `docs/INDEPENDENT_TEST_CASES.md`.**
+> Every numbered section below (2 to 27) is now a pointer and an old-row →
+> case map; each case there runs on its own from a fixture
+> (`backend/scripts/test_fixture.py`), in any order. This file keeps Part 1
+> (bringing the environment up), the seed facts the old rows rested on, and
+> Part 4 (known gaps).
+
 Scripted manual tests for the Flutter desktop client against a real backend,
 **organised by module** so a session can take one module at a time and stop
 cleanly at the end of it.

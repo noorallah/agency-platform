@@ -7,9 +7,13 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Converted so far:** plan sections 2 to 27 (25 was the pilot) — see the
-table of contents below. Other sections move here one at a time; until then
-they stay in the plan.
+**Every numbered section of the plan, 2 to 27, is here.** The plan keeps each
+section's heading with a pointer and an old-row → case map, and its Part 1
+(bringing the environment up) and Part 4 (known gaps) are unchanged.
+
+**Known defects found while writing the cases** are listed at the end of the
+section they belong to — D-2-1, D-8-1, D-11-1, D-20-1 and D-27-1 to D-27-4.
+None was fixed in this pass; each is for the owner.
 
 ---
 
@@ -38,19 +42,23 @@ Fixture 'role-holder' ready
 
 `scripts\test_fixture.py list` shows every fixture and the cases that use it.
 
-### 2. Everything happens in TEST01 and TEST02
+### 2. Where a fixture's data lives
 
-Fixtures work in two firms of their own, each in a schema of its own:
+Fixtures work in firms of their own — never the four demo firms:
 
 | Firm | Schema | For |
 | --- | --- | --- |
 | **TEST01** | `test_fixtures` | almost every case |
 | **TEST02** | `test_fixtures_2` | cases needing somebody in two firms, or two firms kept apart |
 | **TESTSH1**, **TESTSH2** | `firm_shared` | only the cases *about* the shared store; built the first time `shared-pair` runs |
-| `<SUFFIX>-U`, `-F`, `-R` | `fx_<suffix>_u` … | the firm-setup cases, which need a firm nobody has finished; a new one per run |
+| `<SUFFIX>-U`, `-F`, `-R` | `fx_<suffix>_u` … | the firm-setup and custom-field cases, which need a firm nobody has finished, or a store no other case reads |
+| `<SUFFIX>-S`, `-T`, `-G`, `-P`, `-E` | `fx_<suffix>_s` … | selling and pricing, territory and commission, GST compliance, pharmacy batches, electronics serials: cases that change something firm-wide (a price list, a promotion, TCS, a credit policy, a profile) get a store of their own, built afresh each run — **a minute or two**, because it provisions a schema |
 
+The fixture prints which firm and schema it used on its **Tables** line.
 The demo firms are never touched, and a table check against those schemas
-shows only test data. The first fixture run builds both — create, provision,
+shows only test data. **TEST01 accumulates** every run's customers, products,
+orders and users, so no case counts everything on a screen. The first fixture
+run builds TEST01 and TEST02 — create, provision,
 open the books, GST template, head office, the Wholesale profile — through the
 same endpoints plan section 27 tests; every later run finds them and moves on.
 `scripts\test_fixture.py baseline` does only that.
@@ -3377,10 +3385,15 @@ Recorded for the owner, **not fixed** — this pass changes documents only.
 
 ---
 
-## Adding the next section
+## Adding a case
+
+Every section is here now, so what follows is for a **new** case — a new
+feature, or a defect worth guarding against by hand.
+
 
 1. List what each row needs to exist before it starts — that is the fixture.
 2. Add the fixture to `backend/scripts/test_fixture.py`, built from the API, composing the existing blocks where it can.
 3. **Run the fixture and drive every expectation against the backend** before writing it down; take sidebar and tab lists from `ModuleVisibility`, not from the permission table.
 4. Give each case a stable `TC-AREA-NNN` id and the six parts above. IDs do not change when cases are added, which plan section numbers did.
-5. Replace the section in `MANUAL_UI_TEST_PLAN.md` with a pointer and a row → case map, so there is one version and not two.
+5. Write it here, at the end of the section it belongs to. Do not add rows to `MANUAL_UI_TEST_PLAN.md` — that file is pointers now, so there is one version and not two.
+6. Use `by_code` for a firm's HO and MAIN, never a list's first row, and set a product's fields at creation: a product `PUT` replaces every editable field.
