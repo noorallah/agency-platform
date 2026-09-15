@@ -172,12 +172,12 @@ Settlement _settlement({
 ///
 /// The picker is a `RawAutocomplete` rather than a dropdown as of
 /// 2026-09-15 -- a distributor with hundreds of customers was being handed a
-/// scrollbar at the till. Tapping the field opens the whole list; the options
-/// show the name with the code beneath it.
+/// scrollbar at the till. Tapping the field opens the whole list; each option
+/// reads `CODE  Name` on one line, so match on a fragment.
 Future<void> _chooseParty(WidgetTester tester, String name) async {
   await tester.tap(find.byType(TextFormField).first);
   await tester.pumpAndSettle();
-  await tester.tap(find.text(name).last);
+  await tester.tap(find.textContaining(name).last);
   await tester.pumpAndSettle();
 }
 
@@ -668,21 +668,21 @@ void main() {
     // Tapping with nothing typed offers everybody.
     await tester.tap(find.byType(TextFormField).first);
     await tester.pumpAndSettle();
-    expect(find.text('Vijaya Stores'), findsOneWidget);
-    expect(find.text('Anand Agencies'), findsOneWidget);
+    expect(find.textContaining('Vijaya Stores'), findsOneWidget);
+    expect(find.textContaining('Anand Agencies'), findsOneWidget);
 
     // By name.
     await tester.enterText(find.byType(TextFormField).first, 'anand');
     await tester.pumpAndSettle();
-    expect(find.text('Anand Agencies'), findsOneWidget);
-    expect(find.text('Vijaya Stores'), findsNothing);
+    expect(find.textContaining('Anand Agencies'), findsOneWidget);
+    expect(find.textContaining('Vijaya Stores'), findsNothing);
 
     // And by code, because either is what somebody has in front of them --
     // a code off a bill, a name off a cheque.
     await tester.enterText(find.byType(TextFormField).first, 'MEDI01');
     await tester.pumpAndSettle();
-    expect(find.text('Classic Traders'), findsOneWidget);
-    expect(find.text('Anand Agencies'), findsNothing);
+    expect(find.textContaining('Classic Traders'), findsOneWidget);
+    expect(find.textContaining('Anand Agencies'), findsNothing);
 
     // A search matching nobody says so rather than showing an empty sheet.
     await tester.enterText(find.byType(TextFormField).first, 'zzzz');

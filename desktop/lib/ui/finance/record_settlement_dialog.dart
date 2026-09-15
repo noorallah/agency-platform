@@ -497,10 +497,14 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
                   itemCount: options.length,
                   itemBuilder: (context, index) {
                     final PartyOption party = options.elementAt(index);
+                    // One line, `CODE  Name`, as the dropdown showed it. A
+                    // two-line row with the code beneath was tried and the
+                    // owner preferred this: a list of codes down the left
+                    // edge is what you scan, and stacking halves how many
+                    // rows fit above the fold.
                     return ListTile(
                       dense: true,
-                      title: Text(party.name, overflow: TextOverflow.ellipsis),
-                      subtitle: Text(party.code),
+                      title: Text(party.label, overflow: TextOverflow.ellipsis),
                       onTap: () => onOptionSelected(party),
                     );
                   },
