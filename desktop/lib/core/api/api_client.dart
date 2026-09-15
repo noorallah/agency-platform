@@ -3943,6 +3943,18 @@ class ApiClient {
   Future<Json> loyaltySettings() async =>
       _unwrapMap(await request('GET', '/api/v1/loyalty/settings'));
 
+  /// Change the firm's scheme. Send only what is being changed.
+  ///
+  /// The server dumps with `exclude_unset`, so an omitted key means *leave it
+  /// alone* -- which matters here more than usual, because a full write would
+  /// reset a conversion rate the firm had agreed with its customers. An
+  /// **explicit null** on `expiry_months` is a real instruction: points do not
+  /// expire. Zero would mean they expire the day they are earned, so the two
+  /// are not the same value and the caller has to be able to say which.
+  Future<Json> updateLoyaltySettings(Json changes) async => _unwrapMap(
+        await request('PUT', '/api/v1/loyalty/settings', body: changes),
+      );
+
   Future<List<Json>> loyaltyEntries({String? customerId}) async {
     final Json response = await request(
       'GET',

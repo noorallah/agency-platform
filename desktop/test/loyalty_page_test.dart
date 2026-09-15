@@ -37,6 +37,10 @@ class _LoyaltyApi extends ApiClient {
   final Json settings;
   final List<Json> entries;
 
+  /// Every write the screen makes, so a test can read the payload rather than
+  /// only whether a dialog appeared.
+  final List<Json> written = <Json>[];
+
   @override
   Future<Json> request(
     String method,
@@ -48,6 +52,10 @@ class _LoyaltyApi extends ApiClient {
     int? expectedVersion,
   }) async {
     if (path.endsWith('/settings')) {
+      if (method == 'PUT') {
+        written.add(Map<String, dynamic>.from(body ?? const <String, dynamic>{}));
+        return <String, dynamic>{'data': settings};
+      }
       return <String, dynamic>{'data': settings};
     }
     return <String, dynamic>{'data': entries};
@@ -160,5 +168,77 @@ void main() {
 
     expect(find.textContaining('view loyalty permission'), findsOneWidget);
     expect(find.textContaining('Kumar Stores'), findsNothing);
+  });
+
+  testWidgets('the scheme can be opened and changed, not only read',
+      (tester) async {
+    // `PUT /api/v1/loyalty/settings` shipped with `LOYALTY_MANAGE_SETTINGS`
+    // seeded and granted, and no way to call it: `api_client.dart` carried
+    // only the GET. The orphan-route guard asks whether a *path* is named,
+    // not whether a *method* is, so the write was masked by its own read.
+    // Found at plan step 21.4 on 2026-09-15.
+    final _LoyaltyApi api = _LoyaltyApi(settings: _settings());
+    await _pump(
+      tester,
+      api,
+      permissions: _permissions(
+          perms: const ['LOYALTY_VIEW', 'LOYALTY_MANAGE_SETTINGS']),
+    );
+
+    await tester.tap(find.text('Scheme settings'));
+    await tester.pumpAndSettle();
+    expect(find.text('Loyalty scheme'), findsOneWidget);
+
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.written, hasLength(1));
+    expect(api.written.single['points_per_amount'], '2');
+    expect(api.written.single['minimum_redemption_points'], 50);
+  });
+
+  testWidgets('switching expiry off sends an explicit null, not an omission',
+      (tester) async {
+    // Null means points never expire and zero would mean they expire the day
+    // they are earned, so the two are different answers -- and the server
+    // dumps with `exclude_unset`, where an *omitted* key means "leave it
+    // alone". Sending nothing would silently keep the old expiry.
+    final _LoyaltyApi api = _LoyaltyApi(settings: _settings(expiryMonths: 24));
+    await _pump(
+      tester,
+      api,
+      permissions: _permissions(
+          perms: const ['LOYALTY_VIEW', 'LOYALTY_MANAGE_SETTINGS']),
+    );
+
+    await tester.tap(find.text('Scheme settings'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Points expire'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.written.single.containsKey('expiry_months'), isTrue,
+        reason: 'omitting it would mean "leave it alone"');
+    expect(api.written.single['expiry_months'], isNull);
+  });
+
+  testWidgets('without the settings permission the scheme opens read-only',
+      (tester) async {
+    // Offered to anybody who may read the scheme: the banner states the rate,
+    // and somebody asking why a balance is what it is should reach the rule
+    // behind it. Saving is what needs the permission.
+    final _LoyaltyApi api = _LoyaltyApi(settings: _settings());
+    await _pump(tester, api);
+
+    await tester.tap(find.text('Scheme settings'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('manage loyalty settings permission'),
+        findsOneWidget);
+    final FilledButton save = tester.widget<FilledButton>(
+      find.widgetWithText(FilledButton, 'Save'),
+    );
+    expect(save.onPressed, isNull);
   });
 }
