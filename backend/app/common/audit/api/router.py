@@ -12,6 +12,7 @@ There is deliberately no cross-firm view. Reading every firm's history means
 iterating firm stores, which no single query can do.
 """
 
+from collections.abc import Sequence
 from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
@@ -20,6 +21,7 @@ from fastapi import APIRouter, Depends, Header, Query
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.audit.models import AuditLog
 from app.common.audit.schemas import AuditLogFilters, AuditLogResponse
 from app.common.audit.services import AuditLogReader
 from app.core.constants import MAX_PAGE_SIZE
@@ -30,7 +32,7 @@ from app.core.pagination import PaginationParams
 from app.core.responses.models import PaginatedResponse
 from app.core.security.authorization import Principal, require_permission
 from app.firms.models import Firm
-from app.identity.models import UserFirm
+from app.identity.models import User, UserFirm
 
 router = APIRouter(
     prefix="/api/v1/audit-logs",
@@ -101,6 +103,36 @@ def audit_scope(
     return AuditScope(principal, x_firm_id)
 
 
+def _named(rows: Sequence[AuditLog], platform_db: Session) -> list[AuditLogResponse]:
+    """Attach the actor's name and email to each row.
+
+    One query for the page rather than one per row. Read on the **platform**
+    session whatever trail these rows came from: `users` exists only in the
+    platform schema, so a firm store cannot join to it -- the eighth
+    occurrence of that shape is recorded in `CLAUDE.md`, and this is the
+    sanctioned way round it, the same session `list_events_with` merges from.
+
+    An actor with no matching user keeps a null name rather than being
+    dropped: a deleted person's actions stay on the record, which is most of
+    the point of having one.
+    """
+    responses = [AuditLogResponse.model_validate(row) for row in rows]
+    actor_ids = {row.actor_id for row in responses if row.actor_id is not None}
+    if not actor_ids:
+        return responses
+    people = {
+        user_id: (full_name, email)
+        for user_id, full_name, email in platform_db.execute(
+            select(User.id, User.full_name, User.email).where(User.id.in_(actor_ids))
+        )
+    }
+    for response in responses:
+        found = people.get(response.actor_id) if response.actor_id else None
+        if found is not None:
+            response.actor_name, response.actor_email = found
+    return responses
+
+
 @router.get("", response_model=PaginatedResponse[AuditLogResponse])
 def list_audit_logs(
     scope: Annotated[AuditScope, Depends(audit_scope)],
@@ -152,6 +184,6 @@ def list_audit_logs(
             descending=sort_direction == "desc",
         )
     return PaginatedResponse(
-        data=[AuditLogResponse.model_validate(row) for row in rows],
+        data=_named(rows, platform_db),
         pagination=params.metadata(total),
     )

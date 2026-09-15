@@ -15,6 +15,8 @@ class AuditLogEntry {
     required this.entityType,
     required this.entityId,
     required this.actorId,
+    this.actorName = '',
+    this.actorEmail = '',
     required this.firmId,
     required this.beforeData,
     required this.afterData,
@@ -28,6 +30,24 @@ class AuditLogEntry {
   final String entityType;
   final String entityId;
   final String actorId;
+
+  /// Who did it, in words. An audit trail's first question is "who", and an
+  /// id answers it with a UUID -- the screen showed what changed, when, and
+  /// from which address, and nothing about the person. Empty where the actor
+  /// has since been deleted, or where nobody did it.
+  final String actorName;
+  final String actorEmail;
+
+  /// The actor as somebody would name them, falling back through what is
+  /// known. Never the raw id: an id on screen is what this exists to replace.
+  String get actorLabel {
+    if (actorName.isNotEmpty && actorEmail.isNotEmpty) {
+      return '$actorName · $actorEmail';
+    }
+    if (actorName.isNotEmpty) return actorName;
+    if (actorEmail.isNotEmpty) return actorEmail;
+    return actorId.isEmpty ? 'the system' : 'a deleted user';
+  }
   final String firmId;
   final Map<String, dynamic> beforeData;
   final Map<String, dynamic> afterData;
@@ -63,6 +83,8 @@ class AuditLogEntry {
       entityType: stringValue(json['entity_type']),
       entityId: stringValue(json['entity_id']),
       actorId: stringValue(json['actor_id']),
+      actorName: stringValue(json['actor_name']),
+      actorEmail: stringValue(json['actor_email']),
       firmId: stringValue(json['firm_id']),
       beforeData: side(json['before_data']),
       afterData: side(json['after_data']),

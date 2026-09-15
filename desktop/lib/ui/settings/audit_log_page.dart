@@ -207,7 +207,10 @@ class _AuditLogPageState extends State<AuditLogPage> {
             selected: row.id == _selected?.id,
             dense: true,
             title: Text('${row.action}  ·  ${row.entityType}'),
-            subtitle: Text(row.createdAt),
+            // Who, then when. The list used to give neither -- an action and
+            // an entity type, which is the same two words for every row a
+            // busy day produces.
+            subtitle: Text('${row.actorLabel}  ·  ${row.createdAt}'),
             onTap: () => setState(() => _selected = row),
           );
         },
@@ -230,6 +233,8 @@ class _AuditLogPageState extends State<AuditLogPage> {
             '${row.entityType} · ${row.entityId}',
             style: Theme.of(context).textTheme.bodySmall,
           ),
+          Text('By ${row.actorLabel}',
+              style: Theme.of(context).textTheme.bodySmall),
           Text(row.createdAt, style: Theme.of(context).textTheme.bodySmall),
           if (row.ipAddress.isNotEmpty)
             Text(
