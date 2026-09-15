@@ -402,38 +402,18 @@ Sign in as `whole01.sales1@agency.local` (Asha, `SALES_EXECUTIVE`: `CUSTOMER_VIE
 
 ## 16. Who a user is — the four tiers
 
-New on 2026-09-05 (#235–#237). There are four kinds of user and they are not
-interchangeable:
+**Moved to `docs/INDEPENDENT_TEST_CASES.md` on 2026-09-16**, as TC-TIER-001 to
+003. The section no longer changes `superadmin`'s scope by SQL and back: the
+`platform-operator` fixture makes a `PLATFORM`-scope administrator of its own,
+a member of TEST01 and TEST02 with no roles, which is the shape 16.3 needs.
 
-| Tier | Who | Reaches |
-| --- | --- | --- |
-| 1 | Platform operator (`PLATFORM` scope) | Creates firms and their people, provisions storage, sets a firm up until it works. **Refused a firm's books.** |
-| 2 | All-firms super user (`ALL_FIRMS` scope) | Everything, in every firm, without needing a membership. |
-| 3 | Firm administrator (`FIRM_ADMIN`) | Everything inside their own firm, including its users and their access. |
-| 4 | Firm staff | The modules their job needs. |
-
-`platform-admin@agency.local`, `master.ops@agency.local` and
-`superadmin@agency.local` are all **tier 2** — the migration left every existing
-designation exactly as it was (re-read from `platform.platform_admins` on
-2026-09-15: all three `ALL_FIRMS`). There is no seeded tier-1 account; 16.1 makes
-one, because the tier cannot be tested without one.
-
-Facts the rows rest on, re-derived on 2026-09-15: `superadmin` was seeded by
-`generate_sample_data.py`, so its password is **`Password@123`**, not the demo
-firms' `DemoAdmin@12345` — five wrong attempts lock it for 15 minutes ("This
-account is locked after too many failed sign-in attempts…"). It is a
-**member of all four demo firms** (ELEC01 primary, FOOD01, MEDI01, WHOLE01) and
-holds **no roles** in any of them. There is no screen for a platform
-administrator's scope, which is why 16.1 is SQL.
-
-| # | Case | Expected |
-| --- | --- | --- |
-| 16.1 **(SQL)** | `UPDATE platform.platform_admins SET scope = 'PLATFORM' WHERE user_id = (SELECT id FROM platform.users WHERE email = 'superadmin@agency.local');` (or ask for it to be run), then sign in as `superadmin@agency.local` / `Password@123` | Necessary setup. Put it back to `ALL_FIRMS` when you are done (16.6), or that account loses every firm's books. *(If the account's password has been changed from My profile -- it was during the 2026-09-15 run -- use the new one; two wrong tries already count towards the five that lock it.)* |
-| 16.2 | As that user, on **Platform** (where a platform administrator always lands): Dashboard, Administration → Users, Roles & Permissions, Firms, User Templates, User-Firm Assignments; Settings → Audit Logs, Diagnostics | All offered. Running the platform is their job. |
-| 16.3 | As that user: Sales, Purchases, Finance, Inventory in the sidebar; then open the firm switcher and switch into **WHOLE01** | **Not offered** on Platform. Their token carries **33** permission codes -- firm, user, role, permission, platform and system administration, none operational. The switcher still lists the **four firms they are a member of** (a `PLATFORM` administrator is not widened to every firm, but memberships they genuinely hold still show); switching into WHOLE01 offers **no business modules**, because a designation is a ceiling, not a floor, and they hold no role there. |
-| 16.4 **(HTTP)** | `GET /api/v1/customers` with their token and `X-Firm-ID` of WHOLE01 | `403` `authorization_denied`, "You do not have permission to perform this action." (driven during the 2026-09-15 run; Sales Orders and Journal Entries answer the same, Users, Firms, Roles and Audit Logs answer 200). Not by a rule of its own — they are simply not exempt from the membership check. |
-| 16.5 | Sign in as `master.ops@agency.local` (tier 2); open the firm switcher; switch into **SNTEST01** (a firm it has no membership in), then **WHOLE01** → Masters → Customers | The switcher lists every firm (ELEC01, FOOD01, MEDI01, WHOLE01, SNTEST01). SNTEST01 opens with no message; WHOLE01 shows the full sidebar and its customers load. Every firm, no membership needed. *(Until 2026-09-15 switching into a firm without a membership failed with "Default firm must be an active firm membership for this user." -- remembering the last firm was checked against memberships only and the refusal cancelled the switch -- #385.)* |
-| 16.6 | Put 16.1 back to `ALL_FIRMS` | Housekeeping. Do not skip it. |
+| Old row | Case |
+| --- | --- |
+| 16.1, 16.6 | not needed — the fixture builds the operator |
+| 16.2 | TC-TIER-001 |
+| 16.3 | TC-TIER-002 |
+| 16.4 | TC-TIER-003 |
+| 16.5 | TC-PLAT-003 (an `ALL_FIRMS` administrator switching into a firm they are not a member of) |
 
 ## 17. User templates — hiring by naming the job
 

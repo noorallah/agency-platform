@@ -7,7 +7,7 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Converted so far:** plan sections 25 (the pilot), 26, 26a and 27 — see the
+**Converted so far:** plan sections 16, 25 (the pilot), 26, 26a and 27 — see the
 table of contents below. Other sections move here one at a time; until then
 they stay in the plan.
 
@@ -95,6 +95,67 @@ it. The script itself signs in as `master.ops@agency.local`; if that account's
 password has changed, set `TEST_FIXTURE_ADMIN_EMAIL` and
 `TEST_FIXTURE_ADMIN_PASSWORD`. It **stops on the first refused sign-in** rather
 than retrying — repeated guesses lock an account.
+
+---
+
+## User tiers — what a platform operator may and may not reach
+
+Four kinds of user, not interchangeable:
+
+| Tier | Who | Reaches |
+| --- | --- | --- |
+| 1 | Platform operator (`PLATFORM` scope) | Creates firms and their people, provisions storage, sets a firm up. **Refused a firm's books.** |
+| 2 | All-firms administrator (`ALL_FIRMS` scope) | Everything, in every firm, with no membership needed — see TC-PLAT-001..004. |
+| 3 | Firm administrator (`FIRM_ADMIN`) | Everything inside their own firm, including its people. |
+| 4 | Firm staff | The modules their job needs. |
+
+No seeded account is tier 1, and no screen sets a scope, which is why the plan
+used to change `superadmin`'s scope by SQL and change it back. The
+`platform-operator` fixture makes one of its own instead.
+
+### TC-TIER-001 — A platform operator runs the platform
+
+- **Covers:** plan 16.2
+- **Fixture:** `platform-operator`
+- **Steps**
+  1. Sign in as the fixture's **Operator**. The header reads **Platform** — where every platform administrator lands.
+  2. Open Dashboard; Administration → **Firms**, **Users**, **Roles & Permissions**, **User Templates**, **User-Firm Assignments**; Settings → **Audit Logs**, **Diagnostics**.
+- **Expect:** every one offered, and each opens. Running the platform is their job.
+- **Data**
+  ```sql
+  select pa.scope from platform.platform_admins pa
+  join   platform.users u on u.id = pa.user_id
+  where  u.email = '<suffix>.operator@fixtures.local';
+  ```
+  `PLATFORM`.
+- **Leaves:** a platform operator.
+
+### TC-TIER-002 — A platform operator is refused the books, even where they are a member
+
+- **Covers:** plan 16.3
+- **Fixture:** `platform-operator`
+- **Steps**
+  1. Sign in as the fixture's **Operator**. Look for Sales, Purchases, Finance, Inventory.
+  2. Open the firm switcher.
+  3. Switch into **TEST01** and read the sidebar.
+- **Expect**
+  - Step 1: **none** offered on Platform. Their token carries **33** codes — firm, user, role, permission, platform and system administration (`FIRM_*`, `USER_*`, `ROLE_*`, `PERMISSION_*`, `PLATFORM_VIEW`, `PLATFORM_SETTINGS`, `SETTINGS_VIEW`, `SETTINGS_UPDATE`, `AUDIT_LOG_VIEW`, `DIAGNOSTICS_VIEW`, `LICENSE_MANAGE`, `SYSTEM_BACKUP`, `SYSTEM_RESTORE`, `SYSTEM_CONFIGURATION`) and nothing operational.
+  - Step 2: Platform, **TEST01** (primary) and **TEST02** — the two firms they are a member of, and **not** every firm. An `ALL_FIRMS` administrator is widened to every firm (TC-PLAT-003); a `PLATFORM` one is not, but memberships they genuinely hold still show.
+  - Step 3: **no business modules**. A designation is a ceiling, not a floor, and they hold no role in TEST01.
+- **Data (HTTP):** `GET /api/v1/me/firms` as the operator → exactly TEST01 (`is_primary: true`) and TEST02.
+- **Leaves:** a platform operator.
+
+### TC-TIER-003 — The server agrees: no firm's books, all of the platform
+
+- **Covers:** plan 16.4
+- **Fixture:** `platform-operator`
+- **Steps (HTTP)** — sign in as the fixture's operator:
+  1. With `X-Firm-ID` of TEST01: `GET /api/v1/customers`, `GET /api/v1/sales-orders`, `GET /api/v1/finance/journal-entries`.
+  2. With no `X-Firm-ID`: `GET /api/v1/users`, `/api/v1/firms`, `/api/v1/roles`, `/api/v1/audit-logs`.
+- **Expect**
+  1. **403** on all three, "You do not have permission to perform this action." — although they are a member of TEST01. Not a rule of its own: a `PLATFORM` administrator is simply not exempt from the membership check, and meets it holding no role.
+  2. **200** on all four.
+- **Leaves:** a platform operator.
 
 ---
 

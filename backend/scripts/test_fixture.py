@@ -629,6 +629,91 @@ def build_shared_pair(built: Built) -> None:
     built.say("Shared store", "both firms live in firm_shared, beside MEDI01, FOOD01")
 
 
+def build_platform_operator(built: Built) -> None:
+    """Make a PLATFORM-scope administrator: runs the platform, refused the books.
+
+    A member of TEST01 (primary) and TEST02 with no role in either -- the
+    shape plan section 16 met on `superadmin`, whose memberships still show in
+    the switcher while its designation grants nothing inside a firm.
+    """
+    user_id = new_user(built, "operator", "Platform Operator", firms=(TEST01, TEST02))
+    designate_platform_admin(built, user_id, "PLATFORM")
+    built.firms_used = [TEST01.code, TEST02.code]
+    built.say("Operator", f"{built.email('operator')} / {FIXTURE_PASSWORD}")
+    built.say("Scope", "PLATFORM; member of TEST01 (primary) and TEST02, no roles")
+
+
+def build_sales_executive(built: Built) -> None:
+    """Make somebody in TEST01 holding SALES_EXECUTIVE alone, as whole01.sales1."""
+    user_id = new_user(built, "seller", "Fixture Seller")
+    firm_roles(built, user_id, TEST01, ["SALES_EXECUTIVE"])
+    built.say("Seller", f"{built.email('seller')} / {FIXTURE_PASSWORD}")
+    built.say("Roles", "SALES_EXECUTIVE in TEST01, nothing else")
+
+
+def build_manual_hire(built: Built) -> None:
+    """Make a firm admin, and a TEST01 user whose two roles were picked by hand."""
+    build_firm_admin(built)
+    user_id = new_user(built, "manual", "Manual Hire")
+    firm_roles(built, user_id, TEST01, ["SALES_EXECUTIVE", "CUSTOMER_SUPPORT"])
+    built.say("Manual hire", f"{built.email('manual')} / {FIXTURE_PASSWORD}")
+    built.say("Roles", "SALES_EXECUTIVE and CUSTOMER_SUPPORT in TEST01")
+
+
+def build_two_tier_hire(built: Built) -> None:
+    """Make a user with roles in both tiers, and an administrator of each tier.
+
+    Global `VIEWER` and `CUSTOMER_SUPPORT`; `ACCOUNTANT` and
+    `INVENTORY_MANAGER` in TEST01. A template overwrites the tier its caller
+    writes and never the other, and this is the person that shows it.
+    """
+    build_firm_admin(built)
+    build_platform_admin(built)
+    user_id = new_user(built, "twotier", "Two Tier Hire")
+    global_roles(built, user_id, ["VIEWER", "CUSTOMER_SUPPORT"])
+    firm_roles(built, user_id, TEST01, ["ACCOUNTANT", "INVENTORY_MANAGER"])
+    built.firms_used = [TEST01.code]
+    built.say("Two-tier hire", f"{built.email('twotier')} / {FIXTURE_PASSWORD}")
+    built.say("Every firm", "VIEWER, CUSTOMER_SUPPORT")
+    built.say("In TEST01", "ACCOUNTANT, INVENTORY_MANAGER")
+
+
+def build_firm_template_hire(built: Built) -> None:
+    """Make a TEST01 job template and somebody hired into it."""
+    build_firm_admin(built)
+    firm_admin = built.as_("admin")
+    code = f"{built.suffix}-night-counter"
+    template = firm_admin.call(
+        "POST",
+        "/api/v1/user-templates",
+        {
+            "code": code,
+            "name": f"Night Counter {built.suffix}",
+            "role_ids": [
+                role_id(built, "CASHIER"),
+                role_id(built, "BILLING_EXECUTIVE"),
+            ],
+        },
+    )
+    user_id = new_user(built, "nighthire", "Night Counter Hire")
+    firm_admin.call(
+        "POST",
+        f"/api/v1/users/{user_id}/apply-template",
+        {"template_id": template["id"]},
+    )
+    built.say("Job template", f"{code}  (Night Counter {built.suffix})")
+    built.say("Hired into it", f"{built.email('nighthire')} / {FIXTURE_PASSWORD}")
+
+
+def build_clone_source(built: Built) -> None:
+    """Make a firm admin, and a TEST01 seller to hire somebody like."""
+    build_firm_admin(built)
+    user_id = new_user(built, "source", "Source Seller")
+    firm_roles(built, user_id, TEST01, ["SALES_EXECUTIVE"])
+    built.say("Source", f"{built.email('source')} / {FIXTURE_PASSWORD}")
+    built.say("Source roles", "SALES_EXECUTIVE in TEST01 only")
+
+
 #: Every fixture, what it builds, and the cases that name it.
 FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "firm-admin": (
@@ -685,6 +770,36 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         "A firm admin in each of TESTSH1 and TESTSH2, in the shared store.",
         build_shared_pair,
         "TC-FIELD-013, TC-FIELD-014",
+    ),
+    "platform-operator": (
+        "A PLATFORM-scope administrator in TEST01 and TEST02, with no roles.",
+        build_platform_operator,
+        "TC-TIER-001..003",
+    ),
+    "sales-executive": (
+        "A TEST01 user holding SALES_EXECUTIVE alone.",
+        build_sales_executive,
+        "TC-TMPL-009",
+    ),
+    "manual-hire": (
+        "firm-admin + a TEST01 user with two roles picked by hand.",
+        build_manual_hire,
+        "TC-TMPL-005..007",
+    ),
+    "two-tier-hire": (
+        "firm-admin + platform-admin + a user with roles in both tiers.",
+        build_two_tier_hire,
+        "TC-TMPL-008",
+    ),
+    "firm-template-hire": (
+        "firm-admin + a TEST01 job template + somebody hired into it.",
+        build_firm_template_hire,
+        "TC-TMPL-010",
+    ),
+    "clone-source": (
+        "firm-admin + a TEST01 seller to hire somebody like.",
+        build_clone_source,
+        "TC-HIRE-001..004",
     ),
 }
 
