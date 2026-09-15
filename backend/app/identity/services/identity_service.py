@@ -1221,6 +1221,22 @@ class IdentityService:
                 "template_id": str(template.id),
                 "template_code": template.code,
                 "role_ids": [str(role_id) for role_id in role_ids],
+                # The codes beside the ids, for the reason `template_code` is
+                # beside `template_id`: a role can be retired, and an id alone
+                # then points at a row nobody can name. Without these the row
+                # says which job was applied and not what access it granted,
+                # which is the more important half. Read at write time and
+                # stored, because `after_data` is written once and read for
+                # ever -- resolving ids inside it later would mean joining
+                # arbitrary JSON to whichever table `entity_type` implies.
+                "role_codes": [
+                    code
+                    for code in self._session.scalars(
+                        select(Role.code)
+                        .where(Role.id.in_(role_ids))
+                        .order_by(Role.code.asc())
+                    ).all()
+                ],
             },
         )
         self._session.commit()

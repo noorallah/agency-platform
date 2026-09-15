@@ -369,3 +369,76 @@ def test_a_deleted_actor_keeps_their_actions_on_the_record() -> None:
 
     assert len(page.data) == 1
     assert page.data[0].actor_name is None
+
+
+def test_a_row_names_who_it_was_done_to() -> None:
+    """The subject as well as the actor, where the subject is a person.
+
+    A row saying somebody's roles were set is of little use if it names
+    neither who did it nor who it was done to. Reported by the owner at plan
+    step 23.4b on 2026-09-15, reading a `user_template.applied` row: the
+    actor had a name after #407 and the subject was still a UUID.
+
+    Filled for `entity_type == "user"` only. Resolving the rest would mean
+    knowing what each of dozens of `entity_type` values points at, and user
+    administration is what fills the platform trail.
+    """
+    factory = _session_factory()
+    session = factory()
+    actor = User(
+        full_name="Asha Kumar",
+        email="asha@agency.local",
+        password_hash="x",
+        is_active=True,
+    )
+    subject = User(
+        full_name="Bala Raman",
+        email="bala@agency.local",
+        password_hash="x",
+        is_active=True,
+    )
+    session.add_all([actor, subject])
+    session.commit()
+    record_audit(
+        session,
+        action="user_template.applied",
+        entity_type="user",
+        entity_id=subject.id,
+        actor_id=actor.id,
+        firm_id=None,
+    )
+    session.commit()
+
+    scope = audit_scope(
+        _principal(actor.id, {"AUDIT_LOG_VIEW"}, platform_admin=True), session, None
+    )
+    page = list_audit_logs(scope, db=session, platform_db=session)
+
+    assert page.data[0].actor_name == "Asha Kumar"
+    assert page.data[0].entity_label == "Bala Raman · bala@agency.local"
+
+
+def test_a_row_about_something_other_than_a_person_has_no_label() -> None:
+    """Honest silence rather than a guess.
+
+    Every other `entity_type` keeps a null label and the screen falls back to
+    the id, which is at least true.
+    """
+    factory = _session_factory()
+    session = factory()
+    actor_id = uuid4()
+    _event(
+        session,
+        action="customer.updated",
+        entity_type="customer",
+        firm_id=None,
+        actor_id=actor_id,
+    )
+
+    scope = audit_scope(
+        _principal(actor_id, {"AUDIT_LOG_VIEW"}, platform_admin=True), session, None
+    )
+    page = list_audit_logs(scope, db=session, platform_db=session)
+
+    assert page.data[0].entity_label is None
+
