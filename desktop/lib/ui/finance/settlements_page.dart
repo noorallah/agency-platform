@@ -6,11 +6,9 @@ import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
-import '../../models/customer.dart';
 import '../../models/entities.dart';
 import '../../models/settlement.dart';
 import '../../models/settlement_direction.dart';
-import '../../models/vendor.dart';
 import '../workspace/desktop_framework.dart';
 import 'record_settlement_dialog.dart';
 
@@ -100,21 +98,15 @@ class _SettlementsPageState extends State<SettlementsPage> {
     setState(() => _loading = true);
     List<PartyOption> parties = const [];
     try {
-      if (widget.direction.isCustomer) {
-        final PagedResult<Customer> result =
-            await widget.api.customers(page: 1, search: '');
-        parties = [
-          for (final Customer customer in result.items)
-            PartyOption(id: customer.id, code: customer.code, name: customer.name),
-        ];
-      } else {
-        final PagedResult<Vendor> result =
-            await widget.api.vendors(page: 1, search: '');
-        parties = [
-          for (final Vendor vendor in result.items)
-            PartyOption(id: vendor.id, code: vendor.code, name: vendor.name),
-        ];
-      }
+      // The money screens' own party list, not the customer or vendor master.
+      //
+      // This read `api.customers(...)` and `api.vendors(...)`, which are gated
+      // on `CUSTOMER_VIEW` and `VENDOR_VIEW`. `CASHIER` holds the four receipt
+      // and payment codes and neither of those, so recording a receipt was
+      // refused **here**, at the party lookup, before the receipt the cashier
+      // was authorised for was ever attempted — a role blocked one step
+      // before the thing it exists to do. Found at plan step 22.4.
+      parties = await widget.api.settlementParties(direction: widget.direction);
     } on ApiException catch (exception) {
       if (!mounted) return;
       setState(() => _error = exception.message);

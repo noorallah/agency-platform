@@ -14,6 +14,7 @@ import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/settlement_direction.dart';
 import 'package:agency_desktop/ui/customers/loyalty_page.dart';
+import 'package:agency_desktop/models/settlement.dart';
 import 'package:agency_desktop/ui/finance/record_settlement_dialog.dart';
 import 'package:agency_desktop/ui/sales/proforma_page.dart';
 import 'package:agency_desktop/ui/sales/sales_order_management_page.dart';

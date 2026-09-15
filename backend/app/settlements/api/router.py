@@ -21,6 +21,7 @@ from app.settlements.schemas import (
     SettlementAllocateRequest,
     SettlementAllocationResponse,
     SettlementCreate,
+    SettlementPartyRecord,
     SettlementResponse,
     SettlementReverseRequest,
 )
@@ -136,6 +137,25 @@ def _list(
     )
 
 
+def _parties(
+    service: SettlementService, *, firm_id: UUID, search: str
+) -> ApiResponse[list[SettlementPartyRecord]]:
+    """Answer one direction's party picker.
+
+    See `SettlementPartyRecord` for why the money screens do not read the
+    customer or vendor master for this. **Declared above `/{id}` in every
+    router below**: FastAPI matches in declaration order, and under it
+    "parties" is read as an id and answered 422 -- which is how nine routes in
+    eight routers spent months unreachable.
+    """
+    return ApiResponse(
+        data=[
+            SettlementPartyRecord(id=party_id, code=code, name=name)
+            for party_id, code, name in service.parties(firm_id=firm_id, search=search)
+        ]
+    )
+
+
 @receipts_router.get("", response_model=PaginatedResponse[SettlementResponse])
 def list_receipts(
     scope: ReceiptViewScope,
@@ -169,6 +189,18 @@ def customer_outstanding_invoices(
         firm_id=scope.firm_id, party_id=customer_id
     )
     return ApiResponse(data=rows)
+
+
+@receipts_router.get(
+    "/parties", response_model=ApiResponse[list[SettlementPartyRecord]]
+)
+def receipt_parties(
+    scope: ReceiptViewScope,
+    search: str = Query(default=""),
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[SettlementPartyRecord]]:
+    """List the customers money can be received from."""
+    return _parties(ReceiptService(db), firm_id=scope.firm_id, search=search)
 
 
 @receipts_router.get("/{receipt_id}", response_model=ApiResponse[SettlementResponse])
@@ -298,6 +330,16 @@ def record_refund(
     )
 
 
+@refunds_router.get("/parties", response_model=ApiResponse[list[SettlementPartyRecord]])
+def refund_parties(
+    scope: RefundViewScope,
+    search: str = Query(default=""),
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[SettlementPartyRecord]]:
+    """List the customers money can be refunded to."""
+    return _parties(RefundService(db), firm_id=scope.firm_id, search=search)
+
+
 @refunds_router.get("/{refund_id}", response_model=ApiResponse[SettlementResponse])
 def get_refund(
     refund_id: UUID,
@@ -373,6 +415,18 @@ def vendor_outstanding_invoices(
         firm_id=scope.firm_id, party_id=vendor_id
     )
     return ApiResponse(data=rows)
+
+
+@payments_router.get(
+    "/parties", response_model=ApiResponse[list[SettlementPartyRecord]]
+)
+def payment_parties(
+    scope: PaymentViewScope,
+    search: str = Query(default=""),
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[SettlementPartyRecord]]:
+    """List the vendors money can be paid to."""
+    return _parties(PaymentService(db), firm_id=scope.firm_id, search=search)
 
 
 @payments_router.get("/{payment_id}", response_model=ApiResponse[SettlementResponse])

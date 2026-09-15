@@ -9,17 +9,6 @@ import '../../models/settlement.dart';
 import '../../models/settlement_direction.dart';
 import '../workspace/desktop_framework.dart';
 
-/// A customer or vendor, reduced to what this dialog needs.
-class PartyOption {
-  const PartyOption({required this.id, required this.code, required this.name});
-
-  final String id;
-  final String code;
-  final String name;
-
-  String get label => '$code  $name';
-}
-
 /// Validate what is about to be sent, in the words a cashier would use.
 ///
 /// The server refuses all of this too, and has to: the client is not the

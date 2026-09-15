@@ -175,3 +175,21 @@ Map<String, String> allocateOldestFirst(
   }
   return allocation;
 }
+
+/// A customer or vendor, reduced to a name somebody can choose from.
+///
+/// In `models/` rather than beside the dialog that renders it, because
+/// `ApiClient` builds these now: the money screens have their own party list
+/// (`/api/v1/{receipts,payments,refunds}/parties`) instead of reading the
+/// customer or vendor master. Those masters are gated on `CUSTOMER_VIEW` and
+/// `VENDOR_VIEW`, which `CASHIER` does not hold, so reading them made the
+/// wrong permission the gate on recording a receipt.
+class PartyOption {
+  const PartyOption({required this.id, required this.code, required this.name});
+
+  final String id;
+  final String code;
+  final String name;
+
+  String get label => '$code  $name';
+}

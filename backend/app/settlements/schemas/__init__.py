@@ -138,9 +138,34 @@ class OutstandingInvoiceRecord(SettlementSchema):
     outstanding_amount: Decimal
 
 
+class SettlementPartyRecord(SettlementSchema):
+    """One party money can be taken from or paid to: a name and nothing else.
+
+    Deliberately three fields. The money screens need to name who is paying,
+    and the customer and vendor masters answer that question with credit
+    limits, balances, addresses, tax registrations and everything else a
+    master carries -- so reaching for them made `CUSTOMER_VIEW` the real gate
+    on recording a receipt. `CASHIER` holds `RECEIPT_CREATE`, `RECEIPT_VIEW`,
+    `PAYMENT_CREATE` and `PAYMENT_VIEW`, and not `CUSTOMER_VIEW`, so a cashier
+    could open the till, see the Receipts screen, and be refused at the party
+    lookup before the receipt they were authorised for was ever attempted.
+
+    The alternative was granting `CUSTOMER_VIEW` to `CASHIER`, which widens a
+    counter role to the whole customer master to fix a name lookup. This is
+    the same answer `GET /api/v1/firm-members` gave when three copies of a
+    people-list sat behind three different permissions and no screen could
+    call any of them: one narrow list, gated on the thing it exists for.
+    """
+
+    id: UUID
+    code: str
+    name: str
+
+
 __all__ = [
     "SettlementAllocateRequest",
     "OutstandingInvoiceRecord",
+    "SettlementPartyRecord",
     "SettlementAllocationResponse",
     "SettlementAllocationWrite",
     "SettlementCreate",
