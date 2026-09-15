@@ -498,18 +498,42 @@ policy." and nothing is created.
 
 ## 19. Setting a firm up from the platform side
 
-Sign in as `superadmin@agency.local` / **`Password@123`** (tier 2; its scope must
-be back at `ALL_FIRMS` after section 16). This is the flow a platform operator
-uses when a new firm is created. Re-derived on 2026-09-15.
+Sign in as `superadmin@agency.local` (tier 2; its scope must be back at
+`ALL_FIRMS` after section 16). **Its seeded password `Password@123` was changed
+by the owner on 2026-09-15** — use the current one; guessing locks the account.
+This is the flow a platform operator uses when a new firm is created.
+Re-derived on 2026-09-15 and **run clean on 2026-09-15**: 19.1–19.5 all met the
+expectations below unchanged.
+
+**Where it lives.** User Templates is its own leaf in the Administration
+sidebar (`user-templates`), not inside the Roles and Permissions group. It
+carries `requiresFirm: false`, so it opens in Platform mode with no firm
+selected — which is the point, since a platform operator has no own firm.
 
 | # | Case | Expected |
 | --- | --- | --- |
 | 19.1 | Administration → User Templates → New | An **Offered to** picker appears in the General section -- one chip per firm reading `CODE · Name`, helper "Leave blank to offer this job to every firm." -- which a firm administrator does not see. It is create-only. |
-| 19.2 | New: Template code `food-night`, Job name `Food Night`, Roles `CASHIER`, **Offered to** the `FOOD01 · …` chip → Save | Created. For the platform user Origin reads **One firm** (the grid does not name which). |
+| 19.2 | New: **Template code** `food-night`, **Job name** `Food Night`, **Offered to** the `FOOD01 · …` chip, then the **Roles** section → `CASHIER` → Save | Created. For the platform user Origin reads **One firm** (the grid does not name which); the dialog subtitle does, as "`food-night — Food Night` · Offered to one firm". Not **Every firm** (the `firm_id` never left the form) and not **This firm** (the wording #383 fixed) — either means 19.3 will fail too. |
 | 19.3 | Sign in as `whole01.admin` and open User Templates | `food-night` from 19.2 is **not** listed (it would be, as **This firm**, had you chosen WHOLE01). Before this, a template written for one firm was offered to every firm. |
 | 19.4 | As the platform user, New: `every-night`, `Every Night`, Roles `CASHIER`, **Offered to** left blank → Save | Offered to every firm — which is right for a job every firm has, and is why the field says so. Origin reads **Every firm**, and the platform user may still edit it. |
 | 19.4a | Sign in as `whole01.admin` → User Templates → select `every-night` | Listed, Origin **Every firm**, subtitle "… · Offered to every firm". **Edit** and **Delete** are disabled. **(HTTP)** `PATCH /api/v1/user-templates/{id}` or `DELETE` with this token → `422`, "This template is offered to every firm, so only a platform administrator can change or retire it." *(Until 2026-09-15 it read "This firm" and any firm administrator could rename or retire it -- #383.)* Afterwards, as the platform user, **Delete** `food-night` and `every-night`. |
-| 19.5 **(HTTP)** | As `whole01.admin`, `POST /api/v1/user-templates` with a valid `role_ids` and `firm_id` naming a different firm | `422` `business_rule_violation`, "You can only act within your own firm." (re-driven 2026-09-15; nothing created). Refused, not silently redirected. *(An empty `role_ids` is refused first, by validation.)* |
+| 19.5 **(HTTP)** | As `whole01.admin`, `POST /api/v1/user-templates` with a non-empty `role_ids` and a `firm_id` that is not WHOLE01's | `422` `business_rule_violation`, "You can only act within your own firm." (re-driven 2026-09-15; nothing created — check the grid afterwards). Refused, not silently redirected. |
+
+**Two things worth knowing before you drive 19.5**, both of which decide whether
+the row is even runnable:
+
+- **The `firm_id` does not have to be a real other firm.** `_target_firm`
+  (`app/identity/services/identity_service.py`) refuses a firm caller naming
+  *any* firm but their own, and for a firm caller it never looks the firm up —
+  so `11111111-1111-1111-1111-111111111111` takes the same branch and gives the
+  same message. That matters practically: `whole01.admin` **cannot discover
+  ELEC01's id at all**, because `/api/v1/firms` is platform-only. A row that
+  required a real one would strand whoever ran it.
+- **`role_ids` must be non-empty and well-formed**, or the body is refused by
+  validation before the service is reached and you are testing pydantic rather
+  than the firm check. Its *contents* are never examined here: `_target_firm`
+  runs first, ahead of `_assert_roles_are_assignable`, so any role id from your
+  own firm does.
 
 ---
 
@@ -520,19 +544,25 @@ The button that was not there. `FIRM_ADMIN` holds `USER_CREATE`, `USER_UPDATE`,
 the New-user gate also demanded `FIRM_VIEW`, which is a platform code the role
 can never be given. Sign in as `whole01.admin`.
 
+Re-derived against the code on **2026-09-15**. Three rows had gone stale since
+they were written on 09-05..09-09 and are corrected below; the changes are
+called out where they are, so a reader who remembers the old wording can see
+what moved rather than wondering whether they misread it.
+
 | # | Case | Expected |
 | --- | --- | --- |
-| 20.1 | Administration → Users | **New** and **Edit** are offered. Before this they were not, for any firm administrator. |
-| 20.2 | New → look at **Firms** before typing anything | **WHOLE01 is already ticked.** The form used to open empty and then silently remove the membership the save had just created, leaving a user in no firm and invisible in the grid. |
+| 20.1 | Administration → Users | **New** and **Edit** are offered. Before this they were not, for any firm administrator. **Edit is per row**, though: it is disabled for somebody who also works in another firm, and for a deleted row — see 20.1a. |
+| 20.1a | Select a user who belongs to WHOLE01 **only** → **Edit**; then try it on a shared user (the one 20.6 makes) | The first opens. The second is **disabled**, and double-clicking the row or using the context menu says why rather than doing nothing: "… also works in another firm, so their profile is managed by a platform administrator. Use Roles by firm to set what they do in yours." A silent no-op reads as a broken screen; this is the rule speaking. *(Added 2026-09-15 — `canEdit`/`editRefusal` were never covered here, and 20.6 deliberately creates exactly the row that triggers them.)* |
+| 20.2 | New → look at **Firms** before typing anything | **The firm you have open in the switcher is already ticked** — WHOLE01 for `whole01.admin`, who belongs to nothing else. The form used to open empty and then silently remove the membership the save had just created, leaving a user in no firm and invisible in the grid. *(Corrected 2026-09-15: the prefill is `api.activeFirmId`, the firm currently open, not "your own firm" — the two differ for anybody in more than one firm.)* |
 | 20.2a | Fill in name, email, password → Save | Created and in WHOLE01, visible in the grid straight away. |
 | 20.2b | New again, **clear** the Firms box, save | Created in **no** firm — allowed, and deliberate. They will not appear in the grid; find them with **Add existing user**. |
 | 20.2c | As `superadmin`, open New | Firms is **empty**, not prefilled. A platform administrator has no own firm, and quietly using whichever one their switcher shows would be a surprise. |
-| 20.3 | Open the form again and look at **Firms** | Lists the firms *you* belong to. It read `/api/v1/firms`, which is platform-only, so it used to come back empty with a failed load. |
-| 20.4 | Sign in as `superadmin@agency.local` and open the same form | **Firms** lists every firm. Same field, different source. |
-| 20.5 **(HTTP)** | As `whole01.admin`, `PUT /api/v1/users/{id}/firms` naming ELEC01 | `422`, "You can only assign firms you administer." Refused by name, not silently dropped. |
-| 20.6 **(HTTP)** | As `superadmin`, put a user in **both** WHOLE01 and ELEC01. Then as `whole01.admin`, save that user with WHOLE01 only. Re-read as `superadmin` | **Both** memberships survive. The endpoint replaces for a platform caller and merges for a scoped one — otherwise a firm administrator correcting their own firm would remove the person from every other firm on the platform. |
-| 20.7 | As `whole01.admin`, set a user's primary firm to something else | The primary does not move. It is one flag across every firm somebody belongs to, so a caller who can see only some of them must not set it. |
-| 20.8 | Follow `docs/USER_ADMINISTRATION_GUIDE.md` §3 end to end | Create a user, apply **Counter Sales**, sign in as them: Sales and Inventory offered, Finance and Administration not. |
+| 20.3 | Open the form again and look at **Firms** | Lists the firms *you* belong to (`/api/v1/me/firms`). It read `/api/v1/firms`, which is platform-only, so it used to come back empty with a failed load. |
+| 20.4 | Sign in as `superadmin@agency.local` and open the same form | **Firms** lists every firm (`/api/v1/firms`). Same field, different source — one line in `userDefinition` decides which. |
+| 20.5 **(HTTP)** | As `whole01.admin`, `PUT /api/v1/users/{id}/firms` naming a firm you do not staff | `422`, "You can only assign firms you administer." Refused by name, not silently dropped. **You do not need ELEC01's id**: the reach check is a set difference and runs *before* the firm-exists check, so any UUID that is not WHOLE01's gives the same refusal — which matters, because `whole01.admin` cannot read `/api/v1/firms` to find a real one. *(Clarified 2026-09-15; the row named ELEC01 and was not runnable as written.)* |
+| 20.6 **(HTTP)** | As `superadmin`, put a user in **both** WHOLE01 and ELEC01. Then as `whole01.admin`, save that user with WHOLE01 only. Re-read as `superadmin` | **Both** memberships survive. The endpoint replaces for a platform caller and merges for a scoped one — otherwise a firm administrator correcting their own firm would remove the person from every other firm on the platform. HTTP rather than the screen because the screen **refuses this on purpose** (20.1a): the merge is what protects the API from any other client, and the disabled button is a courtesy on top of it. |
+| 20.7 | As `whole01.admin`, set a user's primary firm to something else | The primary does not move. It is one flag across every firm somebody belongs to, so a caller who can see only some of them must not set it. Exception, and it is deliberate: somebody with **no** primary at all gets one, so a new hire still lands somewhere when they sign in. |
+| 20.8 | Follow `docs/USER_ADMINISTRATION_GUIDE.md` §3 end to end | Create a user, apply **Counter Sales** (`CASHIER` + `BILLING_EXECUTIVE`), sign in as them: Sales and Inventory offered, **Finance offered but holding only Receipts and Payments**, Administration not. *(Corrected 2026-09-15. This row said Finance was **not** offered, which stopped being true on 2026-09-06: Finance is gated on any of `ACCOUNT_VIEW`, `RECEIPT_VIEW`, `PAYMENT_VIEW` — before that a cashier holding exactly the right codes signed in to an empty sidebar. Chart of Accounts, Control Accounts and Journal Entries must **not** appear; if they do, the tabs lost their own codes and the module gate is doing the work alone, which is the wrong fix in the other direction.)* |
 
 ---
 
@@ -550,6 +580,12 @@ global grant.
 
 Use a user who belongs to **two** firms — create one and add both memberships
 first.
+
+*Re-derived 2026-09-15: every label and refusal below still matches the code
+(`Roles in every firm` / `Roles in this firm`, `Also applies here`, `Roles in
+specific firms`, "This person belongs to no firm you administer."). No changes.
+Note the ordering trap — 20a.6b and 20a.8h both need a user who is in **your**
+firm, and 20a.8j needs one in two, so make both before you start.*
 
 | # | Case | Expect |
 | --- | --- | --- |
@@ -595,7 +631,7 @@ and back in** — a token carries the claims it was minted with.
 | 21.4 | Masters → Loyalty | Offered, and opens. Settings included — `LOYALTY_MANAGE_SETTINGS` is granted. |
 | 21.5 | Sales → TCS | Offered, and opens, settings included. |
 | 21.6 | As `whole01.sales1`, try all five | Still refused, all five. The grant widened one role, not everybody. |
-| 21.7 | Masters → Firms | **Still not offered**, deliberately. Deciding which firms exist is not a firm's own business. |
+| 21.7 | Administration → Firms | **Still not offered**, deliberately. Deciding which firms exist is not a firm's own business — `FIRM_VIEW` is a platform code no firm role may hold. *(Corrected 2026-09-15: the row said **Masters** → Firms. The tab moved to Administration when platform mode arrived — filed under Masters it was a firm's own master data, so the screen that **creates** a firm was reachable only from inside another firm and invisible to a platform administrator. Looking under Masters now finds nothing there for anybody, which passes this row for the wrong reason.)* |
 | 21.8 **(HTTP)** | `GET /api/v1/credit-notes`, `/proforma-invoices`, `/einvoice/registrations`, `/loyalty/settings`, `/tcs/settings` with a `whole01.admin` token | `200` on all five. They answered `403` before. |
 
 ---
@@ -614,10 +650,10 @@ the `CASHIER` role alone. (The seeded `counter-sales` template pairs it with
 | --- | --- | --- |
 | 22.1 | Sign in as that user | **Finance** is in the sidebar. Before this the sidebar was empty. |
 | 22.2 | Open Finance | Exactly two tabs: **Receipts** and **Payments**. |
-| 22.3 | Look for Chart of Accounts, Journal Entries, Ledgers, Trial Balance, P&L, Balance Sheet, Refunds | **None of them.** Widening the module without gating its tabs would have handed a cashier the ledger. |
+| 22.3 | Look for Chart of Accounts, **Control Accounts**, **Cost Centres**, **Profit Centres**, Journal Entries, Ledgers, Trial Balance, P&L, Balance Sheet, Refunds | **None of the ten.** Widening the module without gating its tabs would have handed a cashier the ledger — that would be the wrong fix twice over, so both halves are load-bearing. *(Three names added 2026-09-15: Control Accounts, Cost Centres and Profit Centres are all `ACCOUNT_VIEW` Finance tabs and were written after this row was.)* |
 | 22.4 | Record a receipt | Works. `RECEIPT_CREATE`. |
-| 22.5 | Sign in as `whole01.accounts` (or any `ACCOUNTANT`) → Finance | **All nine** tabs, exactly as before. Nobody lost one. |
-| 22.6 | As `whole01.admin` → Finance | All nine. |
+| 22.5 | Sign in as `whole01.accounts` (or any `ACCOUNTANT`) → Finance | **All twelve** tabs, exactly as before. Nobody lost one — every code now on a tab is one that whoever held `ACCOUNT_VIEW` already had. *(Was "nine" — count them rather than trusting this: Chart of Accounts, Control Accounts, Cost Centres, Profit Centres, Journal Entries, Receipts, Payments, Refunds, Ledgers, Trial Balance, Profit & Loss, Balance Sheet. An `ACCOUNTANT` may hold fewer if they lack `JOURNAL_VIEW` or a report code, so what this row really asks is that nothing disappeared.)* |
+| 22.6 | As `whole01.admin` → Finance | All twelve. |
 
 ---
 
@@ -627,6 +663,12 @@ Two things here, and the first is a regression that shipped on 2026-09-05 and
 was found on 2026-09-06: moving the platform designation into its own claim
 left two checks looking for it in the old place, so **no platform administrator
 could read any audit trail at all**.
+
+*Re-derived 2026-09-15, no changes. One thing to expect that the rows do not
+say: 23.4a–23.4c are the **merge**, and the unit suite cannot see it — it
+builds one SQLite schema holding every table, so both stores resolve to the
+same session there and merging would double every row. If the merge is broken
+you will find it here or in `tests/integration/`, nowhere else.*
 
 | # | Case | Expected |
 | --- | --- | --- |
@@ -648,6 +690,14 @@ could read any audit trail at all**.
 `list_users` is scoped to the caller's own members, so a firm administrator
 could not find — or even learn the existence of — a person who already works
 elsewhere. Sign in as `whole01.admin`.
+
+*Re-derived 2026-09-15, no changes. The section deliberately drives **one route
+answering two callers differently** — 24.2–24.16 are the firm caller's narrow
+lookup (three characters, ten results, no paging, no firm ever named) and
+24.17–24.20 the platform caller's directory (empty term lists everyone not in
+the firm, ordinary paging). Two routes would have meant two implementations of
+"not a platform administrator" and two response shapes for one dialog, so the
+difference is the design rather than an inconsistency to report.*
 
 | # | Case | Expected |
 | --- | --- | --- |
@@ -689,8 +739,9 @@ administrator may write both. Sign in as `whole01.admin`.
 | --- | --- | --- |
 | 25.1 | Administration → Roles & Permissions → **Roles** | The twelve firm roles. **Not** `PLATFORM_ADMIN`, `SUPPORT_ADMIN` or `LICENSE_ADMIN`. |
 | 25.2 | New → code `night-desk`, name `Night Desk` → Save | Created, and it belongs to WHOLE01. |
-| 25.3 | Open it → **Permissions** | **167** to choose from. Tick `SALES_VIEW`, `RECEIPT_CREATE`, `CUSTOMER_VIEW`. |
-| 25.4 | Look for `FIRM_CREATE`, `PLATFORM_SETTINGS`, `VOID_INVOICE`, `AUDIT_LOG_VIEW` | **Not in the list at all.** The 22 platform codes are not offered, so there is nothing to get wrong. |
+| 25.3 | Open it → **Permissions** | **167 of the 189 codes** (counted 2026-09-05 — re-derive rather than trusting it, see below). Tick `SALES_VIEW`, `RECEIPT_CREATE`, `CUSTOMER_VIEW`. |
+| 25.4 | Look for `FIRM_CREATE`, `PLATFORM_SETTINGS`, `VOID_INVOICE`, `AUDIT_LOG_VIEW` | **Not in the list at all.** `list_permissions` filters `PLATFORM_PERMISSION_CODES` out of a firm-scoped read, so the platform codes are not merely refused on assignment — they are never offered, and `set_role_permissions` refuses them again if one is named directly. |
+| 25.4a | Now look at what **you** can do: Settings → Audit Logs, still as `whole01.admin` | It opens, on your own firm's trail. So you **hold** `AUDIT_LOG_VIEW` and cannot **grant** it — and that is not a contradiction. `PLATFORM_PERMISSION_CODES` answers "what may a firm administrator not *grant*", which is a different question from what they may hold; `AUDIT_LOG_VIEW` sits in the `system_administration` group and was granted to `FIRM_ADMIN` directly on 2026-09-06, beside `SETTINGS_VIEW` and `SETTINGS_UPDATE`, which had always been there for the same reason. *(Added 2026-09-15. Worth doing once: confusing the two sets is how a permission's reach gets misjudged, and this is the clearest place in the plan to see the difference.)* |
 | 25.5 | New role with code `platform_admin` | Refused — the designation and the twelve seeded codes are reserved, case-insensitively. |
 | 25.6 | User Templates → New → name it, pick **Night Desk** as its role | Created, Origin **This firm**. A template may bundle any role you may assign. |
 | 25.7 | Users → New → set **Job template** to it → Save | The new user holds `night-desk` and nothing else. |
@@ -711,16 +762,34 @@ administrator may write both. Sign in as `whole01.admin`.
 Do **not** raise these as defects. They are deliberate, and each is recorded in
 `docs/MODULE_STATUS.md` with what is blocking it.
 
+**Five entries came off this table on 2026-09-15**, and it is worth knowing why
+before you read the rest of it. They all said "built, but nothing exercises it",
+which was true when written and stopped being true on 2026-09-08 when the demo
+seeder was extended to reach exactly those five paths. A stale row here is worse
+than a stale row anywhere else in this plan: this table tells you **not to
+raise** what it lists, so each of those five was quietly excluded from testing
+for a week after it became testable. They are now in the table below the gaps,
+with the firm that carries each.
+
 | Area | State |
 | --- | --- |
 | Emailing a document | Not built. The PDF exists; there is no SMTP client or mail configuration. Deferred by the owner. |
 | Licensing | Not built. A permission and a role exist and are unused. Deferred by the owner. |
-| Serial numbers | Built, but no demo firm serialises — screens work, no seeded data. |
-| Packaging levels | Built, no seeded rows. |
-| Cost and profit centres | Present in finance, used by nothing. |
-| Shortened sales chains | A firm can be configured to type fewer than four documents; no demo firm is. |
-| Credit **blocking** | Built. Every demo firm is in **warn** mode, so blocking is not exercised. |
-| `IMEI`, `PRESCRIPTION_REQUIRED`, `RECIPE_MANAGEMENT`, `KITCHEN_MANAGEMENT`, `SERVICE_CONTRACTS`, `PROJECT_MANAGEMENT` | Declared as roadmap features and refused if switched on. |
+| `lots` | The one table still holding no live row in any store. |
+| `IMEI`, `PRESCRIPTION_REQUIRED`, `RECIPE_MANAGEMENT`, `KITCHEN_MANAGEMENT`, `SERVICE_CONTRACTS`, `PROJECT_MANAGEMENT` | Declared as roadmap features and refused if switched on. Six, not seven: `COMMISSION` came off on 2026-09-03, because `app/commission` shipped on 08-23 and the flag outlived the fact — an administrator was being refused a feature the platform had. |
+
+### No longer gaps — these are testable, and on which firm
+
+Each is one deliberate choice on one demo firm, so the ordinary case sits beside
+the exceptional one. **Do** raise a defect against any of these.
+
+| Area | Where it lives now |
+| --- | --- |
+| Serial numbers | **ELEC01**'s mixer grinder has `track_serial` set, with up to twenty serials carrying warranty dates. Tracking only — receipts and issues do not demand the numbers, so the trading history is unaffected. Needed `SERIAL_NUMBER` and `WARRANTY` on the ELECTRONICS profile, which the feature seed backfills. |
+| Packaging levels | Each firm's **first product** carries a `Case` level with a barcode. |
+| Cost and profit centres | **Two of each per firm**, plus one posted manual journal naming them. Manual deliberately: the automatic postings name no centre, so a seeded account that required one would refuse them. |
+| Shortened sales chains | **FOOD01** has `delivery_note_stage` off, so every one of its invoices is billed off the order and `SalesChainService` dispatches the goods — the one path that moves stock from an invoice. Note the consequence, which is an open product question rather than a defect: FOOD01's Delivery Notes screen is hidden when the stage is off, so its service-raised notes can only be read through the Delivery note register report. |
+| Credit **blocking** | **MEDI01** is in `BLOCK` mode (warn 80, block 100) and CityMed Clinic sits on a 20,000 limit the history crosses, so refused approvals appear in the seeder's notes and the refused orders stay unapproved on the grid. The other three firms are in `WARN`, so both paths are seeded. |
 
 ---
 
@@ -731,6 +800,14 @@ holds **no** firm memberships, which is what made the defect visible: its token
 carries all 189 permission codes, so the sidebar offered Sales, Purchases and
 Inventory, while `/me/firms` answered an empty list so no firm could be
 selected and every one of those screens refused its first request.
+
+*Re-derived 2026-09-15, no changes. Two practical notes. `platform-admin`'s
+password is `AGENCY_BOOTSTRAP_ADMIN_PASSWORD` from `config/.env` **only until
+somebody signs in and changes it** — on this database that has happened, so use
+`master.ops` if it will not let you in; both are `ALL_FIRMS` and nothing in the
+cases changes. And 26.9 covers the contrast that matters: `superadmin` is also
+`ALL_FIRMS` but a member of all four firms, and still starts on Platform —
+membership is not what decides the landing.*
 
 | # | Step | Expect |
 | --- | --- | --- |
@@ -784,6 +861,13 @@ comes from the demo seeder.
 Only a platform administrator can do any of 27.1--27.20. `require_platform_admin()`
 guards every `/api/v1/firms` route and never reads a permission, so `FIRM_CREATE`
 gates the desktop's **New** button and nothing else.
+
+*Re-derived 2026-09-15, no changes to the cases. One thing before you start:
+**`SNTEST02` may already exist** from an earlier run of this section, in which
+case 27.4 answers 409 rather than saving and every row after it is testing the
+wrong firm. Check Administration → Firms first and use a fresh code
+(`SNTEST03`, and so on) if it is taken — the code is unique among live firms,
+so even a soft-deleted one releases it but a live one does not.*
 
 ### 27a. Creating the record
 
@@ -914,13 +998,29 @@ TOKEN=$(curl -s -X POST http://localhost:8000/api/v1/auth/login \
   -d '{"email":"whole01.sales1@agency.local","password":"DemoAdmin@12345"}' \
   | python -c "import sys,json; print(json.load(sys.stdin)['data']['access_token'])")
 
-FIRM=<the WHOLE01 id from GET /api/v1/firms>
+# /me/firms, **not** /firms. `GET /api/v1/firms` is platform-only and answers
+# 403 for every firm user, including the token above -- so a recipe built on it
+# fails on the step before the one you are testing. `/me/firms` returns
+# {id, code, name, is_primary}; the firm id is `id`.
+FIRM=$(curl -s http://localhost:8000/api/v1/me/firms \
+  -H "Authorization: Bearer $TOKEN" \
+  | python -c "import sys,json; print(json.load(sys.stdin)['data'][0]['id'])")
 
 curl -s -w "\nHTTP %{http_code}\n" -X POST \
   http://localhost:8000/api/v1/document-framework/numbering-rules \
   -H "Authorization: Bearer $TOKEN" -H "X-Firm-ID: $FIRM" \
   -H "Content-Type: application/json" -d '{...}'
 ```
+
+*Corrected 2026-09-15: this read `FIRM=<the WHOLE01 id from GET /api/v1/firms>`,
+which no firm token can call.*
+
+A platform caller is the other way round — `/api/v1/firms` lists every firm and
+`/me/firms` returns only the ones they are a member of, which for
+`platform-admin` is none. Pick the route that matches the token in your hand.
+
+**Never write a token to a file inside the repo.** A previous run committed one;
+`.tok` and `uvicorn-*.log` are in `backend/.gitignore` because of it.
 
 Every response carries a `requestId`. Quote it when reporting anything — it
 joins the screen to the server log.
