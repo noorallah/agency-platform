@@ -863,3 +863,43 @@ def test_reversing_a_refund_puts_the_advance_back() -> None:
         Decimal("200.00"),
         Decimal("0.00"),
     ), "the bank has the money back"
+
+
+def test_the_party_picker_names_who_is_paying_and_nothing_else() -> None:
+    """A cashier can name the customer without reading the customer master.
+
+    `CASHIER` holds `RECEIPT_CREATE`, `RECEIPT_VIEW`, `PAYMENT_CREATE` and
+    `PAYMENT_VIEW`, and **not** `CUSTOMER_VIEW`. The Receipts screen reached
+    for `GET /api/v1/customers` to fill its party picker, so recording a
+    receipt was gated on a code the role recording it does not hold: the
+    refusal arrived at the party lookup, before the receipt anybody was
+    authorised for had been attempted.
+
+    Found at plan step 22.4 on 2026-09-15, driving the screen as a cashier.
+    The row asserted this works, having been written from the permission table
+    rather than from a sign-in.
+
+    The alternative was granting `CUSTOMER_VIEW` to `CASHIER`, which widens a
+    counter role to credit limits, balances and addresses to fix a name
+    lookup. This is the answer `GET /api/v1/firm-members` already gave to the
+    same shape of problem.
+    """
+    books = _Books(_session_factory()())
+    books.session.commit()
+
+    parties = ReceiptService(books.session).parties(firm_id=books.firm.id)
+
+    assert [row[0] for row in parties] == [books.customer.id]
+    # Three fields. Anything more and this is the customer master again.
+    assert parties[0] == (books.customer.id, books.customer.code, books.customer.name)
+
+
+def test_the_party_picker_is_searchable_and_scoped_to_the_firm() -> None:
+    """Somebody else's customers are not offered, and the search narrows."""
+    books = _Books(_session_factory()())
+    books.session.commit()
+    service = ReceiptService(books.session)
+
+    assert service.parties(firm_id=books.firm.id, search=books.customer.code)
+    assert service.parties(firm_id=books.firm.id, search="nothing-matches") == []
+    assert service.parties(firm_id=uuid4()) == []

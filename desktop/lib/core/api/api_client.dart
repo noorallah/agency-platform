@@ -4781,6 +4781,34 @@ class ApiClient {
         },
       );
 
+  /// Who money can be taken from or paid to, for the party picker.
+  ///
+  /// **Not the customer or vendor master.** Those are gated on
+  /// `CUSTOMER_VIEW` / `VENDOR_VIEW`, and `CASHIER` holds neither — it holds
+  /// the four receipt and payment codes and nothing else. Reading the master
+  /// here made the wrong permission the real gate on recording a receipt: the
+  /// refusal arrived at the party lookup, before the receipt the cashier was
+  /// authorised for had been attempted. This route is gated on the settlement
+  /// permissions instead, and answers id, code and name.
+  Future<List<PartyOption>> settlementParties({
+    required SettlementDirection direction,
+    String search = '',
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/${direction.path}/parties',
+      query: {if (search.isNotEmpty) 'search': search},
+    );
+    return _unwrapList(
+      response,
+      (Json row) => PartyOption(
+        id: stringValue(row['id']),
+        code: stringValue(row['code']),
+        name: stringValue(row['name']),
+      ),
+    );
+  }
+
   /// The party's invoices that still owe something.
   Future<List<OutstandingInvoice>> outstandingInvoices({
     required SettlementDirection direction,

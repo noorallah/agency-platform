@@ -16,7 +16,7 @@ from collections.abc import Sequence
 from decimal import Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
@@ -809,6 +809,46 @@ class SettlementService(TransactionalDocumentService):
         if vendor is None:
             raise ResourceNotFoundError("Vendor not found.")
         return vendor
+
+    def parties(
+        self, *, firm_id: UUID, search: str = ""
+    ) -> list[tuple[UUID, str, str]]:
+        """List the parties this direction can settle with, by code.
+
+        Id, code and name -- nothing else. See `SettlementPartyRecord` for why
+        this exists rather than the money screens reading the customer or
+        vendor master: a cashier holds the receipt permissions and not
+        `CUSTOMER_VIEW`, so reading the master made the wrong code the gate on
+        taking money.
+
+        Ordered by code because that is what the picker shows, and capped: a
+        firm with thousands of customers is not choosing from a dropdown, and
+        the search is there for that.
+
+        Args:
+            firm_id: The firm whose parties to list.
+            search: Match against code or name, case-insensitively.
+
+        Returns:
+            Up to 200 parties as (id, code, name), in code order.
+
+        """
+        is_customer = self.DIRECTION in (
+            SettlementDirection.RECEIPT,
+            SettlementDirection.REFUND,
+        )
+        model: type[Customer] | type[Vendor] = Customer if is_customer else Vendor
+        statement = select(model.id, model.code, model.name).where(
+            model.firm_id == firm_id,
+            model.is_deleted.is_(False),
+        )
+        if search.strip():
+            pattern = f"%{search.strip()}%"
+            statement = statement.where(
+                or_(model.code.ilike(pattern), model.name.ilike(pattern))
+            )
+        rows = self._session.execute(statement.order_by(model.code.asc()).limit(200))
+        return [(row[0], row[1], row[2]) for row in rows]
 
     def _money_account(self, *, firm_id: UUID, method: SettlementMethod) -> UUID:
         """Return the cash or bank account this method moves money through.

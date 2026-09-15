@@ -48,6 +48,26 @@ class _SettlementApi extends ApiClient {
   }) async =>
       PagedResult<Settlement>(items: rows, total: rows.length);
 
+  /// What the party picker asked for, and what it was told.
+  ///
+  /// Overriding `settlementParties` rather than `customers` is the whole
+  /// point: the money screens have their own list now, gated on the
+  /// settlement permissions. A fake that still answered `customers` would go
+  /// green while a cashier was refused on the real thing.
+  final List<SettlementDirection> partiesAskedFor = [];
+  List<PartyOption> parties = const [
+    PartyOption(id: 'c-1', code: 'C1', name: 'Kumar Stores'),
+  ];
+
+  @override
+  Future<List<PartyOption>> settlementParties({
+    required SettlementDirection direction,
+    String search = '',
+  }) async {
+    partiesAskedFor.add(direction);
+    return parties;
+  }
+
   @override
   Future<List<OutstandingInvoice>> outstandingInvoices({
     required SettlementDirection direction,
@@ -577,5 +597,36 @@ void main() {
     );
 
     expect(find.byTooltip('Apply to an invoice'), findsNothing);
+  });
+
+  testWidgets('a cashier can open the party picker without CUSTOMER_VIEW',
+      (tester) async {
+    // `CASHIER` holds `RECEIPT_CREATE`, `RECEIPT_VIEW`, `PAYMENT_CREATE` and
+    // `PAYMENT_VIEW` -- and not `CUSTOMER_VIEW`. This screen read
+    // `GET /api/v1/customers` to fill the picker, so recording a receipt was
+    // refused at the party lookup, before the receipt the cashier was
+    // authorised for was attempted. The role was blocked one step short of
+    // the only thing it exists to do. Plan step 22.4, found 2026-09-15 by
+    // signing in as one.
+    final _SettlementApi api = _SettlementApi();
+    await _pump(
+      tester,
+      api,
+      perms: const [
+        'RECEIPT_CREATE',
+        'RECEIPT_VIEW',
+        'PAYMENT_CREATE',
+        'PAYMENT_VIEW',
+      ],
+    );
+
+    await tester.tap(find.text('Record Receipt'));
+    await tester.pumpAndSettle();
+
+    // It asked the money screens' own route, and got the dialog rather than
+    // the refusal the customer master would have answered with.
+    expect(api.partiesAskedFor, [SettlementDirection.receipt]);
+    expect(find.text('Amount'), findsOneWidget);
+    expect(find.textContaining('permission'), findsNothing);
   });
 }
