@@ -98,6 +98,229 @@ than retrying — repeated guesses lock an account.
 
 ---
 
+## Signing in, sessions, and the life of an account
+
+A refusal about the **credential** says only "Invalid email or password." —
+for a wrong password and for an unknown address alike, and at the same cost,
+so nobody learns which addresses exist. A refusal about the **account's
+state** — locked, inactive, expired — names the state and the remedy
+(`docs/BACKLOG.md` 18.1, 18.2). Five wrong passwords lock an account for
+fifteen minutes.
+
+### TC-SESS-001 — Switching firms reloads every list
+
+- **Covers:** plan 2.2
+- **Fixture:** `isolation-pair` — a customer of this run's own in TEST01 and another in TEST02.
+- **Steps**
+  1. Sign in as the fixture's **Platform admin**; switch into **TEST01** → Masters → Customers; search `<SUFFIX>`.
+  2. With the list open, switch to **TEST02**.
+- **Expect:** step 1 shows `<SUFFIX>-ONE`; after the switch the list reloads by itself and shows `<SUFFIX>-TWO` — **no row from TEST01 survives**, not even for a moment.
+- **Leaves:** unchanged.
+
+### TC-SESS-002 — An idle session refreshes quietly, and a signed-out one leaves nothing behind
+
+- **Covers:** plan 2.4, 2.5
+- **Fixture:** `firm-admin`
+- **Steps**
+  1. Sign in as the fixture's **Firm admin**; open Masters → Customers. Leave the application idle for **more than 15 minutes** (the access token's lifetime, `AGENCY_JWT_ACCESS_TOKEN_MINUTES`).
+  2. Click **Refresh**.
+  3. Sign out; press the mouse's Back button or Alt+Left.
+- **Expect**
+  - Step 2: the list reloads; you are **not** asked to sign in again — the client refreshes once on a 401 and repeats the request.
+  - Step 3: the sign-in screen stays; no cached screen is reachable.
+- **Leaves:** a firm admin user.
+
+### TC-SESS-003 — Wrong passwords, a lockout, and a lock that counts down
+
+- **Covers:** plan 2.6, 2.7
+- **Fixture:** `lock-target`
+- **Steps**
+  1. On the sign-in screen, try `nobody.<suffix>@fixtures.local` / `Wrong@Password1`.
+  2. Try the fixture's **Target** with `Wrong@Password1` **four** times.
+  3. A fifth time.
+  4. Now the **right** password, `Fixture@2026pw`.
+  5. Watch the banner.
+- **Expect**
+  - Steps 1–2: "Invalid email or password." every time, the unknown address included, and each takes **about as long** as the others (~2 seconds on this machine, measured) — a wrong address and a wrong password must not feel different.
+  - Step 3: "This account is locked after too many failed sign-in attempts. You can try again in 15:00." and the clock **counts down** a second at a time.
+  - Step 4: refused the same way, with the time left. The lock is checked before the password is.
+  - Step 5: at zero, "The lock on this account has lifted. You can sign in now." *(If you cannot wait, TC-SESS-004 lifts it.)*
+- **Data (HTTP):** the fifth attempt's refusal is **401** with code `account_locked` and `details.retry_after_seconds` 900 and `locked_until`. Table check: `scripts/sql/check_identity_data.sql` §5 shows the fifth as `locked` and the sixth as `account_locked`.
+- **Leaves:** a locked target (for 15 minutes).
+
+### TC-SESS-004 — A firm administrator clears a lock
+
+- **Covers:** plan 2.8, 2.9
+- **Fixture:** `lock-target`
+- **Steps**
+  1. Lock the fixture's **Target** with five wrong passwords (TC-SESS-003 steps 2–3).
+  2. Sign in as the fixture's **Firm admin** → Users → Edit **Lock Target (<suffix>)** → tick **Clear login lock (Account Lock)** → Save.
+  3. Sign in as the target with `Fixture@2026pw`.
+- **Expect:** step 3 signs in at once — the lock cleared and the failed count reset. *(2.9's other way, waiting fifteen minutes, ends the same; TC-SESS-003 step 5 shows it.)*
+- **Data (HTTP):** the form sends `PATCH /api/v1/users/{id}` with `{"unlock": true}`.
+- **Leaves:** an unlocked target.
+
+### TC-SESS-005 — Inactive and expired accounts are told why
+
+- **Covers:** plan 2.10
+- **Fixture:** `lock-target`
+- **Steps**
+  1. As the fixture's **Firm admin**, Users → Edit the target → untick **Active** → Save. Sign in as the target with the right password; then with `Wrong@Password1`.
+  2. Edit again: tick Active, set **Expires at** to yesterday → Save. Sign in with the right password; then a wrong one.
+  3. Clear Expires at → Save; sign in.
+- **Expect**
+  - Step 1, right password: "This account is inactive. Ask an administrator to reactivate it." Login history says `account_unavailable`.
+  - Step 2, right password: "This account has expired. Ask an administrator to extend it."
+  - Step 3: signs in.
+  - **With a wrong password, the plan expected "Invalid email or password."** The server answers the **state** message instead — driven on 2026-09-16 for both states. See defect **D-2-1**; record what you see.
+- **Leaves:** the target active, no expiry.
+
+### TC-SESS-006 — A password somebody else set must be changed
+
+- **Covers:** plan 2.11
+- **Fixture:** `firm-admin`
+- **Steps**
+  1. As the fixture's **Firm admin**, Users → New: `<suffix>.newbie@fixtures.local`, password `Welcome@123456`, **Require password change** on, in TEST01 → Save.
+  2. Sign in as them. On the change-password screen try new passwords `Short@1`, then `LongEnoughPassw0rd`, then `Newbie-Passw0rd!`.
+- **Expect:** the change-password screen and nothing else reachable. `Short@1` refused ("Use at least 12 characters."); `LongEnoughPassw0rd` refused ("Include a symbol."); `Newbie-Passw0rd!` accepted and the app opens.
+- **Leaves:** a TEST01 user with their own password.
+
+### TC-SESS-007 — Deleting somebody releases their address; the new account is a new person
+
+- **Covers:** plan 2.13
+- **Fixture:** `lock-target`
+- **Steps**
+  1. As the fixture's **Platform admin**, Users → select the target → **Delete**.
+  2. Users → New with the same email, any name and password, no firms or roles → Save.
+- **Expect:** step 1 — gone from the grid; Settings → Audit Logs keeps the row. Step 2 — the address is accepted again (soft delete releases it) and the new account has **no** roles and **no** firms.
+- **Leaves:** a deleted target and a new, empty account on the same address.
+
+### TC-SESS-008 — Restoring a deleted person as they were
+
+- **Covers:** plan 2.13b, 2.13c
+- **Fixture:** `lock-target`
+- **Steps**
+  1. As the fixture's **Platform admin**, delete the target. Users → **Status** filter → **Deleted** → open them.
+  2. **Restore** (dialog footer). Sign in as the target with `Fixture@2026pw`.
+  3. Delete the target again; create a **new** account with the same address; Status → Deleted → open the old one → Restore.
+- **Expect**
+  - Step 1: status **Deleted**, Edit and Delete dead, View opens.
+  - Step 2: back in the grid with TEST01 and SALES_EXECUTIVE; the old password works.
+  - Step 3: refused — "Another live account now holds this email address. Delete that account first if this is the one to keep." Restore before re-onboarding, not after.
+- **Leaves:** a deleted target and a live account on its address (after step 3).
+
+### TC-SESS-009 — Deleted people are a platform administrator's; inactive ones anybody's
+
+- **Covers:** plan 2.13d (both rows)
+- **Fixture:** `lock-target`
+- **Steps**
+  1. As the fixture's **Firm admin**, Users → open the **Status** filter.
+  2. **(HTTP)** As the firm admin, `GET /api/v1/users?deleted_only=true&search=<suffix>`.
+  3. Edit the target: untick **Active** → Save. Status → **Inactive**.
+  4. As the fixture's **Platform admin**: Status → **Inactive**; then also pick the firm **TEST01**.
+- **Expect**
+  - Step 1: Active and Inactive, **no Deleted**; and no **Restore** anywhere. A deleted person's memberships still place them in a firm, and a firm's grid must not list them.
+  - Step 2: **live** rows only — the flag is ignored for a firm caller.
+  - Step 3: the target, and nobody active.
+  - Step 4: the switched-off people from every firm, the target among them and no deleted ones; with TEST01 as well, only TEST01's inactive people.
+- **Leaves:** an inactive target.
+
+### TC-SESS-010 — Who may not be deleted
+
+- **Covers:** plan 2.14
+- **Fixture:** `shared-member` (for the shared person) and `platform-admin-member` (for a platform administrator to aim at)
+- **Steps**
+  1. As the `shared-member` fixture's **Firm admin**, Users → select **Shared Member (<suffix>)** → Delete.
+  2. **(HTTP)** As any platform administrator, `DELETE /api/v1/users/{id of the platform-admin-member fixture's admin}`.
+- **Expect**
+  - Step 1: refused — "This person also works in another firm, so their profile is managed by a platform administrator. You can still set their roles and job template in your own firm."
+  - Step 2: **422**, "Platform administrator users cannot be deleted."
+- **Leaves:** unchanged.
+
+### TC-SESS-011 — Setting somebody else's password
+
+- **Covers:** plan 2.15, 2.16, 2.17
+- **Fixture:** `lock-target`
+- **Steps**
+  1. Lock the target (five wrong passwords).
+  2. As the fixture's **Platform admin** → Users → open the target → **Reset password** (dialog footer) → `Temp-Passw0rd!!`, "Require a new password" on → Save. Sign in as the target with it.
+  3. Reset again to `Handover-Passw0rd!` with "Require a new password" **off**; sign in with it.
+  4. As the platform admin, open **your own** row → Reset password.
+  5. As the fixture's **Firm admin**, open the target.
+- **Expect**
+  - Step 2: the lock is gone — they sign in at once and land on the change-password screen. Any other window of theirs is signed out.
+  - Step 3: the app opens straight away: a handover, the password theirs to keep.
+  - Step 4: refused — "Change your own password from My profile, where the current one is asked for."
+  - Step 5: **no Reset password** in the footer. **(HTTP)** `POST /api/v1/users/{id}/password` as the firm admin → **403**.
+- **Leaves:** the target on `Handover-Passw0rd!`.
+
+### Known defects found while writing these cases
+
+- **D-2-1 — An inactive or expired account names its state to a wrong password.** Driven: a wrong password on an inactive account answers "This account is inactive…", and on an expired one "This account has expired…", both with their state codes. Plan 2.10 expected "Invalid email or password." for a wrong password, which is what the locked refusal's reasoning and CLAUDE.md's "a refusal about the credential does not [name the state]" suggest. The unit tests pin the state messages with the **right** password only. Either the plan or the code is wrong; the owner's call, since the 18.1/18.2 decision was about the person holding the right password.
+
+---
+
+## Firm isolation — one firm never sees another's data
+
+Three ways a firm's data can live: in the shared store beside other firms
+(`SHARED`, schema `firm_shared`), in a schema of its own (`SCHEMA`), or in a
+database of its own. The shared store is the one where isolation depends on
+every query filtering by firm, so it is the one to check hardest.
+
+### TC-ISO-001 — Two firms in one schema do not see each other's customers
+
+- **Covers:** plan 3.1, 3.2 (shared half)
+- **Fixture:** `shared-isolation-pair` — `<SUFFIX>-SHONE` in TESTSH1 and `<SUFFIX>-SHTWO` in TESTSH2, **both in `firm_shared`**.
+- **Steps**
+  1. Sign in as the fixture's **Platform admin** → switch into **TESTSH1** → Masters → Customers → search `<SUFFIX>`.
+  2. Switch to **TESTSH2**; search again. Then **MEDI01** and **FOOD01**, which share the same schema; then **TEST01**.
+- **Expect:** TESTSH1 shows only `-SHONE`; TESTSH2 only `-SHTWO`; MEDI01, FOOD01 and TEST01 show **neither**. **If a TESTSH1 customer appears in TESTSH2, stop and report it** — the two share one schema, so nothing but the firm filter keeps them apart.
+- **Data**
+  ```sql
+  select c.code, f.code as firm from firm_shared.customers c
+  join platform.firms f on f.id = c.firm_id
+  where c.code like '<SUFFIX>-SH%';
+  ```
+  Two rows, one per firm, in one table.
+- **Leaves:** a customer in each shared test firm.
+
+### TC-ISO-002 — Two firms in their own schemas, and a name that cannot cross
+
+- **Covers:** plan 3.2 (dedicated half), 3.3, 3.3b
+- **Fixture:** `isolation-pair` — `<SUFFIX>-ONE` (Isolation One) in TEST01, `<SUFFIX>-TWO` (Isolation Two) in TEST02.
+- **Steps**
+  1. As the fixture's **Platform admin** in **TEST01**, Customers → search `Isolation One <suffix>`.
+  2. Switch to **TEST02**; search the same name, then `<SUFFIX>`.
+- **Expect**
+  - Step 1: `<SUFFIX>-ONE`.
+  - Step 2: the name finds **nothing**; `<SUFFIX>` finds only `<SUFFIX>-TWO`. A name from another firm's store cannot appear.
+  - *Document numbers are the weaker check the plan's 3.3 started from: they **restart per firm**, so TEST02 may have an invoice with the same number as one of TEST01's — it must carry TEST02's own customer. The name is the real check.*
+- **Leaves:** unchanged.
+
+### TC-ISO-003 — Reports read the firm you are in
+
+- **Covers:** plan 3.4
+- **Fixture:** `invoiced` — a sale of this run's own in TEST01.
+- **Steps**
+  1. Sign in as the fixture's **Firm admin** (TEST01) → Reports → Operational Reports → **Sales order register**; find the fixture's order (customer **Fixture Buyer <suffix>**).
+  2. Sign in as any platform administrator (e.g. `platform-admin` fixture) → switch into **TEST02** → the same report.
+- **Expect:** step 1 lists the fixture's order; step 2 does **not** — TEST02's register holds only TEST02's orders, and reads "Nothing to report" if it has none.
+- **Leaves:** unchanged.
+
+### TC-ISO-004 — Naming a firm you do not belong to is refused, not answered empty
+
+- **Covers:** plan 3.5, 3.6
+- **Fixture:** `firm-admin`
+- **Steps**
+  1. Sign in as the fixture's **Firm admin** and look for any way to TEST02: the firm switcher, Ctrl+K, a report.
+  2. **(HTTP)** As the firm admin, `GET /api/v1/customers` with `X-Firm-ID` of **TEST02**.
+- **Expect**
+  - Step 1: none. The switcher lists TEST01 alone.
+  - Step 2: **403**, "You do not have permission to perform this action." — **not** an empty list, which would look like "no data" and hide the hole.
+- **Leaves:** a firm admin user.
+
+---
+
 ## User tiers — what a platform operator may and may not reach
 
 Four kinds of user, not interchangeable:
@@ -1036,229 +1259,6 @@ one job, and **one route answers two callers differently**:
 - **Steps:** open Administration as the fixture's **Firm admin**; then as its **Platform admin**, with no firm and then with TEST01 selected.
 - **Expect:** the firm admin sees Users, Roles & Permissions and User Templates — **no User-Firm Assignments**; Users → Edit → Firms and Add existing user are their ways to the same thing. The platform admin sees **User-Firm Assignments**, with the Firm filter, either way. A tab-level `requiresPlatformAdmin`, because a platform administrator passes code checks by designation.
 - **Leaves:** unchanged.
-
----
-
-## Signing in, sessions, and the life of an account
-
-A refusal about the **credential** says only "Invalid email or password." —
-for a wrong password and for an unknown address alike, and at the same cost,
-so nobody learns which addresses exist. A refusal about the **account's
-state** — locked, inactive, expired — names the state and the remedy
-(`docs/BACKLOG.md` 18.1, 18.2). Five wrong passwords lock an account for
-fifteen minutes.
-
-### TC-SESS-001 — Switching firms reloads every list
-
-- **Covers:** plan 2.2
-- **Fixture:** `isolation-pair` — a customer of this run's own in TEST01 and another in TEST02.
-- **Steps**
-  1. Sign in as the fixture's **Platform admin**; switch into **TEST01** → Masters → Customers; search `<SUFFIX>`.
-  2. With the list open, switch to **TEST02**.
-- **Expect:** step 1 shows `<SUFFIX>-ONE`; after the switch the list reloads by itself and shows `<SUFFIX>-TWO` — **no row from TEST01 survives**, not even for a moment.
-- **Leaves:** unchanged.
-
-### TC-SESS-002 — An idle session refreshes quietly, and a signed-out one leaves nothing behind
-
-- **Covers:** plan 2.4, 2.5
-- **Fixture:** `firm-admin`
-- **Steps**
-  1. Sign in as the fixture's **Firm admin**; open Masters → Customers. Leave the application idle for **more than 15 minutes** (the access token's lifetime, `AGENCY_JWT_ACCESS_TOKEN_MINUTES`).
-  2. Click **Refresh**.
-  3. Sign out; press the mouse's Back button or Alt+Left.
-- **Expect**
-  - Step 2: the list reloads; you are **not** asked to sign in again — the client refreshes once on a 401 and repeats the request.
-  - Step 3: the sign-in screen stays; no cached screen is reachable.
-- **Leaves:** a firm admin user.
-
-### TC-SESS-003 — Wrong passwords, a lockout, and a lock that counts down
-
-- **Covers:** plan 2.6, 2.7
-- **Fixture:** `lock-target`
-- **Steps**
-  1. On the sign-in screen, try `nobody.<suffix>@fixtures.local` / `Wrong@Password1`.
-  2. Try the fixture's **Target** with `Wrong@Password1` **four** times.
-  3. A fifth time.
-  4. Now the **right** password, `Fixture@2026pw`.
-  5. Watch the banner.
-- **Expect**
-  - Steps 1–2: "Invalid email or password." every time, the unknown address included, and each takes **about as long** as the others (~2 seconds on this machine, measured) — a wrong address and a wrong password must not feel different.
-  - Step 3: "This account is locked after too many failed sign-in attempts. You can try again in 15:00." and the clock **counts down** a second at a time.
-  - Step 4: refused the same way, with the time left. The lock is checked before the password is.
-  - Step 5: at zero, "The lock on this account has lifted. You can sign in now." *(If you cannot wait, TC-SESS-004 lifts it.)*
-- **Data (HTTP):** the fifth attempt's refusal is **401** with code `account_locked` and `details.retry_after_seconds` 900 and `locked_until`. Table check: `scripts/sql/check_identity_data.sql` §5 shows the fifth as `locked` and the sixth as `account_locked`.
-- **Leaves:** a locked target (for 15 minutes).
-
-### TC-SESS-004 — A firm administrator clears a lock
-
-- **Covers:** plan 2.8, 2.9
-- **Fixture:** `lock-target`
-- **Steps**
-  1. Lock the fixture's **Target** with five wrong passwords (TC-SESS-003 steps 2–3).
-  2. Sign in as the fixture's **Firm admin** → Users → Edit **Lock Target (<suffix>)** → tick **Clear login lock (Account Lock)** → Save.
-  3. Sign in as the target with `Fixture@2026pw`.
-- **Expect:** step 3 signs in at once — the lock cleared and the failed count reset. *(2.9's other way, waiting fifteen minutes, ends the same; TC-SESS-003 step 5 shows it.)*
-- **Data (HTTP):** the form sends `PATCH /api/v1/users/{id}` with `{"unlock": true}`.
-- **Leaves:** an unlocked target.
-
-### TC-SESS-005 — Inactive and expired accounts are told why
-
-- **Covers:** plan 2.10
-- **Fixture:** `lock-target`
-- **Steps**
-  1. As the fixture's **Firm admin**, Users → Edit the target → untick **Active** → Save. Sign in as the target with the right password; then with `Wrong@Password1`.
-  2. Edit again: tick Active, set **Expires at** to yesterday → Save. Sign in with the right password; then a wrong one.
-  3. Clear Expires at → Save; sign in.
-- **Expect**
-  - Step 1, right password: "This account is inactive. Ask an administrator to reactivate it." Login history says `account_unavailable`.
-  - Step 2, right password: "This account has expired. Ask an administrator to extend it."
-  - Step 3: signs in.
-  - **With a wrong password, the plan expected "Invalid email or password."** The server answers the **state** message instead — driven on 2026-09-16 for both states. See defect **D-2-1**; record what you see.
-- **Leaves:** the target active, no expiry.
-
-### TC-SESS-006 — A password somebody else set must be changed
-
-- **Covers:** plan 2.11
-- **Fixture:** `firm-admin`
-- **Steps**
-  1. As the fixture's **Firm admin**, Users → New: `<suffix>.newbie@fixtures.local`, password `Welcome@123456`, **Require password change** on, in TEST01 → Save.
-  2. Sign in as them. On the change-password screen try new passwords `Short@1`, then `LongEnoughPassw0rd`, then `Newbie-Passw0rd!`.
-- **Expect:** the change-password screen and nothing else reachable. `Short@1` refused ("Use at least 12 characters."); `LongEnoughPassw0rd` refused ("Include a symbol."); `Newbie-Passw0rd!` accepted and the app opens.
-- **Leaves:** a TEST01 user with their own password.
-
-### TC-SESS-007 — Deleting somebody releases their address; the new account is a new person
-
-- **Covers:** plan 2.13
-- **Fixture:** `lock-target`
-- **Steps**
-  1. As the fixture's **Platform admin**, Users → select the target → **Delete**.
-  2. Users → New with the same email, any name and password, no firms or roles → Save.
-- **Expect:** step 1 — gone from the grid; Settings → Audit Logs keeps the row. Step 2 — the address is accepted again (soft delete releases it) and the new account has **no** roles and **no** firms.
-- **Leaves:** a deleted target and a new, empty account on the same address.
-
-### TC-SESS-008 — Restoring a deleted person as they were
-
-- **Covers:** plan 2.13b, 2.13c
-- **Fixture:** `lock-target`
-- **Steps**
-  1. As the fixture's **Platform admin**, delete the target. Users → **Status** filter → **Deleted** → open them.
-  2. **Restore** (dialog footer). Sign in as the target with `Fixture@2026pw`.
-  3. Delete the target again; create a **new** account with the same address; Status → Deleted → open the old one → Restore.
-- **Expect**
-  - Step 1: status **Deleted**, Edit and Delete dead, View opens.
-  - Step 2: back in the grid with TEST01 and SALES_EXECUTIVE; the old password works.
-  - Step 3: refused — "Another live account now holds this email address. Delete that account first if this is the one to keep." Restore before re-onboarding, not after.
-- **Leaves:** a deleted target and a live account on its address (after step 3).
-
-### TC-SESS-009 — Deleted people are a platform administrator's; inactive ones anybody's
-
-- **Covers:** plan 2.13d (both rows)
-- **Fixture:** `lock-target`
-- **Steps**
-  1. As the fixture's **Firm admin**, Users → open the **Status** filter.
-  2. **(HTTP)** As the firm admin, `GET /api/v1/users?deleted_only=true&search=<suffix>`.
-  3. Edit the target: untick **Active** → Save. Status → **Inactive**.
-  4. As the fixture's **Platform admin**: Status → **Inactive**; then also pick the firm **TEST01**.
-- **Expect**
-  - Step 1: Active and Inactive, **no Deleted**; and no **Restore** anywhere. A deleted person's memberships still place them in a firm, and a firm's grid must not list them.
-  - Step 2: **live** rows only — the flag is ignored for a firm caller.
-  - Step 3: the target, and nobody active.
-  - Step 4: the switched-off people from every firm, the target among them and no deleted ones; with TEST01 as well, only TEST01's inactive people.
-- **Leaves:** an inactive target.
-
-### TC-SESS-010 — Who may not be deleted
-
-- **Covers:** plan 2.14
-- **Fixture:** `shared-member` (for the shared person) and `platform-admin-member` (for a platform administrator to aim at)
-- **Steps**
-  1. As the `shared-member` fixture's **Firm admin**, Users → select **Shared Member (<suffix>)** → Delete.
-  2. **(HTTP)** As any platform administrator, `DELETE /api/v1/users/{id of the platform-admin-member fixture's admin}`.
-- **Expect**
-  - Step 1: refused — "This person also works in another firm, so their profile is managed by a platform administrator. You can still set their roles and job template in your own firm."
-  - Step 2: **422**, "Platform administrator users cannot be deleted."
-- **Leaves:** unchanged.
-
-### TC-SESS-011 — Setting somebody else's password
-
-- **Covers:** plan 2.15, 2.16, 2.17
-- **Fixture:** `lock-target`
-- **Steps**
-  1. Lock the target (five wrong passwords).
-  2. As the fixture's **Platform admin** → Users → open the target → **Reset password** (dialog footer) → `Temp-Passw0rd!!`, "Require a new password" on → Save. Sign in as the target with it.
-  3. Reset again to `Handover-Passw0rd!` with "Require a new password" **off**; sign in with it.
-  4. As the platform admin, open **your own** row → Reset password.
-  5. As the fixture's **Firm admin**, open the target.
-- **Expect**
-  - Step 2: the lock is gone — they sign in at once and land on the change-password screen. Any other window of theirs is signed out.
-  - Step 3: the app opens straight away: a handover, the password theirs to keep.
-  - Step 4: refused — "Change your own password from My profile, where the current one is asked for."
-  - Step 5: **no Reset password** in the footer. **(HTTP)** `POST /api/v1/users/{id}/password` as the firm admin → **403**.
-- **Leaves:** the target on `Handover-Passw0rd!`.
-
-### Known defects found while writing these cases
-
-- **D-2-1 — An inactive or expired account names its state to a wrong password.** Driven: a wrong password on an inactive account answers "This account is inactive…", and on an expired one "This account has expired…", both with their state codes. Plan 2.10 expected "Invalid email or password." for a wrong password, which is what the locked refusal's reasoning and CLAUDE.md's "a refusal about the credential does not [name the state]" suggest. The unit tests pin the state messages with the **right** password only. Either the plan or the code is wrong; the owner's call, since the 18.1/18.2 decision was about the person holding the right password.
-
----
-
-## Firm isolation — one firm never sees another's data
-
-Three ways a firm's data can live: in the shared store beside other firms
-(`SHARED`, schema `firm_shared`), in a schema of its own (`SCHEMA`), or in a
-database of its own. The shared store is the one where isolation depends on
-every query filtering by firm, so it is the one to check hardest.
-
-### TC-ISO-001 — Two firms in one schema do not see each other's customers
-
-- **Covers:** plan 3.1, 3.2 (shared half)
-- **Fixture:** `shared-isolation-pair` — `<SUFFIX>-SHONE` in TESTSH1 and `<SUFFIX>-SHTWO` in TESTSH2, **both in `firm_shared`**.
-- **Steps**
-  1. Sign in as the fixture's **Platform admin** → switch into **TESTSH1** → Masters → Customers → search `<SUFFIX>`.
-  2. Switch to **TESTSH2**; search again. Then **MEDI01** and **FOOD01**, which share the same schema; then **TEST01**.
-- **Expect:** TESTSH1 shows only `-SHONE`; TESTSH2 only `-SHTWO`; MEDI01, FOOD01 and TEST01 show **neither**. **If a TESTSH1 customer appears in TESTSH2, stop and report it** — the two share one schema, so nothing but the firm filter keeps them apart.
-- **Data**
-  ```sql
-  select c.code, f.code as firm from firm_shared.customers c
-  join platform.firms f on f.id = c.firm_id
-  where c.code like '<SUFFIX>-SH%';
-  ```
-  Two rows, one per firm, in one table.
-- **Leaves:** a customer in each shared test firm.
-
-### TC-ISO-002 — Two firms in their own schemas, and a name that cannot cross
-
-- **Covers:** plan 3.2 (dedicated half), 3.3, 3.3b
-- **Fixture:** `isolation-pair` — `<SUFFIX>-ONE` (Isolation One) in TEST01, `<SUFFIX>-TWO` (Isolation Two) in TEST02.
-- **Steps**
-  1. As the fixture's **Platform admin** in **TEST01**, Customers → search `Isolation One <suffix>`.
-  2. Switch to **TEST02**; search the same name, then `<SUFFIX>`.
-- **Expect**
-  - Step 1: `<SUFFIX>-ONE`.
-  - Step 2: the name finds **nothing**; `<SUFFIX>` finds only `<SUFFIX>-TWO`. A name from another firm's store cannot appear.
-  - *Document numbers are the weaker check the plan's 3.3 started from: they **restart per firm**, so TEST02 may have an invoice with the same number as one of TEST01's — it must carry TEST02's own customer. The name is the real check.*
-- **Leaves:** unchanged.
-
-### TC-ISO-003 — Reports read the firm you are in
-
-- **Covers:** plan 3.4
-- **Fixture:** `invoiced` — a sale of this run's own in TEST01.
-- **Steps**
-  1. Sign in as the fixture's **Firm admin** (TEST01) → Reports → Operational Reports → **Sales order register**; find the fixture's order (customer **Fixture Buyer <suffix>**).
-  2. Sign in as any platform administrator (e.g. `platform-admin` fixture) → switch into **TEST02** → the same report.
-- **Expect:** step 1 lists the fixture's order; step 2 does **not** — TEST02's register holds only TEST02's orders, and reads "Nothing to report" if it has none.
-- **Leaves:** unchanged.
-
-### TC-ISO-004 — Naming a firm you do not belong to is refused, not answered empty
-
-- **Covers:** plan 3.5, 3.6
-- **Fixture:** `firm-admin`
-- **Steps**
-  1. Sign in as the fixture's **Firm admin** and look for any way to TEST02: the firm switcher, Ctrl+K, a report.
-  2. **(HTTP)** As the firm admin, `GET /api/v1/customers` with `X-Firm-ID` of **TEST02**.
-- **Expect**
-  - Step 1: none. The switcher lists TEST01 alone.
-  - Step 2: **403**, "You do not have permission to perform this action." — **not** an empty list, which would look like "no data" and hide the hole.
-- **Leaves:** a firm admin user.
 
 ---
 
