@@ -898,63 +898,35 @@ the exceptional one. **Do** raise a defect against any of these.
 
 ## 26. Platform mode, and the switcher that was empty
 
-Sign in as **`platform-admin@agency.local`**. This account is `ALL_FIRMS` and
-holds **no** firm memberships, which is what made the defect visible: its token
-carries all 189 permission codes, so the sidebar offered Sales, Purchases and
-Inventory, while `/me/firms` answered an empty list so no firm could be
-selected and every one of those screens refused its first request.
+**Moved to `docs/INDEPENDENT_TEST_CASES.md` on 2026-09-16**, as TC-PLAT-001 to
+005. Converting it corrected two things: the switcher lists **every active
+firm** — seven on this database when converted, not "all four" — and
+**Licensing** is shown in platform mode and disappears once a firm is selected.
 
-*Re-derived 2026-09-15, no changes. Two practical notes. `platform-admin`'s
-password is `AGENCY_BOOTSTRAP_ADMIN_PASSWORD` from `config/.env` **only until
-somebody signs in and changes it** — on this database that has happened, so use
-`master.ops` if it will not let you in; both are `ALL_FIRMS` and nothing in the
-cases changes. And 26.9 covers the contrast that matters: `superadmin` is also
-`ALL_FIRMS` but a member of all four firms, and still starts on Platform —
-membership is not what decides the landing.*
-
-| # | Step | Expect |
-| --- | --- | --- |
-| 26.1 | Sign in | The header firm control reads **Platform**, and so does the status bar. |
-| 26.2 | Look at the sidebar | Dashboard, Administration, Settings (and Licensing if seeded). **No** Sales, Purchases, Inventory, Masters, Finance or Reports. |
-| 26.3 | Open Administration | **Firms**, Users, Roles & Permissions, User Templates, User-Firm Assignments. **No** Tax, UOM, Business Profiles or Numbering Series — those live in a firm's own store. |
-| 26.4 | Open the firm control | A **Platform** entry at the top with a tick beside it, then all four firms — even though this account is a member of none. |
-| 26.5 | Pick `WHOLE01` | Notification names the firm; the sidebar grows Sales, Purchases, Inventory, Masters, Finance, Reports; Administration gains its configuration tabs. |
-| 26.6 | Open Sales → Sales Orders | Real rows. Before this change the module was offered and this screen failed. |
-| 26.7 | Open the firm control and pick **Platform** | "Working on the platform. No firm is selected." The firm-owned modules go away again. |
-| 26.8 | Sign out and back in | Lands on **Platform**, not on `WHOLE01`. Deliberate: a reach over every firm's books must not restore itself silently. |
-| 26.9 | Sign in as `superadmin@agency.local` | Also `ALL_FIRMS`, but a member of all four. Still starts on **Platform**; the switcher looks the same as before. |
-| 26.10 | Sign in as `whole01.admin@agency.local` | **No** Platform entry anywhere, one firm, lands in it as always. Nothing about a firm user's experience changed. |
+| Old row | Case |
+| --- | --- |
+| 26.1, 26.8 | TC-PLAT-001 |
+| 26.2, 26.3 | TC-PLAT-002 |
+| 26.4, 26.5, 26.6, 26.7 | TC-PLAT-003 |
+| 26.9 | TC-PLAT-004 |
+| 26.10 | TC-PLAT-005 |
 
 ## 26a. The user menu: who you are, and where you start
 
-`GET /api/v1/me` names the signed-in person; `PUT /api/v1/me/primary-firm` is
-theirs to call. Use a user who belongs to **two** firms.
+**Moved to `docs/INDEPENDENT_TEST_CASES.md` on 2026-09-16**, as TC-ME-001 to
+008. 26a.11 said "a new password of 8 characters"; the rule and the message are
+**twelve** — "Use at least 12 characters." — and the case uses that.
 
-*Verified against the code on 2026-09-15, no changes. All three routes exist
-(`/me`, `/me/firms`, `/me/primary-firm`) and are gated on being signed in and
-nothing else, which is what 26a.10 checks — `whole01.sales1` holds
-`SALES_EXECUTIVE`, six codes, none of them `USER_VIEW`, so it is the right
-account for 26a.8 and 26a.10.*
-
-| # | Step | Expect |
-| --- | --- | --- |
-| 26a.1 | Sign in, open the account menu (top right) | The first row is your **full name** with your **email** under it -- not the address you typed, and not the word "User". The status bar shows the same name. |
-| 26a.2 | Close the app with "remember me" on, relaunch | Still your name. This used to read "User", because a restored session never passes through the login form. |
-| 26a.3 | Account menu → **Primary firm** | A dialog listing your firms with the current primary selected and **Save** dead. Choose the other, Save. A notice says which firm you will start in next time. Nothing on screen switched. |
-| 26a.4 | Open the firm switcher | The primary is labelled `primary` beside its code. |
-| 26a.5 | Switch to the non-primary firm, work there, sign out, sign in | You land in the **primary** firm, not the one you were last in. Switching is for the session; the primary is for next time. Until 2026-09-08 it was the reverse, so the flag meant nothing to anybody who ever switched. |
-| 26a.6 | As a user with **one** firm, open the account menu | No **Primary firm** entry -- there is nothing to choose. Same for a platform administrator, who always starts on Platform. |
-| 26a.7 **(HTTP)** | `PUT /api/v1/me/primary-firm` with a firm you do not belong to | Refused: "You can only make a firm you belong to your primary firm." |
-| 26a.8 | Account menu → **My profile**, as `whole01.sales1` (no `USER_VIEW`) | Opens. Name and email at the top; Work, Contact, Firms, Access and Sign-in sections; unset fields read **Not set**; roles grouped as **In every firm** and **In WHOLE01**; the primary firm marked **Primary**. No boxes to type in, and a line saying these are the administrator's to change. |
-| 26a.9 | Same as `master.ops` | A **Platform administrator** chip under the name. |
-| 26a.10 **(HTTP)** | `GET /api/v1/me` as `whole01.sales1` | 200 with `profile` and `roles`, on a token that cannot call `GET /users/{id}`. |
-| 26a.11 | My profile → **Change password**: a new password of 8 characters, then one with no symbol | Refused beside the box with the rule named; nothing sent. |
-| 26a.12 | Same, wrong current password, otherwise valid | The server's refusal shown in the dialog; it stays open for another try. |
-| 26a.13 | Same, correct current password, `Str0ng-Passw0rd!` twice | Both dialogs close, you land on the login screen with "Password changed. Sign in with your new password." Any other window you were signed in on is signed out on its next request. Sign in with the new password; set it back afterwards. |
-
-**(HTTP)** `GET /api/v1/me/firms` as `platform-admin` returns four firms, each
-with `is_primary: false` — no membership row, so nobody's primary. The same
-call as `whole01.admin` still returns one.
+| Old row | Case |
+| --- | --- |
+| 26a.1, 26a.2 | TC-ME-001 |
+| 26a.3, 26a.4 | TC-ME-002 |
+| 26a.5 | TC-ME-003 |
+| 26a.6 | TC-ME-006 (platform) and TC-ME-007 (one firm) |
+| 26a.7 | TC-ME-004 |
+| 26a.8, 26a.10 | TC-ME-005 |
+| 26a.9 | TC-ME-006 |
+| 26a.11, 26a.12, 26a.13 | TC-ME-008 |
 
 ## 27. Creating a firm and setting it up
 

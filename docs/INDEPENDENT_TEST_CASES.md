@@ -7,9 +7,9 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Pilot: plan section 25 (a firm's own roles and templates), converted
-2026-09-16.** Other sections move here one at a time; until then they stay in
-the plan.
+**Converted so far:** plan sections 25 (the pilot), 26 and 26a — see the
+table of contents below. Other sections move here one at a time; until then
+they stay in the plan.
 
 ---
 
@@ -28,24 +28,36 @@ rules you meet on screen apply to the setup — and prints what to use:
 
 ```
 Fixture 'role-holder' ready
-  Firm        : TEST01  (select it in the firm switcher)
   Firm admin  : t0916xk2q.admin@fixtures.local / Fixture@2026pw
   Custom role : t0916xk2q-night-desk  (Night Desk t0916xk2q)
   It carries  : SALES_VIEW, CUSTOMER_VIEW, RECEIPT_VIEW, RECEIPT_CREATE
   Role holder : t0916xk2q.holder@fixtures.local / Fixture@2026pw
-  Tables      : schema test_fixtures; identity rows in platform
+  Tables      : TEST01 in schema test_fixtures; identity rows in platform
   Suffix      : t0916xk2q  (everything this run made has it)
 ```
 
 `scripts\test_fixture.py list` shows every fixture and the cases that use it.
 
-### 2. Everything happens in TEST01
+### 2. Everything happens in TEST01 and TEST02
 
-Fixtures work in one firm, **TEST01**, stored in a schema of its own,
-**`test_fixtures`**. The four demo firms are never touched, and a table check
-against `test_fixtures` shows only test data. The first fixture run builds
-TEST01 — create, provision, open the books, GST template, head office, the
-Wholesale profile — and every later run finds it and moves on.
+Fixtures work in two firms of their own, each in a schema of its own:
+
+| Firm | Schema | For |
+| --- | --- | --- |
+| **TEST01** | `test_fixtures` | almost every case |
+| **TEST02** | `test_fixtures_2` | cases needing somebody in two firms, or two firms kept apart |
+
+The demo firms are never touched, and a table check against those schemas
+shows only test data. The first fixture run builds both — create, provision,
+open the books, GST template, head office, the Wholesale profile — through the
+same endpoints plan section 27 tests; every later run finds them and moves on.
+`scripts	est_fixture.py baseline` does only that.
+
+**One setup step is not an API call, on purpose.** Nothing in the API grants
+the platform-administrator designation — a `platform_admins` row is
+deliberately unreachable from anything a role can do, which is what closed the
+2026-09-05 escalation. The fixtures that need a platform administrator write
+that one row directly, as the seeder does, and write no audit row for it.
 
 ### 3. Nothing is shared between runs
 
@@ -143,7 +155,7 @@ own roles and templates without anybody writing code.
   1. Sign in as the fixture's **Firm admin**, TEST01 selected.
   2. Roles → **New** → **Role code** `platform_admin`, any name → **Save**.
 - **Expect:** refused on the form — **"'platform_admin' is reserved. Choose a different role code."** Nothing is created. The code pattern `^[a-z0-9._-]+$` *permits* that spelling, so the refusal is the service's. Before 2026-09-05 this went through, and a firm administrator who assigned it to themselves signed in as a platform administrator.
-- **Also try** `FIRM_ADMIN` or `Cashier` as a code — the same refusal: the designation and all sixteen seeded codes are reserved, case-insensitively.
+- **Also try** `firm_admin`, `cashier` or `system_auditor` — the same named refusal: the designation and all sixteen seeded codes are reserved. **Type them in lower case.** `FIRM_ADMIN` or `Cashier` is refused *earlier*, by the code pattern, with a generic "The request validation failed" — a different refusal for a different reason, and not what this case is checking. (The service's check is case-insensitive as defence in depth, for a role row written by some other route; through this form the pattern means only lower case can reach it.) *(Corrected 2026-09-16 after driving it: the first version of this case said `FIRM_ADMIN` gave the same refusal.)*
 - **Data:** `select count(*) from platform.roles where lower(code) = 'platform_admin';` → **0**.
 - **Leaves:** a firm admin user.
 
@@ -270,6 +282,226 @@ own roles and templates without anybody writing code.
   ```
   `roles.is_deleted` is **true**; the holder's `user_roles` row is **left in place** — it names a deleted role, and the token simply stops carrying its codes. Audit `role.deleted`.
 - **Leaves:** a deleted custom role, and a holder with nothing.
+
+---
+
+## Platform mode — the switcher and what a platform administrator starts on
+
+A platform administrator with reach over every firm, and a member of none, used
+to get a token carrying every code — so the sidebar offered Sales and
+Inventory — and an empty firm switcher, so every one of those screens refused
+its first request. The firm switcher is now the mode switch: **Platform** is
+one of its entries.
+
+**Firm counts vary.** The switcher lists every active firm on the platform:
+the four demo firms, TEST01 and TEST02, and any firm created while testing
+section 27. Cases name the firms that must be there, never how many.
+
+### TC-PLAT-001 — A platform administrator starts on Platform, every time
+
+- **Covers:** plan 26.1, 26.8
+- **Fixture:** `platform-admin`
+- **Steps**
+  1. Sign in as the fixture's **Platform admin**.
+  2. Read the firm control in the header, and the status bar.
+  3. Switch into **TEST01** (see TC-PLAT-003), then sign out and sign back in.
+- **Expect**
+  - Steps 2 and 3: the header firm control reads **Platform**, and so does the status bar — **including after having been in TEST01**.
+  - That is deliberate: somebody with reach over every firm's books must not land silently in one of them on a screen that looks like their own. `SessionController.resolveLandingFirm` returns no firm for any platform administrator, whatever their last firm or primary.
+- **Data:** switching firms writes `platform.user_preferences.default_firm_id` (and a `user_preferences.updated` audit row) — for a platform administrator that preference is **ignored** at sign-in, which is the rule this case checks.
+- **Leaves:** a platform administrator.
+
+### TC-PLAT-002 — Platform mode offers the platform, and nothing that needs a firm
+
+- **Covers:** plan 26.2, 26.3
+- **Fixture:** `platform-admin`
+- **Steps**
+  1. Sign in as the fixture's **Platform admin**. The header reads **Platform**.
+  2. Read the sidebar. Open **Administration** and **Settings** and read their tabs.
+- **Expect** — taken from the desktop's own visibility logic:
+
+  | Sidebar | Tabs inside |
+  | --- | --- |
+  | **Dashboard** | — |
+  | **Administration** | Firms · Users · Roles & Permissions (Roles, Permissions) · User Templates · User-Firm Assignments |
+  | **Licensing** | — |
+  | **Settings** | Audit Logs · Diagnostics |
+
+  **No** Masters, Sales, Quotations, Sales Orders, Delivery Notes, Sales Invoices, Sales Returns, Purchases, Inventory, Finance or Reports. **No** Numbering Series, Business Profiles, Tax, UOM or Industry Templates tabs — those live in a firm's own store.
+- **Why:** `requiresFirm` on a module *and* on a tab hides what needs a firm when none is selected. A platform administrator's token carries every code, so permissions alone would offer everything.
+- **Leaves:** a platform administrator.
+
+### TC-PLAT-003 — The switcher lists every firm, and choosing one grows the workspace
+
+- **Covers:** plan 26.4, 26.5, 26.6, 26.7
+- **Fixture:** `platform-admin`
+- **Steps**
+  1. Sign in as the fixture's **Platform admin**.
+  2. Open the firm control.
+  3. Pick **TEST01**.
+  4. Open **Sales Orders**.
+  5. Open the firm control again and pick **Platform**.
+- **Expect**
+  - Step 2: a **Platform** entry at the top with a tick beside it, then **every active firm** — TEST01, TEST02, WHOLE01, ELEC01, MEDI01, FOOD01 among them — **although this account is a member of none**.
+  - Step 3: a notification names TEST01. The sidebar grows **Masters, Sales, Quotations, Sales Orders, Delivery Notes, Sales Invoices, Sales Returns, Purchases, Purchase Invoices, Purchase Returns, Goods Receipts, Inventory, Finance, Reports**. Administration gains its configuration tabs (Numbering Series through Industry Templates). **Licensing goes away** — it is a platform screen.
+  - Step 4: the screen **loads** — an empty list, since TEST01 has no orders — with no error. Before the fix this module was offered and this screen failed.
+  - Step 5: **"Working on the platform. No firm is selected."** The firm-owned modules go away again.
+- **Data (HTTP)** — the switcher's source:
+  ```
+  GET /api/v1/me/firms          (as the fixture's platform admin)
+  ```
+  Every active firm, each with `is_primary: false` — there is no membership row, so nobody's primary. The same call as a firm user returns only their own firms.
+- **Leaves:** a platform administrator.
+
+### TC-PLAT-004 — Being a member of firms does not change where a platform administrator lands
+
+- **Covers:** plan 26.9
+- **Fixture:** `platform-admin-member`
+- **Steps**
+  1. Sign in as the fixture's **Platform admin** — this one *is* a member of TEST01 (primary) and TEST02.
+  2. Read the header; open the firm control.
+- **Expect:** still starts on **Platform**. The switcher looks as in TC-PLAT-003, with TEST01 marked **primary**. Membership is not what decides the landing; the designation is.
+- **Leaves:** a platform administrator with two memberships.
+
+### TC-PLAT-005 — A firm user never sees Platform
+
+- **Covers:** plan 26.10
+- **Fixture:** `firm-admin`
+- **Steps**
+  1. Sign in as the fixture's **Firm admin**.
+  2. Read the header; open the firm control.
+- **Expect:** **no Platform entry** anywhere; TEST01 selected and the only firm; lands in it. For an ordinary user a null firm is an empty application rather than a mode, so the switcher refuses to offer it.
+- **Leaves:** a firm admin user.
+
+---
+
+## The user menu — who you are, and where you start
+
+`GET /api/v1/me` names the signed-in person; `PUT /api/v1/me/primary-firm`
+and `POST /api/v1/auth/change-password` are theirs to call. All three need
+being signed in and nothing else.
+
+### TC-ME-001 — The menu names you, including after a restored session
+
+- **Covers:** plan 26a.1, 26a.2
+- **Fixture:** `two-firm-user`
+- **Steps**
+  1. Sign in as the fixture's **Two-firm user** with **Remember me** ticked.
+  2. Open the account menu (top right); read the status bar.
+  3. Close the application and start it again.
+- **Expect**
+  - Step 2: the first row is the **full name** — `Two Firm User (<suffix>)` — with the **email** under it. Not the address typed at sign-in, and not the word "User". The status bar shows the same name.
+  - Step 3: still the name. It used to read "User", because a restored session never passes through the login form and the token carries no name.
+- **Leaves:** a two-firm user.
+
+### TC-ME-002 — Choosing your own primary firm
+
+- **Covers:** plan 26a.3, 26a.4
+- **Fixture:** `two-firm-user`
+- **Steps**
+  1. Sign in as the fixture's **Two-firm user**.
+  2. Account menu → **Primary firm**.
+  3. Choose **TEST02** → **Save**.
+  4. Open the firm switcher.
+- **Expect**
+  - Step 2: a dialog listing TEST01 and TEST02, **TEST01 selected**, and **Save dead** until something else is chosen.
+  - Step 3: a notice says which firm you will start in next time. **Nothing on screen switches** — the primary is for next time, not for now.
+  - Step 4: **TEST02** is labelled `primary` beside its code.
+- **Data**
+  ```sql
+  select f.code, uf.is_primary, uf.updated_at
+  from   platform.user_firms uf
+  join   platform.firms f on f.id = uf.firm_id
+  join   platform.users u on u.id = uf.user_id
+  where  u.email = '<suffix>.twofirm@fixtures.local' and uf.is_deleted = false;
+  ```
+  TEST02 `true`, TEST01 `false`. Audit `user.primary_firm_set`. The old primary is cleared and flushed before the new one is set, because `UQ_user_firms_active_primary` is checked per statement.
+- **Leaves:** a two-firm user whose primary is TEST02.
+
+### TC-ME-003 — Signing in lands in the primary firm, not the last one used
+
+- **Covers:** plan 26a.5
+- **Fixture:** `two-firm-user`
+- **Steps**
+  1. Sign in as the fixture's **Two-firm user** (primary: TEST01).
+  2. Switch to **TEST02** and open any screen there.
+  3. Sign out, sign back in.
+- **Expect:** you land in **TEST01**, the primary — not TEST02, where you were last. Switching is for the session; the primary is for next time. Until 2026-09-08 it was the reverse, so the flag meant nothing to anybody who had ever switched.
+- **Leaves:** a two-firm user.
+
+### TC-ME-004 — Nobody can make a firm they do not belong to their primary
+
+- **Covers:** plan 26a.7
+- **Fixture:** `two-firm-user`
+- **Steps (HTTP)** — sign in as the fixture's user and send:
+  ```
+  PUT /api/v1/me/primary-firm
+  { "firm_id": "<WHOLE01's id>" }
+  ```
+  WHOLE01's id is in `GET /api/v1/firms` as a platform administrator, or in `platform.firms`.
+- **Expect:** **422**, "You can only make a firm you belong to your primary firm." Nothing changes.
+- **Leaves:** a two-firm user.
+
+### TC-ME-005 — My profile, for somebody who cannot read the user list
+
+- **Covers:** plan 26a.8, 26a.10
+- **Fixture:** `two-firm-user` — holds `SALES_EXECUTIVE` and `CUSTOMER_SUPPORT`, neither of which carries `USER_VIEW`.
+- **Steps**
+  1. Sign in as the fixture's **Two-firm user**.
+  2. Account menu → **My profile**.
+- **Expect**
+  - Opens. Name and email at the top; sections **Work**, **Contact**, **Firms**, **Access** and **Sign-in**; every unset field reads **Not set**.
+  - **Firms:** TEST01 marked **Primary**, and TEST02.
+  - **Access:** roles grouped as **In every firm** (Customer Support) and **In TEST01** (Sales Executive).
+  - No boxes to type in, and the line: *"These details are held by your administrator. Ask them to change anything here; your appearance, primary firm and password are yours to set."*
+- **Data (HTTP):** `GET /api/v1/me` as this user → **200** with `profile` and `roles` (each role carrying `firm_code`, null for the every-firm tier). `GET /api/v1/users/{their own id}` → **403**: reading yourself is not reading the user list.
+- **Leaves:** a two-firm user.
+
+### TC-ME-006 — A platform administrator's menu
+
+- **Covers:** plan 26a.6 (platform half), 26a.9
+- **Fixture:** `platform-admin`
+- **Steps**
+  1. Sign in as the fixture's **Platform admin**.
+  2. Open the account menu; open **My profile**.
+- **Expect:** **no Primary firm entry** — a platform administrator always starts on Platform, so there is nothing to choose. My profile shows a **Platform administrator** chip under the name.
+- **Leaves:** a platform administrator.
+
+### TC-ME-007 — Somebody in one firm has no primary to choose
+
+- **Covers:** plan 26a.6 (one-firm half)
+- **Fixture:** `firm-admin`
+- **Steps:** sign in as the fixture's **Firm admin** and open the account menu.
+- **Expect:** **no Primary firm entry**. The menu offers it only to somebody with more than one firm who is not a platform administrator.
+- **Leaves:** a firm admin user.
+
+### TC-ME-008 — Changing your own password
+
+- **Covers:** plan 26a.11, 26a.12, 26a.13
+- **Fixture:** `two-firm-user`
+- **Steps**
+  1. Sign in as the fixture's **Two-firm user** — in **two windows** if you want to see the second one signed out.
+  2. Account menu → **My profile** → **Change password**.
+  3. New password `Short@1` (under twelve characters).
+  4. New password `LongEnoughPassw0rd` (no symbol).
+  5. Current password `Wrong@Password1`, new password `Str0ng-Passw0rd!` twice.
+  6. Current password `Fixture@2026pw`, new password `Str0ng-Passw0rd!` twice.
+- **Expect**
+  - Step 3: refused beside the box, **"Use at least 12 characters."** — nothing sent.
+  - Step 4: **"Include a symbol."** — nothing sent. (The desktop checks the same rules the server enforces: twelve characters, upper, lower, digit, symbol.)
+  - Step 5: the server's refusal in the dialog — **"Current password is incorrect."** — and the dialog **stays open** for another try.
+  - Step 6: both dialogs close and you land on the login screen with **"Password changed. Sign in with your new password."** The other window is signed out on its next click. Sign in with `Str0ng-Passw0rd!`.
+  - No need to set it back: the account is this run's own.
+- **Data**
+  ```sql
+  select authorization_version, force_password_change, updated_at
+  from   platform.users where email = '<suffix>.twofirm@fixtures.local';
+  select count(*) from platform.password_history ph
+  join   platform.users u on u.id = ph.user_id
+  where  u.email = '<suffix>.twofirm@fixtures.local';
+  ```
+  `authorization_version` up by one (every session ends, including this one); one `password_history` row holding the old hash. Audit `identity.password_changed`. The server also refuses any of the last five passwords.
+- **Leaves:** a two-firm user whose password is `Str0ng-Passw0rd!`.
 
 ---
 
