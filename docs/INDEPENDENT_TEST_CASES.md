@@ -7,7 +7,7 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Converted so far:** plan sections 2, 3 and 16 to 27 (25 was the pilot) — see the
+**Converted so far:** plan sections 2 to 4 and 16 to 27 (25 was the pilot) — see the
 table of contents below. Other sections move here one at a time; until then
 they stay in the plan.
 
@@ -318,6 +318,98 @@ every query filtering by firm, so it is the one to check hardest.
   - Step 1: none. The switcher lists TEST01 alone.
   - Step 2: **403**, "You do not have permission to perform this action." — **not** an empty list, which would look like "no data" and hide the hole.
 - **Leaves:** a firm admin user.
+
+---
+
+## Customers
+
+A customer carries more than any one screen shows — addresses and contacts
+that are replaced as a whole, a credit limit, payment terms, a standing
+discount, a segment. **An update that dumps its whole write model turns an
+omission into an instruction**, and it shipped twice here; these cases check
+that an edit changes what it names and nothing else.
+
+### TC-CUST-001 — Changing one field leaves everything else alone
+
+- **Covers:** plan 4.1, 4.2
+- **Fixture:** `customer-master` — `<SUFFIX>-CM`, Master Check: one billing address, one contact, credit limit 50,000, 30 days, 7.5% standing discount, segment `<SUFFIX>-RET`, phone +919800000100.
+- **Steps**
+  1. Sign in as the fixture's **Firm admin** → Masters → Customers → open `<SUFFIX>-CM` → Edit.
+  2. Change only the **phone** to `+919800000199` → Save → reopen.
+- **Expect:** the phone is new; the address (12 Fixture Street, City <suffix>), the contact (Fixture Contact), **credit limit 50,000**, **payment terms 30**, **standing discount 7.5%** and the segment are all **unchanged**, and the outstanding balance is unchanged (0.00). Check each one.
+- **Data**
+  ```sql
+  select phone, credit_limit, payment_terms_days, default_discount_percent,
+         customer_group_id, current_outstanding, version
+  from   test_fixtures.customers where code = '<SUFFIX>-CM';
+  select count(*) from test_fixtures.customer_addresses a
+  join   test_fixtures.customers c on c.id = a.customer_id
+  where  c.code = '<SUFFIX>-CM' and a.is_deleted = false;
+  ```
+  One address, `version` up by one. *(Driven over HTTP: a PUT naming only the four required fields and the phone leaves all of these as they were.)*
+- **Leaves:** the customer with a new phone number.
+
+### TC-CUST-002 — The place picker loads each rung from the one above
+
+- **Covers:** plan 4.3, 4.4
+- **Fixture:** `customer-master` — TEST01's store holds India and, under it, this run's own **State <suffix> → District <suffix> → City <suffix>**.
+- **Steps**
+  1. As the fixture's **Firm admin**, Customers → New: code `<SUFFIX>-GEO`, name `Place Check <suffix>`, type Business, currency INR. In the address: country **India**, then **State <suffix>**, then **District <suffix>**, then **City <suffix>**; line 1 and PIN filled.
+  2. Save; reopen.
+- **Expect**
+  - Step 1: each rung loads **immediately** after the one above is chosen — choosing the country fills the states at once, not after a second click. *(It shipped loading from the value the parent had not rebuilt yet.)*
+  - Step 2: the place is still chosen, and the text fields agree with it: city `City <suffix>`, state `State <suffix>`, country `IN`. The ids are the truth; the text is derived from them.
+- **Leaves:** a second customer.
+
+### TC-CUST-003 — The credit policy: readable by whoever it warns, writable by one permission
+
+- **Covers:** plan 4.5
+- **Fixture:** `customer-master`
+- **Steps**
+  1. As the fixture's **Firm admin**, Customers → toolbar **Settings**.
+  2. Sign in as the fixture's **Seller** (`SALES_EXECUTIVE`) → Customers → Settings.
+  3. **(HTTP)** As the seller, `PUT /api/v1/customers/credit-settings` with `{"enforcement": "OFF", "warn_at_percent": "80", "block_at_percent": "100"}`.
+- **Expect**
+  - Step 1: **Credit policy** — "When a customer reaches their limit" **Warn**, warn at 80, block at 100 (TEST01 has no policy row, so the default applies), editable.
+  - Step 2: the dialog **opens read-only**, with "Changing the policy needs the manage customer settings permission." *(The plan said the action is not offered to a salesperson; it is offered on `CUSTOMER_VIEW` on purpose — someone the policy warns should see the rule behind the warning.)*
+  - Step 3: **403**.
+- **Leaves:** unchanged.
+
+### TC-CUST-004 — A credit limit warns and does not block
+
+- **Covers:** plan 4.6
+- **Fixture:** `customer-master`
+- **Steps**
+  1. As the fixture's **Firm admin**, edit `<SUFFIX>-CM`: credit limit `1` → Save.
+  2. Sales Orders → New: customer `<SUFFIX>-CM`, one line `<SUFFIX>-P` quantity 2 at 100 → Create draft → **Approve**.
+- **Expect:** a warning names the exposure — "Master Check <suffix> would be at …% of a 1.00 credit limit, leaving … available." — and the order **is approved**. TEST01 is in warn mode (no policy row), so nothing blocks.
+- **Data (HTTP):** `GET /api/v1/customers/{id}/credit-status?amount=<order total>` → `status: WARNING`, `would_block: false`.
+- **Leaves:** an approved order for 2, and a customer with a limit of 1.
+
+### TC-CUST-005 — Statement and ageing agree with the account
+
+- **Covers:** plan 4.7, 4.8
+- **Fixture:** `invoiced-part-paid` — Fixture Buyer <suffix> owes 590 on one invoice and has paid 200 against it.
+- **Steps**
+  1. Sign in as the fixture's **Firm admin** → Customers → `<SUFFIX>-C` → **Statement** for this financial year.
+  2. **Ageing**.
+- **Expect**
+  - Step 1: opening 0.00; the invoice (debit 590, balance 590), then the receipt (credit 200, balance **390**); closing **390.00** — the customer's current balance. Lines are in date order and the running balance is recomputed, not read off the stored snapshot.
+  - Step 2: total outstanding **390.00**, all of it in the 0–29 day bucket; the buckets sum to the total, and the reconciliation line has nothing to explain (no unapplied credits, no charges not billed).
+- **Data (HTTP):** `GET /api/v1/customers/{id}/statement?from_date=2026-04-01&to_date=2027-03-31` and `GET /api/v1/customers/ageing`.
+- **Leaves:** unchanged.
+
+### TC-CUST-006 — Segments: assigning one, and refusing to delete one in use
+
+- **Covers:** plan 4.9, 4.10
+- **Fixture:** `customer-master`
+- **Steps**
+  1. As the fixture's **Firm admin**, edit `<SUFFIX>-CM` → segment `<SUFFIX>-WHL` (Wholesaler <suffix>) → Save → reopen.
+  2. Customers toolbar → **Groups** → **Remove** on `<SUFFIX>-WHL`.
+- **Expect**
+  - Step 1: the segment holds.
+  - Step 2: refused — "1 customer(s) are still in Wholesaler <suffix>. Move them first, or the group would vanish from every list while staying on their records." `ondelete="RESTRICT"` is no guard on a soft-deleted table, so the service refuses.
+- **Leaves:** the customer in the Wholesaler segment.
 
 ---
 

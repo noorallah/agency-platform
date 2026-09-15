@@ -436,10 +436,27 @@ def sales_chain(built: Built, firm: FixtureFirm = TEST01) -> dict[str, str]:
     Returns the ids, keyed by what they are.
     """
     admin = built.admin.as_user(built.admin.token or "", built.firms[firm.code])
-    today = date.today().isoformat()
     tag = built.suffix.upper()
     warehouse = admin.call("GET", "/api/v1/warehouses?page_size=5")[0]
     branch = admin.call("GET", "/api/v1/branches?page_size=5")[0]
+    product = stocked_product(built, admin, warehouse, branch)
+    customer = admin.call(
+        "POST",
+        "/api/v1/customers",
+        {
+            "code": f"{tag}-C",
+            "name": f"Fixture Buyer {built.suffix}",
+            "customer_type": "BUSINESS",
+            "currency_code": "INR",
+        },
+    )
+    return _sell(built, admin, warehouse, branch, product, customer)
+
+
+def stocked_product(built: Built, admin: Api, warehouse: Json, branch: Json) -> Json:
+    """Make this run's own product -- GST 18 local, PIECE -- with 50 on hand at 60."""
+    today = date.today().isoformat()
+    tag = built.suffix.upper()
     units = admin.call("GET", "/api/v1/uom-framework/uoms?page_size=100")
     piece = next(u["id"] for u in units if u["code"] == "PIECE")
     product = admin.call(
@@ -458,16 +475,6 @@ def sales_chain(built: Built, firm: FixtureFirm = TEST01) -> dict[str, str]:
             "purchase_uom_id": piece,
         },
     )
-    customer = admin.call(
-        "POST",
-        "/api/v1/customers",
-        {
-            "code": f"{tag}-C",
-            "name": f"Fixture Buyer {built.suffix}",
-            "customer_type": "BUSINESS",
-            "currency_code": "INR",
-        },
-    )
     opening = admin.call(
         "POST",
         "/api/v1/inventory/opening-stock",
@@ -482,6 +489,20 @@ def sales_chain(built: Built, firm: FixtureFirm = TEST01) -> dict[str, str]:
         },
     )
     admin.call("POST", f"/api/v1/inventory/opening-stock/{opening['id']}/post")
+    return dict(product)
+
+
+def _sell(
+    built: Built,
+    admin: Api,
+    warehouse: Json,
+    branch: Json,
+    product: Json,
+    customer: Json,
+) -> dict[str, str]:
+    """Order, deliver and invoice 10 of a product to a customer; see sales_chain."""
+    today = date.today().isoformat()
+    tag = built.suffix.upper()
     order = admin.call(
         "POST",
         "/api/v1/sales-orders",
@@ -1049,6 +1070,133 @@ def build_shared_isolation_pair(built: Built) -> None:
     build_isolation_pair(built, shared=True)
 
 
+def build_customer_master(built: Built) -> None:
+    """Make a fully described TEST01 customer, the places and segments it names.
+
+    Addresses, a contact, a credit limit, payment terms, a 7.5% standing
+    discount and a segment -- every field an edit that dumps its whole write
+    model would reset -- plus a state, district, city and PIN of this run's
+    own for the place picker (TEST01's store holds India and nothing under
+    it), two segments, and a stocked product to sell against a credit limit.
+    """
+    build_firm_admin(built)
+    build_sales_executive(built)
+    tag = built.suffix.upper()
+    admin = built.admin.as_user(built.admin.token or "", built.firms[TEST01.code])
+    geo = "/api/v1/sales-territories/geo"
+    india = next(c for c in admin.call("GET", f"{geo}/countries") if c["code"] == "IN")
+    state = admin.call(
+        "POST",
+        f"{geo}/states",
+        {
+            "country_id": india["id"],
+            "code": f"{tag}ST",
+            "name": f"State {built.suffix}",
+        },
+    )
+    district = admin.call(
+        "POST",
+        f"{geo}/districts",
+        {
+            "state_id": state["id"],
+            "code": f"{tag}DT",
+            "name": f"District {built.suffix}",
+        },
+    )
+    city = admin.call(
+        "POST",
+        f"{geo}/cities",
+        {
+            "district_id": district["id"],
+            "code": f"{tag}CT",
+            "name": f"City {built.suffix}",
+        },
+    )
+    groups = {}
+    for key, name, rate in (("RET", "Retailer", "1.75"), ("WHL", "Wholesaler", "3.25")):
+        groups[key] = admin.call(
+            "POST",
+            "/api/v1/customers/groups",
+            {
+                "code": f"{tag}-{key}",
+                "name": f"{name} {built.suffix}",
+                "default_discount_percent": rate,
+            },
+        )
+    customer = admin.call(
+        "POST",
+        "/api/v1/customers",
+        {
+            "code": f"{tag}-CM",
+            "name": f"Master Check {built.suffix}",
+            "customer_type": "BUSINESS",
+            "currency_code": "INR",
+            "phone": "+919800000100",
+            "credit_limit": "50000",
+            "payment_terms_days": 30,
+            "default_discount_percent": "7.5",
+            "customer_group_id": groups["RET"]["id"],
+            "addresses": [
+                {
+                    "address_type": "BILLING",
+                    "address_line1": "12 Fixture Street",
+                    "city": f"City {built.suffix}",
+                    "state": f"State {built.suffix}",
+                    "country": "IN",
+                    "postal_code": "600001",
+                    "country_id": india["id"],
+                    "state_id": state["id"],
+                    "district_id": district["id"],
+                    "city_id": city["id"],
+                    "is_default_billing": True,
+                }
+            ],
+            "contacts": [
+                {
+                    "name": "Fixture Contact",
+                    "mobile": "+919800000101",
+                    "is_primary": True,
+                }
+            ],
+        },
+    )
+    warehouse = admin.call("GET", "/api/v1/warehouses?page_size=5")[0]
+    branch = admin.call("GET", "/api/v1/branches?page_size=5")[0]
+    stocked_product(built, admin, warehouse, branch)
+    built.ids["customer"] = str(customer["id"])
+    built.say("Customer", f"{tag}-CM  (Master Check {built.suffix})")
+    built.say(
+        "It carries",
+        "a billing address, a contact, limit 50,000, 30 days, 7.5% standing, "
+        f"segment {tag}-RET",
+    )
+    built.say("Segments", f"{tag}-RET Retailer 1.75%, {tag}-WHL Wholesaler 3.25%")
+    built.say(
+        "Places", f"India > State {built.suffix} > District > City {built.suffix}"
+    )
+    built.say("Product", f"{tag}-P  (Fixture Product {built.suffix}), 50 in stock")
+
+
+def build_invoiced_part_paid(built: Built) -> None:
+    """Make invoiced, with 200 of the 590 invoice collected against it."""
+    build_invoiced(built)
+    admin = built.admin.as_user(built.admin.token or "", built.firms[TEST01.code])
+    receipt = admin.call(
+        "POST",
+        "/api/v1/receipts",
+        {
+            "party_id": built.ids["customer"],
+            "settlement_date": date.today().isoformat(),
+            "amount": "200.00",
+            "method": "BANK",
+            "allocations": [{"invoice_id": built.ids["invoice"], "amount": "200.00"}],
+        },
+    )
+    built.say(
+        "Receipt", f"{receipt.get('settlement_number')} for 200 against the invoice"
+    )
+
+
 #: Every fixture, what it builds, and the cases that name it.
 FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "firm-admin": (
@@ -1200,6 +1348,16 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         "platform-admin + a customer of this run's own in TESTSH1 and TESTSH2.",
         build_shared_isolation_pair,
         "TC-ISO-001",
+    ),
+    "customer-master": (
+        "firm-admin + seller + a fully described customer, segments, places.",
+        build_customer_master,
+        "TC-CUST-001..004, TC-CUST-006",
+    ),
+    "invoiced-part-paid": (
+        "invoiced, with 200 of the 590 invoice collected.",
+        build_invoiced_part_paid,
+        "TC-CUST-005",
     ),
 }
 

@@ -185,18 +185,25 @@ and ELEC01.
 
 ## 4. Masters — customers
 
-| # | Case | Expected |
-| --- | --- | --- |
-| 4.1 | Open `WHOLE01C01`, change only the phone number, save | Addresses, contacts, credit limit, payment terms and the 7.5% standing discount are all **unchanged**. This is the defect that shipped twice; check each one. |
-| 4.2 | Reopen and confirm the outstanding balance | Unchanged by the edit. |
-| 4.3 | On a new customer, use the place picker: choose country, then state, then district, then city | Each rung loads after the one above. Choosing a country must load states immediately, not after a second click. |
-| 4.4 | Save, reopen | The place is still there, and the text fields (city, state, country) agree with the chosen ids. |
-| 4.5 | Customers → Settings (needs `CUSTOMER_MANAGE_SETTINGS`) | The credit policy dialog opens. As `whole01.sales1` the action is not offered. |
-| 4.6 | Set a credit limit of ₹1 on `WHOLE01C03`, then raise and approve a sales order for more | A warning names the exposure. It does **not** block — the demo firms are in warn mode. |
-| 4.7 | Customer → Statement | The running balance is in date order and ends at the customer's current balance. |
-| 4.8 | Customer → Ageing | The buckets sum to total outstanding, and the reconciliation line explains any gap between the bills and the account. |
-| 4.9 | Assign `WHOLE01C03` to the Wholesaler group, save, reopen | The group holds. |
-| 4.10 | Try to delete the `RETAILER` group while a customer is in it | Refused, naming the customer. |
+**Moved to `docs/INDEPENDENT_TEST_CASES.md` on 2026-09-16**, as TC-CUST-001 to
+006. `WHOLE01C01` and `WHOLE01C03` are replaced by the `customer-master`
+fixture's own customer, which carries every field the partial-update defect
+used to reset, plus places and segments of its own; the statement and ageing
+use `invoiced-part-paid`.
+
+One correction: **4.5** said the credit Settings action is not offered to
+`whole01.sales1`. It is — read-only, on `CUSTOMER_VIEW`, by design ("someone
+the policy warns should see the rule behind the warning") — and the server
+refuses that user's save with 403.
+
+| Old row | Case |
+| --- | --- |
+| 4.1, 4.2 | TC-CUST-001 |
+| 4.3, 4.4 | TC-CUST-002 |
+| 4.5 | TC-CUST-003 |
+| 4.6 | TC-CUST-004 |
+| 4.7, 4.8 | TC-CUST-005 |
+| 4.9, 4.10 | TC-CUST-006 |
 
 ## 5. Masters — vendors, products, branches, warehouses
 
