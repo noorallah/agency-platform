@@ -459,7 +459,9 @@ def sales_chain(built: Built, firm: FixtureFirm = TEST01) -> dict[str, str]:
     return _sell(built, admin, warehouse, branch, product, customer)
 
 
-def stocked_product(built: Built, admin: Api, warehouse: Json, branch: Json) -> Json:
+def stocked_product(
+    built: Built, admin: Api, warehouse: Json, branch: Json, hsn: str | None = None
+) -> Json:
     """Make this run's own product -- GST 18 local, PIECE -- with 50 on hand at 60."""
     today = date.today().isoformat()
     tag = built.suffix.upper()
@@ -471,6 +473,7 @@ def stocked_product(built: Built, admin: Api, warehouse: Json, branch: Json) -> 
         {
             "code": f"{tag}-P",
             "name": f"Fixture Product {built.suffix}",
+            "hsn_sac": hsn,
             "product_type": "STOCK_ITEM",
             "tax_profile_group_code": "GST_18_LOCAL",
             "selling_price": "100",
@@ -2409,7 +2412,12 @@ def build_territory_firm(built: Built) -> None:
 
 
 def _bill_and_collect(
-    admin: Api, customer_id: str, product_id: str, quantity: str, price: str
+    admin: Api,
+    customer_id: str,
+    product_id: str,
+    quantity: str,
+    price: str,
+    collect: bool = True,
 ) -> Json:
     """Order, dispatch, bill and collect in full; return the approved invoice."""
     today = date.today().isoformat()
@@ -2479,6 +2487,8 @@ def _bill_and_collect(
         },
     )
     invoice = admin.call("POST", f"/api/v1/sales-invoices/{invoice['id']}/approve")
+    if not collect:
+        return dict(invoice)
     owed = str(Decimal(str(invoice["grand_total"])).quantize(Decimal("0.01")))
     admin.call(
         "POST",
@@ -2628,6 +2638,95 @@ def build_loyalty_points(built: Built) -> None:
     )
     built.say(
         "Points", "200 credited to Vijaya by adjustment, plus what the invoice earned"
+    )
+
+
+def build_compliance_firm(built: Built) -> None:
+    """Make a GST-registered Wholesale firm of this run's own with filed-looking sales.
+
+    The firm and one customer carry Tamil Nadu GSTINs (state 33), another
+    customer none; the product carries HSN 340220. Three invoices this
+    month: one to the registered buyer, collected and registered with the
+    sandbox portal; one to the same buyer, registered, with no e-way bill
+    yet; and one to the unregistered buyer, unpaid and unregistered.
+    """
+    admin = _own_trading_firm(built, "G", "Compliance", "WHOLESALE")
+    tag = built.suffix.upper()
+    firm = built.known[f"{tag}-G"]
+    digits = f"{secrets.randbelow(10000):04d}"
+    firm_gstin = f"33FXGST{digits}A1Z5"
+    buyer_gstin = f"33FXBUY{digits}B1Z3"
+    row = built.admin.call("GET", f"/api/v1/firms/{built.firms[firm.code]}")
+    built.admin.call(
+        "PUT",
+        f"/api/v1/firms/{built.firms[firm.code]}",
+        {
+            **{
+                key: row[key]
+                for key in (
+                    "name",
+                    "code",
+                    "country",
+                    "currency_code",
+                    "financial_year_start",
+                )
+            },
+            "gst_number": firm_gstin,
+        },
+    )
+    registered = admin.call(
+        "POST",
+        "/api/v1/customers",
+        {
+            "code": f"{tag}-B2B",
+            "name": f"Registered Buyer {built.suffix}",
+            "customer_type": "BUSINESS",
+            "currency_code": "INR",
+            "gst_number": buyer_gstin,
+            "pan_number": f"FXBUY{digits}B",
+        },
+    )
+    walk_in = admin.call(
+        "POST",
+        "/api/v1/customers",
+        {
+            "code": f"{tag}-B2C",
+            "name": f"Walk-in Buyer {built.suffix}",
+            "customer_type": "INDIVIDUAL",
+            "currency_code": "INR",
+        },
+    )
+    warehouse = by_code(admin, "/api/v1/warehouses", "MAIN")
+    branch = by_code(admin, "/api/v1/branches", "HO")
+    # A product PUT replaces every editable field, so the HSN is set at
+    # creation rather than patched on afterwards.
+    product = stocked_product(built, admin, warehouse, branch, hsn="340220")
+    paid = _bill_and_collect(admin, registered["id"], product["id"], "10", "100")
+    unpaid = _bill_and_collect(
+        admin, registered["id"], product["id"], "5", "100", collect=False
+    )
+    b2c = _bill_and_collect(
+        admin, walk_in["id"], product["id"], "3", "100", collect=False
+    )
+    for invoice in (paid, unpaid):
+        admin.call("POST", f"/api/v1/einvoice/invoices/{invoice['id']}/register")
+    built.say("Firm GSTIN", firm_gstin)
+    built.say(
+        "B2B buyer",
+        f"{tag}-B2B  (Registered Buyer {built.suffix}), GSTIN {buyer_gstin}",
+    )
+    built.say("B2C buyer", f"{tag}-B2C  (Walk-in Buyer {built.suffix}), no GSTIN")
+    built.say("Product", f"{tag}-P, HSN 340220, GST 18 local")
+    built.say(
+        "Invoice A",
+        f"{paid.get('invoice_number')}: B2B, 10 x 100, collected, registered",
+    )
+    built.say(
+        "Invoice B", f"{unpaid.get('invoice_number')}: B2B, 5 x 100, unpaid, registered"
+    )
+    built.say(
+        "Invoice C",
+        f"{b2c.get('invoice_number')}: B2C, 3 x 100, unpaid, not registered",
     )
 
 
@@ -2872,7 +2971,7 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "selling-paid": (
         "selling-invoiced + receipts of 241.60 and 341.61 + the 7 billed.",
         build_selling_paid,
-        "TC-SELL-014",
+        "TC-SELL-014, TC-COMP-007",
     ),
     "territory-firm": (
         "A Wholesale firm of the run's own with routes, rounds, salespeople, beats.",
@@ -2888,6 +2987,11 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         "selling-invoiced + 200 loyalty points credited to Vijaya.",
         build_loyalty_points,
         "TC-INCENT-005",
+    ),
+    "compliance-firm": (
+        "A GST-registered firm of the run's own: B2B and B2C bills, e-invoices.",
+        build_compliance_firm,
+        "TC-COMP-001..006",
     ),
 }
 

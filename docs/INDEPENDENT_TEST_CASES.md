@@ -7,7 +7,7 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Converted so far:** plan sections 2 to 11, 15 and 16 to 27 (25 was the pilot) — see the
+**Converted so far:** plan sections 2 to 12, 15 and 16 to 27 (25 was the pilot) — see the
 table of contents below. Other sections move here one at a time; until then
 they stay in the plan.
 
@@ -1180,6 +1180,90 @@ admin**.
 ### Known defects found while writing these cases
 
 - **D-11-1 — A new firm's territory hierarchy is not saved until somebody saves it, and reading it invents ids.** `GET /api/v1/sales-territories/hierarchy-levels` on a fresh store answers REGION / TERRITORY / ROUTE with a **different config id and level ids on every read** — defaults built and never committed. Creating a territory against one of those ids is refused: "Configured hierarchy level is not active." Saving the hierarchy (the same levels, unchanged) makes them real; the fixture does that. Whether the desktop's Geography screen saves first was not checked — if it does not, a new firm cannot create its first territory.
+
+---
+
+## Compliance — GST returns, e-invoices and TCS
+
+A GST return is **derived on every read**, never stored: cancel an invoice and
+it drops out. E-invoices and e-way bills go to a **sandbox** that marks every
+reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
+
+| Fixture | Starts you with |
+| --- | --- |
+| `compliance-firm` | a firm with GSTIN `33…` (Tamil Nadu); **`<SUFFIX>-B2B`** Registered Buyer with a GSTIN; **`<SUFFIX>-B2C`** Walk-in Buyer with none; `<SUFFIX>-P` at HSN **340220**, GST 18 local. This month: **Invoice A** — B2B, 10 × 100 (1,180.00), **collected and e-registered**; **Invoice B** — B2B, 5 × 100 (590.00), unpaid, **e-registered, no e-way bill**; **Invoice C** — B2C, 3 × 100 (354.00), unpaid, not registered |
+| `selling-paid` | (see *Selling*) two receipts from Vijaya, who has no PAN, each charged TCS at 1% |
+
+### TC-COMP-001 — GSTR-1 for the month
+
+- **Covers:** plan 12.1
+- **Fixture:** `compliance-firm`
+- **Steps:** as the fixture's **Firm admin**, Sales → **GST Returns** → this month (the From/To boxes are chosen, not typed) → **GSTR-1**.
+- **Expect:** "Filing as <the firm's GSTIN>". **B2B**: Invoice A — taxable 1,000.00, CGST 90.00, SGST 90.00 — and Invoice B — 500.00, 45.00, 45.00 — under the buyer's GSTIN. **B2CS**: one row, Place **33**, 18%, taxable 300.00, CGST 27.00, SGST 27.00 — never a blank place. **CDNR**: nothing. **HSN**: 340220, quantity 18, taxable 1,800.00. **Invoices without a place of supply**: "Nothing in this section." The status bar: "Derived from the documents on every read, never stored."
+- **Data (HTTP):** `GET /api/v1/gst-returns/gstr1?from_date=<first>&to_date=<last>`.
+- **Leaves:** unchanged.
+
+### TC-COMP-002 — What rests on a bill stops it being cancelled; a return follows what is left
+
+- **Covers:** plan 12.2
+- **Fixture:** `compliance-firm`
+- **Steps**
+  1. Sales Invoices → **Invoice A** → **Cancel**.
+  2. **Invoice C** → **Cancel** (give a reason). GST Returns → Refresh.
+- **Expect**
+  - Step 1: refused, naming what rests on it: "SI-… cannot be cancelled while it has money applied from RC-…; its registration with the tax authority. Reverse or cancel those first."
+  - Step 2: C cancels. The **B2CS row is gone** and HSN falls to quantity 15, taxable 1,500.00. *(The plan's second refusal — by a sales return — is TC-SELL-015's return in reverse; this fixture has none.)*
+- **Leaves:** Invoice C cancelled.
+
+### TC-COMP-003 — GSTR-3B agrees with GSTR-1
+
+- **Covers:** plan 12.3
+- **Fixture:** `compliance-firm`
+- **Steps:** GST Returns → **GSTR-3B**, same month. Add GSTR-1's B2B, B2CS and CDNR taxable values by hand.
+- **Expect:** **3.1(a)** taxable **1,800.00**, CGST 162.00, SGST 162.00 — equal to GSTR-1's sum; credit notes deducted 0; the inward side reads "Not derived: the purchase side files this." 3B is aggregated from the documents, not parsed out of GSTR-1.
+- **Leaves:** unchanged.
+
+### TC-COMP-004 — The e-invoice screen says it is a rehearsal
+
+- **Covers:** plan 12.4
+- **Fixture:** `compliance-firm`
+- **Steps:** Sales → **E-Invoice**.
+- **Expect:** a banner, "References marked sandbox are a rehearsal: nothing was filed with the tax authority..."; columns Invoice, Customer, Reference, E-way bill; **two** rows (A and B), each Reference an `SBX…` value (hover for `SBX… (sandbox — nothing filed)`), E-way bill —. If anything reads LIVE, stop.
+- **Leaves:** unchanged.
+
+### TC-COMP-005 — An invoice to a buyer with no GSTIN is refused locally
+
+- **Covers:** plan 12.5
+- **Fixture:** `compliance-firm`
+- **Steps:** E-Invoice → **Register an invoice** → **Invoice C** (items read `SI-… — Walk-in Buyer <suffix> — 354.00`) → Register.
+- **Expect:** refused **locally**, in an error toast: "This invoice cannot be registered yet: the customer has no GST number." No row added, no portal code.
+- **Leaves:** unchanged.
+
+### TC-COMP-006 — Raising and withdrawing an e-way bill
+
+- **Covers:** plan 12.6
+- **Fixture:** `compliance-firm`
+- **Steps**
+  1. Select **Invoice B**'s row → **Raise bill**: Distance 120, Moving by Road, vehicle blank → Raise. Then vehicle `TN01AB1234` → Raise.
+  2. With the row selected → **Cancel bill**, give a reason.
+  3. **(HTTP)** `POST /api/v1/einvoice/invoices/{Invoice C id}/eway-bill` with `{"distance_km": "120", "transport_mode": "ROAD", "vehicle_number": "TN01AB1234"}`.
+- **Expect**
+  - Step 1: blank vehicle refused before sending: "Goods moving by road need a vehicle number on the bill."; then "E-way bill raised." and the cell fills with `SBX…`.
+  - Step 2: "E-way bill withdrawn."
+  - Step 3: **422**, "Register the invoice before raising its e-way bill: the bill quotes the IRN, and one without it cannot be matched to a supply." The screen does not offer it.
+- **Leaves:** a withdrawn e-way bill on B.
+
+### TC-COMP-007 — TCS: the register, the settings, and a journal of its own
+
+- **Covers:** plan 12.7, 12.8
+- **Fixture:** `selling-paid`
+- **Steps:** as the fixture's **Firm admin**, Sales → **TCS**; open **Settings** (close without saving). Finance → Journal Entries → search `TCS-RC` → View one.
+- **Expect**
+  - The banner reads "Collecting under section 206C(1H) • (the threshold, 0) per buyer per year, then 0.100% (1.000% without a PAN)"; the register lists the two receipts from Vijaya — **2.42** and **3.42**, rate **1.000%** (no PAN), **COLLECTED**.
+  - Settings: **Collect under section 206C(1H)** on; preceding year turnover 150,000,000; threshold 0; rate 0.1; without a PAN 1.0.
+  - Journal: `TCS-RC-…` entries separate from the receipts' own; View reads **Dr 1100 Trade Receivables / Cr 2500 TCS Payable** — 2500, not Output Tax.
+- **Data (HTTP):** `GET /api/v1/tcs/collections` → `tcs_amount`, `rate_percent`, `without_pan: true`.
+- **Leaves:** unchanged.
 
 ---
 
