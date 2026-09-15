@@ -168,6 +168,19 @@ Settlement _settlement({
       'allocations': allocations,
     });
 
+/// Choose a party in the record dialog, by name.
+///
+/// The picker is a `RawAutocomplete` rather than a dropdown as of
+/// 2026-09-15 -- a distributor with hundreds of customers was being handed a
+/// scrollbar at the till. Tapping the field opens the whole list; the options
+/// show the name with the code beneath it.
+Future<void> _chooseParty(WidgetTester tester, String name) async {
+  await tester.tap(find.byType(TextFormField).first);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(name).last);
+  await tester.pumpAndSettle();
+}
+
 Future<void> _pump(
   WidgetTester tester,
   _SettlementApi api, {
@@ -359,10 +372,7 @@ void main() {
       expect(find.textContaining('Choose a customer to see what they owe'),
           findsOneWidget);
 
-      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('WHOLE01C03  Third Customer').last);
-      await tester.pumpAndSettle();
+      await _chooseParty(tester, 'Third Customer');
 
       expect(find.text('SI-2024-2025-000004'), findsOneWidget);
       expect(find.text('SI-2024-2025-000005'), findsOneWidget);
@@ -400,10 +410,7 @@ void main() {
         '341.61',
       );
       await tester.pumpAndSettle();
-      await tester.tap(find.byType(DropdownButtonFormField<String>).first);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('WHOLE01C01  Vijaya').last);
-      await tester.pumpAndSettle();
+      await _chooseParty(tester, 'Vijaya');
 
       expect(api.tcsAsked.last, (customerId: 'c-1', amount: '341.61'));
       expect(find.textContaining('Tax collected at source: 3.42'), findsOneWidget);
@@ -628,5 +635,58 @@ void main() {
     expect(api.partiesAskedFor, [SettlementDirection.receipt]);
     expect(find.text('Amount'), findsOneWidget);
     expect(find.textContaining('permission'), findsNothing);
+  });
+
+  testWidgets('the party picker narrows as you type', (tester) async {
+    // A firm with a handful of customers is fine in a dropdown. A distributor
+    // with hundreds is handed a scrollbar and asked to find a name in it, at
+    // the till, with somebody waiting. Reported by the owner at plan step
+    // 22.4, 2026-09-15.
+    //
+    // Filtered in the dialog rather than by re-asking the server per
+    // keystroke: the route caps at 200 and the list is already in hand.
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: RecordSettlementDialog(
+            api: _SettlementApi(),
+            direction: SettlementDirection.receipt,
+            parties: const [
+              PartyOption(id: 'c-1', code: 'WHOLE01C01', name: 'Vijaya Stores'),
+              PartyOption(id: 'c-2', code: 'WHOLE01C02', name: 'Anand Agencies'),
+              PartyOption(id: 'c-3', code: 'MEDI01C09', name: 'Classic Traders'),
+            ],
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Tapping with nothing typed offers everybody.
+    await tester.tap(find.byType(TextFormField).first);
+    await tester.pumpAndSettle();
+    expect(find.text('Vijaya Stores'), findsOneWidget);
+    expect(find.text('Anand Agencies'), findsOneWidget);
+
+    // By name.
+    await tester.enterText(find.byType(TextFormField).first, 'anand');
+    await tester.pumpAndSettle();
+    expect(find.text('Anand Agencies'), findsOneWidget);
+    expect(find.text('Vijaya Stores'), findsNothing);
+
+    // And by code, because either is what somebody has in front of them --
+    // a code off a bill, a name off a cheque.
+    await tester.enterText(find.byType(TextFormField).first, 'MEDI01');
+    await tester.pumpAndSettle();
+    expect(find.text('Classic Traders'), findsOneWidget);
+    expect(find.text('Anand Agencies'), findsNothing);
+
+    // A search matching nobody says so rather than showing an empty sheet.
+    await tester.enterText(find.byType(TextFormField).first, 'zzzz');
+    await tester.pumpAndSettle();
+    expect(find.text('Nobody matches that.'), findsOneWidget);
   });
 }
