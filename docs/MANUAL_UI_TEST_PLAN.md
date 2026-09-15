@@ -767,8 +767,15 @@ here or in `tests/integration/`, nowhere else.*
 could not find — or even learn the existence of — a person who already works
 elsewhere. Sign in as `whole01.admin`.
 
+**Run 2026-09-15: 24.1–24.22 all passed.** One row was stale -- 24.9 described a
+disabled button where #375 had made the refusal open the view instead (#412,
+which also added 24.9a: as a platform administrator the same record **is**
+editable, and that is the design, not a hole). The six HTTP rows were driven
+from the shell rather than by hand; each is repeatable with the accounts named
+below.
+
 *Validated end to end against the code on 2026-09-15, before the run, with
-**no changes needed** — every string this section asserts was read off the
+**no changes needed to the permission claims** — every string this section asserts was read off the
 screen that renders it rather than inferred from the permission table, which
 is the mistake 21.4 and 22.4 were both made with.*
 
@@ -806,8 +813,8 @@ difference is the design rather than an inconsistency to report.*
 | 24.9a | Now do the same **as a platform administrator** | The record **is** editable, and that is correct rather than a hole. `shared_user_ids` returns an empty set for a platform caller — "they see every firm, so nothing is hidden and the guard does not apply to them" — and they are exactly the person 24.9's message points you to. *(Added 2026-09-15: the row said only "open their row", the owner opened it as a platform administrator, and a correct answer looked like a failure.)* |
 | 24.10 | Apply job template / set roles on them | Both work. Those are yours. |
 | 24.11 **(HTTP)** | `GET /api/v1/users/{id}/firms` as `whole01.admin` | **Only WHOLE01.** It returned every membership until 2026-09-06. |
-| 24.12 **(HTTP)** | Same as `superadmin` | Both firms — a platform caller still sees them all. |
-| 24.13 **(SQL)** | Check their ELEC01 roles | Unchanged. Adding them to WHOLE01 touches nothing in ELEC01. |
+| 24.12 **(HTTP)** | Same as a platform administrator — **`master.ops@agency.local` / `DemoAdmin@12345`**, whose seeded password has not been changed | Both firms — a platform caller still sees them all. *(Was "as `superadmin`", whose password the owner changed on 2026-09-15; `master.ops` is the same designation and `ALL_FIRMS` scope, seeded by the demo with the firms' own password.)* |
+| 24.13 | Check their ELEC01 roles — **(HTTP)** `GET /api/v1/users/{id}/firms/{ELEC01 id}/roles` as `master.ops` answers it without opening the database | Unchanged: ELEC01 still holds exactly its one seeded role, while WHOLE01 holds the two the job template granted. Adding them to WHOLE01 touches nothing in ELEC01. *(Was marked SQL; the route is the same fact from the API, and it is held to the caller's reach -- 20a.9b -- which is why it needs a platform token.)* |
 | 24.14 | As `whole01.sales1`, look for Add existing user | Not offered. It needs `USER_CREATE`. |
 | 24.15 **(HTTP)** | `GET /api/v1/users/lookup?q=elec` with a `whole01.sales1` token | `403`. `USER_VIEW` deliberately does not reach it. |
 | 24.16 **(HTTP)** | `GET /api/v1/users/lookup?q=` as `whole01.admin` | `422`: "Type at least 3 characters". An empty term is the shortest of all, and a firm caller gets a lookup, not the directory. |
@@ -818,8 +825,11 @@ difference is the design rather than an inconsistency to report.*
 | 24.21 | As `whole01.admin`, open Administration | Users, Roles & Permissions, User Templates — and **no User-Firm Assignments**. That tab is a platform administrator's; Users → Edit → Firms and Add existing user are the firm administrator's ways to the same thing. |
 | 24.22 | As `master.ops`, with or without a firm selected, open Administration | **User-Firm Assignments** is there, with the Firm filter. |
 
-> **Tidy up:** 24.8 leaves a real ELEC01 person in WHOLE01. Remove the
-> membership and the WHOLE01 roles afterwards, or reseed.
+> **Tidy up:** 24.8 and 24.19 between them leave **two** real people from
+> other firms in WHOLE01 -- `elec01.sales1` and whoever 24.19 picked. Remove
+> both memberships and their WHOLE01 roles afterwards (User-Firm Assignments,
+> as `master.ops`, is the quickest way), or reseed. Do it before section 25,
+> which counts the firm's own roles.
 
 ---
 
