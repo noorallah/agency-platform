@@ -71,6 +71,11 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
   final TextEditingController _narration = TextEditingController();
   final Map<String, TextEditingController> _allocations = {};
 
+  /// The party picker's own text. It holds the chosen party's label once one
+  /// is picked, and whatever is being typed before that.
+  final TextEditingController _partySearch = TextEditingController();
+  final FocusNode _partyFocus = FocusNode();
+
   String _partyId = '';
   /// The order a deposit came in against, where it came in against one. A
   /// note about why the money arrived, not a ring-fence: cancelling the order
@@ -90,13 +95,30 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
   String get _noun => widget.direction.noun;
 
   @override
+  void initState() {
+    super.initState();
+    // The helper under the party field reports how many names a query would
+    // offer, and `RawAutocomplete` does not rebuild its field view when the
+    // text changes -- the `TextFormField` owns that. Without this the helper
+    // stays on whatever it said when the dialog opened.
+    _partySearch.addListener(_onPartyQueryChanged);
+  }
+
+  void _onPartyQueryChanged() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   void dispose() {
+    _partySearch.removeListener(_onPartyQueryChanged);
     _amount.dispose();
     _reference.dispose();
     _narration.dispose();
     for (final TextEditingController controller in _allocations.values) {
       controller.dispose();
     }
+    _partySearch.dispose();
+    _partyFocus.dispose();
     super.dispose();
   }
 
@@ -390,44 +412,134 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
     );
   }
 
-  Widget _partyPicker() => DropdownButtonFormField<String>(
-        initialValue: _partyId.isEmpty ? null : _partyId,
-        isExpanded: true,
-        decoration: InputDecoration(
-          labelText: switch (widget.direction) {
-            SettlementDirection.receipt => 'Received from',
-            SettlementDirection.payment => 'Paid to',
-            SettlementDirection.refund => 'Refunded to',
+  /// Choose the party by typing, not by scrolling.
+  ///
+  /// This was a plain `DropdownButtonFormField` listing every party the firm
+  /// has. A firm with a handful is fine; a distributor with hundreds hands
+  /// somebody a scrollbar and asks them to find a name in it, at the till,
+  /// with a customer waiting. Reported by the owner at plan step 22.4,
+  /// 2026-09-15.
+  ///
+  /// Filtered here rather than by re-asking the server on every keystroke:
+  /// the route caps at 200 and the list is already in hand, so a round trip
+  /// per character would be slower and would make the field stutter. The
+  /// route's own `search` is there for the firm whose list is longer than the
+  /// cap, and is the next step if one appears.
+  ///
+  /// Matching is on code **and** name, because either is what somebody has in
+  /// front of them -- a code off a bill, a name off a cheque.
+  Widget _partyPicker() => RawAutocomplete<PartyOption>(
+        textEditingController: _partySearch,
+        focusNode: _partyFocus,
+        displayStringForOption: (party) => party.label,
+        optionsBuilder: (TextEditingValue value) {
+          final String query = value.text.trim().toLowerCase();
+          if (query.isEmpty) return widget.parties;
+          return widget.parties.where((party) =>
+              party.code.toLowerCase().contains(query) ||
+              party.name.toLowerCase().contains(query));
+        },
+        onSelected: _choosePartyOption,
+        fieldViewBuilder: (context, field, node, onFieldSubmitted) =>
+            TextFormField(
+          controller: field,
+          focusNode: node,
+          decoration: InputDecoration(
+            labelText: switch (widget.direction) {
+              SettlementDirection.receipt => 'Received from',
+              SettlementDirection.payment => 'Paid to',
+              SettlementDirection.refund => 'Refunded to',
+            },
+            helperText: _partyMatches(field.text) == 0
+                ? 'Nobody matches that.'
+                : 'Type a code or a name to narrow the list.',
+            prefixIcon: const Icon(Icons.search),
+            // Clearing the box reopens the whole list, which is the way back
+            // from a search that matched nothing.
+            suffixIcon: field.text.isEmpty
+                ? const Icon(Icons.expand_more)
+                : IconButton(
+                    icon: const Icon(Icons.close),
+                    tooltip: 'Clear',
+                    onPressed: () => setState(() {
+                      field.clear();
+                      _partyId = '';
+                    }),
+                  ),
+          ),
+          onTap: () {
+            // Tapping a field that already holds a choice should offer the
+            // list again rather than making somebody delete the name first.
+            if (field.text.isNotEmpty) {
+              field.selection = TextSelection(
+                baseOffset: 0,
+                extentOffset: field.text.length,
+              );
+            }
           },
         ),
-        items: [
-          for (final PartyOption party in widget.parties)
-            DropdownMenuItem<String>(
-              value: party.id,
-              child: Text(party.label, overflow: TextOverflow.ellipsis),
+        optionsViewBuilder: (context, onOptionSelected, options) {
+          final ThemeData theme = Theme.of(context);
+          return Align(
+            alignment: Alignment.topLeft,
+            child: Material(
+              elevation: 4,
+              borderRadius: AppRadius.medium,
+              color: theme.colorScheme.surfaceContainerLowest,
+              child: ConstrainedBox(
+                constraints: const BoxConstraints(maxWidth: 420, maxHeight: 260),
+                // No empty state here: `RawAutocomplete` does not open this
+                // view at all when nothing matches, so a message inside it
+                // would be unreachable. The field's helper says it instead.
+                child: ListView.builder(
+                  padding: EdgeInsets.zero,
+                  shrinkWrap: true,
+                  itemCount: options.length,
+                  itemBuilder: (context, index) {
+                    final PartyOption party = options.elementAt(index);
+                    return ListTile(
+                      dense: true,
+                      title: Text(party.name, overflow: TextOverflow.ellipsis),
+                      subtitle: Text(party.code),
+                      onTap: () => onOptionSelected(party),
+                    );
+                  },
+                ),
+              ),
             ),
-        ],
-        onChanged: (value) {
-          if (value == null) return;
-          setState(() {
-            _partyId = value;
-            // The previous customer's orders and tax are not this one's.
-            _orderId = '';
-            _orders = const <Json>[];
-            _tcs = null;
-          });
-          if (widget.direction.allocates) unawaited(_loadInvoices(value));
-          // The notice was read only when the amount changed, so a customer
-          // chosen after the amount cleared it and nothing brought it back
-          // (plan item 9.19, 2026-09-13).
-          if (widget.direction == SettlementDirection.receipt) {
-            unawaited(_loadTcs());
-          }
-          if (widget.direction == SettlementDirection.receipt) {
-            unawaited(_loadOrders(value));
-          }
+          );
         },
       );
+
+  /// How many parties a query would offer. Zero is worth saying out loud.
+  int _partyMatches(String text) {
+    final String query = text.trim().toLowerCase();
+    if (query.isEmpty) return widget.parties.length;
+    return widget.parties
+        .where((party) =>
+            party.code.toLowerCase().contains(query) ||
+            party.name.toLowerCase().contains(query))
+        .length;
+  }
+
+  /// Everything that has to follow from choosing who the money is with.
+  void _choosePartyOption(PartyOption party) {
+    setState(() {
+      _partyId = party.id;
+      // The previous customer's orders and tax are not this one's.
+      _orderId = '';
+      _orders = const <Json>[];
+      _tcs = null;
+    });
+    if (widget.direction.allocates) unawaited(_loadInvoices(party.id));
+    // The notice was read only when the amount changed, so a customer chosen
+    // after the amount cleared it and nothing brought it back (plan item
+    // 9.19, 2026-09-13).
+    if (widget.direction == SettlementDirection.receipt) {
+      unawaited(_loadTcs());
+      unawaited(_loadOrders(party.id));
+    }
+  }
 
   Widget _amountField() => TextField(
         controller: _amount,
