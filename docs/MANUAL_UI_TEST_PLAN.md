@@ -207,20 +207,27 @@ refuses that user's save with 403.
 
 ## 5. Masters — vendors, products, branches, warehouses
 
-| # | Case | Expected |
-| --- | --- | --- |
-| 5.1 | Open a vendor, change one field, save | Addresses, contacts, bank accounts, tax details, attachments and notes all survive. |
-| 5.2 | Vendors → Categories, and → Types | Both lists load and both can be added to. (These returned nothing at all until the route order was fixed, and until 2026-09-11 the sidebar opened them on a "coming soon" placeholder -- see BACKLOG §26.) |
-| 5.3 | Put a category and a type on a vendor, save, reopen | Both held. |
-| 5.4 | Products → open `DETER1K` | Its UOM slots, tax profile group and category are populated. |
-| 5.5 | Product → open `DETER1K` → **Attributes** tab | Fields offered match this firm's business profile. A pharmacy field must not appear in WHOLE01. (The tab is hidden until a category is set, and until 2026-09-11 it never appeared for an existing product -- see BACKLOG §27.) |
-| 5.6 | Branches → rename one, save | Street lines, city, default flag and GST registration all survive. |
-| 5.7 | Warehouses → rename one, save | The ten capability flags survive. (Until 2026-09-11 a warehouse with no capacity could not be saved at all -- see BACKLOG §28.) |
-| 5.8 | Branches → Import, with a file whose fifth row duplicates an existing code | **Nothing** is imported. The dialog says so. Correct the file and re-import — all rows go in. |
-| 5.8a | Branches → Import → **Sample file** | A CSV is saved with the eleven column headings and one filled-in example row. Choosing that file as-is previews as "1 rows ready" and imports cleanly (the example code is `BR_NORTH`; a second import of the same file is refused as a duplicate, which is correct). Reopen the imported branch: display name, both address lines and the currency are filled in (multi-word headings were silently dropped until 2026-09-11 -- see BACKLOG §31.4). The same button is on Warehouses (whose sample names the branch by **code**, pre-filled with this firm's first branch, and imports as it is), Territories, Purchase Orders and the Inventory import wizard's toolbar. A refused import names the row and field, e.g. "Row 2: mobile — A valid E.164 phone number is required." |
-| 5.8b | Any import dialog, after a refusal | The message can be selected with the mouse, and the copy icon beside it puts the whole text on the clipboard. |
-| 5.9 | Branches → Export, Warehouses → Export | A save dialog opens, suggesting `branches.csv` / `warehouses.csv`; after saving, the notice names the full path, and the file holds the grid's rows in the **same columns the importer reads** (code, name, display_name, ... for branches), so it can be edited and imported back. Dismissing the dialog says no file was saved. (Both were unreachable until the route order was fixed, and until 2026-09-11 both fetched the CSV, dropped it and said "Export completed." -- see BACKLOG §31.5. Territories and Vendors export the same way; Customers and Products copy their CSV to the clipboard and say so.) |
-| 5.10 | Administration → **Configuration** → **UOM & Packaging** → **Packaging Levels** (two levels down the sidebar tree, a parent row only expands; or Ctrl+K and type the screen's name), pick `DETER1K` in the Product dropdown, then **type** its carton barcode into "Scan or type a code" and click **Look up** | The lookup resolves to the product and says how many base units it holds. No scanner is needed: a scanner only types the digits and presses Enter. In WHOLE01, `DETER1K` carries a `Case` level with barcode `890044465610` holding 12 base units (verified against the server on 2026-09-12). |
+**Moved to `docs/INDEPENDENT_TEST_CASES.md` on 2026-09-16**, as TC-MAST-001 to
+008. The vendor, product, branch and warehouse each come from a fixture of
+their own rather than WHOLE01's seeded ones; the branch and warehouse live in
+**TEST02**, because making a branch default demotes the firm's previous one,
+and the `branch-master` fixture also writes the two import files 5.8 needs.
+
+**5.5** (the product Attributes tab offering this firm's fields) is covered by
+TC-FIELD-001 and TC-FIELD-003 in a firm of the run's own — and by defect
+**D-27-1**: the product form offers only fields a category rule names.
+
+| Old row | Case |
+| --- | --- |
+| 5.1 | TC-MAST-001 |
+| 5.2, 5.3 | TC-MAST-002 |
+| 5.4 | TC-MAST-003 |
+| 5.5 | TC-FIELD-001, TC-FIELD-003 |
+| 5.6 | TC-MAST-004 |
+| 5.7 | TC-MAST-005 |
+| 5.8, 5.8b | TC-MAST-006 |
+| 5.8a, 5.9 | TC-MAST-007 |
+| 5.10 | TC-MAST-008 |
 
 ## 6. Configuration
 

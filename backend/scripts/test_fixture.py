@@ -47,6 +47,7 @@ import os
 import secrets
 import string
 import sys
+import tempfile
 import urllib.error
 import urllib.request
 from collections.abc import Callable, Sequence
@@ -594,6 +595,46 @@ def _sell(
     }
 
 
+def run_places(built: Built, admin: Api) -> tuple[Json, Json, Json, Json]:
+    """Make a state, district and city of this run's own under India.
+
+    A fixture firm's store holds India -- the GST template adds it -- and
+    nothing beneath it, so a place picker has no second rung until somebody
+    makes one. Writing geography needs a platform administrator.
+    """
+    tag = built.suffix.upper()
+    geo = "/api/v1/sales-territories/geo"
+    india = next(c for c in admin.call("GET", f"{geo}/countries") if c["code"] == "IN")
+    state = admin.call(
+        "POST",
+        f"{geo}/states",
+        {
+            "country_id": india["id"],
+            "code": f"{tag}ST",
+            "name": f"State {built.suffix}",
+        },
+    )
+    district = admin.call(
+        "POST",
+        f"{geo}/districts",
+        {
+            "state_id": state["id"],
+            "code": f"{tag}DT",
+            "name": f"District {built.suffix}",
+        },
+    )
+    city = admin.call(
+        "POST",
+        f"{geo}/cities",
+        {
+            "district_id": district["id"],
+            "code": f"{tag}CT",
+            "name": f"City {built.suffix}",
+        },
+    )
+    return dict(india), dict(state), dict(district), dict(city)
+
+
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
@@ -1083,35 +1124,7 @@ def build_customer_master(built: Built) -> None:
     build_sales_executive(built)
     tag = built.suffix.upper()
     admin = built.admin.as_user(built.admin.token or "", built.firms[TEST01.code])
-    geo = "/api/v1/sales-territories/geo"
-    india = next(c for c in admin.call("GET", f"{geo}/countries") if c["code"] == "IN")
-    state = admin.call(
-        "POST",
-        f"{geo}/states",
-        {
-            "country_id": india["id"],
-            "code": f"{tag}ST",
-            "name": f"State {built.suffix}",
-        },
-    )
-    district = admin.call(
-        "POST",
-        f"{geo}/districts",
-        {
-            "state_id": state["id"],
-            "code": f"{tag}DT",
-            "name": f"District {built.suffix}",
-        },
-    )
-    city = admin.call(
-        "POST",
-        f"{geo}/cities",
-        {
-            "district_id": district["id"],
-            "code": f"{tag}CT",
-            "name": f"City {built.suffix}",
-        },
-    )
+    india, state, district, city = run_places(built, admin)
     groups = {}
     for key, name, rate in (("RET", "Retailer", "1.75"), ("WHL", "Wholesaler", "3.25")):
         groups[key] = admin.call(
@@ -1195,6 +1208,211 @@ def build_invoiced_part_paid(built: Built) -> None:
     built.say(
         "Receipt", f"{receipt.get('settlement_number')} for 200 against the invoice"
     )
+
+
+def build_vendor_master(built: Built) -> None:
+    """Make a TEST01 vendor carrying one of each child collection.
+
+    A contact, an address, a bank account, a tax record, an attachment and a
+    note -- the six collections an update used to empty when it did not name
+    them -- and a category and a type of this run's own, not yet on it.
+    """
+    build_firm_admin(built)
+    tag = built.suffix.upper()
+    admin = built.admin.as_user(built.admin.token or "", built.firms[TEST01.code])
+    category = admin.call(
+        "POST",
+        "/api/v1/vendors/categories",
+        {"code": f"{tag}-CAT", "name": f"Category {built.suffix}"},
+    )
+    kind = admin.call(
+        "POST",
+        "/api/v1/vendors/types",
+        {"code": f"{tag}-TYP", "name": f"Type {built.suffix}"},
+    )
+    admin.call(
+        "POST",
+        "/api/v1/vendors",
+        {
+            "code": f"{tag}-V",
+            "name": f"Supply Check {built.suffix}",
+            "phone": "+919800000200",
+            "contacts": [
+                {
+                    "name": "Vendor Contact",
+                    "mobile": "+919800000201",
+                    "is_primary": True,
+                }
+            ],
+            "addresses": [
+                {
+                    "address_type": "OFFICE",
+                    "address_line1": "7 Supplier Lane",
+                    "is_primary": True,
+                }
+            ],
+            "banking": [
+                {
+                    "bank_name": "Fixture Bank",
+                    "account_name": f"Supply Check {built.suffix}",
+                    "account_number": "000111222333",
+                    "ifsc": "FXBK0000001",
+                    "is_primary": True,
+                }
+            ],
+            "tax": [{"pan": "ABCDE1234F", "is_primary": True}],
+            "attachments": [
+                {
+                    "file_name": "agreement.pdf",
+                    "file_url": "https://example.invalid/agreement.pdf",
+                }
+            ],
+            "notes": [{"note": f"Created by the fixture {built.suffix}."}],
+        },
+    )
+    built.ids["vendor_category"] = str(category["id"])
+    built.ids["vendor_type"] = str(kind["id"])
+    built.say("Vendor", f"{tag}-V  (Supply Check {built.suffix})")
+    built.say(
+        "It carries",
+        "1 contact, 1 address, 1 bank account, 1 tax record, 1 attachment, 1 note",
+    )
+    built.say(
+        "Category", f"{tag}-CAT  (Category {built.suffix}), not on the vendor yet"
+    )
+    built.say("Type", f"{tag}-TYP  (Type {built.suffix}), not on the vendor yet")
+
+
+def build_product_master(built: Built) -> None:
+    """Make a TEST01 product with every slot filled and a Case to scan."""
+    build_firm_admin(built)
+    tag = built.suffix.upper()
+    admin = built.admin.as_user(built.admin.token or "", built.firms[TEST01.code])
+    category = admin.call(
+        "POST",
+        "/api/v1/products/categories",
+        {"code": f"{tag}-PC", "name": f"Shelf {built.suffix}"},
+    )
+    units = {
+        u["code"]: u["id"]
+        for u in admin.call("GET", "/api/v1/uom-framework/uoms?page_size=100")
+    }
+    product = admin.call(
+        "POST",
+        "/api/v1/products",
+        {
+            "code": f"{tag}-PM",
+            "name": f"Slot Check {built.suffix}",
+            "product_type": "STOCK_ITEM",
+            "category_id": category["id"],
+            "tax_profile_group_code": "GST_18_LOCAL",
+            "selling_price": "100",
+            "base_uom_id": units["PIECE"],
+            "inventory_uom_id": units["PIECE"],
+            "sales_uom_id": units["PIECE"],
+            "purchase_uom_id": units["BOX"],
+        },
+    )
+    barcode = "89" + str(
+        int(date.today().strftime("%m%d")) * 100000 + secrets.randbelow(100000)
+    )
+    admin.call(
+        "POST",
+        f"/api/v1/uom-framework/products/{product['id']}/packaging-levels",
+        {
+            "level_name": "Case",
+            "conversion_to_base_factor": "12",
+            "uom_id": units["CASE"],
+            "barcode": barcode,
+        },
+    )
+    built.say("Product", f"{tag}-PM  (Slot Check {built.suffix})")
+    built.say(
+        "It carries", f"category {tag}-PC, GST_18_LOCAL, PIECE x3 and BOX to buy in"
+    )
+    built.say("Case", f"barcode {barcode}, 12 pieces")
+
+
+def build_branch_master(built: Built) -> None:
+    """Make a TEST02 default branch and warehouse with every field set.
+
+    TEST02, because a branch made default demotes the firm's previous one,
+    and the selling fixtures work in TEST01. Street lines, a city, a GST
+    registration and the default flag on the branch; a capacity and every
+    capability flag on the warehouse -- what a rename used to clear. Also
+    writes two import files, one with a clash on its last row.
+    """
+    build_platform_admin(built)
+    user_id = new_user(built, "t2admin", "TEST02 Firm Admin", firms=(TEST02,))
+    firm_roles(built, user_id, TEST02, ["FIRM_ADMIN"])
+    tag = built.suffix.upper()
+    admin = built.admin.as_user(built.admin.token or "", built.firms[TEST02.code])
+    india, state, district, city = run_places(built, admin)
+    branch = admin.call(
+        "POST",
+        "/api/v1/branches",
+        {
+            "code": f"{tag}-BR",
+            "name": f"Keep Branch {built.suffix}",
+            "address_line1": "1 Keep Street",
+            "address_line2": "Keep Nagar",
+            "country_id": india["id"],
+            "state_id": state["id"],
+            "district_id": district["id"],
+            "city_id": city["id"],
+            "gst_registration": True,
+            "pan": "ABCDE1234F",
+            "is_default": True,
+        },
+    )
+    flags = {
+        "temperature_controlled": True,
+        "cold_storage": True,
+        "hazardous_storage": False,
+        "has_receiving_area": True,
+        "has_dispatch_area": True,
+        "has_returns_area": False,
+        "has_inspection_area": True,
+        "has_packing_area": False,
+        "has_loading_dock": True,
+    }
+    admin.call(
+        "POST",
+        "/api/v1/warehouses",
+        {
+            "branch_id": branch["id"],
+            "code": f"{tag}-WH",
+            "name": f"Keep Warehouse {built.suffix}",
+            "capacity": "1000",
+            "capacity_unit": "SQFT",
+            "is_default": True,
+            **flags,
+        },
+    )
+    folder = Path(tempfile.gettempdir()).resolve() / "agency-fixtures"
+    folder.mkdir(exist_ok=True)
+    header = "code,name,address_line1,currency_code,status"
+    rows = [
+        f"{tag}-I{n},Import {n} {built.suffix},{n} Import Road,INR,ACTIVE"
+        for n in range(1, 5)
+    ]
+    bad = folder / f"{built.suffix}-branches-clash.csv"
+    good = folder / f"{built.suffix}-branches-clean.csv"
+    bad.write_text(
+        "\n".join([header, *rows, f"{tag}-BR,Clash {built.suffix},x,INR,ACTIVE"]) + "\n"
+    )
+    good.write_text("\n".join([header, *rows]) + "\n")
+    built.firms_used = [TEST02.code]
+    built.say("TEST02 admin", f"{built.email('t2admin')} / {FIXTURE_PASSWORD}")
+    built.say(
+        "Branch", f"{tag}-BR  (Keep Branch {built.suffix}), default, GST registered"
+    )
+    built.say(
+        "Warehouse",
+        f"{tag}-WH  (Keep Warehouse {built.suffix}), 1000 SQFT, six flags on",
+    )
+    built.say("Import, clash", str(bad))
+    built.say("Import, clean", str(good))
 
 
 #: Every fixture, what it builds, and the cases that name it.
@@ -1358,6 +1576,21 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         "invoiced, with 200 of the 590 invoice collected.",
         build_invoiced_part_paid,
         "TC-CUST-005",
+    ),
+    "vendor-master": (
+        "firm-admin + a TEST01 vendor with every child collection.",
+        build_vendor_master,
+        "TC-MAST-001, TC-MAST-002",
+    ),
+    "product-master": (
+        "firm-admin + a TEST01 product with every slot and a Case barcode.",
+        build_product_master,
+        "TC-MAST-003, TC-MAST-008",
+    ),
+    "branch-master": (
+        "A TEST02 admin, a default branch and warehouse, and two import files.",
+        build_branch_master,
+        "TC-MAST-004..007",
     ),
 }
 

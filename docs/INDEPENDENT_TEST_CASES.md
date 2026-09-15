@@ -7,7 +7,7 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Converted so far:** plan sections 2 to 4 and 16 to 27 (25 was the pilot) — see the
+**Converted so far:** plan sections 2 to 5 and 16 to 27 (25 was the pilot) — see the
 table of contents below. Other sections move here one at a time; until then
 they stay in the plan.
 
@@ -410,6 +410,98 @@ that an edit changes what it names and nothing else.
   - Step 1: the segment holds.
   - Step 2: refused — "1 customer(s) are still in Wholesaler <suffix>. Move them first, or the group would vanish from every list while staying on their records." `ondelete="RESTRICT"` is no guard on a soft-deleted table, so the service refuses.
 - **Leaves:** the customer in the Wholesaler segment.
+
+---
+
+## Vendors, products, branches and warehouses
+
+The same rule as customers: an edit changes what it names. Vendors had six
+child collections emptied by any edit that did not send them; a branch rename
+cleared its street lines, city, default flag and GST registration, and a
+warehouse rename its capability flags.
+
+### TC-MAST-001 — A vendor edit keeps all six child collections
+
+- **Covers:** plan 5.1
+- **Fixture:** `vendor-master` — `<SUFFIX>-V`, Supply Check: one contact, address, bank account, tax record, attachment and note.
+- **Steps:** as the fixture's **Firm admin**, Masters → Vendors → Edit `<SUFFIX>-V` → change only the phone → Save → reopen.
+- **Expect:** the contact, address, bank account, tax record, attachment and note are **all still there**.
+- **Data (HTTP):** `GET /api/v1/vendors/{id}` → `contacts`, `addresses`, `bank_accounts`, `tax_details`, `attachments`, `notes` one each. *(Driven: a PUT with only code, name and phone leaves all six.)*
+- **Leaves:** the vendor with a new phone.
+
+### TC-MAST-002 — Vendor categories and types
+
+- **Covers:** plan 5.2, 5.3
+- **Fixture:** `vendor-master`
+- **Steps**
+  1. As the fixture's **Firm admin**, Masters → **Vendor Categories**; then **Vendor Types**. Add one to each: `<SUFFIX>-CAT2` / `<SUFFIX>-TYP2`.
+  2. Edit `<SUFFIX>-V`: category `<SUFFIX>-CAT`, type `<SUFFIX>-TYP` → Save → reopen.
+- **Expect**
+  - Step 1: both lists load — the fixture's `<SUFFIX>-CAT` and `<SUFFIX>-TYP` are in them — and both accept a new row. *(These returned nothing until the route order was fixed, and until 2026-09-11 the sidebar opened a "coming soon" placeholder — BACKLOG §26.)*
+  - Step 2: both held, and the six child collections are still there.
+- **Leaves:** a second category and type; the vendor categorised.
+
+### TC-MAST-003 — A product's slots
+
+- **Covers:** plan 5.4
+- **Fixture:** `product-master` — `<SUFFIX>-PM`, Slot Check.
+- **Steps:** as the fixture's **Firm admin**, Masters → Products → open `<SUFFIX>-PM`.
+- **Expect:** category **Shelf <suffix>**; tax profile group **GST_18_LOCAL**; base, inventory and sales units **PIECE**, purchase unit **BOX** — each read as a name, not an id.
+- **Leaves:** unchanged.
+
+### TC-MAST-004 — A rename keeps a branch's address, city, GST registration and default flag
+
+- **Covers:** plan 5.6
+- **Fixture:** `branch-master` — in **TEST02**: `<SUFFIX>-BR`, Keep Branch, default, GST registered, 1 Keep Street / Keep Nagar, City <suffix>.
+- **Steps:** sign in as the fixture's **TEST02 admin** → Masters → Branches → Edit `<SUFFIX>-BR` → rename to `Kept Branch renamed` → Save → reopen.
+- **Expect:** both street lines, the city (and its state), **GST registration**, the PAN and **Default** are all unchanged.
+- **Leaves:** the branch renamed.
+
+### TC-MAST-005 — A rename keeps a warehouse's capacity and capability flags
+
+- **Covers:** plan 5.7
+- **Fixture:** `branch-master` — `<SUFFIX>-WH`, Keep Warehouse, 1000 SQFT, default; on: temperature controlled, cold storage, receiving area, dispatch area, inspection area, loading dock; off: hazardous, returns area, packing area.
+- **Steps:** as the fixture's **TEST02 admin**, Masters → Warehouses → Edit `<SUFFIX>-WH` → rename → Save → reopen.
+- **Expect:** capacity 1000 SQFT, Default, and **every flag exactly as listed** — the six on still on, the three off still off. *(Until 2026-09-11 a warehouse with no capacity could not be saved at all — BACKLOG §28.)*
+- **Leaves:** the warehouse renamed.
+
+### TC-MAST-006 — An import with one bad row imports nothing
+
+- **Covers:** plan 5.8, 5.8b
+- **Fixture:** `branch-master` — prints the paths of two files, **Import, clash** (five rows; the fifth reuses `<SUFFIX>-BR`) and **Import, clean** (the first four).
+- **Steps**
+  1. As the fixture's **TEST02 admin**, Masters → Branches → **Import** → the **clash** file.
+  2. Select the refusal text with the mouse; press the copy icon beside it.
+  3. Import the **clean** file.
+- **Expect**
+  - Step 1: **nothing** imported, and the dialog says so. The import stages and commits once.
+  - Step 2: the message selects, and the copy icon puts the whole text on the clipboard.
+  - Step 3: all four rows go in: `<SUFFIX>-I1` to `-I4`.
+- **Data (HTTP):** `POST /api/v1/branches/import` with the clash rows → **409**, "Branch code already exists in this firm.", and a search for `<SUFFIX>-I` then finds none.
+- **Leaves:** four imported branches in TEST02.
+
+### TC-MAST-007 — Sample files and exports round-trip
+
+- **Covers:** plan 5.8a, 5.9
+- **Fixture:** `branch-master`
+- **Steps**
+  1. As the fixture's **TEST02 admin**, Branches → Import → **Sample file**; save it. Open it, change the example code `BR_NORTH` to `<SUFFIX>-NORTH` (otherwise a second run meets the first run's branch), save; import it.
+  2. Warehouses → Import → Sample file; look at its branch column.
+  3. Branches → **Export**; Warehouses → Export. Then Export again and dismiss the save dialog.
+- **Expect**
+  - Step 1: eleven column headings and one example row; previews as "1 rows ready" and imports. Reopen it: display name, both address lines and the currency are filled (multi-word headings were silently dropped until 2026-09-11 — BACKLOG §31.4).
+  - Step 2: the example names a branch **by code**, prefilled with this firm's first branch.
+  - Step 3: a save dialog suggesting `branches.csv` / `warehouses.csv`; the notice names the full path; the file holds the grid's rows in the **same columns the importer reads**. Dismissing says no file was saved.
+- **Leaves:** one more branch in TEST02; two CSV files where you saved them.
+
+### TC-MAST-008 — A carton barcode finds its product
+
+- **Covers:** plan 5.10
+- **Fixture:** `product-master` — `<SUFFIX>-PM` has a **Case** level of 12 pieces with the barcode the fixture printed.
+- **Steps:** as the fixture's **Firm admin**, Administration → Configuration → UOM & Packaging → **Packaging Levels** (or Ctrl+K and the screen's name) → product `<SUFFIX>-PM` → type the barcode into "Scan or type a code" → **Look up**.
+- **Expect:** resolves to **Slot Check <suffix>**, level **Case**, **12** base units. No scanner needed: a scanner only types the digits and presses Enter.
+- **Data (HTTP):** `GET /api/v1/uom-framework/barcode-lookup?code=<barcode>` → `product_code`, `level_name: Case`, `base_quantity: 12`, `matched_field: barcode`.
+- **Leaves:** unchanged.
 
 ---
 
