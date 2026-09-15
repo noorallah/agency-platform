@@ -720,13 +720,47 @@ def build_template_offering(built: Built) -> None:
     build_platform_admin(built)
 
 
+def build_shared_member(built: Built) -> None:
+    """Make people who cross firms, and an administrator on each side of them.
+
+    A firm admin of TEST01 and a platform admin; **Shared Member** in TEST02
+    (primary) and TEST01 with no roles, whose profile TEST01's admin may not
+    edit; and **TEST02 Only**, in TEST02 alone, whom TEST01's admin administers
+    nothing about.
+    """
+    build_firm_admin(built)
+    build_platform_admin(built)
+    new_user(built, "shared", "Shared Member", firms=(TEST02, TEST01))
+    new_user(built, "t2only", "TEST02 Only", firms=(TEST02,))
+    built.firms_used = [TEST01.code, TEST02.code]
+    built.say("Shared member", f"{built.email('shared')}  (TEST02 primary, TEST01)")
+    built.say("TEST02 only", f"{built.email('t2only')}  (TEST02 alone)")
+
+
+def build_shared_member_roles(built: Built) -> None:
+    """Make shared-member, with Shared Member holding a role in every tier.
+
+    `VIEWER` in every firm, `SALES_MANAGER` in TEST01, `CASHIER` in TEST02 --
+    three separate rows, so a save that collapses the tiers shows at once.
+    """
+    build_shared_member(built)
+    user_id = built.ids["shared"]
+    global_roles(built, user_id, ["VIEWER"])
+    firm_roles(built, user_id, TEST01, ["SALES_MANAGER"])
+    firm_roles(built, user_id, TEST02, ["CASHIER"])
+    built.say(
+        "Its roles", "VIEWER everywhere; SALES_MANAGER in TEST01; CASHIER in TEST02"
+    )
+
+
 #: Every fixture, what it builds, and the cases that name it.
 FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "firm-admin": (
         "A fresh firm administrator of TEST01.",
         build_firm_admin,
         "TC-ROLE-001..004, TC-PLAT-005, TC-ME-007, TC-FIRM-016, "
-        "TC-TMPL-001..004, TC-TMPL-011, TC-TMPL-015",
+        "TC-TMPL-001..004, TC-TMPL-011, TC-TMPL-015, TC-USER-003, TC-USER-004, "
+        "TC-USER-009",
     ),
     "custom-role": (
         "firm-admin + a custom role with the four Night Desk codes.",
@@ -746,7 +780,8 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "platform-admin": (
         "An ALL_FIRMS platform administrator who belongs to no firm.",
         build_platform_admin,
-        "TC-PLAT-001..003, TC-ME-006, TC-FIRM-001..003, TC-TMPL-012",
+        "TC-PLAT-001..003, TC-ME-006, TC-FIRM-001..003, TC-TMPL-012, "
+        "TC-USER-005, TC-RTIER-005",
     ),
     "platform-admin-member": (
         "An ALL_FIRMS platform administrator who belongs to both test firms.",
@@ -791,12 +826,12 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "manual-hire": (
         "firm-admin + a TEST01 user with two roles picked by hand.",
         build_manual_hire,
-        "TC-TMPL-005",
+        "TC-TMPL-005, TC-USER-001",
     ),
     "two-tier-hire": (
         "firm-admin + platform-admin + a user with roles in both tiers.",
         build_two_tier_hire,
-        "TC-TMPL-006..008",
+        "TC-TMPL-006..008, TC-RTIER-007",
     ),
     "firm-template-hire": (
         "firm-admin + a TEST01 job template + somebody hired into it.",
@@ -812,6 +847,16 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         "firm-admin + platform-admin: one writes templates, one reads them.",
         build_template_offering,
         "TC-TMPL-013, TC-TMPL-014",
+    ),
+    "shared-member": (
+        "firm-admin + platform-admin + a TEST01/TEST02 user + a TEST02-only one.",
+        build_shared_member,
+        "TC-USER-002, TC-USER-006..008, TC-RTIER-001, TC-RTIER-008",
+    ),
+    "shared-member-roles": (
+        "shared-member, with Shared Member holding a role in each tier.",
+        build_shared_member_roles,
+        "TC-RTIER-002..004, TC-RTIER-006",
     ),
 }
 

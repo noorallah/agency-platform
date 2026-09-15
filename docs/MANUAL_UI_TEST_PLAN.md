@@ -478,72 +478,30 @@ administrator.
 
 ## 20. A firm administrator creating users
 
-The button that was not there. `FIRM_ADMIN` holds `USER_CREATE`, `USER_UPDATE`,
-`ROLE_ASSIGN` and `ROLE_VIEW` — everything running a firm's people needs — and
-the New-user gate also demanded `FIRM_VIEW`, which is a platform code the role
-can never be given. Sign in as `whole01.admin`.
+**Moved to `docs/INDEPENDENT_TEST_CASES.md` on 2026-09-16**, as TC-USER-001 to
+009. The rows no longer build on each other: `plan20a`, `plan20b` and
+`plan20c` are gone, and the two-firm person 20.1b, 20.6 and 20.7 need comes
+from the `shared-member` fixture (TEST02 primary, TEST01).
 
-Re-derived against the code on **2026-09-15**, then **run the same day**:
-20.1–20.8 all passed **except 20.2b**, which is a genuine defect and is
-documented under that row rather than removed. Three rows had gone stale since
-they were written on 09-05..09-09 and are corrected below; the changes are
-called out where they are, so a reader who remembers the old wording can see
-what moved rather than wondering whether they misread it.
+Two changes from the row text:
 
-**Run it in order.** The rows build data for each other: 20.2a makes the user
-20.5–20.7 act on, 20.6 turns that user into a two-firm one, and 20.1b and 20.7
-cannot be done before it. Running 20.1a's old second half at 20.1, as the plan
-used to imply, is impossible — there is no shared user at that point.
+- **20.2b is no longer a known failure** — #402 fixed it. Driving the fix found
+  a smaller defect in its place, written up as **D-20-1**: asking for roles on
+  somebody in no firm refuses *after* the account has been made.
+- **20.6 step 1 and 20.7's setup** are not needed; the fixture's memberships
+  and primary are the starting point.
 
-> **Tidy up.** This section leaves three users in WHOLE01:
-> `plan20a.test@agency.local` (also in ELEC01, primary ELEC01),
-> `plan20b.test@agency.local` (in no firm — **keep this one**, section 24 wants
-> exactly such a person for **Add existing user**) and
-> `plan20c.test@agency.local` (Counter Sales, password changed at first
-> sign-in). Remove the first and third afterwards, or reseed.
-
-| # | Case | Expected |
-| --- | --- | --- |
-| 20.1 | Administration → Users | **New** and **Edit** are offered. Before this they were not, for any firm administrator. **Edit is per row**, though: it is disabled for somebody who also works in another firm, and for a deleted row — see 20.1a. |
-| 20.1a | Select a user who belongs to WHOLE01 **only** → **Edit**. *(Second half: after 20.6, come back and try the same on `plan20a` — see below.)* | Opens normally. |
-| 20.1b | **After 20.6**, select `plan20a` → **Edit**, then double-click the row, then the context menu's Edit | All three open the record **read-only**, and none of them silently: the dialog's subtitle carries the reason — "… also works in another firm, so their profile is managed by a platform administrator. Use Roles by firm to set what they do in yours." The refusal is about **writing**; the row is still one somebody meant to look at, so it opens. *(Rewritten 2026-09-15 after the run. Both rows said the button is **disabled** and the refusal arrives as a notice. That stopped being true in #375 (plan item 13.9): an Edit on a row you cannot edit now opens the **view**, and the reason goes into the dialog's subtitle -- where the person actually is. The comment in `_openDialog` says why: "The refusal is about writing. The row is still one somebody meant to look at, and a notice with nothing behind it reads as 'the screen is broken' -- which is how a deleted user's Restore, which lives in the view dialog's footer, was unreachable from the context menu.")* |
-| 20.2 | New → look at **Firms** before typing anything | **The firm you have open in the switcher is already ticked** — WHOLE01 for `whole01.admin`, who belongs to nothing else. The form used to open empty and then silently remove the membership the save had just created, leaving a user in no firm and invisible in the grid. *(Corrected 2026-09-15: the prefill is `api.activeFirmId`, the firm currently open, not "your own firm" — the two differ for anybody in more than one firm.)* |
-| 20.2a | Fill in name, email, password → Save | Created and in WHOLE01, visible in the grid straight away. |
-| 20.2b | New again, **clear** the Firms box, save | Created in **no** firm — allowed, and deliberate. They will not appear in the grid; find them with **Add existing user**. **⚠ KNOWN FAILURE as of 2026-09-15 — see below.** |
-
-> **20.2b fails for a firm administrator.** The form reports *"Please review the
-> following before saving — User not found."* and the user **is created anyway**,
-> in no firm, with no roles. Driven and confirmed on 2026-09-15: after the
-> refusal, `GET /users/lookup?q=plan20b` answers one row with
-> `already_a_member: false`, which is exactly what the row asks for.
->
-> `saveAssignments` (`desktop_shell.dart`) writes memberships first and then,
-> when no **Job template** was named, calls `setUserRoles(id, [])`
-> **unconditionally**. `set_user_roles` resolves the user with
-> `_get_user(user_id, firm_scope)`, and for a firm caller that requires an
-> active `UserFirm` row **in the caller's firm** — which the membership write
-> has just removed. So the roles call 404s on a user who exists.
->
-> The comment above that code says *"**Memberships first.** A role needs an
-> active membership… Roles used to be written first, when the person was still
-> in no firm."* Somebody hit this class of bug and fixed the **ordering** —
-> ordering does not help when the membership set is deliberately **empty**, and
-> writing firms first is what causes it here.
->
-> It bites a **firm** caller only: a platform caller's `firm_scope` is `None`,
-> so `_get_user` does not filter and the roles call succeeds. That is why 20.2c
-> and every platform flow are unaffected, and why nothing caught it.
->
-> Worse than a plain failure, because the record survives: a retry answers 409
-> on the email. Until it is fixed, expect the refusal, and look the user up
-> rather than believing the message.
-| 20.2c | As `superadmin`, open New | Firms is **empty**, not prefilled. A platform administrator has no own firm, and quietly using whichever one their switcher shows would be a surprise. |
-| 20.3 | Open the form again and look at **Firms** | Lists the firms *you* belong to (`/api/v1/me/firms`). It read `/api/v1/firms`, which is platform-only, so it used to come back empty with a failed load. |
-| 20.4 | Sign in as `superadmin@agency.local` and open the same form | **Firms** lists every firm (`/api/v1/firms`). Same field, different source — one line in `userDefinition` decides which. |
-| 20.5 **(HTTP)** | As `whole01.admin`, `PUT /api/v1/users/{id}/firms` naming a firm you do not staff | `422`, "You can only assign firms you administer." Refused by name, not silently dropped. **You do not need ELEC01's id**: the reach check is a set difference and runs *before* the firm-exists check, so any UUID that is not WHOLE01's gives the same refusal — which matters, because `whole01.admin` cannot read `/api/v1/firms` to find a real one. *(Clarified 2026-09-15; the row named ELEC01 and was not runnable as written.)* |
-| 20.6 | **Step 1**, as `superadmin`: Administration → **User-Firm Assignments** → `plan20a` → tick **WHOLE01 and ELEC01**, Save. **Step 2**, as `whole01.admin` **(HTTP)**: `PUT /api/v1/users/{id}/firms` naming **WHOLE01 only** → **200**, not a refusal; naming only your own firm is legitimate. **Step 3**, as `superadmin`: re-read the same user | **Both** memberships survive — ELEC01 is still there though step 2 never mentioned it. The endpoint **replaces** for a platform caller and **merges** for a scoped one: `_merged_within_reach` carries through every membership outside the caller's reach untouched, because replacing is right when the caller can see them all and destructive when they cannot. Otherwise a firm administrator correcting their own firm would silently remove that person from every other firm on the platform. Step 2 is HTTP because the screen **refuses it on purpose** (20.1b) — the merge protects the API from any other client, and the disabled button is a courtesy on top of it. *(Step 1 rewritten 2026-09-15 to use the User-Firm Assignments screen: it is the same `PUT`, and it saves needing a platform token in the shell.)* |
-| 20.7 | **Setup first**, as `superadmin`: give `plan20a` a **primary firm of ELEC01** — the firm `whole01.admin` cannot see. Then as `whole01.admin` **(HTTP)**: the same `PUT` as 20.6 step 2, but with `"is_primary": true` on WHOLE01. Re-read as `superadmin` | **200, and the primary is still ELEC01** — your flag was **ignored, not refused**. The primary is one flag across every firm somebody belongs to, held by `UQ_user_firms_active_primary`, so a caller who can see only some of those firms would either collide with a primary they cannot see or quietly demote it. *(The setup is not optional — added 2026-09-15. The deliberate exception is that somebody with **no** primary at all gets one, so a new hire still lands somewhere; run this on a user without one and it passes for the opposite reason.)* |
-| 20.8 | Follow `docs/USER_ADMINISTRATION_GUIDE.md` §3 end to end: New → name, email, password, **Job template** = `Counter Sales`, leave **Roles** alone, Save. Sign in as them (a forced password change comes first) and read the sidebar | **Sales** and **Inventory** offered; **Finance** offered and holding **exactly Receipts and Payments**; **Administration** not. None of Chart of Accounts, Control Accounts, Cost Centres, Profit Centres, Journal Entries, Ledgers, Trial Balance, P&L, Balance Sheet or Refunds. **Two opposite failures to tell apart:** no Finance at all means the module gate was reverted and the empty-sidebar bug is back; Finance *with the ledger in it* means the tabs lost their own codes and the module gate is doing the work alone — the wrong fix in the other direction. *(Corrected 2026-09-15. This row said Finance was **not** offered, which stopped being true on 2026-09-06: Finance is gated on any of `ACCOUNT_VIEW`, `RECEIPT_VIEW`, `PAYMENT_VIEW` — before that a cashier holding exactly the right codes signed in to an empty sidebar. Chart of Accounts, Control Accounts and Journal Entries must **not** appear; if they do, the tabs lost their own codes and the module gate is doing the work alone, which is the wrong fix in the other direction.)* |
+| Old row | Case |
+| --- | --- |
+| 20.1, 20.1a | TC-USER-001 |
+| 20.1b | TC-USER-002 |
+| 20.2, 20.2a, 20.3 | TC-USER-003 |
+| 20.2b | TC-USER-004 |
+| 20.2c, 20.4 | TC-USER-005 |
+| 20.5 | TC-USER-006 |
+| 20.6 | TC-USER-007 |
+| 20.7 | TC-USER-008 |
+| 20.8 | TC-USER-009 |
 
 ---
 

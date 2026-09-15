@@ -7,7 +7,7 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Converted so far:** plan sections 16 to 19, 25 (the pilot), 26, 26a and 27 — see the
+**Converted so far:** plan sections 16 to 20, 25 (the pilot), 26, 26a and 27 — see the
 table of contents below. Other sections move here one at a time; until then
 they stay in the plan.
 
@@ -446,6 +446,127 @@ each case ends by deleting what it made.
   - The `firm_id` need not be a real firm: for a firm caller any firm but their own takes the same branch, and a firm administrator cannot read `/api/v1/firms` to find one anyway.
   - `role_ids` must be non-empty and well formed, or validation refuses the body first and the case tests pydantic rather than the firm check. CASHIER's id: `select id from platform.roles where code = 'CASHIER'`.
 - **Leaves:** a firm admin user.
+
+---
+
+## A firm administrator creating users
+
+`FIRM_ADMIN` holds `USER_CREATE`, `USER_UPDATE`, `ROLE_ASSIGN` and `ROLE_VIEW`
+— everything running a firm's people needs — and not `FIRM_VIEW`, a platform
+code. The New-user gate used to demand it, so the one role whose job is
+running a firm's people was refused New and Edit.
+
+Where a person also works in another firm, their **profile** is a platform
+administrator's to manage; a firm administrator still decides what they do in
+their own firm, through **Roles by firm**.
+
+### TC-USER-001 — New and Edit are a firm administrator's
+
+- **Covers:** plan 20.1, 20.1a
+- **Fixture:** `manual-hire`
+- **Steps**
+  1. Sign in as the fixture's **Firm admin** → Administration → **Users**.
+  2. Select **Manual Hire (<suffix>)** — in TEST01 only — → **Edit**.
+- **Expect:** **New** and **Edit** offered; the edit form opens normally, writable.
+- **Leaves:** unchanged.
+
+### TC-USER-002 — Somebody who also works elsewhere opens read-only, and says why
+
+- **Covers:** plan 20.1b
+- **Fixture:** `shared-member`
+- **Steps**
+  1. As the fixture's **Firm admin**, Users → select **Shared Member (<suffix>)** → **Edit**.
+  2. Double-click the row; then the context menu's **Edit**.
+- **Expect:** all three open the record **read-only**, never silently: the subtitle reads "… also works in another firm, so their profile is managed by a platform administrator. Use Roles by firm to set what they do in yours." The refusal is about writing; the row is still one somebody meant to look at, so it opens.
+- **Data (HTTP):** in `GET /api/v1/users?search=<suffix>.shared` as the firm admin, the row carries `belongs_to_other_firms: true`.
+- **Leaves:** unchanged.
+
+### TC-USER-003 — New starts in the firm that is open
+
+- **Covers:** plan 20.2, 20.2a, 20.3
+- **Fixture:** `firm-admin`
+- **Steps**
+  1. As the fixture's **Firm admin**, Users → **New**. Look at **Firms** before typing anything; open its list.
+  2. Name `In Firm <suffix>`, email `<suffix>.infirm@fixtures.local`, a 12-character password → Save.
+- **Expect**
+  - Step 1: **TEST01 already ticked** — the firm open in the switcher — and the list offers the firms *you* belong to (`/api/v1/me/firms`; `/api/v1/firms` is platform-only and answers a firm admin 403). The form used to open empty and then silently remove the membership the save had just made.
+  - Step 2: created, in TEST01, in the grid at once.
+- **Leaves:** a TEST01 user.
+
+### TC-USER-004 — Creating somebody in no firm
+
+- **Covers:** plan 20.2b
+- **Fixture:** `firm-admin`
+- **Steps**
+  1. As the fixture's **Firm admin**, Users → **New**: name `No Firm <suffix>`, email `<suffix>.nofirm@fixtures.local`, password; **clear** the Firms box; no job, no roles → Save.
+  2. Users → **Add existing user** → type `<suffix>.nofirm`.
+  3. New again: `<suffix>.nofirm2@fixtures.local`, Firms cleared, and this time pick a role under Roles in this firm → Save. Then look them up as in step 2.
+- **Expect**
+  - Step 1: created, in **no** firm — allowed and deliberate — and **not** in the grid.
+  - Step 2: found, not marked as already a member.
+  - Step 3: the form says "Somebody in no firm cannot be given roles here, because roles are held per firm. Save them without roles, then use Add existing user to bring them into this firm and set what they do." — **and the account already exists**, in no firm with no roles: the lookup finds `<suffix>.nofirm2`. Do not press Save again; a second create answers 409 on the email. See defect **D-20-1**.
+  - *Step 1 failed on 2026-09-15 ("User not found." with the user created anyway) and was fixed in #402. Driven on the API: a firm admin's create lands the user in TEST01, clearing the firms leaves none, and the lookup then finds them with `already_a_member: false`. Step 3's order — create, clear firms, then refuse — is read from `saveAssignments`, not seen on screen.*
+- **Leaves:** two users in no firm.
+
+### TC-USER-005 — A platform administrator's New form
+
+- **Covers:** plan 20.2c, 20.4
+- **Fixture:** `platform-admin`
+- **Steps:** sign in as the fixture's **Platform admin** → Administration → Users → **New**; look at Firms and open its list.
+- **Expect:** Firms is **empty**, not prefilled — a platform administrator has no firm of their own, and quietly using whichever one the switcher shows would be a surprise. The list offers **every** firm (`/api/v1/firms`). Same field, a different source.
+- **Leaves:** nothing (cancel).
+
+### TC-USER-006 — A firm outside your reach is refused by name
+
+- **Covers:** plan 20.5
+- **Fixture:** `shared-member`
+- **Steps (HTTP)** — as the fixture's firm admin, `X-Firm-ID` TEST01: `PUT /api/v1/users/{Shared Member's id}/firms` with `{"assignments": [{"firm_id": "11111111-1111-1111-1111-111111111111", "is_primary": false, "is_active": true}]}`.
+- **Expect:** **422**, "You can only assign firms you administer." Refused, not silently dropped. Any id that is not TEST01's gives it — the reach check runs before the firm-exists check.
+- **Leaves:** unchanged.
+
+### TC-USER-007 — A firm administrator's membership write merges
+
+- **Covers:** plan 20.6
+- **Fixture:** `shared-member`
+- **Steps**
+  1. **(HTTP)** As the fixture's firm admin: `PUT /api/v1/users/{Shared Member's id}/firms` naming **TEST01 only**: `{"assignments": [{"firm_id": "<TEST01 id>", "is_primary": false, "is_active": true}]}`.
+  2. Sign in as the fixture's **Platform admin** → Users → Shared Member (or `GET /api/v1/users/{id}/firms`).
+- **Expect**
+  - Step 1: **200** — naming only your own firm is legitimate.
+  - Step 2: **both** memberships, TEST02 still primary. The endpoint replaces for a platform caller and **merges** for a scoped one: memberships outside the caller's reach are carried through untouched, or a firm administrator correcting their own firm would silently remove that person from every other firm. The screen refuses this edit anyway (TC-USER-002); the merge protects the API from any other client.
+- **Leaves:** unchanged.
+
+### TC-USER-008 — A firm administrator does not move somebody's primary firm
+
+- **Covers:** plan 20.7
+- **Fixture:** `shared-member` — Shared Member's primary is **TEST02**, which TEST01's admin cannot see.
+- **Steps**
+  1. **(HTTP)** As the fixture's firm admin: the `PUT` from TC-USER-007 with `"is_primary": true` on TEST01.
+  2. Re-read as the fixture's platform admin.
+- **Expect:** **200**, and the primary is **still TEST02** — the flag was **ignored, not refused**. It is one flag across every firm somebody belongs to, held by `UQ_user_firms_active_primary`; a caller who can see only some of those firms would either collide with a primary they cannot see or quietly demote it. The exception is somebody with no primary at all, who gets one.
+- **Data**
+  ```sql
+  select f.code, uf.is_primary from platform.user_firms uf
+  join platform.firms f on f.id = uf.firm_id
+  join platform.users u on u.id = uf.user_id
+  where u.email = '<suffix>.shared@fixtures.local' and uf.is_deleted = false;
+  ```
+- **Leaves:** unchanged.
+
+### TC-USER-009 — A Counter Sales hire gets the till and not the ledger
+
+- **Covers:** plan 20.8
+- **Fixture:** `firm-admin`
+- **Steps**
+  1. As the fixture's **Firm admin**, Users → New: name, `<suffix>.counter@fixtures.local`, password, **Job template** Counter Sales, Roles left alone → Save. (`docs/USER_ADMINISTRATION_GUIDE.md` §3 end to end.)
+  2. Sign in as them and read the sidebar; open Finance.
+- **Expect:** **Sales** and **Inventory** offered; **Finance** offered holding **exactly Receipts and Payments**; no Administration. None of Chart of Accounts, Control Accounts, Cost Centres, Profit Centres, Journal Entries, Ledgers, Trial Balance, Profit & Loss, Balance Sheet or Refunds.
+  - **Two opposite failures:** no Finance at all means the module gate was reverted and the empty-sidebar bug is back; Finance *with the ledger in it* means the tabs lost their own codes and the module gate is doing the work alone.
+- **Leaves:** a Counter Sales user in TEST01.
+
+### Known defects found while writing these cases
+
+- **D-20-1 — Asking for roles on somebody in no firm refuses after the account is made.** `saveAssignments` runs after the create and after the membership write, so the refusal "Save them without roles, then use Add existing user…" arrives when the user already exists in no firm. The message reads as if nothing was saved; pressing Save again answers 409. Checking before the create, in the form's own validation, would make the message true.
 
 ---
 
