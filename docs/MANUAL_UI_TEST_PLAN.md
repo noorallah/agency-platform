@@ -725,6 +725,16 @@ was found on 2026-09-06: moving the platform designation into its own claim
 left two checks looking for it in the old place, so **no platform administrator
 could read any audit trail at all**.
 
+**Run 2026-09-15: 23.1–23.7 all passed, and reading the trail cost two fixes.**
+Every row worked as written; what did not work was the trail itself being
+*readable*. It named nobody — `AuditLogResponse` carried `actor_id` and no
+name, so the list gave an action and an entity type (the same two words for
+every row a busy day produces) and the detail gave a UUID. Then the subject
+was a UUID too, and a promotion's `role_ids` were bare UUIDs beside a
+`template_code` that exists precisely because an id alone names nothing.
+Fixed in #407 and #409. **None of it was a row failing**; it was the screen
+being unusable while every row passed.
+
 *Verified against the code on 2026-09-15, no changes. The Settings module takes
 **any** of `SETTINGS_VIEW` / `AUDIT_LOG_VIEW` / `DIAGNOSTICS_VIEW`; Audit Logs
 demands `AUDIT_LOG_VIEW` and carries `requiresFirm: false`, which is what makes
@@ -741,10 +751,10 @@ here or in `tests/integration/`, nowhere else.*
 | 23.1 | Sign in as `superadmin@agency.local`, no firm selected → Settings → Audit Logs | The **platform** trail: user, role and firm administration. Answered 403 between 2026-09-05 and 2026-09-06. |
 | 23.2 | Same user, select WHOLE01 → Settings → Audit Logs | **That firm's** trail, not the platform's. Also 403 in that window. |
 | 23.3 | As `whole01.admin` → Settings | The module opens with **Audit Logs** in it. It used to open empty — offered on `SETTINGS_VIEW`, with both tabs demanding codes the role did not hold. |
-| 23.4 | Read it | WHOLE01's history and nothing else. |
-| 23.4a | Promote somebody (Users → Apply job template), then re-open Settings → Audit Logs **as `whole01.admin`** | The promotion is listed, naming the template. It is written to the *platform* store — user administration is a platform path — and the firm's trail now merges the platform rows carrying this firm's id. |
+| 23.4 | Read it | WHOLE01's history and nothing else. **Every row names the person who did it and, where the subject is a person, who it was done to** (#407, #409) — before those it named neither, and a trail that cannot be read is not a trail. |
+| 23.4a | Promote somebody (Users → Apply job template), then re-open Settings → Audit Logs **as `whole01.admin`** | The promotion is listed, naming the template **and the role codes it granted** — `role_codes` beside `role_ids` since #409, for the same reason `template_code` is beside `template_id`: an id alone points at a row nobody can name, and without the codes the row says which job was applied and not what access it gave. It is written to the *platform* store — user administration is a platform path — and the firm's trail now merges the platform rows carrying this firm's id. |
 | 23.4b | Check the order around it | Newest first across both stores, not the firm's rows followed by the platform's. |
-| 23.4c | Filter by action `user_template.applied` | The filter reaches both stores. Filtering one and not the other would answer a half-truth. |
+| 23.4c | Filter by action `user_template.applied` — **typed in full** | The filter reaches both stores. Filtering one and not the other would answer a half-truth, and the kind that reads as correct because something came back. *(In full because the box is **exact match**: typing `user` finds nothing. That is BACKLOG 31.17, raised at 13.8 and met again here.)* |
 | 23.5 | Look for **Diagnostics** | **Not there.** `DIAGNOSTICS_VIEW` is deliberately withheld — error reports are telemetry for whoever maintains the product, not something a firm owns. |
 | 23.6 **(HTTP)** | `GET /api/v1/audit-logs` with a `whole01.admin` token and **no** `X-Firm-ID` | `403`. Reading the platform trail needs platform authority. |
 | 23.7 | As `whole01.sales1` → Settings | Not offered at all. |
