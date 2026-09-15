@@ -1011,7 +1011,7 @@ def build_lock_target(built: Built) -> None:
     built.say("Roles", "SALES_EXECUTIVE in TEST01")
 
 
-def build_isolation_pair(built: Built) -> None:
+def build_isolation_pair(built: Built, shared: bool = False) -> None:
     """Make a customer of this run's own in each of TEST01 and TEST02.
 
     Named so a search for the other firm's one is a real isolation check: the
@@ -1020,7 +1020,12 @@ def build_isolation_pair(built: Built) -> None:
     """
     build_platform_admin(built)
     tag = built.suffix.upper()
-    for firm, letter in ((TEST01, "ONE"), (TEST02, "TWO")):
+    pairs = [(TEST01, "ONE"), (TEST02, "TWO")]
+    if shared:
+        for firm in (TESTSH1, TESTSH2):
+            built.add_firm(firm, str(create_firm(built.admin, firm)["id"]))
+        pairs = [(TESTSH1, "SHONE"), (TESTSH2, "SHTWO")]
+    for firm, letter in pairs:
         inside = built.admin.as_user(built.admin.token or "", built.firms[firm.code])
         inside.call(
             "POST",
@@ -1036,7 +1041,12 @@ def build_isolation_pair(built: Built) -> None:
             f"In {firm.code}",
             f"{tag}-{letter}  (Isolation {letter.title()} {built.suffix})",
         )
-    built.firms_used = [TEST01.code, TEST02.code]
+    built.firms_used = [firm.code for firm, _ in pairs]
+
+
+def build_shared_isolation_pair(built: Built) -> None:
+    """Make the same pair in TESTSH1 and TESTSH2, which share one schema."""
+    build_isolation_pair(built, shared=True)
 
 
 #: Every fixture, what it builds, and the cases that name it.
@@ -1047,7 +1057,8 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         "TC-ROLE-001..004, TC-PLAT-005, TC-ME-007, TC-FIRM-016, "
         "TC-TMPL-001..004, TC-TMPL-011, TC-TMPL-015, TC-USER-003, TC-USER-004, "
         "TC-USER-009, TC-GRANT-002..004, TC-GRANT-006, TC-GRANT-008, TC-CASH-004, "
-        "TC-AUDIT-003, TC-AUDIT-005, TC-LOOK-005, TC-SESS-002, TC-SESS-006",
+        "TC-AUDIT-003, TC-AUDIT-005, TC-LOOK-005, TC-SESS-002, TC-SESS-006, "
+        "TC-ISO-004",
     ),
     "custom-role": (
         "firm-admin + a custom role with the four Night Desk codes.",
@@ -1148,7 +1159,7 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "invoiced": (
         "firm-admin + a sale of this run's own: order, note, approved invoice.",
         build_invoiced,
-        "TC-GRANT-001",
+        "TC-GRANT-001, TC-ISO-003",
     ),
     "loyalty-viewer": (
         "A TEST01 SALES_MANAGER: reads the loyalty scheme, cannot change it.",
@@ -1183,7 +1194,12 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "isolation-pair": (
         "platform-admin + a customer of this run's own in each test firm.",
         build_isolation_pair,
-        "TC-SESS-001, TC-ISO (see the doc)",
+        "TC-SESS-001, TC-ISO-002",
+    ),
+    "shared-isolation-pair": (
+        "platform-admin + a customer of this run's own in TESTSH1 and TESTSH2.",
+        build_shared_isolation_pair,
+        "TC-ISO-001",
     ),
 }
 

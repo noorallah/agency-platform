@@ -7,7 +7,7 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Converted so far:** plan sections 2 and 16 to 27 (25 was the pilot) — see the
+**Converted so far:** plan sections 2, 3 and 16 to 27 (25 was the pilot) — see the
 table of contents below. Other sections move here one at a time; until then
 they stay in the plan.
 
@@ -1198,6 +1198,67 @@ fifteen minutes.
 ### Known defects found while writing these cases
 
 - **D-2-1 — An inactive or expired account names its state to a wrong password.** Driven: a wrong password on an inactive account answers "This account is inactive…", and on an expired one "This account has expired…", both with their state codes. Plan 2.10 expected "Invalid email or password." for a wrong password, which is what the locked refusal's reasoning and CLAUDE.md's "a refusal about the credential does not [name the state]" suggest. The unit tests pin the state messages with the **right** password only. Either the plan or the code is wrong; the owner's call, since the 18.1/18.2 decision was about the person holding the right password.
+
+---
+
+## Firm isolation — one firm never sees another's data
+
+Three ways a firm's data can live: in the shared store beside other firms
+(`SHARED`, schema `firm_shared`), in a schema of its own (`SCHEMA`), or in a
+database of its own. The shared store is the one where isolation depends on
+every query filtering by firm, so it is the one to check hardest.
+
+### TC-ISO-001 — Two firms in one schema do not see each other's customers
+
+- **Covers:** plan 3.1, 3.2 (shared half)
+- **Fixture:** `shared-isolation-pair` — `<SUFFIX>-SHONE` in TESTSH1 and `<SUFFIX>-SHTWO` in TESTSH2, **both in `firm_shared`**.
+- **Steps**
+  1. Sign in as the fixture's **Platform admin** → switch into **TESTSH1** → Masters → Customers → search `<SUFFIX>`.
+  2. Switch to **TESTSH2**; search again. Then **MEDI01** and **FOOD01**, which share the same schema; then **TEST01**.
+- **Expect:** TESTSH1 shows only `-SHONE`; TESTSH2 only `-SHTWO`; MEDI01, FOOD01 and TEST01 show **neither**. **If a TESTSH1 customer appears in TESTSH2, stop and report it** — the two share one schema, so nothing but the firm filter keeps them apart.
+- **Data**
+  ```sql
+  select c.code, f.code as firm from firm_shared.customers c
+  join platform.firms f on f.id = c.firm_id
+  where c.code like '<SUFFIX>-SH%';
+  ```
+  Two rows, one per firm, in one table.
+- **Leaves:** a customer in each shared test firm.
+
+### TC-ISO-002 — Two firms in their own schemas, and a name that cannot cross
+
+- **Covers:** plan 3.2 (dedicated half), 3.3, 3.3b
+- **Fixture:** `isolation-pair` — `<SUFFIX>-ONE` (Isolation One) in TEST01, `<SUFFIX>-TWO` (Isolation Two) in TEST02.
+- **Steps**
+  1. As the fixture's **Platform admin** in **TEST01**, Customers → search `Isolation One <suffix>`.
+  2. Switch to **TEST02**; search the same name, then `<SUFFIX>`.
+- **Expect**
+  - Step 1: `<SUFFIX>-ONE`.
+  - Step 2: the name finds **nothing**; `<SUFFIX>` finds only `<SUFFIX>-TWO`. A name from another firm's store cannot appear.
+  - *Document numbers are the weaker check the plan's 3.3 started from: they **restart per firm**, so TEST02 may have an invoice with the same number as one of TEST01's — it must carry TEST02's own customer. The name is the real check.*
+- **Leaves:** unchanged.
+
+### TC-ISO-003 — Reports read the firm you are in
+
+- **Covers:** plan 3.4
+- **Fixture:** `invoiced` — a sale of this run's own in TEST01.
+- **Steps**
+  1. Sign in as the fixture's **Firm admin** (TEST01) → Reports → Operational Reports → **Sales order register**; find the fixture's order (customer **Fixture Buyer <suffix>**).
+  2. Sign in as any platform administrator (e.g. `platform-admin` fixture) → switch into **TEST02** → the same report.
+- **Expect:** step 1 lists the fixture's order; step 2 does **not** — TEST02's register holds only TEST02's orders, and reads "Nothing to report" if it has none.
+- **Leaves:** unchanged.
+
+### TC-ISO-004 — Naming a firm you do not belong to is refused, not answered empty
+
+- **Covers:** plan 3.5, 3.6
+- **Fixture:** `firm-admin`
+- **Steps**
+  1. Sign in as the fixture's **Firm admin** and look for any way to TEST02: the firm switcher, Ctrl+K, a report.
+  2. **(HTTP)** As the firm admin, `GET /api/v1/customers` with `X-Firm-ID` of **TEST02**.
+- **Expect**
+  - Step 1: none. The switcher lists TEST01 alone.
+  - Step 2: **403**, "You do not have permission to perform this action." — **not** an empty list, which would look like "no data" and hide the hole.
+- **Leaves:** a firm admin user.
 
 ---
 
