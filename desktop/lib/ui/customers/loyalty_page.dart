@@ -16,6 +16,7 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../workspace/desktop_framework.dart';
+import 'loyalty_settings_dialog.dart';
 
 /// Show a firm's scheme and every movement of credit under it.
 class LoyaltyPage extends StatefulWidget {
@@ -99,6 +100,21 @@ class _LoyaltyPageState extends State<LoyaltyPage> {
     }
   }
 
+  /// Open the scheme, and re-read the banner if it changed.
+  ///
+  /// The banner beside the ledger states the rate, so leaving it stale after a
+  /// save would show one rule while another was in force.
+  Future<void> _openSettings() async {
+    final bool? saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => LoyaltySettingsDialog(
+        api: widget.api,
+        permissions: widget.permissions,
+      ),
+    );
+    if (saved == true && mounted) await _load();
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!widget.hasActiveFirm) {
@@ -129,6 +145,16 @@ class _LoyaltyPageState extends State<LoyaltyPage> {
             onPressed: _mayManage ? _expire : null,
             icon: const Icon(Icons.timer_off_outlined),
             label: const Text('Expire lapsed'),
+          ),
+          // Offered to anyone who can read the scheme, not only to whoever may
+          // change it: the banner beside this states the rate, and somebody
+          // asking why a balance is what it is should be able to open the rule
+          // behind it. The dialog itself is read-only without
+          // `LOYALTY_MANAGE_SETTINGS`, and says so.
+          OutlinedButton.icon(
+            onPressed: _openSettings,
+            icon: const Icon(Icons.tune_outlined),
+            label: const Text('Scheme settings'),
           ),
         ],
       ),
