@@ -18,7 +18,7 @@ from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
 from app.core.utils.dates import utc_now
 from app.firms.models import Firm
-from app.identity.models import UserFirm
+from app.identity.models import User, UserFirm
 
 
 def _session_factory() -> sessionmaker[Session]:
@@ -302,3 +302,70 @@ def test_audit_rows_reject_update_and_delete_through_the_orm() -> None:
     with pytest.raises(BusinessRuleError, match="append-only"):
         session.commit()
     session.rollback()
+
+
+def test_a_row_names_the_person_who_did_it() -> None:
+    """An audit trail's first question is "who", and an id does not answer it.
+
+    `AuditLogResponse` carried `actor_id` and no name, so the screen showed
+    what changed, when, and from which address -- and nothing about the
+    person. Reported by the owner at plan step 23.1 on 2026-09-15, reading
+    the trail: "its displaying id so not able to identify things".
+
+    Resolved on the **platform** session whatever trail the rows came from:
+    `users` exists only in the platform schema, so a firm store cannot join
+    to it. That is the eighth-occurrence shape `CLAUDE.md` records, and the
+    session is already injected here for the cross-store merge.
+    """
+    factory = _session_factory()
+    session = factory()
+    actor = User(
+        full_name="Asha Kumar",
+        email="asha@agency.local",
+        password_hash="x",
+        is_active=True,
+    )
+    session.add(actor)
+    session.commit()
+    _event(
+        session,
+        action="user.created",
+        entity_type="user",
+        firm_id=None,
+        actor_id=actor.id,
+    )
+
+    scope = audit_scope(
+        _principal(actor.id, {"AUDIT_LOG_VIEW"}, platform_admin=True), session, None
+    )
+    page = list_audit_logs(scope, db=session, platform_db=session)
+
+    assert page.data[0].actor_id == actor.id
+    assert page.data[0].actor_name == "Asha Kumar"
+    assert page.data[0].actor_email == "asha@agency.local"
+
+
+def test_a_deleted_actor_keeps_their_actions_on_the_record() -> None:
+    """A name that cannot be resolved is null, and the row survives.
+
+    Dropping the row instead would lose exactly the history somebody is
+    looking for when they ask what a departed person did.
+    """
+    factory = _session_factory()
+    session = factory()
+    actor_id = uuid4()
+    _event(
+        session,
+        action="user.created",
+        entity_type="user",
+        firm_id=None,
+        actor_id=actor_id,
+    )
+
+    scope = audit_scope(
+        _principal(actor_id, {"AUDIT_LOG_VIEW"}, platform_admin=True), session, None
+    )
+    page = list_audit_logs(scope, db=session, platform_db=session)
+
+    assert len(page.data) == 1
+    assert page.data[0].actor_name is None

@@ -50,6 +50,8 @@ AuditLogEntry _entry({
   String action = 'customer.updated',
   Json before = const {'name': 'Acme', 'credit_limit': '1000.00'},
   Json after = const {'name': 'Acme', 'credit_limit': '5000.00'},
+  String? actorName = 'Asha Kumar',
+  String? actorEmail = 'asha@agency.local',
 }) =>
     AuditLogEntry.fromJson({
       'id': 'a-1',
@@ -58,6 +60,8 @@ AuditLogEntry _entry({
       'entity_type': 'customer',
       'entity_id': 'c-1',
       'actor_id': 'u-1',
+      'actor_name': actorName,
+      'actor_email': actorEmail,
       'firm_id': 'firm-1',
       'before_data': before,
       'after_data': after,
@@ -173,6 +177,32 @@ void main() {
         (tester) async {
       await _pump(tester, _AuditApi(), perms: const ['SETTINGS_VIEW']);
       expect(find.textContaining('do not have permission'), findsOneWidget);
+    });
+  });
+
+  group('who did it', () {
+    testWidgets('the list names the actor, not their id', (tester) async {
+      // An audit trail's first question is "who". The list gave an action and
+      // an entity type -- the same two words for every row a busy day
+      // produces -- and the detail gave a UUID. Reported by the owner at plan
+      // step 23.1 on 2026-09-15: "its displaying id so not able to identify
+      // things".
+      await _pump(tester, _AuditApi(rows: [_entry()]));
+
+      expect(find.textContaining('Asha Kumar'), findsWidgets);
+      expect(find.textContaining('u-1'), findsNothing);
+    });
+
+    testWidgets('a deleted actor is said to be one', (tester) async {
+      // Their actions stay on the record -- that is most of the point of
+      // having one -- so the row survives and says what is known.
+      await _pump(
+        tester,
+        _AuditApi(rows: [_entry(actorName: null, actorEmail: null)]),
+      );
+
+      expect(find.textContaining('a deleted user'), findsWidgets);
+      expect(find.textContaining('u-1'), findsNothing);
     });
   });
 }

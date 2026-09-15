@@ -17,6 +17,14 @@ class AuditLogResponse(BaseModel):
     entity_type: str
     entity_id: UUID
     actor_id: UUID | None
+    # Who did it, in words. An audit trail's first question is "who", and
+    # `actor_id` alone answers it with a UUID -- so the screen showed what
+    # changed, when, and from which address, and nothing about the person.
+    # Resolved on the **platform** session: `users` lives only there, so a
+    # firm store cannot join to it. Null where the actor has since been
+    # deleted, or where the row records something nobody did.
+    actor_name: str | None = None
+    actor_email: str | None = None
     firm_id: UUID | None
     before_data: dict[str, object] | None
     after_data: dict[str, object] | None
