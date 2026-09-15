@@ -7,7 +7,7 @@ cashier nobody had made, 25.10 deletes the role 25.2 makes so 25.9 can never be
 run twice, and 24.12 named an account whose password had changed. Picking a row
 out of order met a failure that belonged to the plan, not to the product.
 
-**Converted so far:** plan sections 16, 25 (the pilot), 26, 26a and 27 — see the
+**Converted so far:** plan sections 16, 17, 25 (the pilot), 26, 26a and 27 — see the
 table of contents below. Other sections move here one at a time; until then
 they stay in the plan.
 
@@ -156,6 +156,158 @@ used to change `superadmin`'s scope by SQL and change it back. The
   1. **403** on all three, "You do not have permission to perform this action." — although they are a member of TEST01. Not a rule of its own: a `PLATFORM` administrator is simply not exempt from the membership check, and meets it holding no role.
   2. **200** on all four.
 - **Leaves:** a platform operator.
+
+---
+
+## User templates — hiring by naming the job
+
+A template is a named bundle of roles. Eleven are seeded and offered to every
+firm; a firm may write its own and may not edit the platform's. Applying one is
+an ordinary role write — nothing on the user records which template they came
+from.
+
+The eleven: Accounts (`ACCOUNTANT`), Counter Sales (`BILLING_EXECUTIVE`,
+`CASHIER`), Customer Support, Field Sales (`SALES_EXECUTIVE`), Firm
+Administrator, Firm Manager, Purchase Manager, Purchasing, Read Only
+(`VIEWER`), Sales Manager and Warehouse (`INVENTORY_MANAGER`). TEST01 also
+lists templates earlier runs wrote, and any template a platform administrator
+offered to every firm; cases count only the eleven.
+
+### TC-TMPL-001 — The platform's templates are listed, and locked
+
+- **Covers:** plan 17.1, 17.2
+- **Fixture:** `firm-admin`
+- **Steps**
+  1. Sign in as the fixture's **Firm admin** → Administration → **User Templates**.
+  2. Select **Counter Sales**; look at **Edit** and **Delete**; open it.
+  3. **(HTTP)** `PATCH /api/v1/user-templates/{Counter Sales id}` with `{"name": "x"}`.
+- **Expect**
+  - Step 1: the **eleven** above with Origin **Platform**, each naming its roles — Counter Sales shows `BILLING_EXECUTIVE, CASHIER`.
+  - Step 2: Edit and Delete **disabled**; the dialog subtitle reads "… · Provided by the platform". It is offered to every firm, so no one firm may change it.
+  - Step 3: **422**, "Platform templates cannot be edited."
+- **Leaves:** a firm admin user.
+
+### TC-TMPL-002 — A firm's own template, and an edit that keeps its roles
+
+- **Covers:** plan 17.3, 17.4
+- **Fixture:** `firm-admin`
+- **Steps**
+  1. As the fixture's **Firm admin**, User Templates → **New**: Template code `<suffix>-night-counter`, Job name `Night Counter`, Roles `CASHIER` and `BILLING_EXECUTIVE`, Offered on → Save.
+  2. Edit it; change only the **name** to `Night Counter renamed` → Save; reopen.
+- **Expect**
+  - Step 1: created; Origin **This firm**; subtitle "… · This firm's own".
+  - Step 2: still `BILLING_EXECUTIVE, CASHIER`. An edit that says nothing about the bundle must not empty it — `role_ids` replaces the bundle when sent, and the form does not send it unchanged.
+- **Data**
+  ```sql
+  select t.code, t.name, t.firm_id, r.code as role
+  from   platform.user_templates t
+  join   platform.user_template_roles tr on tr.template_id = t.id
+  join   platform.roles r on r.id = tr.role_id
+  where  t.code = '<suffix>-night-counter';
+  ```
+  Two rows, `firm_id` = TEST01. Audit `user_template.created`, `user_template.updated`.
+- **Leaves:** a TEST01 template.
+
+### TC-TMPL-003 — Hiring into a job in one step
+
+- **Covers:** plan 17.4a, 17.4b
+- **Fixture:** `firm-admin`
+- **Steps**
+  1. As the fixture's **Firm admin**, Administration → Users → **New**: name `Job Hire <suffix>`, email `<suffix>.jobhire@fixtures.local`, a 12-character password, **Job template** Counter Sales. Save.
+  2. New again: `Hand Hire <suffix>`, `<suffix>.handhire@fixtures.local`, Job template **blank**, Roles in this firm `CUSTOMER_SUPPORT` and `VIEWER`. Save.
+- **Expect**
+  - Step 1: created **and** holding `CASHIER` and `BILLING_EXECUTIVE` — one step, no second visit to the grid.
+  - Step 2: exactly those two roles. The template field is optional.
+- **Leaves:** two users in TEST01.
+
+### TC-TMPL-004 — When a job is named, the job decides
+
+- **Covers:** plan 17.4c, 17.4d
+- **Fixture:** `firm-admin`
+- **Steps**
+  1. As the fixture's **Firm admin**, Users → **New**. Pick `ACCOUNTANT` under Roles in this firm; then choose the **Read Only** job; then clear the job.
+  2. Choose Read Only again and save (name, `<suffix>.readonly@fixtures.local`, password).
+  3. Edit that user.
+- **Expect**
+  - Step 1: the helper text under **Roles in this firm** ends "Ignored when a job template is named above." Choosing the job **clears** ACCOUNTANT and **locks** the chips; clearing it unlocks them, empty.
+  - Step 2: the user holds only `VIEWER`.
+  - Step 3: **no Job template field** — it is create-only. A template is where somebody starts, and Apply job template on the grid is how to re-apply one.
+- **Leaves:** a TEST01 user holding VIEWER.
+
+### TC-TMPL-005 — Applying a job replaces what somebody holds
+
+- **Covers:** plan 17.5, 17.6
+- **Fixture:** `manual-hire`
+- **Steps**
+  1. As the fixture's **Firm admin**, Users → select **Manual Hire (<suffix>)** → **Apply job template**.
+  2. Type `inventory` in **Search jobs**; clear it.
+  3. Choose **Counter Sales** → Apply.
+- **Expect**
+  - Step 1: dialog "Apply a job template": "Whatever Manual Hire (<suffix>) holds now is replaced by the job's roles. You can edit them afterwards like any other user." One line per active job with its roles beneath; **Apply disabled** until a job is chosen.
+  - Step 2: only **Warehouse** remains (the search covers name, code, description and role). A filter that hides the chosen job clears the choice.
+  - Step 3: their TEST01 roles become exactly `BILLING_EXECUTIVE` and `CASHIER` — `SALES_EXECUTIVE` and `CUSTOMER_SUPPORT` are gone.
+- **Data:** audit `user_template.applied` naming `template_code: counter-sales` and `role_codes`.
+- **Leaves:** Manual Hire holding Counter Sales' roles.
+
+### TC-TMPL-006 — A firm administrator's template writes the firm tier only
+
+- **Covers:** plan 17.6a
+- **Fixture:** `two-tier-hire`
+- **Steps**
+  1. As the fixture's **Firm admin**, Users → **Two Tier Hire (<suffix>)** → Apply job template → **Counter Sales** → Apply.
+  2. Sign in as the fixture's **Platform admin**, open the same user.
+- **Expect:** **Roles in every firm** still `VIEWER`, `CUSTOMER_SUPPORT`; **Roles in specific firms** now `TEST01: BILLING_EXECUTIVE · CASHIER` (was ACCOUNTANT, INVENTORY_MANAGER). A template overwrites the tier its caller writes and never touches the other.
+- **Data (HTTP)**, as the platform admin: `GET /api/v1/users/{id}/roles` → the two global ids; `GET /api/v1/users/{id}/firms/{TEST01 id}/roles` → the two Counter Sales ids.
+- **Leaves:** the user with a changed TEST01 tier.
+
+### TC-TMPL-007 — A platform administrator's template writes the global tier only
+
+- **Covers:** plan 17.6b
+- **Fixture:** `two-tier-hire`
+- **Steps**
+  1. As the fixture's **Platform admin**, Users → **Two Tier Hire (<suffix>)** → Apply job template → **Warehouse** → Apply.
+  2. Reopen the user.
+- **Expect:** **Roles in every firm** becomes exactly `INVENTORY_MANAGER` (Warehouse carries that one role) — VIEWER and CUSTOMER_SUPPORT are gone — while **Roles in specific firms** still reads `TEST01: ACCOUNTANT · INVENTORY_MANAGER`, untouched. The desktop never names a firm on this call for a platform administrator. *(The plan said "four roles, a different four"; Warehouse has one role, so it is three.)*
+- **Leaves:** the user with a changed global tier.
+
+### TC-TMPL-008 — After a template, somebody is an ordinary user
+
+- **Covers:** plan 17.7
+- **Fixture:** `two-tier-hire`
+- **Steps**
+  1. As the fixture's **Firm admin**, edit **Two Tier Hire (<suffix>)**: under **Roles in this firm** remove `ACCOUNTANT`, add `CASHIER` → Save & Close → reopen.
+- **Expect:** `INVENTORY_MANAGER` and `CASHIER`. **Also applies here** (read-only, lower in the Security section) shows the global tier, `CUSTOMER_SUPPORT` and `VIEWER`, which a firm administrator cannot change. Nothing on the user records a template.
+- **Leaves:** the user with an edited TEST01 tier.
+
+### TC-TMPL-009 — Somebody without role codes has no templates to see
+
+- **Covers:** plan 17.9
+- **Fixture:** `sales-executive`
+- **Steps:** sign in as the fixture's **Seller**; look for Administration.
+- **Expect:** **Administration is not offered at all**. `SALES_EXECUTIVE` holds `CUSTOMER_VIEW`, `SALES_VIEW`, `SALES_QUOTATION_CREATE`, `SALES_ORDER_CREATE`, `SALES_INVOICE_CREATE`, `TERRITORY_VIEW` — no `ROLE_VIEW`. **(HTTP)** `GET /api/v1/user-templates` with `X-Firm-ID` of TEST01 → **403**.
+- **Leaves:** a seller.
+
+### TC-TMPL-010 — Retiring a template is a decision about future hires
+
+- **Covers:** plan 17.8
+- **Fixture:** `firm-template-hire`
+- **Steps**
+  1. As the fixture's **Firm admin**, User Templates → select the fixture's **Job template** → **Delete** (confirm).
+  2. Users → open **Night Counter Hire (<suffix>)**.
+  3. Users → New → open the Job template list.
+- **Expect**
+  - Step 1: the row leaves the grid (a soft delete; there is no button called Retire).
+  - Step 2: still `BILLING_EXECUTIVE` and `CASHIER`.
+  - Step 3: the retired template is **not offered**.
+- **Leaves:** a retired template and the user it hired.
+
+### TC-TMPL-011 — A template cannot bundle a platform role
+
+- **Covers:** plan 17.10
+- **Fixture:** `firm-admin`
+- **Steps (HTTP)** — find the `PLATFORM_ADMIN` role's id (`select id from platform.roles where code = 'PLATFORM_ADMIN'`; a firm admin's role list never shows it). As the fixture's firm admin, with `X-Firm-ID` of TEST01: `POST /api/v1/user-templates` `{"code": "<suffix>-bad", "name": "Bad", "role_ids": ["<that id>"]}`.
+- **Expect:** **422**, "A template cannot bundle platform or cross-firm roles." Nothing created. That role carries every permission code; a template able to name it would be a second door onto the same room.
+- **Leaves:** a firm admin user.
 
 ---
 

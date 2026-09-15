@@ -719,7 +719,7 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "firm-admin": (
         "A fresh firm administrator of TEST01.",
         build_firm_admin,
-        "TC-ROLE-001..004, TC-PLAT-005, TC-ME-007, TC-FIRM-016",
+        "TC-ROLE-001..004, TC-PLAT-005, TC-ME-007, TC-FIRM-016, TC-TMPL-001..004, TC-TMPL-011",
     ),
     "custom-role": (
         "firm-admin + a custom role with the four Night Desk codes.",
@@ -784,12 +784,12 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "manual-hire": (
         "firm-admin + a TEST01 user with two roles picked by hand.",
         build_manual_hire,
-        "TC-TMPL-005..007",
+        "TC-TMPL-005",
     ),
     "two-tier-hire": (
         "firm-admin + platform-admin + a user with roles in both tiers.",
         build_two_tier_hire,
-        "TC-TMPL-008",
+        "TC-TMPL-006..008",
     ),
     "firm-template-hire": (
         "firm-admin + a TEST01 job template + somebody hired into it.",

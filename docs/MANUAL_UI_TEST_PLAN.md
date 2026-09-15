@@ -417,37 +417,28 @@ a member of TEST01 and TEST02 with no roles, which is the shape 16.3 needs.
 
 ## 17. User templates — hiring by naming the job
 
-Eleven platform templates are seeded. A firm may add its own; it may not edit
-the platform's. Sign in as `whole01.admin`.
+**Moved to `docs/INDEPENDENT_TEST_CASES.md` on 2026-09-16**, as TC-TMPL-001 to
+011, in TEST01 with fixture users rather than Asha, Bala and `whole01.admin`.
+17.6a and 17.6b share nothing now: each is its own run of `two-tier-hire`.
 
-Facts re-derived on 2026-09-15: the eleven are Accounts (`ACCOUNTANT`), Counter
-Sales (`BILLING_EXECUTIVE`, `CASHIER`), Customer Support, Field Sales
-(`SALES_EXECUTIVE`), Firm Administrator, Firm Manager, Purchase Manager,
-Purchasing, Read Only (`VIEWER`), Sales Manager and Warehouse; no firm template
-exists yet. Retiring a template is the grid's **Delete** (a soft delete; there
-is no button called Retire). **Apply templates only to people you create in
-17.4a/17.4b** -- applying one to Asha or Bala would change the access sections
-15 and 18 rely on.
+One correction: **17.6b** said applying Warehouse leaves "four roles, a
+different four". Warehouse carries one role, `INVENTORY_MANAGER`, so the global
+tier becomes that one and the person holds three.
 
-| # | Case | Expected |
-| --- | --- | --- |
-| 17.1 | Administration → User Templates | 11 rows. Each names its roles — Counter Sales shows `BILLING_EXECUTIVE, CASHIER`. Origin reads **Platform**. |
-| 17.2 | Select a platform template → **Edit** / **Delete** on the toolbar | Both disabled. It is offered to every firm, so no one firm may change it. Its dialog subtitle reads "… · Provided by the platform". |
-| 17.3 | New → **Template code** `night-counter`, **Job name** `Night Counter`, **Roles** chips `CASHIER` and `BILLING_EXECUTIVE`, **Offered** on → Save | Created. Origin reads **This firm**; the dialog subtitle reads "… · This firm's own". |
-| 17.4 | Edit it, change only the **name**, save | The roles are unchanged. An edit that says nothing about the bundle must not empty it. |
-| 17.4a | Administration → Users → **New**, fill in the details, set **Job template** to Counter Sales, save | The user is created **and** holds `CASHIER` and `BILLING_EXECUTIVE`. One step, no second visit to the grid. |
-| 17.4b | New again, leave **Job template** blank and pick two roles by hand | Those two roles, as before. The template field is optional. |
-| 17.4c | New again: pick **ACCOUNTANT** under Roles in this firm first, then choose the **read-only · Read Only** job; then clear the job again | The job wins. The helper text under **Roles in this firm** (small grey text beneath the label) ends "Ignored when a job template is named above." Choosing the job **clears** ACCOUNTANT and **locks** the Roles chips; clearing the job unlocks them, empty. Saved with the job, the user holds only `VIEWER`. *(Until 2026-09-15 chip fields drew no helper text at all, and the Roles chips stayed clickable and kept their picks beside a chosen job -- #387, #388, #389.)* |
-| 17.4d | Edit an existing user | **No** Job template field — it is create-only. Use Apply job template on the grid instead. |
-| 17.5 | Administration → Users → select the user made in **17.4b** → **Apply job template** | Dialog "Apply a job template": "Whatever Manual Hire holds now is replaced by the job's roles. You can edit them afterwards like any other user.", a **Search jobs** box (name, code, description or role -- `inventory` leaves only Warehouse; a filter that hides the chosen job clears the choice), and one line per active job with its roles beneath. Apply is disabled until a job is chosen. *(The search was added at the owner's request on 2026-09-15 -- #390.)* |
-| 17.6 | Choose Counter Sales → Apply | Their roles become exactly `BILLING_EXECUTIVE` and `CASHIER`. |
-| 17.6a | As `master.ops`, give **Manual Hire** two global roles (Edit → **Roles in every firm** → `VIEWER`, `CUSTOMER_SUPPORT` → Save & Close) and, under **Roles by firm** (toolbar), two WHOLE01 roles (`ACCOUNTANT`, `INVENTORY_MANAGER` → that section's Save). *Both saves must land -- in the 2026-09-15 run the Roles by firm save was skipped and nothing said so; check each one before moving on.* Then as `whole01.admin`, Apply job template → Counter Sales | The WHOLE01 tier becomes exactly `BILLING_EXECUTIVE` and `CASHIER`; the two **global** roles are still there. Open the user as `master.ops`: Roles in every firm unchanged, Roles in specific firms shows the two from the template. A template overwrites the tier its caller writes and never touches the other. |
-| 17.6b | Same starting point, but apply a template as `master.ops` from the grid -- choose **Warehouse** (`INVENTORY_MANAGER`) so the change is visible | The reverse: the **global** tier becomes the template's two roles, and the two WHOLE01 roles under Roles by firm are untouched. Four roles, a different four. The desktop never names a firm on this call for a platform administrator. |
-| 17.7 | As `whole01.admin`, edit Manual Hire's **Roles in this firm** by hand (remove CASHIER, add VIEWER) → Save & Close → reopen | Works normally: BILLING_EXECUTIVE and VIEWER. **Also applies here** (read-only, lower in the Security section) shows the global tier -- `INVENTORY_MANAGER` after 17.6b. A template is where you start, not where you stay — nothing on the user records which template they came from. |
-| 17.8 | User Templates → select `night-counter` → **Delete** (confirm), then re-open the user from 17.6 | The row leaves the grid; the user is untouched (same roles in both tiers) and `night-counter` is no longer offered as a Job template on New. Retiring is a decision about future hires. |
-| 17.9 | Sign in as `whole01.sales1` → look for Administration | **Administration is not offered at all** (as in 15.1), so no User Templates either -- it needs `ROLE_VIEW`. |
-| 17.10 **(HTTP)** | `POST /api/v1/user-templates` with `role_ids` naming the `PLATFORM_ADMIN` role, using `whole01.admin`'s token | `422` `business_rule_violation`, "A template cannot bundle platform or cross-firm roles." (re-driven twice on 2026-09-15, the second during the owner's run; nothing was created). That role carries every permission code. |
-| 17.11 | Administration → Roles & Permissions → **Roles** as `whole01.admin` | Lists the twelve firm roles and this firm's own -- `manual-test-role` from 13.9, thirteen rows on 2026-09-15. **Not** `PLATFORM_ADMIN`, `SUPPORT_ADMIN` or `LICENSE_ADMIN`. This list was platform-admin-only until #237. |
+| Old row | Case |
+| --- | --- |
+| 17.1, 17.2 | TC-TMPL-001 |
+| 17.3, 17.4 | TC-TMPL-002 |
+| 17.4a, 17.4b | TC-TMPL-003 |
+| 17.4c, 17.4d | TC-TMPL-004 |
+| 17.5, 17.6 | TC-TMPL-005 |
+| 17.6a | TC-TMPL-006 |
+| 17.6b | TC-TMPL-007 |
+| 17.7 | TC-TMPL-008 |
+| 17.8 | TC-TMPL-010 |
+| 17.9 | TC-TMPL-009 |
+| 17.10 | TC-TMPL-011 |
+| 17.11 | TC-ROLE-001 |
 
 ---
 
