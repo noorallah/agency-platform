@@ -1852,6 +1852,378 @@ def build_electronics_firm(built: Built) -> None:
     built.say("Serials", f"{tag}-MIX-0001 to -0005, warranty one year from today")
 
 
+def build_selling_firm(built: Built) -> None:
+    """Make a Wholesale firm of this run's own, priced the way WHOLE01 is.
+
+    Its own store, because everything here is firm-wide: a price list ladder
+    reaches every customer, a promotion every document, and TCS every
+    receipt. Two customers -- one on a standing discount with no PAN, one on
+    a negotiated list with a PAN -- and a detergent at 84 with 100 on hand.
+    Promotions: BULK5 (7.5% on a line of 25 or more), BIGORDER (200 off a
+    bill of 4,500 or more, ends the stack), CLEARANCE (1% on a line of 40 or
+    more) and WELCOME (2.5%, coupon only: WELCOME10, WELCOME10B). TCS is on
+    with a threshold of 0, so every receipt shows it; loyalty earns 2 points
+    per 100.
+    """
+    admin = _own_trading_firm(built, "S", "Selling", "WHOLESALE")
+    tag = built.suffix.upper()
+    today = date.today()
+    warehouse = by_code(admin, "/api/v1/warehouses", "MAIN")
+    branch = by_code(admin, "/api/v1/branches", "HO")
+    units = admin.call("GET", "/api/v1/uom-framework/uoms?page_size=100")
+    piece = next(u["id"] for u in units if u["code"] == "PIECE")
+    groups = {
+        key: admin.call(
+            "POST",
+            "/api/v1/customers/groups",
+            {"code": key, "name": name, "default_discount_percent": rate},
+        )
+        for key, name, rate in (
+            ("RETAILER", "Retailer", "1.75"),
+            ("WHOLESALER", "Wholesaler", "3.25"),
+        )
+    }
+    admin.call(
+        "POST",
+        "/api/v1/customers",
+        {
+            "code": f"{tag}-C01",
+            "name": f"Vijaya Stores {built.suffix}",
+            "customer_type": "BUSINESS",
+            "currency_code": "INR",
+            "default_discount_percent": "7.5",
+            "customer_group_id": groups["RETAILER"]["id"],
+        },
+    )
+    c02 = admin.call(
+        "POST",
+        "/api/v1/customers",
+        {
+            "code": f"{tag}-C02",
+            "name": f"Anand Agencies {built.suffix}",
+            "customer_type": "BUSINESS",
+            "currency_code": "INR",
+            "customer_group_id": groups["WHOLESALER"]["id"],
+            "pan_number": "ABCDE1234F",
+        },
+    )
+    product = admin.call(
+        "POST",
+        "/api/v1/products",
+        {
+            "code": f"{tag}-DET",
+            "name": f"Detergent 1kg {built.suffix}",
+            "product_type": "STOCK_ITEM",
+            "tax_profile_group_code": "GST_18_LOCAL",
+            "selling_price": "84",
+            "purchase_price": "60",
+            "base_uom_id": piece,
+            "inventory_uom_id": piece,
+            "sales_uom_id": piece,
+            "purchase_uom_id": piece,
+        },
+    )
+    opening = admin.call(
+        "POST",
+        "/api/v1/inventory/opening-stock",
+        {
+            "warehouse_id": warehouse["id"],
+            "branch_id": branch["id"],
+            "reference_number": f"{tag}-OS",
+            "posting_date": today.isoformat(),
+            "lines": [
+                {"product_id": product["id"], "quantity": "100", "unit_cost": "60"}
+            ],
+        },
+    )
+    admin.call("POST", f"/api/v1/inventory/opening-stock/{opening['id']}/post")
+    ladder = [("0", "2"), ("15", "4.25"), ("18", "6.75")]
+    admin.call(
+        "POST",
+        "/api/v1/price-lists",
+        {
+            "code": "STANDING",
+            "name": "Standing",
+            "effective_from": "2000-01-01",
+            "items": [
+                {"product_id": product["id"], "min_quantity": q, "discount_percent": r}
+                for q, r in ladder
+            ],
+        },
+    )
+    admin.call(
+        "POST",
+        "/api/v1/price-lists",
+        {
+            "code": "NEGOTIATED",
+            "name": "Negotiated",
+            "customer_id": c02["id"],
+            "effective_from": "2000-01-01",
+            "items": [
+                {
+                    "product_id": product["id"],
+                    "min_quantity": "0",
+                    "discount_percent": "9.25",
+                }
+            ],
+        },
+    )
+
+    def offer(
+        code: str,
+        priority: int,
+        conditions: list[Json],
+        action: Json,
+        **extra: object,
+    ) -> Json:
+        return dict(
+            admin.call(
+                "POST",
+                "/api/v1/promotions",
+                {
+                    "code": code,
+                    "name": code.title(),
+                    "priority": priority,
+                    "status": "ACTIVE",
+                    "effective_from": "2020-01-01",
+                    "conditions": conditions,
+                    "actions": [action],
+                    **extra,
+                },
+            )
+        )
+
+    def at_least(field: str, number: str) -> Json:
+        return {
+            "field_key": field,
+            "operator": "GREATER_OR_EQUAL",
+            "value_number": number,
+        }
+
+    offer(
+        "BULK5",
+        10,
+        [at_least("line_quantity", "25")],
+        {"action_type": "LINE_DISCOUNT_PERCENT", "percent": "7.5"},
+    )
+    offer(
+        "BIGORDER",
+        20,
+        [at_least("document_gross", "4500")],
+        {"action_type": "BILL_DISCOUNT_AMOUNT", "amount": "200"},
+        allow_stacking=False,
+    )
+    offer(
+        "CLEARANCE",
+        30,
+        [at_least("line_quantity", "40")],
+        {"action_type": "LINE_DISCOUNT_PERCENT", "percent": "1"},
+    )
+    welcome = offer(
+        "WELCOME",
+        40,
+        [],
+        {"action_type": "LINE_DISCOUNT_PERCENT", "percent": "2.5"},
+        requires_coupon=True,
+    )
+    for code in ("WELCOME10", "WELCOME10B"):
+        admin.call(
+            "POST",
+            "/api/v1/promotions/coupons",
+            {"promotion_id": welcome["id"], "code": code},
+        )
+    admin.call(
+        "PUT",
+        "/api/v1/tcs/settings",
+        {
+            "is_enabled": True,
+            "threshold_amount": "0",
+            "rate_percent": "0.1",
+            "rate_without_pan_percent": "1",
+            "preceding_year_turnover": "150000000",
+        },
+    )
+    admin.call(
+        "PUT",
+        "/api/v1/loyalty/settings",
+        {
+            "is_enabled": True,
+            "points_per_amount": "2",
+            "amount_per_point": "1",
+            "minimum_redemption_points": 50,
+            "expiry_months": 24,
+        },
+    )
+    built.say(
+        "Customers",
+        f"{tag}-C01 Vijaya (7.5% standing, Retailer, no PAN); "
+        f"{tag}-C02 Anand (Wholesaler, PAN)",
+    )
+    built.say(
+        "Product",
+        f"{tag}-DET  (Detergent 1kg {built.suffix}), 84, GST 18 local, 100 in MAIN",
+    )
+    built.say(
+        "Price lists",
+        "STANDING on DET: 0 -> 2%, 15 -> 4.25%, 18 -> 6.75%; NEGOTIATED for C02: 9.25%",
+    )
+    built.say(
+        "Promotions",
+        "BULK5 7.5% at 25+; BIGORDER 200 off 4,500+ (ends stack); CLEARANCE 1% at 40+",
+    )
+    built.say("Coupons", "WELCOME 2.5%, codes WELCOME10 and WELCOME10B")
+    built.say("TCS", "on, threshold 0, 0.1% (1% without a PAN)")
+    built.say(
+        "Loyalty", "2 points per 100, worth 1, 50 to redeem, expire after 24 months"
+    )
+
+
+def _selling_stage(built: Built, stage: str) -> None:
+    """Build selling-firm and carry one sale of Vijaya's up to a stage.
+
+    ``ordered``: an order for 12 detergent with coupon WELCOME10, approved.
+    ``delivered``: notes for 5 and 7, both dispatched. ``invoiced``: the note
+    for 5 billed and approved (483.21). ``paid``: two receipts against it --
+    241.60, then 341.61 with 241.61 applied -- and the note for 7 billed and
+    approved.
+    """
+    stages = ("ordered", "delivered", "invoiced", "paid")
+    build_selling_firm(built)
+    firm = built.known[f"{built.suffix.upper()}-S"]
+    admin = built.admin.as_user(built.admin.token or "", built.firms[firm.code])
+    tag = built.suffix.upper()
+    today = date.today().isoformat()
+    warehouse = by_code(admin, "/api/v1/warehouses", "MAIN")
+    branch = by_code(admin, "/api/v1/branches", "HO")
+    c01 = admin.call("GET", f"/api/v1/customers?search={tag}-C01")[0]
+    product = admin.call("GET", f"/api/v1/products?search={tag}-DET")[0]
+    order = admin.call(
+        "POST",
+        "/api/v1/sales-orders",
+        {
+            "customer_id": c01["id"],
+            "order_date": today,
+            "warehouse_id": warehouse["id"],
+            "branch_id": branch["id"],
+            "coupon_code": "WELCOME10",
+            "lines": [
+                {
+                    "line_number": 1,
+                    "product_id": product["id"],
+                    "quantity": "12",
+                    "unit_price": "84",
+                }
+            ],
+        },
+    )
+    admin.call("POST", f"/api/v1/sales-orders/{order['id']}/approve")
+    built.say(
+        "Sales order",
+        f"{order.get('order_number')}: 12 at 84 less 2.5% (WELCOME10), approved",
+    )
+    if stages.index(stage) < 1:
+        return
+    order_line = admin.call("GET", f"/api/v1/sales-orders/{order['id']}")["lines"][0]
+    notes = []
+    for quantity in ("5", "7"):
+        note = admin.call(
+            "POST",
+            "/api/v1/delivery-notes",
+            {
+                "sales_order_id": order["id"],
+                "delivery_date": today,
+                "lines": [
+                    {
+                        "sales_order_line_id": order_line["id"],
+                        "line_number": 1,
+                        "current_delivery_quantity": quantity,
+                    }
+                ],
+            },
+        )
+        admin.call("POST", f"/api/v1/delivery-notes/{note['id']}/approve")
+        admin.call("POST", f"/api/v1/delivery-notes/{note['id']}/dispatch")
+        notes.append(note)
+        built.say(
+            f"Note for {quantity}", f"{note.get('delivery_note_number')}, dispatched"
+        )
+    if stages.index(stage) < 2:
+        return
+
+    def bill(note: Json, quantity: str) -> Json:
+        line = admin.call("GET", f"/api/v1/delivery-notes/{note['id']}")["lines"][0]
+        invoice = admin.call(
+            "POST",
+            "/api/v1/sales-invoices",
+            {
+                "customer_id": c01["id"],
+                "branch_id": branch["id"],
+                "invoice_date": today,
+                "source_documents": [
+                    {
+                        "source_document_type": "DELIVERY_NOTE",
+                        "source_document_id": note["id"],
+                    }
+                ],
+                "lines": [
+                    {
+                        "source_document_type": "DELIVERY_NOTE",
+                        "source_document_id": note["id"],
+                        "source_document_line_id": line["id"],
+                        "line_number": 1,
+                        "current_invoice_quantity": quantity,
+                    }
+                ],
+            },
+        )
+        return dict(
+            admin.call("POST", f"/api/v1/sales-invoices/{invoice['id']}/approve")
+        )
+
+    first = bill(notes[0], "5")
+    built.say("Invoice for 5", f"{first.get('invoice_number')}, approved, 483.21")
+    if stages.index(stage) < 3:
+        return
+    for amount, applied in (("241.60", "241.60"), ("341.61", "241.61")):
+        receipt = admin.call(
+            "POST",
+            "/api/v1/receipts",
+            {
+                "party_id": c01["id"],
+                "settlement_date": today,
+                "amount": amount,
+                "method": "BANK",
+                "allocations": [{"invoice_id": first["id"], "amount": applied}],
+            },
+        )
+        built.say(
+            f"Receipt of {amount}",
+            f"{receipt.get('settlement_number')}, {applied} applied",
+        )
+    second = bill(notes[1], "7")
+    built.say("Invoice for 7", f"{second.get('invoice_number')}, approved")
+
+
+def build_selling_ordered(built: Built) -> None:
+    """Make selling-firm with Vijaya's order for 12 approved."""
+    _selling_stage(built, "ordered")
+
+
+def build_selling_delivered(built: Built) -> None:
+    """Make selling-ordered with both notes, 5 and 7, dispatched."""
+    _selling_stage(built, "delivered")
+
+
+def build_selling_invoiced(built: Built) -> None:
+    """Make selling-delivered with the note for 5 billed and approved."""
+    _selling_stage(built, "invoiced")
+
+
+def build_selling_paid(built: Built) -> None:
+    """Make selling-invoiced with two receipts and the note for 7 billed."""
+    _selling_stage(built, "paid")
+
+
 #: Every fixture, what it builds, and the cases that name it.
 FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
     "firm-admin": (
@@ -2068,6 +2440,31 @@ FIXTURES: dict[str, tuple[str, Callable[[Built], None], str]] = {
         "An Electronics firm of the run's own: a serialised product.",
         build_electronics_firm,
         "TC-STOCK-008",
+    ),
+    "selling-firm": (
+        "A Wholesale firm of the run's own priced like WHOLE01: lists, offers, TCS.",
+        build_selling_firm,
+        "TC-SELL-001..006",
+    ),
+    "selling-ordered": (
+        "selling-firm + Vijaya's order for 12 (coupon WELCOME10), approved.",
+        build_selling_ordered,
+        "TC-SELL-007..009, TC-SELL-017",
+    ),
+    "selling-delivered": (
+        "selling-ordered + notes for 5 and 7, dispatched.",
+        build_selling_delivered,
+        "TC-SELL-010, TC-SELL-011",
+    ),
+    "selling-invoiced": (
+        "selling-delivered + the note for 5 billed and approved.",
+        build_selling_invoiced,
+        "TC-SELL-012, TC-SELL-013, TC-SELL-015, TC-SELL-016",
+    ),
+    "selling-paid": (
+        "selling-invoiced + receipts of 241.60 and 341.61 + the 7 billed.",
+        build_selling_paid,
+        "TC-SELL-014",
     ),
 }
 
