@@ -2998,3 +2998,84 @@ anything. Answer it deliberately rather than by copying the sales flags.
 
 Not a bug -- selling bends to a one-person firm and buying does not, and only one
 of the two was ever asked to.
+
+---
+
+## 39. Field collections: record offline, sync on return
+
+Raised 2026-09-17.
+
+**The observation.** A collections person walks a route, takes cash against
+outstanding bills, and has no connectivity while doing it. The platform has the
+route half -- territories, routes, beats, customers in `visit_sequence`, and a
+call list that already says who is due today -- and none of the offline half.
+Nothing in the codebase queues work, detects a replayed write, or reconciles a
+device with the server; grepping for idempotency, offline or sync finds nothing.
+The Android build (`desktop/build_android.ps1`) is the **desktop layout in an
+APK**, built to look at screens on a phone, not a field application.
+
+**The ask.** Let a collector record receipts on a phone with no network, and
+sync them when back at the office, with the system remaining the authority on
+what was actually applied.
+
+**Shape of the work.**
+
+- **A route pack before he leaves.** One download: his route's customers in
+  visit order, each with outstanding and open invoices. It is a snapshot and
+  will be stale by afternoon; that is acceptable because of the re-resolve
+  below.
+- **A queue of intents, not a local ledger.** The device stores the same
+  `SettlementCreate` payloads it would have posted -- party, date, amount,
+  method, instrument reference, allocations. Nothing is computed or authoritative
+  on the phone. This is deliberately **not** an offline replica of the books.
+- **The device assigns the number, from a block issued to it.** This is the part
+  that matters most. `UQ_settlements_firm_number` already makes
+  `settlement_number` unique per firm, and the field is optional on the create
+  payload, so a device-assigned number **is** the idempotency key: a replayed
+  sync collides on the unique key instead of taking the money twice. Best of all
+  is the physical receipt-book number handed to the customer, so the paper, the
+  device and the system carry one identifier. `manual_allowed` on the numbering
+  rule already exists for this case.
+- **The server re-decides at sync.** Allocations are resolved against *current*
+  outstanding, not the morning's snapshot -- the office may have banked a cheque
+  against the same invoice while he was out. Each receipt is its **own**
+  transaction, so one refused row does not roll back the good ones, and the
+  response is a **per-receipt report** rather than one error for the batch.
+- **Sync through `ReceiptService`.** Not a parallel write path. Bulk and import
+  endpoints are already documented here as a second implementation that drifts;
+  a field-sync endpoint would be a third, and it moves money.
+
+**Three things that will bite.**
+
+- **A closed period.** Collected on the 31st, synced on the 2nd, and the period
+  has closed in between: the posting is refused. Decide the rule -- periods stay
+  open until field sync is confirmed, or a late receipt posts into the open
+  period while carrying its true collection date.
+- **Cash in hand is invisible.** Between collection and sync the money is in
+  somebody's pocket and in no system. A **cash-handover step** -- sync, total
+  what was collected, confirm the cash received matches -- is what makes this
+  auditable, and is arguably a larger feature than the sync itself.
+- **It needs a real mobile surface.** Today's APK is a desktop layout. A
+  collections app is small-screen and one-handed, used in a shop doorway:
+  today's calls, tap a customer, enter an amount, capture a signature or photo.
+  That is the cost of this item; the queue is the straightforward part.
+
+Authentication is already survivable: the refresh token lasts 7 days and is held
+in the OS credential vault, so signing in at the office covers a day's route.
+
+**Decisions to make.**
+
+- **Allocate on the device, or collect on account?** Letting the collector
+  allocate to specific invoices is what a customer expects on the receipt, but
+  it is the part that goes stale. Collecting **on account** -- an unallocated
+  receipt the office applies afterwards -- removes the staleness problem
+  entirely and is markedly simpler. The platform already splits a receipt into
+  balance and advance, so an unallocated receipt is an ordinary thing here.
+- Device-issued number blocks, or the physical receipt book? The book is better
+  evidence; blocks are better if receipts are printed from the phone.
+- What happens to a receipt the server refuses -- who is told, and how is the
+  cash already taken accounted for?
+- Signature or photo capture, and where those files live. `backend/storage/`
+  holds nothing today and there is no file-storage module.
+
+Not a bug -- the route machinery exists and the offline half was never built.
