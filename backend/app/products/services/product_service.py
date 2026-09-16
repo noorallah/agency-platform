@@ -18,7 +18,11 @@ from app.business.gating import (
     resolve_capabilities,
     resolve_profile,
 )
-from app.business.models import BusinessProfile, CategoryAttributeRule
+from app.business.models import (
+    AttributeDefinition,
+    AttributeEntityType,
+    BusinessProfile,
+)
 from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader
@@ -383,7 +387,7 @@ class ProductService:
             .order_by(ProductCategory.path.asc())
         ).all()
         required_ids, optional_ids = self._category_attribute_ids(
-            profile.id, category_id
+            firm_scope, category_id
         )
         return ProductMetadataResponse(
             profile_code=profile.code,
@@ -746,32 +750,72 @@ class ProductService:
         return profile
 
     def _category_attribute_ids(
-        self, profile_id: UUID, category_id: UUID | None
+        self, firm_id: UUID, category_id: UUID | None
     ) -> tuple[list[UUID], list[UUID]]:
-        if category_id is None:
-            return [], []
-        category = self._session.scalar(
-            select(ProductCategory).where(ProductCategory.id == category_id)
-        )
-        if category is None:
-            return [], []
-        rules = self._session.scalars(
-            select(CategoryAttributeRule).where(
-                CategoryAttributeRule.is_deleted.is_(False),
-                CategoryAttributeRule.category_code.in_(
-                    [category.code, category.name.upper()]
-                ),
-                or_(
-                    CategoryAttributeRule.business_profile_id == profile_id,
-                    CategoryAttributeRule.business_profile_id.is_(None),
-                ),
+        """Return the attribute fields a product form should offer.
+
+        This asked `category_attribute_rules` and nothing else until
+        2026-09-16, which was wrong in both directions and made the product
+        the odd one out: customers, vendors, branches and warehouses all offer
+        what **applies** (`AttributeService.definitions_for`), and the product
+        offered only what a rule named.
+
+        Three defects came out of that. A definition that simply applies -- the
+        ordinary case, and the one `docs/CUSTOM_FIELDS_FRAMEWORK.md` describes
+        -- was offered on no product at all. A definition marked mandatory was
+        demanded by `AttributeService` on the save and shown on no form, so
+        **no product could be created from the desktop** once a firm set one.
+        And a rule naming a definition scoped to another profile was listed as
+        required here while `mandatory_ids` correctly ignored it, so the form
+        refused an empty box the server would have accepted and the server
+        refused the filled one as not applicable -- a category nobody could
+        save.
+
+        The service answers both halves now: `mandatory_ids` already unions
+        the definition-level flag with the rules **intersected against what
+        applies**, and the rest of what applies is offered as optional. Rules
+        are still read by the category's name as well as its code, because
+        that tolerance predates this and a firm may have written either.
+        """
+        attributes = AttributeService(self._session)
+        entity_type = AttributeEntityType.PRODUCT.value
+        category = (
+            self._session.scalar(
+                select(ProductCategory).where(ProductCategory.id == category_id)
             )
-        ).all()
-        required = [rule.attribute_definition_id for rule in rules if rule.is_mandatory]
-        optional = [
-            rule.attribute_definition_id for rule in rules if not rule.is_mandatory
-        ]
-        return required, optional
+            if category_id is not None
+            else None
+        )
+        if category_id is not None and category is None:
+            return [], []
+        spellings: list[str | None] = (
+            [category.code, category.name.upper()] if category is not None else [None]
+        )
+        required: set[UUID] = set()
+        applicable: dict[UUID, AttributeDefinition] = {}
+        for spelling in spellings:
+            required |= attributes.mandatory_ids(
+                entity_type, firm_id=firm_id, category_code=spelling
+            )
+            for definition in attributes.definitions_for(
+                entity_type, firm_id=firm_id, category_code=spelling
+            ):
+                applicable[definition.id] = definition
+        if category is None:
+            # A product with no category yet is offered the fields that need
+            # none. One scoped to a category it does not have is not a field
+            # this product can carry.
+            applicable = {
+                key: row
+                for key, row in applicable.items()
+                if row.applicable_category is None
+            }
+            required &= applicable.keys()
+        ordered = sorted(applicable.values(), key=lambda row: row.code)
+        return (
+            [row.id for row in ordered if row.id in required],
+            [row.id for row in ordered if row.id not in required],
+        )
 
     def _validate_feature_gated_fields(
         self, data: ProductCreate | ProductUpdate, firm_id: UUID
