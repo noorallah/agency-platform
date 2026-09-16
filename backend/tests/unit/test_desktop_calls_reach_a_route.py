@@ -62,6 +62,7 @@ _FAMILIES = {
     "/api/v1/{}/{}/history": "documentHistory",
     "/api/v1/{}/{}/reverse": "settlements -- see the direction test",
     "/api/v1/{}/outstanding": "settlements -- see the direction test",
+    "/api/v1/{}/parties": "settlements -- see the direction test",
     "/api/v1/sales-territories/geo/{}": "geography -- see the level test",
     "/api/v1/sales-territories/geo/{}/{}": "geography -- see the level test",
     "/api/v1/quotations/{}/{}": "quotation lifecycle -- see the action test",
@@ -153,6 +154,11 @@ def test_every_settlement_direction_can_do_what_the_screen_offers() -> None:
     them is a button that fails on one screen out of three. `outstanding` is
     the exception and is asked for only where the dialog allocates -- a refund
     hands back money held on account and is not applied to an invoice.
+
+    `parties` arrived with #403 and was not added to `_FAMILIES`, so the
+    literal test read `/api/v1/{}/parties` as a path nothing serves and failed
+    on every commit from then on. Listing a family is only half of it: the
+    list says "covered by a test of its own below", and this is that test.
     """
     directions = _enum_values(_SETTLEMENT_DIRECTION)
     assert set(directions) == {"receipts", "payments", "refunds"}, directions
@@ -164,6 +170,10 @@ def test_every_settlement_direction_can_do_what_the_screen_offers() -> None:
             f"/api/v1/{direction}",
             f"/api/v1/{direction}/{{}}",
             f"/api/v1/{direction}/{{}}/reverse",
+            # The party picker each money screen fills itself, rather than
+            # reading `/customers` and refusing a cashier who may take money
+            # and not read the customer list (#403).
+            f"/api/v1/{direction}/parties",
         ]
         if direction != "refunds":
             expected.append(f"/api/v1/{direction}/outstanding")

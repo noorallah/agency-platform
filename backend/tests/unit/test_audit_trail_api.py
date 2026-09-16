@@ -441,4 +441,3 @@ def test_a_row_about_something_other_than_a_person_has_no_label() -> None:
     page = list_audit_logs(scope, db=session, platform_db=session)
 
     assert page.data[0].entity_label is None
-
