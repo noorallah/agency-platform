@@ -20,6 +20,7 @@ it loadable in one context window. Nothing was cut; each group names its doc.
 
 | Subject | Reference |
 | --- | --- |
+| Every table: where it lives, what it holds | `docs/TABLE_CATALOGUE.md` |
 | Tenancy, stores, provisioning | `docs/TENANCY_AND_STORES.md` |
 | Roles, permissions, memberships, hiring | `docs/ACCESS_CONTROL_FRAMEWORK.md` |
 | Routers, schemas, pagination, concurrency, migrations | `docs/API_AND_PERSISTENCE_CONVENTIONS.md` |
