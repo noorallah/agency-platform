@@ -1766,3 +1766,155 @@ def test_a_transfer_may_cross_branches() -> None:
             firm_scope=firm.id,
             actor_id=actor_id,
         )
+
+
+def _stock_two_batches(
+    factory: "sessionmaker[Session]", code: str
+) -> tuple[UUID, UUID, UUID, UUID, UUID, UUID]:
+    """Stock one product as an expired batch and an in-date one, 10 each."""
+    setup = factory()
+    firm = _firm(setup, code)
+    profile = _profile(setup, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(setup, firm, profile)
+    stale = BatchRecord(
+        firm_id=firm.id,
+        product_id=product.id,
+        batch_number=f"{code}-STALE",
+        expiry_date=date(2026, 8, 17),
+        status="AVAILABLE",
+        created_by=uuid4(),
+        updated_by=uuid4(),
+    )
+    fresh = BatchRecord(
+        firm_id=firm.id,
+        product_id=product.id,
+        batch_number=f"{code}-FRESH",
+        expiry_date=date(2027, 10, 21),
+        status="AVAILABLE",
+        created_by=uuid4(),
+        updated_by=uuid4(),
+    )
+    setup.add_all([stale, fresh])
+    setup.commit()
+    ids = (
+        firm.id,
+        branch.id,
+        warehouse.id,
+        product.id,
+        stale.id,
+        fresh.id,
+    )
+    setup.close()
+
+    session = factory()
+    service = InventoryService(session)
+    actor_id = uuid4()
+    for batch_id in (ids[4], ids[5]):
+        inventory = service._ensure_inventory_projection(
+            firm_id=ids[0],
+            branch_id=ids[1],
+            warehouse_id=ids[2],
+            storage_node_id=None,
+            product_id=ids[3],
+            actor_id=actor_id,
+            batch_id=batch_id,
+        )
+        session.flush()
+        service._stage_movement(
+            inventory,
+            actor_id=actor_id,
+            movement=_Movement(
+                transaction_type="GOODS_RECEIPT",
+                reference_number=f"GRN-{code}",
+                reference_type="GOODS_RECEIPT",
+                transaction_date=date(2026, 8, 13),
+                quantity=Decimal("10"),
+                current_delta=Decimal("10"),
+                batch_id=batch_id,
+            ),
+        )
+    session.commit()
+    session.close()
+    return ids
+
+
+def test_a_dispatch_skips_a_batch_that_has_expired() -> None:
+    """Earliest expiry first, read literally, ships stock past its date.
+
+    A pharmacy firm holding a batch that expired on 2026-08-17 and one good
+    until 2027 dispatched the expired one, because it sorted first. Nothing
+    about the ranking was wrong; what was missing was the line that says
+    expired stock is not a candidate at all.
+    """
+    factory = _session_factory()
+    firm_id, branch_id, warehouse_id, product_id, stale_id, fresh_id = (
+        _stock_two_batches(factory, "EXPFEFO")
+    )
+
+    session = factory()
+    allocation = InventoryService(session).allocate_for_dispatch(
+        firm_scope=firm_id,
+        branch_id=branch_id,
+        warehouse_id=warehouse_id,
+        storage_node_id=None,
+        product_id=product_id,
+        quantity=Decimal("5"),
+        as_of=date(2026, 9, 16),
+    )
+
+    assert allocation == [(fresh_id, Decimal("5"))]
+    assert stale_id not in {batch_id for batch_id, _ in allocation}
+
+
+def test_a_dispatch_short_of_in_date_stock_says_what_has_expired() -> None:
+    """A shortfall of 5 beside a screen showing 20 on hand explains nothing."""
+    factory = _session_factory()
+    firm_id, branch_id, warehouse_id, product_id, _stale, _fresh = _stock_two_batches(
+        factory, "EXPSHORT"
+    )
+
+    session = factory()
+    with pytest.raises(ValidationError) as refused:
+        InventoryService(session).allocate_for_dispatch(
+            firm_scope=firm_id,
+            branch_id=branch_id,
+            warehouse_id=warehouse_id,
+            storage_node_id=None,
+            product_id=product_id,
+            quantity=Decimal("15"),
+            as_of=date(2026, 9, 16),
+        )
+
+    message = refused.value.message
+    assert "short by 5" in message
+    assert "EXPSHORT-STALE expired 2026-08-17" in message
+    assert "write it off or quarantine it" in message
+
+
+def test_expiry_is_judged_on_the_documents_own_date() -> None:
+    """A note dated while the batch was good must post the same way for ever.
+
+    The demo history is rebuilt from the services years after the fact, so
+    reading the clock rather than the document would refuse dispatches that
+    were legitimate when they happened -- and would make a replay depend on
+    the day it ran.
+    """
+    factory = _session_factory()
+    firm_id, branch_id, warehouse_id, product_id, stale_id, _fresh = _stock_two_batches(
+        factory, "EXPWHEN"
+    )
+
+    session = factory()
+    allocation = InventoryService(session).allocate_for_dispatch(
+        firm_scope=firm_id,
+        branch_id=branch_id,
+        warehouse_id=warehouse_id,
+        storage_node_id=None,
+        product_id=product_id,
+        quantity=Decimal("5"),
+        # The day before it expired: the batch is still the earliest, and
+        # still the one to ship.
+        as_of=date(2026, 8, 16),
+    )
+
+    assert allocation == [(stale_id, Decimal("5"))]
