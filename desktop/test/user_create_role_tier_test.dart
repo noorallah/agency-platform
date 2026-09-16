@@ -516,6 +516,57 @@ void main() {
       );
     });
 
+    test('roles in no firm are refused before the account is created',
+        () async {
+      // The refusal above is right and used to arrive too late: it lived in
+      // `saveAssignments`, which runs after the create, so "Save them
+      // without roles" was said beside an account that already existed in no
+      // firm -- and pressing Save again answered 409 on the email. It is a
+      // rule about the combination of Firms and Roles, so it belongs in
+      // `saveRefusal`, which the dialog asks before it writes anything.
+      // Found 2026-09-16 walking the independent cases (D-20-1).
+      final _CreateApi api = _CreateApi();
+      final Map<String, dynamic> firmless = {
+        'firm_ids': '',
+        'primary_firm_id': '',
+        'role_ids': 'role-1',
+        'template_id': '',
+      };
+
+      expect(
+        _definition(api, platformAdmin: false).saveRefusal!(firmless, true),
+        contains('in no firm cannot be given roles'),
+      );
+      // A template is the same instruction said another way.
+      expect(
+        _definition(api, platformAdmin: false).saveRefusal!(
+          {...firmless, 'role_ids': '', 'template_id': 'template-1'},
+          true,
+        ),
+        contains('in no firm cannot be given roles'),
+      );
+      // Asking for nothing is not asking for roles, and a firm chosen is the
+      // ordinary case; a platform caller's write resolves either way.
+      expect(
+        _definition(api, platformAdmin: false).saveRefusal!(
+          {...firmless, 'role_ids': ''},
+          true,
+        ),
+        isNull,
+      );
+      expect(
+        _definition(api, platformAdmin: false).saveRefusal!(
+          {...firmless, 'firm_ids': 'firm-1', 'primary_firm_id': 'firm-1'},
+          true,
+        ),
+        isNull,
+      );
+      expect(
+        _definition(api, platformAdmin: true).saveRefusal!(firmless, true),
+        isNull,
+      );
+    });
+
     test('memberships are written before roles', () async {
       // The service refuses a role for somebody in no firm, so the order is
       // the difference between a hire that works and one that is refused.

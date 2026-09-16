@@ -380,3 +380,142 @@ def test_bulk_product_operations_are_audited() -> None:
         select(AuditLog).where(AuditLog.action == "product.restored")
     ).all()
     assert [row.entity_id for row in restored] == [first.id]
+
+
+def _definition(
+    session: Session,
+    *,
+    code: str,
+    mandatory: bool = False,
+    profile_id: UUID | None = None,
+    category: str | None = None,
+) -> AttributeDefinition:
+    """Add one PRODUCT attribute definition and return it."""
+    actor_id = uuid4()
+    row = AttributeDefinition(
+        code=code,
+        name=code.title(),
+        entity_type="PRODUCT",
+        data_type="TEXT",
+        mandatory=mandatory,
+        is_active=True,
+        applicable_business_profile_id=profile_id,
+        applicable_category=category,
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def test_the_product_form_is_offered_a_field_that_simply_applies() -> None:
+    """The metadata read the category rules and nothing else.
+
+    Customers, vendors, branches and warehouses all offer what applies; the
+    product offered only what a rule named, so an ordinary unscoped
+    definition -- the shape the framework documents -- reached no product
+    form at all.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "APPLIES")
+    _seed_profile(session, with_barcode_feature=False)
+    service = ProductService(session)
+    category = service.create_category(
+        data=ProductCategoryCreate(code="GEN", name="General", is_active=True),
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+    shelf = _definition(session, code="SHELF_NOTE")
+    session.commit()
+
+    offered = service.metadata(firm_scope=firm.id, category_id=category.id)
+
+    assert shelf.id in offered.optional_attribute_definition_ids
+    assert shelf.id not in offered.required_attribute_definition_ids
+
+
+def test_a_mandatory_definition_is_offered_before_it_is_demanded() -> None:
+    """Otherwise no product can be created from the desktop at all.
+
+    `AttributeService` refuses a product that does not carry a mandatory
+    definition, and the form drew its boxes from the rules -- so the save was
+    refused for a field the screen never offered. The two must agree.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "MUSTHAVE")
+    _seed_profile(session, with_barcode_feature=False)
+    service = ProductService(session)
+    category = service.create_category(
+        data=ProductCategoryCreate(code="GEN", name="General", is_active=True),
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+    bin_code = _definition(session, code="BIN_CODE", mandatory=True)
+    session.commit()
+
+    with_category = service.metadata(firm_scope=firm.id, category_id=category.id)
+    without_category = service.metadata(firm_scope=firm.id)
+
+    assert bin_code.id in with_category.required_attribute_definition_ids
+    # And before a category is chosen: the server demands it either way, so a
+    # form that waits for a category would refuse the first save.
+    assert bin_code.id in without_category.required_attribute_definition_ids
+
+
+def test_a_rule_naming_another_profiles_field_is_not_demanded_of_this_one() -> None:
+    """The category nobody could save.
+
+    `mandatory_ids` intersects the rules against what applies, so the save
+    accepted a product without the field; the metadata did not, so the form
+    refused the empty box -- and filling it was refused by the server as an
+    attribute that does not apply. Both halves now ask the same question.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "INERT")
+    _seed_profile(session, with_barcode_feature=False)
+    service = ProductService(session)
+    actor_id = uuid4()
+    category = service.create_category(
+        data=ProductCategoryCreate(code="GEN", name="General", is_active=True),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    elsewhere = BusinessProfile(
+        code="PHARMACY",
+        name="Pharmacy",
+        industry_type="PHARMACY",
+        status="ACTIVE",
+        is_default=False,
+        default_settings={},
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    session.add(elsewhere)
+    session.flush()
+    rx = _definition(session, code="RX_CLASS", profile_id=elsewhere.id)
+    this_profile = session.scalar(
+        select(BusinessProfile.id).where(BusinessProfile.code == "GENERIC")
+    )
+    session.add(
+        CategoryAttributeRule(
+            business_profile_id=this_profile,
+            category_code="GEN",
+            attribute_definition_id=rx.id,
+            is_mandatory=True,
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
+    )
+    session.commit()
+
+    offered = service.metadata(firm_scope=firm.id, category_id=category.id)
+
+    assert rx.id not in offered.required_attribute_definition_ids
+    assert rx.id not in offered.optional_attribute_definition_ids
+    # The save agrees: the product carries nothing and is accepted.
+    payload = _base_payload("INERT-1")
+    payload.category_id = category.id
+    assert (
+        service.create_product(payload, firm_id=firm.id, actor_id=actor_id) is not None
+    )

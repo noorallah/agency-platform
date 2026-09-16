@@ -170,7 +170,27 @@ class IdentityService:
             )
             self._session.commit()
             raise _locked_error(user.locked_until, now)
+        # Whether the account is usable is settled here and acted on *after*
+        # the password, so a wrong password gets the same "Invalid email or
+        # password." whatever state the account is in. Naming the state to
+        # somebody who has not proved they own the account tells a stranger
+        # that the address exists and is worth trying again later -- the
+        # enumeration oracle the dummy-hash verification above exists to
+        # close. The person holding the right password is still told plainly
+        # what is wrong (docs/BACKLOG.md 18.2), which is the whole point of
+        # the state messages. The lockout above deliberately stays in front
+        # of the password: a locked account must cost the same whatever was
+        # typed, or the refusal times the guess for the guesser.
         unavailable = self._unavailable_error(user, now)
+        if user.password_hash == "*":
+            bootstrap = self._settings.bootstrap_admin_password
+            valid = bootstrap is not None and password == bootstrap.get_secret_value()
+            if not valid:
+                raise self._register_failed_login(user, client_ip, user_agent, now)
+            if unavailable is None:
+                user.password_hash = self._passwords.hash_password(password)
+        elif not self._passwords.verify_password(password, user.password_hash):
+            raise self._register_failed_login(user, client_ip, user_agent, now)
         if unavailable is not None:
             self._record_login(
                 user.id,
@@ -182,15 +202,6 @@ class IdentityService:
             )
             self._session.commit()
             raise unavailable
-        if user.password_hash == "*":
-            bootstrap = self._settings.bootstrap_admin_password
-            valid = bootstrap is not None and password == bootstrap.get_secret_value()
-            if valid:
-                user.password_hash = self._passwords.hash_password(password)
-            else:
-                raise self._register_failed_login(user, client_ip, user_agent, now)
-        elif not self._passwords.verify_password(password, user.password_hash):
-            raise self._register_failed_login(user, client_ip, user_agent, now)
         user.failed_login_attempts, user.locked_until, user.last_login_at = 0, None, now
         self._record_login(
             user.id, normalized_email, "success", client_ip, user_agent, None

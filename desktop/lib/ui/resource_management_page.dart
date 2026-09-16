@@ -197,6 +197,7 @@ class ResourceDefinition<T> {
     this.partialUpdate = false,
     this.loadAssignments,
     this.saveAssignments,
+    this.saveRefusal,
     this.canEdit,
     this.editRefusal,
     this.canCreate = true,
@@ -239,6 +240,21 @@ class ResourceDefinition<T> {
   final Future<Map<String, dynamic>> Function(String id)? loadAssignments;
   final Future<void> Function(String id, Map<String, dynamic> values)?
       saveAssignments;
+
+  /// Why this form cannot be saved as filled in, decided **before** anything
+  /// is written.
+  ///
+  /// [saveAssignments] runs after the record exists, so a refusal raised
+  /// there arrives too late to be true: creating a user with roles and no
+  /// firm was refused with "Save them without roles..." when the account had
+  /// already been created, and pressing Save again answered 409 on the email.
+  /// A rule about the *combination* of values belongs here, where nothing has
+  /// happened yet and "not saved" is still a fact. Field-level rules stay on
+  /// the field; this is for the ones no single box can see.
+  ///
+  /// Returns the sentence to show, or null to go ahead.
+  final String? Function(Map<String, dynamic> values, bool isCreating)?
+      saveRefusal;
   final bool Function(T item)? canEdit;
 
   /// Why [canEdit] refused, said to the person who tried.
@@ -631,6 +647,13 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
     Map<String, dynamic> values,
     CrudCreateCheckpoint createCheckpoint,
   ) async {
+    // Before anything is written, because a refusal after the create is a
+    // refusal the record outlives.
+    final String? refusal = widget.definition.saveRefusal?.call(
+      values,
+      item == null,
+    );
+    if (refusal != null) throw ApiException(refusal);
     late final String savedId;
     if (item == null) {
       savedId = await createCheckpoint.persist(() async {

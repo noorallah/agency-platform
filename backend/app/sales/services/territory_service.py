@@ -3094,6 +3094,24 @@ class SalesTerritoryService:
     def _ensure_hierarchy_config(
         self, firm_id: UUID, actor_id: UUID
     ) -> SalesHierarchyConfig:
+        """Return the firm's hierarchy, creating the default one once.
+
+        The defaults -- Region, Territory, Route -- were built on every read
+        and flushed but never committed, so a plain
+        ``GET /sales-territories/hierarchy-levels`` handed out a config id and
+        three level ids that ceased to exist the moment the request ended, and
+        answered with **different ids the next time**. Creating the firm's
+        first territory against one of them was then refused "Configured
+        hierarchy level is not active", which reads as a configuration problem
+        and is really a row that was never written. Saving the hierarchy
+        unchanged made it work, which is why this survived: anybody who
+        pressed Save once never saw it again.
+
+        The write is committed here rather than left to the caller, because
+        the caller is usually a read. That follows the create-if-missing shape
+        provisioning already uses -- the first read of a thing that must exist
+        is what brings it into being, and doing it twice is harmless.
+        """
         config = self._session.scalar(
             select(SalesHierarchyConfig).where(
                 SalesHierarchyConfig.firm_id == firm_id,
@@ -3129,7 +3147,7 @@ class SalesTerritoryService:
                     updated_by=actor_id,
                 )
             )
-        self._session.flush()
+        self._commit()
         return config
 
     def _replace_levels(

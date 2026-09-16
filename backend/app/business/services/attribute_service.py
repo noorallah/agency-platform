@@ -195,8 +195,13 @@ class AttributeService:
 
         for item in inputs:
             definition = definitions[item.attribute_definition_id]
-            columns = self._coerce(definition, item.value)
             row = existing.pop(item.attribute_definition_id, None)
+            # The value this record already carries, so a choice withdrawn
+            # from the list does not make the record unsaveable -- see
+            # `_coerce`.
+            columns = self._coerce(
+                definition, item.value, kept=row.value_text if row else None
+            )
             if row is None:
                 self._session.add(
                     model(
@@ -353,9 +358,23 @@ class AttributeService:
         }
 
     def _coerce(
-        self, definition: AttributeDefinition, value: AttributeValue
+        self,
+        definition: AttributeDefinition,
+        value: AttributeValue,
+        *,
+        kept: str | None = None,
     ) -> dict[str, object]:
-        """Convert a submitted value into its typed storage column."""
+        """Convert a submitted value into its typed storage column.
+
+        `kept` is what this record already holds, and it is accepted even when
+        the definition no longer offers it. Withdrawing a choice -- taking
+        `Frozen` off a storage temperature -- must not strand every record
+        that carries it: the form deliberately keeps a stored value
+        selectable, so refusing it made an unrelated edit to that product
+        impossible while the screen showed the value as valid. New values are
+        still held to the list; this only lets what is already there stay.
+        The same reasoning as the retained definitions above.
+        """
         blank: dict[str, object] = {
             "value_text": None,
             "value_number": None,
@@ -396,7 +415,8 @@ class AttributeService:
             raise self._type_error(definition, value, "a date")
         text = str(value)
         allowed = definition.allowed_values
-        if allowed and text.strip() not in allowed:
+        unchanged = kept is not None and text.strip() == kept.strip()
+        if allowed and not unchanged and text.strip() not in allowed:
             raise ValidationError(
                 f"Attribute {definition.code} must be one of: {', '.join(allowed)}.",
                 details={"attribute_code": definition.code, "received": text},

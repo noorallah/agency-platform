@@ -23,6 +23,7 @@ from app.business.models import BusinessProfile
 from app.common.audit.services import record_audit
 from app.core.concurrency import assert_version
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
+from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_money
 from app.finance.services.document_posting import DocumentPostingService
 from app.inventory.models import (
@@ -2456,6 +2457,30 @@ class InventoryService:
             ).all()
         )
 
+    def _expired_batches(
+        self, batch_ids: set[UUID], *, as_of: date
+    ) -> dict[UUID, tuple[str, date]]:
+        """Return the batches among these that had expired by ``as_of``.
+
+        Keyed by batch id, carrying the number and the date, because a refusal
+        that cannot name the batch leaves whoever reads it looking for stock
+        the screen says is there.
+        """
+        if not batch_ids:
+            return {}
+        rows = self._session.scalars(
+            select(BatchRecord).where(
+                BatchRecord.id.in_(batch_ids),
+                BatchRecord.expiry_date.is_not(None),
+                BatchRecord.expiry_date < as_of,
+            )
+        ).all()
+        return {
+            row.id: (row.batch_number, row.expiry_date)
+            for row in rows
+            if row.expiry_date is not None
+        }
+
     def allocate_for_dispatch(
         self,
         *,
@@ -2465,6 +2490,7 @@ class InventoryService:
         storage_node_id: UUID | None,
         product_id: UUID,
         quantity: Decimal,
+        as_of: date | None = None,
     ) -> list[tuple[UUID | None, Decimal]]:
         """Choose which batches a dispatch consumes, earliest expiry first.
 
@@ -2474,10 +2500,21 @@ class InventoryService:
         June. This returns the split as (batch_id, quantity) pairs, and the
         caller stages one movement per pair.
 
-        First expiry, first out. Expiry is ranked explicitly rather than left
-        to the backend's NULL ordering -- PostgreSQL sorts NULLs first in ASC
-        and SQLite last, so a batch with no expiry date would be picked first
-        on one and last on the other. A batch without an expiry is not urgent,
+        First expiry, first out -- **among batches that have not expired**.
+        Read literally, "earliest expiry first" hands the customer the batch
+        that went out of date last month, which is what it did until
+        2026-09-16: a pharmacy firm holding a batch expired on the 17th of
+        August and two in date shipped the expired one. Stock past its date is
+        dropped from the candidates and the dispatch is refused **by name**
+        rather than coming up short for no visible reason, because the screen
+        still shows that stock as on hand. Judged on the document's own date
+        (``as_of``), not on today: a note dated when the batch was still good
+        must post the same way when the history is rebuilt a year later.
+
+        Expiry is ranked explicitly rather than left to the backend's NULL
+        ordering -- PostgreSQL sorts NULLs first in ASC and SQLite last, so a
+        batch with no expiry date would be picked first on one and last on the
+        other. A batch without an expiry is not urgent,
         so it goes last, and ties break on the batch id to keep two runs of the
         same dispatch identical.
 
@@ -2504,6 +2541,19 @@ class InventoryService:
         product = self._session.get(Product, product_id)
         if product is not None and product.require_batch_on_issue:
             rows = [row for row in rows if row.batch_id is not None]
+        expired = self._expired_batches(
+            {row.batch_id for row in rows if row.batch_id is not None},
+            as_of=as_of or utc_now().date(),
+        )
+        held_expired = sum(
+            (
+                Decimal(str(row.available_quantity))
+                for row in rows
+                if row.batch_id in expired
+            ),
+            ZERO,
+        )
+        rows = [row for row in rows if row.batch_id not in expired]
         outstanding = Decimal(str(quantity))
         allocation: list[tuple[UUID | None, Decimal]] = []
         for row in rows:
@@ -2523,8 +2573,28 @@ class InventoryService:
                     if product is not None and product.require_batch_on_issue
                     else ""
                 )
+                + self._expired_note(expired, held_expired)
             )
         return allocation
+
+    @staticmethod
+    def _expired_note(expired: dict[UUID, tuple[str, date]], held: Decimal) -> str:
+        """Say how much of the shortfall is stock that has gone out of date.
+
+        Without this the refusal reads "short by 5" beside a screen showing
+        fifteen on hand, and the difference is invisible.
+        """
+        if not expired or held <= ZERO:
+            return ""
+        names = ", ".join(
+            f"{number} expired {on.isoformat()}"
+            for number, on in sorted(expired.values(), key=lambda item: item[1])
+        )
+        return (
+            f" {held} of this product's stock is past its expiry date "
+            f"({names}) and cannot be dispatched: write it off or quarantine "
+            "it."
+        )
 
     def record_delivery_note_dispatch(
         self,
