@@ -3854,6 +3854,13 @@ ResourceDefinition<PlatformUser> userDefinition(
       }
       return values;
     },
+    // Checked before the account is created, not after. This refusal used to
+    // live in `saveAssignments`, which runs once the user exists -- so
+    // "Save them without roles" arrived beside an account that had just been
+    // saved in no firm, and pressing Save again answered 409 on the email.
+    // The words were right and the moment was wrong. Found 2026-09-16 walking
+    // the independent cases (D-20-1).
+    saveRefusal: (values, isCreating) => _rolesWithoutAFirm(values, permissions),
     saveAssignments: (id, values) async {
       // **Memberships first.** A role needs an active membership -- the token
       // is built per membership, so a grant without one reaches nobody and
@@ -3897,13 +3904,11 @@ ResourceDefinition<PlatformUser> userDefinition(
       // refused **here**, in words, rather than sent to come back as a 404
       // about a user who exists.
       if (_ids(values['firm_ids']).isEmpty && !permissions.isPlatformAdmin) {
-        if (template.isNotEmpty || roles.isNotEmpty) {
-          throw const ApiException(
-            'Somebody in no firm cannot be given roles here, because roles '
-            'are held per firm. Save them without roles, then use Add '
-            'existing user to bring them into this firm and set what they do.',
-          );
-        }
+        // `saveRefusal` above has already turned this away before the create,
+        // and this stays as the backstop for any caller reaching the write
+        // without the form -- one sentence, defined once.
+        final String? refused = _rolesWithoutAFirm(values, permissions);
+        if (refused != null) throw ApiException(refused);
         return;
       }
 
@@ -3920,6 +3925,29 @@ ResourceDefinition<PlatformUser> userDefinition(
       }
     },
   );
+}
+
+/// Why a user form naming roles cannot be saved, when the person is in no firm.
+///
+/// `set_user_roles` resolves the user with `_get_user(user_id, firm_scope)`,
+/// and for a firm caller that demands an active membership in the caller's own
+/// firm -- which a save with the Firms box cleared has just removed. A user in
+/// no firm is allowed and documented (USER_ADMINISTRATION_GUIDE 7b), so the
+/// answer is to say so rather than to send it and get back "User not found."
+/// about somebody created seconds earlier. A platform caller's `firm_scope` is
+/// None and their write resolves, so the rule is not theirs.
+String? _rolesWithoutAFirm(
+  Map<String, dynamic> values,
+  PermissionService permissions,
+) {
+  if (permissions.isPlatformAdmin) return null;
+  if (_ids(values['firm_ids']).isNotEmpty) return null;
+  final bool asksForRoles = stringValue(values['template_id']).isNotEmpty ||
+      _ids(values['role_ids']).isNotEmpty;
+  if (!asksForRoles) return null;
+  return 'Somebody in no firm cannot be given roles here, because roles '
+      'are held per firm. Save them without roles, then use Add existing '
+      'user to bring them into this firm and set what they do.';
 }
 
 /// The User-Firm Assignments grid: a platform administrator's tool for

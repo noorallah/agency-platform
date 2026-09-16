@@ -547,6 +547,71 @@ def test_a_text_field_can_be_limited_to_fixed_choices() -> None:
         )
 
 
+def test_a_choice_withdrawn_from_the_list_can_still_be_saved_back() -> None:
+    """Retiring a choice must not strand the records that already hold it.
+
+    A product stored as `Frozen`; the firm then takes `Frozen` off the list.
+    The form deliberately keeps a stored value selectable -- so every edit to
+    that product, of any other field, was refused with "must be one of:
+    Ambient, Chilled" for a value the screen showed as valid and nobody had
+    touched. The same reasoning as the retained definitions: what is already
+    there stays, and only new values are held to the list.
+    """
+    session = _session()
+    firm = _firm(session)
+    product = _product(session, firm)
+    storage = _definition(session, "STORAGE_TEMPERATURE")
+    storage.validation_rule = {"allowed_values": ["Ambient", "Chilled", "Frozen"]}
+    session.commit()
+
+    service = AttributeService(session)
+    service.replace_values(
+        ProductAttributeValue,
+        product.id,
+        [AttributeInput(attribute_definition_id=storage.id, value="Frozen")],
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+    session.commit()
+
+    storage.validation_rule = {"allowed_values": ["Ambient", "Chilled"]}
+    session.commit()
+
+    service.replace_values(
+        ProductAttributeValue,
+        product.id,
+        [AttributeInput(attribute_definition_id=storage.id, value="Frozen")],
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+    session.commit()
+    assert service.values_for(ProductAttributeValue, product.id)[0].value == "Frozen"
+
+    # A value that was never stored is still refused, and so is a *different*
+    # retired one: this lets what is there stay, it does not open the list.
+    with pytest.raises(ValidationError, match="must be one of: Ambient, Chilled"):
+        service.replace_values(
+            ProductAttributeValue,
+            product.id,
+            [AttributeInput(attribute_definition_id=storage.id, value="Cold")],
+            firm_id=firm.id,
+            actor_id=uuid4(),
+        )
+    session.rollback()
+
+    # And on a product that never held it, `Frozen` is refused like any other
+    # value off the list -- the record's own value is what is tolerated.
+    other = _product(session, firm, "SKU-2")
+    with pytest.raises(ValidationError, match="must be one of: Ambient, Chilled"):
+        service.replace_values(
+            ProductAttributeValue,
+            other.id,
+            [AttributeInput(attribute_definition_id=storage.id, value="Frozen")],
+            firm_id=firm.id,
+            actor_id=uuid4(),
+        )
+
+
 def test_allowed_values_are_normalised_and_only_for_text() -> None:
     """The definition schema trims, deduplicates and refuses a list on a number."""
     from app.business.schemas import AttributeDefinitionCreate

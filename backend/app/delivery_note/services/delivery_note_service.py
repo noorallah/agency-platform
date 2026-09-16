@@ -1592,6 +1592,10 @@ class DeliveryNoteService(TransactionalDocumentService):
                 storage_node_id=line.storage_node_id,
                 product_id=line.product_id,
                 quantity=line.delivered_quantity,
+                # Expired stock is not dispatched, judged on the note's own
+                # date rather than today, so rebuilding a year of history
+                # posts what it posted at the time.
+                as_of=row.delivery_date,
             )
             entered_total = self._q(line.current_delivery_quantity + line.free_quantity)
             dispatched = None

@@ -89,7 +89,33 @@ ResourceDefinition<Json> _definition(_Api api) => ResourceDefinition<Json>(
           throw const ApiException(_refusal, statusCode: 422),
     );
 
-Future<void> _pump(WidgetTester tester, _Api api) async {
+const String _tooLate =
+    'Somebody in no firm cannot be given roles here, because roles are held '
+    'per firm.';
+
+/// The same resource, refusing the *combination* of values up front.
+ResourceDefinition<Json> _refusingUpFront(_Api api) {
+  final ResourceDefinition<Json> base = _definition(api);
+  return ResourceDefinition<Json>(
+    title: base.title,
+    resource: base.resource,
+    headers: base.headers,
+    cells: base.cells,
+    id: base.id,
+    load: base.load,
+    fields: base.fields,
+    initialValues: base.initialValues,
+    payload: base.payload,
+    saveRefusal: (values, isCreating) =>
+        stringValue(values['name']) == 'Two' ? _tooLate : null,
+  );
+}
+
+Future<void> _pump(
+  WidgetTester tester,
+  _Api api, {
+  ResourceDefinition<Json>? definition,
+}) async {
   tester.view.physicalSize = const Size(1600, 1200);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -98,7 +124,7 @@ Future<void> _pump(WidgetTester tester, _Api api) async {
       home: Scaffold(
         body: ResourceManagementPage<Json>(
           api: api,
-          definition: _definition(api),
+          definition: definition ?? _definition(api),
         ),
       ),
     ),
@@ -144,6 +170,37 @@ void main() {
 
     // The record exists now; a second Save must attach to it, not create
     // another.
+    await tester.tap(find.text('Save & Close'));
+    await tester.pumpAndSettle();
+    expect(api.creates, 1);
+  });
+
+  testWidgets('a rule about the whole form is applied before the create',
+      (tester) async {
+    // The other half of the same problem. `saveAssignments` runs once the
+    // record exists, so a refusal raised there is not true: creating a user
+    // with roles and no firm was refused with "Save them without roles..."
+    // beside an account that had just been created, and pressing Save again
+    // answered 409 on the email. A rule about the combination of values --
+    // one no single field can see -- is `saveRefusal`, which runs while
+    // "not saved" is still a fact. Found 2026-09-16 (D-20-1).
+    final _Api api = _Api();
+    await _pump(tester, api, definition: _refusingUpFront(api));
+
+    await tester.tap(find.byTooltip('New'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextFormField, 'Code'), 'T2');
+    await tester.enterText(find.widgetWithText(TextFormField, 'Name'), 'Two');
+    await tester.tap(find.text('Save & Close'));
+    await tester.pumpAndSettle();
+
+    expect(api.creates, 0, reason: 'nothing may exist behind the refusal');
+    expect(find.text(_tooLate), findsOneWidget);
+    expect(find.text('Things saved.'), findsNothing);
+
+    // And fixing what it complained about saves, in the dialog that stayed
+    // open -- the refusal is a rule, not a dead end.
+    await tester.enterText(find.widgetWithText(TextFormField, 'Name'), 'Three');
     await tester.tap(find.text('Save & Close'));
     await tester.pumpAndSettle();
     expect(api.creates, 1);
