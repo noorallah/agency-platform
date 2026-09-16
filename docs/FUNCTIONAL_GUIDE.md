@@ -1356,6 +1356,35 @@ which stack.
 contributes `tax_profile_group_code`, `product_category_id` and `product_type`
 to the matching context; everything else comes from the document.
 
+## A rule's scope is a filter; its **action** is the answer
+
+The distinction that costs an afternoon if you have it backwards. A rule's
+`country_id`, `business_profile_id` and `tax_profile_id` are **scope filters** —
+"only consider me when this is already the context". They do not decide
+anything. What a matching rule *does* is its `actions`:
+
+| Action | Effect |
+| --- | --- |
+| `APPLY_TAX_PROFILE` | Charge this profile instead of the one in context |
+| `APPLY_TAX_COMPONENT` | Add one component |
+| `OVERRIDE_COMPONENT_PERCENTAGE` | Same component, different rate |
+| `EXEMPT_TAX` · `ZERO_RATED` | Nothing charged, and they are not the same thing on a return |
+| `REVERSE_CHARGE` | The buyer accounts for it; reported separately, never added to the total |
+| `INPUT_CREDIT_ALLOWED` · `INPUT_CREDIT_BLOCKED` | Whether the tax can be reclaimed |
+
+So an interstate rule scoped to the IGST profile never fires: the document
+arrives carrying the *product's* profile, not the one you hope to end at. The
+rule matches on the transaction and **switches** the profile with
+`APPLY_TAX_PROFILE`. Driven on 2026-09-16, the wrong shape silently charged an
+interstate sale CGST+SGST — right total, wrong components, and a GST return
+that files them in the wrong boxes.
+
+**The simulation says why.** Every response carries a `decisions` array: one
+entry per rule considered, with `matched` and a reason —
+*"Tax profile did not match the rule scope."*, *"transaction_type failed
+EQUALS."* Read it before changing a rule; it is the difference between
+debugging and guessing.
+
 ## `simulate` is the calculation, not a preview
 
 All the transactional modules call `TaxRuleService.simulate` once per line
