@@ -679,6 +679,44 @@ def test_an_expired_account_is_told_it_has_expired() -> None:
     assert not isinstance(refused.value, AccountInactiveError)
 
 
+def test_a_wrong_password_never_names_the_state() -> None:
+    """A stranger guessing must learn nothing about the address.
+
+    Until 2026-09-16 the state was checked before the password, so anybody
+    typing anything at all against an inactive or expired address was told
+    it was inactive or expired -- which says the address exists, that it
+    belongs to somebody real, and (for an expired one) that it may be worth
+    trying again next month. That is the enumeration oracle the throwaway
+    hash above exists to close, given away by the message instead of by the
+    clock. The state is now named only to somebody who has proved they hold
+    the password; a wrong one gets the same refusal every other wrong one
+    gets. The lockout is deliberately still checked first -- see the test
+    above -- because a locked account has to cost the same whatever was
+    typed.
+    """
+    service, session = _service()
+    for closing, expected in (
+        ("is_active", AccountInactiveError),
+        ("expires_at", AccountExpiredError),
+    ):
+        user = _user(service, email=f"{closing}@example.com")
+        setattr(
+            user,
+            closing,
+            False if closing == "is_active" else utc_now() - timedelta(minutes=1),
+        )
+        session.commit()
+
+        with pytest.raises(AuthenticationError) as refused:
+            _login(service, user.email, "wrong-" + PASSWORD)
+        assert refused.value.message == "Invalid email or password."
+        assert not isinstance(refused.value, expected)
+
+        # The right password still says what is actually wrong.
+        with pytest.raises(expected):
+            _login(service, user.email, PASSWORD)
+
+
 def test_a_state_refusal_is_still_an_authentication_error() -> None:
     """Handlers catching the broad class keep catching these: 401 stays 401."""
     for error in (AccountLockedError(), AccountInactiveError(), AccountExpiredError()):
