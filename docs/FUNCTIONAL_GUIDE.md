@@ -942,8 +942,14 @@ mirror entry linked to the original, so both stay on the record.
 
 ## The default chart
 
-Nineteen accounts in five groups. The **Purpose** column is what document
-posting actually looks up — an account with no purpose mapped is invisible to it.
+**24 accounts in 5 groups**, seeded by `CHART` in
+`app/finance/services/opening_setup.py` -- re-derive this table from there
+rather than trusting it. It said nineteen until 2026-09-16, which was true when
+written: commission, TCS and loyalty each brought accounts of their own when
+those modules shipped, and nothing updated the count.
+
+The **Purpose** column is what document posting actually looks up -- an account
+with no purpose mapped is invisible to it.
 
 | Code | Account | Type | Purpose |
 | --- | --- | --- | --- |
@@ -955,6 +961,9 @@ posting actually looks up — an account with no purpose mapped is invisible to 
 | 2100 | Trade Payables | Liability | `ACCOUNTS_PAYABLE` |
 | 2200 | Output Tax | Liability | `OUTPUT_TAX` |
 | 2300 | Goods Received Not Invoiced | Liability | `GOODS_RECEIVED_NOT_INVOICED` |
+| 2400 | Commission Payable | Liability | `COMMISSION_PAYABLE` |
+| 2500 | TCS Payable | Liability | `TCS_PAYABLE` |
+| 2600 | Loyalty Payable | Liability | `LOYALTY_PAYABLE` |
 | 3000 | Opening Balance Equity | Equity | `OPENING_BALANCE_EQUITY` |
 | 4000 | Sales | Income | `SALES_REVENUE` |
 | 4100 | Sales Returns | Income | `SALES_RETURNS` |
@@ -966,9 +975,10 @@ posting actually looks up — an account with no purpose mapped is invisible to 
 | 5300 | Discount Allowed | Expense | `DISCOUNT_ALLOWED` |
 | 5400 | Purchase Price Variance | Expense | `PURCHASE_PRICE_VARIANCE` |
 | 5500 | Inventory Adjustment | Expense | `INVENTORY_ADJUSTMENT` |
+| 5600 | Commission Expense | Expense | `COMMISSION_EXPENSE` |
+| 5700 | Loyalty Expense | Expense | `LOYALTY_EXPENSE` |
 
-Groups: `CA` Current Assets, `CL` Current Liabilities, `REV` Revenue, `EXP`
-Direct Expenses, `EQ` Equity.
+Groups: `CA` Current Assets, `CL` Current Liabilities, `REV` Revenue, `EXP` Direct Expenses, `EQ` Equity.
 
 **`2300` and `5400` are the two people ask about.** *Goods Received Not
 Invoiced* holds the accrual between a receipt and the bill for it. *Purchase
