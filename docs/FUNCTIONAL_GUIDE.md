@@ -16,8 +16,9 @@ The eight sections finished on 2026-09-16 -- vendors, proforma invoices, credit
 notes, TCS, GST returns, e-invoicing, inventory operations, and the reports /
 search / audit / diagnostics group -- were written against the running system
 and the modules' own source, which is where their "rules that bite" come from.
-Two of them turned up findings rather than rules; both are marked as such in
-section 11.
+Two of them turned up findings rather than rules, both in vendors -- a `PUT`
+that cleared what it did not name, and a category master with no in-use guard.
+Both were fixed the same day and section 11 describes the fixed behaviour.
 
 ## Every section has the same six parts
 
@@ -1671,37 +1672,36 @@ through `AttributeService`, where a list filter can index them.
    each have a `V001`, and one firm may not. The service checks first for the
    message and the database constraint catches the race — both paths answer
    *"Vendor code or GSTIN already exists in this firm."*
-2. **A `PUT` replaces the whole header, so an omitted field is cleared.**
-   `_vendor_values` dumps the write model with **no** `exclude_unset`, so a
-   payload that leaves out `gstin` or `pan` does not leave them alone — it
-   sets them to null. Send the record you read back, changed. This deviates
-   from the convention in
-   [`API_AND_PERSISTENCE_CONVENTIONS.md`](API_AND_PERSISTENCE_CONVENTIONS.md)
-   ("an update that dumps its whole write model turns an omission into an
-   instruction") and it is the trap that wiped a product's tax group and units
-   on 2026-09-15 when a fixture set one field by `PUT`.
-   The **collections** are the opposite and are guarded deliberately: each is
-   touched only when the caller actually sent it (`is not None`), so a client
-   that does not manage contacts cannot erase them by omission. A submitted
-   collection is reconciled row by row, and a row that has gone answers *"A
-   vendor contact no longer exists."* rather than being silently re-created.
+2. **A `PUT` leaves alone what it does not name, and an explicit `null`
+   still clears.** Both halves of the request now read silence the same way.
+   Until 2026-09-16 the header did not: `_vendor_values` dumped the whole
+   write model, so a payload naming only a phone number also set `gstin`,
+   `pan` and `website` back to null -- the trap that wiped a product's tax
+   group and units the day before, and the convention in
+   [`API_AND_PERSISTENCE_CONVENTIONS.md`](API_AND_PERSISTENCE_CONVENTIONS.md).
+   Create is unchanged: there a default really is the value to store.
+   The **collections** have always worked this way and are guarded
+   separately -- each is touched only when the caller actually sent it
+   (`is not None`), so a client that does not manage contacts cannot erase
+   them by omission. A submitted collection is reconciled row by row, and a
+   row that has gone answers *"A vendor contact no longer exists."* rather
+   than being silently re-created.
 3. **A drug licence is a feature-gated field, not a feature-gated vendor.** A
    firm whose profile lacks `DRUG_LICENSE` still keeps vendors — it simply has
    no business recording a licence number against one. The check runs over
    **every submitted tax row** (`tax[0].drug_license`, `tax[1]…`), because the
    number lives on the tax rows rather than on the header. A firm with no
    resolvable profile is never gated: a configuration gap is not a decision.
-4. **Nothing stops you retiring a category or type a vendor still points at.**
-   Both carry `ondelete="RESTRICT"`, which reads like protection and is not:
-   these masters are soft-deleted, and a soft delete never reaches the
-   database's referential check — the trap geography documents in section 6.
-   Geography and products both put the refusal in the service
-   (*"Categories used by products cannot be deleted."*);
-   `VendorService.delete_category` and `delete_type` have no such check, so a
-   category in use simply disappears from the pickers while every vendor row
-   goes on naming it. **Recorded on 2026-09-16 as a gap rather than a rule**,
-   found writing this section; the vendors are not damaged and the id still
-   resolves, so it is an inconsistency to settle rather than an incident.
+4. **A category or type a live vendor still names cannot be retired.**
+   *"This category is used by 3 vendor(s) and cannot be deleted. Move them to
+   another category first."* Both keys carry `ondelete="RESTRICT"`, which
+   reads like protection and is not: these masters are soft-deleted, and a
+   soft delete never reaches the database's referential check -- the trap
+   geography documents in section 6. So the refusal lives in the service,
+   where products have had one since they were written. It counts **live**
+   vendors: a retired vendor does not hold its category open. Added
+   2026-09-16, when writing this section found vendors to be the one master
+   module without it.
 5. **Deleting a vendor does not delete their history.** Purchase orders,
    receipts, invoices and settlements hold the vendor id and go on naming it.
    That is the point of a soft delete: the documents stay readable and the
