@@ -3,15 +3,20 @@
 from collections.abc import Mapping
 from uuid import UUID
 
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.business.gating import assert_feature_fields
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit
 from app.core.database.entity import BaseEntity
-from app.core.exceptions import ConflictError, ResourceNotFoundError
+from app.core.exceptions import (
+    ConflictError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.core.utils.dates import utc_now
 from app.vendors.models import (
     Vendor,
@@ -109,7 +114,7 @@ class VendorService:
         self._assert_unique(vendor.firm_id, data, excluding_id=vendor.id)
         self._assert_drug_license_allowed(vendor.firm_id, data)
         before = self._audit_snapshot(vendor)
-        for field, value in self._vendor_values(data).items():
+        for field, value in self._vendor_values(data, partial=True).items():
             setattr(vendor, field, value)
         vendor.display_name = data.display_name or data.name
         vendor.updated_by = actor_id
@@ -455,6 +460,7 @@ class VendorService:
         )
         if category is None:
             raise ResourceNotFoundError("Vendor category not found.")
+        self._assert_master_unused(Vendor.category_id, category_id, firm_id, "category")
         category.is_deleted = True
         category.deleted_at = utc_now()
         category.deleted_by = actor_id
@@ -524,11 +530,50 @@ class VendorService:
         vendor_type = self._repository.get_type(type_id, firm_id, include_deleted=False)
         if vendor_type is None:
             raise ResourceNotFoundError("Vendor type not found.")
+        self._assert_master_unused(Vendor.type_id, type_id, firm_id, "type")
         vendor_type.is_deleted = True
         vendor_type.deleted_at = utc_now()
         vendor_type.deleted_by = actor_id
         vendor_type.updated_by = actor_id
         self._session.commit()
+
+    def _assert_master_unused(
+        self,
+        column: "InstrumentedAttribute[UUID | None]",
+        master_id: UUID,
+        firm_id: UUID,
+        label: str,
+    ) -> None:
+        """Refuse to retire a category or type a live vendor still names.
+
+        `ondelete="RESTRICT"` sits on both keys and reads like protection. It
+        is not: these masters are soft-deleted, and a soft delete never
+        reaches the database's referential check -- so the row simply vanished
+        from every picker while each vendor went on naming it, leaving a
+        grid column that renders nothing and no way to put it back except by
+        knowing the id. Products have refused this since they were written
+        ("Categories used by products cannot be deleted."); vendors did not,
+        and the inconsistency was found writing the functional guide on
+        2026-09-16.
+
+        Raises:
+            ValidationError: If any live vendor in this firm names it.
+
+        """
+        used = self._session.scalar(
+            select(func.count())
+            .select_from(Vendor)
+            .where(
+                Vendor.firm_id == firm_id,
+                Vendor.is_deleted.is_(False),
+                column == master_id,
+            )
+        )
+        if used:
+            raise ValidationError(
+                f"This {label} is used by {used} vendor(s) and cannot be "
+                f"deleted. Move them to another {label} first."
+            )
 
     def _stage_create(
         self, data: VendorCreate, *, firm_id: UUID, actor_id: UUID
@@ -653,8 +698,26 @@ class VendorService:
         ]
 
     @staticmethod
-    def _vendor_values(data: VendorCreate | VendorUpdate) -> dict[str, object]:
-        """Return values."""
+    def _vendor_values(
+        data: VendorCreate | VendorUpdate, *, partial: bool = False
+    ) -> dict[str, object]:
+        """Return the header fields to write, excluding the child collections.
+
+        `partial` is what an update passes. Without it the dump carries every
+        field the schema declares, defaults included, so a `PUT` that named
+        only a phone number also set `gstin`, `pan`, `website` and the rest
+        back to null -- an omission read as an instruction. The collections
+        below already drew this distinction (`None` leaves them alone, `[]`
+        clears them); the header did not, and the two halves of one request
+        disagreeing about what silence means is the trap itself.
+
+        Create keeps the full dump: there a default really is the value to
+        store. An explicit `null` still clears on an update, because the
+        caller set it. This is the rule in
+        `docs/API_AND_PERSISTENCE_CONVENTIONS.md`, arrived at here on
+        2026-09-16 -- the same shape wiped a product's tax group and units the
+        day before.
+        """
         values = data.model_dump(
             exclude={
                 "contacts",
@@ -666,8 +729,12 @@ class VendorService:
                 "attributes",
             },
             mode="python",
+            exclude_unset=partial,
         )
-        values["status"] = data.status.value
+        if "status" in values:
+            values["status"] = data.status.value
+        # `name` is required by the schema, so a partial update always carries
+        # one to derive from.
         values["display_name"] = data.display_name or data.name
         return values
 

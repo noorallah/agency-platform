@@ -6,10 +6,19 @@ it writes. No code walkthroughs — the file that maps a workflow onto a
 permission and a table, so somebody can operate the platform or specify a
 change to it.
 
-Filled in one module at a time. The order below is the order a firm actually
-does things in, which is **not** the code-dependency order in
+Filled in one module at a time, and **complete as of 2026-09-16**: all 28
+sections are written. The order below is the order a firm actually does things
+in, which is **not** the code-dependency order in
 [`LEARNING_PATH.md`](LEARNING_PATH.md): you cannot raise an invoice before
 there is a tax rate, and you cannot set a tax rate before there is a firm.
+
+The eight sections finished on 2026-09-16 -- vendors, proforma invoices, credit
+notes, TCS, GST returns, e-invoicing, inventory operations, and the reports /
+search / audit / diagnostics group -- were written against the running system
+and the modules' own source, which is where their "rules that bite" come from.
+Two of them turned up findings rather than rules, both in vendors -- a `PUT`
+that cleared what it did not name, and a category master with no in-use guard.
+Both were fixed the same day and section 11 describes the fixed behaviour.
 
 ## Every section has the same six parts
 
@@ -49,24 +58,24 @@ nothing about a document stops it happening here.
 | | 8 | Tax setup | ✅ |
 | | 9 | Products, attributes, batch and serial | ✅ |
 | | 10 | Customers, groups and credit policy | ✅ |
-| | 11 | Vendors | ☐ |
+| | 11 | Vendors | ✅ |
 | | 12 | Territory, routes and beats | ✅ |
 | | 13 | Price lists and discount rules | ✅ |
 | | 14 | Promotions and coupons | ✅ |
 | **C — Buying** | 15 | Purchase order → receipt → invoice → return | ✅ |
 | **D — Selling** | 16 | Quotation → order → delivery → invoice → return | ✅ |
-| | 17 | Proforma invoices | ☐ |
-| | 18 | Credit notes | ☐ |
+| | 17 | Proforma invoices | ✅ |
+| | 18 | Credit notes | ✅ |
 | **E — Money** | 19 | Receipts, payments and refunds | ✅ |
 | | 20 | Loyalty and cashback | ✅ |
 | | 21 | Commission, rules and payouts | ✅ |
 | | 22 | Sales targets | ✅ |
 | | 23 | Journals, ledgers and financial reports | ✅ |
-| **F — Compliance** | 24 | Tax collected at source | ☐ |
-| | 25 | GST returns | ☐ |
-| | 26 | E-invoicing and e-way bills | ☐ |
-| **G — Running it** | 27 | Inventory operations | ☐ |
-| | 28 | Reports, search, audit and diagnostics | ☐ |
+| **F — Compliance** | 24 | Tax collected at source | ✅ |
+| | 25 | GST returns | ✅ |
+| | 26 | E-invoicing and e-way bills | ✅ |
+| **G — Running it** | 27 | Inventory operations | ✅ |
+| | 28 | Reports, search, audit and diagnostics | ✅ |
 
 ## What shipped after this guide was started
 
@@ -942,8 +951,14 @@ mirror entry linked to the original, so both stay on the record.
 
 ## The default chart
 
-Nineteen accounts in five groups. The **Purpose** column is what document
-posting actually looks up — an account with no purpose mapped is invisible to it.
+**24 accounts in 5 groups**, seeded by `CHART` in
+`app/finance/services/opening_setup.py` -- re-derive this table from there
+rather than trusting it. It said nineteen until 2026-09-16, which was true when
+written: commission, TCS and loyalty each brought accounts of their own when
+those modules shipped, and nothing updated the count.
+
+The **Purpose** column is what document posting actually looks up -- an account
+with no purpose mapped is invisible to it.
 
 | Code | Account | Type | Purpose |
 | --- | --- | --- | --- |
@@ -955,6 +970,9 @@ posting actually looks up — an account with no purpose mapped is invisible to 
 | 2100 | Trade Payables | Liability | `ACCOUNTS_PAYABLE` |
 | 2200 | Output Tax | Liability | `OUTPUT_TAX` |
 | 2300 | Goods Received Not Invoiced | Liability | `GOODS_RECEIVED_NOT_INVOICED` |
+| 2400 | Commission Payable | Liability | `COMMISSION_PAYABLE` |
+| 2500 | TCS Payable | Liability | `TCS_PAYABLE` |
+| 2600 | Loyalty Payable | Liability | `LOYALTY_PAYABLE` |
 | 3000 | Opening Balance Equity | Equity | `OPENING_BALANCE_EQUITY` |
 | 4000 | Sales | Income | `SALES_REVENUE` |
 | 4100 | Sales Returns | Income | `SALES_RETURNS` |
@@ -966,9 +984,10 @@ posting actually looks up — an account with no purpose mapped is invisible to 
 | 5300 | Discount Allowed | Expense | `DISCOUNT_ALLOWED` |
 | 5400 | Purchase Price Variance | Expense | `PURCHASE_PRICE_VARIANCE` |
 | 5500 | Inventory Adjustment | Expense | `INVENTORY_ADJUSTMENT` |
+| 5600 | Commission Expense | Expense | `COMMISSION_EXPENSE` |
+| 5700 | Loyalty Expense | Expense | `LOYALTY_EXPENSE` |
 
-Groups: `CA` Current Assets, `CL` Current Liabilities, `REV` Revenue, `EXP`
-Direct Expenses, `EQ` Equity.
+Groups: `CA` Current Assets, `CL` Current Liabilities, `REV` Revenue, `EXP` Direct Expenses, `EQ` Equity.
 
 **`2300` and `5400` are the two people ask about.** *Goods Received Not
 Invoiced* holds the accrual between a receipt and the bill for it. *Purchase
@@ -1569,6 +1588,127 @@ refusal carries the same sentence.
 
 ---
 
+# 11. Vendors
+
+## What it does
+
+The other side of the customer: who the firm **buys** from. A vendor record
+carries the identity a purchase document needs (name, code, GSTIN, PAN), the
+people and places to send an order to, and the bank account a payment settles
+into. Four modules point at it — `purchase_orders`, `goods_receipts`,
+`purchase_invoices` and `settlements` — so a vendor is created once and named
+for the life of a purchase.
+
+It is deliberately the same shape as a customer: one header row with child
+collections beside it, custom fields through `AttributeService`, and the same
+import, export, duplicate, bulk and restore actions. Where the two differ is
+what they carry, not how they behave, so a screen learned on one is a screen
+learned on both.
+
+## Configure first
+
+| Thing | Needed for | What happens without it |
+| --- | --- | --- |
+| Nothing at all | A vendor | A vendor with a code and a name is valid |
+| **Vendor categories** | Grouping and reporting | The field stays empty; nothing refuses |
+| **Vendor types** | Distinguishing a manufacturer from a stockist | The field stays empty; nothing refuses |
+| **Geography masters** | Addresses that report by place | The address keeps its text and reports by nothing |
+| **A business profile with `DRUG_LICENSE`** | Recording a drug licence on a tax row | The field is refused — see rule 3 |
+
+Both masters are optional and both are `RESTRICT`-ed from the vendor, so one
+in use cannot be removed.
+
+## Workflow
+
+| # | Step | Permission | Result |
+| --- | --- | --- | --- |
+| 1 | Create the vendor — code, name, display name, and whether they are GST registered | `VENDOR_CREATE` | Row in `vendors`, status `ACTIVE` |
+| 2 | Add contacts, addresses, bank accounts, tax rows, attachments, notes | `VENDOR_UPDATE` | Child rows, each soft-deleted on its own |
+| 3 | Fill the firm's custom fields | `VENDOR_UPDATE` | Rows in `vendor_attribute_values`, typed |
+| 4 | Buy from them | `PURCHASE_*` | The vendor id is stamped on the order and travels to the receipt, the bill and the payment |
+
+Retiring one is a soft delete (`VENDOR_DELETE`) and `POST /{id}/restore` brings
+it back with its children, because the children were never hard-deleted either.
+
+## How to use it
+
+| Task | Where |
+| --- | --- |
+| Create, edit, retire, restore, duplicate vendors | **Masters › Vendors** (`VENDOR_VIEW`) |
+| Group them | **Masters › Vendor Categories** (`VENDOR_MANAGE_CATEGORIES` to write) |
+| Manufacturer, stockist, importer… | **Masters › Vendor Types** (same code) |
+| Import a list, export the grid | The toolbar (`VENDOR_IMPORT`, `VENDOR_EXPORT`) |
+| Change many at once — status, category, profile | The grid's bulk actions (`VENDOR_UPDATE`) |
+
+Endpoint table, generated rather than typed:
+
+```powershell
+uv run python scripts/dump_route_permissions.py --markdown vendors
+```
+
+## Tables
+
+All in the firm's own store.
+
+| Table | Holds |
+| --- | --- |
+| `vendors` | The header: code, names, category, type, business profile, status, GST registration, GSTIN, PAN, licence and registration numbers, contact details |
+| `vendor_categories`, `vendor_types` | The two optional masters, `RESTRICT`-ed from the header |
+| `vendor_contacts` | People, with their own phone and email |
+| `vendor_addresses` | Places, carrying the same six geography keys every address-bearing module uses |
+| `vendor_bank_accounts` | Where a payment goes |
+| `vendor_tax_details` | Registration rows — and the drug licence, which is why it is checked per row |
+| `vendor_attachments`, `vendor_notes` | Documents and free text |
+| `vendor_attribute_values` | The firm's custom fields, in typed columns rather than JSON |
+
+`business_attributes` on the header is a JSON column and is **not** the custom
+fields mechanism; industry-specific fields belong in `vendor_attribute_values`
+through `AttributeService`, where a list filter can index them.
+
+## Rules that bite
+
+1. **Code and GSTIN are unique per firm, not globally.** `UQ_vendors_firm_code`
+   and `UQ_vendors_firm_gstin` are composite with `firm_id`, so two firms may
+   each have a `V001`, and one firm may not. The service checks first for the
+   message and the database constraint catches the race — both paths answer
+   *"Vendor code or GSTIN already exists in this firm."*
+2. **A `PUT` leaves alone what it does not name, and an explicit `null`
+   still clears.** Both halves of the request now read silence the same way.
+   Until 2026-09-16 the header did not: `_vendor_values` dumped the whole
+   write model, so a payload naming only a phone number also set `gstin`,
+   `pan` and `website` back to null -- the trap that wiped a product's tax
+   group and units the day before, and the convention in
+   [`API_AND_PERSISTENCE_CONVENTIONS.md`](API_AND_PERSISTENCE_CONVENTIONS.md).
+   Create is unchanged: there a default really is the value to store.
+   The **collections** have always worked this way and are guarded
+   separately -- each is touched only when the caller actually sent it
+   (`is not None`), so a client that does not manage contacts cannot erase
+   them by omission. A submitted collection is reconciled row by row, and a
+   row that has gone answers *"A vendor contact no longer exists."* rather
+   than being silently re-created.
+3. **A drug licence is a feature-gated field, not a feature-gated vendor.** A
+   firm whose profile lacks `DRUG_LICENSE` still keeps vendors — it simply has
+   no business recording a licence number against one. The check runs over
+   **every submitted tax row** (`tax[0].drug_license`, `tax[1]…`), because the
+   number lives on the tax rows rather than on the header. A firm with no
+   resolvable profile is never gated: a configuration gap is not a decision.
+4. **A category or type a live vendor still names cannot be retired.**
+   *"This category is used by 3 vendor(s) and cannot be deleted. Move them to
+   another category first."* Both keys carry `ondelete="RESTRICT"`, which
+   reads like protection and is not: these masters are soft-deleted, and a
+   soft delete never reaches the database's referential check -- the trap
+   geography documents in section 6. So the refusal lives in the service,
+   where products have had one since they were written. It counts **live**
+   vendors: a retired vendor does not hold its category open. Added
+   2026-09-16, when writing this section found vendors to be the one master
+   module without it.
+5. **Deleting a vendor does not delete their history.** Purchase orders,
+   receipts, invoices and settlements hold the vendor id and go on naming it.
+   That is the point of a soft delete: the documents stay readable and the
+   vendor stops appearing in pickers.
+
+---
+
 # 12. Territory, routes and beats
 
 ## What it does
@@ -2113,6 +2253,173 @@ invoice must state existed only in a prunable log.
 
 ---
 
+# 17. Proforma invoices
+
+## What it does
+
+A bill that is not a bill: what an order **will** be charged, stated in
+advance. A buyer often needs a document before the goods move — to open a
+letter of credit, to get a payment approved internally, to clear customs, to
+release funds against an advance. A quotation is an offer and a tax invoice is
+a demand; the proforma is the thing in between.
+
+It is raised from an **approved sales order** and states that order's lines,
+prices and tax. It moves no stock, raises no revenue and creates no
+receivable.
+
+## Configure first
+
+| Thing | Needed for |
+| --- | --- |
+| An **approved** sales order | There is nothing else to state |
+| A `PROFORMA_INVOICE` document type with its own numbering series | The number on the document |
+
+Tax setup matters only in that the proforma repeats what the order computed;
+it runs no tax engine of its own.
+
+## Workflow
+
+| # | Step | Permission | Result |
+| --- | --- | --- | --- |
+| 1 | Raise it against an approved order | `PROFORMA_MANAGE` | `DRAFT`, numbered from the proforma series |
+| 2 | Correct it while it is still yours | `PROFORMA_MANAGE` | Still `DRAFT` |
+| 3 | Issue it | `PROFORMA_MANAGE` | `ISSUED`, and now frozen |
+| 4 | Replace it, if terms change | `PROFORMA_MANAGE` | A new proforma whose `supersedes_id` points at the old one |
+| 5 | Cancel it | `PROFORMA_MANAGE` | `CANCELLED`; nothing to unwind, because nothing posted |
+
+The sales chain is untouched by all of this. The order proceeds to delivery
+and a tax invoice exactly as it would have.
+
+## How to use it
+
+**Sales › Proforma** (`PROFORMA_VIEW`). Two reports sit beside the register:
+**Register** lists what was issued over a period, and **Outstanding** lists
+proformas that have not yet turned into an invoice — the follow-up list for
+whoever is chasing an advance.
+
+```powershell
+uv run python scripts/dump_route_permissions.py --markdown proforma
+```
+
+## Tables
+
+| Table | Holds |
+| --- | --- |
+| `proforma_invoices` | Header: the order it states, its own number (unique per firm), `valid_until`, status, and `supersedes_id` |
+| `proforma_invoice_lines` | The stated lines, with the prices and tax the order carried |
+
+**Neither table has a `journal_entry_id` or a `receivable_transaction_id`, and
+that absence is the design** — see rule 1.
+
+## Rules that bite
+
+1. **A proforma posts nothing, and there is deliberately nowhere to record
+   that it did.** No revenue, no output tax, no receivable, no stock movement.
+   The columns are missing on purpose: adding either one later is the first
+   step towards a document that looks like a bill to the books as well as to
+   the customer.
+2. **Its number comes from its own series, never the tax invoice's.** GSTR-1's
+   DOCS section declares the invoice series a firm issued, so a proforma
+   drawing from that series would either leave a gap the return cannot explain
+   or put a number in it that was never a supply.
+3. **Once issued it cannot be edited** — *"Only a draft proforma can be
+   changed. Once it has gone to the customer, raise a replacement instead."*
+   The customer may already be arranging payment against that number, and a
+   document that quietly changed under them is worse than a second one that
+   says it replaces the first.
+4. **Only an approved order can be stated** — *"A draft is not a deal and a
+   cancelled one has been called off."* An order with no lines is refused too:
+   there is nothing to state.
+
+---
+
+# 18. Credit notes
+
+## What it does
+
+Money credited to a customer **without goods coming back** — a rate agreed
+after invoicing, a quality allowance, a billing error. It always names the
+invoice it credits, and it reverses that invoice's **tax** along with its
+value.
+
+This is deliberately **not** a sales return. A return is goods coming back:
+stock moves, the warehouse counts them, and cost of goods sold is reversed at
+what the movement was worth. A credit note moves no stock at all. Conflating
+the two would put a stock movement behind a rate correction, which is the
+shape of defect that leaves a warehouse disagreeing with its own ledger.
+
+**Why the module exists.** A credit note already existed as a row in
+`customer_receivable_transactions`, raised from the customers router. It
+reduced what the customer owed, booked the whole figure to sales returns — and
+reversed **no output tax at all**. A firm that agreed a rate difference after
+invoicing credited the customer the gross amount and went on declaring tax on
+a price nobody paid.
+
+## Configure first
+
+| Thing | Needed for |
+| --- | --- |
+| An **approved** sales invoice | The document being credited, and the rates to reverse at |
+| Open books with `OUTPUT_TAX`, `SALES_RETURNS` and `ACCOUNTS_RECEIVABLE` mapped | The journal the approval posts |
+| A `CREDIT_NOTE` document type and series | The number |
+
+## Workflow
+
+| # | Step | Permission | Result |
+| --- | --- | --- | --- |
+| 1 | Raise it against an approved invoice, line by line, with a reason | `CREDIT_NOTE_MANAGE` | `DRAFT`; nothing has posted |
+| 2 | Correct it | `CREDIT_NOTE_MANAGE` | Still `DRAFT` |
+| 3 | Approve it | `CREDIT_NOTE_APPROVE` | Posts the journal, reduces the receivable, stamps `journal_entry_id` and `receivable_transaction_id` |
+| 4 | Cancel it | `CREDIT_NOTE_APPROVE` | Reverses what it posted |
+
+Approving is a separate permission from raising on purpose: whoever states
+that the firm owes money back should not be the only person who agrees it.
+
+## How to use it
+
+**Sales › Credit Notes** (`CREDIT_NOTE_VIEW`). Three reports: **Register**,
+**By customer**, and **By reason** — the last is the one that tells a firm
+whether it is crediting for quality, for pricing, or for its own billing
+mistakes.
+
+```powershell
+uv run python scripts/dump_route_permissions.py --markdown credit_note
+```
+
+## Tables
+
+| Table | Holds |
+| --- | --- |
+| `credit_notes` | Header: `sales_invoice_id` (required), reason, status, and the `journal_entry_id` / `receivable_transaction_id` stamped at approval |
+| `credit_note_lines` | One line per invoice line credited, carrying the rate that invoice charged |
+
+## Rules that bite
+
+1. **It always names the invoice it credits, and the line it credits.** Tax
+   has to be reversed at the rate that **was charged**, not at today's rate,
+   and only the original line knows what that was — the same reasoning that
+   stops an invoice re-reading a customer's discount. It is also what a GST
+   credit note has to state. A line naming no invoice line is refused: *"A
+   credit note line must name a line of the invoice it credits."*
+2. **You cannot credit more than was charged.** The cap is per line and counts
+   what earlier notes already took: *"A credit note cannot credit more than
+   the line was charged: X charged, Y already credited."* The invoice line is
+   **locked while the cap is read**, so two notes racing cannot both see the
+   same headroom — a sum guarded by a read is not guarded at all (see
+   [`API_AND_PERSISTENCE_CONVENTIONS.md`](API_AND_PERSISTENCE_CONVENTIONS.md)).
+3. **Only an approved invoice can be credited** — *"A draft is not a sale, and
+   a cancelled one has already been undone."*
+4. **Only a draft can be changed** — *"Cancel this one and raise another."*
+   Once it has posted, editing it would rewrite a journal that has already
+   been declared.
+5. **A credit note for nothing cannot be approved.** Zero value, zero tax,
+   nothing to post.
+6. **It is not a sales return, and the two are not interchangeable.** If goods
+   are physically coming back, raise a sales return so the stock moves and the
+   cost is reversed at what the movement was worth.
+
+---
+
 # 19. Receipts, payments and refunds
 
 ## What it does
@@ -2407,3 +2714,438 @@ find its control account is refused rather than posted to a guess.**
 `ledger_accounts` · `ledger_balances` · `journal_types` · `journal_entries` ·
 `journal_lines` · `gl_postings` · `voucher_types` · `firm_control_accounts` ·
 `cost_centers` · `profit_centers` · `customer_ledgers` · `vendor_ledgers`
+
+---
+
+# 24. Tax collected at source
+
+## What it does
+
+Section 206C(1H): what a seller collects from a buyer **on the money the buyer
+pays**. It is unlike every other tax in this system, and the difference decides
+the whole design — the statute says *"at the time of receipt of such amount"*,
+so the event that raises a liability is a **receipt**, never an invoice being
+approved.
+
+Putting it on the invoice — which is what makes it look like just another tax
+line — collects it on money that may never arrive, and misses money that
+arrives against an older bill.
+
+## Configure first
+
+**Sales › TCS › Settings** (`TCS_MANAGE`), per firm:
+
+| Setting | Means |
+| --- | --- |
+| `is_enabled` | Whether this firm collects at all. **A seller below the turnover threshold collects nothing** — and whether a firm is above it is a fact the firm *states*, because its preceding year may predate its books here |
+| `threshold_amount` | The per-buyer, per-year floor (₹50,00,000 under 1H) |
+| `rate_percent` | The rate on the excess |
+| `rate_without_pan_percent` | The higher rate for a buyer with no PAN |
+| `section_code` | Which section this row is for |
+
+The books need `TCS_PAYABLE` mapped — account **2500**, deliberately not 2200
+Output Tax: TCS is not GST, it is filed on a different return on a different
+cycle, and netting the two would put a quarterly payment inside a monthly one.
+
+## Workflow
+
+| # | Step | Permission | Result |
+| --- | --- | --- | --- |
+| 1 | State the firm's position and rates | `TCS_MANAGE` | Row in `tcs_settings` |
+| 2 | Preview what a receipt would collect | `TCS_VIEW` | Nothing stored — a calculation |
+| 3 | Record a receipt | `RECEIPT_*` | If the buyer is past the threshold, a `tcs_collections` row and a credit to TCS Payable |
+| 4 | Read what has been collected | `TCS_VIEW` | The register, per buyer and period |
+
+## How to use it
+
+**Sales › TCS** (`TCS_VIEW`) — settings, a preview calculator, and the
+collections register.
+
+```powershell
+uv run python scripts/dump_route_permissions.py --markdown tcs
+```
+
+## Tables
+
+| Table | Holds |
+| --- | --- |
+| `tcs_settings` | One row per firm per section: enabled, threshold, both rates |
+| `tcs_collections` | What was collected, against which receipt and which buyer, in which financial year |
+
+## Rules that bite
+
+1. **It is charged on the money, not on the bill.** The receipt is the taxable
+   event. A bill that is never paid collects nothing; a payment against a
+   two-year-old bill collects at today's rules.
+2. **Only the excess counts.** The first ₹50,00,000 a buyer pays in a financial
+   year attracts nothing, and a receipt straddling that line is charged **on
+   the part above it and no more** — not on the whole receipt.
+3. **The threshold is per buyer, per financial year, and it resets.** The
+   running total is scoped to both and is **derived by summing the
+   collections**, never held as a counter. A counter and a reversal are two
+   chances to disagree.
+4. **The financial year is the firm's own**, not the calendar year and not
+   April-to-March by assumption.
+5. **A buyer with no PAN is charged the higher rate**, which is why the setting
+   is two rates rather than one.
+6. **A firm below the turnover threshold collects nothing at all**, and that is
+   a statement the firm makes — the platform cannot derive it from books that
+   may not go back far enough.
+
+---
+
+---
+
+# 25. GST returns
+
+## What it does
+
+What a firm has to declare for a period, read off what it actually sold.
+Two reads: **GSTR-1** (outward supplies, section by section) and **GSTR-3B**
+(the summary).
+
+**Nothing here stores anything.** A return is a *view of the documents*, and
+the moment it were stored it could disagree with them — a cancelled invoice, a
+credit note raised late, an amended rate. So it is derived on every read, from
+the invoices and credit notes as they stand.
+
+The sections are the ones this system's data can honestly fill:
+
+| Section | What it carries |
+| --- | --- |
+| **B2B** | Supplies to a customer carrying a GSTIN, invoice by invoice |
+| **B2CL** | Inter-state supplies to an unregistered customer above the invoice-wise threshold |
+| **B2CS** | Everything else unregistered, summarised by place of supply and rate — net of credit notes issued to those buyers in the period |
+| **CDNR** | Credit notes against registered customers |
+| **HSN** | What was sold, by HSN code and rate |
+| **DOCS** | The document series issued |
+
+## Configure first
+
+| Thing | Needed for |
+| --- | --- |
+| The firm's own GSTIN | Placing the supplier, and deciding what is inter-state |
+| Customers' GSTINs where they have one | The B2B / B2CS split |
+| `hsn_code` on products | The HSN section |
+| Tax rules that actually charged the documents | Everything — the return reads what was charged |
+| A proforma series separate from the invoice series | DOCS declaring a clean series (see section 17) |
+
+## Workflow
+
+There is no workflow to speak of, and that is the design: pick a period and
+read. `GET /api/v1/gst-returns/gstr1` and `/gstr3b`, both `SALES_VIEW`.
+Filing itself happens on the portal — this produces the figures.
+
+## How to use it
+
+**Sales › GST Returns** (`SALES_VIEW`).
+
+```powershell
+uv run python scripts/dump_route_permissions.py --markdown gst_returns
+```
+
+## Tables
+
+**None.** This module owns no table. It reads sales invoices, credit notes,
+customers and products, and returns a computed document.
+
+## Rules that bite
+
+1. **A supply is placed by the tax it was charged.** The document settles the
+   place of supply, and for an unregistered buyer nothing else can — there is
+   no GSTIN to read a state code from.
+2. **An invoice that cannot be placed is reported, not filed.** Where the tax
+   says a border was crossed and the buyer is unregistered, the invoice lands
+   in `unplaced_invoices` rather than being filed with a blank cell the portal
+   would reject. **Read that list every period** — it is the module telling you
+   its input is wrong, not its output.
+3. **3B is aggregated from the documents, not parsed out of GSTR-1's JSON.**
+   Deriving one return from another's serialised output makes a formatting
+   change into an accounting change.
+4. **A credit note to an unregistered customer is netted off its B2CS row**,
+   not filed in CDNR. There is nobody to reverse a claim, and the section has
+   no room for a number nobody reads.
+5. **Every figure that leaves here is in rupees and paise.** Documents are
+   priced to four decimals and no portal accepts that, so the rounding happens
+   **once, on the way out** — the running totals behind it keep the scale they
+   were priced at.
+6. **This module and `app/einvoice` split a line's tax through the same
+   `split_components`**, so what is filed and what was registered can never
+   disagree about which bucket a component belongs in.
+
+---
+
+---
+
+# 26. E-invoicing and e-way bills
+
+## What it does
+
+What the government portal gave back for an invoice, and for its movement. An
+e-invoice is registered with the Invoice Registration Portal, which returns an
+**IRN**; an e-way bill is raised from that same registration for the goods it
+covers.
+
+Two registrations, one module, because they share one portal, one set of
+credentials and one failure story.
+
+**Today the only portal implemented is the sandbox.** That is a statement about
+the codebase, not about the design — see rule 1, which is the rule this whole
+module is shaped around.
+
+## Configure first
+
+| Thing | Needed for |
+| --- | --- |
+| An **approved** sales invoice | There is nothing to register otherwise |
+| The firm's GSTIN, and the buyer's where they have one | The payload the portal validates |
+| `hsn_code` on every product on the invoice | The same |
+| The firm's e-invoice **mode** | Which portal is talked to — `SANDBOX` rehearses, `LIVE` files |
+
+## Workflow
+
+| # | Step | Permission | Result |
+| --- | --- | --- | --- |
+| 1 | Register an approved invoice | `EINVOICE_MANAGE` | Row in `einvoice_registrations` with the IRN, the acknowledgement and the **mode it was made in** |
+| 2 | Generate the e-way bill for it | `EINVOICE_MANAGE` | Row in `eway_bills`, with transport mode and vehicle |
+| 3 | Cancel either, with a reason | `EINVOICE_MANAGE` | Withdrawn, reason recorded |
+| 4 | Read the register | `EINVOICE_VIEW` | What is registered, and in which mode |
+
+## How to use it
+
+**Sales › E-Invoice** (`EINVOICE_VIEW`).
+
+```powershell
+uv run python scripts/dump_route_permissions.py --markdown einvoice
+```
+
+## Tables
+
+| Table | Holds |
+| --- | --- |
+| `einvoice_registrations` | The IRN, acknowledgement number and date, the signed payload, the status, and `mode` |
+| `eway_bills` | The bill number, validity, transport mode and vehicle, against the registration |
+
+## Rules that bite
+
+1. **A sandbox registration must never read as a filing.** A sandbox
+   registration is a rehearsal: no return was filed, no IRN exists at the
+   authority, and the number on it means nothing outside this database. So
+   `mode` is **NOT NULL with no server default** — a default is one migration
+   away from quietly becoming `LIVE` — and the reference the sandbox mints is
+   **prefixed** so it cannot be mistaken even out of context. A row that could
+   not say which it was would be a document somebody eventually presents at a
+   check post.
+2. **`portal_for("LIVE")` raises rather than falling back to the sandbox.** A
+   firm that has switched to LIVE and has no credentials must be told loudly:
+   silently rehearsing while somebody believes they are filing is the worst
+   outcome this module has available.
+3. **Cancelling requires a reason** — *"Say why the registration is being
+   withdrawn."* — and so does cancelling an e-way bill. The portal asks; so
+   does this.
+4. **An e-way bill needs a live registration.** *"This invoice has no live
+   registration."* The bill is raised from the registration, not from the
+   invoice directly.
+5. **Transport mode is a closed list** — ROAD, RAIL, AIR or SHIP.
+6. **This module and `app/gst_returns` split a line's tax through the same
+   `split_components`**, so what is registered and what is filed cannot
+   disagree about which bucket a component belongs in.
+
+---
+
+---
+
+# 27. Inventory operations
+
+## What it does
+
+What the warehouse holds, what it is worth, and every movement that got it
+there. Most stock movement is a *consequence* of a document — a goods receipt
+brings stock in, a delivery note takes it out — and this module is the other
+half: the movements a firm makes **about** its stock rather than about a trade.
+Opening balances, adjustments, transfers, write-offs, quarantine and physical
+counts.
+
+It also owns the two reads everything else asks: **what is on hand** (by firm,
+branch, warehouse or product) and **how it got that way** (the stock ledger).
+
+## Configure first
+
+| Thing | Needed for |
+| --- | --- |
+| A branch and a warehouse | Stock has to be somewhere (section 5) |
+| Products, with their stock flags | `require_batch_on_issue` decides whether a dispatch may leave a batch unnamed |
+| Open books with `INVENTORY`, `INVENTORY_ADJUSTMENT`, `COST_OF_GOODS_SOLD` and `OPENING_BALANCE_EQUITY` mapped | Every movement posts |
+| UOM setup | A line entered in cases and stocked in pieces |
+
+## Workflow
+
+**Opening stock** is a document, not a field:
+
+| # | Step | Permission | Result |
+| --- | --- | --- | --- |
+| 1 | Open a batch and enter lines (or import XLSX) | `OPENING_STOCK_CREATE` / `INVENTORY_IMPORT` | `DRAFT` — nothing has moved |
+| 2 | Edit while draft | `OPENING_STOCK_UPDATE` | Still draft |
+| 3 | Post it | `OPENING_STOCK_CREATE` | Stock exists, valued, against Opening Balance Equity |
+
+**A physical count** is a document too, and for the same reason — the sheet is
+filled in over hours by people walking a warehouse, and posted once at the end.
+An endpoint that applied counted quantities immediately would lose everything
+the moment somebody closed a laptop.
+
+| # | Step | Permission |
+| --- | --- | --- |
+| 1 | Open a count | `INVENTORY_ADJUST` |
+| 2 | Record what was found, line by line | `INVENTORY_ADJUST` |
+| 3 | Post it — every difference becomes an adjustment | `INVENTORY_ADJUST` |
+| 4 | Or cancel it | `INVENTORY_ADJUST` |
+
+**The single movements** — `POST /adjustments`, `/transfers`, `/write-offs`,
+`/quarantine` — each move stock between buckets or locations and each post a
+journal.
+
+## How to use it
+
+| Task | Where |
+| --- | --- |
+| What is on hand | **Inventory › Inventory** and **Stock Summary** (`INVENTORY_VIEW`), with by-firm, by-branch, by-warehouse and by-product reads |
+| How it got there | **Inventory › Stock Ledger** (`INVENTORY_LEDGER_VIEW`) and **Transactions** (`INVENTORY_TRANSACTION_VIEW`) |
+| Opening balances | **Inventory › Opening Stock** |
+| Adjust, transfer, write off, quarantine | **Inventory**, each its own action (`INVENTORY_ADJUST`) |
+| Count the shelves | **Inventory › Physical Count** |
+
+```powershell
+uv run python scripts/dump_route_permissions.py --markdown inventory
+```
+
+## Tables
+
+| Table | Holds |
+| --- | --- |
+| `inventories` | The current position: one row per firm/branch/warehouse/node/product/batch, with **seven** quantity buckets — current, reserved, available, blocked, damaged, quarantine, in-transit |
+| `inventory_transactions` | Every movement, with the before and after of each bucket |
+| `stock_ledger_entries` | The ledger view of those movements, with `average_cost_after` |
+| `product_valuations` | The moving weighted-average cost, one row per **firm and product** |
+| `opening_stock_batches`, `opening_stock_lines` | The opening-balance document |
+| `physical_counts`, `physical_count_lines` | The counting sheet |
+
+## Rules that bite
+
+1. **Valuation is per `(firm, product)`, deliberately not per location.** A
+   per-warehouse average turns every stock transfer into a cost-movement
+   problem, and a per-bin average is noise. The costing method is stored so a
+   firm can move to FIFO later without the table changing shape.
+2. **Available is not current.** Reserved stock is still current and is not
+   available; a dispatch allocates from **available**. Seven buckets exist
+   because a warehouse really does distinguish them, and a screen that reads
+   the wrong one tells the truth about the wrong question.
+3. **A dispatch never takes an expired batch.** "Earliest expiry first", read
+   literally, hands the customer the batch that went out of date last month —
+   which is what it did until 2026-09-16. Expired stock is dropped from the
+   candidates and a resulting shortfall **names the batch and its date**,
+   because the screen still shows that stock as on hand. Expiry is judged on
+   the **document's own date**, so replaying history posts what it posted then.
+4. **No bucket may go negative** — *"<bucket> quantity cannot become
+   negative."* — and the scope checks are real: a branch that is not the
+   firm's, a warehouse that is not the branch's, and a product that is not the
+   firm's are each refused by name.
+5. **A movement is reversed once.** *"This inventory movement was already
+   reversed."* — and a reversal takes the journal off with the stock.
+6. **A leg facing stock is valued from the movement, not from the document.**
+   Goods arrive at one average and leave at another; mirroring a document's
+   value across that gap puts the store out. The difference lands in Purchase
+   Price Variance (see section 4).
+7. **Opening stock posts to Opening Balance Equity**, not to purchases. It is
+   a statement of where the firm started, not something it bought.
+
+---
+
+---
+
+# 28. Reports, search, audit and diagnostics
+
+## What it does
+
+The four things that are *about* the platform rather than part of any trade:
+what happened (reports), finding a record (search), who changed what (audit),
+and what broke (diagnostics).
+
+**Reports are not a module.** There is no `app/reports` package: each module
+publishes its own reports under its own router — 57 report routes across the
+tree — and the desktop gathers them into one workspace through
+`report_catalog.dart`, which lists **56 reports** (re-count it rather than
+trusting that number).
+
+## Configure first
+
+Nothing, for any of the four. They read what the other modules wrote. What
+does matter is that a report is only as good as the masters behind it: a
+by-territory report needs territories assigned, an HSN summary needs HSN codes
+on products.
+
+## Workflow
+
+None of these has a workflow. They are reads, with two exceptions worth
+knowing:
+
+- **Diagnostics accepts a write from the client** — `POST /client-errors`,
+  authenticated and no permission code, because the desktop reports its own
+  crashes. Reading them needs `DIAGNOSTICS_VIEW`.
+- **The audit trail is append-only at the database level**, enforced by the
+  `TR_audit_logs_append_only` trigger, and every schema owns its own copy of
+  that trigger and the function it calls.
+
+## How to use it
+
+| Task | Where | Permission |
+| --- | --- | --- |
+| Every report the signed-in user may open | **Reports** | per report |
+| Find a record across modules | The shell's global search | firm scope; results are filtered by what you may see |
+| Who changed what | **Settings › Audit Logs** | `AUDIT_LOG_VIEW` |
+| What the client crashed on | **Settings › Diagnostics** | `DIAGNOSTICS_VIEW` |
+
+```powershell
+uv run python scripts/dump_route_permissions.py --markdown search
+uv run python scripts/dump_route_permissions.py --markdown diagnostics
+```
+
+## Tables
+
+| Table | Holds |
+| --- | --- |
+| `audit_logs` | Every mutation: actor, entity, action, before and after. **Per store**, not central |
+| `error_reports` (diagnostics) | Client crashes, grouped by fingerprint, with their occurrences |
+
+Search and reports own no tables — both read the modules'.
+
+## Rules that bite
+
+1. **The audit trail is per store, not central.** Platform administration
+   writes to `platform.audit_logs`; every firm-owned mutation writes to that
+   firm's own store, because `record_audit` runs on whichever session `get_db`
+   resolved. That is deliberate — a DATABASE-mode firm's history has to live
+   inside its own database for the isolation guarantee to hold. **No single
+   query can answer "everything that happened"**; a cross-firm view iterates
+   the stores.
+2. **A firm's trail is its own store plus the platform rows that belong to
+   it.** `AuditLogReader.list_events_with` merges on the **read** — exactly
+   once per store, with the same filters on both, and never merging a store
+   with itself, which a one-schema unit suite would otherwise do. Only
+   `tests/integration/` can see that class of bug.
+3. **`GET /api/v1/audit-logs` reads one trail, chosen by firm context.** No
+   `X-Firm-ID` plus platform authority gives the platform trail; `X-Firm-ID`
+   gives that firm's. Date filters are inclusive UTC calendar days.
+4. **Audit rows cannot be edited or deleted**, by trigger. Anything that
+   shapes a firm store must leave both the trigger and its function alone —
+   `prune_platform_objects` once dropped the function `CASCADE`, which took
+   every dedicated store's trigger with it and left the trail rewritable.
+5. **Search is permission-filtered per module, not once at the top.** A user
+   who may see customers but not products gets customers back and no products
+   — not an empty result and not a 403.
+6. **A report needs its own entry in `report_catalog.dart` to be reachable.**
+   The orphan-route guard matches path *shapes*, so a sibling's entry makes an
+   unlisted report look reachable; `tests/unit/test_reports_have_a_screen.py`
+   asks it both ways. A report nobody can open is how whole features have gone
+   missing here.
+
+---
