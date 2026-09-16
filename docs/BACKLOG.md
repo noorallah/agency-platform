@@ -2685,3 +2685,397 @@ second one.
 **Cost.** Three lines in `_apply`, a field on `AuditLogFilters`, a query
 parameter, one box on the screen, and tests for each -- including one that a
 partial term matches, which is the thing that is wrong today.
+
+---
+
+## 35. Daily and manual backups
+
+Raised 2026-09-16 while walking the platform end to end.
+
+**The observation.** Nothing backs anything up. There is no backup script,
+endpoint, screen, test or scheduler anywhere in the repo. Four permission codes
+-- `SYSTEM_BACKUP`, `SYSTEM_RESTORE` (`app/identity/system_seed.py`) and
+`RESTORE_BACKUP`, `DATABASE_MAINTENANCE` -- are seeded and enforced by a CHECK
+constraint in `20260801_0010`, and **nothing reads them**: the same shape as the
+unused licensing codes. `app/platform/backup/` is an empty untracked directory
+left behind by the 2026-08-09 deletion, not a package.
+
+**The ask.** A daily automated backup and a manual trigger, covering the whole
+installation and restorable as a whole. Per-firm restore is a later item; see
+the constraint below.
+
+**Shape of the work.**
+
+- One script, `backend/scripts/backup_all_stores.py`, enumerating targets from
+  the registry the way `scripts/migrate_all_stores.py` and
+  `scripts/purge_retention.py` already do, so it cannot miss a store when one is
+  added. Take the **profile-keyed** dedup `(connection_profile, database_name,
+  schema_name)` from the purge -- two firms on different hosts may share a
+  database and schema name -- and the **subprocess-with-env** execution and the
+  report-every-store, exit-non-zero-if-any-failed policy from the migrator.
+- Resolve every credential through `app/core/tenancy/connections.py`
+  (`resolve_connection_profile` + `build_tenant_database_config`). A backup job
+  is that module's **third consumer, not a fourth implementation**. `pg_dump`
+  needs host, port, database, user and schema as separate values, and the
+  password via `PGPASSWORD` in the subprocess env, never on the command line.
+- **The platform schema is a mandatory target.** `firms`, `user_firms`,
+  `platform_admins` and `firm_storage_mappings` live only there; a firm store
+  restored without its mapping row is unreachable data.
+- **Back up soft-deleted firms too.** Both existing scripts filter
+  `Firm.is_deleted == False`, which is right for migrating and pruning and wrong
+  here -- `docs/TENANCY_AND_STORES.md` says their data is still there. A
+  dedicated firm with `provisioned_at` NULL has no tables and must be a skip,
+  not a failure.
+- Rotation, retention and a stated location for the artefacts. Sizing is
+  favourable: `docs/HARDWARE_SIZING.md` measures 294 MB of tables for four firms
+  over two years, 85% of it prunable logs, against a 128-256 GB SSD. Add a
+  backup-storage line to that doc; it sizes live data only today.
+- **A restore drill.** A backup nobody has restored is not a backup. The CI
+  `integration` job already stands up `postgres:17` and migrates two schemas, so
+  a dump-and-restore round trip has a natural home there.
+- **Two schedulers are needed, not one.** The `retention` compose service in
+  `backend/docker-compose.yml` is the template -- opt-in, `while true; do ...;
+  sleep; done`, needing `AGENCY_TENANCY_CONNECTION_PROFILES` or a firm on
+  another server fails. But that loop exists **only inside compose**, and the
+  native Windows installer (`install/install.ps1`) registers no scheduled task
+  at all. The actual product deployment has no mechanism to run any recurring
+  job; that gap has to be closed for a daily backup to mean anything.
+
+**Decisions still open.**
+
+- Script only, or a platform-admin endpoint and a button? An endpoint needs a
+  job runner, progress and a guard against ten concurrent dumps. The four seeded
+  permission codes are the natural gate -- check which group is the platform set
+  before wiring one.
+- **Opt-in or opt-out?** Retention is opt-in *because it deletes*. A backup does
+  not delete, so the same default is arguably wrong -- but inverting it
+  contradicts the only precedent, so decide it deliberately.
+- Which database principal dumps? `SECURITY_ARCHITECTURE.md` already separates
+  runtime from migration credentials; a dump needs read on everything.
+- **The artefact is a credential store.** A platform dump contains
+  `users.password_hash`, `refresh_tokens` and `platform_admins`. Encryption at
+  rest, file permissions and an off-box location are part of the item.
+
+**The constraint that shapes per-firm restore later.** A `SHARED`-mode firm's
+rows are interleaved with every other shared firm's in `firm_shared`, separated
+only by a `firm_id` predicate, so restoring that schema restores all of them to
+one point in time. `SCHEMA` and `DATABASE` firms restore independently. Any
+per-firm promise must be qualified by deployment mode or implemented as a
+row-filtered logical restore. A restore that rebuilds a store by running
+migrations must also re-apply `prune_platform_objects`, or it recreates the
+defect pruning exists to prevent.
+
+Not a bug -- a missing capability the platform has always implied, four
+permission codes' worth, and never had.
+
+---
+
+## 36. Onboarding a firm from its previous tool
+
+Raised 2026-09-16. **Everything here is a provisional recommendation, not a
+decision** -- how much data comes across, and who converts it, are still open.
+
+**The observation.** Replacing a customer's existing tool (Tally, Busy, Marg, or
+spreadsheets) means getting their masters and their current position into a new
+firm. **Nineteen import endpoints already exist**, each taking a batch of the
+same create payloads as its single-record route (`CustomerImportRequest` is
+`records: list[CustomerCreate]`, 1-1000), staged and committed once in the nine
+modules that were repaired. So the loading half is largely built. Four things
+make today's imports unfit for a real cutover:
+
+- **No import framework.** CSV/XLSX parsing is copy-pasted across five modules,
+  each with its own `csv.DictReader`, its own hardcoded header names and its own
+  "Install openpyxl" message. Unknown columns and short rows are dropped
+  **silently**.
+- **No per-row error report and no dry run.** A batch lands whole or returns one
+  error naming neither the row nor the field. The only row index a caller sees
+  is FastAPI's `body.records.236.phone`, which the desktop re-derives by regex.
+- **No external identifier on any master**, so no import can be re-run: every
+  `import_*` calls `create`, never an upsert. `TaxMigrationMapping`
+  (`legacy_tax_code`, `source_system`) is the one genuine migration artefact and
+  covers tax codes only.
+- **Eleven of the nineteen endpoints have no client**, including customers,
+  vendors and every sales and purchase document.
+
+**The ask.** A repeatable way to stand up a firm from its old system's data,
+good enough that onboarding is a day's work rather than a project.
+
+**The recommended shape, to be reviewed.**
+
+- **Migrate balances, not history.** Masters plus a starting position: stock on
+  hand with costs, customer and vendor outstanding, opening trial balance. The
+  old system stays readable for history. This is what the platform is built for
+  -- `opening_balance` posts a journal, opening stock is a draft-then-post
+  document. Re-creating years of past invoices would post journals for trading
+  that happened in another set of books.
+- **Generate the workbook template from the create schemas**, one sheet per
+  entity, with a script -- the discipline `scripts/dump_route_permissions.py`
+  and `scripts/dump_table_catalogue.py` already use. A hand-written template
+  drifts from the schema the first time a field is added.
+- **Reference by code, never by id.** Category, UOM, `tax_profile_group_code`,
+  state, customer group, resolved by the importer, with an unknown code reported
+  as a row error. This is where most of the work is, and what makes the file
+  fillable by a human.
+- **Follow the masters order** in `docs/FUNCTIONAL_GUIDE.md`'s runbook (units
+  and tax before products, groups before customers) and refuse to run out of
+  order rather than half-load.
+- **Dry run, then commit once.** Validate every row, return a per-row error
+  report, write nothing; then stage and commit once.
+- **Keep the source system's identifier.** A `LEGACY_CODE` custom attribute
+  needs no schema change and is indexed on `(firm_id, value_text)`, but
+  `AttributeDefinition.code` is globally unique with no `firm_id`, nothing
+  enforces uniqueness of the value, and only products expose an attribute filter
+  today. A real `external_id` column may be the honest answer.
+- **Masters and balances are separate passes**, so a failed balance load does
+  not take the masters with it.
+- **Copy the Inventory Import Wizard**
+  (`desktop/lib/ui/inventory/inventory_import_wizard.dart`). It is already the
+  right shape: file picker plus drag-and-drop, client-side parse, validation
+  against loaded masters before sending, a per-row error table, a downloadable
+  error CSV, retry, and a sample CSV guarded against drift by
+  `tests/unit/test_import_samples_match_the_server.py`.
+- **Duplicates on a re-run:** import under a suffixed code and reconcile by
+  hand. Safe only **before the firm starts trading** -- once any document
+  references a master record, two records for one party is expensive: the
+  receivable ledger, every document and the credit exposure hang off the id, and
+  soft-deleting the loser does not move its balance. There is no merge tool.
+
+**Two cutover gaps that block a real migration.**
+
+- **No vendor opening balance and no vendor payable ledger.** A customer's
+  `opening_balance` posts `Dr Trade Receivables / Cr Opening Balance Equity` and
+  writes a typed receivable transaction; `Vendor` has no equivalent column, no
+  `VendorPayableTransaction`, and `post_opening_balance` is hardcoded to
+  `customer_id` and `ACCOUNTS_RECEIVABLE`. A firm cannot load what it owes its
+  suppliers on day one.
+- **No opening trial balance loader.** `LedgerBalance.opening_balance` is
+  derived and carried forward, never written as an input, and `app/finance` has
+  no import route. Cash, bank, fixed assets, loans, retained earnings and tax
+  balances can only be entered as hand-typed journal entries, one at a time. The
+  `OPENING_BALANCE_EQUITY` control account exists precisely as their
+  counterpart, and nothing but stock and customer balances posts to it.
+- Smaller: the customer opening balance posts dated **today**, not a chosen
+  cutover date, and firm readiness has no "opening balances" or "masters loaded"
+  step, so nothing tells a firm its cutover is incomplete.
+
+**Open questions for the review.**
+
+- Which tools are customers actually coming from, and in what formats? Build
+  nothing per-tool until real export files have been seen.
+- Does the customer's team prepare the data, or is it part of onboarding? That
+  decides whether a fixed template suffices or a column-mapping screen earns its
+  cost. Start with the template; a mapping screen and per-tool converters are
+  later items.
+- Is "look it up in the old system for a year" acceptable, or do they expect
+  history in one place from day one? This is the question that would overturn
+  "balances, not history".
+- Are vendor payables and the opening trial balance part of this item or their
+  own? Without them a migrated firm's books are wrong on day one.
+
+Not a bug -- nineteen import endpoints exist and are staged correctly where they
+were repaired; what is missing is the onboarding layer around them, two cutover
+gaps, and clients for eleven of the endpoints. No customer has been migrated yet.
+
+---
+
+## 37. Scope the screens to a financial year -- low priority
+
+Raised 2026-09-16.
+
+**The observation.** Every document list and report reads across all history. A
+firm three years in scrolls past two years of invoices to find this month's. The
+pieces to fix it exist: `financial_years` carries `starts_on`/`ends_on` per firm,
+list endpoints already take inclusive `created_from`/`created_to` filters, the
+P&L already stops at the financial year, and the balance sheet already splits
+this year from what came before.
+
+**The ask.** A financial-year scope in the shell, beside the firm switcher:
+default to the firm's current year, offer older years and an "all years" option,
+and bound document lists and reports to the selection. It is a **filter**, not a
+data split -- nothing is archived, unloaded or moved.
+
+**Shape of the work.**
+
+- A year selector in the shell header, sourced from the firm's own
+  `financial_years` rows, defaulting to the year containing today.
+- Scope **documents and reports**, passing the range as the existing date
+  filters rather than inventing a parameter.
+- **Make the selection visible.** A silent filter that hides data is the most
+  reliable way to generate "the system lost my invoice" reports.
+
+**Two things that must NOT be year-scoped, or the feature does harm.**
+
+- **Open items.** An unpaid invoice from last year must still appear while
+  working in this year, or the receivables list, the credit check and collection
+  all silently omit it. The rule is "dated in this year **plus** anything still
+  open".
+- **Masters and positions.** Customers, vendors and products do not belong to a
+  year. Neither does stock on hand -- it is a position built from movements going
+  back years.
+
+**What to keep true in the meantime** -- these keep the door open at no cost:
+
+- Every new list endpoint takes a document-date range from the start, following
+  the inclusive `created_from`/`created_to` convention.
+- Transactional tables keep an index on `(firm_id, <document date>)`.
+- `financial_years` stays the authority on year boundaries -- nothing hardcodes
+  April, which is already the rule behind `financial_year_label`.
+- No report is written that can only aggregate all history when a year-bounded
+  form would serve; the balance sheet's retained-earnings derivation is the
+  legitimate exception.
+
+**Performance note, so it is not oversold.** Bounding queries on an indexed range
+is a real gain for lists and reports. It is not the lever for storage: business
+data is ~11 MB per firm per year, while 85% of what is on disk is `audit_logs`
+and `tax_rule_execution_logs`, which the already-built, opt-in retention service
+prunes. Turn that on first. If volume ever genuinely bites, partitioning those
+big append-only tables by date is the next lever and needs no accounting change.
+
+**Explicitly out of scope.** This does not require year-end closing entries and
+must not be confused with them. Two facts established while discussing it, worth
+recording because they constrain any future year-end design:
+`FinancialYear.is_locked` refuses modifying or deleting the year row and does
+**not** block postings -- closing a period is what refuses a posting; and there
+is **no year-end closing entry**, because the balance sheet computes
+`retained_earnings_brought_forward` by subtracting this year's result from
+cumulative earnings on every read. Prior-year data therefore cannot be unloaded:
+removing it silently makes retained earnings wrong.
+
+Not a bug -- the data is all reachable, the screens are simply unbounded.
+
+---
+
+## 38. The same stage switches for purchasing
+
+Raised 2026-09-16.
+
+**The observation.** Selling already bends to a small firm and buying does not.
+`SalesWorkflowSettings` (`app/sales_order/models/sales_order.py`) gives a firm
+one row with three switches -- `quotation_stage`, `sales_order_stage`,
+`delivery_note_stage` -- and `SalesChainService` raises whatever is switched off
+by driving the same services a person would. Its docstring states the case
+plainly: *"a firm run by one person has no use for the first three: they are four
+screens for one counter sale."* The invoice has no switch, because it is what the
+customer receives and what the user actually wants.
+
+Buying has no equivalent. There is no `PurchaseWorkflowSettings` and no purchase
+chain service -- `app/purchase/services/` holds only the service and a print
+service. A one-person firm with the supplier's bill in hand must still type a
+purchase order, receive it, and then record the invoice, and **approval cannot be
+skipped**. The asymmetry looks like an oversight rather than a decision: the same
+argument applies exactly.
+
+**The ask.** Stage switches for the buying chain, so a firm can record the
+purchase invoice and have the order and the goods receipt raised behind it.
+
+**Shape of the work.**
+
+- A `purchase_workflow_settings` row per firm, mirroring the sales table: a
+  **column per stage, not a `mode`**, for the reason the sales docstring gives --
+  a firm changes shape, and each step should be a switch rather than a migration.
+  Every stage defaults **on**, so an existing firm is unchanged until somebody
+  switches one off.
+- A purchase chain service that raises the skipped documents **through the real
+  services**, as `SalesChainService` does. The documents must be real: stock
+  still arrives at the goods receipt, and the reversal rules still hold.
+- A default branch and warehouse on the settings row, the same way the sales
+  table carries one -- receiving refuses a line with no warehouse, and a firm on
+  automatic never sees a field to type one into.
+
+**The part that is not a copy of the sales side.** The buying chain moves stock
+**inwards** at the goods receipt and posts the accrual to *Goods Received Not
+Invoiced* (`2300`) between the receipt and the bill. Synthesising backwards from
+the invoice means posting both sides in the right order so that accrual nets to
+zero, rather than leaving a balance nobody will clear. `2300` is one of the two
+accounts people already ask about; leaving it dangling on every automatic
+purchase would be worse than the typing it saves.
+
+**To decide alongside it.** Whether approval is a stage that can be switched off
+at all. On the sales side the switches remove *documents*; on the buying side
+approval is a *control*, and a firm of one approving its own orders is either
+sensible (there is nobody else) or the point at which the control stops meaning
+anything. Answer it deliberately rather than by copying the sales flags.
+
+Not a bug -- selling bends to a one-person firm and buying does not, and only one
+of the two was ever asked to.
+
+---
+
+## 39. Field collections: record offline, sync on return
+
+Raised 2026-09-17.
+
+**The observation.** A collections person walks a route, takes cash against
+outstanding bills, and has no connectivity while doing it. The platform has the
+route half -- territories, routes, beats, customers in `visit_sequence`, and a
+call list that already says who is due today -- and none of the offline half.
+Nothing in the codebase queues work, detects a replayed write, or reconciles a
+device with the server; grepping for idempotency, offline or sync finds nothing.
+The Android build (`desktop/build_android.ps1`) is the **desktop layout in an
+APK**, built to look at screens on a phone, not a field application.
+
+**The ask.** Let a collector record receipts on a phone with no network, and
+sync them when back at the office, with the system remaining the authority on
+what was actually applied.
+
+**Shape of the work.**
+
+- **A route pack before he leaves.** One download: his route's customers in
+  visit order, each with outstanding and open invoices. It is a snapshot and
+  will be stale by afternoon; that is acceptable because of the re-resolve
+  below.
+- **A queue of intents, not a local ledger.** The device stores the same
+  `SettlementCreate` payloads it would have posted -- party, date, amount,
+  method, instrument reference, allocations. Nothing is computed or authoritative
+  on the phone. This is deliberately **not** an offline replica of the books.
+- **The device assigns the number, from a block issued to it.** This is the part
+  that matters most. `UQ_settlements_firm_number` already makes
+  `settlement_number` unique per firm, and the field is optional on the create
+  payload, so a device-assigned number **is** the idempotency key: a replayed
+  sync collides on the unique key instead of taking the money twice. Best of all
+  is the physical receipt-book number handed to the customer, so the paper, the
+  device and the system carry one identifier. `manual_allowed` on the numbering
+  rule already exists for this case.
+- **The server re-decides at sync.** Allocations are resolved against *current*
+  outstanding, not the morning's snapshot -- the office may have banked a cheque
+  against the same invoice while he was out. Each receipt is its **own**
+  transaction, so one refused row does not roll back the good ones, and the
+  response is a **per-receipt report** rather than one error for the batch.
+- **Sync through `ReceiptService`.** Not a parallel write path. Bulk and import
+  endpoints are already documented here as a second implementation that drifts;
+  a field-sync endpoint would be a third, and it moves money.
+
+**Three things that will bite.**
+
+- **A closed period.** Collected on the 31st, synced on the 2nd, and the period
+  has closed in between: the posting is refused. Decide the rule -- periods stay
+  open until field sync is confirmed, or a late receipt posts into the open
+  period while carrying its true collection date.
+- **Cash in hand is invisible.** Between collection and sync the money is in
+  somebody's pocket and in no system. A **cash-handover step** -- sync, total
+  what was collected, confirm the cash received matches -- is what makes this
+  auditable, and is arguably a larger feature than the sync itself.
+- **It needs a real mobile surface.** Today's APK is a desktop layout. A
+  collections app is small-screen and one-handed, used in a shop doorway:
+  today's calls, tap a customer, enter an amount, capture a signature or photo.
+  That is the cost of this item; the queue is the straightforward part.
+
+Authentication is already survivable: the refresh token lasts 7 days and is held
+in the OS credential vault, so signing in at the office covers a day's route.
+
+**Decisions to make.**
+
+- **Allocate on the device, or collect on account?** Letting the collector
+  allocate to specific invoices is what a customer expects on the receipt, but
+  it is the part that goes stale. Collecting **on account** -- an unallocated
+  receipt the office applies afterwards -- removes the staleness problem
+  entirely and is markedly simpler. The platform already splits a receipt into
+  balance and advance, so an unallocated receipt is an ordinary thing here.
+- Device-issued number blocks, or the physical receipt book? The book is better
+  evidence; blocks are better if receipts are printed from the phone.
+- What happens to a receipt the server refuses -- who is told, and how is the
+  cash already taken accounted for?
+- Signature or photo capture, and where those files live. `backend/storage/`
+  holds nothing today and there is no file-storage module.
+
+Not a bug -- the route machinery exists and the offline half was never built.
