@@ -15,7 +15,7 @@ from app.core.tenancy import DeploymentMode, TenantStorageLifecycleService
 from app.core.utils.dates import utc_now
 from app.firms.models import Firm, FirmStorageMapping
 from app.firms.schemas import FirmCreate, FirmUpdate
-from app.identity.models import UserFirm
+from app.identity.models import User, UserFirm
 
 _SLUG = re.compile(r"[^a-z0-9]+")
 
@@ -187,12 +187,33 @@ class FirmService:
         return firm
 
     def delete(self, firm_id: UUID, actor_id: UUID) -> None:
-        """Soft delete an unassigned firm."""
+        """Soft delete a firm nobody still belongs to.
+
+        "Nobody" means nobody who still exists. Deleting a user deliberately
+        leaves their memberships alone, so a restore returns them to the firms
+        and roles they had -- and this guard used to count those rows, which
+        made a firm undeletable for ever once its last person was deleted. The
+        refusal named a condition no screen could show: the firm's own
+        directory returned nobody, its Users grid returned nobody, and the
+        answer was still "Assigned". Met on 2026-09-16 clearing fourteen
+        per-run fixture firms, every one held open by memberships of people
+        who no longer existed.
+
+        The join is the whole fix. A membership whose user is deleted places
+        nobody in the firm today; it is a note about who to put back if that
+        person is restored, and restoring somebody into a deleted firm is not
+        a thing this can protect. `users` and `user_firms` are both platform
+        tables and firms is a platform route, so the two are one session.
+        """
         firm = self.get(firm_id)
         if (
             self._session.scalar(
-                select(UserFirm.id).where(
-                    UserFirm.firm_id == firm.id, UserFirm.is_deleted.is_(False)
+                select(UserFirm.id)
+                .join(User, User.id == UserFirm.user_id)
+                .where(
+                    UserFirm.firm_id == firm.id,
+                    UserFirm.is_deleted.is_(False),
+                    User.is_deleted.is_(False),
                 )
             )
             is not None

@@ -395,6 +395,41 @@ def test_delete_refuses_an_assigned_firm_and_audits_the_soft_delete() -> None:
     assert deleted[0].after_data == {"is_deleted": True}
 
 
+def test_a_firm_whose_people_were_deleted_can_still_be_deleted() -> None:
+    """The membership of somebody who no longer exists places nobody.
+
+    Deleting a user deliberately leaves their memberships alone, so a restore
+    returns them to the firms and roles they had. This guard counted those
+    rows, so deleting a firm's last person made the firm undeletable for ever
+    -- and the refusal named a condition no screen could show: the firm's own
+    directory returned nobody, its Users grid returned nobody, and the answer
+    was still "Assigned". Met on 2026-09-16 clearing fourteen per-run fixture
+    firms, all held open by people who had been deleted (D-27-5).
+    """
+    session = _session()
+    service = FirmService(session)
+    firm = service.create(_create_payload(), _ACTOR)
+    user = User(email="gone@agency.local", full_name="Gone", password_hash="*")
+    session.add(user)
+    session.flush()
+    session.add(UserFirm(user_id=user.id, firm_id=firm.id, is_primary=True))
+    session.commit()
+
+    # While they are here, the firm is theirs and stays.
+    with pytest.raises(BusinessRuleError):
+        service.delete(firm.id, _ACTOR)
+
+    user.is_deleted = True
+    session.commit()
+    service.delete(firm.id, _ACTOR)
+
+    assert session.get(Firm, firm.id).is_deleted is True
+    # The membership is untouched: it is what a restore reads to put them
+    # back, and this deletes a firm rather than rewriting who belonged to it.
+    membership = session.scalar(select(UserFirm).where(UserFirm.firm_id == firm.id))
+    assert membership is not None and membership.is_deleted is False
+
+
 def test_get_and_list_hide_deleted_firms() -> None:
     """Soft-deleted firms leave both the detail and the collection view."""
     session = _session()
