@@ -19,8 +19,8 @@ now opens with what changed, and the case steps expect the fixed behaviour —
 a case that used to say "fails today" has been corrected.
 
 A ninth, **D-27-5**, was found later the same day while clearing the runs'
-leftover firms rather than while writing a case. It is **not** fixed, and
-TC-FIRM-017 reproduces it.
+leftover firms rather than while writing a case, and was fixed the same way.
+TC-FIRM-017 is the case for it.
 
 ---
 
@@ -3137,17 +3137,17 @@ dedicated one leaves its schema behind. Provisioning runs the migrations, so
   1. `DELETE /api/v1/users/{the firm admin's id}`, and the same for the `VIEWER`. They are the firm's only two people.
   2. `GET /api/v1/firm-members` and `GET /api/v1/users?page=1&page_size=25`, both with `X-Firm-ID: <the fixture firm's id>`.
   3. `DELETE /api/v1/firms/{the fixture firm's id}`.
-  4. The way through, per person: `GET /api/v1/users?deleted_only=true&search=<suffix>` to find them, then `POST /api/v1/users/{id}/restore`, then `PUT /api/v1/users/{id}/firms` with `{"assignments": []}`, then `DELETE /api/v1/users/{id}` again. Then repeat step 3.
+  4. Take a second `ready-firm` fixture and, without deleting anybody, `DELETE` that firm.
 - **Expect**
   - Step 1: **204** each.
   - Step 2: **nobody**. The firm's own directory is empty and its Users grid has no rows, so every screen agrees the firm has no people.
-  - Step 3: **422**, "Assigned firms cannot be deleted." — naming a condition no screen can show you. See defect **D-27-5**.
-  - Step 4: **200**, **200**, **204** for each person, and then the firm deletes: **204**. Nothing about the firm changed between the two attempts; only the membership rows of people who no longer exist.
-- **Leaves:** nothing live — the firm is deleted. Its schema stays behind, because storage routing is never reused, soft-deleted firms included.
+  - Step 3: **204** — the firm deletes. Until 2026-09-16 this answered **422**, "Assigned firms cannot be deleted.", naming a condition no screen could show; see defect **D-27-5**. The memberships themselves are untouched, because they are what a restore reads to put those people back.
+  - Step 4: **422**, "Assigned firms cannot be deleted." A firm with people who still exist is still refused — that half of the guard is the point of it.
+- **Leaves:** nothing live — the first firm is deleted, the second is not. A deleted firm's schema stays behind, because storage routing is never reused, soft-deleted firms included.
 
 ### Known defects found while writing these cases
 
-- **D-27-5 — A firm whose people have been deleted can never be deleted.** `FirmService.delete` refuses while any `user_firms` row for the firm is live, and `IdentityService.delete_user` leaves those rows alone — so deleting a firm's last person makes the firm undeletable for ever. Both halves are defensible on their own: a deleted membership would have to be rebuilt on restore, and the identity router says as much ("a deleted person's memberships still place them in the firm"). Together they refuse an action and name a reason nothing can show — `GET /api/v1/firm-members` returns nobody, the Users grid returns nobody, and the refusal still says "Assigned". Met on 2026-09-16 clearing 14 per-run firms: 22 live memberships, **every one of them held by a deleted user**. The only way through the API is to restore each person, replace their memberships with an empty list and delete them again, which nobody would derive from the message. Either the guard should ignore memberships whose user is deleted, or the message should say whose they are. The fix is the owner's call; TC-FIRM-017 reproduces it either way.
+- **D-27-5 — A firm whose people had been deleted could never be deleted. Fixed 2026-09-16.** `FirmService.delete` refused while any `user_firms` row for the firm was live, and `IdentityService.delete_user` leaves those rows alone — so deleting a firm's last person made the firm undeletable for ever. Both halves are defensible on their own: a deleted membership would have to be rebuilt on restore, and the identity router says as much ("a deleted person's memberships still place them in the firm"). Together they refused an action and named a reason nothing could show — `GET /api/v1/firm-members` returned nobody, the Users grid returned nobody, and the refusal still said "Assigned". Met on 2026-09-16 clearing 14 per-run firms: 22 live memberships, **every one of them held by a deleted user**; getting through meant restoring each person, emptying their membership list and deleting them again, which nobody would derive from the message. The guard now joins `users` and ignores a membership whose user is deleted — such a row places nobody in the firm today, it is a note about who to put back, and the rows are left untouched so a restore still reads them. A firm with people who still exist is refused exactly as before. `test_a_firm_whose_people_were_deleted_can_still_be_deleted` in `tests/unit/test_firms_module.py`.
 
 ---
 
