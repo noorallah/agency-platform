@@ -497,3 +497,57 @@ def test_a_territory_refuses_a_write_aimed_at_an_older_version() -> None:
 
     rename("No precondition", None)
     assert service.get_territory(node_id, firm_scope=firm.id).name == "No precondition"
+
+
+def test_a_new_firms_hierarchy_is_written_by_the_read_that_invents_it() -> None:
+    """Otherwise a new firm cannot create its first territory at all.
+
+    The defaults -- Region, Territory, Route -- were built on every read and
+    flushed but never committed, so the ids a firm was handed had gone by the
+    time it used them: a second read answered with different ones, and
+    creating a territory against the first set was refused "Configured
+    hierarchy level is not active." Saving the hierarchy unchanged made it
+    real, which is why this survived -- anybody who pressed Save once never
+    met it again.
+
+    Two sessions, because one session would find the rows in its own identity
+    map whether or not anything was committed.
+    """
+    factory = _session_factory()
+    setup = factory()
+    firm = _firm(setup, "FRESHTERR")
+    firm_id, actor = firm.id, uuid4()
+    setup.close()
+
+    first = factory()
+    read = SalesTerritoryService(first).get_hierarchy(
+        firm_scope=firm_id, actor_id=actor
+    )
+    first.close()
+
+    second = factory()
+    again = SalesTerritoryService(second).get_hierarchy(
+        firm_scope=firm_id, actor_id=actor
+    )
+    assert again.config_id == read.config_id
+    assert [level.id for level in again.levels] == [level.id for level in read.levels]
+    assert [level.level_code for level in again.levels] == [
+        "REGION",
+        "TERRITORY",
+        "ROUTE",
+    ]
+    second.close()
+
+    # And the ids from the first read still name something that can be used.
+    third = factory()
+    created = SalesTerritoryService(third).create_territory(
+        TerritoryCreate(
+            code="NORTH",
+            name="North",
+            hierarchy_level_id=read.levels[0].id,
+            parent_id=None,
+        ),
+        firm_scope=firm_id,
+        actor_id=actor,
+    )
+    assert created.hierarchy_level_id == read.levels[0].id
