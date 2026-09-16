@@ -154,9 +154,12 @@ firm actually operates, so later modules can use what earlier ones produced.
 `lock-target` fixture's own user rather than `rr@rr.com` or a spare account,
 and WHOLE01/ELEC01 are TEST01/TEST02.
 
-Driving the rows found one disagreement, recorded as **D-2-1** rather than
-decided: 2.10 says a wrong password on an inactive or expired account still
-answers "Invalid email or password.", and the server names the state instead.
+Driving the rows found one disagreement, recorded as **D-2-1**: 2.10 says a
+wrong password on an inactive or expired account still answers "Invalid email
+or password.", and the server named the state instead. The plan was right —
+naming the state to somebody who has not proved they own the account tells a
+stranger the address exists. Fixed 2026-09-16; the state is now named only to
+the right password.
 
 | Old row | Case |
 | --- | --- |
@@ -222,7 +225,8 @@ and the `branch-master` fixture also writes the two import files 5.8 needs.
 
 **5.5** (the product Attributes tab offering this firm's fields) is covered by
 TC-FIELD-001 and TC-FIELD-003 in a firm of the run's own — and by defect
-**D-27-1**: the product form offers only fields a category rule names.
+**D-27-1**: the product form offered only fields a category rule names, fixed
+2026-09-16.
 
 | Old row | Case |
 | --- | --- |
@@ -289,7 +293,9 @@ on the Pharmacy and Electronics profiles — TEST01's Wholesale profile enables
 neither expiry dates nor serial numbers, and refuses both.
 
 Driving the batch case found **D-8-1**: dispatch took its 5 from a batch that
-had expired a month earlier, ahead of one still in date. Recorded, not fixed.
+had expired a month earlier, ahead of one still in date. Fixed 2026-09-16 —
+expired stock is no longer a candidate, and a shortfall says which batch has
+gone out of date.
 
 | Old row | Case |
 | --- | --- |
@@ -377,9 +383,10 @@ days the same way (driven: 1 of 9 on a Monday; 4 of 9 on 2027-01-12; the
 fortnight and second-Tuesday reasons word for word), and 11.5's temporary
 reordering and 11.7's drafts land in that store, not WHOLE01's.
 
-Building it found **D-11-1**: a new store's hierarchy levels are invented
-afresh on every read and refused when a territory names one, until somebody
-saves the hierarchy. Recorded, not fixed.
+Building it found **D-11-1**: a new store's hierarchy levels were invented
+afresh on every read and refused when a territory named one, until somebody
+saved the hierarchy. Fixed 2026-09-16 — the read that invents them writes
+them.
 
 | Old row | Case |
 | --- | --- |
@@ -559,7 +566,9 @@ Two changes from the row text:
 
 - **20.2b is no longer a known failure** — #402 fixed it. Driving the fix found
   a smaller defect in its place, written up as **D-20-1**: asking for roles on
-  somebody in no firm refuses *after* the account has been made.
+  somebody in no firm refused *after* the account had been made. Fixed
+  2026-09-16 — the refusal now comes before the create, so nothing is left
+  behind it.
 - **20.6 step 1 and 20.7's setup** are not needed; the fixture's memberships
   and primary are the starting point.
 
@@ -800,9 +809,10 @@ Driving them corrected the section in these places:
   Only `firm_shared` holds more than one firm, so the case uses the fixture's
   own **TESTSH1** and **TESTSH2** there.
 - **27f**: only a platform administrator writes definitions and rules (a firm
-  administrator gets 403), and the **product** form offers only fields a
+  administrator gets 403), and the **product** form offered only fields a
   Mandatory Attributes rule names. Four plan rows met product defects, written
-  up as D-27-1 to D-27-4 at the end of the Custom fields cases and not fixed.
+  up as D-27-1 to D-27-4 at the end of the Custom fields cases and **all fixed
+  on 2026-09-16**; the cases now expect the fixed behaviour.
 
 | Old row | Case |
 | --- | --- |

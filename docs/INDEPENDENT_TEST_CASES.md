@@ -13,7 +13,10 @@ section's heading with a pointer and an old-row → case map, and its Part 1
 
 **Known defects found while writing the cases** are listed at the end of the
 section they belong to — D-2-1, D-8-1, D-11-1, D-20-1 and D-27-1 to D-27-4.
-None was fixed in this pass; each is for the owner.
+None was fixed while the cases were being written; **all eight were fixed on
+2026-09-16**, each with a test that fails when the fix is reverted. Every note
+now opens with what changed, and the case steps expect the fixed behaviour —
+a case that used to say "fails today" has been corrected.
 
 ---
 
@@ -180,7 +183,7 @@ fifteen minutes.
   - Step 1, right password: "This account is inactive. Ask an administrator to reactivate it." Login history says `account_unavailable`.
   - Step 2, right password: "This account has expired. Ask an administrator to extend it."
   - Step 3: signs in.
-  - **With a wrong password, the plan expected "Invalid email or password."** The server answers the **state** message instead — driven on 2026-09-16 for both states. See defect **D-2-1**; record what you see.
+  - **With a wrong password, all three answer "Invalid email or password."** — the state is named only to somebody who typed the right one. Fixed 2026-09-16; see defect **D-2-1**.
 - **Leaves:** the target active, no expiry.
 
 ### TC-SESS-006 — A password somebody else set must be changed
@@ -264,7 +267,7 @@ fifteen minutes.
 
 ### Known defects found while writing these cases
 
-- **D-2-1 — An inactive or expired account names its state to a wrong password.** Driven: a wrong password on an inactive account answers "This account is inactive…", and on an expired one "This account has expired…", both with their state codes. Plan 2.10 expected "Invalid email or password." for a wrong password, which is what the locked refusal's reasoning and CLAUDE.md's "a refusal about the credential does not [name the state]" suggest. The unit tests pin the state messages with the **right** password only. Either the plan or the code is wrong; the owner's call, since the 18.1/18.2 decision was about the person holding the right password.
+- **D-2-1 — An inactive or expired account named its state to a wrong password. Fixed 2026-09-16.** Driven: a wrong password on an inactive account answered "This account is inactive…", and on an expired one "This account has expired…", both with their state codes. That tells a stranger the address exists, belongs to somebody real and — for an expired one — may be worth trying again later, which is the enumeration oracle the throwaway-hash verification exists to close, given away by the message instead of by the clock. `IdentityService.login` now settles the state before the password and acts on it **after**, so a wrong password gets the same refusal every other wrong password gets while the right one still says plainly what is wrong (the 18.1/18.2 decision was about the person holding the right password). The lockout deliberately stays **in front** of the password: a locked account must cost the same whatever was typed. `test_a_wrong_password_never_names_the_state` in `tests/unit/test_identity_hardening.py`.
 
 ---
 
@@ -768,7 +771,7 @@ the fixture builds (a minute or two).
   4. Inventory → Batch & Serial → **Expiry Monitor**.
 - **Expect**
   - Step 1: three batches, 10 available each, with their expiry dates.
-  - Step 2–3: status DISPATCHED; ledger `DISPATCH` −5 referencing the note. **Which batch lost 5 is the question.** Driven on 2026-09-16, it was **`-B1`, the expired one** — see defect **D-8-1**. Record which batch the preview named and which lost stock.
+  - Step 2–3: status DISPATCHED; ledger `DISPATCH` −5 referencing the note. **The 5 comes from `-B2`, the earliest batch that has *not* expired**; `-B1` is skipped. Fixed 2026-09-16; see defect **D-8-1**.
   - Step 4: the six cards — Expired Today, Expire in 7 Days, Expire in 30 Days, Total Expired, Quarantine, Recalled — with `-B1` counted as expired and `-B2` inside 30 days; then the **All Batches** grid (Batch #, Product, Status, Qty, Available, Expiry Date, Warehouse).
 - **Leaves:** a dispatched note.
 
@@ -798,7 +801,7 @@ the fixture builds (a minute or two).
 
 ### Known defects found while writing these cases
 
-- **D-8-1 — Dispatch drew an expired batch.** In a Pharmacy firm with batches expired 30 days ago, expiring in 20 days and in 400 days, dispatching 5 took them from the **expired** batch — its status still AVAILABLE. "Earliest expiry first" read literally does that; for a pharmacy it ships expired medicine. Whether an expired batch should be skipped, refused or warned about is the owner's call.
+- **D-8-1 — Dispatch drew an expired batch. Fixed 2026-09-16.** In a Pharmacy firm with batches expired 30 days ago, expiring in 20 days and in 400 days, dispatching 5 took them from the **expired** batch — its status still AVAILABLE. "Earliest expiry first" read literally does that; for a pharmacy it ships expired medicine. `InventoryService.allocate_for_dispatch` now drops expired stock from the candidates rather than ranking it first, and when that leaves the document short it says so **by name** — "10 of this product's stock is past its expiry date (X expired 2026-08-17) and cannot be dispatched: write it off or quarantine it" — because the screen still shows that stock as on hand and "short by 5" beside it explains nothing. Expiry is judged on the **document's own date**, which the delivery note passes, so rebuilding a year of history posts what it posted at the time. Three tests in `tests/unit/test_inventory_foundation.py`.
 
 ---
 
@@ -1187,7 +1190,7 @@ admin**.
 
 ### Known defects found while writing these cases
 
-- **D-11-1 — A new firm's territory hierarchy is not saved until somebody saves it, and reading it invents ids.** `GET /api/v1/sales-territories/hierarchy-levels` on a fresh store answers REGION / TERRITORY / ROUTE with a **different config id and level ids on every read** — defaults built and never committed. Creating a territory against one of those ids is refused: "Configured hierarchy level is not active." Saving the hierarchy (the same levels, unchanged) makes them real; the fixture does that. Whether the desktop's Geography screen saves first was not checked — if it does not, a new firm cannot create its first territory.
+- **D-11-1 — A new firm's territory hierarchy was not saved until somebody saved it, and reading it invented ids. Fixed 2026-09-16.** `GET /api/v1/sales-territories/hierarchy-levels` on a fresh store answered REGION / TERRITORY / ROUTE with a **different config id and level ids on every read** — defaults built, flushed and never committed. Creating a territory against one of those ids was refused "Configured hierarchy level is not active.", which reads as a configuration problem and was really a row that was never written; saving the hierarchy unchanged made it work, which is why it survived — anybody who pressed Save once never met it again. `_ensure_hierarchy_config` now commits the defaults it invents, following the create-if-missing shape provisioning already uses. `test_a_new_firms_hierarchy_is_written_by_the_read_that_invents_it` in `tests/unit/test_sales_territory_policies.py`.
 
 ---
 
@@ -1902,7 +1905,7 @@ their own firm, through **Roles by firm**.
 - **Expect**
   - Step 1: created, in **no** firm — allowed and deliberate — and **not** in the grid.
   - Step 2: found, not marked as already a member.
-  - Step 3: the form says "Somebody in no firm cannot be given roles here, because roles are held per firm. Save them without roles, then use Add existing user to bring them into this firm and set what they do." — **and the account already exists**, in no firm with no roles: the lookup finds `<suffix>.nofirm2`. Do not press Save again; a second create answers 409 on the email. See defect **D-20-1**.
+  - Step 3: the form says "Somebody in no firm cannot be given roles here, because roles are held per firm. Save them without roles, then use Add existing user to bring them into this firm and set what they do." — **and no account was created**: the lookup finds no `<suffix>.nofirm2`. Clear Roles and press Save; it saves. Fixed 2026-09-16; see defect **D-20-1**.
   - *Step 1 failed on 2026-09-15 ("User not found." with the user created anyway) and was fixed in #402. Driven on the API: a firm admin's create lands the user in TEST01, clearing the firms leaves none, and the lookup then finds them with `already_a_member: false`. Step 3's order — create, clear firms, then refuse — is read from `saveAssignments`, not seen on screen.*
 - **Leaves:** two users in no firm.
 
@@ -1964,7 +1967,7 @@ their own firm, through **Roles by firm**.
 
 ### Known defects found while writing these cases
 
-- **D-20-1 — Asking for roles on somebody in no firm refuses after the account is made.** `saveAssignments` runs after the create and after the membership write, so the refusal "Save them without roles, then use Add existing user…" arrives when the user already exists in no firm. The message reads as if nothing was saved; pressing Save again answers 409. Checking before the create, in the form's own validation, would make the message true.
+- **D-20-1 — Asking for roles on somebody in no firm refused after the account was made. Fixed 2026-09-16.** `saveAssignments` runs after the create and after the membership write, so the refusal "Save them without roles, then use Add existing user…" arrived when the user already existed in no firm. The message read as if nothing was saved, and pressing Save again answered 409 — the words were right and the moment was wrong. `ResourceDefinition` gained `saveRefusal`, a rule about the **combination** of values that the dialog asks before it writes anything, and the user form's check moved there; the sentence is defined once and the old site keeps it as a backstop for any caller reaching the write without the form. Field-level rules stay on the field; this is for the ones no single box can see. `test/save_refusal_keeps_the_record_test.dart` proves nothing is created behind the refusal, and `test/user_create_role_tier_test.dart` pins which combinations are refused.
 
 ---
 
@@ -3162,7 +3165,7 @@ other case that saves a customer or a product.
   - Step 1: the definitions in *this firm's* store — the seeded ones (Batch Number, Expiry Date, IMEI …) — each showing its entity type and the profile it is narrowed to.
   - Steps 2–3: both save.
   - Step 4: `definitions` includes **SHELF_NOTE** and **not** PHARMA_NOTE. Scoping is what stops one industry's field appearing everywhere.
-  - Step 5: an **Attributes** tab with a **Shelf note** box. Before the rule, a product in that category had no Attributes tab at all.
+  - Step 5: an **Attributes** tab with a **Shelf note** box. Since 2026-09-16 the rule is not what puts it there — a definition that simply applies is offered on the product form as it is on every other master (D-27-1); the rule decides whether the box is *required*.
 - **Leaves:** two definitions and one optional rule in the fixture firm.
 
 ### TC-FIELD-002 — A mandatory definition reaches every category
@@ -3176,7 +3179,7 @@ other case that saves a customer or a product.
 - **Expect**
   - Step 2: **422**, "Required attributes are missing.", naming BIN_CODE's id in `missing_attribute_definition_ids`. The flag on the definition applies to **every** category it reaches — blunt, and the one with a history.
   - Step 3: saves.
-  - On the desktop this cannot be done at all: see defect **D-27-2**.
+  - On the desktop the form now offers a **Bin code** box, required, so step 3's product can be typed rather than posted: fixed 2026-09-16, see defect **D-27-2**.
 - **Leaves:** a mandatory definition and one product in the fixture firm. Any later product in this firm needs a bin code.
 
 ### TC-FIELD-003 — A rule makes a field mandatory for one category only
@@ -3212,7 +3215,7 @@ other case that saves a customer or a product.
 - **Expect**
   - Step 2: accepted — not an error.
   - Step 3: **saves**. The server intersects the rules with what applies to this firm, and a Pharmacy field does not.
-  - Step 4: **fails today** — `required_attribute_definition_ids` lists RX_CLASS. The form reads that list, so on the desktop no FXAMB product can be saved in this firm: see defect **D-27-3**.
+  - Step 4: `required_attribute_definition_ids` does **not** list RX_CLASS, and neither does the optional list — the metadata and the save now answer the same question. Fixed 2026-09-16; see defect **D-27-3**.
 - **Leaves:** a definition, a rule and one product in the fixture firm. Retire the rule to make FXAMB usable on the desktop again.
 
 ### TC-FIELD-005 — Changing the firm's profile hides a field and keeps its value
@@ -3322,7 +3325,7 @@ other case that saves a customer or a product.
   - Step 2: a **dropdown** of the three, not a text box.
   - Step 3: Frozen is selected.
   - Step 4: **422**, "Attribute STORAGE_TEMPERATURE must be one of: Ambient, Chilled, Frozen."
-  - Step 5: Frozen still shows, selectable. **The save fails today**: the server refuses the unchanged value with "must be one of: Ambient, Chilled" — see defect **D-27-4**. The plan expected it to save unchanged.
+  - Step 5: Frozen still shows, selectable, and **the save goes through with it unchanged**. Choosing something else off the list is still refused with "must be one of: Ambient, Chilled". Fixed 2026-09-16; see defect **D-27-4**.
   - Step 6: **422**, "Only a TEXT attribute can carry allowed values."
 - **Leaves:** a definition, a rule and a product in the fixture firm.
 
@@ -3378,10 +3381,10 @@ other case that saves a customer or a product.
 
 Recorded for the owner, **not fixed** — this pass changes documents only.
 
-- **D-27-1 — The product form never offers a field that merely applies.** `ProductService._category_attribute_ids` builds the form's field list from `category_attribute_rules` alone; customers, vendors, branches and warehouses use `/attribute-definitions/applicable`. An unscoped PRODUCT definition with no rule is offered on no product. Plan 27.30 expected it to appear.
-- **D-27-2 — A mandatory PRODUCT definition blocks every product on the desktop.** The server refuses a product without it ("Required attributes are missing.") while the form, per D-27-1, has no box to fill. Plan 27.31.
-- **D-27-3 — An "inert" rule is not inert on the desktop.** `mandatory_ids` in `AttributeService` intersects rules with what applies; `_category_attribute_ids` does not, so `/products/metadata` lists a rule naming another profile's field as *required*. The form then refuses an empty box, and a filled one is refused by the server as "do not apply" — no product in that category can be saved from the desktop. Plan 27.33 said this is not an error. Two implementations of one question; they disagree.
-- **D-27-4 — A value removed from a field's allowed list cannot be saved back.** `_coerce` validates every value sent, changed or not, so editing anything else on a product that still holds a retired choice is refused — if the form resends it, which it appears to. Plan 27.36d3 expected it to save unchanged.
+- **D-27-1 — The product form never offered a field that merely applies. Fixed 2026-09-16.** `ProductService._category_attribute_ids` built the form's field list from `category_attribute_rules` alone; customers, vendors, branches and warehouses use `/attribute-definitions/applicable`, so an unscoped PRODUCT definition with no rule — the ordinary case, and the one `docs/CUSTOM_FIELDS_FRAMEWORK.md` describes — was offered on no product at all. The product now asks the same question the other four masters ask: `AttributeService.definitions_for` for what applies, `mandatory_ids` for which of those are required, and the rest offered as optional. Rules are still read by the category's name as well as its code. Plan 27.30 expected it to appear. Three tests in `tests/unit/test_product_master.py` cover this and the two below.
+- **D-27-2 — A mandatory PRODUCT definition blocked every product on the desktop. Fixed 2026-09-16.** The server refused a product without it ("Required attributes are missing.") while the form, per D-27-1, had no box to fill — so once a firm marked one definition mandatory, no product could be created from the desktop at all. The metadata now offers what the save demands, before a category is chosen as well as after, because the server demands it either way. Plan 27.31.
+- **D-27-3 — An "inert" rule was not inert on the desktop. Fixed 2026-09-16.** `mandatory_ids` in `AttributeService` intersects rules with what applies; `_category_attribute_ids` did not, so `/products/metadata` listed a rule naming another profile's field as *required*. The form then refused an empty box, and a filled one was refused by the server as "do not apply" — a category nobody could save. Two implementations of one question, now one: the metadata reads `mandatory_ids`. Plan 27.33 said the rule is not an error, and it is not.
+- **D-27-4 — A value removed from a field's allowed list could not be saved back. Fixed 2026-09-16.** `_coerce` validated every value sent, changed or not, so editing anything else on a product still holding a retired choice was refused — and the form deliberately keeps a stored value selectable, so the screen showed it as valid while the save refused it. `replace_values` now passes the record's own stored text into `_coerce`, which accepts it unchanged; a different value off the list is still refused, and so is the retired one on a record that never held it. The same reasoning as the retained definitions. Plan 27.36d3 expected it to save unchanged. `test_a_choice_withdrawn_from_the_list_can_still_be_saved_back` in `tests/unit/test_entity_attributes.py`.
 
 ---
 
