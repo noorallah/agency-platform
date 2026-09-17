@@ -122,6 +122,43 @@ function Stop-Install {
   exit 1
 }
 
+function Invoke-Agency {
+  <#
+    Run one of the application's own commands, however this copy is built.
+
+    A built copy is agency-server.exe and has no interpreter at all; a source
+    checkout has the virtual environment. Both expose the same subcommands
+    through app\cli.py, so the only difference is what gets launched -- which
+    is the whole point of there being one entry point.
+
+    It runs from the backend root, because alembic.ini's `script_location` and
+    `prepend_sys_path` are both relative to the working directory.
+
+    Output comes back on the pipeline -- captured if the caller assigns it,
+    printed if not -- and $LASTEXITCODE is what says whether it worked.
+
+    $ErrorActionPreference is relaxed for the duration. Native programs write
+    progress to stderr -- alembic logs every migration step there -- and in
+    Windows PowerShell 5.1 `2>&1` wraps each of those lines in an ErrorRecord,
+    which under 'Stop' aborts the script on the first one. That is the same
+    trap start_backend.ps1 documents, and it is why this is not simply inline.
+  #>
+  param([Parameter(Mandatory)][string[]]$Arguments)
+  $compiled = Join-Path $script:BackendRoot 'agency-server.exe'
+  $previous = $ErrorActionPreference
+  $ErrorActionPreference = 'Continue'
+  Push-Location $script:BackendRoot
+  try {
+    if (Test-Path $compiled) {
+      return (& $compiled @Arguments 2>&1)
+    }
+    return (& $script:Venv -m app.cli @Arguments 2>&1)
+  } finally {
+    Pop-Location
+    $ErrorActionPreference = $previous
+  }
+}
+
 function Copy-Application {
   <#
     Copy the application to where it is being installed, keeping whatever the
@@ -336,17 +373,28 @@ function Get-RealPython {
 
 $missing = @()
 
-$version = Get-RealPython
-if (-not $version) {
-  # Covers all three: no python at all, the Store stub, and a python that is
-  # on PATH but cannot run. Previously a stub fell through every branch
-  # silently and the installer carried on as though Python were present.
-  $missing += @{ Name = 'Python 3.13+'; Winget = 'Python.Python.3.13' }
-} elseif ($version -match '(\d+)\.(\d+)') {
-  $major = [int]$Matches[1]; $minor = [int]$Matches[2]
-  if ($major -lt 3 -or ($major -eq 3 -and $minor -lt 13)) {
-    $missing += @{ Name = "Python 3.13+ (found $version)"; Winget = 'Python.Python.3.13' }
-  } else { Write-Done "Python: $version" }
+# A released copy is compiled: agency-server.exe carries its own Python and
+# every dependency, so the machine needs neither. Asking for Python there would
+# stop an install that was always going to work, or -- worse, with
+# -InstallPrerequisites -- put a Python on a customer's machine to satisfy a
+# check rather than a need.
+$script:Compiled = Test-Path (Join-Path $script:BackendRoot 'agency-server.exe')
+
+if ($script:Compiled) {
+  Write-Done 'this is a compiled build -- no Python is needed on this machine'
+} else {
+  $version = Get-RealPython
+  if (-not $version) {
+    # Covers all three: no python at all, the Store stub, and a python that is
+    # on PATH but cannot run. Previously a stub fell through every branch
+    # silently and the installer carried on as though Python were present.
+    $missing += @{ Name = 'Python 3.13+'; Winget = 'Python.Python.3.13' }
+  } elseif ($version -match '(\d+)\.(\d+)') {
+    $major = [int]$Matches[1]; $minor = [int]$Matches[2]
+    if ($major -lt 3 -or ($major -eq 3 -and $minor -lt 13)) {
+      $missing += @{ Name = "Python 3.13+ (found $version)"; Winget = 'Python.Python.3.13' }
+    } else { Write-Done "Python: $version" }
+  }
 }
 
 # PostgreSQL is deliberately not checked here. Looking for `psql` on PATH or a
@@ -451,7 +499,12 @@ if (Test-Path $script:EnvPath) {
 
 Write-Step 'Python environment'
 
-if (Test-Path $script:Venv) {
+if ($script:Compiled) {
+  # Nothing to build. The compiled binary carries its own interpreter and every
+  # dependency, which is the whole reason a customer machine needs no network
+  # access at this step and no toolchain afterwards.
+  Write-Skip 'not needed -- this build carries its own'
+} elseif (Test-Path $script:Venv) {
   Write-Skip '.venv exists'
 } elseif ($DryRun) {
   Write-Skip 'would create backend\.venv and install dependencies'
@@ -471,7 +524,7 @@ if (Test-Path $script:Venv) {
   Write-Done 'dependencies installed'
 }
 
-if (-not $DryRun -and -not (Test-Path $script:Venv)) {
+if (-not $DryRun -and -not $script:Compiled -and -not (Test-Path $script:Venv)) {
   Stop-Install 'The virtual environment was not created.' 'Run again, or create it by hand with: python -m venv backend\.venv'
 }
 
@@ -489,77 +542,11 @@ if ($DryRun) {
   #
   # The credentials arrive by environment variable rather than on the command
   # line, where `ps` and the console history would show them.
-  $createDb = @'
-import os
-import sys
-
-from sqlalchemy import create_engine, text
-from sqlalchemy.engine import make_url
-
-from app.core.config.settings import Settings
-from app.core.database.config import database_config_from_settings
-
-
-def literal(value: str) -> str:
-    """Quote for DDL, which takes no bind parameters.
-
-    PostgreSQL rejects `CREATE ROLE ... PASSWORD $1` outright, so the value is
-    inlined and therefore escaped. The installer generates passwords from an
-    alphabet with no quotes for the same reason; this is the second belt.
-    """
-    return "'" + value.replace("'", "''") + "'"
-
-
-settings = Settings()
-url = make_url(database_config_from_settings(settings).url)
-target = url.database
-app_user = url.username
-app_password = url.password
-
-# The privileged connection: a superuser account, used once. Falls back to the
-# application's own credentials so that a re-run on an installed machine -- one
-# where the role already exists and no superuser password is to hand -- still
-# reports honestly instead of looking like a fresh failure.
-admin_user = os.environ.get("INSTALL_ADMIN_USER") or app_user
-admin_password = os.environ.get("INSTALL_ADMIN_PASSWORD") or app_password
-admin = url.set(database="postgres", username=admin_user, password=admin_password)
-
-engine = create_engine(
-    admin.render_as_string(hide_password=False), isolation_level="AUTOCOMMIT"
-)
-try:
-    with engine.connect() as conn:
-        role = conn.execute(
-            text("SELECT 1 FROM pg_roles WHERE rolname = :name"), {"name": app_user}
-        ).scalar()
-        if role:
-            # A re-install writes a new password into .env, so the role's has
-            # to follow it or the application cannot log in with the file it
-            # was just given.
-            conn.execute(
-                text(f'ALTER ROLE "{app_user}" WITH LOGIN PASSWORD {literal(app_password)}')
-            )
-            print(f"role-updated:{app_user}")
-        else:
-            conn.execute(
-                text(f'CREATE ROLE "{app_user}" WITH LOGIN PASSWORD {literal(app_password)}')
-            )
-            print(f"role-created:{app_user}")
-
-        exists = conn.execute(
-            text("SELECT 1 FROM pg_database WHERE datname = :name"), {"name": target}
-        ).scalar()
-        if exists:
-            print(f"exists:{target}")
-        else:
-            # Owned by the application account, so it needs no grant on
-            # anything else in the cluster and no rights it does not use.
-            conn.execute(text(f'CREATE DATABASE "{target}" OWNER "{app_user}"'))
-            print(f"created:{target}")
-except Exception as exc:  # noqa: BLE001 - the message is the whole point here
-    print(f"error:{exc}", file=sys.stderr)
-    raise SystemExit(2)
-'@
+  # The program that does this used to live here, in a here-string piped
+  # into the interpreter on stdin. That cannot work on a machine with no
+  # interpreter -- which is the machine a built copy is for -- so it has moved
+  # into app\core\database\bootstrap.py and is reached as a subcommand.
+  # The output shape is unchanged; the lines below still parse it.
   Push-Location $script:BackendRoot
   try {
     if ($DatabasePassword) {
@@ -567,7 +554,7 @@ except Exception as exc:  # noqa: BLE001 - the message is the whole point here
       $env:INSTALL_ADMIN_PASSWORD =
         [System.Net.NetworkCredential]::new('', $DatabasePassword).Password
     }
-    $result = $createDb | & $script:Venv - 2>&1
+    $result = Invoke-Agency -Arguments @('create-database')
     if ($LASTEXITCODE -ne 0 -and $InstallPrerequisites -and $DatabaseHost -in @('localhost', '127.0.0.1', '::1')) {
       # The server did not answer and the caller asked for prerequisites, so
       # this is the clean-machine case: install PostgreSQL and ask once more.
@@ -585,7 +572,7 @@ except Exception as exc:  # noqa: BLE001 - the message is the whole point here
       if ($LASTEXITCODE -ne 0) { Stop-Install 'winget could not install PostgreSQL.' 'Check the network connection, or install it by hand and run this again.' }
       Write-Warn 'PostgreSQL installed. Its service may need a moment, and this shell may need to be reopened for new PATH entries.'
       Start-Sleep -Seconds 10
-      $result = $createDb | & $script:Venv - 2>&1
+      $result = Invoke-Agency -Arguments @('create-database')
     }
     if ($LASTEXITCODE -ne 0) {
       $advice = @(
@@ -622,22 +609,27 @@ except Exception as exc:  # noqa: BLE001 - the message is the whole point here
 
 Write-Step 'Migrations'
 
-Push-Location $script:BackendRoot
-try {
-  if ($DryRun) {
-    & $script:Venv scripts/migrate_all_stores.py --dry-run
-    if ($LASTEXITCODE -ne 0) { Write-Warn 'Could not read the stores. On a fresh machine that is expected: the database does not exist yet.' }
-  } else {
-    & $script:Venv scripts/migrate_all_stores.py --yes
-    if ($LASTEXITCODE -ne 0) { Stop-Install 'One or more stores failed to migrate.' 'The output above names which. Fix it and run this again -- the script reports every store rather than stopping at the first.' }
-    Write-Done 'every store is at head'
-  }
-} finally { Pop-Location }
+if ($DryRun) {
+  Invoke-Agency -Arguments @('migrate-all', '--dry-run')
+  if ($LASTEXITCODE -ne 0) { Write-Warn 'Could not read the stores. On a fresh machine that is expected: the database does not exist yet.' }
+} else {
+  Invoke-Agency -Arguments @('migrate-all', '--yes')
+  if ($LASTEXITCODE -ne 0) { Stop-Install 'One or more stores failed to migrate.' 'The output above names which. Fix it and run this again -- it reports every store rather than stopping at the first.' }
+  Write-Done 'every store is at head'
+}
 
 # -- 6. Demo data (optional) ------------------------------------------------
 
 if ($WithDemoData) {
   Write-Step 'Demo data'
+  # The one step that is not part of the product. The seeder is tooling for
+  # showing this to somebody -- it carries its own passwords, and the release
+  # build does not stage it -- so a built copy has no seeder and no interpreter
+  # to run one with. Say that, rather than failing three lines later with a
+  # path that does not exist.
+  if (-not (Test-Path $script:Venv)) {
+    Stop-Install 'This copy has no demo seeder.' 'Demo data is for a development checkout; a released build ships the product only. Create a firm from the Firms screen instead.'
+  }
   if ($DryRun) {
     Write-Skip 'would seed four demo firms and three financial years of trading'
   } else {

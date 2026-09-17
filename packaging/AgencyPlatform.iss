@@ -7,11 +7,15 @@
 ;
 ; Layout, and the reasoning:
 ;
-;   {app}                      Program Files. Read-only once installed.
-;     agency_desktop.exe         the client, with its DLLs and data\ beside it
-;     backend\                   the server
-;     backend\config\.env        written by the configure step, then only read
-;     packaging\install.ps1      the configure step itself
+;   {app}                        Program Files. Read-only once installed.
+;     agency_desktop.exe           the client, with its DLLs and data\ beside it
+;     backend\agency-server.exe    the server, compiled: it carries its own
+;                                  Python and every dependency, so the machine
+;                                  needs neither
+;     backend\alembic\versions\    the migrations, which stay as source because
+;                                  Alembic loads them by path at runtime
+;     backend\config\.env          written by the configure step, then only read
+;     packaging\install.ps1        the configure step itself
 ;
 ;   {commonappdata}\Agency Platform    ProgramData. Writable while running.
 ;     logs\                      AGENCY_LOG_DIRECTORY points here
@@ -20,7 +24,9 @@
 ; Why config\.env sits under Program Files rather than ProgramData: alembic.ini
 ; declares `script_location = alembic` and `prepend_sys_path = .`, both relative
 ; to the working directory, so the server runs with its working directory set to
-; {app} and `Settings` reads `config/.env` from there. It is written once by an
+; {app}\backend and `Settings` reads `config/.env` from there. The compiled
+; binary answers the same question the same way -- `application_root()` is the
+; directory the executable sits in -- so the two cannot disagree. It is written once by an
 ; elevated installer and only read afterwards, so a read-only location is right.
 ; Logs are the part that must be writable, and an absolute path in that same
 ; file sends them to ProgramData.

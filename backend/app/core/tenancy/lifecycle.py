@@ -1,11 +1,7 @@
 """Tenant storage lifecycle services for schema/database provisioning."""
 
-import os
 import re
-import subprocess
-import sys
 from collections.abc import Callable, Mapping
-from pathlib import Path
 
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import URL, make_url
@@ -18,6 +14,7 @@ from app.core.tenancy.connections import (
     build_tenant_database_config,
     resolve_connection_profile,
 )
+from app.core.tenancy.migrations import upgrade_store
 from app.core.tenancy.models import DeploymentMode, TenantContext
 from app.firms.models import Firm
 
@@ -94,11 +91,9 @@ class TenantStorageLifecycleService:
         platform_database: DatabaseManager,
         connection_profiles: Mapping[str, ConnectionProfileSettings] | None = None,
     ) -> None:
-        """Bind platform database configuration and Alembic entrypoint."""
+        """Bind platform database configuration and connection profiles."""
         self._platform_database = platform_database
         self._connection_profiles = connection_profiles or {}
-        self._project_root = Path(__file__).resolve().parents[3]
-        self._alembic_ini = (self._project_root / "alembic.ini").as_posix()
         self._seed_handler: Callable[[TenantContext], None] | None = None
 
     def register_seed_handler(self, handler: Callable[[TenantContext], None]) -> None:
@@ -222,40 +217,32 @@ class TenantStorageLifecycleService:
         raise BusinessRuleError("Unsupported database dialect for tenant provisioning.")
 
     def _run_migrations(self, *, database_url: str, schema_name: str) -> None:
-        """Upgrade one target to head in a subprocess.
+        """Upgrade the store this firm was just given, to head.
 
         This used to run Alembic in-process with ``AGENCY_DATABASE_URL`` and
         ``AGENCY_DATABASE_SCHEMA`` set through ``os.environ``. Those are
         process-wide: two concurrent provisions raced on them, and any other
         request that read settings while one was running could resolve the
-        wrong database. A subprocess gets its own environment and cannot reach
-        into this one.
+        wrong database. The answer then was a subprocess, which gets its own
+        environment and cannot reach into this one.
+
+        It runs in this process again as of 2026-09-17, without giving that
+        back -- ``upgrade_store`` passes the target on Alembic's ``Config``
+        rather than through the environment, and holds a lock while it runs.
+        The reason for the change is that ``sys.executable -m alembic`` cannot
+        work in a compiled build: the executable is the application, and there
+        is no ``alembic`` module to hand it. Creating a firm would have failed
+        on a packaged installation, which is the one flow a customer performs
+        on their own.
         """
-        environment = dict(os.environ)
-        environment["AGENCY_DATABASE_URL"] = database_url
-        environment["AGENCY_DATABASE_SCHEMA"] = schema_name
-        completed = subprocess.run(  # noqa: S603
-            [
-                sys.executable,
-                "-m",
-                "alembic",
-                "-c",
-                self._alembic_ini,
-                "upgrade",
-                "head",
-            ],
-            cwd=self._project_root,
-            env=environment,
-            capture_output=True,
-            text=True,
-            check=False,
-        )
-        if completed.returncode != 0:
-            detail = (completed.stderr or completed.stdout or "").strip()
+        try:
+            upgrade_store(database_url=database_url, schema_name=schema_name)
+        except Exception as error:  # noqa: BLE001 - the message is the point
+            detail = str(error).strip()
             raise BusinessRuleError(
                 f"Migrating tenant storage for schema '{schema_name}' failed: "
                 f"{detail[-600:]}"
-            )
+            ) from error
 
     def _seed_defaults(self, tenant: TenantContext) -> None:
         """Seed tenant defaults. Data seeding stays intentionally minimal here."""

@@ -3079,3 +3079,50 @@ in the OS credential vault, so signing in at the office covers a day's route.
   holds nothing today and there is no file-storage module.
 
 Not a bug -- the route machinery exists and the offline half was never built.
+
+## 40. If the logic ever needs real protection, host it
+
+Compiling the backend with Nuitka (2026-09-17, `docs/RELEASE_BUILD.md`) means a
+customer receives machine code rather than a readable copy of how this works.
+That was the right answer to the question actually asked -- *"someone should not
+read the code easily while we install the app on a customer machine"* -- and it
+clears that bar.
+
+It is worth writing down what it does **not** do, so that nobody later reads the
+compile step as more than it is:
+
+- Nuitka raises the cost of casual reading and copying substantially. It does
+  not prevent reverse engineering by somebody who has decided to.
+- The database sits on the customer's machine. Schema and data are readable by
+  any administrator there whatever happens to the Python, and the migrations
+  ship as source because Alembic loads them by path.
+- The `.env` on that machine holds the JWT signing key. A machine's owner can
+  read it.
+
+**The durable answer is architectural rather than a compiler.** This product
+already has a client--server split; the backend merely *happens* to run on the
+customer's machine. Moving it to a server the vendor controls protects the
+logic completely, and no compiler comes close.
+
+**Why it is not being done now.** The product is deliberately on-premises and
+LAN-first: a distributor in a town with intermittent internet has to keep
+invoicing. Hosting turns every outage into a stoppage, and that is a worse
+product for the customer this was built for.
+
+**What would change the calculation.** Any of:
+
+- a customer base with reliable connectivity, where the trade-off reverses;
+- a competitor shipping something recognisably derived from this;
+- pricing that depends on usage the vendor has to be able to count;
+- a feature that is genuinely the commercial secret rather than the sum of
+  ordinary business rules.
+
+**If it were done**, the shape is already mostly there: `api_client.dart` is the
+only place endpoint paths live, the backend is already multi-tenant with a store
+per firm, and `connection_profile` already allows a firm's data to live on
+another server. What is missing is everything operational -- backups somebody
+else is responsible for, an uptime commitment, per-tenant isolation that holds
+up to being sold as a promise, and a support arrangement for the hours a firm
+actually trades.
+
+Not a bug, and not scheduled. Recorded so the decision is a decision.

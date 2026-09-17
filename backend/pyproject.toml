@@ -29,6 +29,23 @@ dev = [
     "pytest-cov>=6.0,<7.0",
     "ruff>=0.8,<1.0",
 ]
+# The release build, and nothing else. Separate from `dev` because it is
+# installed on a build machine rather than on a developer's, and because a
+# customer machine must receive neither: `uv sync` with no group is what the
+# installer and start_backend.ps1 run, and it takes only the runtime
+# dependencies above.
+#
+# Nuitka translates Python to C and compiles it, which is what makes the
+# shipped backend something a customer cannot simply read. It needs a C
+# compiler on the build machine -- MSVC, which Nuitka will offer to fetch as
+# MinGW if none is found.
+build = [
+    # 4.2 is the floor because this tree runs on Python 3.14, which earlier
+    # Nuitka releases do not support. That was worth checking rather than
+    # assuming: the plan allowed for building the release against 3.13 if it
+    # turned out not to be ready.
+    "nuitka>=4.2,<5.0",
+]
 
 [tool.black]
 line-length = 88
