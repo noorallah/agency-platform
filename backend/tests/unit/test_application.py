@@ -62,7 +62,14 @@ def test_health_endpoint_returns_operational_status() -> None:
 
     payload = response.model_dump(mode="json", by_alias=True)
     assert payload["success"] is True
-    assert payload["data"] == {"status": "healthy", "environment": "testing"}
+    # The build is part of the contract: an installed copy has to be able to
+    # say what it is, and the client's own version comes from an editable JSON
+    # file beside the exe, so it cannot answer that.
+    assert payload["data"] == {
+        "status": "healthy",
+        "environment": "testing",
+        "version": "1.0.0",
+    }
     assert payload["message"] is None
     assert payload["requestId"] is None
     assert payload["timestamp"]
