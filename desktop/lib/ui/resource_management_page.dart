@@ -26,6 +26,7 @@ class FieldSpec {
     this.boolean = false,
     this.optionsResource,
     this.choices,
+    this.choiceLabels,
     this.submitsCode = false,
     this.singleSelection = false,
     this.readOnlyWhenEditing = false,
@@ -58,6 +59,16 @@ class FieldSpec {
   /// there only converts a typo into a round trip and a 422. Leave null for a
   /// plain text field. Include an empty string to offer "not set".
   final List<String>? choices;
+
+  /// What each of [choices] is called on screen, where the stored code is not
+  /// something to show a person.
+  ///
+  /// `deployment_mode` is the case this was added for: the server stores
+  /// SHARED / SCHEMA / DATABASE, and a firm's owner deciding where their data
+  /// lives should be reading "Share the platform database", not guessing what
+  /// SCHEMA means. A code with no entry here shows as itself, so this is only
+  /// worth filling in where the code is jargon.
+  final Map<String, String>? choiceLabels;
 
   /// Submit the option's code rather than its id.
   ///
@@ -1790,7 +1801,9 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
             for (final String choice in choices)
               DropdownMenuItem<String>(
                 value: choice,
-                child: Text(choice.isEmpty ? 'Not set' : choice,
+                child: Text(
+                    field.choiceLabels?[choice] ??
+                        (choice.isEmpty ? 'Not set' : choice),
                     overflow: TextOverflow.ellipsis),
               ),
           ],

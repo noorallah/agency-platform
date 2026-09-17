@@ -2959,41 +2959,69 @@ ResourceDefinition<Firm> firmDefinition(
         // Storage routing is fixed at creation: the firm's data is only ever
         // provisioned once, and nothing migrates it between stores, so the
         // backend refuses a change here. Show it, do not offer to edit it.
+        // This was a free text box until 2026-09-17, in which somebody setting
+        // up a firm had to type SHARED, SCHEMA or DATABASE exactly -- a
+        // choice between three server-side words, offered to whoever is
+        // installing this at a firm, with a 422 for a typo. FieldSpec.choices
+        // says in its own docstring why that is wrong.
         FieldSpec(
           key: 'deployment_mode',
-          label: 'Deployment mode',
-          helperText:
-              'SHARED, SCHEMA, or DATABASE. Fixed once the firm exists.',
+          label: 'Where this firm keeps its data',
+          choices: ['SHARED', 'SCHEMA', 'DATABASE'],
+          choiceLabels: {
+            'SHARED': 'With the other firms (recommended)',
+            'SCHEMA': 'Separately, in the same database',
+            'DATABASE': 'In a database of its own',
+          },
+          helperText: 'Fixed once the firm exists -- nothing moves a firm '
+              'between them afterwards. "With the other firms" is right '
+              'unless this firm must be backed up or restored on its own.',
           section: 'Storage Mapping',
           readOnlyWhenEditing: true,
         ),
         FieldSpec(
           key: 'database_type',
-          label: 'Database type',
-          helperText: 'Use platform engine (for example postgresql).',
+          label: 'Database engine',
+          choices: ['postgresql', 'mysql'],
+          choiceLabels: {
+            'postgresql': 'PostgreSQL (recommended)',
+            'mysql': 'MySQL',
+          },
+          helperText: 'PostgreSQL unless the firm already runs something else.',
           section: 'Storage Mapping',
           readOnlyWhenEditing: true,
         ),
+        // Both are *derived* when left blank -- see the `or f"{prefix}{slug}"`
+        // fallbacks in FirmService._storage_payload. Saying "required" sent
+        // whoever filled this in off to invent a name, when leaving it alone
+        // gives a better one than they would have chosen.
         FieldSpec(
           key: 'database_name',
           label: 'Database name',
-          helperText: 'Required for SCHEMA and DATABASE modes.',
+          helperText: 'Leave blank and one is chosen from the firm code. '
+              'Ignored when the firm shares with the others.',
           section: 'Storage Mapping',
           readOnlyWhenEditing: true,
         ),
         FieldSpec(
           key: 'schema_name',
           label: 'Schema name',
-          helperText: 'Required for SCHEMA and DATABASE modes.',
+          helperText: 'Leave blank and one is chosen from the firm code. '
+              'Ignored when the firm shares with the others.',
           section: 'Storage Mapping',
           readOnlyWhenEditing: true,
         ),
         FieldSpec(
           key: 'connection_profile',
-          label: 'Connection profile',
-          helperText: 'Name of a server configured in '
-              'AGENCY_TENANCY_CONNECTION_PROFILES, e.g. REMOTE_A. Empty uses '
-              'the platform server. Fixed once the firm exists.',
+          label: 'Server',
+          // The example is the whole point of this hint: a profile name exists
+          // only in the deployment's configuration, so there is nowhere else
+          // to find out what one looks like (firm_form_test.dart pins it).
+          helperText: 'Blank uses the platform server, which is almost always '
+              'right. Otherwise the name of a server configured on the '
+              'backend in AGENCY_TENANCY_CONNECTION_PROFILES, e.g. REMOTE_A '
+              '-- add it there and restart the backend first, because those '
+              'are read at startup. Fixed once the firm exists.',
           section: 'Storage Mapping',
           readOnlyWhenEditing: true,
         ),
