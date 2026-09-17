@@ -109,19 +109,54 @@ Write-Step 'Checking prerequisites'
 
 function Test-Command { param([string]$Name) return [bool](Get-Command $Name -ErrorAction SilentlyContinue) }
 
+function Test-Administrator {
+  $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+  return ([Security.Principal.WindowsPrincipal]$identity).IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Update-SessionPath {
+  # winget writes the new entries to the registry, not to this process. Without
+  # this, installing Python and then using it in the same run cannot work: the
+  # script would install it, print a note about opening a new terminal, and
+  # then fail on `python -m venv` two steps later.
+  $machine = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+  $user = [Environment]::GetEnvironmentVariable('Path', 'User')
+  $env:Path = (@($machine, $user) | Where-Object { $_ }) -join ';'
+}
+
+function Get-RealPython {
+  # `python` on a machine that has never had Python is the Microsoft Store app
+  # execution alias under WindowsApps: Get-Command finds it, running it prints
+  # no version and opens the Store instead. Treating that as "Python is here"
+  # is worse than finding nothing, because the run then fails later and
+  # somewhere else. Returns the version string, or $null.
+  $command = Get-Command python -ErrorAction SilentlyContinue
+  if (-not $command) { return $null }
+  if ($command.Source -and $command.Source -like '*\WindowsApps\*') { return $null }
+  # No 2>&1 here. In Windows PowerShell 5.1 that wraps a native program's
+  # stderr in an ErrorRecord, and with $ErrorActionPreference = 'Stop' the
+  # first such line ends the script -- which is exactly how this installer
+  # once died after "Applying migrations...". stderr is left where it is.
+  $version = & $command.Source --version
+  if ($LASTEXITCODE -ne 0) { return $null }
+  if ($version -match '(\d+)\.(\d+)') { return $version }
+  return $null
+}
+
 $missing = @()
 
-$python = Get-Command python -ErrorAction SilentlyContinue
-if (-not $python) {
+$version = Get-RealPython
+if (-not $version) {
+  # Covers all three: no python at all, the Store stub, and a python that is
+  # on PATH but cannot run. Previously a stub fell through every branch
+  # silently and the installer carried on as though Python were present.
   $missing += @{ Name = 'Python 3.13+'; Winget = 'Python.Python.3.13' }
-} else {
-  $version = & python --version 2>&1
-  if ($version -match '(\d+)\.(\d+)') {
-    $major = [int]$Matches[1]; $minor = [int]$Matches[2]
-    if ($major -lt 3 -or ($major -eq 3 -and $minor -lt 13)) {
-      $missing += @{ Name = "Python 3.13+ (found $version)"; Winget = 'Python.Python.3.13' }
-    } else { Write-Done "Python: $version" }
-  }
+} elseif ($version -match '(\d+)\.(\d+)') {
+  $major = [int]$Matches[1]; $minor = [int]$Matches[2]
+  if ($major -lt 3 -or ($major -eq 3 -and $minor -lt 13)) {
+    $missing += @{ Name = "Python 3.13+ (found $version)"; Winget = 'Python.Python.3.13' }
+  } else { Write-Done "Python: $version" }
 }
 
 # PostgreSQL is deliberately not checked here. Looking for `psql` on PATH or a
@@ -140,6 +175,9 @@ if ($missing.Count -gt 0) {
   if (-not (Test-Command 'winget')) {
     Stop-Install 'winget is not available, so prerequisites cannot be installed automatically.' 'Install Python 3.13+ and PostgreSQL 17 by hand, then run this again.'
   }
+  if (-not $DryRun -and -not (Test-Administrator)) {
+    Stop-Install 'Installing prerequisites needs an elevated shell.' 'Right-click install.bat and choose Run as administrator, or install Python 3.13+ and PostgreSQL 17 by hand and run this again without -InstallPrerequisites.'
+  }
   foreach ($item in $missing) {
     if ($DryRun) { Write-Skip "would install $($item.Name) via winget"; continue }
     Write-Host "   installing $($item.Name)..."
@@ -148,7 +186,13 @@ if ($missing.Count -gt 0) {
       Stop-Install "winget could not install $($item.Name)." 'Check the network connection, or install it by hand and run this again.'
     }
   }
-  Write-Warn 'A new terminal may be needed for the installed tools to appear on PATH.'
+  if (-not $DryRun) {
+    Update-SessionPath
+    if (-not (Get-RealPython)) {
+      Stop-Install 'Python was installed but this shell still cannot run it.' 'Close this window, open a new one, and run the installer again -- it will continue from here.'
+    }
+    Write-Done 'PATH refreshed for this session'
+  }
 }
 
 # -- 2. Configuration -------------------------------------------------------
@@ -271,6 +315,9 @@ except Exception as exc:  # noqa: BLE001 - the message is the whole point here
       # not need.
       if (-not (Test-Command 'winget')) {
         Stop-Install 'PostgreSQL did not answer and winget is not available to install it.' 'Install PostgreSQL 17 by hand, then run this again.'
+      }
+      if (-not (Test-Administrator)) {
+        Stop-Install 'Installing PostgreSQL needs an elevated shell.' 'Right-click install.bat and choose Run as administrator, or install PostgreSQL 17 by hand and run this again.'
       }
       Write-Host '   PostgreSQL did not answer. Installing it...'
       & winget install --id PostgreSQL.PostgreSQL.17 --accept-package-agreements --accept-source-agreements --silent
