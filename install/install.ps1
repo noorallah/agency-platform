@@ -30,6 +30,20 @@
   serves plain HTTP, which the desktop client accepts on a private network and
   refuses to a public address.
 
+.PARAMETER DatabaseUser
+  A PostgreSQL account that may create roles and databases, used **once** to
+  set the application up and never stored. Only needed when PostgreSQL is
+  already installed; when this script installs it, it sets this up itself.
+
+.PARAMETER AppDatabaseUser
+  The account the application itself runs as. It is created with a generated
+  password, owns its own database and nothing else, and is not a superuser.
+  The customer never types or sees this password.
+
+.PARAMETER AdminPassword
+  The first platform administrator's password. Generated and shown once at the
+  end if not supplied, so an unattended install needs no input at all.
+
 .PARAMETER DryRun
   Report every step and change nothing. Run this first on a machine you care
   about.
@@ -62,6 +76,7 @@ param(
   [string]$DatabaseName = 'agency_platform',
   [string]$DatabaseUser = 'postgres',
   [securestring]$DatabasePassword,
+  [string]$AppDatabaseUser = 'agency_app',
   [securestring]$AdminPassword,
   [switch]$WithDemoData,
   [switch]$InstallPrerequisites,
@@ -108,6 +123,47 @@ if ($DryRun) { Write-Host "  DRY RUN -- nothing will be changed" -ForegroundColo
 Write-Step 'Checking prerequisites'
 
 function Test-Command { param([string]$Name) return [bool](Get-Command $Name -ErrorAction SilentlyContinue) }
+
+function New-Secret {
+  # Deliberately no quotes, backslashes, spaces or semicolons. This value is
+  # inlined into `CREATE ROLE ... PASSWORD '...'` -- PostgreSQL takes no bind
+  # parameter there and rejects the statement outright -- and it is written to
+  # a .env file read as plain text. Both are places where a stray quote turns
+  # a password into a syntax error, which is the trap the compose file already
+  # documents for its own JSON.
+  param([int]$Length = 28)
+  $alphabet = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789-_.~'
+  $bytes = [byte[]]::new($Length)
+  # Create().GetBytes(), not Fill(). Fill() is .NET Core only and this script
+  # runs under Windows PowerShell 5.1 -- install.bat invokes `powershell`, not
+  # `pwsh` -- where the call does not exist. Getting that wrong does not fail
+  # loudly: the byte array stays all zeros and every generated secret becomes
+  # the same predictable string.
+  $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+  try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+  -join ($bytes | ForEach-Object { $alphabet[$_ % $alphabet.Length] })
+}
+
+function Protect-File {
+  # The .env holds the signing key, the database password and the bootstrap
+  # administrator password. On a shared machine a standard user can otherwise
+  # read all three. This does not defend against an administrator -- nothing
+  # on that machine does -- it stops casual and accidental exposure.
+  param([string]$Path)
+  try {
+    $acl = Get-Acl $Path
+    $acl.SetAccessRuleProtection($true, $false)
+    foreach ($account in @('BUILTIN\Administrators', 'NT AUTHORITY\SYSTEM', $env:USERNAME)) {
+      $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+        $account, 'FullControl', 'Allow')
+      $acl.AddAccessRule($rule)
+    }
+    Set-Acl -Path $Path -AclObject $acl
+    return $true
+  } catch {
+    return $false
+  }
+}
 
 function Test-Administrator {
   $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -204,19 +260,30 @@ if (Test-Path $script:EnvPath) {
 } elseif ($DryRun) {
   Write-Skip 'would write backend\config\.env with a generated signing key'
 } else {
-  if (-not $DatabasePassword) { $DatabasePassword = Read-Host -AsSecureString "PostgreSQL password for '$DatabaseUser'" }
-  if (-not $AdminPassword) { $AdminPassword = Read-Host -AsSecureString 'Password for the platform administrator (first login)' }
-
-  $plainDb = [System.Net.NetworkCredential]::new('', $DatabasePassword).Password
-  $plainAdmin = [System.Net.NetworkCredential]::new('', $AdminPassword).Password
-  if ([string]::IsNullOrWhiteSpace($plainDb)) { Stop-Install 'The database password cannot be empty.' }
-  if ([string]::IsNullOrWhiteSpace($plainAdmin)) { Stop-Install 'The administrator password cannot be empty.' }
+  # Nothing here is asked of the customer. The application's own database
+  # password is generated and never shown -- it is written to config\.env and
+  # used from there. The administrator password is generated too when none was
+  # given, and reported once at the end, because somebody has to be able to
+  # sign in.
+  $script:AppDbPassword = New-Secret
+  $plainDb = $script:AppDbPassword
+  if ($AdminPassword) {
+    $plainAdmin = [System.Net.NetworkCredential]::new('', $AdminPassword).Password
+    if ([string]::IsNullOrWhiteSpace($plainAdmin)) { Stop-Install 'The administrator password cannot be empty.' }
+  } else {
+    $plainAdmin = New-Secret -Length 20
+    $script:GeneratedAdminPassword = $plainAdmin
+  }
 
   # A real signing key, not the development one. The application refuses to
   # start outside development with the development key, and this is what stops
   # an install inheriting it from the example file.
   $bytes = [byte[]]::new(48)
-  [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+  # See New-Secret: Fill() does not exist under Windows PowerShell 5.1, which
+  # is the shell install.bat launches. This generated the signing key, so the
+  # failure mode was an application signing every token with a key of zeros.
+  $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+  try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
   $jwtKey = [Convert]::ToBase64String($bytes)
 
   $example = Join-Path $script:BackendRoot 'config\.env.example'
@@ -230,14 +297,19 @@ if (Test-Path $script:EnvPath) {
       '^AGENCY_BOOTSTRAP_ADMIN_PASSWORD=' { "AGENCY_BOOTSTRAP_ADMIN_PASSWORD=$plainAdmin"; break }
       '^AGENCY_DATABASE_HOST=' { "AGENCY_DATABASE_HOST=$DatabaseHost"; break }
       '^AGENCY_DATABASE_NAME=' { "AGENCY_DATABASE_NAME=$DatabaseName"; break }
-      '^AGENCY_DATABASE_USERNAME=' { "AGENCY_DATABASE_USERNAME=$DatabaseUser"; break }
+      '^AGENCY_DATABASE_USERNAME=' { "AGENCY_DATABASE_USERNAME=$AppDatabaseUser"; break }
       '^# AGENCY_DATABASE_PORT=' { "AGENCY_DATABASE_PORT=$DatabasePort"; break }
       default { $_ }
     }
   }
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $script:EnvPath) | Out-Null
   Set-Content -Path $script:EnvPath -Value $lines -Encoding utf8
-  Write-Done 'wrote backend\config\.env with a generated signing key'
+  Write-Done "wrote backend\config\.env -- signing key and database password generated, database account '$AppDatabaseUser'"
+  if (Protect-File $script:EnvPath) {
+    Write-Done 'config\.env restricted to administrators and this account'
+  } else {
+    Write-Warn 'Could not restrict permissions on config\.env -- check who can read it.'
+  }
   Write-Warn 'Back that file up. Losing the signing key signs every user out; losing it and the database password locks the application out of its own data.'
 }
 
@@ -276,29 +348,79 @@ Write-Step 'Database'
 if ($DryRun) {
   Write-Skip "would create the database '$DatabaseName' if it does not exist"
 } else {
+  # The application's own account and database, created with a privileged
+  # connection that is used for this step and then forgotten. Everything
+  # afterwards -- migrations, the server itself -- runs as the application
+  # account, which owns its database and is not a superuser.
+  #
+  # The credentials arrive by environment variable rather than on the command
+  # line, where `ps` and the console history would show them.
   $createDb = @'
+import os
 import sys
+
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
+
 from app.core.config.settings import Settings
 from app.core.database.config import database_config_from_settings
+
+
+def literal(value: str) -> str:
+    """Quote for DDL, which takes no bind parameters.
+
+    PostgreSQL rejects `CREATE ROLE ... PASSWORD $1` outright, so the value is
+    inlined and therefore escaped. The installer generates passwords from an
+    alphabet with no quotes for the same reason; this is the second belt.
+    """
+    return "'" + value.replace("'", "''") + "'"
+
 
 settings = Settings()
 url = make_url(database_config_from_settings(settings).url)
 target = url.database
-# Connect to the maintenance database: you cannot create a database from
-# inside itself.
-admin = url.set(database="postgres")
-engine = create_engine(admin.render_as_string(hide_password=False), isolation_level="AUTOCOMMIT")
+app_user = url.username
+app_password = url.password
+
+# The privileged connection: a superuser account, used once. Falls back to the
+# application's own credentials so that a re-run on an installed machine -- one
+# where the role already exists and no superuser password is to hand -- still
+# reports honestly instead of looking like a fresh failure.
+admin_user = os.environ.get("INSTALL_ADMIN_USER") or app_user
+admin_password = os.environ.get("INSTALL_ADMIN_PASSWORD") or app_password
+admin = url.set(database="postgres", username=admin_user, password=admin_password)
+
+engine = create_engine(
+    admin.render_as_string(hide_password=False), isolation_level="AUTOCOMMIT"
+)
 try:
     with engine.connect() as conn:
+        role = conn.execute(
+            text("SELECT 1 FROM pg_roles WHERE rolname = :name"), {"name": app_user}
+        ).scalar()
+        if role:
+            # A re-install writes a new password into .env, so the role's has
+            # to follow it or the application cannot log in with the file it
+            # was just given.
+            conn.execute(
+                text(f'ALTER ROLE "{app_user}" WITH LOGIN PASSWORD {literal(app_password)}')
+            )
+            print(f"role-updated:{app_user}")
+        else:
+            conn.execute(
+                text(f'CREATE ROLE "{app_user}" WITH LOGIN PASSWORD {literal(app_password)}')
+            )
+            print(f"role-created:{app_user}")
+
         exists = conn.execute(
             text("SELECT 1 FROM pg_database WHERE datname = :name"), {"name": target}
         ).scalar()
         if exists:
             print(f"exists:{target}")
         else:
-            conn.execute(text(f'CREATE DATABASE "{target}"'))
+            # Owned by the application account, so it needs no grant on
+            # anything else in the cluster and no rights it does not use.
+            conn.execute(text(f'CREATE DATABASE "{target}" OWNER "{app_user}"'))
             print(f"created:{target}")
 except Exception as exc:  # noqa: BLE001 - the message is the whole point here
     print(f"error:{exc}", file=sys.stderr)
@@ -306,6 +428,11 @@ except Exception as exc:  # noqa: BLE001 - the message is the whole point here
 '@
   Push-Location $script:BackendRoot
   try {
+    if ($DatabasePassword) {
+      $env:INSTALL_ADMIN_USER = $DatabaseUser
+      $env:INSTALL_ADMIN_PASSWORD =
+        [System.Net.NetworkCredential]::new('', $DatabasePassword).Password
+    }
     $result = $createDb | & $script:Venv - 2>&1
     if ($LASTEXITCODE -ne 0 -and $InstallPrerequisites -and $DatabaseHost -in @('localhost', '127.0.0.1', '::1')) {
       # The server did not answer and the caller asked for prerequisites, so
@@ -338,8 +465,20 @@ except Exception as exc:  # noqa: BLE001 - the message is the whole point here
       ) -join "`n"
       Stop-Install 'Could not reach PostgreSQL.' "$result`n$advice"
     }
-    if ("$result" -like 'created:*') { Write-Done "created database '$DatabaseName'" } else { Write-Skip "database '$DatabaseName' exists" }
-  } finally { Pop-Location }
+    foreach ($line in @("$result" -split "`n")) {
+      switch -Regex ($line.Trim()) {
+        '^role-created:(.+)$' { Write-Done "created database account '$($Matches[1])' (not a superuser)" }
+        '^role-updated:(.+)$' { Write-Skip "database account '$($Matches[1])' exists -- password re-set to match config\.env" }
+        '^created:(.+)$' { Write-Done "created database '$($Matches[1])', owned by '$AppDatabaseUser'" }
+        '^exists:(.+)$' { Write-Skip "database '$($Matches[1])' exists" }
+      }
+    }
+  } finally {
+    # The privileged password lives no longer than the step that needs it.
+    Remove-Item Env:\INSTALL_ADMIN_USER -ErrorAction SilentlyContinue
+    Remove-Item Env:\INSTALL_ADMIN_PASSWORD -ErrorAction SilentlyContinue
+    Pop-Location
+  }
 }
 
 # -- 5. Migrations ----------------------------------------------------------
