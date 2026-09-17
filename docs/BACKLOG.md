@@ -3161,3 +3161,69 @@ up to being sold as a promise, and a support arrangement for the hours a firm
 actually trades.
 
 Not a bug, and not scheduled. Recorded so the decision is a decision.
+
+## 41. Filling in districts, cities and pin codes without typing them
+
+Asked by the owner on 2026-09-17, straight after the state master landed
+(§32): *"can user has option to refresh one time other territory information
+based on net"*.
+
+**Where this starts.** `20260917_0137` seeds India and the 36 states into every
+store. The four rungs below -- districts, cities, postal codes, localities --
+are still typed by hand, and they are the ones with real volume: roughly 780
+districts, thousands of towns, and about 155,000 post offices in the Indian
+Post dataset. A firm that wants its customer addresses keyed rather than free
+text has to enter every place it trades in.
+
+**The ask as put** was a one-time refresh from the internet. Three things argue
+against that being the *only* path, and they are worth settling before anything
+is built.
+
+- **This product is deliberately offline.** On-premises, LAN-first, no
+  guaranteed internet -- that is the reason hosting was rejected in §40. A
+  feature reachable only over the internet is one a firm in a town with patchy
+  connectivity cannot use, and geography is what they need on day one.
+- **A third-party endpoint is a dependency nobody here controls.** A free
+  places API today is a 404, a rate limit or a changed shape in two years, and
+  the failure lands on a customer's machine while they are setting up.
+- **Geography is per store.** Every dedicated-database firm gets its own copy,
+  so pulling the whole country into every store to serve a firm trading in two
+  states is a great many rows nobody reads.
+
+**The shape worth considering instead -- a vendor data pack.**
+
+- A **versioned places file**, curated and published by whoever ships this,
+  carried *inside the installer*, so a customer with no internet is complete on
+  the day they install.
+- A screen offering **"Update places"**, which reads a newer pack -- from a
+  file the firm was sent, or fetched from **a URL the vendor controls**, which
+  cannot rot the way a public API does.
+- **Scoped by state.** The firm ticks the states it trades in and expands only
+  those. A Tamil Nadu distributor does not need Manipur's villages.
+- The same **skip-rather-than-merge** rule the state seed uses: never overwrite
+  a place a firm typed, never resurrect one it deleted.
+- Built on the import machinery that already exists -- `import_territories` in
+  `app/sales/api/router.py` and the CSV/Excel convention eight other modules
+  already follow -- rather than a new network layer.
+
+**Decisions to make.**
+
+- **Does this application ever reach the internet from a customer's machine?**
+  It never has. If the answer is yes, it must be opt-in, on a button, never
+  automatic, and must send nothing out. That is a product decision rather than
+  a technical one, and it should be made deliberately rather than arrived at.
+- **Which rungs ship in the pack?** Districts and towns are small enough to
+  bundle whole. The full post-office set is not, and most of it is villages no
+  distributor will ever bill. Postal codes may be better as an opt-in tier.
+- **Where does the data come from, and under what licence?** India Post and
+  `data.gov.in` publish this; the terms need reading before anything is
+  redistributed inside an installer.
+- **Who owns keeping it current?** A pack shipped once and never updated is a
+  pack that is wrong in three years. If there is no intention to republish it,
+  say so, and let firms import their own file instead.
+- **What happens to a firm that already typed 40 towns?** The skip rule keeps
+  them, but they will then hold their own spelling beside the pack's. Worth
+  deciding whether the screen offers to reconcile, or leaves it alone.
+
+Not a bug -- the pickers work and the states are seeded; this is the volume
+below them. Raised and deferred by the owner on 2026-09-17 for review later.
