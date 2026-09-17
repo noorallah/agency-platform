@@ -53,6 +53,14 @@
   config\.env, logs\ and storage\ are never replaced, and the database is
   never touched -- it lives in PostgreSQL, not here.
 
+.PARAMETER ConfigureOnly
+  Skip the copy, because the files are already in place, and do the parts that
+  must run on the machine itself: generate the configuration, build the Python
+  environment, create the database account and database, and migrate every
+  store. This is what the Windows installer calls once it has placed the files,
+  so that configuration has one implementation rather than a second copy living
+  inside an installer script.
+
 .PARAMETER DryRun
   Report every step and change nothing. Run this first on a machine you care
   about.
@@ -90,6 +98,7 @@ param(
   [switch]$WithDemoData,
   [switch]$InstallPrerequisites,
   [string]$InstallDir,
+  [switch]$ConfigureOnly,
   [switch]$SkipStart,
   [switch]$DryRun
 )
@@ -199,7 +208,15 @@ if (-not $InstallDir -and -not $DryRun -and [Environment]::UserInteractive) {
   $InstallDir = if ([string]::IsNullOrWhiteSpace($answer)) { $default } else { $answer.Trim() }
 }
 
-if ($InstallDir) {
+if ($InstallDir -and $ConfigureOnly) {
+  # Already installed by whoever called us; just work where they put it.
+  $script:RepoRoot = [System.IO.Path]::GetFullPath(
+    [System.IO.Path]::Combine((Get-Location).Path, $InstallDir))
+  $script:BackendRoot = Join-Path $script:RepoRoot 'backend'
+  $script:EnvPath = Join-Path $script:BackendRoot 'config\.env'
+  $script:Venv = Join-Path $script:BackendRoot '.venv\Scripts\python.exe'
+  Write-Host "  configuring: $script:RepoRoot"
+} elseif ($InstallDir) {
   $target = [System.IO.Path]::GetFullPath(
     [System.IO.Path]::Combine((Get-Location).Path, $InstallDir))
   $here = [System.IO.Path]::GetFullPath($script:SourceRoot)
