@@ -2200,7 +2200,7 @@ each is a decision or a small feature rather than a broken behaviour.
   screens, and the catalogue guard polices `/reports/` paths only.
 
 
-## 32. Seed a standard India geography master into every firm store
+## 32. Seed a standard India geography master into every firm store -- done 2026-09-17
 
 Raised while verifying the customer place picker (plan item 4.3, 2026-09-09).
 
@@ -2241,6 +2241,41 @@ on that.
 
 Not a bug -- the picker works, it is just empty. Deferred by the owner on
 2026-09-09 to do later.
+
+**Done on 2026-09-17**, as migration `20260917_0137`, delivered the way every
+store already receives reference data: a data migration, so `migrate-all`
+reaches existing stores and `upgrade_store` reaches each newly provisioned one
+without a second mechanism to remember.
+
+Two things in the ask above turned out to be wrong, and are recorded here
+rather than quietly dropped:
+
+* **GST state codes were not seeded, because there is nowhere to put them and
+  nothing that would read them.** `geo_states` carries only `country_id`,
+  `code`, `name` and `is_active`. Every place-of-supply decision in this
+  codebase reads the numeric code off the **GSTIN** -- `einvoice`'s
+  `_state_code` takes the first two digits, `gst_returns` does the same -- for
+  the stated reason that reading it off the number rather than off an address
+  means the two can never disagree. Geography is not in that path. Adding a
+  `gst_state_code` column would have been a new column and a second source for
+  a fact already derived. `code` holds the two-letter abbreviation this
+  repository was already using.
+* **`SalesTerritoryService` was not used**, despite the ask. A migration that
+  reads today's models replays a different change next year, and `_commit()`
+  would commit inside Alembic's transaction. Module-level `sa.table` stubs, as
+  every other seeding migration here uses.
+
+It **skips rather than merges**: a state whose code *or* name a store already
+holds is left alone, soft-deleted ones included. Both unique indexes are scoped
+to `is_deleted = false`, so re-inserting a deleted state would succeed and
+quietly undo a deliberate deletion. Verified against all seven live stores --
+the three with no states went to 36, the ones with their own kept them (38 and
+37), a replay stayed at 36, and a deliberately deleted Mizoram stayed deleted.
+
+Districts, cities, postal codes and localities stay user-entered, as above.
+A screen for filling those in is the open half, and the owner asked for it on
+2026-09-17: somewhere a tenant can add a district, city, town or pin code
+without it being a chore.
 ## 33. Customer group management belongs beside the other master lists
 
 Raised by the owner on 2026-09-09 while reviewing the customers screen.
