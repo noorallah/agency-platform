@@ -54,6 +54,9 @@ Thumbs.db
 /DATABASE_*.md
 /_tmp_*.txt
 
+# Release build output: staged payload and the installer itself.
+/dist/
+
 # Installer and root-level test artifacts
 /installer/
 /tests/

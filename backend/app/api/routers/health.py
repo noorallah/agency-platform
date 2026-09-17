@@ -22,6 +22,12 @@ class HealthStatus(BaseModel):
 
     status: str
     environment: Environment
+    #: Which build is installed. Nothing reported this before 2026-09-17, so
+    #: the only way to tell one deployment from another was to read files on
+    #: the machine -- and the client's own version comes from a JSON file
+    #: beside the exe, which anyone can edit. This comes from the application
+    #: itself and is the honest answer to "what is running here".
+    version: str
 
 
 class DatabaseHealthStatus(BaseModel):
@@ -52,7 +58,11 @@ async def get_health(
 
     """
     return ApiResponse(
-        data=HealthStatus(status="healthy", environment=settings.environment)
+        data=HealthStatus(
+            status="healthy",
+            environment=settings.environment,
+            version=settings.app_version,
+        )
     )
 
 

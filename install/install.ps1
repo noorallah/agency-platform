@@ -30,6 +30,37 @@
   serves plain HTTP, which the desktop client accepts on a private network and
   refuses to a public address.
 
+.PARAMETER DatabaseUser
+  A PostgreSQL account that may create roles and databases, used **once** to
+  set the application up and never stored. Only needed when PostgreSQL is
+  already installed; when this script installs it, it sets this up itself.
+
+.PARAMETER AppDatabaseUser
+  The account the application itself runs as. It is created with a generated
+  password, owns its own database and nothing else, and is not a superuser.
+  The customer never types or sees this password.
+
+.PARAMETER AdminPassword
+  The first platform administrator's password. Generated and shown once at the
+  end if not supplied, so an unattended install needs no input at all.
+
+.PARAMETER InstallDir
+  Where the application is installed. Asked for when this is run interactively
+  and not supplied, offering C:\AgencyPlatform; pass it to install without a
+  prompt, or pass the folder this script already sits in to install in place.
+
+  Installing again over an existing directory **keeps the firm's data**:
+  config\.env, logs\ and storage\ are never replaced, and the database is
+  never touched -- it lives in PostgreSQL, not here.
+
+.PARAMETER ConfigureOnly
+  Skip the copy, because the files are already in place, and do the parts that
+  must run on the machine itself: generate the configuration, build the Python
+  environment, create the database account and database, and migrate every
+  store. This is what the Windows installer calls once it has placed the files,
+  so that configuration has one implementation rather than a second copy living
+  inside an installer script.
+
 .PARAMETER DryRun
   Report every step and change nothing. Run this first on a machine you care
   about.
@@ -62,9 +93,12 @@ param(
   [string]$DatabaseName = 'agency_platform',
   [string]$DatabaseUser = 'postgres',
   [securestring]$DatabasePassword,
+  [string]$AppDatabaseUser = 'agency_app',
   [securestring]$AdminPassword,
   [switch]$WithDemoData,
   [switch]$InstallPrerequisites,
+  [string]$InstallDir,
+  [switch]$ConfigureOnly,
   [switch]$SkipStart,
   [switch]$DryRun
 )
@@ -88,7 +122,122 @@ function Stop-Install {
   exit 1
 }
 
-# -- 0. Arguments that contradict each other -------------------------------
+function Copy-Application {
+  <#
+    Copy the application to where it is being installed, keeping whatever the
+    destination already holds that belongs to the firm rather than to us.
+
+    Three directories survive an update, and the reasons differ:
+
+      config\  the signing key and the database password. Replacing it signs
+               every user out and locks the application out of its own data.
+      logs\    the record of what the application did, which is often the
+               only evidence when something went wrong before the update.
+      storage\ whatever the firm has attached to its own records.
+
+    .venv is deliberately NOT copied: it holds absolute paths from the machine
+    that built it, so a copied one is broken in ways that surface much later.
+    The Python step below rebuilds it at the destination.
+  #>
+  param([string]$From, [string]$To)
+
+  # An allow-list, not a deny-list. It used to exclude four names and copy
+  # everything else, which shipped tests\, docs\, Dockerfile, uv.lock and the
+  # repository's own README to every customer. Naming what the application
+  # actually needs is the only version of this that stays correct as the tree
+  # grows.
+  $ship = @('app', 'alembic', 'scripts', 'config', 'alembic.ini', 'pyproject.toml')
+  $keep = @('config', 'logs', 'storage')
+  New-Item -ItemType Directory -Force -Path $To | Out-Null
+
+  $backendFrom = Join-Path $From 'backend'
+  $backendTo = Join-Path $To 'backend'
+  New-Item -ItemType Directory -Force -Path $backendTo | Out-Null
+
+  foreach ($entry in Get-ChildItem -Force $backendFrom) {
+    if ($entry.Name -notin $ship) { continue }
+    $destination = Join-Path $backendTo $entry.Name
+    if ($entry.Name -in $keep -and (Test-Path $destination)) {
+      Write-Skip "kept the existing backend\$($entry.Name)"
+      continue
+    }
+    if ($entry.PSIsContainer) {
+      # Contents, not the folder. `Copy-Item -Recurse` onto a destination that
+      # already exists puts the source folder *inside* it -- an app\app --
+      # and leaves the original files untouched, so an update would ship the
+      # old code and nest a duplicate tree. Found by installing twice.
+      New-Item -ItemType Directory -Force -Path $destination | Out-Null
+      Copy-Item -Path (Join-Path $entry.FullName '*') -Destination $destination -Recurse -Force
+      if ($entry.Name -eq 'config') {
+        # **A developer's .env must never reach a customer.** config\ is shipped
+        # for .env.example, which the Configuration step reads as its template.
+        # On a *fresh* install the destination config\ does not exist, so the
+        # $keep rule above does not fire and the whole folder is copied --
+        # including a .env holding the development signing key and database
+        # password. The Configuration step would then find that file, report
+        # "left alone", and never generate real credentials, so every customer
+        # would share one signing key. Found reviewing the copy on 2026-09-17.
+        Get-ChildItem -Force -Path $destination -Filter '.env*' |
+          Where-Object { $_.Name -ne '.env.example' } |
+          ForEach-Object {
+            Remove-Item -Force $_.FullName
+            Write-Skip "did not ship backend\config\$($_.Name)"
+          }
+      }
+    } else {
+      Copy-Item -Path $entry.FullName -Destination $destination -Force
+    }
+  }
+
+  # The built client, if there is one. Its path shape is kept so everything
+  # downstream finds it where it expects.
+  $clientFrom = Join-Path $From 'desktop\build\windows\x64\runner\Release'
+  if (Test-Path $clientFrom) {
+    $clientTo = Join-Path $To 'desktop\build\windows\x64\runner\Release'
+    New-Item -ItemType Directory -Force -Path $clientTo | Out-Null
+    Copy-Item -Path (Join-Path $clientFrom '*') -Destination $clientTo -Recurse -Force
+  }
+}
+
+# -- 0. Where this is being installed --------------------------------------
+
+$script:SourceRoot = $script:RepoRoot
+if (-not $InstallDir -and -not $DryRun -and [Environment]::UserInteractive) {
+  $default = 'C:\AgencyPlatform'
+  $answer = Read-Host "Install where? [$default, or a path of your own]"
+  $InstallDir = if ([string]::IsNullOrWhiteSpace($answer)) { $default } else { $answer.Trim() }
+}
+
+if ($InstallDir -and $ConfigureOnly) {
+  # Already installed by whoever called us; just work where they put it.
+  $script:RepoRoot = [System.IO.Path]::GetFullPath(
+    [System.IO.Path]::Combine((Get-Location).Path, $InstallDir))
+  $script:BackendRoot = Join-Path $script:RepoRoot 'backend'
+  $script:EnvPath = Join-Path $script:BackendRoot 'config\.env'
+  $script:Venv = Join-Path $script:BackendRoot '.venv\Scripts\python.exe'
+  Write-Host "  configuring: $script:RepoRoot"
+} elseif ($InstallDir) {
+  $target = [System.IO.Path]::GetFullPath(
+    [System.IO.Path]::Combine((Get-Location).Path, $InstallDir))
+  $here = [System.IO.Path]::GetFullPath($script:SourceRoot)
+  if ($target.TrimEnd('\') -ieq $here.TrimEnd('\')) {
+    Write-Host "  installing in place: $here"
+  } elseif ($DryRun) {
+    Write-Host "  would install into: $target"
+  } else {
+    $updating = Test-Path (Join-Path $target 'backend\config\.env')
+    Write-Host ("  {0}: {1}" -f $(if ($updating) { 'updating' } else { 'installing into' }), $target)
+    Copy-Application -From $script:SourceRoot -To $target
+    # Everything from here on refers to the installed copy, not the source.
+    $script:RepoRoot = $target
+    $script:BackendRoot = Join-Path $target 'backend'
+    $script:EnvPath = Join-Path $script:BackendRoot 'config\.env'
+    $script:Venv = Join-Path $script:BackendRoot '.venv\Scripts\python.exe'
+    Write-Done "application copied to $target"
+  }
+}
+
+# -- 0b. Arguments that contradict each other ------------------------------
 # Caught before anything is changed, so a typo cannot leave a half-install.
 
 if ($CertFile -and -not $KeyFile) { Stop-Install 'CertFile was given without KeyFile.' 'TLS needs both.' }
@@ -109,19 +258,95 @@ Write-Step 'Checking prerequisites'
 
 function Test-Command { param([string]$Name) return [bool](Get-Command $Name -ErrorAction SilentlyContinue) }
 
+function New-Secret {
+  # Deliberately no quotes, backslashes, spaces or semicolons. This value is
+  # inlined into `CREATE ROLE ... PASSWORD '...'` -- PostgreSQL takes no bind
+  # parameter there and rejects the statement outright -- and it is written to
+  # a .env file read as plain text. Both are places where a stray quote turns
+  # a password into a syntax error, which is the trap the compose file already
+  # documents for its own JSON.
+  param([int]$Length = 28)
+  $alphabet = 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789-_.~'
+  $bytes = [byte[]]::new($Length)
+  # Create().GetBytes(), not Fill(). Fill() is .NET Core only and this script
+  # runs under Windows PowerShell 5.1 -- install.bat invokes `powershell`, not
+  # `pwsh` -- where the call does not exist. Getting that wrong does not fail
+  # loudly: the byte array stays all zeros and every generated secret becomes
+  # the same predictable string.
+  $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+  try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
+  -join ($bytes | ForEach-Object { $alphabet[$_ % $alphabet.Length] })
+}
+
+function Protect-File {
+  # The .env holds the signing key, the database password and the bootstrap
+  # administrator password. On a shared machine a standard user can otherwise
+  # read all three. This does not defend against an administrator -- nothing
+  # on that machine does -- it stops casual and accidental exposure.
+  param([string]$Path)
+  try {
+    $acl = Get-Acl $Path
+    $acl.SetAccessRuleProtection($true, $false)
+    foreach ($account in @('BUILTIN\Administrators', 'NT AUTHORITY\SYSTEM', $env:USERNAME)) {
+      $rule = New-Object System.Security.AccessControl.FileSystemAccessRule(
+        $account, 'FullControl', 'Allow')
+      $acl.AddAccessRule($rule)
+    }
+    Set-Acl -Path $Path -AclObject $acl
+    return $true
+  } catch {
+    return $false
+  }
+}
+
+function Test-Administrator {
+  $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+  return ([Security.Principal.WindowsPrincipal]$identity).IsInRole(
+    [Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+function Update-SessionPath {
+  # winget writes the new entries to the registry, not to this process. Without
+  # this, installing Python and then using it in the same run cannot work: the
+  # script would install it, print a note about opening a new terminal, and
+  # then fail on `python -m venv` two steps later.
+  $machine = [Environment]::GetEnvironmentVariable('Path', 'Machine')
+  $user = [Environment]::GetEnvironmentVariable('Path', 'User')
+  $env:Path = (@($machine, $user) | Where-Object { $_ }) -join ';'
+}
+
+function Get-RealPython {
+  # `python` on a machine that has never had Python is the Microsoft Store app
+  # execution alias under WindowsApps: Get-Command finds it, running it prints
+  # no version and opens the Store instead. Treating that as "Python is here"
+  # is worse than finding nothing, because the run then fails later and
+  # somewhere else. Returns the version string, or $null.
+  $command = Get-Command python -ErrorAction SilentlyContinue
+  if (-not $command) { return $null }
+  if ($command.Source -and $command.Source -like '*\WindowsApps\*') { return $null }
+  # No 2>&1 here. In Windows PowerShell 5.1 that wraps a native program's
+  # stderr in an ErrorRecord, and with $ErrorActionPreference = 'Stop' the
+  # first such line ends the script -- which is exactly how this installer
+  # once died after "Applying migrations...". stderr is left where it is.
+  $version = & $command.Source --version
+  if ($LASTEXITCODE -ne 0) { return $null }
+  if ($version -match '(\d+)\.(\d+)') { return $version }
+  return $null
+}
+
 $missing = @()
 
-$python = Get-Command python -ErrorAction SilentlyContinue
-if (-not $python) {
+$version = Get-RealPython
+if (-not $version) {
+  # Covers all three: no python at all, the Store stub, and a python that is
+  # on PATH but cannot run. Previously a stub fell through every branch
+  # silently and the installer carried on as though Python were present.
   $missing += @{ Name = 'Python 3.13+'; Winget = 'Python.Python.3.13' }
-} else {
-  $version = & python --version 2>&1
-  if ($version -match '(\d+)\.(\d+)') {
-    $major = [int]$Matches[1]; $minor = [int]$Matches[2]
-    if ($major -lt 3 -or ($major -eq 3 -and $minor -lt 13)) {
-      $missing += @{ Name = "Python 3.13+ (found $version)"; Winget = 'Python.Python.3.13' }
-    } else { Write-Done "Python: $version" }
-  }
+} elseif ($version -match '(\d+)\.(\d+)') {
+  $major = [int]$Matches[1]; $minor = [int]$Matches[2]
+  if ($major -lt 3 -or ($major -eq 3 -and $minor -lt 13)) {
+    $missing += @{ Name = "Python 3.13+ (found $version)"; Winget = 'Python.Python.3.13' }
+  } else { Write-Done "Python: $version" }
 }
 
 # PostgreSQL is deliberately not checked here. Looking for `psql` on PATH or a
@@ -140,6 +365,9 @@ if ($missing.Count -gt 0) {
   if (-not (Test-Command 'winget')) {
     Stop-Install 'winget is not available, so prerequisites cannot be installed automatically.' 'Install Python 3.13+ and PostgreSQL 17 by hand, then run this again.'
   }
+  if (-not $DryRun -and -not (Test-Administrator)) {
+    Stop-Install 'Installing prerequisites needs an elevated shell.' 'Right-click install.bat and choose Run as administrator, or install Python 3.13+ and PostgreSQL 17 by hand and run this again without -InstallPrerequisites.'
+  }
   foreach ($item in $missing) {
     if ($DryRun) { Write-Skip "would install $($item.Name) via winget"; continue }
     Write-Host "   installing $($item.Name)..."
@@ -148,7 +376,13 @@ if ($missing.Count -gt 0) {
       Stop-Install "winget could not install $($item.Name)." 'Check the network connection, or install it by hand and run this again.'
     }
   }
-  Write-Warn 'A new terminal may be needed for the installed tools to appear on PATH.'
+  if (-not $DryRun) {
+    Update-SessionPath
+    if (-not (Get-RealPython)) {
+      Stop-Install 'Python was installed but this shell still cannot run it.' 'Close this window, open a new one, and run the installer again -- it will continue from here.'
+    }
+    Write-Done 'PATH refreshed for this session'
+  }
 }
 
 # -- 2. Configuration -------------------------------------------------------
@@ -160,19 +394,30 @@ if (Test-Path $script:EnvPath) {
 } elseif ($DryRun) {
   Write-Skip 'would write backend\config\.env with a generated signing key'
 } else {
-  if (-not $DatabasePassword) { $DatabasePassword = Read-Host -AsSecureString "PostgreSQL password for '$DatabaseUser'" }
-  if (-not $AdminPassword) { $AdminPassword = Read-Host -AsSecureString 'Password for the platform administrator (first login)' }
-
-  $plainDb = [System.Net.NetworkCredential]::new('', $DatabasePassword).Password
-  $plainAdmin = [System.Net.NetworkCredential]::new('', $AdminPassword).Password
-  if ([string]::IsNullOrWhiteSpace($plainDb)) { Stop-Install 'The database password cannot be empty.' }
-  if ([string]::IsNullOrWhiteSpace($plainAdmin)) { Stop-Install 'The administrator password cannot be empty.' }
+  # Nothing here is asked of the customer. The application's own database
+  # password is generated and never shown -- it is written to config\.env and
+  # used from there. The administrator password is generated too when none was
+  # given, and reported once at the end, because somebody has to be able to
+  # sign in.
+  $script:AppDbPassword = New-Secret
+  $plainDb = $script:AppDbPassword
+  if ($AdminPassword) {
+    $plainAdmin = [System.Net.NetworkCredential]::new('', $AdminPassword).Password
+    if ([string]::IsNullOrWhiteSpace($plainAdmin)) { Stop-Install 'The administrator password cannot be empty.' }
+  } else {
+    $plainAdmin = New-Secret -Length 20
+    $script:GeneratedAdminPassword = $plainAdmin
+  }
 
   # A real signing key, not the development one. The application refuses to
   # start outside development with the development key, and this is what stops
   # an install inheriting it from the example file.
   $bytes = [byte[]]::new(48)
-  [System.Security.Cryptography.RandomNumberGenerator]::Fill($bytes)
+  # See New-Secret: Fill() does not exist under Windows PowerShell 5.1, which
+  # is the shell install.bat launches. This generated the signing key, so the
+  # failure mode was an application signing every token with a key of zeros.
+  $rng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+  try { $rng.GetBytes($bytes) } finally { $rng.Dispose() }
   $jwtKey = [Convert]::ToBase64String($bytes)
 
   $example = Join-Path $script:BackendRoot 'config\.env.example'
@@ -186,14 +431,19 @@ if (Test-Path $script:EnvPath) {
       '^AGENCY_BOOTSTRAP_ADMIN_PASSWORD=' { "AGENCY_BOOTSTRAP_ADMIN_PASSWORD=$plainAdmin"; break }
       '^AGENCY_DATABASE_HOST=' { "AGENCY_DATABASE_HOST=$DatabaseHost"; break }
       '^AGENCY_DATABASE_NAME=' { "AGENCY_DATABASE_NAME=$DatabaseName"; break }
-      '^AGENCY_DATABASE_USERNAME=' { "AGENCY_DATABASE_USERNAME=$DatabaseUser"; break }
+      '^AGENCY_DATABASE_USERNAME=' { "AGENCY_DATABASE_USERNAME=$AppDatabaseUser"; break }
       '^# AGENCY_DATABASE_PORT=' { "AGENCY_DATABASE_PORT=$DatabasePort"; break }
       default { $_ }
     }
   }
   New-Item -ItemType Directory -Force -Path (Split-Path -Parent $script:EnvPath) | Out-Null
   Set-Content -Path $script:EnvPath -Value $lines -Encoding utf8
-  Write-Done 'wrote backend\config\.env with a generated signing key'
+  Write-Done "wrote backend\config\.env -- signing key and database password generated, database account '$AppDatabaseUser'"
+  if (Protect-File $script:EnvPath) {
+    Write-Done 'config\.env restricted to administrators and this account'
+  } else {
+    Write-Warn 'Could not restrict permissions on config\.env -- check who can read it.'
+  }
   Write-Warn 'Back that file up. Losing the signing key signs every user out; losing it and the database password locks the application out of its own data.'
 }
 
@@ -232,29 +482,79 @@ Write-Step 'Database'
 if ($DryRun) {
   Write-Skip "would create the database '$DatabaseName' if it does not exist"
 } else {
+  # The application's own account and database, created with a privileged
+  # connection that is used for this step and then forgotten. Everything
+  # afterwards -- migrations, the server itself -- runs as the application
+  # account, which owns its database and is not a superuser.
+  #
+  # The credentials arrive by environment variable rather than on the command
+  # line, where `ps` and the console history would show them.
   $createDb = @'
+import os
 import sys
+
 from sqlalchemy import create_engine, text
 from sqlalchemy.engine import make_url
+
 from app.core.config.settings import Settings
 from app.core.database.config import database_config_from_settings
+
+
+def literal(value: str) -> str:
+    """Quote for DDL, which takes no bind parameters.
+
+    PostgreSQL rejects `CREATE ROLE ... PASSWORD $1` outright, so the value is
+    inlined and therefore escaped. The installer generates passwords from an
+    alphabet with no quotes for the same reason; this is the second belt.
+    """
+    return "'" + value.replace("'", "''") + "'"
+
 
 settings = Settings()
 url = make_url(database_config_from_settings(settings).url)
 target = url.database
-# Connect to the maintenance database: you cannot create a database from
-# inside itself.
-admin = url.set(database="postgres")
-engine = create_engine(admin.render_as_string(hide_password=False), isolation_level="AUTOCOMMIT")
+app_user = url.username
+app_password = url.password
+
+# The privileged connection: a superuser account, used once. Falls back to the
+# application's own credentials so that a re-run on an installed machine -- one
+# where the role already exists and no superuser password is to hand -- still
+# reports honestly instead of looking like a fresh failure.
+admin_user = os.environ.get("INSTALL_ADMIN_USER") or app_user
+admin_password = os.environ.get("INSTALL_ADMIN_PASSWORD") or app_password
+admin = url.set(database="postgres", username=admin_user, password=admin_password)
+
+engine = create_engine(
+    admin.render_as_string(hide_password=False), isolation_level="AUTOCOMMIT"
+)
 try:
     with engine.connect() as conn:
+        role = conn.execute(
+            text("SELECT 1 FROM pg_roles WHERE rolname = :name"), {"name": app_user}
+        ).scalar()
+        if role:
+            # A re-install writes a new password into .env, so the role's has
+            # to follow it or the application cannot log in with the file it
+            # was just given.
+            conn.execute(
+                text(f'ALTER ROLE "{app_user}" WITH LOGIN PASSWORD {literal(app_password)}')
+            )
+            print(f"role-updated:{app_user}")
+        else:
+            conn.execute(
+                text(f'CREATE ROLE "{app_user}" WITH LOGIN PASSWORD {literal(app_password)}')
+            )
+            print(f"role-created:{app_user}")
+
         exists = conn.execute(
             text("SELECT 1 FROM pg_database WHERE datname = :name"), {"name": target}
         ).scalar()
         if exists:
             print(f"exists:{target}")
         else:
-            conn.execute(text(f'CREATE DATABASE "{target}"'))
+            # Owned by the application account, so it needs no grant on
+            # anything else in the cluster and no rights it does not use.
+            conn.execute(text(f'CREATE DATABASE "{target}" OWNER "{app_user}"'))
             print(f"created:{target}")
 except Exception as exc:  # noqa: BLE001 - the message is the whole point here
     print(f"error:{exc}", file=sys.stderr)
@@ -262,6 +562,11 @@ except Exception as exc:  # noqa: BLE001 - the message is the whole point here
 '@
   Push-Location $script:BackendRoot
   try {
+    if ($DatabasePassword) {
+      $env:INSTALL_ADMIN_USER = $DatabaseUser
+      $env:INSTALL_ADMIN_PASSWORD =
+        [System.Net.NetworkCredential]::new('', $DatabasePassword).Password
+    }
     $result = $createDb | & $script:Venv - 2>&1
     if ($LASTEXITCODE -ne 0 -and $InstallPrerequisites -and $DatabaseHost -in @('localhost', '127.0.0.1', '::1')) {
       # The server did not answer and the caller asked for prerequisites, so
@@ -271,6 +576,9 @@ except Exception as exc:  # noqa: BLE001 - the message is the whole point here
       # not need.
       if (-not (Test-Command 'winget')) {
         Stop-Install 'PostgreSQL did not answer and winget is not available to install it.' 'Install PostgreSQL 17 by hand, then run this again.'
+      }
+      if (-not (Test-Administrator)) {
+        Stop-Install 'Installing PostgreSQL needs an elevated shell.' 'Right-click install.bat and choose Run as administrator, or install PostgreSQL 17 by hand and run this again.'
       }
       Write-Host '   PostgreSQL did not answer. Installing it...'
       & winget install --id PostgreSQL.PostgreSQL.17 --accept-package-agreements --accept-source-agreements --silent
@@ -291,8 +599,20 @@ except Exception as exc:  # noqa: BLE001 - the message is the whole point here
       ) -join "`n"
       Stop-Install 'Could not reach PostgreSQL.' "$result`n$advice"
     }
-    if ("$result" -like 'created:*') { Write-Done "created database '$DatabaseName'" } else { Write-Skip "database '$DatabaseName' exists" }
-  } finally { Pop-Location }
+    foreach ($line in @("$result" -split "`n")) {
+      switch -Regex ($line.Trim()) {
+        '^role-created:(.+)$' { Write-Done "created database account '$($Matches[1])' (not a superuser)" }
+        '^role-updated:(.+)$' { Write-Skip "database account '$($Matches[1])' exists -- password re-set to match config\.env" }
+        '^created:(.+)$' { Write-Done "created database '$($Matches[1])', owned by '$AppDatabaseUser'" }
+        '^exists:(.+)$' { Write-Skip "database '$($Matches[1])' exists" }
+      }
+    }
+  } finally {
+    # The privileged password lives no longer than the step that needs it.
+    Remove-Item Env:\INSTALL_ADMIN_USER -ErrorAction SilentlyContinue
+    Remove-Item Env:\INSTALL_ADMIN_PASSWORD -ErrorAction SilentlyContinue
+    Pop-Location
+  }
 }
 
 # -- 5. Migrations ----------------------------------------------------------
@@ -360,6 +680,11 @@ if ($SkipStart -or $DryRun) {
   $startArgs = "-BindHost $BindHost -Port $Port"
   if ($CertFile) { $startArgs += " -CertFile `"$CertFile`" -KeyFile `"$KeyFile`"" }
   Write-Host "     powershell -ExecutionPolicy Bypass -File backend\scripts\start_backend.ps1 $startArgs -NoReload"
+  if ($script:GeneratedAdminPassword) {
+    Write-Host "   Sign in as: platform-admin@agency.local"
+    Write-Host "   Password:   $script:GeneratedAdminPassword" -ForegroundColor Yellow
+    Write-Host "   Write that password down now. It is not shown again." -ForegroundColor Yellow
+  }
   exit 0
 }
 
@@ -402,5 +727,14 @@ if (Test-Path $desktopExe) {
 }
 
 Write-Host "`nInstalled." -ForegroundColor Green
-Write-Host "  Sign in as platform-admin@agency.local with the administrator password you set."
+Write-Host "  Sign in as: platform-admin@agency.local"
+if ($script:GeneratedAdminPassword) {
+  # The one secret a person has to carry away. It is generated rather than
+  # asked for, so this is the only place it is ever shown -- it is written to
+  # config\.env, which is restricted, and never printed again.
+  Write-Host "  Password:   $script:GeneratedAdminPassword" -ForegroundColor Yellow
+  Write-Host "  Write that password down now. It is not shown again." -ForegroundColor Yellow
+} else {
+  Write-Host "  Password:   the administrator password you supplied."
+}
 Write-Host "  It must be changed on first use, and it has no firm membership, so create a firm before opening firm screens."
