@@ -132,6 +132,12 @@ function Copy-Application {
   #>
   param([string]$From, [string]$To)
 
+  # An allow-list, not a deny-list. It used to exclude four names and copy
+  # everything else, which shipped tests\, docs\, Dockerfile, uv.lock and the
+  # repository's own README to every customer. Naming what the application
+  # actually needs is the only version of this that stays correct as the tree
+  # grows.
+  $ship = @('app', 'alembic', 'scripts', 'config', 'alembic.ini', 'pyproject.toml')
   $keep = @('config', 'logs', 'storage')
   New-Item -ItemType Directory -Force -Path $To | Out-Null
 
@@ -140,7 +146,7 @@ function Copy-Application {
   New-Item -ItemType Directory -Force -Path $backendTo | Out-Null
 
   foreach ($entry in Get-ChildItem -Force $backendFrom) {
-    if ($entry.Name -in @('.venv', '__pycache__', '.pytest_cache', '.mypy_cache')) { continue }
+    if ($entry.Name -notin $ship) { continue }
     $destination = Join-Path $backendTo $entry.Name
     if ($entry.Name -in $keep -and (Test-Path $destination)) {
       Write-Skip "kept the existing backend\$($entry.Name)"
@@ -148,11 +154,27 @@ function Copy-Application {
     }
     if ($entry.PSIsContainer) {
       # Contents, not the folder. `Copy-Item -Recurse` onto a destination that
-      # already exists puts the source folder *inside* it -- backendpppp --
+      # already exists puts the source folder *inside* it -- an app\app --
       # and leaves the original files untouched, so an update would ship the
       # old code and nest a duplicate tree. Found by installing twice.
       New-Item -ItemType Directory -Force -Path $destination | Out-Null
       Copy-Item -Path (Join-Path $entry.FullName '*') -Destination $destination -Recurse -Force
+      if ($entry.Name -eq 'config') {
+        # **A developer's .env must never reach a customer.** config\ is shipped
+        # for .env.example, which the Configuration step reads as its template.
+        # On a *fresh* install the destination config\ does not exist, so the
+        # $keep rule above does not fire and the whole folder is copied --
+        # including a .env holding the development signing key and database
+        # password. The Configuration step would then find that file, report
+        # "left alone", and never generate real credentials, so every customer
+        # would share one signing key. Found reviewing the copy on 2026-09-17.
+        Get-ChildItem -Force -Path $destination -Filter '.env*' |
+          Where-Object { $_.Name -ne '.env.example' } |
+          ForEach-Object {
+            Remove-Item -Force $_.FullName
+            Write-Skip "did not ship backend\config\$($_.Name)"
+          }
+      }
     } else {
       Copy-Item -Path $entry.FullName -Destination $destination -Force
     }

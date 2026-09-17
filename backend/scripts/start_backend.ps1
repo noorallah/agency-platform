@@ -79,7 +79,12 @@ function Invoke-Logged {
 }
 
 if (-not $SkipSync) {
-  Invoke-Logged -File 'uv' -Arguments @('sync', '--group', 'dev')
+  # Runtime dependencies only. This script runs on customer machines -- the
+  # installer calls it -- and '--group dev' put mypy, pytest, black, ruff and
+  # coverage there: most of a 169 MB virtual environment, and none of it is the
+  # product. Developers get the dev group by running `uv sync --group dev` in
+  # their own shell, where it belongs.
+  Invoke-Logged -File 'uv' -Arguments @('sync')
   if ($LASTEXITCODE -ne 0) {
     exit $LASTEXITCODE
   }
