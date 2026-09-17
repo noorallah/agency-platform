@@ -44,6 +44,15 @@
   The first platform administrator's password. Generated and shown once at the
   end if not supplied, so an unattended install needs no input at all.
 
+.PARAMETER InstallDir
+  Where the application is installed. Asked for when this is run interactively
+  and not supplied, offering C:\AgencyPlatform; pass it to install without a
+  prompt, or pass the folder this script already sits in to install in place.
+
+  Installing again over an existing directory **keeps the firm's data**:
+  config\.env, logs\ and storage\ are never replaced, and the database is
+  never touched -- it lives in PostgreSQL, not here.
+
 .PARAMETER DryRun
   Report every step and change nothing. Run this first on a machine you care
   about.
@@ -80,6 +89,7 @@ param(
   [securestring]$AdminPassword,
   [switch]$WithDemoData,
   [switch]$InstallPrerequisites,
+  [string]$InstallDir,
   [switch]$SkipStart,
   [switch]$DryRun
 )
@@ -103,7 +113,92 @@ function Stop-Install {
   exit 1
 }
 
-# -- 0. Arguments that contradict each other -------------------------------
+function Copy-Application {
+  <#
+    Copy the application to where it is being installed, keeping whatever the
+    destination already holds that belongs to the firm rather than to us.
+
+    Three directories survive an update, and the reasons differ:
+
+      config\  the signing key and the database password. Replacing it signs
+               every user out and locks the application out of its own data.
+      logs\    the record of what the application did, which is often the
+               only evidence when something went wrong before the update.
+      storage\ whatever the firm has attached to its own records.
+
+    .venv is deliberately NOT copied: it holds absolute paths from the machine
+    that built it, so a copied one is broken in ways that surface much later.
+    The Python step below rebuilds it at the destination.
+  #>
+  param([string]$From, [string]$To)
+
+  $keep = @('config', 'logs', 'storage')
+  New-Item -ItemType Directory -Force -Path $To | Out-Null
+
+  $backendFrom = Join-Path $From 'backend'
+  $backendTo = Join-Path $To 'backend'
+  New-Item -ItemType Directory -Force -Path $backendTo | Out-Null
+
+  foreach ($entry in Get-ChildItem -Force $backendFrom) {
+    if ($entry.Name -in @('.venv', '__pycache__', '.pytest_cache', '.mypy_cache')) { continue }
+    $destination = Join-Path $backendTo $entry.Name
+    if ($entry.Name -in $keep -and (Test-Path $destination)) {
+      Write-Skip "kept the existing backend\$($entry.Name)"
+      continue
+    }
+    if ($entry.PSIsContainer) {
+      # Contents, not the folder. `Copy-Item -Recurse` onto a destination that
+      # already exists puts the source folder *inside* it -- backendpppp --
+      # and leaves the original files untouched, so an update would ship the
+      # old code and nest a duplicate tree. Found by installing twice.
+      New-Item -ItemType Directory -Force -Path $destination | Out-Null
+      Copy-Item -Path (Join-Path $entry.FullName '*') -Destination $destination -Recurse -Force
+    } else {
+      Copy-Item -Path $entry.FullName -Destination $destination -Force
+    }
+  }
+
+  # The built client, if there is one. Its path shape is kept so everything
+  # downstream finds it where it expects.
+  $clientFrom = Join-Path $From 'desktop\build\windows\x64\runner\Release'
+  if (Test-Path $clientFrom) {
+    $clientTo = Join-Path $To 'desktop\build\windows\x64\runner\Release'
+    New-Item -ItemType Directory -Force -Path $clientTo | Out-Null
+    Copy-Item -Path (Join-Path $clientFrom '*') -Destination $clientTo -Recurse -Force
+  }
+}
+
+# -- 0. Where this is being installed --------------------------------------
+
+$script:SourceRoot = $script:RepoRoot
+if (-not $InstallDir -and -not $DryRun -and [Environment]::UserInteractive) {
+  $default = 'C:\AgencyPlatform'
+  $answer = Read-Host "Install where? [$default, or a path of your own]"
+  $InstallDir = if ([string]::IsNullOrWhiteSpace($answer)) { $default } else { $answer.Trim() }
+}
+
+if ($InstallDir) {
+  $target = [System.IO.Path]::GetFullPath(
+    [System.IO.Path]::Combine((Get-Location).Path, $InstallDir))
+  $here = [System.IO.Path]::GetFullPath($script:SourceRoot)
+  if ($target.TrimEnd('\') -ieq $here.TrimEnd('\')) {
+    Write-Host "  installing in place: $here"
+  } elseif ($DryRun) {
+    Write-Host "  would install into: $target"
+  } else {
+    $updating = Test-Path (Join-Path $target 'backend\config\.env')
+    Write-Host ("  {0}: {1}" -f $(if ($updating) { 'updating' } else { 'installing into' }), $target)
+    Copy-Application -From $script:SourceRoot -To $target
+    # Everything from here on refers to the installed copy, not the source.
+    $script:RepoRoot = $target
+    $script:BackendRoot = Join-Path $target 'backend'
+    $script:EnvPath = Join-Path $script:BackendRoot 'config\.env'
+    $script:Venv = Join-Path $script:BackendRoot '.venv\Scripts\python.exe'
+    Write-Done "application copied to $target"
+  }
+}
+
+# -- 0b. Arguments that contradict each other ------------------------------
 # Caught before anything is changed, so a typo cannot leave a half-install.
 
 if ($CertFile -and -not $KeyFile) { Stop-Install 'CertFile was given without KeyFile.' 'TLS needs both.' }
@@ -546,6 +641,11 @@ if ($SkipStart -or $DryRun) {
   $startArgs = "-BindHost $BindHost -Port $Port"
   if ($CertFile) { $startArgs += " -CertFile `"$CertFile`" -KeyFile `"$KeyFile`"" }
   Write-Host "     powershell -ExecutionPolicy Bypass -File backend\scripts\start_backend.ps1 $startArgs -NoReload"
+  if ($script:GeneratedAdminPassword) {
+    Write-Host "   Sign in as: platform-admin@agency.local"
+    Write-Host "   Password:   $script:GeneratedAdminPassword" -ForegroundColor Yellow
+    Write-Host "   Write that password down now. It is not shown again." -ForegroundColor Yellow
+  }
   exit 0
 }
 
@@ -588,5 +688,14 @@ if (Test-Path $desktopExe) {
 }
 
 Write-Host "`nInstalled." -ForegroundColor Green
-Write-Host "  Sign in as platform-admin@agency.local with the administrator password you set."
+Write-Host "  Sign in as: platform-admin@agency.local"
+if ($script:GeneratedAdminPassword) {
+  # The one secret a person has to carry away. It is generated rather than
+  # asked for, so this is the only place it is ever shown -- it is written to
+  # config\.env, which is restricted, and never printed again.
+  Write-Host "  Password:   $script:GeneratedAdminPassword" -ForegroundColor Yellow
+  Write-Host "  Write that password down now. It is not shown again." -ForegroundColor Yellow
+} else {
+  Write-Host "  Password:   the administrator password you supplied."
+}
 Write-Host "  It must be changed on first use, and it has no firm membership, so create a firm before opening firm screens."
