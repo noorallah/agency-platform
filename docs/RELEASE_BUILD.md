@@ -40,6 +40,13 @@ failure rather than producing something questionable:
 | `-SkipInstaller` | stage and verify only; leaves `dist\staging` to look through. The only half that works without Inno Setup. |
 | `-SkipCompile` | stage the backend as **readable Python source**. Fast, for working on the staging or installer steps. Never release a build made this way — the verify step is told to expect source and says so. |
 | `-SkipVerify` | skip the release check. For debugging a staging problem only. |
+| `-Jobs 2` | cap how many C compilations run at once. The build picks a number from free memory and prints it; this overrides that. |
+| `-LowMemory` | trade build speed for peak memory. The answer when the build is *killed* rather than failing. |
+
+**Budget memory, not time.** This is the constraint that actually bites: the
+compile was killed outright on a 16 GB machine with an IDE open, which leaves no
+error to read and looks like nothing happened. Close what you can, or cap the
+jobs.
 
 ---
 
@@ -272,6 +279,7 @@ arranged so that it can.
 | Creating a firm fails with a migration error | `alembic\versions\` did not reach the install, or `alembic.ini` is not beside the executable |
 | The binary starts and exits silently | run it from a console with `where`; `agency-server where` prints the version, environment and the directory it thinks it is installed in |
 | Nuitka cannot find a C compiler | install MSVC Build Tools, or let it fetch MinGW |
+| The build stops with no error at all | **It was killed, not failed** — Windows ended it for memory. Nuitka runs one C compilation per core and each is most of a gigabyte; on a 16 GB machine with an IDE open that is enough to exhaust it. The build caps the job count from free memory and says so, but `-Jobs 2` and `-LowMemory` are there when that is not enough. |
 | PowerShell aborts mid-build with `NativeCommandError` | Windows PowerShell 5.1 wraps native stderr in an ErrorRecord, and `$ErrorActionPreference = 'Stop'` aborts on the first one. The build script relaxes it around the compile for exactly this; `start_backend.ps1` documents the same trap. |
 
 `agency-server where` exists for the fourth row. A built copy that will not

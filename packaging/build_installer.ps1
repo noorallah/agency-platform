@@ -32,6 +32,16 @@
   but it ships readable source, so the release check is told to expect it and
   says so loudly. A release build never uses this.
 
+.PARAMETER Jobs
+  How many C compilations run at once. Nuitka's default is one per core, which
+  is right on a build machine and is how this gets killed on a developer's:
+  each MSVC process is most of a gigabyte and there are hundreds of modules.
+
+.PARAMETER LowMemory
+  Tell Nuitka to trade build speed for peak memory. Slower, and the answer
+  when the build is killed rather than failing -- a killed build leaves no
+  error to read, which is what makes it worth naming here.
+
 .EXAMPLE
   .\packaging\build_installer.ps1
   Stages, verifies and produces dist\windows\AgencyPlatform-1.0.0-Setup.exe
@@ -45,7 +55,9 @@ param(
   [string]$Version,
   [switch]$SkipInstaller,
   [switch]$SkipVerify,
-  [switch]$SkipCompile
+  [switch]$SkipCompile,
+  [int]$Jobs = 0,
+  [switch]$LowMemory
 )
 
 $ErrorActionPreference = 'Stop'
@@ -127,6 +139,27 @@ if ($SkipCompile) {
   if (Test-Path $compileOut) { Remove-Item -Recurse -Force $compileOut }
   New-Item -ItemType Directory -Force -Path $compileOut | Out-Null
 
+  # Memory, not time, is what stops this build. Nuitka runs one C compilation
+  # per core by default and each is most of a gigabyte; on a 16 GB machine with
+  # an IDE open, Windows killed the build outright -- which leaves no error to
+  # read and looks like nothing happened. Cap the jobs when the machine is not
+  # obviously large enough, and say so rather than deciding silently.
+  $tuning = @()
+  if ($Jobs -gt 0) {
+    $tuning += "--jobs=$Jobs"
+  } else {
+    $freeGb = [math]::Round((Get-CimInstance Win32_OperatingSystem).FreePhysicalMemory / 1MB, 1)
+    # Roughly a gigabyte per concurrent compilation, and leave some for the
+    # rest of the machine.
+    $affordable = [math]::Max(1, [math]::Floor($freeGb / 1.5))
+    $cores = [Environment]::ProcessorCount
+    if ($affordable -lt $cores) {
+      Write-Host "   $freeGb GB free: limiting to $affordable parallel compilations (of $cores cores)" -ForegroundColor Yellow
+      $tuning += "--jobs=$affordable"
+    }
+  }
+  if ($LowMemory) { $tuning += '--low-memory' }
+
   Write-Host "   compiling the backend -- this takes several minutes"
   Push-Location (Join-Path $root 'backend')
   try {
@@ -134,7 +167,7 @@ if ($SkipCompile) {
     # Nuitka reports progress on stderr, and in Windows PowerShell 5.1 that
     # aborts the script under 'Stop'. Same trap as start_backend.ps1.
     $ErrorActionPreference = 'Continue'
-    & $python -m nuitka @nuitkaArgs `
+    & $python -m nuitka @nuitkaArgs @tuning `
       "--output-dir=$compileOut" "--file-version=$Version" "--product-version=$Version" `
       'app\cli.py'
     $ErrorActionPreference = $previous
