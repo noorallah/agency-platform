@@ -25,7 +25,7 @@ import argparse
 import sys
 
 from app.core.config.settings import Settings
-from app.core.paths import application_root
+from app.core.paths import application_root, is_compiled_build
 
 
 def _serve(args: argparse.Namespace) -> int:
@@ -52,7 +52,7 @@ def _serve(args: argparse.Namespace) -> int:
             file=sys.stderr,
         )
 
-    if args.reload and getattr(sys, "frozen", False):
+    if args.reload and is_compiled_build():
         # Reload watches source files and re-imports them. A built copy has
         # neither the files nor `watchfiles`, so this would fail obscurely
         # several seconds in rather than here.
@@ -120,7 +120,10 @@ def _where(args: argparse.Namespace) -> int:
     print(f"version:     {settings.app_version}")
     print(f"environment: {settings.environment}")
     print(f"root:        {application_root()}")
-    print(f"frozen:      {getattr(sys, 'frozen', False)}")
+    # "compiled", not "frozen": sys.frozen is PyInstaller's marker and
+    # Nuitka does not set it, which is why the first built copy of this
+    # reported frozen: False while plainly being a compiled binary.
+    print(f"compiled:    {is_compiled_build()}")
     return 0
 
 

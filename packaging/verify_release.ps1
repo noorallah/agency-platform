@@ -48,15 +48,28 @@ function Report {
 
 Write-Host "Release check: $root"
 
-# 1. Source. Migrations are the deliberate exception: Alembic loads them by path
-#    at runtime and they are schema DDL, not business logic -- see the plan.
+# 1. Source. Alembic is the deliberate exception, and it is two things rather
+#    than one -- the second was found by the first compiled build, on 2026-09-17:
+#
+#      alembic\versions\*.py  the migrations. Alembic loads them by path at
+#                             runtime, calling spec_from_file_location per file.
+#      alembic\env.py         the script Alembic *executes* to connect and run
+#                             them. `command.upgrade` calls ScriptDirectory.
+#                             run_env(), so without this file provisioning a
+#                             firm fails on a customer's machine -- the one
+#                             flow they perform unaided.
+#
+#    Both are schema plumbing rather than business logic, and the customer's own
+#    PostgreSQL exposes that same schema to anyone who looks at it. Nothing else
+#    may be source: `app\` is compiled into agency-server.exe.
+$allowedSource = '\\alembic\\versions\\|\\alembic\\env\.py$'
 $python = Get-ChildItem $root -Recurse -File -Filter *.py -ErrorAction SilentlyContinue |
-  Where-Object { $_.FullName -notmatch '\\alembic\\versions\\' } |
+  Where-Object { $_.FullName -notmatch $allowedSource } |
   ForEach-Object { $_.FullName.Substring($root.Length + 1) }
 if ($AllowPython) {
-  Write-Host ("   note  {0} .py files, allowed by -AllowPython (backend not yet compiled)" -f $python.Count) -ForegroundColor Yellow
+  Write-Host ("   note  {0} .py files, allowed by -AllowPython (backend not compiled)" -f $python.Count) -ForegroundColor Yellow
 } else {
-  Report 'no Python source outside alembic\versions' $python
+  Report 'no Python source outside alembic' $python
 }
 
 # 2. A developer's configuration. .env.example is the template and belongs.
