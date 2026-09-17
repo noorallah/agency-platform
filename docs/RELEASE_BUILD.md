@@ -194,7 +194,7 @@ non-zero and the build stops before producing an installer.
 
 It refuses a tree containing:
 
-1. any `.py` outside `alembic\versions\`
+1. any `.py` outside `alembic\` -- the whole directory, not just `versions\`; see below
 2. any `.env` that is not `.env.example`
 3. `tests`, `docs`, `.git`, `.github`, `.venv`, `__pycache__`, `Dockerfile`,
    `docker-compose.yml`, `uv.lock`, `.coverage`, `.pytest_cache`, `.mypy_cache`
@@ -209,6 +209,16 @@ give them" without reading a build log:
 ```powershell
 .\packaging\verify_release.ps1 -Path "C:\Program Files\Agency Platform"
 ```
+
+**Alembic is the exception, and it is two things rather than one.** The
+migrations under `alembic\versions\` were the expected one: Alembic
+loads them by path at runtime. `alembic\env.py` is the one the first
+compiled build found -- Alembic *executes* it, through
+`ScriptDirectory.run_env()`, so without it `command.upgrade` cannot run and
+**provisioning a firm fails on the customer's machine**, which is the one flow
+they perform unaided. Both are schema plumbing rather than business logic, and
+the customer's own PostgreSQL exposes that same schema to anyone who looks.
+Nothing else may be source.
 
 **Why the development JWT key and bootstrap password are not in the secret
 list.** They are the values the application *refuses* outside development — it
@@ -264,9 +274,38 @@ things.
    This is the only test that proves the compile was worth doing, and the only
    one that catches a dependency the build machine happened to have.
 
+Steps 1 to 3 were run for the first time on 2026-09-17, and what they produced
+is worth recording so the next person knows what normal looks like:
+
+| | |
+| --- | --- |
+| C files Nuitka generated | 1,909 |
+| `agency-server.exe` | 153.6 MB |
+| staged tree, client included | 240.1 MB |
+| release check | passed, once `alembic\env.py` was exempted |
+| `agency-server.exe --version` | `1.0.0` |
+| `migrate-all --dry-run` | reached PostgreSQL through the bundled `psycopg_binary` and read all eight stores |
+
+The staged backend contains **no `app\` directory at all** -- the 454 source
+files are inside the executable. That is the whole point of this, stated as a
+thing somebody can check rather than a claim.
+
+**Budget hours, not minutes, on a machine that is also being used.** That build
+took most of a day at two parallel jobs, and was killed twice before being run
+under Task Scheduler, where the CLI's own watchdog could not reach it.
+
+**`sys.frozen` is not how you detect a compiled build.** PyInstaller sets it;
+**Nuitka does not**. The first build printed `frozen: False` from
+`agency-server.exe`, which meant every branch written for a built copy was dead
+in one -- `application_root()` returned the right answer only because Nuitka
+keeps `__file__` pointing at the layout beside the executable, and
+`serve --reload` had silently lost its guard. Nuitka's marker is
+`__compiled__`; `app/core/paths.py::is_compiled_build` asks for both, and
+`test_cli_entry_point.py` fails the build if anybody reaches for one again.
+
 Step 6 has not been run yet. Until it has, this document should not be read as
 saying the product installs on a machine with no Python; it says the build is
-arranged so that it can.
+arranged so that it can, and that everything up to that point has been done.
 
 ---
 

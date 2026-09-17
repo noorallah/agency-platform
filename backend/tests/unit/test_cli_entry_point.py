@@ -163,3 +163,38 @@ def test_a_shipped_script_reaches_for_nothing_a_build_lacks(script: Path) -> Non
             f"{script.name} {what} ({found.group(0)!r} at offset {found.start()}). "
             "A built copy has no interpreter: use a subcommand of app/cli.py."
         )
+
+
+def test_a_source_checkout_does_not_think_it_is_a_compiled_build() -> None:
+    """The negative case, which is the one running here."""
+    from app.core.paths import is_compiled_build
+
+    assert is_compiled_build() is False
+
+
+def test_nothing_detects_a_compiled_build_by_sys_frozen_alone() -> None:
+    """`sys.frozen` is PyInstaller's marker. Nuitka does not set it.
+
+    The first real compiled build of this product, on 2026-09-17, printed
+    `frozen: False` from `agency-server.exe` -- so every branch written for a
+    built copy was dead in one. `application_root()` happened to return the
+    right answer anyway, because Nuitka keeps `__file__` pointing at the layout
+    beside the executable, and `serve --reload` silently lost its guard.
+
+    `is_compiled_build()` asks for `__compiled__` as well, and this fails the
+    build if somebody reaches for the single marker again.
+    """
+    for module in ("app/cli.py", "app/core/paths.py"):
+        source = (_REPO_ROOT / "backend" / module).read_text(encoding="utf-8")
+        code = "\n".join(
+            line
+            for line in source.splitlines()
+            if not line.lstrip().startswith("#") and '"""' not in line
+        )
+        if "frozen" not in code:
+            continue
+        assert "__compiled__" in code, (
+            f"{module} tests sys.frozen without testing __compiled__. Nuitka "
+            "sets only the latter, so the check is dead in the build it is "
+            "written for. Use is_compiled_build()."
+        )
