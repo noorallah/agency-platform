@@ -69,6 +69,13 @@ Report 'no .env (only .env.example)' $envFiles
 $repoOnly = @('tests', 'docs', '.git', '.github', '.venv', '__pycache__',
               'Dockerfile', 'docker-compose.yml', 'uv.lock', '.coverage',
               '.pytest_cache', '.mypy_cache')
+if (-not $AllowPython) {
+  # A compiled build has no Python package to describe, so a pyproject.toml in
+  # the tree means the source-staging path ran -- which is the thing this check
+  # exists to notice. It stays allowed under -AllowPython, where staging source
+  # is what was asked for.
+  $repoOnly += 'pyproject.toml'
+}
 $found = @()
 foreach ($name in $repoOnly) {
   $found += Get-ChildItem $root -Recurse -Force -Filter $name -ErrorAction SilentlyContinue |

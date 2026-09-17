@@ -1,0 +1,63 @@
+# Nuitka options for the backend, one per line. Lines starting with # and blank
+# lines are ignored; build_installer.ps1 reads this and passes the rest through.
+#
+# It lives in a file rather than inside the script so that a change to how the
+# product is compiled is a diff somebody can read, rather than a line buried in
+# a hundred lines of PowerShell.
+#
+# --standalone, not --onefile. A onefile build unpacks itself to a temporary
+# directory on every start, which costs seconds each time and puts the whole
+# application somewhere world-readable while it runs -- the opposite of the
+# point. Standalone is a directory of real files that never unpacks.
+
+--standalone
+--assume-yes-for-downloads
+--output-filename=agency-server.exe
+
+# Windows metadata. Right-clicking the executable should name the product
+# rather than say nothing; the version is stamped from VERSION by the script.
+--company-name=Agency
+--product-name=Agency Platform
+--file-description=Agency Platform server
+
+# The application, and Alembic, which is imported by the migration path.
+--include-package=app
+--include-package=alembic
+
+# Imported lazily, inside functions, behind try/except. A compiler that follows
+# imports statically cannot see these, and the failure is at *runtime* on a
+# customer machine rather than at build time here -- so they are forced in.
+--include-module=openpyxl
+--include-module=argon2
+# psycopg[binary] loads libpq, libssl and libcrypto from psycopg_binary by a
+# mangled name at import time. Following `import psycopg` alone does not reach
+# them, and the failure is "no pq wrapper available" on first connect.
+--include-package=psycopg
+--include-package=psycopg_binary
+
+# Data files that are not code and are not found by following imports.
+# reportlab carries 32 font files; without them every PDF fails to render.
+--include-package-data=reportlab
+
+# The development toolchain is not the product. Excluding it explicitly keeps
+# it out even if something in app/ imports it by accident -- and the release
+# check fails the build if any of it reaches the staged tree anyway.
+--nofollow-import-to=pytest
+--nofollow-import-to=_pytest
+--nofollow-import-to=mypy
+--nofollow-import-to=black
+--nofollow-import-to=ruff
+--nofollow-import-to=coverage
+--nofollow-import-to=tests
+
+# Both libraries ship a testing package aimed at their own test suites, and
+# following `alembic` reaches alembic.testing, which reaches sqlalchemy.testing,
+# which reaches pytest. Nothing in the product imports either, and letting them
+# through would put a test framework in the customer payload -- which the
+# release check refuses, so the build would fail at the last step instead of
+# here.
+--nofollow-import-to=alembic.testing
+--nofollow-import-to=sqlalchemy.testing
+
+# --reload only. A built copy refuses that switch, so nothing here needs it.
+--nofollow-import-to=watchfiles

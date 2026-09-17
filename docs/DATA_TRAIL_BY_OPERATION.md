@@ -280,7 +280,7 @@ All routes under `/api/v1/firms` are platform-only. The registry rows are in `pl
 - `firm.updated` — any change to `deployment_mode`/`schema_name`/`database_name`/`connection_profile` is refused: routing is fixed at creation. `firm.deleted` soft-deletes; the data stays where it is.
 
 ### Provision storage — Set up → Provision storage (plan 27.11–27.13)
-- **Creates** the database (DATABASE mode) and schema, runs `alembic upgrade head` in a **subprocess** against it, prunes the platform tables from it.
+- **Creates** the database (DATABASE mode) and schema, runs `alembic upgrade head` against it in this process, prunes the platform tables from it.
 - **Updates:** `firm_storage_mappings.provisioned_at` (or `provisioning_error` with the reason, on failure).
 - **Audit:** `firm.storage_provisioned` (platform). Re-running is safe and is the repair action.
 - **Check:** `select code, provisioned_at, provisioning_error from platform.firm_storage_mappings m join platform.firms f on f.id = m.firm_id;`

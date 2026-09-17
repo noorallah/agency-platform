@@ -24,9 +24,35 @@ target_metadata = Base.metadata
 _SAFE_SCHEMA = re.compile(r"^[A-Za-z_][A-Za-z0-9_]{0,62}$")
 
 
+def _target_url() -> str:
+    """Return the database to migrate.
+
+    `config.attributes` first, `Settings()` second. The attributes are how an
+    in-process caller says which store it means without touching
+    `os.environ`: those variables are process-wide, and two concurrent
+    provisions once raced on them badly enough that the whole operation was
+    pushed into a subprocess to get an environment of its own. Passing the
+    target through the Config object instead gives each call its own values
+    with no shared state, which is what lets it come back in-process -- and a
+    frozen build has no interpreter to spawn.
+    """
+    override = config.attributes.get("database_url")
+    if override:
+        return str(override)
+    return EngineFactory.database_config_from_settings(Settings()).url
+
+
+def _target_schema() -> str | None:
+    """Return the schema to migrate, by the same rule as `_target_url`."""
+    override = config.attributes.get("schema_name")
+    if override is not None:
+        return str(override) or None
+    return Settings().database_schema
+
+
 def run_migrations_offline() -> None:
     """Run migrations without creating a database engine."""
-    url = EngineFactory.database_config_from_settings(Settings()).url
+    url = _target_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -42,9 +68,14 @@ def run_migrations_offline() -> None:
 
 def run_migrations_online() -> None:
     """Run migrations through a database connection."""
-    connectable = EngineFactory.create_engine(
-        EngineFactory.database_config_from_settings(Settings())
-    )
+    settings = Settings()
+    database = EngineFactory.database_config_from_settings(settings)
+    override = config.attributes.get("database_url")
+    if override:
+        # DatabaseConfig is a frozen pydantic model: copy with the override
+        # rather than mutating, and let `url` resolve from it as usual.
+        database = database.model_copy(update={"url_override": str(override)})
+    connectable = EngineFactory.create_engine(database)
 
     with connectable.connect() as connection:
         _configure_migrations(connection)
@@ -54,8 +85,7 @@ def run_migrations_online() -> None:
 
 def _configure_migrations(connection: Connection) -> None:
     """Configure and execute migrations through an open connection."""
-    settings = Settings()
-    schema = settings.database_schema
+    schema = _target_schema()
     if schema and connection.dialect.name == "postgresql":
         if _SAFE_SCHEMA.fullmatch(schema) is None:
             raise ValueError(f"Invalid AGENCY_DATABASE_SCHEMA: {schema!r}")

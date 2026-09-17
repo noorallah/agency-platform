@@ -9,7 +9,7 @@ resolution-markers = [
 
 [[package]]
 name = "agency-platform-backend"
-version = "0.1.0"
+version = "1.0.0"
 source = { editable = "." }
 dependencies = [
     { name = "alembic" },
@@ -27,6 +27,9 @@ dependencies = [
 ]
 
 [package.dev-dependencies]
+build = [
+    { name = "nuitka" },
+]
 dev = [
     { name = "black" },
     { name = "mypy" },
@@ -52,6 +55,7 @@ requires-dist = [
 ]
 
 [package.metadata.requires-dev]
+build = [{ name = "nuitka", specifier = ">=2.5" }]
 dev = [
     { name = "black", specifier = ">=24.10,<26.0" },
     { name = "mypy", specifier = ">=1.13,<2.0" },
@@ -722,6 +726,12 @@ sdist = { url = "https://files.pythonhosted.org/packages/a2/6e/371856a3fb9d31ca8
 wheels = [
     { url = "https://files.pythonhosted.org/packages/79/7b/2c79738432f5c924bef5071f933bcc9efd0473bac3b4aa584a6f7c1c8df8/mypy_extensions-1.1.0-py3-none-any.whl", hash = "sha256:1be4cccdb0f2482337c4743e60421de3a356cd97508abadd57d47403e94f5505", size = 4963, upload-time = "2025-04-22T14:54:22.983Z" },
 ]
+
+[[package]]
+name = "nuitka"
+version = "4.2.1"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/c7/ce/38409fc853cc26d86ab71ccd53f7dfddbc7a84d4821b9b54db428b35779b/nuitka-4.2.1.tar.gz", hash = "sha256:815c6e571a7a6424af384fe9d95d4ba38f1634d39a5515e8094d7fbfa090cbcb", size = 4632551, upload-time = "2026-09-05T08:08:19.117Z" }
 
 [[package]]
 name = "openpyxl"

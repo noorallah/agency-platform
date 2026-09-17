@@ -327,8 +327,8 @@ target server must not fail the creation of a firm record.
 SHARED, and stays enabled until its storage is ready), or
 `POST /api/v1/firms/{id}/provision`.
 
-It creates the database and/or schema, runs `alembic upgrade head` against it in
-a subprocess, prunes the platform-only tables, and stamps `provisioned_at`.
+It creates the database and/or schema, runs `alembic upgrade head` against it,
+prunes the platform-only tables, and stamps `provisioned_at`.
 Until that succeeds every request for the firm is refused by name — *"Firm
 storage for 'X' has not been provisioned yet"* — and a failure is kept in
 `provisioning_error` on the record rather than only in the log.

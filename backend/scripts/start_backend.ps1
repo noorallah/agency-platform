@@ -90,20 +90,38 @@ if (-not $SkipSync) {
   }
 }
 
-# Run through the virtual environment's interpreter when it exists rather than
-# `uv run`. `uv run` fails on some Windows machines with "uv trampoline failed
-# to canonicalize script path", and when it does, this script hangs at the
-# migration step with nothing in the log to say why -- which is exactly how it
-# was found. The venv is what the installer builds, so prefer it.
+# How to run the application. Three ways, in the order they are preferred:
+#
+#   1. agency-server.exe beside the backend -- a built copy, which has no
+#      interpreter at all. This is what a customer machine has.
+#   2. the virtual environment's own interpreter, which is what the installer
+#      builds and what a developer has.
+#   3. `uv run`, which fails on some Windows machines with "uv trampoline failed
+#      to canonicalize script path". When it does, this script used to hang at
+#      the migration step with nothing in the log to say why -- which is exactly
+#      how that was found. Last, therefore.
+#
+# Everything below goes through `app.cli`, the one entry point, so the three
+# ways differ only in what launches it.
+$compiled = Join-Path $backendRoot 'agency-server.exe'
 $python = Join-Path $backendRoot '.venv\Scripts\python.exe'
-$useVenv = Test-Path $python
-
-"[$(Get-Date -Format o)] Applying migrations..." | Tee-Object -FilePath $LogPath -Append
-if ($useVenv) {
-  Invoke-Logged -File $python -Arguments @('-m', 'alembic', 'upgrade', 'head')
+if (Test-Path $compiled) {
+  $runner = $compiled
+  $runnerPrefix = @()
+} elseif (Test-Path $python) {
+  $runner = $python
+  $runnerPrefix = @('-m', 'app.cli')
 } else {
-  Invoke-Logged -File 'uv' -Arguments @('run', '--no-sync', 'python', '-m', 'alembic', 'upgrade', 'head')
+  $runner = 'uv'
+  $runnerPrefix = @('run', '--no-sync', 'python', '-m', 'app.cli')
 }
+
+# Every store, not just the platform schema. `alembic upgrade head` -- which is
+# what this ran until 2026-09-17 -- advances the one schema named by
+# AGENCY_DATABASE_SCHEMA, so every firm store was silently left behind and
+# nothing reported it until a query hit a missing column.
+"[$(Get-Date -Format o)] Applying migrations to every store..." | Tee-Object -FilePath $LogPath -Append
+Invoke-Logged -File $runner -Arguments ($runnerPrefix + @('migrate-all', '--yes'))
 if ($LASTEXITCODE -ne 0) {
   exit $LASTEXITCODE
 }
@@ -122,23 +140,13 @@ foreach ($file in @($CertFile, $KeyFile)) {
   }
 }
 
-$uvicornArgs = @(
-  '-m',
-  'uvicorn',
-  'app.main:app',
-  '--host',
-  $BindHost,
-  '--port',
-  "$Port"
-)
-if (-not $useVenv) {
-  $uvicornArgs = @('run', '--no-sync', 'uvicorn', 'app.main:app', '--host', $BindHost, '--port', "$Port")
-}
+$serveArgs = @('serve', '--host', $BindHost, '--port', "$Port")
 if ($CertFile) {
-  $uvicornArgs += @('--ssl-certfile', $CertFile, '--ssl-keyfile', $KeyFile)
+  $serveArgs += @('--ssl-certfile', $CertFile, '--ssl-keyfile', $KeyFile)
 }
 if (-not $NoReload) {
-  $uvicornArgs += '--reload'
+  # A built copy refuses this and says so: reload needs the source tree.
+  $serveArgs += '--reload'
 }
 
 $scheme = if ($CertFile) { 'https' } else { 'http' }
@@ -148,9 +156,5 @@ if (-not $CertFile -and $BindHost -ne '127.0.0.1') {
 }
 
 "[$(Get-Date -Format o)] Starting backend API..." | Tee-Object -FilePath $LogPath -Append
-if ($useVenv) {
-  Invoke-Logged -File $python -Arguments $uvicornArgs
-} else {
-  Invoke-Logged -File 'uv' -Arguments $uvicornArgs
-}
+Invoke-Logged -File $runner -Arguments ($runnerPrefix + $serveArgs)
 exit $LASTEXITCODE

@@ -32,6 +32,7 @@ it loadable in one context window. Nothing was cut; each group names its doc.
 | Custom fields / the attribute framework | `docs/CUSTOM_FIELDS_FRAMEWORK.md` |
 | Geography masters | `docs/GEOGRAPHY_MASTERS.md` |
 | Desktop shell, catalog, preferences | `desktop/docs/DESKTOP_FRAMEWORK.md` |
+| Compiling, packaging and shipping a release | `docs/RELEASE_BUILD.md` |
 
 Business profiles, purchasing, tax, UOM, territory and batch/serial each keep
 the reference doc they already had; the narrative that was here was appended to
@@ -116,6 +117,16 @@ see drift; it found three stores a revision behind the platform the first time
 it ran. It reports every store rather than stopping at the first failure, and
 exits non-zero if any failed.
 
+**The script is a wrapper; the work is `upgrade_every_store` in
+`app/core/tenancy/migrations.py`,** which firm provisioning and the shipped
+binary both call. `scripts/` does not reach a customer — a released build is
+compiled and has no interpreter to hand a `.py` to — so **anything an installed
+copy has to do belongs in `app/` and is exposed as a subcommand of
+`app/cli.py`** (`serve`, `create-database`, `migrate-all`, `purge-retention`,
+`where`, `--version`). `tests/unit/test_cli_entry_point.py` fails the build when
+a shipped `.ps1` reaches for `-m alembic`, `-m uvicorn` or a script by path
+again; `docs/RELEASE_BUILD.md` is the reference.
+
 The per-target form still works when you need one store on its own — set
 `AGENCY_DATABASE_SCHEMA` (and `AGENCY_DATABASE_NAME` for a dedicated database)
 and run `alembic upgrade head`, then `Remove-Item Env:\AGENCY_DATABASE_*`.
@@ -165,7 +176,7 @@ Business services stay storage-agnostic: they receive a `Session` and never know
 **`docs/TENANCY_AND_STORES.md` is the reference.** Four rules carry most of the weight:
 
 - **A firm can live on a different server.** `firm_storage_mappings.connection_profile` names an entry in `AGENCY_TENANCY_CONNECTION_PROFILES`; `NULL` means the platform server. The request path (`FirmConnectionResolver`) and the provisioning path (`TenantStorageLifecycleService`) must both build through `app/core/tenancy/connections.py` — if they disagree, provisioning builds tables on one host while every request looks on another, and nothing reports the difference.
-- **Dedicated storage is built by an explicit action, not at creation.** `POST /api/v1/firms/{id}/provision` creates the database and schema, migrates it and prunes the platform tables; `FirmService.create` only records the intent. Every step is create-if-missing, so the same endpoint is the repair action. Alembic runs in a **subprocess** — in-process it set process-wide environment variables and two concurrent provisions raced.
+- **Dedicated storage is built by an explicit action, not at creation.** `POST /api/v1/firms/{id}/provision` creates the database and schema, migrates it and prunes the platform tables; `FirmService.create` only records the intent. Every step is create-if-missing, so the same endpoint is the repair action. Alembic runs **in this process**, through `upgrade_store` in `app/core/tenancy/migrations.py`, with the target passed on `Config.attributes` and a lock held for the run. It must never go back to `os.environ`: that is process-wide, and it is what made two concurrent provisions race before a subprocess was used to escape it. The subprocess had to go because `sys.executable -m alembic` cannot work in a compiled build.
 - **A firm is finished from the Firms grid, not from scripts.** `GET /api/v1/firms/{id}/readiness` answers seven steps from **one implementation** in `app/firms/services/readiness.py` that `scripts/check_firm_readiness.py` also prints, so the screen and the shell cannot disagree. Open books, the GST template, control accounts and the default branch each have an endpoint and a row on the **Set up** panel (`firm_setup_dialog.dart`).
 - **Storage routing is fixed at creation.** Nothing migrates a firm's rows between stores, so `FirmService.update` rejects any change to it, and two firms never share a database/schema pair — soft-deleted firms included.
 

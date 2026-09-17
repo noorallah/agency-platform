@@ -31,16 +31,19 @@ measured **294 MB**, and about 85% of that was logs rather than business data.
 server is what everyone else depends on; if it sleeps, the clients stop working.
 Set the power plan so it never sleeps.
 
-### Software — the installer handles this
+### Software — one thing, and the installer handles it
 
-You do **not** need to install Python or PostgreSQL yourself. The installer can
-do both. If you would rather install them first, or your IT policy requires it:
+**PostgreSQL 17** is the only other software this needs, and the installer can
+install it for you. If you would rather install it first, or your IT policy
+requires it: <https://www.postgresql.org/download/windows/>
 
-- **Python 3.13 or newer** — <https://www.python.org/downloads/>
-- **PostgreSQL 17** — <https://www.postgresql.org/download/windows/>
+**Python is not needed.** The server ships as a single compiled program that
+carries everything it needs. Nothing has to be downloaded for it, and nothing it
+uses can be broken by something else on the machine changing its own Python.
 
-> **If you install Python by hand, tick "Add python.exe to PATH"** on the first
-> screen of its installer. Without it, nothing else can find Python.
+> If you are following older notes that say Python 3.13 is required, they
+> describe the way this was installed before it was packaged. A copy installed
+> from `AgencyPlatform-Setup.exe` needs no Python at all.
 
 ---
 
@@ -84,7 +87,7 @@ Agency Platform installer
   backend:    http://127.0.0.1:8000
 
 == Checking prerequisites
-   Python: Python 3.13.2
+   this is a compiled build -- no Python is needed on this machine
 
 == Configuration
    wrote backend\config\.env -- signing key and database password generated,
@@ -92,7 +95,7 @@ Agency Platform installer
    config\.env restricted to administrators and this account
 
 == Python environment
-   dependencies installed
+   not needed -- this build carries its own
 
 == Database
    created database account 'agency_app' (not a superuser)
@@ -119,8 +122,8 @@ password shown.** You will be asked to change the password on first use.
 
 ### It takes a few minutes
 
-Installing Python and PostgreSQL, if they are missing, is the slow part. Ten to
-fifteen minutes on a fresh machine is normal. Nothing has gone wrong if a step
+Installing PostgreSQL, if it is missing, is the slow part. Ten to fifteen
+minutes on a fresh machine is normal. Nothing has gone wrong if a step
 sits for a while.
 
 ---
@@ -146,9 +149,8 @@ and running it on a working installation changes nothing.
 
 | What it says | What it means | What to do |
 | --- | --- | --- |
-| `Prerequisites are missing.` | Python or PostgreSQL is not installed | Run `install.bat -InstallPrerequisites` to let it install them |
+| `Prerequisites are missing.` | PostgreSQL is not installed | Run `install.bat -InstallPrerequisites` to let it install it |
 | `Installing prerequisites needs an elevated shell.` | Installing software needs Administrator | Right-click `install.bat` → **Run as administrator** |
-| `Python was installed but this shell still cannot run it.` | Windows has not picked up the new program yet | Close the window, open a new one, run `install.bat` again — it continues from there |
 | `Could not reach PostgreSQL.` | The database is not running, or is elsewhere | The message lists the causes in the order worth checking |
 | `One or more stores failed to migrate.` | A database upgrade did not finish | The output names which one. Fix, then run again |
 
@@ -236,8 +238,8 @@ Two things, and neither is optional:
 ## 10. Common questions
 
 **Do I need to be an administrator?**
-Only to install Python or PostgreSQL. If they are already installed, an
-ordinary account is enough.
+Only to install PostgreSQL. If it is already installed, an ordinary account is
+enough.
 
 **Can I install it twice on one machine?**
 Yes, into different folders — but they would share one PostgreSQL server, and
@@ -254,5 +256,6 @@ Install to the new place and restore the database. Moving the folder by hand
 leaves paths pointing at the old one.
 
 **Does it need the internet?**
-To install Python and PostgreSQL, yes. Once installed, no — it runs entirely on
-your own network.
+Only to install PostgreSQL, and only if PostgreSQL is not already there. The
+application itself downloads nothing at any point. Once installed it runs
+entirely on your own network.
