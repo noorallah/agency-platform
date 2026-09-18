@@ -107,21 +107,26 @@ class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementP
   Future<void> _loadReferenceData() async {
     if (!widget.hasActiveFirm || !_canCreate) return;
     try {
+      // Every page, not the newest hundred: past a hundred completed receipts
+      // an older one could not be returned against from here (D-BUY-11).
       final List<dynamic> results = await Future.wait<dynamic>([
-        widget.api.goodsReceipts(
-          page: 1,
-          pageSize: 100,
-          sortBy: 'receipt_date',
-          descending: true,
-          filters: const {'status': 'COMPLETED'},
+        fetchAllPages<GoodsReceiptRecord>(
+          (int page) => widget.api.goodsReceipts(
+            page: page,
+            pageSize: maxApiPageSize,
+            sortBy: 'receipt_date',
+            descending: true,
+            filters: const {'status': 'COMPLETED'},
+          ),
         ),
-        widget.api.products(page: 1, pageSize: 100),
+        fetchAllPages<Product>(
+          (int page) => widget.api.products(page: page, pageSize: maxApiPageSize),
+        ),
       ]);
       if (!mounted) return;
       setState(() {
-        _returnableReceipts =
-            (results[0] as PagedResult<GoodsReceiptRecord>).items;
-        _products = (results[1] as PagedResult<Product>).items;
+        _returnableReceipts = results[0] as List<GoodsReceiptRecord>;
+        _products = results[1] as List<Product>;
       });
     } on ApiException {
       if (!mounted) return;

@@ -17,6 +17,7 @@ import 'package:agency_desktop/ui/customers/loyalty_page.dart';
 import 'package:agency_desktop/models/settlement.dart';
 import 'package:agency_desktop/ui/finance/record_settlement_dialog.dart';
 import 'package:agency_desktop/ui/purchase_invoices/purchase_invoice_management_page.dart';
+import 'package:agency_desktop/ui/purchase_returns/purchase_return_management_page.dart';
 import 'package:agency_desktop/ui/sales/proforma_page.dart';
 import 'package:agency_desktop/ui/sales/sales_order_management_page.dart';
 import 'package:flutter/material.dart';
@@ -49,6 +50,9 @@ class _Api extends ApiClient {
   final List<Json> receipts;
   final Json? detail;
   final List<String> posted = <String>[];
+
+  /// The pages `/goods-receipts` was asked for, in order.
+  final List<int> receiptPages = <int>[];
   Json? sentBody;
 
   @override
@@ -76,8 +80,15 @@ class _Api extends ApiClient {
       };
     }
     if (path.contains('goods-receipts')) {
+      // Served a page at a time, as the server does.
+      final int page = int.tryParse(query?['page'] ?? '') ?? 1;
+      final int size = int.tryParse(query?['page_size'] ?? '') ?? receipts.length;
+      receiptPages.add(page);
+      final int start = (page - 1) * size;
       return <String, dynamic>{
-        'data': receipts,
+        'data': start >= receipts.length
+            ? const <Json>[]
+            : receipts.sublist(start, (start + size).clamp(0, receipts.length)),
         'pagination': <String, dynamic>{'total_records': receipts.length},
       };
     }
@@ -205,6 +216,63 @@ void main() {
       await tester.tap(find.byType(DropdownButtonFormField<String>));
       await tester.pumpAndSettle();
       expect(find.textContaining('GRN-0001'), findsWidgets);
+    });
+
+    testWidgets('a receipt past the newest hundred can still be billed',
+        (tester) async {
+      // D-BUY-11: the picker read one page of 100, so an older completed
+      // receipt could not be billed from the desktop at all.
+      final Directory temp = Directory.systemTemp.createTempSync('bills');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final _Api api = _Api(
+        receipts: <Json>[
+          for (int index = 0; index < 101; index++)
+            <String, dynamic>{
+              ...receipt(),
+              'id': 'grn-$index',
+              'grn_number': 'GRN-$index',
+            },
+        ],
+      );
+      await _sized(
+        tester,
+        PurchaseInvoiceManagementPage(
+          api: api,
+          preferences: DesktopPreferencesService(directory: temp),
+          permissions: _permissions(const ['PURCHASE_VIEW', 'PURCHASE_CREATE']),
+          hasActiveFirm: true,
+        ),
+      );
+
+      expect(api.receiptPages, containsAllInOrder(<int>[1, 2]));
+    });
+
+    testWidgets('a receipt past the newest hundred can still be returned',
+        (tester) async {
+      // D-BUY-11, the returns half: the same one-page read.
+      final Directory temp = Directory.systemTemp.createTempSync('returns');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      final _Api api = _Api(
+        receipts: <Json>[
+          for (int index = 0; index < 101; index++)
+            <String, dynamic>{
+              ...receipt(),
+              'id': 'grn-$index',
+              'grn_number': 'GRN-$index',
+            },
+        ],
+      );
+      await _sized(
+        tester,
+        PurchaseReturnManagementPage(
+          api: api,
+          preferences: DesktopPreferencesService(directory: temp),
+          permissions: _permissions(const ['PURCHASE_VIEW', 'PURCHASE_CREATE']),
+          hasActiveFirm: true,
+        ),
+      );
+
+      expect(api.receiptPages, containsAllInOrder(<int>[1, 2]));
     });
 
     testWidgets('someone who cannot create is not offered it', (tester) async {
