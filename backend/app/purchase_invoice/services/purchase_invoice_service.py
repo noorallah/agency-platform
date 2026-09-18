@@ -16,6 +16,7 @@ from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
+from app.core.utils.money import quantize_ledger
 from app.core.utils.pricing import LineDiscount, resolve_line_discount
 from app.document_framework.models import (
     DocumentLifecycleEvent,
@@ -1512,11 +1513,22 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         return None
 
     def _accrued_cost(self, invoice_id: UUID) -> Decimal:
-        """Return what the receipts behind this invoice actually cost.
+        """Return the share of the receipts' accrual this invoice clears.
 
         The goods receipt accrued at the stock ledger's cost, so the invoice has
         to clear the accrual at that same number. Anything else the supplier
         billed is a price variance.
+
+        Only the share this invoice bills, pro rata by quantity: billing 4 of
+        a received 10 used to clear the whole line's accrual, so the accrual
+        went to zero with 6 still unbilled, 600 of nothing was booked as a
+        favourable variance, and the bill for the 6 cleared another 1000
+        (D-BUY-7, driven on TEST01 on 2026-09-18). The bills are replayed in
+        approval order and the one that completes the receipt takes what is
+        left rather than its own rounded share, so however the cost divides,
+        the bills together clear exactly what the receipt posted -- rounding
+        the sum is not rounding the parts. A bill past that point clears
+        nothing, and the whole of its value is variance.
 
         Lines sourced from a purchase order rather than a receipt accrued
         nothing, so they contribute nothing here and the whole of their value
@@ -1527,27 +1539,157 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             invoice_id: The invoice being approved.
 
         Returns:
-            The total cost accrued by the receipts this invoice draws on.
+            What this invoice clears of the accrual its receipts posted.
 
         """
-        accrued = self._session.scalar(
-            select(func.sum(StockLedgerEntry.total_cost))
-            .select_from(PurchaseInvoiceLine)
-            .join(
-                GoodsReceiptLine,
-                GoodsReceiptLine.id == PurchaseInvoiceLine.source_document_line_id,
+        receipts = self._receipts_billed_by(invoice_id)
+        if not receipts:
+            return ZERO
+        # Every line of every receipt this bill touches, with what its movement
+        # actually cost -- the figure the receipt accrued.
+        lines: dict[UUID, dict[UUID, tuple[Decimal, Decimal]]] = defaultdict(dict)
+        for line_id, receipt_id, accepted, cost in self._session.execute(
+            select(
+                GoodsReceiptLine.id,
+                GoodsReceiptLine.goods_receipt_id,
+                GoodsReceiptLine.accepted_quantity,
+                func.coalesce(func.sum(StockLedgerEntry.total_cost), 0),
             )
-            .join(
+            .outerjoin(
                 StockLedgerEntry,
                 StockLedgerEntry.transaction_id
                 == GoodsReceiptLine.inventory_transaction_id,
             )
             .where(
+                GoodsReceiptLine.goods_receipt_id.in_(list(receipts)),
+                GoodsReceiptLine.is_deleted.is_(False),
+            )
+            .group_by(
+                GoodsReceiptLine.id,
+                GoodsReceiptLine.goods_receipt_id,
+                GoodsReceiptLine.accepted_quantity,
+            )
+        ).all():
+            lines[receipt_id][line_id] = (
+                self._q(accepted),
+                self._q(Decimal(str(cost or 0))),
+            )
+        accrued = ZERO
+        for receipt_id, receipt_lines in lines.items():
+            bills = self._posted_bills_on(receipt_lines, except_invoice_id=invoice_id)
+            bills.append(receipts[receipt_id])
+            accrued += self._replay_accrual(receipt_lines, bills)[-1]
+        return accrued
+
+    def _receipts_billed_by(self, invoice_id: UUID) -> dict[UUID, dict[UUID, Decimal]]:
+        """Return, per receipt this invoice bills, its quantity per receipt line."""
+        billed: dict[UUID, dict[UUID, Decimal]] = defaultdict(dict)
+        for receipt_id, line_id, quantity in self._session.execute(
+            select(
+                GoodsReceiptLine.goods_receipt_id,
+                GoodsReceiptLine.id,
+                func.sum(PurchaseInvoiceLine.current_invoice_quantity),
+            )
+            .select_from(PurchaseInvoiceLine)
+            .join(
+                GoodsReceiptLine,
+                GoodsReceiptLine.id == PurchaseInvoiceLine.source_document_line_id,
+            )
+            .where(
                 PurchaseInvoiceLine.purchase_invoice_id == invoice_id,
                 PurchaseInvoiceLine.is_deleted.is_(False),
             )
+            .group_by(GoodsReceiptLine.goods_receipt_id, GoodsReceiptLine.id)
+        ).all():
+            billed[receipt_id][line_id] = self._q(quantity)
+        return billed
+
+    def _posted_bills_on(
+        self,
+        receipt_lines: dict[UUID, tuple[Decimal, Decimal]],
+        *,
+        except_invoice_id: UUID,
+    ) -> list[dict[UUID, Decimal]]:
+        """Return the bills already posted against these lines, oldest first.
+
+        Read from the rows rather than the invoice being approved, whose own
+        status is still pending on a request session that does not autoflush.
+        A cancelled bill's journal is reversed, so it clears nothing here.
+        """
+        rows = self._session.execute(
+            select(
+                PurchaseInvoice.id,
+                PurchaseInvoiceLine.source_document_line_id,
+                func.sum(PurchaseInvoiceLine.current_invoice_quantity),
+            )
+            .join(
+                PurchaseInvoice,
+                PurchaseInvoice.id == PurchaseInvoiceLine.purchase_invoice_id,
+            )
+            .where(
+                PurchaseInvoice.id != except_invoice_id,
+                PurchaseInvoice.is_deleted.is_(False),
+                PurchaseInvoice.approved_at.is_not(None),
+                PurchaseInvoice.status.in_(
+                    [
+                        PurchaseInvoiceStatus.APPROVED.value,
+                        PurchaseInvoiceStatus.CLOSED.value,
+                    ]
+                ),
+                PurchaseInvoiceLine.is_deleted.is_(False),
+                PurchaseInvoiceLine.source_document_line_id.in_(list(receipt_lines)),
+            )
+            .group_by(
+                PurchaseInvoice.id,
+                PurchaseInvoice.approved_at,
+                PurchaseInvoiceLine.source_document_line_id,
+            )
+            .order_by(PurchaseInvoice.approved_at, PurchaseInvoice.id)
+        ).all()
+        bills: dict[UUID, dict[UUID, Decimal]] = {}
+        for bill_id, line_id, quantity in rows:
+            bills.setdefault(bill_id, {})[line_id] = self._q(quantity)
+        return list(bills.values())
+
+    def _replay_accrual(
+        self,
+        receipt_lines: dict[UUID, tuple[Decimal, Decimal]],
+        bills: list[dict[UUID, Decimal]],
+    ) -> list[Decimal]:
+        """Return what each bill in turn clears of one receipt's accrual.
+
+        A bill takes each line's cost in proportion to the quantity it bills of
+        what the receipt accepted; the bill that completes the receipt takes
+        whatever the earlier ones left, so the rounding residual lands on the
+        last bill and the receipt nets to zero; a bill after that takes
+        nothing.
+        """
+        posted = quantize_ledger(
+            sum((cost for _, cost in receipt_lines.values()), ZERO)
         )
-        return self._q(accrued)
+        billed: dict[UUID, Decimal] = dict.fromkeys(receipt_lines, ZERO)
+        cleared = ZERO
+        complete = False
+        shares: list[Decimal] = []
+        for bill in bills:
+            if complete:
+                shares.append(ZERO)
+                continue
+            share = ZERO
+            for line_id, quantity in bill.items():
+                accepted, cost = receipt_lines[line_id]
+                open_quantity = max(accepted - billed[line_id], ZERO)
+                if accepted > ZERO:
+                    share += cost * min(quantity, open_quantity) / accepted
+                billed[line_id] += quantity
+            complete = all(
+                billed[line_id] >= accepted
+                for line_id, (accepted, _) in receipt_lines.items()
+            )
+            amount = max(posted - cleared, ZERO) if complete else quantize_ledger(share)
+            cleared += amount
+            shares.append(amount)
+        return shares
 
     def _assert_nothing_rests_on(self, row: PurchaseInvoice) -> None:
         """Refuse to cancel a bill that a payment or a return rests on.
