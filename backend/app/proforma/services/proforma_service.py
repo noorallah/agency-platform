@@ -231,7 +231,13 @@ class ProformaService(TransactionalDocumentService):
         )
         self._session.add(row)
         self._session.flush()
-        self._snapshot_lines(row, lines, actor_id=actor_id)
+        self._snapshot_lines(
+            row,
+            lines,
+            charges=quantize_money(order.additional_charges)
+            + quantize_money(order.round_off),
+            actor_id=actor_id,
+        )
         self._flush_or_conflict("A proforma with this number already exists.")
 
         self._record_lifecycle_event(
@@ -459,6 +465,9 @@ class ProformaService(TransactionalDocumentService):
             bill_discount_amount=row.bill_discount_amount,
             subtotal=row.subtotal,
             tax_total=row.tax_total,
+            other_charges=quantize_money(
+                row.grand_total - row.subtotal - row.tax_total
+            ),
             grand_total=row.grand_total,
             issued_at=row.issued_at,
             cancelled_at=row.cancelled_at,
@@ -545,6 +554,7 @@ class ProformaService(TransactionalDocumentService):
         row: ProformaInvoice,
         lines: Sequence[SalesOrderLine],
         *,
+        charges: Decimal,
         actor_id: UUID,
     ) -> None:
         """Copy the order's priced lines onto the proforma, and total them.
@@ -553,6 +563,12 @@ class ProformaService(TransactionalDocumentService):
         off the order's header. The two agree today; summing what is actually
         on this document is what keeps them agreeing when a proforma covers
         part of an order, which is the next thing anybody will ask for.
+
+        A line's taxable value carries its share of the order's freight, the
+        way the order and the bill both tax it, and the header's other charges
+        and round-off reach the total. Both were left out, so a proforma asked
+        the customer for less than the order would bill while stating the tax
+        on the freight it had dropped (D-SELL-16).
         """
         subtotal = ZERO
         tax_total = ZERO
@@ -563,7 +579,8 @@ class ProformaService(TransactionalDocumentService):
             discount = quantize_money(source.discount_amount)
             bill_share = quantize_money(source.bill_discount_amount)
             tax = quantize_money(source.tax_amount)
-            taxable = gross - discount - bill_share
+            freight = quantize_money(source.freight_amount)
+            taxable = gross - discount - bill_share + freight
             self._session.add(
                 ProformaInvoiceLine(
                     proforma_invoice_id=row.id,
@@ -593,7 +610,7 @@ class ProformaService(TransactionalDocumentService):
         row.tax_total = quantize_money(tax_total)
         row.line_discount_total = quantize_money(line_discounts)
         row.bill_discount_amount = quantize_money(bill_discounts)
-        row.grand_total = quantize_money(subtotal + tax_total)
+        row.grand_total = quantize_money(subtotal + tax_total + charges)
 
     @staticmethod
     def _audit_snapshot(row: ProformaInvoice) -> dict[str, object]:

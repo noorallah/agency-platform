@@ -106,6 +106,9 @@ class ProformaResponse(ProformaSchema):
     bill_discount_amount: Decimal
     subtotal: Decimal
     tax_total: Decimal
+    #: The order's header charges and round-off, which sit between the taxed
+    #: lines and the total. Derived, so the total always reads as the sum.
+    other_charges: Decimal = Decimal("0")
     grand_total: Decimal
     issued_at: datetime | None = None
     cancelled_at: datetime | None = None

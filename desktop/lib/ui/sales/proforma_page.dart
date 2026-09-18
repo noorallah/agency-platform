@@ -332,6 +332,10 @@ class _ProformaPageState extends State<ProformaPage> {
             const Divider(height: AppSpacing.xl),
             _fact('Taxable value', row.subtotal.toStringAsFixed(2)),
             _fact('Tax', row.taxTotal.toStringAsFixed(2)),
+            // Said when there are any, so the total reads as the sum of what
+            // is above it (D-SELL-16).
+            if (row.otherCharges != 0)
+              _fact('Other charges', row.otherCharges.toStringAsFixed(2)),
             _fact('Total', row.grandTotal.toStringAsFixed(2)),
             if (row.isCancelled) ...[
               const SizedBox(height: AppSpacing.md),
