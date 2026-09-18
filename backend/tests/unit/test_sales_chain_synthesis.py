@@ -38,7 +38,7 @@ from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.inventory.schemas import InventoryAdjustmentCreate
 from app.inventory.services import InventoryService
 from app.products.models import Product
-from app.sales_invoice.models import SalesInvoice
+from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_invoice.schemas import (
     SalesInvoiceCreate,
     SalesInvoiceLineWrite,
@@ -292,13 +292,12 @@ def test_a_failed_bill_leaves_no_order_no_note_and_no_movement() -> None:
     setup.stages(quotation=False, sales_order=False, delivery_note=False)
     before = _counts(session)
 
-    # More than the firm holds, so dispatch refuses after the order is staged
-    # and approved -- the step that used to have been committed by now.
+    # A bare line naming no product fails after the chain has started.
+    bill = setup.bare_bill()
+    bill.lines[0].product_id = None
     with pytest.raises(ValidationError):
         SalesInvoiceService(session).create_invoice(
-            setup.bare_bill(quantity=Decimal("500")),
-            firm_id=setup.firm.id,
-            actor_id=uuid4(),
+            bill, firm_id=setup.firm.id, actor_id=uuid4()
         )
     session.rollback()
 
@@ -306,6 +305,110 @@ def test_a_failed_bill_leaves_no_order_no_note_and_no_movement() -> None:
         "a refused counter sale must leave no order, no delivery note, no "
         "invoice and no stock movement behind it"
     )
+
+
+def test_a_refused_approval_ships_nothing() -> None:
+    """The dispatch belongs to the approval's transaction, so it goes with it.
+
+    More than the firm holds: the draft saves -- a draft moves nothing -- and
+    the approval is refused at dispatch, leaving the stock where it was.
+    """
+    session = _session_factory()()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    service = SalesInvoiceService(session)
+    actor = uuid4()
+    invoice = service.create_invoice(
+        setup.bare_bill(quantity=Decimal("500")),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+    before = _counts(session)
+
+    with pytest.raises(ValidationError):
+        service.approve_invoice(invoice.id, firm_scope=setup.firm.id, actor_id=actor)
+    session.rollback()
+
+    assert _counts(session) == before
+    assert (
+        service.get_invoice(invoice.id, firm_scope=setup.firm.id).status
+        == SalesInvoiceStatus.DRAFT
+    )
+
+
+def _dispatches(session: Session) -> int:
+    """Count the stock movements that took goods out of the warehouse."""
+    return len(
+        session.scalars(
+            select(InventoryTransaction).where(
+                InventoryTransaction.transaction_type == "DISPATCH"
+            )
+        ).all()
+    )
+
+
+def test_a_draft_bill_ships_nothing_until_it_is_approved() -> None:
+    """D-SELL-13: saving a draft dispatched the goods and posted their cost.
+
+    Driven 2026-09-19 on ``fx_t0919go59_s``: a draft bill of
+    SO-2026-2027-000002 left DN-...-000001 DISPATCHED and the order
+    DELIVERED, and cancelling the draft left both so. A draft is a proposal;
+    the stock leaves when the bill is approved, in the approval's own
+    transaction.
+    """
+    session = _session_factory()()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    service = SalesInvoiceService(session)
+    actor = uuid4()
+
+    invoice = service.create_invoice(
+        setup.bare_bill(), firm_id=setup.firm.id, actor_id=actor
+    )
+
+    note = session.scalar(select(DeliveryNote))
+    assert note is not None
+    assert note.status == "APPROVED", "the note waits for the bill"
+    assert _dispatches(session) == 0, "a draft must move no stock"
+    assert (
+        session.scalar(
+            select(JournalEntry).where(JournalEntry.source_module == "delivery_note")
+        )
+        is None
+    ), "nor post any cost of goods sold"
+
+    service.approve_invoice(invoice.id, firm_scope=setup.firm.id, actor_id=actor)
+
+    session.refresh(note)
+    assert note.status == "DISPATCHED"
+    assert _dispatches(session) == 1
+    line = session.scalar(
+        select(SalesInvoiceLine).where(SalesInvoiceLine.sales_invoice_id == invoice.id)
+    )
+    assert line is not None
+    # Costed from the dispatch the approval made: 4 at the average of 60.
+    assert line.cost_amount == Decimal("240.0000")
+
+
+def test_cancelling_a_draft_bill_withdraws_the_note_it_raised() -> None:
+    """The note was raised to carry this bill's goods; the sale is off."""
+    session = _session_factory()()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    service = SalesInvoiceService(session)
+    actor = uuid4()
+    invoice = service.create_invoice(
+        setup.bare_bill(), firm_id=setup.firm.id, actor_id=actor
+    )
+
+    service.cancel_invoice(
+        invoice.id, firm_scope=setup.firm.id, actor_id=actor, reason="walked out"
+    )
+
+    note = session.scalar(select(DeliveryNote))
+    assert note is not None
+    assert note.status == "CANCELLED"
+    assert _dispatches(session) == 0
 
 
 def test_a_bill_naming_no_serials_cannot_dispatch_a_serial_tracked_product() -> None:
