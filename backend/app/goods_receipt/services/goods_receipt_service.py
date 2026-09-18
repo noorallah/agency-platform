@@ -684,10 +684,19 @@ class GoodsReceiptService(TransactionalDocumentService):
     def close_receipt(
         self, receipt_id: UUID, *, firm_scope: UUID, actor_id: UUID, reason: str | None
     ) -> GoodsReceipt:
-        """Close receipt."""
+        """Close one completed receipt.
+
+        Closing says the receipt's business is finished; a draft has not begun
+        it -- no stock moved and nothing accrued -- and closing one recorded a
+        receipt that never happened as complete for good (D-BUY-9, driven on
+        TEST01 on 2026-09-18: a DRAFT receipt went to CLOSED through
+        `/close`). A draft is cancelled, not closed, the way a sales return is.
+        """
         row = self.get_receipt(receipt_id, firm_scope=firm_scope)
         if row.status == GoodsReceiptStatus.CLOSED.value:
             return row
+        if row.status != GoodsReceiptStatus.COMPLETED.value:
+            raise ValidationError("Only completed goods receipts can be closed.")
         before = row.status
         row.status = GoodsReceiptStatus.CLOSED.value
         row.closed_reason = reason
