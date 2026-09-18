@@ -575,12 +575,18 @@ class LoyaltyService:
         reason: str,
         actor_id: UUID,
     ) -> LoyaltyEntry:
-        """Correct a balance by hand, saying why.
+        """Correct a balance by hand, saying why, and book what it is worth.
 
-        Posts nothing. An adjustment is a correction to a count, not a
-        transaction: the money side was either already booked when the points
-        were earned, or was never right to book at all. Booking it again would
-        double what the scheme appears to have cost.
+        **It posts, both ways** (D-SELL-19, 2026-09-19). It used to post
+        nothing, on the reading that the money side was booked when the points
+        were earned -- but points given as goodwill were never earned, so
+        spending them debited `Loyalty Payable` for a debt nobody had raised
+        and pushed it below zero. Every point a customer holds is a debt the
+        firm owes, so the liability follows the count: points given are
+        `Dr Loyalty Expense / Cr Loyalty Payable`, exactly as an earning is,
+        and points taken back release it, `Dr Loyalty Payable / Cr Loyalty
+        Expense`, exactly as a lapse does. Both at the scheme's current value
+        per point, which is what a redemption spends them at.
 
         Args:
             firm_scope: The owning firm.
@@ -610,18 +616,37 @@ class LoyaltyService:
                 f"That customer holds {held} points, so {change} would take "
                 "the balance below zero."
             )
+        settings = self.settings_for(firm_scope)
+        rate = ZERO if settings is None else Decimal(settings.amount_per_point)
+        worth = quantize_ledger(abs(change) * rate)
         entry = LoyaltyEntry(
             firm_id=firm_scope,
             customer_id=customer.id,
             kind=LoyaltyEntryKind.ADJUSTED.value,
             points=change,
-            amount=ZERO,
+            amount=worth,
             earned_on=utc_now().date(),
             remarks=reason,
             created_by=actor_id,
             updated_by=actor_id,
         )
         self._session.add(entry)
+        self._session.flush()
+        giving = change > ZERO
+        posted = self._posting.post_loyalty(
+            firm_id=firm_scope,
+            entry_id=entry.id,
+            reference=f"LOY-ADJ-{entry.id}",
+            on=entry.earned_on,
+            amount=worth,
+            earning=giving,
+            expiring=not giving,
+            description=(
+                "Loyalty points given" if giving else "Loyalty points taken back"
+            ),
+            actor_id=actor_id,
+        )
+        entry.journal_entry_id = None if posted is None else posted.id
         self._session.flush()
         record_audit(
             self._session,
