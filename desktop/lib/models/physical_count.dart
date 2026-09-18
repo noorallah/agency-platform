@@ -9,6 +9,9 @@ class PhysicalCountLine {
     this.productCode = '',
     this.productName = '',
     required this.batchId,
+    this.storageNodeId = '',
+    this.storageNodeCode = '',
+    this.storageNodeName = '',
     required this.expectedQuantity,
     required this.countedQuantity,
     required this.varianceQuantity,
@@ -22,6 +25,23 @@ class PhysicalCountLine {
   final String productCode;
   final String productName;
   final String batchId;
+
+  /// The storage location (bin, shelf...) the line counts; empty for the
+  /// warehouse's unlocated stock. Part of what the line is: the same product
+  /// in two bins is two lines, each corrected in its own bin (D-STK-13).
+  final String storageNodeId;
+  final String storageNodeCode;
+  final String storageNodeName;
+
+  /// Where the counter looks: the location's code and name, or "Unlocated"
+  /// for stock held in the warehouse without a bin.
+  String get locationLabel {
+    if (storageNodeId.isEmpty) return 'Unlocated';
+    final String label = [storageNodeCode, storageNodeName]
+        .where((part) => part.isNotEmpty)
+        .join(' - ');
+    return label.isEmpty ? storageNodeId : label;
+  }
 
   /// How the line names its product on the sheet: code and name, the id
   /// only when the server sent neither.
@@ -68,6 +88,9 @@ class PhysicalCountLine {
         productCode: stringValue(json['product_code']),
         productName: stringValue(json['product_name']),
         batchId: stringValue(json['batch_id']),
+        storageNodeId: stringValue(json['storage_node_id']),
+        storageNodeCode: stringValue(json['storage_node_code']),
+        storageNodeName: stringValue(json['storage_node_name']),
         expectedQuantity: stringValue(json['expected_quantity']),
         countedQuantity: stringValue(json['counted_quantity']),
         varianceQuantity: stringValue(json['variance_quantity']),

@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.batch_serial.models import BatchRecord
-from app.branches.models import Branch, Warehouse
+from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.business.models import BusinessProfile, FirmBusinessProfile
 from app.core.database.base import Base
 from app.core.exceptions import ConflictError, ValidationError
@@ -606,3 +606,176 @@ def test_a_count_with_several_differences_posts_one_journal() -> None:
         (Decimal("75.00"), Decimal("0.00")),
     ]
     assert books.counts.get(sheet.id, firm_id=books.firm.id).status == "POSTED"
+
+
+def _stock_in_a_bin(books: _Warehouse) -> WarehouseStorageNode:
+    """Add a bin to the warehouse and put 5 of the product in it at 25.00.
+
+    The warehouse then holds 10 on its unlocated ROOT row and 5 in BIN-A.
+    """
+    bin_a = WarehouseStorageNode(
+        warehouse_id=books.warehouse.id,
+        node_type="BIN",
+        code="BIN-A",
+        name="Bin A",
+        path="/BIN-A",
+        is_active=True,
+        created_by=books.actor_id,
+        updated_by=books.actor_id,
+    )
+    books.session.add(bin_a)
+    books.session.commit()
+    books.service.record_goods_receipt(
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+        branch_id=books.branch.id,
+        warehouse_id=books.warehouse.id,
+        storage_node_id=bin_a.id,
+        product_id=books.product.id,
+        reference_number="GRN-BIN-A",
+        transaction_date=date(2026, 8, 2),
+        total_quantity=Decimal("5"),
+        unit_cost=Decimal("25.00"),
+    )
+    books.session.commit()
+    return bin_a
+
+
+def _held_by_location(books: _Warehouse) -> dict[UUID | None, Decimal]:
+    """Return what each of the product's stock rows holds, by storage node."""
+    return {
+        row.storage_node_id: row.current_quantity
+        for row in books.session.scalars(
+            select(InventoryRecord).where(
+                InventoryRecord.product_id == books.product.id
+            )
+        ).all()
+    }
+
+
+def test_a_sheet_draws_a_line_per_storage_location() -> None:
+    """D-STK-13: one line per stock row, as the stock is held.
+
+    The same product in ROOT and in BIN-A is two rows, so it is two lines,
+    each expecting what its own row holds. Keyed on the product alone, the
+    sheet drew two indistinguishable lines each expecting the warehouse's 15,
+    and a count written against the product landed on both.
+    """
+    from app.inventory.api.router import _count_response
+
+    books = _Warehouse(_session_factory()())
+    bin_a = _stock_in_a_bin(books)
+    count_id = books.sheet(None)
+
+    lines = books.counts.lines_for(count_id)
+    assert {line.storage_node_id: line.expected_quantity for line in lines} == {
+        None: Decimal("10.0000"),
+        bin_a.id: Decimal("5.0000"),
+    }
+
+    response = _count_response(
+        books.counts, books.counts.get(count_id, firm_id=books.firm.id)
+    )
+    assert {
+        line.storage_node_id: (line.storage_node_code, line.storage_node_name)
+        for line in response.lines
+    } == {None: (None, None), bin_a.id: ("BIN-A", "Bin A")}
+
+
+def test_a_bin_counted_short_is_corrected_in_that_bin() -> None:
+    """D-STK-13: the bin that was short goes down, and ROOT does not.
+
+    Measured against the whole warehouse and posted onto ROOT, three found in
+    BIN-A against five held took two off ROOT -- which could go negative --
+    while BIN-A kept the two that were not there. Driven on 2026-09-19:
+    PC-2026-2027-000002 in TEST01 left ROOT at 8 and BIN-A at 5.
+    """
+    books = _Warehouse(_session_factory()(autoflush=False))
+    bin_a = _stock_in_a_bin(books)
+    count_id = books.sheet(None)
+    books.counts.update(
+        count_id,
+        PhysicalCountUpdate(
+            lines=[
+                PhysicalCountLineWrite(
+                    product_id=books.product.id,
+                    storage_node_id=bin_a.id,
+                    counted_quantity=Decimal("3"),
+                )
+            ]
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+
+    books.counts.post(count_id, firm_id=books.firm.id, actor_id=books.actor_id)
+    books.session.commit()
+
+    assert _held_by_location(books) == {
+        None: Decimal("10.0000"),
+        bin_a.id: Decimal("3.0000"),
+    }, "BIN-A is two short; ROOT, which nobody found wrong, is untouched"
+    counted = next(
+        line
+        for line in books.counts.lines_for(count_id)
+        if line.storage_node_id == bin_a.id
+    )
+    assert counted.variance_quantity == Decimal("-2.0000"), "3 against BIN-A's 5"
+    movement = books.session.get(InventoryTransaction, counted.transaction_id)
+    assert movement is not None
+    assert movement.storage_node_id == bin_a.id
+    journals = books.session.scalars(
+        select(JournalEntry).where(JournalEntry.source_id == count_id)
+    ).all()
+    assert len(journals) == 1
+    assert journals[0].total_debit == Decimal("50.00"), "2 at 25.00"
+
+
+def test_a_count_is_written_against_its_location() -> None:
+    """A count naming a row the sheet does not hold is refused, not dropped.
+
+    Lines are found again by product, batch and location. A count sent for
+    a location the sheet does not hold would otherwise match no line and
+    vanish while the save reported success.
+    """
+    books = _Warehouse(_session_factory()())
+    _stock_in_a_bin(books)
+    count_id = books.sheet(None)
+
+    with pytest.raises(ValidationError, match="not on"):
+        books.counts.update(
+            count_id,
+            PhysicalCountUpdate(
+                lines=[
+                    PhysicalCountLineWrite(
+                        product_id=books.product.id,
+                        storage_node_id=uuid4(),
+                        counted_quantity=Decimal("3"),
+                    )
+                ]
+            ),
+            firm_id=books.firm.id,
+            actor_id=books.actor_id,
+        )
+
+
+def test_a_named_line_must_be_a_location_of_the_warehouse() -> None:
+    """A sheet cannot be drawn up over a bin that is not in its warehouse."""
+    books = _Warehouse(_session_factory()())
+
+    with pytest.raises(ValidationError, match="Storage node"):
+        books.counts.create(
+            PhysicalCountCreate(
+                branch_id=books.branch.id,
+                warehouse_id=books.warehouse.id,
+                count_date=WHEN,
+                lines=[
+                    PhysicalCountLineWrite(
+                        product_id=books.product.id, storage_node_id=uuid4()
+                    )
+                ],
+            ),
+            firm_id=books.firm.id,
+            actor_id=books.actor_id,
+        )

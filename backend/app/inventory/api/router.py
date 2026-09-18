@@ -655,20 +655,31 @@ def _count_response(
 def _count_lines(
     service: PhysicalCountService, row: PhysicalCount
 ) -> list[PhysicalCountLineResponse]:
-    """Return the sheet's lines with each product named, not only keyed."""
+    """Return the sheet's lines with each product and location named."""
     lines = service.lines_for(row.id)
     labels = service.product_labels(
         firm_id=row.firm_id, product_ids=[line.product_id for line in lines]
     )
-    return [
-        PhysicalCountLineResponse.model_validate(line).model_copy(
-            update={
-                "product_code": labels.get(line.product_id, ("", ""))[0],
-                "product_name": labels.get(line.product_id, ("", ""))[1],
-            }
+    places = service.storage_labels(line.storage_node_id for line in lines)
+    responses: list[PhysicalCountLineResponse] = []
+    for line in lines:
+        code, name = labels.get(line.product_id, ("", ""))
+        place = (
+            places.get(line.storage_node_id)
+            if line.storage_node_id is not None
+            else None
         )
-        for line in lines
-    ]
+        responses.append(
+            PhysicalCountLineResponse.model_validate(line).model_copy(
+                update={
+                    "product_code": code,
+                    "product_name": name,
+                    "storage_node_code": place[0] if place else None,
+                    "storage_node_name": place[1] if place else None,
+                }
+            )
+        )
+    return responses
 
 
 @router.post(
