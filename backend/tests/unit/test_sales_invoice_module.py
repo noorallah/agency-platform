@@ -1865,6 +1865,88 @@ def test_an_undispatched_note_is_not_billable() -> None:
     assert len(billable) == 1
 
 
+def test_a_note_whose_goods_never_left_cannot_be_billed() -> None:
+    """Only a dispatched note is billed, whatever the caller sends.
+
+    `_prepare_invoice_sources` checked only that the note existed, so a DRAFT,
+    APPROVED or CANCELLED note could be billed through the API and the bill
+    approved: revenue and a receivable with no stock out and no cost of goods
+    (D-SELL-3, driven on `fx_t0919psxt_s` on 2026-09-19). Only the desktop's
+    picker filtered them.
+    """
+    setup = _Billing(_session_factory()())
+    InventoryService(setup.session).create_adjustment(
+        InventoryAdjustmentCreate(
+            branch_id=setup.branch.id,
+            warehouse_id=setup.warehouse.id,
+            product_id=setup.product.id,
+            quantity=Decimal("100"),
+            reference_number="ADJ-UNSHIPPED",
+            reference_type="ADJUSTMENT",
+            transaction_date=date(2026, 8, 3),
+        ),
+        firm_scope=setup.firm.id,
+        actor_id=uuid4(),
+    )
+    SalesOrderService(setup.session).approve_order(
+        setup.order.id, firm_scope=setup.firm.id, actor_id=uuid4()
+    )
+    notes = DeliveryNoteService(setup.session)
+
+    def one_unit() -> DeliveryNote:
+        return notes.create_note(
+            DeliveryNoteCreate(
+                sales_order_id=setup.order.id,
+                delivery_date=date(2026, 8, 4),
+                lines=[
+                    DeliveryNoteLineWrite(
+                        sales_order_line_id=setup.order_line.id,
+                        line_number=1,
+                        current_delivery_quantity=Decimal("1"),
+                        unit_price=Decimal("100"),
+                    )
+                ],
+            ),
+            firm_id=setup.firm.id,
+            actor_id=uuid4(),
+        )
+
+    draft = one_unit()
+    approved = one_unit()
+    notes.approve_note(approved.id, firm_scope=setup.firm.id, actor_id=uuid4())
+    cancelled = one_unit()
+    notes.cancel_note(cancelled.id, firm_scope=setup.firm.id, actor_id=uuid4())
+
+    for note, state in (
+        (draft, "draft"),
+        (approved, "approved"),
+        (cancelled, "cancelled"),
+    ):
+        with pytest.raises(ValidationError) as refused:
+            _bill_note(setup, note, Decimal("1"))
+        assert f"{note.delivery_note_number} is {state}" in str(refused.value)
+        setup.session.rollback()
+    assert setup.session.scalar(select(func.count(SalesInvoice.id))) == 0
+
+
+def test_a_draft_on_a_note_that_never_left_is_not_approved() -> None:
+    """Approval asks again, for a draft saved before the save refused it."""
+    setup = _Billing(_session_factory()())
+    note = _dispatched_note(setup)
+    draft = _bill_note(setup, note, Decimal("4"))
+    # What a draft saved against an undispatched note looks like.
+    note.status = "APPROVED"
+    note.dispatched_at = None
+    setup.session.commit()
+
+    with pytest.raises(ValidationError) as refused:
+        SalesInvoiceService(setup.session).approve_invoice(
+            draft.id, firm_scope=setup.firm.id, actor_id=uuid4()
+        )
+
+    assert "only a dispatched delivery note can" in str(refused.value)
+
+
 def test_billable_documents_stop_at_the_firm_boundary() -> None:
     """A picker must not offer another firm's paperwork."""
     session = _session_factory()()
