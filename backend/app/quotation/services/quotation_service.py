@@ -604,7 +604,12 @@ class QuotationService(TransactionalDocumentService):
         lines = self._lines_of(row.id)
         if not lines:
             raise ValidationError("Quotation must contain at least one line.")
-        order = SalesOrderService(self._session).create_order(
+        # Staged, not created: `create_order` commits, and the CONVERTED move
+        # below was a second commit, so a failure between them left an order
+        # beside a quotation still ACCEPTED -- and convertible again, into a
+        # second order for one agreement (D-SELL-14, 2026-09-19). Both halves
+        # are written and committed once, together.
+        order = SalesOrderService(self._session).stage_order(
             SalesOrderCreate(
                 customer_id=row.customer_id,
                 salesman_id=row.salesman_id,
@@ -662,7 +667,9 @@ class QuotationService(TransactionalDocumentService):
             firm_scope=firm_scope,
             actor_id=actor_id,
             remarks=f"Became {order.order_number}",
+            commit=False,
         )
+        self._session.commit()
         return converted, order
 
     def delete_quotation(
@@ -1380,8 +1387,13 @@ class QuotationService(TransactionalDocumentService):
         actor_id: UUID,
         stamp: str | None = None,
         remarks: str | None = None,
+        commit: bool = True,
     ) -> SalesQuotation:
-        """Apply one lifecycle transition, with its event and audit row."""
+        """Apply one lifecycle transition, with its event and audit row.
+
+        `commit=False` leaves the transaction to a caller composing the move
+        with other writes, as conversion does with the order it stages.
+        """
         before = row.status
         row.status = status.value
         row.updated_by = actor_id
@@ -1407,7 +1419,10 @@ class QuotationService(TransactionalDocumentService):
             before_data={"status": before},
             after_data={"status": row.status, "remarks": remarks or ""},
         )
-        self._session.commit()
+        if commit:
+            self._session.commit()
+        else:
+            self._session.flush()
         return row
 
     def _record_event(
