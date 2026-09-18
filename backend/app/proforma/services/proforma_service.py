@@ -24,6 +24,7 @@ from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO, quantize_money
 from app.customers.models import Customer
+from app.document_framework.models import DocumentNumberingRule
 from app.document_framework.services.transactional_document_service import (
     DocumentStateSpec,
     DocumentTypeSpec,
@@ -53,6 +54,11 @@ _STATEABLE_ORDER_STATUSES = (
 )
 
 
+#: The prefix proformas were numbered under until D-SELL-17. A firm's rule still
+#: carrying it is moved to the proforma's own on its next proforma.
+_SHARED_PREFIX = "PI"
+
+
 class ProformaService(TransactionalDocumentService):
     """Own the proforma's lifecycle, numbering and snapshot."""
 
@@ -65,8 +71,10 @@ class ProformaService(TransactionalDocumentService):
         # Its own series, never the tax invoice's. GSTR-1's DOCS section
         # declares the invoice series a firm issued, so a proforma drawing
         # from it would either leave a gap the return cannot explain or put a
-        # number in it that was never a supply.
-        prefix="PI",
+        # number in it that was never a supply. And its own prefix: this was
+        # "PI", which purchase invoices also use, so one firm held two
+        # different documents numbered PI-2026-2027-000004 (D-SELL-17).
+        prefix="PF",
         states=(
             DocumentStateSpec("DRAFT", "Draft", 1, allows_edit=True),
             DocumentStateSpec("ISSUED", "Issued", 2),
@@ -184,6 +192,7 @@ class ProformaService(TransactionalDocumentService):
         document_type, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
+        self._leave_the_shared_prefix(numbering_rule, actor_id=actor_id)
         order = self._stateable_order(data.sales_order_id, firm_id=firm_id)
         lines = self._order_lines(order)
         if not lines:
@@ -488,6 +497,42 @@ class ProformaService(TransactionalDocumentService):
         )
 
     # ---- internals -----------------------------------------------------
+
+    def _leave_the_shared_prefix(
+        self, rule: DocumentNumberingRule, *, actor_id: UUID
+    ) -> None:
+        """Move a firm's proforma series off the prefix purchase invoices use.
+
+        Every firm set up before D-SELL-17 has a proforma rule saying "PI",
+        written as the default rather than chosen. It moves to the proforma's
+        own prefix once: the rule is marked the first time it is looked at,
+        so a firm that later sets "PI" on purpose keeps it. The sequence
+        carries on, so nothing already issued is renumbered and no new number
+        can repeat an old one.
+        """
+        configuration = dict(rule.configuration or {})
+        if configuration.get("own_prefix_checked"):
+            return
+        configuration["own_prefix_checked"] = True
+        rule.configuration = configuration
+        if rule.prefix != _SHARED_PREFIX:
+            return
+        before: dict[str, object] = {"prefix": rule.prefix}
+        rule.prefix = self.DOCUMENT.prefix
+        rule.updated_by = actor_id
+        record_audit(
+            self._session,
+            action="document_numbering_rule.updated",
+            entity_type="document_numbering_rule",
+            entity_id=rule.id,
+            actor_id=actor_id,
+            firm_id=rule.firm_id,
+            before_data=before,
+            after_data={
+                "prefix": rule.prefix,
+                "reason": "Proformas number under their own prefix (D-SELL-17).",
+            },
+        )
 
     def _scoped(self, firm_scope: UUID) -> Select[tuple[ProformaInvoice]]:
         """Return the base query for one firm's live proformas."""

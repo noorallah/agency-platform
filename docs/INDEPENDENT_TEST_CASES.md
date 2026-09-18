@@ -1033,7 +1033,7 @@ promotion, or the customer's standing rate).
   1. Sales → Proforma → **New** → the fixture's order ("SO-… — Vijaya Stores <suffix> — total") → Raise → **Issue**. Journal Entries; Customers → C01.
   2. Sales Orders → the order → **Cancel**. Proforma → Refresh → reopen the proforma.
 - **Expect**
-  - Step 1: "PI-… raised. Issue it when the customer needs it." then "PI-… issued."; a `PI` series number; **nothing** posted; Outstanding unchanged; the pane says "Not a tax invoice — no input tax credit is available against this document."
+  - Step 1: "PF-… raised. Issue it when the customer needs it." then "PF-… issued."; a `PF` series number (never `PI`, which purchase invoices use); **nothing** posted; Outstanding unchanged; the pane says "Not a tax invoice — no input tax credit is available against this document."
   - Step 2: the proforma's lines and totals are unchanged — snapshotted when it was raised.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.18 and §11.8 — `proforma_invoices` and copied `proforma_invoice_lines`, lifecycle `PROFORMA.CREATED` / `PROFORMA.ISSUED`, no journal or receivable; cancelling the order writes an `UNRESERVE` dated today (UTC), claims REVERSED, and nothing on the proforma.
 - **Leaves:** an issued proforma and a cancelled order.
@@ -2160,7 +2160,7 @@ only matters for accounts you already had open.
 - **Covers:** plan 21.2
 - **Fixture:** `firm-admin`
 - **Steps:** as the fixture's **Firm admin**, Sales → **Proforma**.
-- **Expect:** offered, and a real screen — a grid or a proper empty state, never a "coming soon" placeholder. A proforma states what an approved order **will** be charged and **posts nothing**; its number comes from its own `PI` series, not the tax invoice's.
+- **Expect:** offered, and a real screen — a grid or a proper empty state, never a "coming soon" placeholder. A proforma states what an approved order **will** be charged and **posts nothing**; its number comes from its own `PF` series, not the tax invoice's.
 - **Leaves:** a firm admin user.
 
 ### TC-GRANT-003 — E-Invoice opens, and never says LIVE
