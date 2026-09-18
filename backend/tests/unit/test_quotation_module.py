@@ -334,6 +334,34 @@ def test_converting_builds_a_real_sales_order() -> None:
     assert order.grand_total == Decimal("400.0000")
 
 
+def test_a_conversion_that_fails_half_way_leaves_nothing_behind() -> None:
+    """D-SELL-14: the order and the quotation's CONVERTED commit together.
+
+    `create_order` committed the order and the CONVERTED move was a second
+    commit, so a failure between them left an order beside a quotation still
+    ACCEPTED -- and convertible again, into a second order for one agreement.
+    """
+    session = _session_factory()()
+    setup = _Setup(session)
+    row = setup.accepted()
+
+    def _refuse(**_: object) -> None:
+        """Fail the way anything after the order's write could."""
+        raise RuntimeError("the lifecycle event could not be written")
+
+    setup.service._record_event = _refuse  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError):
+        setup.service.convert_quotation(
+            row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+        )
+    session.rollback()
+
+    assert session.scalar(select(func.count()).select_from(SalesOrder)) == 0
+    session.refresh(row)
+    assert row.status == QuotationStatus.ACCEPTED.value
+    assert row.converted_sales_order_id is None
+
+
 def test_a_quotation_converts_once() -> None:
     """A second conversion would be a second order for one agreement."""
     session = _session_factory()()
