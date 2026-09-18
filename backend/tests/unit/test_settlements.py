@@ -903,3 +903,83 @@ def test_the_party_picker_is_searchable_and_scoped_to_the_firm() -> None:
     assert service.parties(firm_id=books.firm.id, search=books.customer.code)
     assert service.parties(firm_id=books.firm.id, search="nothing-matches") == []
     assert service.parties(firm_id=uuid4()) == []
+
+
+def test_goods_returned_against_a_bill_come_off_what_it_owes() -> None:
+    """D-BUY-6, decided by the owner on 2026-09-18.
+
+    A completed return posts Dr payable, but the bill kept its full outstanding,
+    so a payment could settle the returned goods again (driven on TEST01:
+    PI-2026-2027-000005 showed 708.00 after a 236.00 return against it). Only a
+    completed return raised from the bill's own lines counts; one raised from a
+    goods receipt, or one cancelled, leaves the bill alone.
+    """
+    from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
+
+    books = _Books(_session_factory()())
+    bill = books.purchase_invoice("PI-RET", "708.00")
+
+    def _return(number: str, status: str, source_type: str, net: str) -> None:
+        row = PurchaseReturn(
+            firm_id=books.firm.id,
+            vendor_id=books.vendor.id,
+            branch_id=books.branch_id,
+            warehouse_id=uuid4(),
+            return_number=number,
+            return_date=WHEN,
+            status=status,
+            created_by=books.actor_id,
+            updated_by=books.actor_id,
+        )
+        books.session.add(row)
+        books.session.flush()
+        books.session.add(
+            PurchaseReturnLine(
+                purchase_return_id=row.id,
+                firm_id=books.firm.id,
+                line_number=1,
+                source_document_type=source_type,
+                source_document_id=bill.id,
+                source_document_number=bill.invoice_number,
+                source_document_line_id=uuid4(),
+                source_document_line_number=1,
+                product_id=uuid4(),
+                received_quantity=Decimal("6"),
+                already_returned_quantity=Decimal("0"),
+                current_return_quantity=Decimal("2"),
+                net_amount=Decimal(net),
+                created_by=books.actor_id,
+                updated_by=books.actor_id,
+            )
+        )
+        books.session.commit()
+
+    _return("PR-1", "COMPLETED", "PURCHASE_INVOICE", "236.00")
+    _return("PR-2", "CANCELLED", "PURCHASE_INVOICE", "100.00")
+    _return("PR-3", "APPROVED", "PURCHASE_INVOICE", "50.00")
+
+    payments = PaymentService(books.session)
+    owed = {
+        record.invoice_id: record.outstanding_amount
+        for record in payments.outstanding_invoices(
+            firm_id=books.firm.id, party_id=books.vendor.id
+        )
+    }
+    assert owed[bill.id] == Decimal("472.00")
+
+    with pytest.raises(ValidationError, match="472.00 outstanding"):
+        payments.create(
+            SettlementCreate(
+                party_id=books.vendor.id,
+                settlement_date=WHEN,
+                amount=Decimal("708.00"),
+                method=SettlementMethodEnum.BANK,
+                allocations=[
+                    SettlementAllocationWrite(
+                        invoice_id=bill.id, amount=Decimal("708.00")
+                    )
+                ],
+            ),
+            firm_id=books.firm.id,
+            actor_id=books.actor_id,
+        )
