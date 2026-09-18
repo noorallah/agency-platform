@@ -26,6 +26,7 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
+from app.finance.services.document_posting import DocumentPostingService
 from app.inventory.models import (
     InventoryRecord,
     PhysicalCount,
@@ -269,6 +270,7 @@ class PhysicalCountService(TransactionalDocumentService):
         row = self.get(count_id, firm_id=firm_id)
         self._require_draft(row)
         adjusted = 0
+        differences: list[tuple[str, Decimal]] = []
         for line in self.lines_for(row.id):
             if line.counted_quantity is None:
                 continue
@@ -286,7 +288,14 @@ class PhysicalCountService(TransactionalDocumentService):
             # Staged, not committed: the sheet is one decision, and the router
             # commits it once. A committing adjustment per line left a failing
             # sheet DRAFT beside the lines it had already moved (D-STK-3).
-            transaction = self._inventory.stage_adjustment(
+            # The stock side only: the sheet posts one journal below, since a
+            # journal per line under the count's number broke on the second
+            # line's reference (D-STK-11).
+            remarks = (
+                f"Physical count {row.count_number}: counted "
+                f"{line.counted_quantity} against {on_hand}"
+            )
+            transaction, value_delta = self._inventory.stage_adjustment_movement(
                 InventoryAdjustmentCreate(
                     branch_id=row.branch_id,
                     warehouse_id=row.warehouse_id,
@@ -299,17 +308,23 @@ class PhysicalCountService(TransactionalDocumentService):
                     reference_number=row.count_number,
                     reference_type="PHYSICAL_COUNT",
                     transaction_date=row.count_date,
-                    remarks=(
-                        f"Physical count {row.count_number}: counted "
-                        f"{line.counted_quantity} against {on_hand}"
-                    ),
+                    remarks=remarks,
                 ),
                 firm_scope=firm_id,
                 actor_id=actor_id,
             )
             line.transaction_id = transaction.id
+            differences.append((remarks, value_delta))
             adjusted += 1
 
+        DocumentPostingService(self._session).post_physical_count(
+            firm_id=firm_id,
+            count_id=row.id,
+            count_number=row.count_number,
+            count_date=row.count_date,
+            differences=differences,
+            actor_id=actor_id,
+        )
         row.status = PhysicalCountStatus.POSTED.value
         row.posted_at = utc_now()
         row.posted_by = actor_id

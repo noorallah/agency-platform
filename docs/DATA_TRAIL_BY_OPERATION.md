@@ -1009,27 +1009,29 @@ from the document framework, with no lifecycle events (0 rows in every store).
   `ADJUSTMENT` movement (`reference_number` = **the count number**,
   `reference_type` `PHYSICAL_COUNT`, `quantity` 1, `current_quantity_delta` −1,
   `transaction_date` = the count date, `remarks` "Physical count PC-…: counted
-  49.0000 against 50.0000" — the decimals as stored), its ledger row at the
-  average (60 / 60), and a journal (`source_module` `inventory`, `source_id` =
-  the movement, `reference_number` = the count number, `description` "Stock
-  adjustment PC-…") of **Dr 5500 Inventory Adjustment / Cr 1200 Inventory**
-  60.00 — the other way round when the count found more; the line's
-  `transaction_id` set. Then `physical_counts.status` POSTED, `posted_at`,
-  `posted_by`. **Lines nobody counted are skipped**: `variance_quantity` stays
-  null and nothing moves. **Audit:** per adjusted line
-  `inventory.transaction.created`, `finance.journal_entry.created`,
-  `finance.journal_entry.posted`; then `inventory.physical_count.posted`
+  49.0000 against 50.0000" — the decimals as stored) on the counted row — its
+  batch when the line names one (D-STK-1, fixed) — and its ledger row at the
+  average (60 / 60); the line's `transaction_id` set. **Then one journal for
+  the whole sheet** (D-STK-11, fixed; the owner chose one voucher per
+  stock-take): `source_module` `physical_count`, `source_id` = the sheet,
+  `reference_number` = the count number, `description` "Physical count PC-…",
+  with **a pair of lines per difference** — a shortage **Dr 5500 Inventory
+  Adjustment / Cr 1200 Inventory** at its value, a surplus the other way round,
+  each line described with that difference's remarks. No journal when no
+  difference moved any value. Then `physical_counts.status` POSTED,
+  `posted_at`, `posted_by`. **Lines nobody counted are skipped**:
+  `variance_quantity` stays null and nothing moves. The whole sheet is one
+  transaction: a line that fails leaves nothing written and the sheet DRAFT
+  (D-STK-3, fixed). **Audit:** per adjusted line
+  `inventory.transaction.created`; then `finance.journal_entry.created` and
+  `finance.journal_entry.posted` once; then `inventory.physical_count.posted`
   (`before_data` status DRAFT; `after_data` status POSTED, `adjusted_lines`).
 - **Cancel** — status CANCELLED, audit `inventory.physical_count.cancelled`.
   Only a DRAFT can be posted or cancelled; a posted sheet cannot be reopened.
-- **Three things to know before you rely on it** (all listed in the PR):
-  the adjustment is posted **without the line's batch** — a count line for a
-  batch row measures its variance against that batch and moves the product's
-  *untracked* row instead, creating one if there is none (D-STK-1; TEST01's
-  Wholesale profile has no batches, so the case will not meet it); **each
-  adjusted line is committed on its own** before the sheet's status is written
-  (D-STK-3); and a sheet with **nothing counted posts** with `adjusted_lines`
-  0 — WHOLE01's `PC-2026-2027-000005` is one (D-STK-5).
+- **One thing to know before you rely on it:** a sheet with **nothing
+  counted posts** with `adjusted_lines` 0 — WHOLE01's `PC-2026-2027-000005` is
+  one (D-STK-5, open). D-STK-1 (the wrong row), D-STK-3 (a commit per line) and
+  D-STK-11 (a second difference refused on the journal reference) are fixed.
 - **Not seen in a live row:** an adjusted line. WHOLE01's only posted sheet
   counted nothing and TEST01's is a draft; the block above is read off the
   code and off the plain adjustment path, which the two `CLEANUP-…`
@@ -1047,7 +1049,7 @@ from the document framework, with no lifecycle events (0 rows in every store).
   join   test_fixtures.physical_count_lines l on l.physical_count_id = c.id
   join   test_fixtures.products p             on p.id = l.product_id
   left join test_fixtures.inventory_transactions t on t.id = l.transaction_id
-  left join test_fixtures.journal_entries je       on je.source_id = t.id
+  left join test_fixtures.journal_entries je       on je.source_id = c.id
   left join test_fixtures.journal_lines jl         on jl.journal_entry_id = je.id
   left join test_fixtures.ledger_accounts la       on la.id = jl.ledger_account_id
   where  c.count_number = 'PC-2026-2027-<your number>'

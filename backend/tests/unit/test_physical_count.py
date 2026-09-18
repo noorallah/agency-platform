@@ -218,7 +218,7 @@ def test_a_count_that_finds_less_writes_the_difference_off() -> None:
             select(LedgerAccount.code, GLPosting.debit_amount, GLPosting.credit_amount)
             .join(LedgerAccount, LedgerAccount.id == GLPosting.ledger_account_id)
             .join(JournalEntry, JournalEntry.id == GLPosting.journal_entry_id)
-            .where(JournalEntry.source_module == "inventory")
+            .where(JournalEntry.source_module == "physical_count")
         ).all()
     }
     assert postings["1200"] == (Decimal("0.00"), Decimal("75.00")), "3 at 25.00"
@@ -304,7 +304,7 @@ def test_a_batch_line_corrects_the_batch_it_counted() -> None:
     assert entry.batch_id == batch.id
     assert entry.total_cost == Decimal("50.0000"), "2 at 25.00"
     journal = books.session.scalar(
-        select(JournalEntry).where(JournalEntry.source_id == movement.id)
+        select(JournalEntry).where(JournalEntry.source_id == sheet.id)
     )
     assert journal is not None
     assert journal.total_debit == Decimal("50.00")
@@ -485,7 +485,7 @@ def test_a_sheet_whose_second_line_fails_writes_nothing() -> None:
     ), "no stock ledger row"
     assert (
         books.session.scalars(
-            select(JournalEntry).where(JournalEntry.source_module == "inventory")
+            select(JournalEntry).where(JournalEntry.source_module == "physical_count")
         ).all()
         == []
     ), "no journal"
@@ -518,8 +518,91 @@ def test_a_sheet_whose_second_line_fails_writes_nothing() -> None:
     assert (
         len(
             books.session.scalars(
-                select(JournalEntry).where(JournalEntry.source_module == "inventory")
+                select(JournalEntry).where(
+                    JournalEntry.source_module == "physical_count"
+                )
             ).all()
         )
         == 1
     )
+
+
+def test_a_count_with_several_differences_posts_one_journal() -> None:
+    """D-STK-11: each difference posted a journal under the count's number.
+
+    A journal reference is unique per firm, so a count with two or more
+    differences was refused on the second line and could never be posted
+    (driven on 2026-09-19: PC-2026-2027-000003 answered 409). The owner chose
+    one journal per count: one voucher per stock-take, a pair of lines per
+    difference -- a shortage and a surplus each still read on their own.
+    """
+    books = _Warehouse(_session_factory()(autoflush=False))
+    second = Product(
+        firm_id=books.firm.id,
+        code="SKU-002",
+        name="Second Item",
+        product_type="STOCK_ITEM",
+        status="ACTIVE",
+        created_by=books.actor_id,
+        updated_by=books.actor_id,
+    )
+    books.session.add(second)
+    books.session.commit()
+    books.service.record_goods_receipt(
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+        branch_id=books.branch.id,
+        warehouse_id=books.warehouse.id,
+        storage_node_id=None,
+        product_id=second.id,
+        reference_number="GRN-SECOND",
+        transaction_date=date(2026, 8, 1),
+        total_quantity=Decimal("4"),
+        unit_cost=Decimal("10.00"),
+    )
+    sheet = books.counts.create(
+        PhysicalCountCreate(
+            branch_id=books.branch.id,
+            warehouse_id=books.warehouse.id,
+            count_date=WHEN,
+            lines=[
+                PhysicalCountLineWrite(
+                    product_id=books.product.id, counted_quantity=Decimal("7")
+                ),
+                PhysicalCountLineWrite(
+                    product_id=second.id, counted_quantity=Decimal("6")
+                ),
+            ],
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+
+    books.counts.post(sheet.id, firm_id=books.firm.id, actor_id=books.actor_id)
+    books.session.commit()
+
+    journals = books.session.scalars(
+        select(JournalEntry).where(JournalEntry.source_id == sheet.id)
+    ).all()
+    assert len(journals) == 1, "one voucher for the whole stock-take"
+    journal = journals[0]
+    assert journal.reference_number == sheet.count_number
+    assert len(journal.lines) == 4, "a pair of lines per difference"
+    by_account: dict[str, list[tuple[Decimal, Decimal]]] = {}
+    for code, debit, credit in books.session.execute(
+        select(LedgerAccount.code, GLPosting.debit_amount, GLPosting.credit_amount)
+        .join(LedgerAccount, LedgerAccount.id == GLPosting.ledger_account_id)
+        .where(GLPosting.journal_entry_id == journal.id)
+    ).all():
+        by_account.setdefault(code, []).append((debit, credit))
+    # 3 short at 25.00 written off; 2 over at 10.00 taken on.
+    assert sorted(by_account["1200"]) == [
+        (Decimal("0.00"), Decimal("75.00")),
+        (Decimal("20.00"), Decimal("0.00")),
+    ]
+    assert sorted(by_account["5500"]) == [
+        (Decimal("0.00"), Decimal("20.00")),
+        (Decimal("75.00"), Decimal("0.00")),
+    ]
+    assert books.counts.get(sheet.id, firm_id=books.firm.id).status == "POSTED"
