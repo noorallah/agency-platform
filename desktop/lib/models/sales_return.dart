@@ -1,3 +1,4 @@
+import 'batch_serial.dart';
 import 'entities.dart';
 
 /// Where a sales return can be raised from.
@@ -43,6 +44,7 @@ class SalesReturnLine {
     required this.netAmount,
     required this.batchNumber,
     required this.remarks,
+    this.serials = const [],
   });
 
   final String id;
@@ -70,6 +72,10 @@ class SalesReturnLine {
   final String netAmount;
   final String batchNumber;
   final String remarks;
+
+  /// The serialised units this line brings back -- named when it was raised,
+  /// back on the shelf once it completes.
+  final List<PickedSerial> serials;
 
   /// What is still returnable against the source line after this one.
   String get pendingQuantity {
@@ -102,6 +108,7 @@ class SalesReturnLine {
         netAmount: stringValue(json['net_amount']),
         batchNumber: stringValue(json['batch_number']),
         remarks: stringValue(json['remarks']),
+        serials: PickedSerial.listFrom(json['serials']),
       );
 }
 

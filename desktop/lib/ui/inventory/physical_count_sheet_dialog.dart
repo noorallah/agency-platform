@@ -210,6 +210,10 @@ class _PhysicalCountSheetDialogState extends State<PhysicalCountSheetDialog> {
             <String, dynamic>{
               'product_id': line.productId,
               if (line.batchId.isNotEmpty) 'batch_id': line.batchId,
+              // The server finds the line again by product, batch and
+              // location, and refuses a count that matches none.
+              if (line.storageNodeId.isNotEmpty)
+                'storage_node_id': line.storageNodeId,
               if ((_counted[line.id]?.text.trim() ?? '').isNotEmpty)
                 'counted_quantity': _counted[line.id]!.text.trim(),
             },
@@ -401,6 +405,7 @@ class _PhysicalCountSheetDialogState extends State<PhysicalCountSheetDialog> {
             columns: const [
               DataColumn(label: Text('#')),
               DataColumn(label: Text('Product')),
+              DataColumn(label: Text('Location')),
               DataColumn(label: Text('Expected'), numeric: true),
               DataColumn(label: Text('Counted'), numeric: true),
               DataColumn(label: Text('Difference'), numeric: true),
@@ -414,6 +419,17 @@ class _PhysicalCountSheetDialogState extends State<PhysicalCountSheetDialog> {
                       width: 260,
                       child: Text(
                         line.productLabel,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ),
+                  // Where to look: a line is one bin's stock, so the same
+                  // product can appear once per location it is held in.
+                  DataCell(
+                    SizedBox(
+                      width: 160,
+                      child: Text(
+                        line.locationLabel,
                         overflow: TextOverflow.ellipsis,
                       ),
                     ),

@@ -2719,8 +2719,13 @@ def _seed_serial_numbers(
     `products.track_serial` was false on every product in every store, so
     `serial_numbers` held nothing. The numbers are written against the
     inventory record the history left, capped at twenty per product so the
-    grid is a page and not a wall; an existing serial on the product means a
-    re-run leaves them alone.
+    grid is a page and not a wall; a re-run tops them up rather than adding
+    twenty more.
+
+    Only units on the shelf count. The history now numbers every unit it
+    sells (D-STK-4 -- a serial-tracked line is refused at dispatch until it
+    names its units), so the product already has serials, all of them SOLD;
+    counting those said "done" and left the stock on hand unnumbered.
     """
     service = BatchSerialService(session)
     for seed in blueprint.products:
@@ -2735,17 +2740,31 @@ def _seed_serial_numbers(
         )
         if product is None:
             continue
-        already = session.scalar(
-            select(func.count())
-            .select_from(batch_serial_models.SerialNumber)
-            .where(
-                batch_serial_models.SerialNumber.firm_id == firm.id,
-                batch_serial_models.SerialNumber.product_id == product.id,
-                batch_serial_models.SerialNumber.is_deleted.is_(False),
+        numbered = batch_serial_models.SerialNumber
+        existing = int(
+            session.scalar(
+                select(func.count())
+                .select_from(numbered)
+                .where(
+                    numbered.firm_id == firm.id,
+                    numbered.product_id == product.id,
+                )
             )
+            or 0
         )
-        if already:
-            continue
+        on_shelf = int(
+            session.scalar(
+                select(func.count())
+                .select_from(numbered)
+                .where(
+                    numbered.firm_id == firm.id,
+                    numbered.product_id == product.id,
+                    numbered.status == SerialStatus.AVAILABLE.value,
+                    numbered.is_deleted.is_(False),
+                )
+            )
+            or 0
+        )
         stock = session.scalar(
             select(InventoryRecord)
             .where(
@@ -2759,9 +2778,11 @@ def _seed_serial_numbers(
         if stock is None:
             print(f"  note: {seed.code} has no stock on hand, no serials laid")
             continue
-        count = min(20, int(stock.available_quantity))
+        count = min(20, int(stock.available_quantity)) - on_shelf
+        if count <= 0:
+            continue
         today = utc_now().date()
-        for index in range(1, count + 1):
+        for index in range(existing + 1, existing + count + 1):
             service.create_serial(
                 firm_scope=firm.id,
                 actor_id=actor_id,

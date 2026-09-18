@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.batch_serial.schemas import ReturnableSerials
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
@@ -27,6 +28,7 @@ from app.sales_return.schemas import (
     SalesReturnReconciliationRecord,
     SalesReturnRegisterRecord,
     SalesReturnResponse,
+    SalesReturnSourceType,
     SalesReturnStatus,
     SalesReturnSummary,
     SalesReturnUpdate,
@@ -212,6 +214,31 @@ def sales_return_reconciliation(
     """Return lines set against the documents they were dispatched on."""
     return ApiResponse(
         data=SalesReturnService(db).reconciliation_report(firm_scope=scope.firm_id)
+    )
+
+
+@router.get(
+    "/returnable-serials",
+    response_model=ApiResponse[ReturnableSerials],
+)
+def get_returnable_serials(
+    scope: SalesReturnViewScope,
+    source_document_type: SalesReturnSourceType,
+    source_document_line_id: UUID,
+    db: Session = Depends(get_db),
+) -> ApiResponse[ReturnableSerials]:
+    """List the serialised units a return against this source line may name.
+
+    The units sold on that line and still out with the customer -- what the
+    return editor's picker offers. A product nobody tracks by serial answers
+    ``serial_tracked: false`` and no units.
+    """
+    return ApiResponse(
+        data=SalesReturnService(db).returnable_serials(
+            firm_scope=scope.firm_id,
+            source_document_type=source_document_type.value,
+            source_document_line_id=source_document_line_id,
+        )
     )
 
 

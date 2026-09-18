@@ -834,6 +834,107 @@ def test_the_points_a_bill_earns_are_saved_with_its_approval() -> None:
     assert journal.status == JournalStatus.POSTED.value
 
 
+def test_cancelling_an_invoice_takes_back_the_points_it_earned() -> None:
+    """The points and their accrual go with the bill (D-SELL-2, 2026-09-19).
+
+    `cancel_invoice` reversed the invoice's own journal and never touched
+    `loyalty_entries`, so the customer could spend points from a sale that
+    had been undone and `Loyalty Payable` kept the debt.
+    """
+    from app.loyalty.models import LoyaltyEntry, LoyaltyEntryKind
+    from app.loyalty.schemas import LoyaltySettingsWrite
+    from app.loyalty.services import LoyaltyService
+
+    session = _session_factory()()
+    firm = _firm(session)
+    service, invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=uuid4()
+    )
+    LoyaltyService(session).write_settings(
+        firm.id,
+        LoyaltySettingsWrite(
+            is_enabled=True,
+            points_per_amount=Decimal("2"),
+            amount_per_point=Decimal("1"),
+        ),
+        actor_id=uuid4(),
+    )
+    invoice = service.approve_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+    session.commit()
+    customer_id = invoice.customer_id
+    earned = session.scalar(
+        select(LoyaltyEntry).where(
+            LoyaltyEntry.sales_invoice_id == invoice_id,
+            LoyaltyEntry.kind == LoyaltyEntryKind.EARNED.value,
+        )
+    )
+    assert earned is not None
+
+    service.cancel_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+
+    taken = session.scalar(
+        select(LoyaltyEntry).where(
+            LoyaltyEntry.reverses_id == earned.id,
+            LoyaltyEntry.kind == LoyaltyEntryKind.REVERSED.value,
+        )
+    )
+    assert taken is not None, "the cancelled bill's points are taken back"
+    assert LoyaltyService(session).balance(
+        customer_id, firm_scope=firm.id
+    ).points == Decimal("0.0000")
+    accrual = session.get(JournalEntry, earned.journal_entry_id)
+    assert accrual is not None and accrual.status == JournalStatus.REVERSED.value
+
+
+def test_only_an_approved_invoice_can_be_closed() -> None:
+    """A draft or a cancelled bill is refused by name; an approved one closes.
+
+    `close_invoice` refused only a bill already closed, so a DRAFT that never
+    posted kept its quantity against the note for good and a CANCELLED one
+    took back what its cancellation had released (D-SELL-12, driven on
+    `fx_t0919psxt_s` on 2026-09-19).
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    service, invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)
+    number = service.get_invoice(invoice_id, firm_scope=firm.id).invoice_number
+
+    with pytest.raises(ValidationError) as refused:
+        service.close_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+    assert str(refused.value) == (
+        f"Only approved sales invoices can be closed; {number} is draft."
+    )
+    session.rollback()
+
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=uuid4()
+    )
+    service.approve_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+    closed = service.close_invoice(
+        invoice_id, firm_scope=firm.id, actor_id=uuid4(), reason="settled"
+    )
+    assert closed.status == SalesInvoiceStatus.CLOSED.value
+
+
+def test_a_cancelled_invoice_cannot_be_closed() -> None:
+    """Closing it would take back the quantity its cancellation released."""
+    session = _session_factory()()
+    firm = _firm(session)
+    service, invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)
+    service.cancel_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+
+    with pytest.raises(ValidationError) as refused:
+        service.close_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+
+    assert "is cancelled" in str(refused.value)
+    session.rollback()
+    assert (
+        service.get_invoice(invoice_id, firm_scope=firm.id).status
+        == SalesInvoiceStatus.CANCELLED.value
+    )
+
+
 def _dispatched_line_for(
     session: Session,
     *,

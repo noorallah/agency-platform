@@ -24,7 +24,9 @@ from app.customers.schemas import (
     CustomerReceivableTransactionType,
 )
 from app.customers.services import CustomerService
+from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
+from app.finance.services.journal_engine import JournalEntryEngine, JournalLineData
 from app.loyalty.models import LoyaltyEntry, LoyaltyEntryKind, LoyaltySettings
 from app.loyalty.schemas import (
     LoyaltyBalance,
@@ -332,6 +334,124 @@ class LoyaltyService:
         )
         return entry
 
+    def stage_reversal(
+        self, invoice: SalesInvoice, *, firm_id: UUID, actor_id: UUID
+    ) -> LoyaltyEntry | None:
+        """Take back what a cancelled bill earned, without committing.
+
+        Cancelling an invoice left its points with the customer and its
+        accrual in `Loyalty Payable`, so points could be spent from a sale that
+        never happened (D-SELL-2, 2026-09-19). This writes a `REVERSED` entry
+        naming the earning and takes the accrual back with it.
+
+        What comes back is **what is left of the batch** -- the same answer the
+        expiry sweep uses. A share that already lapsed had its cost reversed by
+        the sweep, and taking it again would reverse it twice; a share the
+        customer already spent settled a bill, which the cancellation does not
+        undo, so its cost stands. Nothing here takes a balance below zero.
+
+        Args:
+            invoice: The bill being cancelled.
+            firm_id: The owning firm.
+            actor_id: The user cancelling it.
+
+        Returns:
+            The entry written, or None where the bill earned nothing or none
+            of it is left.
+
+        """
+        earned = self._earned_for(invoice.id, firm_id=firm_id)
+        if earned is None:
+            return None
+        already = self._session.scalar(
+            select(func.count(LoyaltyEntry.id)).where(
+                LoyaltyEntry.firm_id == firm_id,
+                LoyaltyEntry.reverses_id == earned.id,
+                LoyaltyEntry.kind == LoyaltyEntryKind.REVERSED.value,
+                LoyaltyEntry.is_deleted.is_(False),
+            )
+        )
+        if already:
+            return None
+        # What is left is a sum over the customer's ledger, so the row is held
+        # while it is read -- a redemption racing this would otherwise spend
+        # the points being taken back.
+        self._hold_customer(earned.customer_id, firm_scope=firm_id)
+        left = next(
+            (
+                remaining
+                for batch, remaining in self.unspent_batches(
+                    earned.customer_id, firm_scope=firm_id
+                )
+                if batch.id == earned.id
+            ),
+            ZERO,
+        )
+        points = quantize_money(left)
+        if points <= ZERO:
+            return None
+        whole = Decimal(str(earned.points))
+        worth = quantize_ledger(Decimal(str(earned.amount)) * points / whole)
+        entry = LoyaltyEntry(
+            firm_id=firm_id,
+            customer_id=earned.customer_id,
+            kind=LoyaltyEntryKind.REVERSED.value,
+            points=-points,
+            amount=worth,
+            sales_invoice_id=invoice.id,
+            earned_on=utc_now().date(),
+            reverses_id=earned.id,
+            remarks=f"{invoice.invoice_number} cancelled.",
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
+        self._session.add(entry)
+        self._session.flush()
+        accrual = (
+            None
+            if earned.journal_entry_id is None
+            else self._session.get(JournalEntry, earned.journal_entry_id)
+        )
+        if (
+            accrual is not None
+            and accrual.status == JournalStatus.POSTED.value
+            and worth > ZERO
+        ):
+            # A mirror when the whole batch comes back; the same two accounts
+            # for the share that is left when it does not.
+            share = (
+                None
+                if points == quantize_money(whole)
+                else [
+                    JournalLineData(
+                        ledger_account_id=line.ledger_account_id,
+                        debit_amount=worth if line.credit_amount > ZERO else ZERO,
+                        credit_amount=worth if line.debit_amount > ZERO else ZERO,
+                        description=f"Reversal of {accrual.reference_number}",
+                    )
+                    for line in accrual.lines
+                ]
+            )
+            reversal = JournalEntryEngine(self._session).reverse_entry(
+                accrual.id,
+                firm_id=firm_id,
+                reference_number=f"{accrual.reference_number}-REV",
+                actor_id=actor_id,
+                lines=share,
+            )
+            entry.journal_entry_id = reversal.id
+        self._session.flush()
+        record_audit(
+            self._session,
+            action="loyalty.reversed",
+            entity_type="loyalty_entry",
+            entity_id=entry.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            after_data=self._entry_snapshot(entry),
+        )
+        return entry
+
     # ---- spending ------------------------------------------------------
 
     def redeem(
@@ -627,11 +747,13 @@ class LoyaltyService:
             ).all()
         )
         batches = [row for row in entries if row.kind == LoyaltyEntryKind.EARNED.value]
-        # What each batch has already had taken off it by a previous sweep.
-        # Those name their batch, so they are attributed rather than pooled.
+        # What each batch has already had taken off it by a previous sweep, or
+        # by cancelling the bill that earned it. Those name their batch, so
+        # they are attributed rather than pooled.
+        attributed = {LoyaltyEntryKind.EXPIRED.value, LoyaltyEntryKind.REVERSED.value}
         taken: dict[UUID, Decimal] = {}
         for row in entries:
-            if row.kind == LoyaltyEntryKind.EXPIRED.value and row.reverses_id:
+            if row.kind in attributed and row.reverses_id:
                 taken[row.reverses_id] = taken.get(row.reverses_id, ZERO) + abs(
                     Decimal(str(row.points))
                 )
@@ -641,8 +763,7 @@ class LoyaltyService:
             (
                 abs(Decimal(str(row.points)))
                 for row in entries
-                if row.kind != LoyaltyEntryKind.EXPIRED.value
-                and Decimal(str(row.points)) < ZERO
+                if row.kind not in attributed and Decimal(str(row.points)) < ZERO
             ),
             ZERO,
         )

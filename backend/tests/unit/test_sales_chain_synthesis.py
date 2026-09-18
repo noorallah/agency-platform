@@ -21,6 +21,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.batch_serial.models import SerialNumber
 from app.batch_serial.models import batch_serial as _batch_serial_models  # noqa: F401
 from app.branches.models import Branch, Warehouse
 from app.business.models import framework as _business_models  # noqa: F401
@@ -305,6 +306,64 @@ def test_a_failed_bill_leaves_no_order_no_note_and_no_movement() -> None:
         "a refused counter sale must leave no order, no delivery note, no "
         "invoice and no stock movement behind it"
     )
+
+
+def test_a_bill_naming_no_serials_cannot_dispatch_a_serial_tracked_product() -> None:
+    """The document that moves the goods names the units, and here that is it.
+
+    Dispatch refuses a serial-tracked line that names no units (D-STK-4), so
+    a note the chain raised for a bill naming none could never ship. The bill
+    is refused by name before anything is staged, and nothing is left behind.
+    """
+    session = _session_factory()()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    setup.product.track_serial = True
+    session.commit()
+    before = _counts(session)
+
+    with pytest.raises(ValidationError, match="SKU-001 is serial-tracked"):
+        SalesInvoiceService(session).create_invoice(
+            setup.bare_bill(), firm_id=setup.firm.id, actor_id=uuid4()
+        )
+    session.rollback()
+
+    assert _counts(session) == before
+
+
+def test_a_bill_naming_its_serials_ships_exactly_those_units() -> None:
+    """A counter sale of a serial-tracked product names its units on the bill.
+
+    The chain hands them to the note it raises, so they leave SOLD exactly as
+    if a storekeeper had picked them on a typed note.
+    """
+    session = _session_factory()()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    setup.product.track_serial = True
+    units = [
+        SerialNumber(
+            firm_id=setup.firm.id,
+            product_id=setup.product.id,
+            warehouse_id=setup.warehouse.id,
+            branch_id=setup.branch.id,
+            serial_number=f"SKU-{n}",
+        )
+        for n in range(1, 4)
+    ]
+    session.add_all(units)
+    session.commit()
+    bill = setup.bare_bill(quantity=Decimal("2"))
+    bill.lines[0].serial_ids = [units[0].id, units[2].id]
+
+    service = SalesInvoiceService(session)
+    actor = uuid4()
+    invoice = service.create_invoice(bill, firm_id=setup.firm.id, actor_id=actor)
+    service.approve_invoice(invoice.id, firm_scope=setup.firm.id, actor_id=actor)
+
+    for unit in units:
+        session.refresh(unit)
+    assert [unit.status for unit in units] == ["SOLD", "AVAILABLE", "SOLD"]
 
 
 def test_switching_a_stage_off_does_not_move_an_existing_document() -> None:

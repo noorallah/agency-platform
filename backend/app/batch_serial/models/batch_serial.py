@@ -1,13 +1,15 @@
 """Enterprise batch, lot, and serial number persistence models."""
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import (
     Date,
+    DateTime,
     ForeignKey,
     Index,
+    Integer,
     Numeric,
     String,
     Text,
@@ -196,3 +198,52 @@ class SerialNumber(BaseEntity):
     batch: Mapped["BatchRecord | None"] = relationship(
         back_populates="serials", foreign_keys=[batch_id]
     )
+
+
+class DocumentLineSerial(BaseEntity):
+    """Name one serialised unit a document line moves.
+
+    A serial's status is a consequence of the documents that moved it, and
+    nothing recorded which unit a movement carried: a delivery note dispatched
+    two mixer grinders and every serial on the shelf stayed ``AVAILABLE``
+    (D-STK-4). One row here says "this line moves this unit".
+
+    The row is written when the line is saved -- the storekeeper picks the
+    units while the note is still a draft -- and ``moved_at`` and
+    ``inventory_transaction_id`` are filled when the stock actually moves. A
+    pick with no ``moved_at`` has changed nothing yet.
+
+    A movement is one row per batch drawn from rather than one per unit, so
+    the link lives here: every unit names the movement that carried it, and
+    ``inventory_transactions.serial_id`` is set only where a movement carried
+    exactly one unit. The document and its line are bare ids, the convention
+    every downstream document follows, because two modules write rows here.
+    """
+
+    __tablename__ = "document_line_serials"
+    __table_args__ = (
+        UniqueConstraint(
+            "document_line_id",
+            "serial_id",
+            name="UQ_document_line_serials_line_serial",
+        ),
+        Index("IX_document_line_serials_firm_serial", "firm_id", "serial_id"),
+        Index("IX_document_line_serials_firm_document", "firm_id", "document_id"),
+        Index("IX_document_line_serials_firm_line", "firm_id", "document_line_id"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    serial_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("serial_numbers.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    #: ``DELIVERY_NOTE`` (the unit leaves) or ``SALES_RETURN`` (it comes back).
+    document_type: Mapped[str] = mapped_column(String(30), nullable=False)
+    document_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
+    document_line_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
+    line_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    #: The movement that carried the unit, once it has moved.
+    inventory_transaction_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    #: When the unit moved on this line; empty while it is only picked.
+    moved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))

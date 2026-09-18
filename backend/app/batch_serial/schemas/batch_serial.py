@@ -323,3 +323,22 @@ class SerialListFilters(SerialSchema):
     branch_id: UUID | None = None
     batch_id: UUID | None = None
     status: SerialStatus | None = None
+
+
+class PickedSerial(SerialSchema):
+    """One serialised unit a document line names, as a line shows it."""
+
+    serial_id: UUID
+    serial_number: str
+    #: Where the unit is now, which is not necessarily what this line did to
+    #: it: a unit dispatched on a note and since returned reads AVAILABLE.
+    status: str
+
+
+class ReturnableSerials(SerialSchema):
+    """The units a return line may name, for the picker on the return."""
+
+    product_id: UUID
+    #: False for a product nobody tracks by serial: the line names none.
+    serial_tracked: bool
+    serials: list[PickedSerial]

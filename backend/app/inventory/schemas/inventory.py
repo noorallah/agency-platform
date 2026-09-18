@@ -572,6 +572,10 @@ class PhysicalCountLineWrite(InventorySchema):
 
     product_id: UUID
     batch_id: UUID | None = None
+    #: The storage location counted, or left out for the warehouse's
+    #: unlocated ROOT row. Part of the line's identity with the product and
+    #: batch: the same product in two bins is two lines (D-STK-13).
+    storage_node_id: UUID | None = None
     #: What was on the shelf. Left out for a line nobody has walked yet, which
     #: is how a half-finished sheet is told apart from one that found nothing.
     counted_quantity: Decimal | None = Field(default=None, ge=0, max_digits=18)
@@ -610,6 +614,11 @@ class PhysicalCountLineResponse(InventorySchema):
     product_code: str = ""
     product_name: str = ""
     batch_id: UUID | None
+    #: The location the line counts; null is the warehouse's ROOT row. Code
+    #: and name beside it for the same reason as the product's.
+    storage_node_id: UUID | None = None
+    storage_node_code: str | None = None
+    storage_node_name: str | None = None
     expected_quantity: Decimal
     counted_quantity: Decimal | None
     variance_quantity: Decimal | None

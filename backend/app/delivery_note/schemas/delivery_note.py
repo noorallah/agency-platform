@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.batch_serial.schemas import PickedSerial
+
 
 class DeliveryNoteSchema(BaseModel):
     """Apply strict input and ORM response behavior."""
@@ -77,6 +79,12 @@ class DeliveryNoteLineWrite(DeliveryNoteSchema):
     storage_node_id: UUID | None = None
     batch_number: str | None = Field(default=None, max_length=120)
     serial_numbers: str | None = None
+    #: Which serialised units this line ships, for a serial-tracked product:
+    #: the storekeeper picks them from the product's AVAILABLE serials in the
+    #: line's warehouse, and dispatch refuses until there is one per unit
+    #: leaving. None (or absent) leaves the line's picks as they are; an empty
+    #: list clears them. A product nobody tracks by serial takes none.
+    serial_ids: list[UUID] | None = Field(default=None, max_length=10000)
     manufacturing_date: date | None = None
     expiry_date: date | None = None
     remarks: str | None = None
@@ -214,6 +222,9 @@ class DeliveryNoteLineResponse(DeliveryNoteSchema):
     released_reservation_transaction_id: UUID | None
     inventory_transaction_id: UUID | None
     remarks: str | None
+    #: The serialised units this line names -- picked while it is a draft,
+    #: gone once it is dispatched.
+    serials: list[PickedSerial] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

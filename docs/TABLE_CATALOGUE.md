@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**198 tables**, of which **14** live only in the platform store.
+**199 tables**, of which **14** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -65,6 +65,7 @@ trigger each schema owns its own copy of.
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
 | `batches` | firm store ¹ | Track one batch/lot of a product across the warehouse. | `firms`, `products`, `warehouses`, `branches`, `vendors`, `warehouse_storage_nodes` |
+| `document_line_serials` | firm store ¹ | Name one serialised unit a document line moves. | `serial_numbers` |
 | `lots` | firm store ¹ | Track one production lot across manufacturing steps. | `firms`, `products`, `warehouses`, `branches` |
 | `serial_numbers` | firm store ¹ | Track one serialized unit through its full lifecycle. | `firms`, `products`, `inventories`, `warehouses`, `branches`, `batches` |
 
@@ -224,7 +225,7 @@ trigger each schema owns its own copy of.
 | `inventory_transactions` | firm store ¹ | Persist one immutable inventory movement event. | `inventories`, `firms`, `branches`, `warehouses`, `warehouse_storage_nodes`, `products`, `business_profiles`, `uoms`, `batches`, `lots`, `serial_numbers` |
 | `opening_stock_batches` | firm store ¹ | Persist a draft or posted opening-stock document. | `firms`, `branches`, `warehouses` |
 | `opening_stock_lines` | firm store ¹ | Persist one opening-stock line before or after posting. | `opening_stock_batches`, `products`, `warehouse_storage_nodes`, `business_profiles`, `uoms`, `batches`, `inventory_transactions` |
-| `physical_count_lines` | firm store ¹ | Store one product's count on one sheet. | `firms`, `physical_counts` |
+| `physical_count_lines` | firm store ¹ | Store one stock row's count on one sheet. | `firms`, `physical_counts` |
 | `physical_counts` | firm store ¹ | Store one count sheet for one warehouse. | `firms` |
 | `product_valuations` | firm store ¹ | Track the moving weighted-average cost of a product for a firm. | `firms`, `products` |
 | `stock_ledger_entries` | firm store ¹ | Persist one immutable stock-ledger row per inventory transaction. | `inventory_transactions`, `inventories`, `batches`, `firms`, `branches`, `warehouses`, `warehouse_storage_nodes`, `products`, `business_profiles`, `uoms` |

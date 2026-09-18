@@ -64,7 +64,12 @@ class PhysicalCount(BaseEntity):
 
 
 class PhysicalCountLine(BaseEntity):
-    """Store one product's count on one sheet."""
+    """Store one stock row's count on one sheet.
+
+    A line is a product, a batch and a storage location -- exactly as the
+    stock is held -- so the difference it finds is measured against, and
+    posted back onto, that one row (D-STK-13).
+    """
 
     __tablename__ = "physical_count_lines"
     __table_args__ = (
@@ -88,6 +93,15 @@ class PhysicalCountLine(BaseEntity):
     line_number: Mapped[int] = mapped_column(Integer, nullable=False)
     product_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False)
     batch_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    #: The storage location (bin, shelf, rack...) this line counts, or NULL
+    #: for the warehouse's unlocated ROOT row.
+    #:
+    #: Without it a line measured every location's stock summed and posted the
+    #: difference onto ROOT: the total came out right and the rows wrong --
+    #: goods missing from a bin came off ROOT, which could go negative, while
+    #: the bin kept stock that was not there (D-STK-13). No foreign key, like
+    #: ``batch_id`` beside it: the line records what was counted.
+    storage_node_id: Mapped[UUID | None] = mapped_column(UUIDType())
     #: What the system thought when the sheet was drawn up.
     #:
     #: Kept for the person reading the sheet afterwards -- "we expected 50" --
