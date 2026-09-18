@@ -33,6 +33,7 @@ it loadable in one context window. Nothing was cut; each group names its doc.
 | Geography masters | `docs/GEOGRAPHY_MASTERS.md` |
 | Desktop shell, catalog, preferences | `desktop/docs/DESKTOP_FRAMEWORK.md` |
 | Compiling, packaging and shipping a release | `docs/RELEASE_BUILD.md` |
+| Every known defect, open and fixed -- add each new one, move it when fixed | `docs/DEFECTS.md` |
 
 Business profiles, purchasing, tax, UOM, territory and batch/serial each keep
 the reference doc they already had; the narrative that was here was appended to
