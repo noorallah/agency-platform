@@ -943,10 +943,23 @@ class SalesInvoiceService(TransactionalDocumentService):
         actor_id: UUID,
         reason: str | None = None,
     ) -> SalesInvoice:
-        """Close one sales invoice."""
+        """Close one approved sales invoice.
+
+        Closing says a bill is finished with, so only an approved bill -- one
+        that posted -- can be. It refused only one already closed, so a DRAFT
+        that never posted kept its quantity against the note for good, and a
+        CANCELLED one took back the quantity its cancellation had released
+        (D-SELL-12, driven on `fx_t0919psxt_s` on 2026-09-19). The twin of
+        D-BUY-12.
+        """
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status == SalesInvoiceStatus.CLOSED.value:
             raise ValidationError("This sales invoice is already closed.")
+        if row.status != SalesInvoiceStatus.APPROVED.value:
+            raise ValidationError(
+                f"Only approved sales invoices can be closed; "
+                f"{row.invoice_number} is {row.status.lower()}."
+            )
         before = row.status
         row.status = SalesInvoiceStatus.CLOSED.value
         row.close_reason = reason
