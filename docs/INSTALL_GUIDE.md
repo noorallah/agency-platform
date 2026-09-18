@@ -668,13 +668,14 @@ Extract the folder, open it, and **double-click `install.bat`**. A window opens
 and asks where to install:
 
 ```
-Install where? [Enter for C:\AgencyPlatform, B to browse, or type a folder]
+Install where? [Enter for C:\AgencyPlatform, B to browse, or type a folder]:
 ```
 
 Press **Enter** to accept `C:\AgencyPlatform`, type a folder and press Enter,
-or press **B** to pick a folder in the Windows folder picker. A picked folder
-is used as-is if it is empty or already holds an installation; otherwise an
-`AgencyPlatform` folder is made inside it.
+or type **B** and press Enter to pick a folder in the Windows folder picker. A
+picked folder is used as-is if it is empty or already holds an installation;
+otherwise an `AgencyPlatform` folder is made inside it, so picking `D:\`
+installs into `D:\AgencyPlatform`. Cancelling the picker asks again.
 
 A complete run looks like this:
 
