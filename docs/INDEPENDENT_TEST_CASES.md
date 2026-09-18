@@ -636,6 +636,7 @@ screen reads once when opened: **Refresh** after acting elsewhere.
   - Step 1: status **DRAFT**, number `PO-TEST01-HO-2026-2027-…`; the Line Items table names the product as `<SUFFIX>-B — Bought Item <suffix>` and the unit `PIECE`; the Approval banner reads "Submit this draft to send it for approval."
   - Step 2: **Approve is not offered** on a draft — only Submit. **(HTTP)** `POST /api/v1/purchases/{id}/approve` on a draft → **422**, "Only submitted purchase orders can be approved. Submit the order first."
   - Step 3: toasts "… submitted for approval." and "… approved."; status **APPROVED**, the grid updating without the dialog closing.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §9.1 (the order and its lines, audit `purchase.created`) and §9.2 (history `purchase.submitted` / `purchase.approved`; no journal, no stock). All in `test_fixtures`.
 - **Leaves:** an approved order.
 
 ### TC-BUY-002 — Editing an approved order withdraws the approval
@@ -644,6 +645,7 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 - **Fixture:** `po-approved`
 - **Steps:** as the fixture's **Firm admin**, select the fixture's order → **Edit** → dialog **Editing withdraws the approval** → **Edit anyway**. Type a line remark and change the order remarks → **Save**. Then **Submit** and **Approve** again.
 - **Expect:** saved as **DRAFT**; the remark survives reopening; the view's **History** shows the approval withdrawn (audit `purchase.approval_withdrawn`). An edit no longer decides the status — the update body cannot write one. After Submit and Approve: APPROVED again.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §9.3. `purchase.approval_withdrawn` is a **`purchase_order_history`** row (which the History tab reads), not an `audit_logs` row — the trail holds `purchase.updated` with status APPROVED → DRAFT. The two history rows share one timestamp.
 - **Leaves:** the order, re-approved.
 
 ### TC-BUY-003 — Receiving part of an order, then the rest
@@ -658,6 +660,7 @@ screen reads once when opened: **Refresh** after acting elsewhere.
   - Step 1: the line arrives with Accepted 10 and "Ordered 10 · already received 0"; after save, "Goods receipt GRN-… created as a draft. Complete it to post the stock."; after Complete, status **COMPLETED**.
   - Step 2: the order reads **PARTIALLY_RECEIVED**; `<SUFFIX>-B` in MAIN holds **4**; the Stock Ledger shows `GOODS_RECEIPT` +4 referencing the GRN.
   - Step 3: the line says "already received 4"; after Complete the order reads **RECEIVED**, MAIN holds **10**, and a second `GOODS_RECEIPT` entry appears.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §9.4 (the draft writes no stock) and §9.5 (per completion: a movement, a stock ledger row, the inventory row, a journal Dr 1200 / Cr 2300 of 400.00 then 600.00, five audit rows). The order's move to PARTIALLY_RECEIVED / RECEIVED is audit `purchase.received_status_changed` and has no history row.
 - **Leaves:** a fully received order.
 
 ### TC-BUY-004 — Cancelling a completed receipt undoes its stock and its journal
@@ -666,6 +669,7 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 - **Fixture:** `po-received`
 - **Steps:** as the fixture's **Firm admin**, Goods Receipts → select the **receipt of 4** → **Cancel**. Then the order, the Inventory row and the Stock Ledger for `<SUFFIX>-B`; Finance → Journal Entries.
 - **Expect:** status **CANCELLED**; the ledger shows `GOODS_RECEIPT_REVERSAL` **−4** against that GRN; MAIN holds **6**; the order drops back to **PARTIALLY_RECEIVED**; the journal shows the reversal, crediting inventory with what the movement removed.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §9.6 — six audit rows for the one click; the original journal REVERSED and `GRN-…-REV` (`reversal_of_id` set) Dr 2300 400.00 / Cr 1200 400.00, **dated the first day of the month**, so search Journal Entries for it rather than reading the top of the list; the receipt line's `inventory_transaction_id` is cleared.
 - **Leaves:** 6 on hand; one cancelled receipt.
 
 ### TC-BUY-005 — A receipt that has been invoiced cannot be cancelled
@@ -674,6 +678,7 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 - **Fixture:** `po-invoiced`
 - **Steps:** as the fixture's **Firm admin**, Goods Receipts → select the **receipt of 6** (the one the fixture invoiced) → **Cancel**.
 - **Expect:** refused — "Goods receipt GRN-… has been invoiced, so cancelling it would leave the accrual and the payable disagreeing. Cancel the purchase invoice first, or raise a purchase return." Nothing changes. *(A purchase invoice cannot be raised from the desktop — BACKLOG §31.9 — which is why the fixture raises it.)*
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §9.7 — the refusal writes nothing, not even an audit row, and the receipt's `version` does not move; its query shows the invoice holding the receipt. What the fixture's invoice wrote is §9.8–9.9.
 - **Leaves:** unchanged.
 
 ### TC-BUY-006 — Returning damaged goods to the supplier
@@ -682,6 +687,7 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 - **Fixture:** `po-received`
 - **Steps:** as the fixture's **Firm admin**, Purchase Returns → **New** → **Goods Receipt** picker (completed receipts only) → the **receipt of 6**. On its line set **Returning** **2**, click the **Damaged** chip → **Save Return** → select the draft → **Approve** → **Complete**. Then Inventory, Stock Ledger, Journal Entries, and Reports → Operational Reports → **Damaged goods returned**.
 - **Expect:** after save, "Purchase return PR-2026-2027-… created as a draft. Approving and completing it is what takes the stock off."; after Complete, **COMPLETED**. MAIN holds **8**. The Stock Ledger shows the return of 2 referencing the PR (the API reads `transaction_type: RETURN`). The journal shows the return's entry; the damaged-goods report lists the line. Open the return: product and unit read as code and name, not ids.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §9.10. The return should read `grand_total` **236.00** and post Dr 2100 236.00 / Cr 1200 200.00 / Cr 1300 36.00; a return at **0.00** with the 200.00 charged to 5400 means no price reached the line. The Damaged chip is `purchase_return_lines.is_damaged` only — the movement's damaged bucket stays 0.
 - **Leaves:** 8 on hand; a completed return.
 
 ### TC-BUY-007 — The purchasing reports have rows
@@ -690,6 +696,7 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 - **Fixture:** `po-approved`
 - **Steps:** as the fixture's **Firm admin**, Reports → **Operational Reports**: Purchase order register, Orders not yet received, Overdue purchase orders, Orders by supplier, Orders by buyer, Purchases by product.
 - **Expect:** each opens with a row count in the header. The register and "not yet received" include the fixture's order; by supplier names `Fixture Supplier <suffix>`; by product names `Bought Item <suffix>`. Overdue and by buyer may be empty in TEST01 — an empty report reads "Nothing to report", never a blank grid.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §9.13 — which tables each report reads; none writes a row. The fixture's order carries no expected date and no buyer, which is why it never appears in Overdue or By buyer.
 - **Leaves:** unchanged.
 
 ### TC-BUY-008 — Paying the supplier
@@ -698,7 +705,7 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 - **Fixture:** `po-invoiced`
 - **Steps:** as the fixture's **Firm admin**, Finance → **Payments → Record Payment**: **Paid to** `<SUFFIX>-V`; **Amount** the bill's Outstanding (708.00); **Method** Bank; **Oldest first** → **Record payment**. Open Record Payment again for the same vendor.
 - **Expect:** toast "PY-… recorded and posted to the ledger." *(The plan said `PAY-`; the series prefix is `PY`.)* The second time, the bill is gone from the list. Journal Entries shows the payment: Dr Accounts Payable / Cr Bank.
-- **Data (HTTP):** `GET /api/v1/payments/parties?search=<SUFFIX>` lists the vendor by code and name.
+- **Data (HTTP):** `GET /api/v1/payments/parties?search=<SUFFIX>` lists the vendor by code and name. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §9.11 — the `settlements` row (PAYMENT, POSTED), one `settlement_allocations` row of 708.00, the bill's derived balance at 0.00 while its status stays APPROVED, and journal Dr 2100 / Cr 1010. Reversing a payment is §9.12.
 - **Leaves:** a paid supplier invoice.
 
 ---
