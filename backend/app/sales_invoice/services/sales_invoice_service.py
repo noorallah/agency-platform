@@ -657,13 +657,6 @@ class SalesInvoiceService(TransactionalDocumentService):
         """Approve one sales invoice and commit it."""
         row = self.stage_approval(invoice_id, firm_scope=firm_scope, actor_id=actor_id)
         self._session.commit()
-        # Credit the customer for the sale. Staged, so an approved bill and
-        # a credit that did not happen cannot both be true -- and it posts,
-        # because a scheme costs the firm money the moment it promises the
-        # points rather than whenever they are spent.
-        LoyaltyService(self._session).stage_earning(
-            row, firm_id=firm_scope, actor_id=actor_id
-        )
         return row
 
     def stage_approval(
@@ -736,6 +729,15 @@ class SalesInvoiceService(TransactionalDocumentService):
             tax_amount=self._q(row.tax_total),
             total_amount=self._q(row.grand_total),
             actor_id=actor_id,
+        )
+        # Credit the customer for the sale, in the approval's own transaction:
+        # it posts, because a scheme costs the firm money the moment it
+        # promises the points rather than whenever they are spent. It used to
+        # be staged after `approve_invoice` had committed, and nothing
+        # committed again, so no bill approved through the API or the desktop
+        # ever earned (D-SELL-1, 2026-09-19).
+        LoyaltyService(self._session).stage_earning(
+            row, firm_id=firm_scope, actor_id=actor_id
         )
         self._record_event(
             firm_id=firm_scope,

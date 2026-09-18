@@ -778,6 +778,62 @@ def test_cancelling_an_approved_invoice_takes_its_journal_back() -> None:
     assert len(reversals) == 1, "one mirror entry, named after the invoice"
 
 
+def _loyal_firm_with_a_bill(
+    session: Session,
+) -> tuple[Firm, SalesInvoiceService, UUID]:
+    """Return a firm running a two-per-hundred scheme, with a draft bill."""
+    from app.loyalty.schemas import LoyaltySettingsWrite
+    from app.loyalty.services import LoyaltyService
+
+    firm = _firm(session)
+    service, invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=uuid4()
+    )
+    LoyaltyService(session).write_settings(
+        firm.id,
+        LoyaltySettingsWrite(
+            is_enabled=True,
+            points_per_amount=Decimal("2"),
+            amount_per_point=Decimal("1"),
+        ),
+        actor_id=uuid4(),
+    )
+    return firm, service, invoice_id
+
+
+def test_the_points_a_bill_earns_are_saved_with_its_approval() -> None:
+    """The earning is part of the approval's one transaction.
+
+    `approve_invoice` committed and only then staged the earning, which
+    flushed and was never committed: the request ended, the session rolled
+    back, and no bill approved through the API or the desktop earned a point
+    or booked its cost (D-SELL-1, 2026-09-19). The rollback below is the end
+    of that request.
+    """
+    from app.loyalty.models import LoyaltyEntry, LoyaltyEntryKind
+
+    session = _session_factory()()
+    firm, service, invoice_id = _loyal_firm_with_a_bill(session)
+
+    approved = service.approve_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+    number, total = approved.invoice_number, Decimal(str(approved.grand_total))
+    session.rollback()
+
+    earned = session.scalars(
+        select(LoyaltyEntry).where(
+            LoyaltyEntry.sales_invoice_id == invoice_id,
+            LoyaltyEntry.kind == LoyaltyEntryKind.EARNED.value,
+        )
+    ).all()
+    assert len(earned) == 1, "the approval's earning outlives the request"
+    assert Decimal(str(earned[0].points)) == (total * 2 / 100).quantize(Decimal("0.01"))
+    journal = session.get(JournalEntry, earned[0].journal_entry_id)
+    assert journal is not None
+    assert journal.reference_number == f"LOY-{number}"
+    assert journal.status == JournalStatus.POSTED.value
+
+
 def _dispatched_line_for(
     session: Session,
     *,
