@@ -16,6 +16,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.batch_serial.models import BatchRecord
 from app.branches.models import Branch, Warehouse
 from app.business.models import BusinessProfile, FirmBusinessProfile
 from app.core.database.base import Base
@@ -23,7 +24,11 @@ from app.core.exceptions import ConflictError
 from app.finance.models import GLPosting, JournalEntry, LedgerAccount
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
-from app.inventory.models import InventoryRecord
+from app.inventory.models import (
+    InventoryRecord,
+    InventoryTransaction,
+    StockLedgerEntry,
+)
 from app.inventory.schemas import (
     PhysicalCountCreate,
     PhysicalCountLineWrite,
@@ -218,6 +223,91 @@ def test_a_count_that_finds_less_writes_the_difference_off() -> None:
     }
     assert postings["1200"] == (Decimal("0.00"), Decimal("75.00")), "3 at 25.00"
     assert postings["5500"] == (Decimal("75.00"), Decimal("0.00"))
+
+
+def test_a_batch_line_corrects_the_batch_it_counted() -> None:
+    """Not the product's untracked row beside it (D-STK-1).
+
+    The variance is measured against the batch's own stock row, so the
+    adjustment has to land there too. Posted without the batch, it moved the
+    untracked row instead -- ten loose units became eight while the batch
+    that was actually two short still read ten, and the stock ledger and the
+    journal described a movement on a row nobody had counted.
+    """
+    books = _Warehouse(_session_factory()())
+    batch = BatchRecord(
+        firm_id=books.firm.id,
+        product_id=books.product.id,
+        batch_number="B-2405",
+        created_by=books.actor_id,
+        updated_by=books.actor_id,
+    )
+    books.session.add(batch)
+    books.session.commit()
+    books.service.record_goods_receipt(
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+        branch_id=books.branch.id,
+        warehouse_id=books.warehouse.id,
+        storage_node_id=None,
+        product_id=books.product.id,
+        reference_number="GRN-BATCH",
+        transaction_date=date(2026, 8, 2),
+        total_quantity=Decimal("10"),
+        unit_cost=Decimal("25.00"),
+        batch_id=batch.id,
+    )
+    books.session.commit()
+    sheet = books.counts.create(
+        PhysicalCountCreate(
+            branch_id=books.branch.id,
+            warehouse_id=books.warehouse.id,
+            count_date=WHEN,
+            lines=[
+                PhysicalCountLineWrite(
+                    product_id=books.product.id,
+                    batch_id=batch.id,
+                    counted_quantity=Decimal("8"),
+                )
+            ],
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+
+    books.counts.post(sheet.id, firm_id=books.firm.id, actor_id=books.actor_id)
+    books.session.commit()
+
+    held = {
+        row.batch_id: row.current_quantity
+        for row in books.session.scalars(
+            select(InventoryRecord).where(
+                InventoryRecord.product_id == books.product.id
+            )
+        ).all()
+    }
+    assert held == {
+        batch.id: Decimal("8.0000"),
+        None: Decimal("10.0000"),
+    }, "the batch counted two short is two short; the loose stock is untouched"
+
+    line = books.counts.lines_for(sheet.id)[0]
+    assert line.variance_quantity == Decimal("-2.0000")
+    movement = books.session.get(InventoryTransaction, line.transaction_id)
+    assert movement is not None
+    assert movement.batch_id == batch.id
+    entry = books.session.scalar(
+        select(StockLedgerEntry).where(StockLedgerEntry.transaction_id == movement.id)
+    )
+    assert entry is not None
+    assert entry.batch_id == batch.id
+    assert entry.total_cost == Decimal("50.0000"), "2 at 25.00"
+    journal = books.session.scalar(
+        select(JournalEntry).where(JournalEntry.source_id == movement.id)
+    )
+    assert journal is not None
+    assert journal.total_debit == Decimal("50.00")
 
 
 def test_the_variance_is_measured_when_the_sheet_is_posted() -> None:

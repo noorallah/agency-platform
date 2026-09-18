@@ -283,6 +283,10 @@ class PhysicalCountService(TransactionalDocumentService):
                     branch_id=row.branch_id,
                     warehouse_id=row.warehouse_id,
                     product_id=line.product_id,
+                    # The row the variance was measured against. Leaving it
+                    # out corrected the product's untracked row instead, so a
+                    # batch counted short stayed short on the books.
+                    batch_id=line.batch_id,
                     quantity=variance,
                     reference_number=row.count_number,
                     reference_type="PHYSICAL_COUNT",

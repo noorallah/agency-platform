@@ -1683,12 +1683,14 @@ class InventoryService:
             storage_node_id=data.storage_node_id,
             product_id=data.product_id,
             actor_id=actor_id,
+            batch_id=data.batch_id,
         )
         transaction = self._stage_movement(
             inventory,
             actor_id=actor_id,
             movement=_Movement(
                 transaction_type=InventoryTransactionType.ADJUSTMENT.value,
+                batch_id=data.batch_id,
                 reference_number=data.reference_number.strip().upper(),
                 reference_type=data.reference_type.strip().upper(),
                 transaction_date=data.transaction_date,
