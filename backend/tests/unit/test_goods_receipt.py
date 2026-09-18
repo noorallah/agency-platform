@@ -362,6 +362,45 @@ def test_cancelling_an_uncompleted_receipt_posts_nothing() -> None:
     assert cancelled.firm_id == fixture.firm.id
 
 
+def test_a_draft_receipt_cannot_be_closed() -> None:
+    """Closing finishes a receipt's business; a draft never started it.
+
+    `close_receipt` refused only a receipt already CLOSED, so a DRAFT that had
+    posted no stock and accrued nothing went to CLOSED and read as finished for
+    good (D-BUY-9, driven on TEST01 on 2026-09-18). A draft is cancelled, not
+    closed; only a COMPLETED receipt can be closed.
+    """
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-CLOSE")
+    service = GoodsReceiptService(session)
+    receipt = service.create_receipt(
+        fixture.receipt_payload("4"),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+
+    with pytest.raises(ValidationError, match="Only completed goods receipts"):
+        service.close_receipt(
+            receipt.id,
+            firm_scope=fixture.firm.id,
+            actor_id=fixture.actor_id,
+            reason="tidying up",
+        )
+    session.expire_all()
+    assert receipt.status == "DRAFT"
+
+    service.complete_receipt(
+        receipt.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    closed = service.close_receipt(
+        receipt.id,
+        firm_scope=fixture.firm.id,
+        actor_id=fixture.actor_id,
+        reason="all in",
+    )
+    assert closed.status == "CLOSED"
+
+
 def test_editing_a_receipt_keeps_its_line_identities() -> None:
     """Receipt line ids survive an edit.
 
