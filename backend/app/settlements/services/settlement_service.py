@@ -172,10 +172,24 @@ class SettlementService(TransactionalDocumentService):
                     .group_by(LoyaltyEntry.sales_invoice_id)
                 ).all()
             }
+        # Goods sent back against a bill's own lines come off that bill (D-BUY-6,
+        # decided by the owner on 2026-09-18). A completed return posts Dr
+        # payable, so the ledger already owed less while this list still showed
+        # the whole bill and a payment could settle it again. Only a return
+        # raised from the bill's lines names the bill; one raised from a goods
+        # receipt or an order stays a credit on the supplier, as a sales
+        # return does on the customer.
+        returned: dict[UUID, Decimal] = {}
+        if not is_receipt and rows:
+            returned = self._returned_against(
+                firm_id=firm_id, invoice_ids=[row.id for row, _ in rows]
+            )
         records: list[OutstandingInvoiceRecord] = []
         for row, allocated_amount in rows:
-            already = quantize_ledger(Decimal(allocated_amount)) + quantize_ledger(
-                spent.get(row.id, ZERO)
+            already = (
+                quantize_ledger(Decimal(allocated_amount))
+                + quantize_ledger(spent.get(row.id, ZERO))
+                + quantize_ledger(returned.get(row.id, ZERO))
             )
             total = quantize_ledger(row.grand_total)
             outstanding = total - already
@@ -192,6 +206,38 @@ class SettlementService(TransactionalDocumentService):
                 )
             )
         return records
+
+    def _returned_against(
+        self, *, firm_id: UUID, invoice_ids: list[UUID]
+    ) -> dict[UUID, Decimal]:
+        """Sum what completed purchase returns sent back off each bill's lines."""
+        # Imported here: the return module imports settlement-adjacent models.
+        from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
+
+        return {
+            invoice_id: Decimal(str(total))
+            for invoice_id, total in self._session.execute(
+                select(
+                    PurchaseReturnLine.source_document_id,
+                    func.coalesce(func.sum(PurchaseReturnLine.net_amount), 0),
+                )
+                .join(
+                    PurchaseReturn,
+                    PurchaseReturn.id == PurchaseReturnLine.purchase_return_id,
+                )
+                .where(
+                    PurchaseReturnLine.firm_id == firm_id,
+                    PurchaseReturnLine.source_document_type == "PURCHASE_INVOICE",
+                    PurchaseReturnLine.source_document_id.in_(invoice_ids),
+                    PurchaseReturnLine.is_deleted.is_(False),
+                    # Completing is what posts Dr payable; a draft or approved
+                    # return has not moved anything yet, a cancelled one is gone.
+                    PurchaseReturn.status.in_(("COMPLETED", "CLOSED")),
+                    PurchaseReturn.is_deleted.is_(False),
+                )
+                .group_by(PurchaseReturnLine.source_document_id)
+            ).all()
+        }
 
     def list_settlements(
         self,
