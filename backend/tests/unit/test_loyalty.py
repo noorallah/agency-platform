@@ -307,6 +307,40 @@ def test_more_than_the_bill_owes_is_refused() -> None:
         )
 
 
+def test_points_cannot_settle_what_a_credit_note_already_took_off() -> None:
+    """D-SELL-10: the loyalty cap reads the same remainder Record Receipt does.
+
+    An approved credit note posts Cr receivable against its bill, so the bill
+    owes that much less; points spent on the full total would over-settle it.
+    """
+    from app.credit_note.models import CreditNote
+
+    books = _Books(_session_factory()())
+    books.earn(books.invoice("SI-1", total="10000"))
+    bill = books.invoice("SI-2", total="100")
+    books.session.add(
+        CreditNote(
+            firm_id=books.firm.id,
+            customer_id=books.customer.id,
+            branch_id=books.branch.id,
+            sales_invoice_id=bill.id,
+            credit_note_number="CN-1",
+            credit_note_date=WHEN,
+            status="APPROVED",
+            total_amount=Decimal("59.00"),
+        )
+    )
+    books.session.commit()
+
+    with pytest.raises(ValidationError, match="owes only 41.00"):
+        LoyaltyService(books.session).redeem(
+            firm_scope=books.firm.id,
+            invoice_id=bill.id,
+            points=Decimal("100"),
+            actor_id=books.actor_id,
+        )
+
+
 def test_a_balance_below_the_floor_cannot_be_spent() -> None:
     """Firms use it to stop a scheme becoming a two-rupee deduction."""
     books = _Books(_session_factory()(), enabled=False)

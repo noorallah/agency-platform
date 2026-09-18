@@ -934,10 +934,17 @@ class LoyaltyService:
                 LoyaltyEntry.is_deleted.is_(False),
             )
         )
+        # Imported here: the settlement service imports loyalty models.
+        from app.settlements.services.settlement_service import credited_against
+
+        credited = credited_against(
+            self._session, firm_id=firm_scope, invoice_ids=[invoice.id]
+        ).get(invoice.id, ZERO)
         owed = (
             quantize_ledger(invoice.grand_total)
             - quantize_ledger(Decimal(str(paid or 0)))
             - quantize_ledger(Decimal(str(spent or 0)))
+            - credited
         )
         return owed if owed > ZERO else ZERO
 

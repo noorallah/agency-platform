@@ -77,6 +77,76 @@ SETTLEABLE_INVOICE_STATES = (
 )
 
 
+def credited_against(
+    session: Session, *, firm_id: UUID, invoice_ids: Sequence[UUID]
+) -> dict[UUID, Decimal]:
+    """Sum what returns and credit notes have taken off each sales invoice.
+
+    A completed sales return and an approved credit note both post Cr
+    receivable, so the ledger already says the customer owes less. Only a
+    return raised from the bill's own lines names the bill; one raised from a
+    delivery note stays a credit on the customer's account, exactly as a
+    purchase return raised from a goods receipt does on the supplier's
+    (D-BUY-6). A credit note is always raised against one invoice.
+
+    One derivation, used by Record Receipt's list and by the loyalty cap, so
+    the two cannot answer "what does this bill still owe" differently.
+
+    Args:
+        session: The firm's session.
+        firm_id: The owning firm.
+        invoice_ids: The sales invoices to ask about.
+
+    Returns:
+        The credited amount per invoice, for those with any.
+
+    """
+    if not invoice_ids:
+        return {}
+    # Imported here: both modules import settlement-adjacent models.
+    from app.credit_note.models import CreditNote, CreditNoteStatus
+    from app.sales_return.models import SalesReturn, SalesReturnLine
+
+    credited: dict[UUID, Decimal] = {}
+    returned = session.execute(
+        select(
+            SalesReturnLine.source_document_id,
+            func.coalesce(func.sum(SalesReturnLine.net_amount), 0),
+        )
+        .join(SalesReturn, SalesReturn.id == SalesReturnLine.sales_return_id)
+        .where(
+            SalesReturnLine.firm_id == firm_id,
+            SalesReturnLine.source_document_type == "SALES_INVOICE",
+            SalesReturnLine.source_document_id.in_(invoice_ids),
+            SalesReturnLine.is_deleted.is_(False),
+            # Completing is what posts Cr receivable; a draft or approved
+            # return has not moved anything yet, a cancelled one is gone.
+            SalesReturn.status.in_(("COMPLETED", "CLOSED")),
+            SalesReturn.is_deleted.is_(False),
+        )
+        .group_by(SalesReturnLine.source_document_id)
+    ).all()
+    notes = session.execute(
+        select(
+            CreditNote.sales_invoice_id,
+            func.coalesce(func.sum(CreditNote.total_amount), 0),
+        )
+        .where(
+            CreditNote.firm_id == firm_id,
+            CreditNote.sales_invoice_id.in_(invoice_ids),
+            # Approval is what posts; a draft has not, a cancelled one is gone.
+            CreditNote.status == CreditNoteStatus.APPROVED.value,
+            CreditNote.is_deleted.is_(False),
+        )
+        .group_by(CreditNote.sales_invoice_id)
+    ).all()
+    for invoice_id, total in (*returned, *notes):
+        credited[invoice_id] = credited.get(invoice_id, ZERO) + quantize_ledger(
+            Decimal(str(total))
+        )
+    return credited
+
+
 class SettlementService(TransactionalDocumentService):
     """Record a settlement, allocate it to invoices, and post it."""
 
@@ -183,6 +253,15 @@ class SettlementService(TransactionalDocumentService):
         if not is_receipt and rows:
             returned = self._returned_against(
                 firm_id=firm_id, invoice_ids=[row.id for row, _ in rows]
+            )
+        # The sales twin (D-SELL-10): a completed sales return raised from the
+        # bill's own lines, and an approved credit note -- which always names
+        # its bill -- post Cr receivable, so the bill owes that much less.
+        if is_receipt and rows:
+            returned = credited_against(
+                self._session,
+                firm_id=firm_id,
+                invoice_ids=[row.id for row, _ in rows],
             )
         records: list[OutstandingInvoiceRecord] = []
         for row, allocated_amount in rows:
