@@ -927,3 +927,16 @@ def test_a_return_with_no_price_goes_back_at_the_source_lines_price(
     assert saved is not None
     assert saved.unit_price == expected
     assert saved.gross_amount == expected * 4
+
+
+def test_only_a_completed_return_can_be_closed() -> None:
+    """D-BUY-13: a DRAFT or APPROVED return could be closed.
+
+    Driven on TEST01 on 2026-09-18: PR-2026-2027-000004 went from DRAFT to
+    CLOSED though no goods had gone out and nothing had posted.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    service, approved, _ = _approved_return(session, firm_id=firm.id)
+    with pytest.raises(ValidationError, match="Only completed purchase returns"):
+        service.close_return(approved.id, firm_scope=firm.id, actor_id=uuid4())

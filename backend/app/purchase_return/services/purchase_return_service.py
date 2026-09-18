@@ -817,10 +817,22 @@ class PurchaseReturnService(TransactionalDocumentService):
         actor_id: UUID,
         reason: str | None = None,
     ) -> PurchaseReturn:
-        """Close one purchase return."""
+        """Close one completed purchase return.
+
+        Closing says a return is finished with, so only a completed one -- whose
+        goods went out and whose journal posted -- can be. It refused only one
+        already closed, so a DRAFT return that moved nothing could be closed
+        and then read as done (D-BUY-13, driven on TEST01 on 2026-09-18:
+        PR-2026-2027-000004 closed from DRAFT).
+        """
         row = self.get_return(return_id, firm_scope=firm_scope)
         if row.status == PurchaseReturnStatus.CLOSED.value:
             raise ValidationError("This purchase return is already closed.")
+        if row.status != PurchaseReturnStatus.COMPLETED.value:
+            raise ValidationError(
+                f"Only completed purchase returns can be closed; "
+                f"{row.return_number} is {row.status.lower()}."
+            )
         before = row.status
         row.status = PurchaseReturnStatus.CLOSED.value
         row.close_reason = reason
