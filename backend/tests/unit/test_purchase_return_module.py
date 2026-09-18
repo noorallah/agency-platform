@@ -854,3 +854,76 @@ def test_cancelling_a_completed_purchase_return_takes_its_journal_back() -> None
         )
     )
     assert Decimal(str(payable or 0)) == Decimal("0")
+
+
+@pytest.mark.parametrize(
+    ("stated", "expected"),
+    [
+        (None, Decimal("100")),
+        (Decimal("0"), Decimal("0")),
+        (Decimal("80"), Decimal("80")),
+    ],
+)
+def test_a_return_with_no_price_goes_back_at_the_source_lines_price(
+    stated: Decimal | None, expected: Decimal
+) -> None:
+    """Silence takes the source line's price; a stated price, zero included, wins.
+
+    D-BUY-3: the price defaulted to zero, so every return raised without one --
+    all the seeder's, and the test fixture's -- took its stock out at nothing,
+    sent the value to the write-off account and debited the supplier 0.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    vendor = _vendor(session, firm_id=firm.id)
+    order = _purchase_order(
+        session,
+        firm_id=firm.id,
+        vendor_id=vendor.id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+    )
+    po_line = session.scalar(
+        select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+    )
+    assert po_line is not None
+    line: dict[str, object] = {
+        "source_document_type": PurchaseReturnSourceType.PURCHASE_ORDER,
+        "source_document_id": order.id,
+        "source_document_line_id": po_line.id,
+        "line_number": 1,
+        "current_return_quantity": Decimal("4"),
+        "warehouse_id": warehouse.id,
+    }
+    if stated is not None:
+        line["unit_price"] = stated
+
+    row = PurchaseReturnService(session).create_return(
+        PurchaseReturnCreate(
+            supplier_return_number="SUP-PRICE",
+            supplier_return_date=date(2026, 8, 2),
+            return_date=date(2026, 8, 2),
+            warehouse_id=warehouse.id,
+            allow_direct_purchase_order=True,
+            source_documents=[
+                {
+                    "source_document_type": PurchaseReturnSourceType.PURCHASE_ORDER,
+                    "source_document_id": order.id,
+                }
+            ],
+            lines=[PurchaseReturnLineWrite.model_validate(line)],
+        ),
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+
+    saved = session.scalar(
+        select(PurchaseReturnLine).where(
+            PurchaseReturnLine.purchase_return_id == row.id
+        )
+    )
+    assert saved is not None
+    assert saved.unit_price == expected
+    assert saved.gross_amount == expected * 4

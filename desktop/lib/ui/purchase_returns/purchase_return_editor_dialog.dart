@@ -81,7 +81,9 @@ class PurchaseReturnDraftLine {
             returnQuantity.trim().isEmpty ? '0' : returnQuantity.trim(),
         'rejected_quantity':
             rejectedQuantity.trim().isEmpty ? '0' : rejectedQuantity.trim(),
-        'unit_price': unitPrice.isEmpty ? '0' : unitPrice,
+        // Blank is left out, so the server takes the receipt line's price.
+        // Sending '0' for blank valued the goods at nothing (D-BUY-3).
+        if (unitPrice.trim().isNotEmpty) 'unit_price': unitPrice.trim(),
         'is_damaged': isDamaged,
         'is_scrap': isScrap,
         if (itemCondition.isNotEmpty) 'item_condition': itemCondition,

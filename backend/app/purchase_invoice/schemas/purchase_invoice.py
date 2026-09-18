@@ -72,8 +72,12 @@ class PurchaseInvoiceLineWrite(PurchaseInvoiceSchema):
     source_document_line_id: UUID
     line_number: int = Field(ge=1)
     current_invoice_quantity: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
-    unit_price: Decimal = Field(
-        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    #: None means the caller said nothing, so the price on the source line
+    #: carries over. Zero is an instruction, not a default: it defaulted to
+    #: zero once, and a bill sent without prices was valued at nothing
+    #: (D-BUY-3).
+    unit_price: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=4
     )
     #: None means the caller said nothing, so the rate on the source line
     #: carries over. Zero means they said no discount on this one.

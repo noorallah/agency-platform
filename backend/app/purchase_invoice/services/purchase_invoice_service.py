@@ -981,7 +981,14 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 raise ValidationError(
                     "Invoice quantity exceeds the available source quantity."
                 )
-            unit_price = self._q(Decimal(str(spec.get("unit_price", ZERO))))
+            # What the line says wins; where it says nothing, the receipt's or
+            # order's price carries over, as its discount rate does. It used to
+            # default to zero, so a bill sent without prices was worth nothing
+            # (D-BUY-3).
+            stated_price = spec.get("unit_price")
+            if stated_price is None:
+                stated_price = getattr(source_line, "unit_price", None) or ZERO
+            unit_price = self._q(Decimal(str(stated_price)))
             charges_amount = self._q(Decimal(str(spec.get("charges_amount", ZERO))))
             gross_amount = self._q(invoice_quantity * unit_price)
             line_discount = self._line_discount(
