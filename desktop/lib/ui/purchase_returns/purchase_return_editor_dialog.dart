@@ -181,13 +181,25 @@ class _PurchaseReturnEditorDialogState
   Future<Map<String, double>> _returnedByLine(GoodsReceiptRecord receipt) async {
     final Map<String, double> returned = <String, double>{};
     try {
-      final Json page = await widget.api.documentPage(
-        'purchase-returns',
-        page: 1,
-        pageSize: 100,
-      );
-      final dynamic data = page['data'];
-      for (final dynamic row in data is List ? data : const []) {
+      // Every page, not the newest hundred: a firm past a hundred returns had
+      // the older ones left out, so the lines defaulted to quantities the
+      // server then refused (D-BUY-10).
+      final List<dynamic> rows = await fetchAllPages<dynamic>((int page) async {
+        final Json body = await widget.api.documentPage(
+          'purchase-returns',
+          page: page,
+          pageSize: maxApiPageSize,
+        );
+        final dynamic data = body['data'];
+        final List<dynamic> items = data is List ? data : const [];
+        final dynamic pagination = body['pagination'];
+        final int total = pagination is Map
+            ? int.tryParse(stringValue(pagination['total_records'])) ??
+                items.length
+            : items.length;
+        return PagedResult<dynamic>(items: items, total: total);
+      });
+      for (final dynamic row in rows) {
         if (row is! Map) continue;
         if (stringValue(row['status']).trim().toUpperCase() == 'CANCELLED') {
           continue;
