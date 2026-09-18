@@ -60,6 +60,12 @@ from app.purchase.models import PurchaseOrder, PurchaseOrderLine
 from app.purchase.schemas import PurchaseOrderCreate, PurchaseOrderUpdate
 from app.purchase.services import PurchaseService
 from app.purchase_invoice.models import PurchaseInvoice, PurchaseInvoiceLine
+from app.purchase_invoice.schemas import (
+    PurchaseInvoiceCreate,
+    PurchaseInvoiceLineWrite,
+    PurchaseInvoiceSourceType,
+)
+from app.purchase_invoice.services import PurchaseInvoiceService
 from app.sales.models import territory as _sales_models  # noqa: F401
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
 from app.uom.models import uom as _uom_models  # noqa: F401
@@ -1317,3 +1323,192 @@ def test_only_a_completed_receipt_can_be_billed_or_returned(state: str) -> None:
             firm_id=fixture.firm.id,
             actor_id=fixture.actor_id,
         )
+
+
+def _control_balance(session: Session, firm_id: UUID, purpose: str) -> Decimal:
+    """Return the debit-less-credit balance of one control account."""
+    total = session.scalar(
+        select(
+            func.coalesce(func.sum(GLPosting.debit_amount - GLPosting.credit_amount), 0)
+        )
+        .select_from(GLPosting)
+        .join(
+            FirmControlAccount,
+            FirmControlAccount.ledger_account_id == GLPosting.ledger_account_id,
+        )
+        .where(
+            FirmControlAccount.firm_id == firm_id,
+            FirmControlAccount.purpose == purpose,
+            FirmControlAccount.is_deleted.is_(False),
+            GLPosting.is_deleted.is_(False),
+        )
+    )
+    return Decimal(str(total or 0))
+
+
+def _bill(
+    session: Session,
+    fixture: "_Fixture",
+    receipt: GoodsReceipt,
+    *,
+    quantity: str,
+    unit_price: str,
+    supplier_number: str,
+) -> PurchaseInvoice:
+    """Raise and approve a supplier bill for part of the receipt's line."""
+    line = session.scalars(
+        select(GoodsReceiptLine).where(GoodsReceiptLine.goods_receipt_id == receipt.id)
+    ).first()
+    assert line is not None
+    service = PurchaseInvoiceService(session)
+    invoice = service.create_invoice(
+        PurchaseInvoiceCreate(
+            vendor_id=fixture.vendor.id,
+            branch_id=fixture.branch.id,
+            supplier_invoice_number=supplier_number,
+            supplier_invoice_date=date(2026, 8, 6),
+            invoice_date=date(2026, 8, 6),
+            source_documents=[
+                {
+                    "source_document_type": PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                    "source_document_id": receipt.id,
+                }
+            ],
+            lines=[
+                PurchaseInvoiceLineWrite(
+                    source_document_type=PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                    source_document_id=receipt.id,
+                    source_document_line_id=line.id,
+                    line_number=1,
+                    current_invoice_quantity=Decimal(quantity),
+                    unit_price=Decimal(unit_price),
+                )
+            ],
+        ),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    return service.approve_invoice(
+        invoice.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+
+
+def _accrual_cleared_by(session: Session, invoice: PurchaseInvoice) -> Decimal:
+    """Return what the bill's journal debited to goods received not invoiced."""
+    entry = session.scalar(
+        select(JournalEntry).where(
+            JournalEntry.source_module == "purchase_invoice",
+            JournalEntry.source_id == invoice.id,
+            JournalEntry.is_deleted.is_(False),
+        )
+    )
+    assert entry is not None
+    accrual_account = session.scalar(
+        select(FirmControlAccount.ledger_account_id).where(
+            FirmControlAccount.firm_id == invoice.firm_id,
+            FirmControlAccount.purpose
+            == ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED.value,
+        )
+    )
+    return sum(
+        (
+            line.debit_amount
+            for line in entry.lines
+            if line.ledger_account_id == accrual_account
+        ),
+        Decimal("0"),
+    )
+
+
+def test_billing_part_of_a_receipt_clears_only_its_share_of_the_accrual() -> None:
+    """Bill 4 of a received 10 and the accrual for the other 6 must stand.
+
+    `_accrued_cost` cleared the whole receipt line's accrual whatever share of
+    it the bill covered: the bill for 4 debited goods received not invoiced
+    the full 1000, booked 600 of nothing as a favourable price variance, and
+    the bill for the 6 then debited another 1000 (D-BUY-7, driven on TEST01
+    on 2026-09-18 as PI-2026-2027-000006 and -000007).
+    """
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-PART")
+    service = GoodsReceiptService(session)
+    receipt = service.create_receipt(
+        fixture.receipt_payload("10"),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    service.complete_receipt(
+        receipt.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    accrual = ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED.value
+    variance = ControlAccountPurpose.PURCHASE_PRICE_VARIANCE.value
+    assert _control_balance(session, fixture.firm.id, accrual) == Decimal("-1000.00")
+
+    first = _bill(
+        session, fixture, receipt, quantity="4", unit_price="100", supplier_number="A"
+    )
+    session.expire_all()
+    assert _accrual_cleared_by(session, first) == Decimal("400.00")
+    assert _control_balance(session, fixture.firm.id, accrual) == Decimal("-600.00")
+    assert _control_balance(session, fixture.firm.id, variance) == Decimal("0")
+
+    second = _bill(
+        session, fixture, receipt, quantity="6", unit_price="100", supplier_number="B"
+    )
+    session.expire_all()
+    assert _accrual_cleared_by(session, second) == Decimal("600.00")
+    assert _control_balance(session, fixture.firm.id, accrual) == Decimal("0")
+    assert _control_balance(session, fixture.firm.id, variance) == Decimal("0")
+
+
+def test_the_bill_that_completes_a_receipt_takes_the_rounding_residual() -> None:
+    """Three bills for a third each must clear exactly what the receipt posted.
+
+    A cost that does not divide leaves a paisa somewhere: rounding each share
+    and summing them is not the same as rounding the sum the receipt posted.
+    The bill that completes the receipt takes whatever the earlier ones left,
+    so the accrual nets to zero rather than to a residual nobody can clear.
+    """
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-THIRD")
+    service = GoodsReceiptService(session)
+    receipt = service.create_receipt(
+        fixture.receipt_payload(
+            "3",
+            lines=[
+                {
+                    "purchase_order_line_id": fixture.order_line.id,
+                    "line_number": 1,
+                    "current_receipt_quantity": "3",
+                    "unit_price": "33.3333",
+                    "warehouse_id": fixture.warehouse.id,
+                }
+            ],
+        ),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    service.complete_receipt(
+        receipt.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    accrual = ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED.value
+    posted = -_control_balance(session, fixture.firm.id, accrual)
+    assert posted == Decimal("100.00"), "99.9999 of cost, posted at the ledger's scale"
+
+    cleared = [
+        _accrual_cleared_by(
+            session,
+            _bill(
+                session,
+                fixture,
+                receipt,
+                quantity="1",
+                unit_price="33.3333",
+                supplier_number=number,
+            ),
+        )
+        for number in ("A", "B", "C")
+    ]
+    session.expire_all()
+    assert cleared == [Decimal("33.33"), Decimal("33.33"), Decimal("33.34")]
+    assert _control_balance(session, fixture.firm.id, accrual) == Decimal("0")
