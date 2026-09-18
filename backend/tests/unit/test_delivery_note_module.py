@@ -1934,3 +1934,68 @@ def test_dispatch_from_another_branchs_warehouse_finds_its_stock() -> None:
 
     assert _held(depot, head_office) == (Decimal("95"), Decimal("0"))
     assert _held(north_wh, north) == (Decimal("0"), Decimal("7"))
+
+
+def test_a_note_approved_before_the_hold_does_not_ship() -> None:
+    """Neither dispatching it nor completing it, which dispatches it too.
+
+    D-SELL-5, driven 2026-09-19: only a note's create asked about the hold, so
+    notes approved before it were dispatched and completed while the order
+    read "on hold", and the goods left.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+    _stock(session, firm=firm, branch=branch, warehouse=warehouse, product=product)
+    order, order_line = _approved_order(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+        quantity=Decimal("10"),
+        actor_id=actor_id,
+    )
+    service = DeliveryNoteService(session)
+    note = service.create_note(
+        DeliveryNoteCreate(
+            sales_order_id=order.id,
+            delivery_date=date(2026, 8, 4),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=order_line.id,
+                    line_number=1,
+                    current_delivery_quantity=Decimal("4"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    service.approve_note(note.id, firm_scope=firm.id, actor_id=actor_id)
+    SalesOrderService(session).hold_order(
+        order.id, reason="Awaiting cheque.", firm_scope=firm.id, actor_id=actor_id
+    )
+
+    for act in (service.dispatch_note, service.complete_note):
+        with pytest.raises(ValidationError, match=r"on hold .*Awaiting cheque"):
+            act(note.id, firm_scope=firm.id, actor_id=actor_id)
+        session.rollback()
+
+    session.refresh(note)
+    assert note.status == DeliveryNoteStatus.APPROVED.value
+    assert note.dispatched_at is None
+    assert (
+        session.scalar(
+            select(InventoryTransaction).where(
+                InventoryTransaction.transaction_type == "DISPATCH"
+            )
+        )
+        is None
+    )
