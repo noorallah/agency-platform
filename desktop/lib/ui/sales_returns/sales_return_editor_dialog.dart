@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
+import '../../models/batch_serial.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
 import '../../models/sales_return.dart';
@@ -19,6 +21,7 @@ class SalesReturnEditorDialog extends StatefulWidget {
     required this.documents,
     required this.warehouses,
     required this.today,
+    this.loadSerials,
   });
 
   final List<ReturnableDocument> documents;
@@ -27,6 +30,14 @@ class SalesReturnEditorDialog extends StatefulWidget {
   /// Passed in rather than read here, so the dialog is testable and so the
   /// date shown is the one the caller decided on.
   final DateTime today;
+
+  /// Read which serialised units may come back on a line: those sold on it
+  /// and still out with the customer. Null offers no picker, which is right
+  /// only where no product is serial-tracked (D-STK-4).
+  final Future<ReturnableSerials> Function(
+    ReturnableDocument document,
+    ReturnableLine line,
+  )? loadSerials;
 
   @override
   State<SalesReturnEditorDialog> createState() =>
@@ -45,6 +56,12 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
   ReturnableDocument? _document;
   ReturnableLine? _line;
   String? _warehouseId;
+
+  /// What the chosen line may name, and what has been picked of it.
+  ReturnableSerials _returnable = ReturnableSerials.untracked;
+  final Set<String> _picked = <String>{};
+  bool _loadingSerials = false;
+  String? _serialProblem;
 
   @override
   void initState() {
@@ -69,6 +86,58 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
       _document = document;
       _line = document.lines.isEmpty ? null : document.lines.first;
     });
+    _loadSerials();
+  }
+
+  void _selectLine(ReturnableLine? line) {
+    setState(() => _line = line);
+    _loadSerials();
+  }
+
+  /// Ask which units the chosen line may bring back.
+  ///
+  /// A unit belongs to one line, so changing the line forgets the picks.
+  Future<void> _loadSerials() async {
+    final ReturnableDocument? document = _document;
+    final ReturnableLine? line = _line;
+    final loader = widget.loadSerials;
+    setState(() {
+      _picked.clear();
+      _serialProblem = null;
+      _returnable = ReturnableSerials.untracked;
+      _loadingSerials = loader != null && document != null && line != null;
+    });
+    if (loader == null || document == null || line == null) return;
+    ReturnableSerials found = ReturnableSerials.untracked;
+    String? problem;
+    try {
+      found = await loader(document, line);
+    } on ApiException catch (exception) {
+      problem = 'Could not read the serial numbers: ${exception.message}';
+    }
+    if (!mounted || _line?.id != line.id || _document?.id != document.id) {
+      return;
+    }
+    setState(() {
+      _returnable = found;
+      _serialProblem = problem;
+      _loadingSerials = false;
+    });
+  }
+
+  /// Refuse a serial-tracked line that does not name one unit per unit back.
+  String? _serialValidation() {
+    if (!_returnable.serialTracked) return null;
+    final double returned = _returned;
+    if (returned != returned.roundToDouble()) {
+      return 'Each unit carries its own serial number, so return a whole '
+          'number of them.';
+    }
+    if (_picked.length != returned.toInt()) {
+      return 'Pick one serial number per unit coming back -- '
+          '${returned.toInt()} needed, ${_picked.length} picked.';
+    }
+    return null;
   }
 
   double get _returned => double.tryParse(_quantity.text.trim()) ?? 0;
@@ -103,7 +172,10 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
     final ReturnableDocument? document = _document;
     final ReturnableLine? line = _line;
     if (document == null || line == null || _warehouseId == null) return null;
-    if (!(_form.currentState?.validate() ?? false)) return null;
+    final bool formValid = _form.currentState?.validate() ?? false;
+    final String? serialProblem = _serialValidation();
+    setState(() => _serialProblem = serialProblem);
+    if (!formValid || serialProblem != null || _loadingSerials) return null;
     return <String, dynamic>{
       'warehouse_id': _warehouseId,
       'return_date': widget.today.toIso8601String().split('T').first,
@@ -120,6 +192,7 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
           'current_return_quantity': _quantity.text.trim(),
           'damaged_quantity': _damaged.text.trim(),
           'scrap_quantity': _scrap.text.trim(),
+          if (_returnable.serialTracked) 'serial_ids': [..._picked],
           if (_reason.text.trim().isNotEmpty) 'reason_code': _reason.text.trim(),
         }
       ],
@@ -189,9 +262,8 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
                       ],
                       validator: (value) =>
                           value == null ? 'Choose the line that came back.' : null,
-                      onChanged: (value) => setState(
-                        () => _line = document?.lines
-                            .firstWhere((item) => item.id == value),
+                      onChanged: (value) => _selectLine(
+                        document?.lines.firstWhere((item) => item.id == value),
                       ),
                     ),
                     const SizedBox(height: AppSpacing.md),
@@ -260,6 +332,18 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
                               'not sellable.',
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
+                    if (_loadingSerials || _returnable.serialTracked) ...[
+                      const SizedBox(height: AppSpacing.md),
+                      _serialPicker(context),
+                    ] else if (_serialProblem != null) ...[
+                      const SizedBox(height: AppSpacing.sm),
+                      Text(
+                        _serialProblem!,
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context).colorScheme.error,
+                            ),
+                      ),
+                    ],
                     const SizedBox(height: AppSpacing.md),
                     TextFormField(
                       controller: _customerNumber,
@@ -283,6 +367,65 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
                 ),
               ),
             ),
+    );
+  }
+
+  /// Let whoever books the return say which units came back.
+  ///
+  /// Only units sold on the chosen line and still out with the customer are
+  /// offered; completing the return puts exactly these back on the shelf.
+  Widget _serialPicker(BuildContext context) {
+    if (_loadingSerials) {
+      return Text(
+        'Reading the serial numbers sold on this line…',
+        style: Theme.of(context).textTheme.bodySmall,
+      );
+    }
+    final List<PickedSerial> offered = _returnable.serials;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          'Serial numbers coming back — ${_picked.length} picked',
+          style: Theme.of(context).textTheme.labelMedium,
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        if (offered.isEmpty)
+          Text(
+            'None of the units sold on this line is still out with the '
+            'customer.',
+            style: Theme.of(context).textTheme.bodySmall,
+          )
+        else
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: [
+              for (final PickedSerial serial in offered)
+                FilterChip(
+                  key: ValueKey<String>('serial-back-${serial.id}'),
+                  label: Text(serial.serialNumber),
+                  selected: _picked.contains(serial.id),
+                  onSelected: (picked) => setState(() {
+                    if (picked) {
+                      _picked.add(serial.id);
+                    } else {
+                      _picked.remove(serial.id);
+                    }
+                  }),
+                ),
+            ],
+          ),
+        if (_serialProblem != null) ...[
+          const SizedBox(height: AppSpacing.xs),
+          Text(
+            _serialProblem!,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Theme.of(context).colorScheme.error,
+                ),
+          ),
+        ],
+      ],
     );
   }
 }

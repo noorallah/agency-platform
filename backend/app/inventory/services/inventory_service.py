@@ -89,6 +89,10 @@ class _Movement:
     #: "where did batch B-2405 go" is answerable from the history rather than
     #: only from the current balance.
     batch_id: UUID | None = None
+    #: The one serialised unit this movement carried, when it carried exactly
+    #: one. A movement of several units cannot name them in one column; the
+    #: ``document_line_serials`` rows of the line that moved them do.
+    serial_id: UUID | None = None
     #: How much the firm stopped owning, when that is not ``current_delta``.
     #:
     #: The valuation follows ``current_delta``, which is right for almost
@@ -2012,6 +2016,9 @@ class InventoryService:
             actor_id=actor_id,
             movement=_Movement(
                 transaction_type=f"{original.transaction_type}{REVERSAL_SUFFIX}"[:40],
+                # The unit that came in goes back out, so the reversal names
+                # it wherever the original did.
+                serial_id=original.serial_id,
                 reference_number=original.reference_number,
                 reference_type=original.reference_type,
                 transaction_date=original.transaction_date,
@@ -2158,6 +2165,7 @@ class InventoryService:
         conversion_version: int | None = None,
         remarks: str | None = None,
         batch_id: UUID | None = None,
+        serial_id: UUID | None = None,
     ) -> InventoryTransaction:
         """Take back into stock the goods a customer sent back.
 
@@ -2217,6 +2225,7 @@ class InventoryService:
             movement=_Movement(
                 transaction_type=InventoryTransactionType.SALES_RETURN.value,
                 batch_id=batch_id,
+                serial_id=serial_id,
                 reference_number=reference_number.strip().upper(),
                 reference_type="SALES_RETURN",
                 transaction_date=transaction_date,
@@ -2717,6 +2726,7 @@ class InventoryService:
         conversion_version: int | None = None,
         remarks: str | None = None,
         batch_id: UUID | None = None,
+        serial_id: UUID | None = None,
     ) -> InventoryTransaction:
         """Post the stock a delivery note dispatched, from one batch.
 
@@ -2753,6 +2763,7 @@ class InventoryService:
             movement=_Movement(
                 transaction_type=InventoryTransactionType.DISPATCH.value,
                 batch_id=batch_id,
+                serial_id=serial_id,
                 reference_number=reference_number.strip().upper(),
                 reference_type="DELIVERY_NOTE",
                 transaction_date=transaction_date,
@@ -3480,6 +3491,7 @@ class InventoryService:
             storage_node_id=inventory.storage_node_id,
             product_id=inventory.product_id,
             batch_id=movement.batch_id or inventory.batch_id,
+            serial_id=movement.serial_id,
             business_profile_id=inventory.business_profile_id,
             transaction_type=movement.transaction_type,
             reference_number=movement.reference_number,

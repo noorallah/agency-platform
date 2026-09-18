@@ -134,6 +134,10 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
         documents: documents,
         warehouses: warehouses,
         today: widget.today ?? DateTime.now(),
+        loadSerials: (document, line) => widget.api.returnableSerials(
+          sourceType: document.sourceType.code,
+          sourceLineId: line.id,
+        ),
       ),
     );
     if (payload == null) return;
@@ -432,6 +436,12 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
                         '${line.pendingQuantity} still returnable',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),
+                      if (line.serials.isNotEmpty)
+                        Text(
+                          'Serials: '
+                          '${line.serials.map((unit) => unit.serialNumber).join(', ')}',
+                          style: Theme.of(context).textTheme.bodySmall,
+                        ),
                     ],
                   ),
                 ),

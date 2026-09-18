@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/business/business_features.dart';
 import '../../core/design/design_tokens.dart';
+import '../../models/batch_serial.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
 import '../../models/inventory.dart';
@@ -85,7 +86,9 @@ class DeliveryDraftLine {
     this.damagedQuantity = '0',
     this.warehouseId = '',
     this.remarks = '',
-  });
+    this.trackSerial = false,
+    List<String>? serialIds,
+  }) : serialIds = serialIds ?? <String>[];
 
   final String salesOrderLineId;
   final int lineNumber;
@@ -104,6 +107,30 @@ class DeliveryDraftLine {
   String damagedQuantity;
   String warehouseId;
   String remarks;
+
+  /// Whether every unit of the product carries its own serial number. Such a
+  /// line names the units going out, one per unit, and dispatch is refused
+  /// until it does (D-STK-4).
+  final bool trackSerial;
+
+  /// The serials picked for this line, by id.
+  final List<String> serialIds;
+
+  /// How many serials the line must name, where the editor can tell.
+  ///
+  /// Delivered plus free, when both are in the unit stock is kept in. A line
+  /// entered in another unit is converted by the server, which counts it at
+  /// dispatch; the editor does not guess the conversion.
+  int? get unitsLeaving {
+    if (salesUomId.isNotEmpty &&
+        inventoryUomId.isNotEmpty &&
+        salesUomId != inventoryUomId) {
+      return null;
+    }
+    final double total = (double.tryParse(deliveryQuantity) ?? 0) +
+        (double.tryParse(freeQuantity) ?? 0);
+    return total == total.roundToDouble() ? total.toInt() : null;
+  }
 
   double get outstanding {
     final double ordered = double.tryParse(orderedQuantity) ?? 0;
@@ -139,6 +166,7 @@ class DeliveryDraftLine {
         if (inventoryUomId.isNotEmpty) 'inventory_uom_id': inventoryUomId,
         if (warehouseId.isNotEmpty) 'warehouse_id': warehouseId,
         if (remarks.trim().isNotEmpty) 'remarks': remarks.trim(),
+        if (trackSerial) 'serial_ids': [...serialIds],
       };
 }
 
@@ -179,6 +207,9 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
   List<DeliveryDraftLine> _lines = const [];
   // Stock available per product in the chosen warehouse, one row per batch.
   Map<String, List<InventoryRecord>> _stockByProduct = const {};
+  // AVAILABLE serials of each serial-tracked product, keyed by product and
+  // warehouse: what the storekeeper picks from.
+  final Map<String, List<SerialRecord>> _serialsOnShelf = {};
   String _deliveryDate = _today();
   String _vehicle = '';
   String _driver = '';
@@ -221,6 +252,7 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
     ];
     final Map<String, List<InventoryRecord>> stock =
         await _stockFor(lines, defaultWarehouse);
+    await _loadSerials(lines);
     if (!mounted) return;
     setState(() {
       _lines = lines;
@@ -289,6 +321,45 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
     return byProduct;
   }
 
+  bool _isSerialised(String productId) {
+    for (final Product product in widget.products) {
+      if (product.id == productId) return product.trackSerial;
+    }
+    return false;
+  }
+
+  static String _shelfKey(String productId, String warehouseId) =>
+      '$productId@$warehouseId';
+
+  /// Read the AVAILABLE serials the serial-tracked lines can pick from, one
+  /// read per product and warehouse.
+  Future<void> _loadSerials(Iterable<DeliveryDraftLine> lines) async {
+    for (final DeliveryDraftLine line in lines) {
+      if (!line.trackSerial || line.warehouseId.isEmpty) continue;
+      final String key = _shelfKey(line.productId, line.warehouseId);
+      if (_serialsOnShelf.containsKey(key)) continue;
+      try {
+        _serialsOnShelf[key] = await fetchAllPages<SerialRecord>(
+          (page) => widget.api.serials(
+            page: page,
+            pageSize: maxApiPageSize,
+            sortBy: 'serial_number',
+            descending: false,
+            filters: SerialQuery(
+              productId: line.productId,
+              warehouseId: line.warehouseId,
+              status: 'AVAILABLE',
+            ),
+          ),
+        );
+      } on ApiException catch (exception) {
+        _serialsOnShelf[key] = const [];
+        _error = 'Could not read the serial numbers on the shelf: '
+            '${exception.message}';
+      }
+    }
+  }
+
   DeliveryDraftLine _draftLine(
     Json line,
     int lineNumber,
@@ -311,6 +382,7 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
       warehouseId: stringValue(line['warehouse_id']).isNotEmpty
           ? stringValue(line['warehouse_id'])
           : defaultWarehouse,
+      trackSerial: _isSerialised(stringValue(line['product_id'])),
     );
     draft.deliveryQuantity = _trim(draft.deliverable);
     return draft;
@@ -334,6 +406,15 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
       if (line.warehouseId.isEmpty) {
         return 'Line ${line.lineNumber}: choose the warehouse the goods leave '
             'from.';
+      }
+      // Refused here rather than at dispatch: this editor only creates, so a
+      // note saved short of serials could never be dispatched or corrected.
+      final int? needed = line.unitsLeaving;
+      if (line.trackSerial &&
+          needed != null &&
+          line.serialIds.length != needed) {
+        return 'Line ${line.lineNumber}: pick one serial number per unit '
+            'going out -- $needed needed, ${line.serialIds.length} picked.';
       }
     }
     return null;
@@ -606,8 +687,16 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
                                 ),
                               ),
                           ],
-                          onChanged: (value) =>
-                              setState(() => line.warehouseId = value ?? ''),
+                          onChanged: (value) async {
+                            setState(() {
+                              line.warehouseId = value ?? '';
+                              // A unit is picked off one shelf; moving the
+                              // line to another shelf un-picks it.
+                              line.serialIds.clear();
+                            });
+                            await _loadSerials([line]);
+                            if (mounted) setState(() {});
+                          },
                         ),
                       ),
                       _lineField(
@@ -620,6 +709,10 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
                   ),
                   const SizedBox(height: AppSpacing.md),
                   _allocationPreview(line),
+                  if (line.trackSerial) ...[
+                    const SizedBox(height: AppSpacing.md),
+                    _serialPicker(line),
+                  ],
                 ],
               ),
             ),
@@ -666,6 +759,61 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: Theme.of(context).colorScheme.error,
                 ),
+          ),
+      ],
+    );
+  }
+
+  /// Let the storekeeper say which units are going out.
+  ///
+  /// Every unit of a serial-tracked product has its own number, and the
+  /// server marks exactly the picked ones SOLD at dispatch -- so the pick is
+  /// the record of which appliance went to which customer (D-STK-4).
+  Widget _serialPicker(DeliveryDraftLine line) {
+    final List<SerialRecord> onShelf =
+        _serialsOnShelf[_shelfKey(line.productId, line.warehouseId)] ??
+            const [];
+    final int? needed = line.unitsLeaving;
+    final bool short = needed != null && line.serialIds.length != needed;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          needed == null
+              ? 'Serial numbers going out — ${line.serialIds.length} picked'
+              : 'Serial numbers going out — pick $needed, '
+                  '${line.serialIds.length} picked',
+          style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                color: short ? Theme.of(context).colorScheme.error : null,
+              ),
+        ),
+        const SizedBox(height: AppSpacing.xs),
+        if (onShelf.isEmpty)
+          Text(
+            'No serial numbers of this product are AVAILABLE in the chosen '
+            'warehouse. Number the units under Inventory → Batch & Serial '
+            'first.',
+            style: Theme.of(context).textTheme.bodySmall,
+          )
+        else
+          Wrap(
+            spacing: AppSpacing.sm,
+            runSpacing: AppSpacing.sm,
+            children: [
+              for (final SerialRecord serial in onShelf)
+                FilterChip(
+                  key: ValueKey<String>('serial-pick-${serial.id}'),
+                  label: Text(serial.serialNumber),
+                  selected: line.serialIds.contains(serial.id),
+                  onSelected: (picked) => setState(() {
+                    if (picked) {
+                      line.serialIds.add(serial.id);
+                    } else {
+                      line.serialIds.remove(serial.id);
+                    }
+                  }),
+                ),
+            ],
           ),
       ],
     );
