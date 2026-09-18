@@ -46,6 +46,7 @@ from app.inventory.schemas import InventoryAdjustmentCreate
 from app.inventory.services import InventoryService
 from app.products.models import Product
 from app.sales.models import territory as _sales_models  # noqa: F401
+from app.sales_invoice.models import SalesInvoiceLine
 from app.sales_invoice.schemas import (
     SalesInvoiceCreate,
     SalesInvoiceLineWrite,
@@ -490,6 +491,86 @@ def test_a_second_return_counts_the_first_one() -> None:
             setup.payload(quantity=Decimal("3")),
             firm_id=setup.firm.id,
             actor_id=setup.actor_id,
+        )
+
+
+def _against_the_bill(setup: _Dispatch, quantity: str) -> SalesReturnCreate:
+    """Describe a return of the same goods through the bill that charged them."""
+    line = setup.session.scalar(
+        select(SalesInvoiceLine).where(
+            SalesInvoiceLine.sales_invoice_id == setup.invoice.id
+        )
+    )
+    assert line is not None
+    payload = setup.payload(quantity=Decimal(quantity))
+    payload.lines[0].source_document_type = SalesReturnSourceType.SALES_INVOICE
+    payload.lines[0].source_document_id = setup.invoice.id
+    payload.lines[0].source_document_line_id = line.id
+    return payload
+
+
+def test_goods_back_through_the_note_are_not_returned_again_through_the_bill() -> None:
+    """D-SELL-7: the cap was per source line, and these are one set of goods.
+
+    Driven 2026-09-19: 5 dispatched and billed, 5 returned against the note and
+    5 more against the bill, both completed -- 10 back on the shelf and the
+    customer credited twice.
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    service = SalesReturnService(session)
+    service.create_return(
+        setup.payload(quantity=Decimal("3")),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+
+    with pytest.raises(ValidationError, match="exceeds what left on DN"):
+        service.create_return(
+            _against_the_bill(setup, "2"),
+            firm_id=setup.firm.id,
+            actor_id=setup.actor_id,
+        )
+    session.rollback()
+    # What is left of the four still comes back either way.
+    assert service.create_return(
+        _against_the_bill(setup, "1"), firm_id=setup.firm.id, actor_id=setup.actor_id
+    )
+
+
+def test_goods_back_through_the_bill_are_not_returned_again_through_the_note() -> None:
+    """The same count read from the other side."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    service = SalesReturnService(session)
+    service.create_return(
+        _against_the_bill(setup, "3"), firm_id=setup.firm.id, actor_id=setup.actor_id
+    )
+
+    with pytest.raises(ValidationError, match="3.0000 already returned"):
+        service.create_return(
+            setup.payload(quantity=Decimal("2")),
+            firm_id=setup.firm.id,
+            actor_id=setup.actor_id,
+        )
+
+
+def test_a_bill_whose_goods_came_back_through_the_note_cannot_be_cancelled() -> None:
+    """Or the customer is credited for the return and the whole bill besides."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    returned = SalesReturnService(session).create_return(
+        setup.payload(quantity=Decimal("1")),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+
+    with pytest.raises(ValidationError, match=returned.return_number):
+        SalesInvoiceService(session).cancel_invoice(
+            setup.invoice.id,
+            firm_scope=setup.firm.id,
+            actor_id=setup.actor_id,
+            reason="Raised in error.",
         )
 
 
