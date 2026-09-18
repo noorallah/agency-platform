@@ -78,7 +78,11 @@ function Invoke-Logged {
   }
 }
 
-if (-not $SkipSync) {
+# A built copy carries its own interpreter and every dependency, and the
+# machine it is on has no `uv` -- so there is nothing to sync and no tool to
+# sync with. -SkipSync is still what the installer passes; this is for whoever
+# starts it without, from an older note or a task written by hand.
+if (-not $SkipSync -and -not (Test-Path (Join-Path $backendRoot 'agency-server.exe'))) {
   # Runtime dependencies only. This script runs on customer machines -- the
   # installer calls it -- and '--group dev' put mypy, pytest, black, ruff and
   # coverage there: most of a 169 MB virtual environment, and none of it is the

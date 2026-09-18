@@ -368,8 +368,10 @@ to `backend\logs\backend-<date>.log`:
 powershell -NoProfile -ExecutionPolicy Bypass -File "C:\Program Files\Agency Platform\backend\scripts\start_backend.ps1" -SkipSync -NoReload -BindHost 0.0.0.0
 ```
 
-- **`-SkipSync`** is required on an installed copy. Without it the script first
-  runs `uv sync`, a developer tool that is not installed here.
+- **`-SkipSync`** says not to run `uv sync`, a developer tool that is not
+  installed here. The script also skips it by itself whenever
+  `agency-server.exe` is beside it, so leaving the switch out does no harm; it
+  is kept because it is what the installer passes.
 - **`-NoReload`** is required too, because a compiled copy refuses reload mode.
 - **`-BindHost 0.0.0.0`** lets other PCs connect. Leave it out and the server
   answers only this machine (`127.0.0.1`).
@@ -850,5 +852,3 @@ clean-machine install has been run.
   `agency_app`, which the installer does not grant. See section 7.2.
 - **The Visual C++ runtime is not bundled,** and whether a new machine needs it
   is untested. See section 2.4.
-- **The hint `install.ps1` prints** for starting the server leaves out
-  `-SkipSync`, which an installed copy needs. See section 5.3.
