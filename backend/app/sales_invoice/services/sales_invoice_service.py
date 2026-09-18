@@ -33,7 +33,7 @@ from app.customers.schemas import (
 from app.customers.services import CreditControlService
 from app.customers.services.customer_service import CustomerService
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
-from app.delivery_note.rules import require_dispatched_note
+from app.delivery_note.rules import goods_have_left_clause, require_dispatched_note
 from app.delivery_note.schemas import DeliveryNoteStatus
 from app.document_framework.models import (
     DocumentLifecycleEvent,
@@ -2152,13 +2152,9 @@ class SalesInvoiceService(TransactionalDocumentService):
             .where(
                 DeliveryNote.firm_id == firm_scope,
                 DeliveryNote.is_deleted.is_(False),
-                DeliveryNote.status.in_(
-                    [
-                        DeliveryNoteStatus.DISPATCHED.value,
-                        DeliveryNoteStatus.COMPLETED.value,
-                        DeliveryNoteStatus.CLOSED.value,
-                    ]
-                ),
+                # The goods left, not merely the status: a note closed without
+                # dispatching was offered here (D-SELL-4).
+                goods_have_left_clause(),
                 DeliveryNote.id.in_(open_notes),
             )
             .order_by(DeliveryNote.delivery_date.desc())
