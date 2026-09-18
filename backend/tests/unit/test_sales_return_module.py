@@ -46,6 +46,7 @@ from app.inventory.schemas import InventoryAdjustmentCreate
 from app.inventory.services import InventoryService
 from app.products.models import Product
 from app.sales.models import territory as _sales_models  # noqa: F401
+from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_invoice.schemas import (
     SalesInvoiceCreate,
     SalesInvoiceLineWrite,
@@ -555,6 +556,124 @@ def test_a_draft_return_cannot_be_completed() -> None:
     )
 
     with pytest.raises(ValidationError, match="Only approved"):
+        service.complete_return(
+            row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+        )
+
+
+def _undispatched_note(setup: _Dispatch) -> DeliveryNoteLine:
+    """Approve a second note for one more unit, and leave it in the warehouse."""
+    notes = DeliveryNoteService(setup.session)
+    note = notes.create_note(
+        DeliveryNoteCreate(
+            sales_order_id=setup.note.sales_order_id,
+            delivery_date=date(2026, 8, 4),
+            allow_over_delivery=True,
+            over_delivery_percent=Decimal("50"),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=setup.note_line.sales_order_line_id,
+                    line_number=1,
+                    current_delivery_quantity=Decimal("1"),
+                    unit_price=PRICE,
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+    notes.approve_note(note.id, firm_scope=setup.firm.id, actor_id=setup.actor_id)
+    line = setup.session.scalar(
+        select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note.id)
+    )
+    assert line is not None
+    return line
+
+
+def test_goods_that_never_left_cannot_come_back() -> None:
+    """D-SELL-6: a return against an approved note that never dispatched.
+
+    Driven 2026-09-19: completing it shelved a unit that had never gone out,
+    posted the return journals and credited the customer for it.
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    kept = _undispatched_note(setup)
+    payload = setup.payload(quantity=Decimal("1"))
+    payload.lines[0].source_document_id = kept.delivery_note_id
+    payload.lines[0].source_document_line_id = kept.id
+
+    with pytest.raises(ValidationError, match="only goods on a dispatched delivery"):
+        SalesReturnService(session).create_return(
+            payload, firm_id=setup.firm.id, actor_id=setup.actor_id
+        )
+
+
+def test_a_dispatched_note_cannot_front_for_another_notes_line() -> None:
+    """The line has to be the named document's own, or the check is bypassed."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    kept = _undispatched_note(setup)
+    payload = setup.payload(quantity=Decimal("1"))
+    payload.lines[0].source_document_line_id = kept.id
+
+    with pytest.raises(ValidationError, match="line of the source document"):
+        SalesReturnService(session).create_return(
+            payload, firm_id=setup.firm.id, actor_id=setup.actor_id
+        )
+
+
+def _invoice_return(setup: _Dispatch) -> SalesReturnCreate:
+    """Describe a return of two against the bill rather than the note."""
+    line = setup.session.scalar(
+        select(SalesInvoiceLine).where(
+            SalesInvoiceLine.sales_invoice_id == setup.invoice.id
+        )
+    )
+    assert line is not None
+    payload = setup.payload(quantity=Decimal("2"))
+    payload.lines[0].source_document_type = SalesReturnSourceType.SALES_INVOICE
+    payload.lines[0].source_document_id = setup.invoice.id
+    payload.lines[0].source_document_line_id = line.id
+    return payload
+
+
+@pytest.mark.parametrize("status", ["DRAFT", "CANCELLED"])
+def test_a_bill_that_does_not_stand_takes_no_return(status: str) -> None:
+    """A draft sold nothing yet, and a cancelled bill sold nothing at all.
+
+    WHOLE01 SR-2026-2027-000002 was raised against SI-2026-2027-000008, since
+    cancelled (D-SELL-6).
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    invoice = session.get(SalesInvoice, setup.invoice.id)
+    assert invoice is not None
+    invoice.status = status
+    session.commit()
+
+    with pytest.raises(ValidationError, match="only goods on an approved sales"):
+        SalesReturnService(session).create_return(
+            _invoice_return(setup), firm_id=setup.firm.id, actor_id=setup.actor_id
+        )
+
+
+def test_a_return_saved_before_the_check_does_not_complete() -> None:
+    """Asked again where the stock arrives and the customer is credited."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    service = SalesReturnService(session)
+    row = service.create_return(
+        _invoice_return(setup), firm_id=setup.firm.id, actor_id=setup.actor_id
+    )
+    service.approve_return(row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id)
+    # What a bill cancelled under a return looked like before the refusal.
+    invoice = session.get(SalesInvoice, setup.invoice.id)
+    assert invoice is not None
+    invoice.status = "CANCELLED"
+    session.commit()
+
+    with pytest.raises(ValidationError, match="is cancelled"):
         service.complete_return(
             row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
         )
