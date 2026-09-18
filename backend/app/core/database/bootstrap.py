@@ -64,9 +64,10 @@ def ensure_role_and_database(
     if target is None or app_user is None:
         raise ValueError("The configured database URL names no database or user.")
 
+    connect_as = admin_user or os.environ.get("INSTALL_ADMIN_USER") or app_user
     admin = url.set(
         database="postgres",
-        username=admin_user or os.environ.get("INSTALL_ADMIN_USER") or app_user,
+        username=connect_as,
         password=(
             admin_password
             or os.environ.get("INSTALL_ADMIN_PASSWORD")
@@ -84,7 +85,16 @@ def ensure_role_and_database(
                 {"name": app_user},
             ).scalar()
             password_sql = sql_literal(app_password or "")
-            if existing_role:
+            if existing_role and connect_as == app_user:
+                # Signed in as the application account itself -- an upgrade,
+                # with no superuser password to hand. The login just proved the
+                # file's password is the role's, so there is nothing to re-set,
+                # and trying would fail: PostgreSQL lets a role change its own
+                # password but not its LOGIN attribute, so `ALTER ROLE ... WITH
+                # LOGIN` is refused and the configure step stopped here, before
+                # the migrations, on every upgrade.
+                pass
+            elif existing_role:
                 # A re-install writes a new password into .env, so the role's
                 # has to follow it or the application cannot log in with the
                 # file it was just given.
