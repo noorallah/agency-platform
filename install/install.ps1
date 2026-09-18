@@ -733,12 +733,26 @@ if (Test-Path $desktopExe) {
 
 # -- 8. Start ---------------------------------------------------------------
 
+# One command line, used both to start the backend below and as the hint printed
+# when this run does not start it -- so the hint is the command that works.
+# They used to be built separately, and the hint left out -SkipSync: followed
+# on an installed copy, start_backend.ps1 then reached for `uv`, which a
+# customer machine does not have.
+#
+# Each part is quoted when it holds a space. Windows PowerShell 5.1's
+# Start-Process joins an -ArgumentList array with bare spaces, so a folder like
+# D:\My Apps\AgencyPlatform -- easy to pick in the folder browser -- arrived as
+# two arguments and the backend never started.
+$startScript = Join-Path $script:BackendRoot 'scripts\start_backend.ps1'
+$startArgs = @('-ExecutionPolicy', 'Bypass', '-File', $startScript,
+  '-BindHost', $BindHost, '-Port', "$Port", '-NoReload', '-SkipSync')
+if ($CertFile) { $startArgs += @('-CertFile', $CertFile, '-KeyFile', $KeyFile) }
+$startLine = ($startArgs | ForEach-Object { if ($_ -match '\s') { "`"$_`"" } else { $_ } }) -join ' '
+
 if ($SkipStart -or $DryRun) {
   Write-Step 'Done'
   Write-Host "   Start the backend with:"
-  $startArgs = "-BindHost $BindHost -Port $Port"
-  if ($CertFile) { $startArgs += " -CertFile `"$CertFile`" -KeyFile `"$KeyFile`"" }
-  Write-Host "     powershell -ExecutionPolicy Bypass -File backend\scripts\start_backend.ps1 $startArgs -NoReload"
+  Write-Host "     powershell $startLine"
   if ($script:GeneratedAdminPassword) {
     Write-Host "   Sign in as: platform-admin@agency.local"
     Write-Host "   Password:   $script:GeneratedAdminPassword" -ForegroundColor Yellow
@@ -752,10 +766,7 @@ if (-not $CertFile -and $BindHost -ne '127.0.0.1') {
   Write-Warn 'Plain HTTP on a network interface: passwords cross the wire in clear text. Use -CertFile and -KeyFile on any network you do not control.'
 }
 
-$startScript = Join-Path $script:BackendRoot 'scripts\start_backend.ps1'
-$startArgs = @('-BindHost', $BindHost, '-Port', "$Port", '-NoReload', '-SkipSync')
-if ($CertFile) { $startArgs += @('-CertFile', $CertFile, '-KeyFile', $KeyFile) }
-Start-Process -FilePath 'powershell' -ArgumentList (@('-ExecutionPolicy', 'Bypass', '-File', $startScript) + $startArgs)
+Start-Process -FilePath 'powershell' -ArgumentList $startLine
 
 Write-Host '   waiting for the backend to answer...'
 $healthy = $false
