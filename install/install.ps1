@@ -46,8 +46,9 @@
 
 .PARAMETER InstallDir
   Where the application is installed. Asked for when this is run interactively
-  and not supplied, offering C:\AgencyPlatform; pass it to install without a
-  prompt, or pass the folder this script already sits in to install in place.
+  and not supplied, offering C:\AgencyPlatform, a folder picker (answer B), or
+  a typed path; pass it to install without a prompt, or pass the folder this
+  script already sits in to install in place.
 
   Installing again over an existing directory **keeps the firm's data**:
   config\.env, logs\ and storage\ are never replaced, and the database is
@@ -236,13 +237,79 @@ function Copy-Application {
   }
 }
 
+function Select-InstallFolder {
+  <#
+    Show the Windows folder picker and return the chosen folder, or $null when
+    it was cancelled or cannot be shown.
+
+    The dialog needs a single-threaded apartment. install.bat launches Windows
+    PowerShell 5.1, which is STA by default, but `powershell -MTA` or a host
+    that is not would hang or throw inside ShowDialog -- so that case falls back
+    to typing rather than failing the install.
+
+    It is parented to a hidden topmost form. Without an owner the picker can
+    open *behind* the console window it was asked from, and the installer then
+    looks frozen while it waits for an answer nobody can see.
+  #>
+  if ([Threading.Thread]::CurrentThread.GetApartmentState() -ne 'STA') { return $null }
+  try { Add-Type -AssemblyName System.Windows.Forms } catch { return $null }
+  $owner = New-Object System.Windows.Forms.Form -Property @{ TopMost = $true; ShowInTaskbar = $false }
+  $dialog = New-Object System.Windows.Forms.FolderBrowserDialog
+  $dialog.Description = 'Choose where to install the Agency Platform. Pick an empty folder, or any folder and an AgencyPlatform folder is made inside it.'
+  $dialog.ShowNewFolderButton = $true
+  $dialog.SelectedPath = "$env:SystemDrive\"
+  try {
+    if ($dialog.ShowDialog($owner) -eq [System.Windows.Forms.DialogResult]::OK) {
+      return $dialog.SelectedPath
+    }
+    return $null
+  } finally {
+    $dialog.Dispose()
+    $owner.Dispose()
+  }
+}
+
+function Resolve-PickedFolder {
+  <#
+    Turn a folder chosen in the picker into the folder to install into.
+
+    The application is copied *into* the target -- backend\, desktop\ and the
+    rest land directly under it -- so picking D:\ or Program Files would scatter
+    it across a folder that holds other things. A picked folder is used as it is
+    only when it is empty (somebody made it for this, often with the dialog's own
+    New Folder button) or already holds an install (this is an update);
+    anything else gets an AgencyPlatform folder inside it.
+  #>
+  param([Parameter(Mandatory)][string]$Picked)
+  $isInstall = (Test-Path (Join-Path $Picked 'backend\config\.env')) -or
+    (Test-Path (Join-Path $Picked 'backend\agency-server.exe'))
+  $isEmpty = -not (Get-ChildItem -Force -LiteralPath $Picked -ErrorAction SilentlyContinue |
+    Select-Object -First 1)
+  if ($isInstall -or $isEmpty) { return $Picked }
+  return (Join-Path $Picked 'AgencyPlatform')
+}
+
 # -- 0. Where this is being installed --------------------------------------
 
 $script:SourceRoot = $script:RepoRoot
 if (-not $InstallDir -and -not $DryRun -and [Environment]::UserInteractive) {
   $default = 'C:\AgencyPlatform'
-  $answer = Read-Host "Install where? [$default, or a path of your own]"
-  $InstallDir = if ([string]::IsNullOrWhiteSpace($answer)) { $default } else { $answer.Trim() }
+  while (-not $InstallDir) {
+    $answer = Read-Host "Install where? [Enter for $default, B to browse, or type a folder]"
+    if ([string]::IsNullOrWhiteSpace($answer)) {
+      $InstallDir = $default
+    } elseif ($answer.Trim() -in @('b', 'browse')) {
+      $picked = Select-InstallFolder
+      if ($picked) {
+        $InstallDir = Resolve-PickedFolder -Picked $picked
+        Write-Host "  chosen: $InstallDir"
+      } else {
+        Write-Warn 'No folder was chosen. Press Enter for the default, B to browse again, or type a folder.'
+      }
+    } else {
+      $InstallDir = $answer.Trim()
+    }
+  }
 }
 
 if ($InstallDir -and $ConfigureOnly) {
