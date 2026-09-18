@@ -3227,3 +3227,196 @@ is built.
 
 Not a bug -- the pickers work and the states are seeded; this is the volume
 below them. Raised and deferred by the owner on 2026-09-17 for review later.
+
+## 42. What the market offers that this product does not
+
+Asked by the owner on 2026-09-18, after the product-overview deck: compare the
+system with the products on the market and list the useful features it is
+missing. **Nothing here is decided or scoped.** It is a list to choose from,
+each entry saying who has the feature, what exists here today, and why a
+distributor would ask for it.
+
+**How it was compiled.** Four products were read from their own websites and
+public reviews on 2026-09-18: **TallyPrime**, **BUSY**, **Marg ERP 9+** and
+**Zoho Books + Zoho Inventory**, plus the feature lists of Indian distributor
+management (DMS) apps. Every "what exists here" line was checked by searching
+`backend/app` for the tables and columns such a feature would need, not taken
+from the docs. Competitors change between releases, so re-check a claim about
+them before quoting it to a customer.
+
+**Already covered, so not gaps:** credit limits, trade schemes and free goods,
+beats and routes, earliest-expiry-first batches, multi-branch, e-way bills,
+TCS, an audit trail, currency and exchange-rate fields, and a low-stock view.
+
+### 42.1 Sending documents and reminders on WhatsApp, SMS or email
+
+- **Who has it:** BUSY (invoices, statements, payment reminders, scheme
+  offers), Marg, TallyPrime (payment advice), Zoho Books (reminders before and
+  after the due date, escalating, by email or WhatsApp).
+- **Here:** nothing. The invoice PDF already exists
+  (`GET /api/v1/sales-invoices/{id}/print` and its purchase twin); no code
+  sends anything.
+- **Why it matters:** every competitor has it, and it is the first thing a
+  customer notices is missing. **§14 (email) holds the four open questions**
+  -- which address, whose outbox, what a bounce does, whether a failed send
+  blocks the document -- and WhatsApp adds a fifth: which provider, since
+  WhatsApp Business messages go through a paid API. Deferred by the owner
+  (§14); this entry adds WhatsApp and reminders to the same decision.
+
+### 42.2 Bank reconciliation, and bank feeds
+
+- **Who has it:** TallyPrime (one-click auto reconciliation, and connected
+  banking with four banks), BUSY (statement import, cleared and uncleared
+  views, a reconciliation statement), Marg (auto reconciliation with 140+
+  banks), Zoho Books (bank feeds from its Standard plan).
+- **Here:** nothing -- no statement import, no cleared date on a settlement or
+  a journal line, no reconciliation report.
+- **Why it matters:** it is where a firm's accountant spends each week. A first
+  version needs no bank connection: import a statement file, match lines to
+  receipts and payments, record the cleared date. Connected banking can come
+  later.
+
+### 42.3 A post-dated cheque register
+
+- **Who has it:** BUSY (PDC management on receipts and payments).
+- **Here:** a settlement carries `method` and a free-text
+  `instrument_reference`; there is no cheque date, no "held until" state, no
+  clearing or bounce.
+- **Why it matters:** Indian distribution still runs on cheques dated ahead.
+  A cheque received today for the 30th should not count as money until then,
+  and a bounced one has to reverse and often carry a charge. Best designed with
+  42.2, since clearing is what both are about.
+
+### 42.4 TDS, and 194Q in particular
+
+- **Who has it:** BUSY, TallyPrime, Zoho Books (calculation, Form 16A, return
+  preparation).
+- **Here:** TCS under 206C(1H) (`app/tcs`); **no TDS at all**.
+- **Why it matters:** section 194Q obliges a buyer whose purchases from one
+  seller pass Rs 50 lakh in a year to deduct TDS on the excess -- most
+  distributors cross that with their principal. It is the mirror image of the
+  TCS module, which already has the threshold, the per-financial-year running
+  total and charging on the excess only, so much of the shape exists.
+
+### 42.5 GSTR-2A / 2B matching
+
+- **Who has it:** TallyPrime (download and auto-reconcile), Zoho Books.
+- **Here:** GST returns are outward only -- GSTR-1 and the outward half of 3B,
+  derived from the documents (`app/gst_returns`).
+- **Why it matters:** input tax credit is claimable only on what the supplier
+  actually filed. Matching purchase invoices against 2B shows the credit at
+  risk before the return is filed. A first version can import the 2B JSON the
+  portal gives out; no portal connection is needed.
+
+### 42.6 A mobile app for salesmen
+
+- **Who has it:** Marg (eOrder, eDelivery), most DMS apps (order booking at the
+  outlet, GPS attendance, visit check-in, live stock and scheme checks).
+- **Here:** beats, routes and call lists on the desktop. The Android build is a
+  preview of desktop layouts, not a field app. No GPS, attendance or visit
+  records (`grep` finds none).
+- **Why it matters:** it is the feature distributors compare products on. It is
+  also a separate product -- phone layouts, working offline, syncing later --
+  so it deserves its own decision. **§39 (field collections offline)** already
+  records the thinking on the offline half.
+
+### 42.7 Scheme claims to the principal
+
+- **Who has it:** Marg (claims and statements, with reminders), DMS apps
+  (claims raised by the distributor, settled by the company).
+- **Here:** promotions work end to end, but nothing records what the
+  manufacturer owes back for a scheme the distributor passed on.
+- **Why it matters:** for an **agency** this is part of how it earns. A claim
+  is the promotion cost, summed per principal per period, raised as a document
+  and settled -- the promotion and loyalty ledgers already hold the figures.
+
+### 42.8 Backup and restore inside the product
+
+- **Who has it:** TallyPrime, BUSY, Marg.
+- **Here:** nothing. **§35 (daily and manual backups)** holds the design.
+- Listed here only so this comparison is complete.
+
+### 42.9 Reorder alerts and a suggested purchase order
+
+- **Who has it:** Marg (reorder points, alerts).
+- **Here:** `reorder_level` and `maximum_level` on inventory, and a
+  `low_stock_only` filter on the stock list. No alert and no suggested order.
+- **Why it matters:** a "raise a purchase order for everything below its
+  reorder level, up to its maximum" action turns an existing column into a
+  saved afternoon each week.
+
+### 42.10 UPI QR codes and payment links on an invoice
+
+- **Who has it:** TallyPrime (payment links, UPI QR), Zoho (payment links, and
+  card or UPI terminals).
+- **Here:** a `upi_id` field on vendors only.
+- **Why it matters:** a static UPI QR printed on the invoice needs no gateway
+  and no internet -- only the firm's UPI ID and the amount. Payment links need a
+  gateway and are a bigger decision.
+
+### 42.11 Importing from Tally or BUSY
+
+- **Who has it:** not a competitor feature -- it is what lowers the cost of
+  leaving one.
+- **Here:** spreadsheet imports for masters. **§36 (onboarding from the
+  previous tool)** covers the design, including what today's imports lack.
+
+### 42.12 Landed cost
+
+- **Who has it:** Zoho Inventory (spread a freight, duty or clearing bill over
+  the goods it relates to, by quantity, value, dimensions or weight).
+- **Here:** no code names landed cost, and no way was found to add a separate
+  transporter's or clearing agent's bill to the cost of goods already
+  received.
+- **Why it matters:** without it, freight paid to a third party lands in an
+  expense account and the stock's cost -- and so the margin on it -- is
+  understated.
+
+### 42.13 Kits and composite items
+
+- **Who has it:** Zoho Inventory (composite items, assembled or bundled).
+- **Here:** nothing; the "bundle" hits in the code are role templates.
+- **Why it matters:** gift packs and combo packs are common in FMCG. Promotions
+  already give free goods, which covers some of it; a kit that is stocked and
+  sold as one item is a different thing.
+
+### 42.14 A customer and vendor portal
+
+- **Who has it:** Zoho (customer and vendor portals, with approvals and
+  permissions).
+- **Here:** nothing.
+- **Why it matters:** a retailer who can see their own statement and place an
+  order without phoning is a lighter version of 42.6. It needs the server
+  reachable from outside the office, which this product has deliberately never
+  required (§40, §41), so it is a hosting decision before it is a feature.
+
+### 42.15 Less likely to matter for a distributor
+
+- **Bill of materials and job work** (BUSY) -- only for the MANUFACTURING
+  profile.
+- **Recurring invoices** (Zoho) -- suits rent and subscriptions more than
+  trading.
+- **Courier and marketplace integrations** (Zoho: Delhivery and others;
+  Shopify, Amazon) -- for firms that ship parcels or sell online.
+
+### A suggested order, if any of this is built
+
+1. **42.1** sending on WhatsApp and email -- the most visible gap, and the PDFs
+   exist.
+2. **42.2 with 42.3** bank reconciliation and post-dated cheques -- one screen,
+   the accountant's weekly work.
+3. **42.4 with 42.5** TDS 194Q and GSTR-2B -- what an auditor asks about, and
+   both build on engines already here.
+4. **42.7** scheme claims -- how an agency earns.
+
+42.6 is a separate product and wants its own decision.
+
+**Sources (read 2026-09-18):** tallysolutions.com/features/banking;
+spectracompunet.com (TallyPrime GSTR-2A/2B reconciliation, TallyPrime 7.0
+connected payments); busy.in FAQs (bank reconciliation; sending invoices on
+SMS and WhatsApp); softwaresuggest.com/busy-accounting;
+techjockey.com/detail/margerp-9; cliqus.in/marg;
+margcompusoft.com (distribution software, eOrder app);
+zoho.com/us/inventory/kb/general-overview/zom-feature-list.html;
+zoho.com/in/books; patronaccounting.com (Zoho Books India guide);
+massistcrm.com (DMS); deltasalesapp.com (DMS features).
