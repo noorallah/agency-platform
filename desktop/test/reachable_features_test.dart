@@ -16,6 +16,7 @@ import 'package:agency_desktop/models/settlement_direction.dart';
 import 'package:agency_desktop/ui/customers/loyalty_page.dart';
 import 'package:agency_desktop/models/settlement.dart';
 import 'package:agency_desktop/ui/finance/record_settlement_dialog.dart';
+import 'package:agency_desktop/ui/purchase_invoices/purchase_invoice_management_page.dart';
 import 'package:agency_desktop/ui/sales/proforma_page.dart';
 import 'package:agency_desktop/ui/sales/sales_order_management_page.dart';
 import 'package:flutter/material.dart';
@@ -31,8 +32,11 @@ PermissionService _permissions(List<String> codes) => PermissionService()
   }));
 
 class _Api extends ApiClient {
-  _Api({this.orders = const <Json>[], this.detail})
-      : super(
+  _Api({
+    this.orders = const <Json>[],
+    this.receipts = const <Json>[],
+    this.detail,
+  }) : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
           refreshAccessToken: () async => false,
@@ -40,6 +44,9 @@ class _Api extends ApiClient {
         );
 
   final List<Json> orders;
+
+  /// Rows as `/goods-receipts` would return them.
+  final List<Json> receipts;
   final Json? detail;
   final List<String> posted = <String>[];
   Json? sentBody;
@@ -66,6 +73,12 @@ class _Api extends ApiClient {
       return <String, dynamic>{
         'data': orders,
         'pagination': <String, dynamic>{'total_records': orders.length},
+      };
+    }
+    if (path.contains('goods-receipts')) {
+      return <String, dynamic>{
+        'data': receipts,
+        'pagination': <String, dynamic>{'total_records': receipts.length},
       };
     }
     if (path.endsWith('/summary')) {
@@ -153,6 +166,61 @@ void main() {
 
       final Finder button = find.widgetWithText(FilledButton, 'New');
       expect(tester.widget<FilledButton>(button).onPressed, isNull);
+    });
+  });
+
+  group('a supplier bill can be raised', () {
+    // BL-31.9 (2026-09-18): the Purchase Invoices screen offered View,
+    // Approve, Cancel and Close, and nothing called the create route. The
+    // orphan-route guard read it as called because `documentPage` names the
+    // literal 'purchase-invoices'. This pins the button.
+    Json receipt() => <String, dynamic>{
+          'id': 'grn-1',
+          'grn_number': 'GRN-0001',
+          'receipt_date': '2026-08-10',
+          'status': 'COMPLETED',
+          'lines': <Json>[],
+        };
+
+    testWidgets('New opens the editor over the completed receipts',
+        (tester) async {
+      final Directory temp = Directory.systemTemp.createTempSync('bills');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      await _sized(
+        tester,
+        PurchaseInvoiceManagementPage(
+          api: _Api(receipts: <Json>[receipt()]),
+          preferences: DesktopPreferencesService(directory: temp),
+          permissions: _permissions(const ['PURCHASE_VIEW', 'PURCHASE_CREATE']),
+          hasActiveFirm: true,
+        ),
+      );
+
+      final Finder button = find.widgetWithText(FilledButton, 'New');
+      expect(tester.widget<FilledButton>(button).onPressed, isNotNull);
+      await tester.tap(button);
+      await tester.pumpAndSettle();
+
+      expect(find.text('New Purchase Invoice'), findsOneWidget);
+      await tester.tap(find.byType(DropdownButtonFormField<String>));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('GRN-0001'), findsWidgets);
+    });
+
+    testWidgets('someone who cannot create is not offered it', (tester) async {
+      final Directory temp = Directory.systemTemp.createTempSync('bills');
+      addTearDown(() => temp.deleteSync(recursive: true));
+      await _sized(
+        tester,
+        PurchaseInvoiceManagementPage(
+          api: _Api(receipts: <Json>[receipt()]),
+          preferences: DesktopPreferencesService(directory: temp),
+          permissions: _permissions(const ['PURCHASE_VIEW']),
+          hasActiveFirm: true,
+        ),
+      );
+
+      expect(find.widgetWithText(FilledButton, 'New'), findsNothing);
     });
   });
 

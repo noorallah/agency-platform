@@ -21,6 +21,11 @@ from app.goods_receipt.schemas.goods_receipt import (
     GoodsReceiptCreate,
     GoodsReceiptLineWrite,
 )
+from app.purchase_invoice.schemas.purchase_invoice import (
+    PurchaseInvoiceCreate,
+    PurchaseInvoiceLineWrite,
+    PurchaseInvoiceSourceWrite,
+)
 from app.purchase_return.schemas.purchase_return import (
     PurchaseReturnCreate,
     PurchaseReturnLineWrite,
@@ -30,6 +35,7 @@ from app.purchase_return.schemas.purchase_return import (
 _UI = Path(__file__).resolve().parents[3] / "desktop" / "lib" / "ui"
 _RETURN = _UI / "purchase_returns" / "purchase_return_editor_dialog.dart"
 _RECEIPT = _UI / "goods_receipts" / "goods_receipt_editor_dialog.dart"
+_INVOICE = _UI / "purchase_invoices" / "purchase_invoice_editor_dialog.dart"
 
 
 def _keys_between(path: Path, first_key: str, stop: str) -> set[str]:
@@ -76,3 +82,37 @@ def test_a_goods_receipt_carries_only_document_fields() -> None:
     sent = _keys_between(_RECEIPT, "receipt_date", "'lines': [")
     unknown = sent - set(GoodsReceiptCreate.model_fields)
     assert not unknown, unknown
+
+
+def test_a_purchase_invoice_line_carries_only_line_fields() -> None:
+    """The bill line's keys are all fields of PurchaseInvoiceLineWrite.
+
+    The bill editor arrived on 2026-09-18 (BL-31.9), six days after the
+    return editor's ``description`` refusal above; the same check on the
+    day it is written is what keeps it from meeting the same refusal.
+    """
+    sent = _keys_between(_INVOICE, "source_document_line_id", "};")
+    unknown = sent - set(PurchaseInvoiceLineWrite.model_fields)
+    assert not unknown, unknown
+
+
+def test_a_purchase_invoice_carries_only_document_fields() -> None:
+    """The bill's keys are fields of PurchaseInvoiceCreate or its source rows."""
+    sent = _keys_between(_INVOICE, "supplier_invoice_date", "'lines': [")
+    allowed = set(PurchaseInvoiceCreate.model_fields) | set(
+        PurchaseInvoiceSourceWrite.model_fields
+    )
+    unknown = sent - allowed
+    assert not unknown, unknown
+
+
+def test_the_bill_editor_never_sends_a_blank_price_as_zero() -> None:
+    """A blank unit price stays out of the body rather than going as '0'.
+
+    Absent means the server takes the receipt line's price; zero means the
+    supplier charged nothing. The return editor sent ``'0'`` for a blank and
+    every return was valued at nothing (D-BUY-3).
+    """
+    text = _INVOICE.read_text(encoding="utf-8")
+    assert "'unit_price': '0'" not in text
+    assert "isEmpty ? '0' : unitPrice" not in text
