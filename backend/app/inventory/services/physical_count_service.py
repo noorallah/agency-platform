@@ -260,6 +260,11 @@ class PhysicalCountService(TransactionalDocumentService):
         Lines nobody walked are skipped. An uncounted line is not a line that
         found nothing, and treating it as zero would write off the stock that
         was simply not reached before the sheet was posted.
+
+        Nothing here commits. Every adjustment is staged on the caller's
+        session, so a line that fails takes the whole sheet with it: no stock
+        moved, no journal, and the sheet still DRAFT to be corrected and posted
+        again.
         """
         row = self.get(count_id, firm_id=firm_id)
         self._require_draft(row)
@@ -278,7 +283,10 @@ class PhysicalCountService(TransactionalDocumentService):
             line.updated_by = actor_id
             if variance == ZERO:
                 continue
-            transaction = self._inventory.create_adjustment(
+            # Staged, not committed: the sheet is one decision, and the router
+            # commits it once. A committing adjustment per line left a failing
+            # sheet DRAFT beside the lines it had already moved (D-STK-3).
+            transaction = self._inventory.stage_adjustment(
                 InventoryAdjustmentCreate(
                     branch_id=row.branch_id,
                     warehouse_id=row.warehouse_id,

@@ -1656,7 +1656,28 @@ class InventoryService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> InventoryTransaction:
-        """Post a stock adjustment movement."""
+        """Post a stock adjustment movement, and commit it on its own."""
+        transaction = self.stage_adjustment(
+            data, firm_scope=firm_scope, actor_id=actor_id
+        )
+        self._commit()
+        self._session.refresh(transaction)
+        return transaction
+
+    def stage_adjustment(
+        self,
+        data: InventoryAdjustmentCreate,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> InventoryTransaction:
+        """Write a stock adjustment and its journal, flushed but not committed.
+
+        A caller making several adjustments as one decision -- a count sheet
+        is one -- composes this and commits once, so a line that fails leaves
+        none of the others behind. Committing per adjustment left a sheet
+        still DRAFT beside stock and journals it had already moved (D-STK-3).
+        """
         (
             base_quantity,
             entered_quantity,
@@ -1726,8 +1747,7 @@ class InventoryService:
             actor_id=actor_id,
             remarks=data.remarks,
         )
-        self._commit()
-        self._session.refresh(transaction)
+        self._session.flush()
         return transaction
 
     def record_goods_receipt(
