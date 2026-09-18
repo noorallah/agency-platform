@@ -21,7 +21,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.batch_serial.models import SerialNumber
@@ -1094,6 +1094,7 @@ class SalesReturnService(TransactionalDocumentService):
             SalesReturnLine.sales_return_id == row.id
         ).delete(synchronize_session=False)
         totals: defaultdict[str, Decimal] = defaultdict(lambda: ZERO)
+        in_this_return: defaultdict[UUID, Decimal] = defaultdict(lambda: ZERO)
         for index, spec in enumerate(line_specs, start=1):
             source_type = self._source_type(spec["source_document_type"])
             source_line = self._source_line(
@@ -1149,6 +1150,26 @@ class SalesReturnService(TransactionalDocumentService):
                     f"document ({dispatched} sent, {already_returned} already "
                     "returned)."
                 )
+            # A bill's line and the note line it billed are the same goods, so
+            # what comes back through either route counts against what left.
+            goods = self._goods_behind(source_line)
+            if goods is not None:
+                sent = self._q(goods.current_delivery_quantity)
+                back = self._q(
+                    self._goods_already_returned(
+                        firm_id=firm_id,
+                        note_line_id=goods.id,
+                        exclude_return_id=row.id,
+                    )
+                    + in_this_return[goods.id]
+                )
+                if not row.allow_over_return and return_quantity + back > sent:
+                    raise ValidationError(
+                        "Return quantity exceeds what left on "
+                        f"{self._source_document_number(goods)} ({sent} sent, "
+                        f"{back} already returned against it or the bill for it)."
+                    )
+                in_this_return[goods.id] += return_quantity
             # The buckets are validated against the requested quantity, so they
             # are converted with it rather than re-derived: a line entered in
             # cases and returned in pieces must not have its damaged count
@@ -1652,6 +1673,64 @@ class SalesReturnService(TransactionalDocumentService):
                 SalesReturn.status.not_in(_SPENT_STATUSES),
                 SalesReturnLine.is_deleted.is_(False),
                 SalesReturnLine.source_document_line_id == source_document_line_id,
+            )
+        )
+        if exclude_return_id is not None:
+            statement = statement.where(SalesReturn.id != exclude_return_id)
+        return self._q(self._session.scalar(statement) or ZERO)
+
+    def _goods_behind(self, source_line: SourceLine) -> DeliveryNoteLine | None:
+        """Return the note line whose goods a return line would bring back.
+
+        A bill's line billed from a note is the same goods as the note's line;
+        one billed straight from an order has no note behind it.
+        """
+        if isinstance(source_line, DeliveryNoteLine):
+            return source_line
+        if source_line.source_document_type != "DELIVERY_NOTE":
+            return None
+        return self._session.get(DeliveryNoteLine, source_line.source_document_line_id)
+
+    def _goods_already_returned(
+        self,
+        *,
+        firm_id: UUID,
+        note_line_id: UUID,
+        exclude_return_id: UUID | None = None,
+    ) -> Decimal:
+        """Sum what came back of one note line's goods, by either route.
+
+        `_already_returned_quantity` counts one source line, so the same goods
+        could come back once against the note and again against the bill that
+        billed it (D-SELL-7, driven 2026-09-19: 5 dispatched, 10 returned;
+        WHOLE01 SR-2026-2027-000004 was raised on a note line that
+        SI-2026-2027-000011 had billed, and counted nothing against the bill).
+        """
+        billed = select(SalesInvoiceLine.id).where(
+            SalesInvoiceLine.source_document_type == "DELIVERY_NOTE",
+            SalesInvoiceLine.source_document_line_id == note_line_id,
+            SalesInvoiceLine.is_deleted.is_(False),
+        )
+        statement = (
+            select(func.coalesce(func.sum(SalesReturnLine.current_return_quantity), 0))
+            .join(SalesReturn, SalesReturn.id == SalesReturnLine.sales_return_id)
+            .where(
+                SalesReturn.firm_id == firm_id,
+                SalesReturn.is_deleted.is_(False),
+                SalesReturn.status.not_in(_SPENT_STATUSES),
+                SalesReturnLine.is_deleted.is_(False),
+                or_(
+                    and_(
+                        SalesReturnLine.source_document_type
+                        == SalesReturnSourceType.DELIVERY_NOTE.value,
+                        SalesReturnLine.source_document_line_id == note_line_id,
+                    ),
+                    and_(
+                        SalesReturnLine.source_document_type
+                        == SalesReturnSourceType.SALES_INVOICE.value,
+                        SalesReturnLine.source_document_line_id.in_(billed),
+                    ),
+                ),
             )
         )
         if exclude_return_id is not None:

@@ -794,7 +794,11 @@ class SalesInvoiceService(TransactionalDocumentService):
         from app.credit_note.models import CreditNote, CreditNoteStatus
         from app.einvoice.models import EInvoiceRegistration, RegistrationStatus
         from app.loyalty.models import LoyaltyEntry, LoyaltyEntryKind
-        from app.sales_return.models import SalesReturn, SalesReturnSource
+        from app.sales_return.models import (
+            SalesReturn,
+            SalesReturnLine,
+            SalesReturnSource,
+        )
         from app.settlements.models import Settlement, SettlementAllocation
 
         blockers: list[str] = []
@@ -836,8 +840,36 @@ class SalesInvoiceService(TransactionalDocumentService):
             )
             .distinct()
         ).all()
+        # Goods this bill charged for can also come back against the note it
+        # billed, and cancelling then takes the whole bill off the customer on
+        # top of the credit that return gave (D-SELL-7).
+        billed_note_lines = select(SalesInvoiceLine.source_document_line_id).where(
+            SalesInvoiceLine.sales_invoice_id == row.id,
+            SalesInvoiceLine.source_document_type
+            == SalesInvoiceSourceType.DELIVERY_NOTE.value,
+            SalesInvoiceLine.is_deleted.is_(False),
+        )
+        returns = sorted(
+            set(returns)
+            | set(
+                self._session.scalars(
+                    select(SalesReturn.return_number)
+                    .join(
+                        SalesReturnLine,
+                        SalesReturnLine.sales_return_id == SalesReturn.id,
+                    )
+                    .where(
+                        SalesReturnLine.source_document_type == "DELIVERY_NOTE",
+                        SalesReturnLine.source_document_line_id.in_(billed_note_lines),
+                        SalesReturnLine.is_deleted.is_(False),
+                        SalesReturn.status != "CANCELLED",
+                        SalesReturn.is_deleted.is_(False),
+                    )
+                ).all()
+            )
+        )
         if returns:
-            blockers.append("sales return " + ", ".join(sorted(returns)))
+            blockers.append("sales return " + ", ".join(returns))
         spent = self._session.scalar(
             select(func.count(LoyaltyEntry.id)).where(
                 LoyaltyEntry.sales_invoice_id == row.id,
