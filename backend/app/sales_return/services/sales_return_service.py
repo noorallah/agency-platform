@@ -65,7 +65,11 @@ from app.inventory.models import StockLedgerEntry
 from app.inventory.services import InventoryService
 from app.products.models import Product
 from app.sales.services.scope_resolution import resolve_sales_scope
-from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
+from app.sales_invoice.models import (
+    SalesInvoice,
+    SalesInvoiceLine,
+    SalesInvoiceLineTax,
+)
 from app.sales_invoice.schemas import SalesInvoiceStatus
 from app.sales_return.models import (
     SalesReturn,
@@ -1181,24 +1185,34 @@ class SalesReturnService(TransactionalDocumentService):
             tax_profile_id = _optional_uuid(spec.get("tax_profile_id")) or getattr(
                 source_line, "tax_profile_id", None
             )
-            line_tax = self._tax_amount(
-                return_date=return_date,
-                firm_id=firm_id,
-                business_profile_id=business_profile_id,
-                customer_id=row.customer_id,
-                branch_id=row.branch_id,
-                warehouse_id=_optional_uuid(spec.get("warehouse_id"))
-                or row.warehouse_id,
-                product_id=source_line.product_id,
-                tax_profile_id=tax_profile_id,
-                invoice_value=self._q(
-                    return_quantity * unit_price
-                    - discount_amount
-                    - bill_share
-                    + charges_amount
-                ),
-                actor_id=actor_id,
+            taxable = self._q(
+                return_quantity * unit_price
+                - discount_amount
+                - bill_share
+                + charges_amount
             )
+            # A return reverses the tax the bill charged, at the rate and in
+            # the components it was charged -- never what today's rules would
+            # charge (D-SELL-21). Only goods no bill has charged yet are taxed
+            # by the rules, because there is nothing charged to reverse.
+            charged = self._charged_line(source_line)
+            if charged is not None:
+                tax_profile_id = charged.tax_profile_id
+                line_tax = self._charged_tax(charged, taxable=taxable)
+            else:
+                line_tax = self._tax_amount(
+                    return_date=return_date,
+                    firm_id=firm_id,
+                    business_profile_id=business_profile_id,
+                    customer_id=row.customer_id,
+                    branch_id=row.branch_id,
+                    warehouse_id=_optional_uuid(spec.get("warehouse_id"))
+                    or row.warehouse_id,
+                    product_id=source_line.product_id,
+                    tax_profile_id=tax_profile_id,
+                    invoice_value=taxable,
+                    actor_id=actor_id,
+                )
             tax_amount = line_tax.total
             net_amount = self._q(
                 gross_amount
@@ -1731,6 +1745,79 @@ class SalesReturnService(TransactionalDocumentService):
             gross=gross,
             percent=None if percent is None else Decimal(str(percent)),
             amount=None if amount is None else Decimal(str(amount)),
+        )
+
+    def _charged_line(self, source_line: SourceLine) -> SalesInvoiceLine | None:
+        """Return the bill line that charged the goods a return line brings back.
+
+        A return raised on a bill names that line. One raised on a delivery
+        note takes the live bill that charged the note's line, the earliest if
+        it was billed in parts; a note nobody has billed has none.
+        """
+        if isinstance(source_line, SalesInvoiceLine):
+            return source_line
+        return self._session.scalar(
+            select(SalesInvoiceLine)
+            .join(SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id)
+            .where(
+                SalesInvoiceLine.source_document_type
+                == SalesReturnSourceType.DELIVERY_NOTE.value,
+                SalesInvoiceLine.source_document_line_id == source_line.id,
+                SalesInvoiceLine.is_deleted.is_(False),
+                SalesInvoice.status.in_(_RETURNABLE_INVOICE_STATES),
+                SalesInvoice.is_deleted.is_(False),
+            )
+            .order_by(SalesInvoice.invoice_date.asc(), SalesInvoice.invoice_number)
+            .limit(1)
+        )
+
+    def _charged_tax(
+        self, charged: SalesInvoiceLine, *, taxable: Decimal
+    ) -> _ReturnLineTax:
+        """Reverse what a bill line charged, in proportion to what comes back.
+
+        Re-running the rules at the return date reversed whatever they said
+        that day: a rate cut or a moved customer after the sale took back a
+        different tax -- and different components -- from the one collected.
+        A credit note already reverses at the rate charged; a return now does
+        too, scaling the line's own tax and each component it recorded by the
+        share of the charged value being returned. A line charged no tax
+        reverses none.
+        """
+        base = self._q(
+            Decimal(str(charged.gross_amount))
+            - Decimal(str(charged.discount_amount))
+            - Decimal(str(charged.bill_discount_amount))
+            + Decimal(str(charged.charges_amount))
+            + Decimal(str(charged.freight_amount))
+        )
+        tax = Decimal(str(charged.tax_amount))
+        if taxable <= ZERO or base <= ZERO or tax == ZERO:
+            return _ReturnLineTax(total=ZERO, components=[])
+        share = taxable / base
+        components = self._session.scalars(
+            select(SalesInvoiceLineTax)
+            .where(
+                SalesInvoiceLineTax.sales_invoice_line_id == charged.id,
+                SalesInvoiceLineTax.is_deleted.is_(False),
+            )
+            .order_by(SalesInvoiceLineTax.sequence.asc())
+        ).all()
+        return _ReturnLineTax(
+            total=self._q(tax * share),
+            components=[
+                _ReturnTaxComponent(
+                    tax_component_id=component.tax_component_id,
+                    code=component.component_code,
+                    label=component.component_label,
+                    percentage=self._q(component.percentage),
+                    base_amount=taxable,
+                    amount=self._q(Decimal(str(component.amount)) * share),
+                    included_in_price=component.included_in_price,
+                    recoverable=component.recoverable,
+                )
+                for component in components
+            ],
         )
 
     def _tax_amount(
