@@ -33,6 +33,7 @@ from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
+from app.goods_receipt.rules import require_posted_receipt
 from app.inventory.models import StockLedgerEntry
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
@@ -1203,6 +1204,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 )
                 if receipt is None:
                     raise ResourceNotFoundError("Goods receipt not found.")
+                require_posted_receipt(receipt, "billed")
                 source_rows.append(
                     {
                         "source_document_type": source_type,

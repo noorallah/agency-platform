@@ -1184,3 +1184,97 @@ def test_a_paid_bill_cannot_be_cancelled() -> None:
     session.expire_all()
     still = session.get(PurchaseInvoice, bill.id)
     assert still is not None and still.status == "APPROVED"
+
+
+@pytest.mark.parametrize("state", ["DRAFT", "CANCELLED"])
+def test_only_a_completed_receipt_can_be_billed_or_returned(state: str) -> None:
+    """D-BUY-5: a bill or a return named a receipt whose stock never posted.
+
+    Driven on TEST01 on 2026-09-18: a DRAFT receipt was billed, the bill was
+    approved -- a payable for goods nobody received -- and returned against.
+    """
+    from app.purchase_invoice.schemas import (
+        PurchaseInvoiceCreate,
+        PurchaseInvoiceLineWrite,
+        PurchaseInvoiceSourceType,
+    )
+    from app.purchase_invoice.services import PurchaseInvoiceService
+    from app.purchase_return.schemas import (
+        PurchaseReturnCreate,
+        PurchaseReturnLineWrite,
+        PurchaseReturnSourceType,
+    )
+    from app.purchase_return.services import PurchaseReturnService
+
+    session = _session_factory()()
+    fixture = _Fixture(session, f"GRN-{state}")
+    receipts = GoodsReceiptService(session)
+    receipt = receipts.create_receipt(
+        fixture.receipt_payload("5"),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    if state == "CANCELLED":
+        receipts.cancel_receipt(
+            receipt.id,
+            firm_scope=fixture.firm.id,
+            actor_id=fixture.actor_id,
+            reason="never arrived",
+        )
+    line = session.scalars(
+        select(GoodsReceiptLine).where(GoodsReceiptLine.goods_receipt_id == receipt.id)
+    ).first()
+    assert line is not None
+
+    with pytest.raises(ValidationError, match="only a completed goods receipt"):
+        PurchaseInvoiceService(session).create_invoice(
+            PurchaseInvoiceCreate(
+                supplier_invoice_number="SUP-EARLY",
+                supplier_invoice_date=date(2026, 8, 6),
+                invoice_date=date(2026, 8, 6),
+                source_documents=[
+                    {
+                        "source_document_type": PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                        "source_document_id": receipt.id,
+                    }
+                ],
+                lines=[
+                    PurchaseInvoiceLineWrite(
+                        source_document_type=PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                        source_document_id=receipt.id,
+                        source_document_line_id=line.id,
+                        line_number=1,
+                        current_invoice_quantity=Decimal("5"),
+                    )
+                ],
+            ),
+            firm_id=fixture.firm.id,
+            actor_id=fixture.actor_id,
+        )
+    with pytest.raises(ValidationError, match="only a completed goods receipt"):
+        PurchaseReturnService(session).create_return(
+            PurchaseReturnCreate(
+                supplier_return_number="SUP-EARLY-RET",
+                supplier_return_date=date(2026, 8, 6),
+                return_date=date(2026, 8, 6),
+                warehouse_id=fixture.warehouse.id,
+                source_documents=[
+                    {
+                        "source_document_type": PurchaseReturnSourceType.GOODS_RECEIPT,
+                        "source_document_id": receipt.id,
+                    }
+                ],
+                lines=[
+                    PurchaseReturnLineWrite(
+                        source_document_type=PurchaseReturnSourceType.GOODS_RECEIPT,
+                        source_document_id=receipt.id,
+                        source_document_line_id=line.id,
+                        line_number=1,
+                        current_return_quantity=Decimal("2"),
+                        warehouse_id=fixture.warehouse.id,
+                    )
+                ],
+            ),
+            firm_id=fixture.firm.id,
+            actor_id=fixture.actor_id,
+        )

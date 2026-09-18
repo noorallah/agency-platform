@@ -33,6 +33,7 @@ from app.document_framework.services.transactional_document_service import (
 from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
+from app.goods_receipt.rules import require_posted_receipt
 from app.inventory.models import StockLedgerEntry
 from app.inventory.services import InventoryService
 from app.products.models import Product
@@ -1560,6 +1561,7 @@ class PurchaseReturnService(TransactionalDocumentService):
                 )
                 if receipt is None:
                     raise ResourceNotFoundError("Goods receipt not found.")
+                require_posted_receipt(receipt, "returned")
                 source_rows.append(
                     {
                         "source_document_type": source_type,
