@@ -29,7 +29,11 @@ GoodsReceiptRecord _receipt() => GoodsReceiptRecord.fromJson({
     });
 
 class _ReturnApi extends ApiClient {
-  _ReturnApi({this.registered = const [], this.earlierReturns = const []})
+  _ReturnApi({
+    this.registered = const [],
+    this.earlierReturns = const [],
+    this.pages,
+  })
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -42,6 +46,10 @@ class _ReturnApi extends ApiClient {
 
   /// Rows as `/purchase-returns` would return them.
   final List<Json> earlierReturns;
+
+  /// When set, `/purchase-returns` is served a page at a time, as the server
+  /// does, with the total across all of them.
+  final List<List<Json>>? pages;
   Json? sent;
 
   @override
@@ -53,8 +61,16 @@ class _ReturnApi extends ApiClient {
     String sortBy = 'created_at',
     bool descending = true,
     Map<String, String> additionalQuery = const {},
-  }) async =>
-      {'data': earlierReturns};
+  }) async {
+    final List<List<Json>>? served = pages;
+    if (served == null) return {'data': earlierReturns};
+    return {
+      'data': page <= served.length ? served[page - 1] : const <Json>[],
+      'pagination': {
+        'total_records': served.fold<int>(0, (sum, rows) => sum + rows.length),
+      },
+    };
+  }
 
   @override
   Future<PagedResult<BatchRecord>> batches({
@@ -209,6 +225,38 @@ void main() {
       ),
     );
     expect(returning.initialValue, '15');
+  });
+
+  testWidgets('an earlier return past the first hundred still counts', (
+    tester,
+  ) async {
+    // D-BUY-10: only the newest hundred returns were read, so a firm with
+    // more had the older ones left out and the lines defaulted to quantities
+    // the server then refused.
+    final _ReturnApi api = _ReturnApi(
+      registered: ['MARCH-01'],
+      pages: [
+        [
+          for (int index = 0; index < 100; index++)
+            {'id': 'pr-other-$index', 'status': 'COMPLETED', 'lines': []},
+        ],
+        [
+          {
+            'id': 'pr-old',
+            'status': 'COMPLETED',
+            'lines': [
+              {
+                'source_document_line_id': 'grn-line-1',
+                'current_return_quantity': '5',
+              },
+            ],
+          },
+        ],
+      ],
+    );
+    await _openEditor(tester, api);
+
+    expect(find.text('Received 20 · already returned 5'), findsOneWidget);
   });
 
   testWidgets('a cancelled return does not count against what is left', (
