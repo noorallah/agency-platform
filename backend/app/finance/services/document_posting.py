@@ -623,6 +623,88 @@ class DocumentPostingService:
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
 
+    def post_physical_count(
+        self,
+        *,
+        firm_id: UUID,
+        count_id: UUID,
+        count_number: str,
+        count_date: date,
+        differences: list[tuple[str, Decimal]],
+        actor_id: UUID,
+    ) -> JournalEntry | None:
+        """Post one journal for a whole stock count.
+
+        Each difference used to post its own journal under the count's number,
+        and a journal reference is unique per firm -- so a count with two or
+        more differences could never be posted (D-STK-11). The owner chose one
+        journal per count (2026-09-19): one voucher per stock-take, with a pair
+        of lines per difference, so each one still reads on its own -- a
+        shortage credits inventory and debits the adjustment account, a surplus
+        the reverse, as `post_stock_adjustment` does for one.
+
+        Args:
+            firm_id: The owning firm.
+            count_id: The count sheet this posts.
+            count_number: The sheet's number, used as the journal reference.
+            count_date: The date the stock was counted.
+            differences: One (description, value change) per adjusted line,
+                positive when stock rose.
+            actor_id: The user posting the sheet.
+
+        Returns:
+            The posted journal, or None when no difference moved any value.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        valued = [
+            (description, quantize_ledger(quantize_money(value)))
+            for description, value in differences
+        ]
+        valued = [(description, value) for description, value in valued if value]
+        if not valued:
+            return None
+        accounts = self._require_mapping(firm_id, STOCK_ADJUSTMENT_PURPOSES)
+        context = self.context_for(firm_id, count_date)
+        lines: list[JournalLineData] = []
+        for description, value in valued:
+            rising = value > ZERO
+            amount = value if rising else -value
+            lines.extend(
+                [
+                    JournalLineData(
+                        ledger_account_id=accounts[ControlAccountPurpose.INVENTORY],
+                        debit_amount=amount if rising else ZERO,
+                        credit_amount=ZERO if rising else amount,
+                        description=description,
+                    ),
+                    JournalLineData(
+                        ledger_account_id=accounts[
+                            ControlAccountPurpose.INVENTORY_ADJUSTMENT
+                        ],
+                        debit_amount=ZERO if rising else amount,
+                        credit_amount=amount if rising else ZERO,
+                        description=description,
+                    ),
+                ]
+            )
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=count_date,
+            reference_number=count_number,
+            description=f"Physical count {count_number}",
+            lines=lines,
+            source_module="physical_count",
+            source_id=count_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
     def post_opening_stock(
         self,
         *,

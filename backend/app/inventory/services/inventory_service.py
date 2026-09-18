@@ -1693,6 +1693,40 @@ class InventoryService:
         none of the others behind. Committing per adjustment left a sheet
         still DRAFT beside stock and journals it had already moved (D-STK-3).
         """
+        transaction, value_delta = self.stage_adjustment_movement(
+            data, firm_scope=firm_scope, actor_id=actor_id
+        )
+        DocumentPostingService(self._session).post_stock_adjustment(
+            firm_id=firm_scope,
+            transaction_id=transaction.id,
+            reference_number=data.reference_number.strip().upper(),
+            transaction_date=data.transaction_date,
+            value_delta=value_delta,
+            actor_id=actor_id,
+            remarks=data.remarks,
+        )
+        self._session.flush()
+        return transaction
+
+    def stage_adjustment_movement(
+        self,
+        data: InventoryAdjustmentCreate,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> tuple[InventoryTransaction, Decimal]:
+        """Write the stock side of an adjustment, and return what it moved.
+
+        No journal: the caller posts one. A single adjustment posts its own
+        (`stage_adjustment`); a count sheet posts one journal for all of its
+        differences, because each line posting under the count's number broke
+        the reference's uniqueness on the second line (D-STK-11).
+
+        Returns:
+            The movement, and the change in stock value it made -- positive
+            when stock rose -- taken from the stock ledger row it wrote.
+
+        """
         (
             base_quantity,
             entered_quantity,
@@ -1755,17 +1789,7 @@ class InventoryService:
             )
         )
         movement_value = Decimal(str(entry.total_cost or ZERO)) if entry else ZERO
-        DocumentPostingService(self._session).post_stock_adjustment(
-            firm_id=firm_scope,
-            transaction_id=transaction.id,
-            reference_number=data.reference_number.strip().upper(),
-            transaction_date=data.transaction_date,
-            value_delta=movement_value if delta >= ZERO else -movement_value,
-            actor_id=actor_id,
-            remarks=data.remarks,
-        )
-        self._session.flush()
-        return transaction
+        return transaction, movement_value if delta >= ZERO else -movement_value
 
     def record_goods_receipt(
         self,
