@@ -20,7 +20,7 @@ from app.batch_serial.models import BatchRecord
 from app.branches.models import Branch, Warehouse
 from app.business.models import BusinessProfile, FirmBusinessProfile
 from app.core.database.base import Base
-from app.core.exceptions import ConflictError
+from app.core.exceptions import ConflictError, ValidationError
 from app.finance.models import GLPosting, JournalEntry, LedgerAccount
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
@@ -413,3 +413,113 @@ def test_a_sheet_names_its_products_by_code_and_name() -> None:
     )
     assert [line.product_code for line in response.lines] == [books.product.code]
     assert [line.product_name for line in response.lines] == [books.product.name]
+
+
+def test_a_sheet_whose_second_line_fails_writes_nothing() -> None:
+    """A count is posted whole or not at all (D-STK-3).
+
+    Each adjustment used to commit on its own, so a sheet whose second line
+    failed had already moved the first line's stock and posted its journal,
+    while the sheet itself stayed DRAFT. Posting again after fixing the second
+    line then measured the first against the stock it had already moved, found
+    no difference, and recorded a variance of zero beside a movement and a
+    journal written under the sheet's number.
+
+    The session is request-shaped -- no autoflush, and rolled back rather than
+    committed when the post raises, which is what the router does.
+    """
+    books = _Warehouse(_session_factory()(autoflush=False))
+    withdrawn = Product(
+        firm_id=books.firm.id,
+        code="SKU-002",
+        name="Withdrawn Item",
+        product_type="STOCK_ITEM",
+        status="ACTIVE",
+        created_by=books.actor_id,
+        updated_by=books.actor_id,
+    )
+    books.session.add(withdrawn)
+    books.session.commit()
+    sheet = books.counts.create(
+        PhysicalCountCreate(
+            branch_id=books.branch.id,
+            warehouse_id=books.warehouse.id,
+            count_date=WHEN,
+            lines=[
+                PhysicalCountLineWrite(
+                    product_id=books.product.id, counted_quantity=Decimal("7")
+                ),
+                PhysicalCountLineWrite(
+                    product_id=withdrawn.id, counted_quantity=Decimal("1")
+                ),
+            ],
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+    # Deleted while the sheet was being walked, so its line cannot be posted.
+    withdrawn.is_deleted = True
+    books.session.commit()
+
+    with pytest.raises(ValidationError, match="Product does not belong"):
+        books.counts.post(sheet.id, firm_id=books.firm.id, actor_id=books.actor_id)
+    books.session.rollback()
+
+    assert books.on_hand() == Decimal("10.0000"), "the first line moved nothing"
+    assert (
+        books.session.scalars(
+            select(InventoryTransaction).where(
+                InventoryTransaction.reference_number == sheet.count_number
+            )
+        ).all()
+        == []
+    ), "no adjustment under the sheet's number"
+    assert (
+        books.session.scalars(
+            select(StockLedgerEntry).where(
+                StockLedgerEntry.reference_number == sheet.count_number
+            )
+        ).all()
+        == []
+    ), "no stock ledger row"
+    assert (
+        books.session.scalars(
+            select(JournalEntry).where(JournalEntry.source_module == "inventory")
+        ).all()
+        == []
+    ), "no journal"
+    books.session.refresh(sheet)
+    assert sheet.status == "DRAFT"
+    first = books.counts.lines_for(sheet.id)[0]
+    assert first.variance_quantity is None
+    assert first.transaction_id is None
+
+    # Leave the withdrawn line uncounted and post again: the first line is
+    # adjusted once, against the stock that was really there.
+    books.counts.update(
+        sheet.id,
+        PhysicalCountUpdate(
+            lines=[
+                PhysicalCountLineWrite(product_id=withdrawn.id, counted_quantity=None)
+            ]
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+    books.counts.post(sheet.id, firm_id=books.firm.id, actor_id=books.actor_id)
+    books.session.commit()
+
+    first = books.counts.lines_for(sheet.id)[0]
+    assert first.variance_quantity == Decimal("-3.0000")
+    assert first.transaction_id is not None
+    assert books.on_hand() == Decimal("7.0000")
+    assert (
+        len(
+            books.session.scalars(
+                select(JournalEntry).where(JournalEntry.source_module == "inventory")
+            ).all()
+        )
+        == 1
+    )
