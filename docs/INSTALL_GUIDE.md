@@ -18,9 +18,11 @@ Checked against the repository on **2026-09-18**, version `1.0.0` (`VERSION`).
 
 Two things are not finished, and you should know them before you start.
 
-- **The installer has never been tested on a clean machine.** It has been built
-  and installed on the development machine, which already had Python,
-  PostgreSQL and developer tools on it. The test that matters, on a fresh
+- **The installer has never been installed anywhere.** The server program has
+  been compiled on the development machine, and the setup program was first
+  compiled there on 2026-09-18, but neither has been installed on a machine:
+  the development machine is not a safe place to try, because the setup program
+  would point itself at the development database. The test that matters, on a fresh
   Windows machine with no Python, has not been run yet
   ([`RELEASE_BUILD.md`](RELEASE_BUILD.md), "Testing a release", step 6). The
   build is arranged so that it should work there. Nobody has seen it work.
@@ -197,21 +199,22 @@ or download the Windows installer from
 
 During installation:
 
-- **Set a password for the `postgres` superuser, and keep it.** You need it
-  once, in [section 5.2](#52-finish-the-configuration).
+- **Set a password for the `postgres` superuser, and keep it.** You type it
+  once, on the setup program's **Database** page ([section 5.1](#51-run-the-setup-program)).
 - Leave the port at **5432**. That is what the platform expects
   (`AGENCY_DATABASE_PORT=5432`, which the configuration step writes).
 - Leave the service set to start automatically.
 
 **Keep PostgreSQL on the same machine as the server** (recommendation). The
 installer assumes `localhost`, and it means port 5432 never has to be opened to
-the network. A database on a separate machine does work: set
-`AGENCY_DATABASE_HOST` in `config\.env`. You then have to open that machine to
+the network. A database on a separate machine does work: give its address on
+the setup program's **Database** page, which writes it to `AGENCY_DATABASE_HOST`
+in `config\.env`. You then have to open that machine to
 the server yourself, in `postgresql.conf` (`listen_addresses`) and
 `pg_hba.conf`.
 
-You do not create the application's database account by hand. Step 5.2 creates
-it for you: a login called `agency_app` that is **not** a superuser and owns one
+You do not create the application's database account by hand. The setup
+program creates it for you: a login called `agency_app` that is **not** a superuser and owns one
 database, `agency_platform` (sourced: `install/install.ps1`,
 `backend/app/core/database/bootstrap.py`).
 
@@ -228,24 +231,36 @@ database, `agency_platform` (sourced: `install/install.ps1`,
 4. Accept the default folder, `C:\Program Files\Agency Platform`, or choose
    another with **Browse**. When you upgrade later, setup reuses whatever folder
    you pick now.
-5. At the end, setup shows "Setting up the database. This can take a few
-   minutes..." while it runs the configuration step. **That step runs hidden,
-   and setup does not report whether it worked.**
+5. **This PC**: choose **The server**.
+6. **Database**: the PostgreSQL server (`localhost` when it is on this machine),
+   its port (`5432`), and an administrator account: `postgres` and the password
+   you set in section 4. Setup uses the account once, to create the
+   application's own account and database, and does not store it.
+7. Setup shows "Setting up the database. This can take a few minutes..." while
+   it writes `config\.env`, creates the account and the database, and builds the
+   tables in every store (sourced: the `[Code]` section of
+   `packaging/AgencyPlatform.iss`, which runs `install.ps1 -ConfigureOnly`).
+8. **If that worked**, the last page shows the first administrator's sign-in
+   address and password. **Write the password down now.** Setup does not show
+   it again; after this it is only in `config\.env` (section 7).
+
+   **If it did not**, setup says so in a message giving the reason, the last
+   page says the database is not set up, and **Start Agency Platform** is not
+   offered. The usual causes are a wrong administrator password and PostgreSQL
+   not running. Fix the cause and **run setup again**: it asks for the database
+   again and carries on from where it stopped. Everything the step printed,
+   except the password, is in
+   `C:\ProgramData\Agency Platform\logs\setup-configure.log`.
 
 On the last page, **Start Agency Platform** opens the client. Its sign-in will
 fail until the server is running (section 5.3). That failure is expected.
 
-### 5.2 Finish the configuration
+### 5.2 Check the settings, or finish by hand
 
-**Do this step even if setup appeared to succeed.** The setup program runs the
-configuration step in a hidden window and does not pass it the PostgreSQL
-superuser password (sourced: the `[Run]` entry in
-`packaging/AgencyPlatform.iss`). Without that password it can write
-`config\.env`, but on a fresh PostgreSQL it cannot create the application's
-database account. Setup ignores the failure, so nothing on screen tells you. It
-also means the generated administrator password is never displayed; it stays in
-`config\.env` (section 7). Every command below is safe to repeat: each checks
-first and does only what is missing.
+Setup does all of this for you (section 5.1). Come here to check what it wrote,
+to fix the two template lines below, or to do the database part by hand when
+running setup again is not an option. Every command below is safe to repeat:
+each checks first and does only what is missing.
 
 Open **Windows PowerShell as administrator**. The settings file can only be read
 by administrators. Then:
@@ -441,10 +456,12 @@ place and the network is Private, and the address is right.
 
 1. Run the same `AgencyPlatform-1.0.0-Setup.exe` and get past SmartScreen as in
    section 5.1. Setup needs an administrator account.
-2. The setup program runs its hidden configuration step on every machine. On a
-   client PC, where there is no PostgreSQL, it writes a `backend\config\.env`
-   and then stops quietly. **Ignore the server half on a client PC.** Do not
-   start it and do not register the task from section 5.4.
+2. On the **This PC** page, choose **A client**. Setup then skips the database
+   entirely: it asks for no PostgreSQL account and writes no `config\.env`. The
+   server program is still copied, because there is no client-only installer
+   yet. **Ignore it on a client PC.** Do not start it and do not register the
+   task from section 5.4. Setup remembers the choice, so an upgrade does not ask
+   again.
 3. Start **Agency Platform** from the Start Menu.
 
 **Point the client at the server.** Nothing sets the server address at install
@@ -480,11 +497,11 @@ still starts.
 
 **The first account** is `platform-admin@agency.local`.
 
-**Its first password** is `AGENCY_BOOTSTRAP_ADMIN_PASSWORD` in
-`C:\Program Files\Agency Platform\backend\config\.env`. The setup program never
-displays it, so open that file in Notepad **run as administrator** and copy the
-value. If you ran `install.ps1` or `install.bat` yourself, it was printed once at
-the end.
+**Its first password** is shown once: on the last page of the setup program
+(section 5.1), or at the end of an `install.ps1` or `install.bat` run. If it was
+not written down, it is `AGENCY_BOOTSTRAP_ADMIN_PASSWORD` in
+`C:\Program Files\Agency Platform\backend\config\.env`: open that file in
+Notepad **run as administrator** and copy the value.
 
 On first sign-in you **must change the password** (sourced: the seeded account
 is created with `force_password_change` set, in
@@ -545,7 +562,8 @@ database, possibly on another server. In that case you build its storage with
    no `agency-server.exe` is left in Task Manager.
 3. Run the new `AgencyPlatform-<version>-Setup.exe`. It installs into the same
    folder without asking (`UsePreviousAppDir=yes`), and Windows treats it as an
-   upgrade rather than a second copy.
+   upgrade rather than a second copy. It does not ask **This PC** or
+   **Database** again: it remembers the answer, and that the database is set up.
 4. **Upgrade every store**, from an administrator PowerShell window:
 
    ```powershell
@@ -554,8 +572,9 @@ database, possibly on another server. In that case you build its storage with
    .\agency-server.exe migrate-all --yes
    ```
 
-   Setup also tries this in its hidden step, and `start_backend.ps1` does it on
-   every start. Running it here is the only way to **see** the result. It covers
+   Setup runs this too, and tells you if it failed (the detail is in
+   `setup-configure.log`); `start_backend.ps1` does it on every start. Running
+   it here shows the result **store by store**. It covers
    the platform store, the shared firm store, and **every** firm with its own
    schema or database, including firms on another server. Those servers must be
    reachable, and their profiles must still be in `config\.env`. If one store
@@ -809,16 +828,15 @@ clean-machine install has been run.
 - **No clean-machine test.** See [Read this first](#read-this-first-what-has-and-has-not-been-proven).
 - **Unsigned installer.** SmartScreen warns, and the publisher reads `Agency`.
   This is waiting on a certificate and the legal company name.
-- **The setup program's configuration step cannot create the database on a
-  fresh PostgreSQL.** It runs hidden, gets no superuser password, and its exit
-  code is not checked. Section 5.2 is the workaround.
-- **The generated administrator password is never shown** after an install made
-  with the setup program. It has to be read out of `config\.env`.
+- **An unattended install (`/VERYSILENT`) cannot be given the PostgreSQL
+  administrator account**, because that is typed on a setup page. On a fresh
+  server it fails, with the reason in `setup-configure.log` and section 5.2 as
+  the way through.
 - **No Windows service and no scheduled tasks** are registered, whether for the
   server, retention or backups. Sections 5.4 and 10 give recommended tasks.
 - **No backup or restore** ([section 9](#9-backups); `docs/BACKLOG.md` item 35).
-- **No client-only installer.** Every client PC gets the server half and a
-  `config\.env` of its own.
+- **No client-only installer.** Every client PC gets the server program too;
+  choosing **A client** only stops setup from configuring it.
 - **The server address is not set at install time.** Each Windows user on each
   PC types it into Application Settings.
 - **Unused ProgramData folders.** `C:\ProgramData\Agency Platform\logs` and
