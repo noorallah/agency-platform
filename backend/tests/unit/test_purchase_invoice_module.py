@@ -4,6 +4,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID, uuid4
 
+import pytest
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -300,3 +301,68 @@ def test_an_invoice_line_with_no_price_bills_at_the_source_lines_price() -> None
 
     assert _bill("SUP-SILENT", None).unit_price == Decimal("100")
     assert _bill("SUP-ZERO", Decimal("0")).unit_price == Decimal("0")
+
+
+def test_only_an_approved_bill_can_be_closed() -> None:
+    """D-BUY-12: a DRAFT or CANCELLED bill could be closed.
+
+    Driven on TEST01 on 2026-09-18: PI-2026-2027-000008 went from DRAFT to
+    CLOSED, reading as finished business though it never posted.
+    """
+    from app.core.exceptions import ValidationError
+
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    vendor = _vendor(session, firm_id=firm.id)
+    order = _purchase_order(
+        session,
+        firm_id=firm.id,
+        vendor_id=vendor.id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+    )
+    po_line = session.scalar(
+        select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+    )
+    assert po_line is not None
+    service = PurchaseInvoiceService(session)
+
+    def _draft(number: str) -> PurchaseInvoice:
+        return service.create_invoice(
+            PurchaseInvoiceCreate(
+                supplier_invoice_number=number,
+                supplier_invoice_date=date(2026, 8, 2),
+                invoice_date=date(2026, 8, 2),
+                allow_direct_purchase_order=True,
+                source_documents=[
+                    {
+                        "source_document_type": (
+                            PurchaseInvoiceSourceType.PURCHASE_ORDER
+                        ),
+                        "source_document_id": order.id,
+                    }
+                ],
+                lines=[
+                    PurchaseInvoiceLineWrite(
+                        source_document_type=PurchaseInvoiceSourceType.PURCHASE_ORDER,
+                        source_document_id=order.id,
+                        source_document_line_id=po_line.id,
+                        line_number=1,
+                        current_invoice_quantity=Decimal("1"),
+                    )
+                ],
+            ),
+            firm_id=firm.id,
+            actor_id=uuid4(),
+        )
+
+    draft = _draft("SUP-DRAFT")
+    with pytest.raises(ValidationError, match="Only approved purchase invoices"):
+        service.close_invoice(draft.id, firm_scope=firm.id, actor_id=uuid4())
+
+    cancelled = _draft("SUP-CANCELLED")
+    service.cancel_invoice(cancelled.id, firm_scope=firm.id, actor_id=uuid4())
+    with pytest.raises(ValidationError, match="Only approved purchase invoices"):
+        service.close_invoice(cancelled.id, firm_scope=firm.id, actor_id=uuid4())
