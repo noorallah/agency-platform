@@ -733,6 +733,7 @@ the fixture builds (a minute or two).
 - **Expect**
   - Step 1: one row, MAIN, Current **10**, Available 10, Reserved 0; the summary's figure for the product agrees.
   - Step 2: two `GOODS_RECEIPT` rows, +4 and +6, each naming its GRN, with the balance after each; the last equals Current. The detail dialog is titled "Ledger details". Filtering by type leaves the two. *(Known: the type list offers values the server never writes and lacks some it does — BACKLOG §31.13.)*
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §10.0 (the three tables and how the balance is kept) and §10.1 — what each tab reads, none of it writing a row, and a reconciliation query whose three figures must all read 10. All in `test_fixtures`.
 - **Leaves:** unchanged.
 
 ### TC-STOCK-002 — Moving stock between warehouses posts no journal
@@ -747,6 +748,7 @@ the fixture builds (a minute or two).
   - Step 1: the dialog "Transfer stock" says how much is available; toast "Stock transferred."
   - Step 2: MAIN **47**, `<SUFFIX>-W2` **3** (a row appears), the product's total unchanged at 50. Ledger: `TRANSFER_OUT` 3 at MAIN and `TRANSFER_IN` 3 at W2, both `<SUFFIX>-TRF`. Journal: **no** entry — the footnote says why.
   - Step 3: refused in the dialog, in a red banner with the error icon: "The source holds 47.0000 available, so 999 cannot be transferred out of it." — before anything is sent.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §10.2 — two movements sharing `<SUFFIX>-TRF`, both costed at the held average, the W2 `inventories` row inserted by the inbound leg, three audit rows in one request, and **no** `journal_entries` row with either movement as `source_id`.
 - **Leaves:** 47 in MAIN, 3 in W2.
 
 ### TC-STOCK-003 — Writing off, and holding stock back
@@ -761,6 +763,7 @@ the fixture builds (a minute or two).
   - Step 1: "Stock written off."; MAIN **49**; ledger `WRITE_OFF` 1 `<SUFFIX>-WO`; the journal shows it (Dr Inventory Adjustment / Cr Inventory).
   - Step 2: "Quarantine updated."; ledger `QUARANTINE_HOLD`, then `QUARANTINE_RELEASE`; **no** journal for either. Note what the row shows between hold and release — **(HTTP)** the inventory row read `current_quantity` 47, `available_quantity` 47, `quarantine_quantity` 2 after holding 2 of 49 (driven); the plan expected Current to stay put while Available fell, so record which way the screen shows it.
   - Step 3: refused by name: "There is … to hold, so 999 cannot be."
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §10.3 (the write-off: `reference_type` is the reason, journal Dr 5500 / Cr 1200 60.00 with the movement as `source_id`, four audit rows) and §10.4 (the hold: `current_quantity_delta` −2 and `quarantine_quantity_delta` +2, so Current **and** Available fall while Quarantine rises; null cost; no journal; only `inventory.transaction.created` in the trail).
 - **Leaves:** 49 in MAIN, nothing held.
 
 ### TC-STOCK-004 — A physical count posts only what was counted
@@ -769,6 +772,7 @@ the fixture builds (a minute or two).
 - **Fixture:** `stock-ready`
 - **Steps:** as the fixture's **Firm admin**, Inventory → Stock → **Physical Count** → **Open Count**: branch HO, warehouse MAIN, today → Open. On the sheet find `<SUFFIX>-P - Fixture Product <suffix>` (code and name, never an id); type **49** in Counted (Expected is 50); leave every other line blank. **Save progress**, close, reopen from the list → **Post count** → confirm.
 - **Expect:** "PC-… opened over N lines." (N is every product in MAIN — other runs' too). Difference reads `-1` while typing. The list reads "1 of N lines counted", then "N lines · posted". After posting: MAIN **49**; ledger `ADJUSTMENT` −1 referencing the count; Journal Entries shows the adjustment; the uncounted lines moved nothing. The posted sheet is read-only: "Posted. The differences are in the ledger."
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §10.5 — `physical_counts` and one `physical_count_lines` row per stock row in MAIN; Save progress writes `counted_quantity` and no audit row; Post writes `variance_quantity` −1, an `ADJUSTMENT` with `reference_type` `PHYSICAL_COUNT` and the count number as reference, Dr 5500 / Cr 1200 60.00, and leaves every uncounted line null. A first count in a firm also creates the `PHYSICAL_COUNT` document type; there is never a lifecycle event.
 - **Leaves:** 49 in MAIN; a posted count.
 
 ### TC-STOCK-005 — Dispatch draws the earliest-expiring batch first
@@ -784,6 +788,7 @@ the fixture builds (a minute or two).
   - Step 1: three batches, 10 available each, with their expiry dates.
   - Step 2–3: status DISPATCHED; ledger `DISPATCH` −5 referencing the note. **The 5 comes from `-B2`, the earliest batch that has *not* expired**; `-B1` is skipped. Fixed 2026-09-16; see defect **D-8-1**.
   - Step 4: the six cards — Expired Today, Expire in 7 Days, Expire in 30 Days, Total Expired, Quarantine, Recalled — with `-B1` counted as expired and `-B2` inside 30 days; then the **All Batches** grid (Batch #, Product, Status, Qty, Available, Expiry Date, Warehouse).
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §10.6, in schema `fx_<suffix>_p` — the three `batches` rows and their per-batch `inventories` rows; the order's `RESERVE` sitting on `-B1` (expired stock is still reserved — D-STK-2); at dispatch an `UNRESERVE` on `-B1`, a `DISPATCH` of 5 on `-B2` costed 300.00, and the note's journal Dr 5200 Cost of Goods Sold / Cr 1200 Inventory 300.00. The Expiry Monitor counts `batches` rows, not stock.
 - **Leaves:** a dispatched note.
 
 ### TC-STOCK-006 — A delivery short of stock saves but will not dispatch
@@ -792,6 +797,7 @@ the fixture builds (a minute or two).
 - **Fixture:** `pharma-firm` — `<SUFFIX>-SHT` has **3** on hand and an approved order for **10**.
 - **Steps:** as the fixture's **Firm admin**, Delivery Notes → **New** → the order for 10 → read the preview → Save → Approve → **Dispatch**.
 - **Expect:** the preview ends "Short by … — there is not enough available stock to cover this line." Saving is allowed; **Dispatch is refused** with the server's sentence, "Insufficient available stock for dispatch line."; the note stays **APPROVED** and the ledger shows no DISPATCH.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §10.7 — `<SUFFIX>-SHT`'s row reads current 3, reserved 10, **available −7** (two `RESERVE` rows, 3 and 7, from the approval); Save and Approve write no stock row; the refused dispatch writes nothing at all — no movement, no journal, no audit row, `delivery_notes.version` unmoved.
 - **Leaves:** an approved, undispatched note.
 
 ### TC-STOCK-007 — A remembered filter from another firm is dropped
@@ -800,6 +806,7 @@ the fixture builds (a minute or two).
 - **Fixture:** `pharma-firm` — its platform admin can open both TEST01 and the fixture's firm.
 - **Steps:** sign in as the fixture's **Platform admin**; switch into **TEST01** → Inventory → Stock → Inventory → filter by any product → Apply. Switch into the fixture's firm → the same tab.
 - **Expect:** the tab renders; the remembered TEST01 filter is dropped (the panel reads "Filters" with none active) and choosing the firm's own warehouse works. *(A remembered id from another firm used to take the section down with "This section failed to render".)*
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §10.8 — not a table row: the filter is `workspace_state.inventory_management` in `%APPDATA%\.agency_platform\desktop_preferences.json` on the machine. The only server row the case writes is the firm switch's `user_preferences.updated` on the platform trail.
 - **Leaves:** unchanged.
 
 ### TC-STOCK-008 — Serial numbers carry their warranty
@@ -808,6 +815,7 @@ the fixture builds (a minute or two).
 - **Fixture:** `electronics-firm` — `<SUFFIX>-MIX`, 5 on hand, serials `<SUFFIX>-MIX-0001` to `-0005`.
 - **Steps:** as the fixture's **Firm admin**, Inventory → Batch & Serial → **Serial Numbers**; search `<SUFFIX>-MIX-`; open one row's detail; filter Status AVAILABLE.
 - **Expect:** five rows, status AVAILABLE, Warranty End a year from today, warehouse MAIN. The detail is titled "Serial: <SUFFIX>-MIX-0001" with warranty start and end and the warehouse. The Status filter keeps all five.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §10.9, in schema `fx_<suffix>_e` — five `serial_numbers` rows with `warranty_start`/`warranty_end`, `inventory_id` and `batch_id` null, audit action `CREATE`; the screen writes nothing. No movement ever names a serial, so a serial's status never moves on its own (D-STK-4).
 - **Leaves:** unchanged.
 
 ### Known defects found while writing these cases

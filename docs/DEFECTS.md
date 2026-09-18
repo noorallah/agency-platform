@@ -44,6 +44,25 @@ Full write-ups: PR #435 and `docs/DATA_TRAIL_BY_OPERATION.md` §9.
 | D-BUY-7 | Medium | **Invoicing part of a receipt line clears the whole line's accrual** (`_accrued_cost` in `purchase_invoice_service.py`). | Code |
 | D-BUY-8 | Low | Three small ones: a supplier advance can never be allocated after it is recorded; receiving that moves an order's status writes an audit row but no history row; an edit's two history rows share one timestamp. | Code |
 
+### Stock -- found writing the Stock data trail, 2026-09-18
+
+Full write-ups: the PR that added `docs/DATA_TRAIL_BY_OPERATION.md` §10, and
+the section itself. BL-31.13 (the Stock Ledger's type filter) already covers
+the filter and is not repeated here.
+
+| Id | Severity | Summary | Evidence |
+| --- | --- | --- | --- |
+| D-STK-1 | High | **A physical count adjusts the wrong row for a batch line.** `PhysicalCountService.post` measures the variance against the batch's own stock row but posts the adjustment through `InventoryAdjustmentCreate`, which has no `batch_id` (`backend/app/inventory/schemas/inventory.py`), so `create_adjustment` lands it on the product's untracked row -- creating one if there is none -- and the batch row never corrects (`backend/app/inventory/services/physical_count_service.py`, `post`; `inventory_service.py`, `create_adjustment`). | Code -- no store holds a count over a batch row |
+| D-STK-2 | High | **A sales order reserves expired stock.** `allocate_for_reservation` ranks batches by expiry with expired ones included; only `allocate_for_dispatch` skips them (D-8-1). The hold sits on stock that can never ship while the in-date batch stays free to be promised to a second order (`backend/app/inventory/services/inventory_service.py`, `allocate_for_reservation`). | Live: both pharmacy fixture stores reserve SO-2026-2027-000001 on `-B1` (expired 2026-08-17) and dispatch from `-B2` |
+| D-STK-3 | Medium | **Posting a count commits per adjusted line.** `create_adjustment` commits inside the loop in `PhysicalCountService.post`, so a failure on a later line leaves earlier lines adjusted, journaled and committed while the sheet stays DRAFT; re-posting rewrites their `variance_quantity` to 0 beside a `transaction_id` that still points at the movement. | Code |
+| D-STK-4 | Medium | **A serial number's status never moves.** Nothing outside `app/batch_serial` reads or writes `serial_numbers`; no movement sets `inventory_transactions.serial_id`, so a serialised unit that is dispatched stays `AVAILABLE`. | Live: zero movements carry `serial_id` or `lot_id` in nineteen stores; Code |
+| D-STK-5 | Low | **A count with nothing counted can be posted**, reading POSTED with `adjusted_lines` 0 (`PhysicalCountService.post` has no "at least one counted line" check). | Live: WHOLE01 `PC-2026-2027-000005` |
+| D-STK-6 | Low | **Two writes with no named audit row:** a quarantine hold or release leaves only `inventory.transaction.created` (`quarantine_stock` calls no `record_audit`), and Save progress on a count (`PhysicalCountService.update`) writes none. | Live (the hold's request holds one audit row); Code |
+| D-STK-7 | Low | **A cancelled order's release is dated today (UTC) while its reservation is dated the order date** (`sales_order_service.py`, `_release_inventory` vs `_reserve_inventory`), so the ledger shows the release before the hold. | Live: WHOLE01 SO-2026-2027-000015 to 000018, reserved 2026-09-13, released 2026-09-12 |
+| D-STK-8 | Low | **Expiry Monitor's "Expired Today" and "Total Expired" are the same count** (`expiry_dashboard` evaluates `expired_condition(today)` for both), and every card counts `batches` rows whether or not any stock is left. | Code |
+| D-STK-9 | Low | **A reversing movement is dated the original's `transaction_date`** (`reverse_transaction`), so the stock ledger by date shows the goods leaving the day they arrived and `inventories.last_transaction_at` goes backwards -- the stock-side twin of D-BUY-4. | Live: WHOLE01 `SALES_RETURN_REVERSAL` for SR-2026-2027-000002 dated 2026-08-19 |
+| D-STK-10 | Low | **Batch and serial audit rows are bare `CREATE` / `UPDATE` / `DELETE` with empty `after_data`**, unlike every other module's `module.action` naming, so an exact-match filter for `batch.created` finds nothing; and `docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md` still lists quantity columns on `batches` that the model no longer has, while the `InventoryTransactionType` docstring says counts and write-offs are unbuilt. | Live (the rows); Code (the docs) |
+
 ### Found in manual testing and not yet fixed -- `docs/BACKLOG.md` §31
 
 | Id | Severity | Summary | Evidence |
