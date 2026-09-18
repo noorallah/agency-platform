@@ -33,6 +33,7 @@ from app.customers.schemas import (
 from app.customers.services import CreditControlService
 from app.customers.services.customer_service import CustomerService
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
+from app.delivery_note.rules import require_dispatched_note
 from app.delivery_note.schemas import DeliveryNoteStatus
 from app.document_framework.models import (
     DocumentLifecycleEvent,
@@ -671,6 +672,23 @@ class SalesInvoiceService(TransactionalDocumentService):
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status != SalesInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft sales invoices can be approved.")
+        # Checked again here, not only when the draft is saved: a draft saved
+        # before the save refused an undispatched note would otherwise still
+        # post revenue for goods that never left (D-SELL-3).
+        for note in self._session.scalars(
+            select(DeliveryNote)
+            .join(
+                SalesInvoiceSource,
+                SalesInvoiceSource.source_document_id == DeliveryNote.id,
+            )
+            .where(
+                SalesInvoiceSource.sales_invoice_id == row.id,
+                SalesInvoiceSource.source_document_type
+                == SalesInvoiceSourceType.DELIVERY_NOTE.value,
+                SalesInvoiceSource.is_deleted.is_(False),
+            )
+        ).all():
+            require_dispatched_note(note, "billed")
         # Approval is what puts the amount on the customer's account, so it is
         # the last point at which a limit can still be enforced.
         #
@@ -1790,6 +1808,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 )
                 if note is None:
                     raise ResourceNotFoundError("Delivery note not found.")
+                require_dispatched_note(note, "billed")
                 source_rows.append(
                     {
                         "source_document_type": source_type,
