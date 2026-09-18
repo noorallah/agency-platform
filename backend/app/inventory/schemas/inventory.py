@@ -547,6 +547,10 @@ class InventoryAdjustmentCreate(InventorySchema):
     warehouse_id: UUID
     storage_node_id: UUID | None = None
     product_id: UUID
+    #: The batch whose stock row is corrected. Without it the adjustment lands
+    #: on the product's untracked row -- creating one if there is none -- and
+    #: the batch that was actually short or over never moves (D-STK-1).
+    batch_id: UUID | None = None
     quantity: Decimal = Field(max_digits=18)
     entered_quantity: Decimal | None = Field(default=None, max_digits=18)
     entered_uom_id: UUID | None = None
