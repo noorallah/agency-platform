@@ -108,6 +108,21 @@ class _Movement:
     revalues: bool = True
 
 
+@dataclass(frozen=True, slots=True)
+class ReservationPlan:
+    """What a sales order line holds, and what it could not hold and why.
+
+    ``batches`` is the split to stage one movement per pair, any uncovered
+    remainder last under ``None``. ``expired_note`` names the batches that
+    were on the shelf but out of date when there is such a remainder, and is
+    empty otherwise -- a back order beside a screen showing twenty on hand
+    needs the explanation written where the hold is.
+    """
+
+    batches: list[tuple[UUID | None, Decimal]]
+    expired_note: str = ""
+
+
 class InventoryService:
     """Coordinate inventory projections, immutable movements, and opening stock."""
 
@@ -2326,7 +2341,8 @@ class InventoryService:
         storage_node_id: UUID | None,
         product_id: UUID,
         quantity: Decimal,
-    ) -> list[tuple[UUID | None, Decimal]]:
+        as_of: date | None = None,
+    ) -> ReservationPlan:
         """Choose which batches a sales order holds, earliest expiry first.
 
         Committing stock at approval is what stops two salespeople promising
@@ -2339,16 +2355,28 @@ class InventoryService:
         Reserving in the same order the goods will ship in keeps the two
         halves of the sales flow talking about the same stock -- dispatch
         releases a batch's reservation and immediately draws from it, because
-        both rank by expiry.
+        both rank by expiry. **And the same stock is a candidate for both.**
+        Dispatch stopped drawing expired batches on 2026-09-16 (D-8-1) while
+        this went on holding them: a pharmacy approving an order for five held
+        the batch that expired in August -- earliest expiry, read literally --
+        and the note then shipped from the in-date batch, which had stayed
+        free for anybody else to promise. The hold protected nothing. Expired
+        stock is dropped here exactly as ``allocate_for_dispatch`` drops it,
+        judged on the order's own date (``as_of``) rather than today.
 
         **Short stock does not fail here.** An order may be taken for more than
         is on the shelf; that is a back order, and the reports count on it. The
         batches cover what they can and the remainder is returned as a single
         pair with no batch, which is the truth: there is no batch behind it.
+        When stock that has gone out of date stands behind that remainder, the
+        plan says so by batch name, in the words dispatch refuses with -- the
+        screen still shows that stock as on hand, and a back order beside
+        twenty on the shelf explains nothing.
 
         Returns:
-            The batches to hold, in the order to hold them, and any uncovered
-            remainder last under ``None``.
+            The batches to hold, in the order to hold them, any uncovered
+            remainder last under ``None``, and the note naming the expired
+            stock behind that remainder (empty when there is none).
 
         """
         rows = self._expiry_ranked_rows(
@@ -2358,6 +2386,7 @@ class InventoryService:
             product_id=product_id,
             column=InventoryRecord.available_quantity,
         )
+        rows, expired, held_expired = self._without_expired(rows, as_of=as_of)
         outstanding = Decimal(str(quantity))
         allocation: list[tuple[UUID | None, Decimal]] = []
         for row in rows:
@@ -2368,9 +2397,11 @@ class InventoryService:
                 continue
             allocation.append((row.batch_id, take))
             outstanding -= take
+        note = ""
         if outstanding > ZERO:
             allocation.append((None, outstanding))
-        return allocation
+            note = self._expired_note(expired, held_expired, verb="reserved")
+        return ReservationPlan(batches=allocation, expired_note=note)
 
     def allocate_for_release(
         self,
@@ -2541,19 +2572,7 @@ class InventoryService:
         product = self._session.get(Product, product_id)
         if product is not None and product.require_batch_on_issue:
             rows = [row for row in rows if row.batch_id is not None]
-        expired = self._expired_batches(
-            {row.batch_id for row in rows if row.batch_id is not None},
-            as_of=as_of or utc_now().date(),
-        )
-        held_expired = sum(
-            (
-                Decimal(str(row.available_quantity))
-                for row in rows
-                if row.batch_id in expired
-            ),
-            ZERO,
-        )
-        rows = [row for row in rows if row.batch_id not in expired]
+        rows, expired, held_expired = self._without_expired(rows, as_of=as_of)
         outstanding = Decimal(str(quantity))
         allocation: list[tuple[UUID | None, Decimal]] = []
         for row in rows:
@@ -2573,16 +2592,55 @@ class InventoryService:
                     if product is not None and product.require_batch_on_issue
                     else ""
                 )
-                + self._expired_note(expired, held_expired)
+                + self._expired_note(expired, held_expired, verb="dispatched")
             )
         return allocation
 
+    def _without_expired(
+        self, rows: list[InventoryRecord], *, as_of: date | None
+    ) -> tuple[list[InventoryRecord], dict[UUID, tuple[str, date]], Decimal]:
+        """Drop the rows whose batch had expired by ``as_of``.
+
+        One step for reservation and dispatch alike, because the two drifted
+        apart the moment it lived in only one of them: dispatch stopped drawing
+        expired stock and reservation went on holding it (D-STK-2). Judged on
+        the document's own date rather than today, so a history rebuilt a year
+        later posts what it posted at the time.
+
+        Returns:
+            The rows still in date, the expired batches by id (number and
+            expiry date, for naming them), and how much available stock those
+            expired rows were holding.
+
+        """
+        expired = self._expired_batches(
+            {row.batch_id for row in rows if row.batch_id is not None},
+            as_of=as_of or utc_now().date(),
+        )
+        held_expired = sum(
+            (
+                Decimal(str(row.available_quantity))
+                for row in rows
+                if row.batch_id in expired
+            ),
+            ZERO,
+        )
+        return (
+            [row for row in rows if row.batch_id not in expired],
+            expired,
+            held_expired,
+        )
+
     @staticmethod
-    def _expired_note(expired: dict[UUID, tuple[str, date]], held: Decimal) -> str:
+    def _expired_note(
+        expired: dict[UUID, tuple[str, date]], held: Decimal, *, verb: str
+    ) -> str:
         """Say how much of the shortfall is stock that has gone out of date.
 
         Without this the refusal reads "short by 5" beside a screen showing
-        fifteen on hand, and the difference is invisible.
+        fifteen on hand, and the difference is invisible. ``verb`` is what the
+        stock could not be -- "dispatched" or "reserved" -- so the same note
+        reads right on a refused note and on a back-ordered hold.
         """
         if not expired or held <= ZERO:
             return ""
@@ -2592,7 +2650,7 @@ class InventoryService:
         )
         return (
             f" {held} of this product's stock is past its expiry date "
-            f"({names}) and cannot be dispatched: write it off or quarantine "
+            f"({names}) and cannot be {verb}: write it off or quarantine "
             "it."
         )
 
