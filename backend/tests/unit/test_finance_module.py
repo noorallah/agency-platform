@@ -2200,3 +2200,54 @@ def test_reversing_a_returned_goods_cost_uses_what_the_movement_removed() -> Non
     # Both legs are the same figure, so the difference stays in cost of goods
     # sold and no third account is needed.
     assert len(reversal.lines) == 2
+
+
+@pytest.mark.parametrize(
+    ("today", "expected"),
+    [
+        # The cancel day, in the period open that day.
+        (date(2026, 4, 20), date(2026, 4, 20)),
+        # No open period covers the cancel day: the original's own day.
+        (date(2030, 1, 15), date(2026, 4, 16)),
+    ],
+)
+def test_a_reversal_is_dated_the_day_it_happens(
+    monkeypatch: pytest.MonkeyPatch, today: date, expected: date
+) -> None:
+    """D-BUY-4: a reversal took the first day of the original's period.
+
+    A receipt from the 16th cancelled on the 20th reversed on the 1st -- neither
+    date, and sorted before what it undoes. The owner chose the cancel date
+    (2026-09-18). The clock is pinned so this does not expire with the year.
+    """
+    from app.finance.services import journal_engine
+
+    monkeypatch.setattr(
+        journal_engine,
+        "utc_now",
+        lambda: datetime(today.year, today.month, today.day, 10, tzinfo=UTC),
+    )
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    engine = JournalEntryEngine(session)
+    entry = engine.create_entry(
+        firm_id=firm.id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 16),
+        reference_number="JV-DATE",
+        description="Cash sale",
+        lines=_sale_lines(book, "80.00"),
+        actor_id=actor_id,
+    )
+    engine.post_entry(entry.id, firm_id=firm.id, actor_id=actor_id)
+
+    reversal = engine.reverse_entry(
+        entry.id, firm_id=firm.id, reference_number="JV-DATE-R", actor_id=actor_id
+    )
+
+    assert reversal.journal_date == expected
+    assert reversal.accounting_period_id == book.period.id

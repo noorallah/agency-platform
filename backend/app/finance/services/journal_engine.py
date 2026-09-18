@@ -247,11 +247,32 @@ class JournalEntryEngine:
         if original.status != JournalStatus.POSTED.value:
             raise ValidationError("Only posted entries can be reversed.")
 
-        target_period_id = accounting_period_id or original.accounting_period_id
-        period = self._require_open_period(target_period_id, firm_id=firm_id)
-        target_date = journal_date or period.starts_on
-        if not (period.starts_on <= target_date <= period.ends_on):
-            target_date = period.starts_on
+        if accounting_period_id is not None:
+            # The caller chose the period; keep the date inside it.
+            target_period_id = accounting_period_id
+            period = self._require_open_period(target_period_id, firm_id=firm_id)
+            target_date = journal_date or period.starts_on
+            if not (period.starts_on <= target_date <= period.ends_on):
+                target_date = period.starts_on
+        else:
+            # D-BUY-4, decided by the owner on 2026-09-18: a reversal carries
+            # the day it happened, in the period open on that day. It used to
+            # take the first day of the *original's* period -- a receipt from
+            # the 16th cancelled on the 20th reversed on the 1st, which is
+            # neither date and sorts the reversal before what it undoes.
+            target_date = journal_date or utc_now().date()
+            open_period = self._open_period_covering(target_date, firm_id=firm_id)
+            if open_period is None:
+                # Nothing is open on that day -- typically a new year not yet
+                # opened. Undo it on the original's own day rather than refuse
+                # a cancellation the firm cannot otherwise make; a closed
+                # original period is still refused below.
+                target_date = original.journal_date
+                open_period = self._require_open_period(
+                    original.accounting_period_id, firm_id=firm_id
+                )
+            period = open_period
+            target_period_id = period.id
 
         reversal_lines = lines or [
             JournalLineData(
@@ -541,6 +562,20 @@ class JournalEntryEngine:
         else:
             movement = balance.period_credit - balance.period_debit
         return quantize_money(balance.opening_balance + movement)
+
+    def _open_period_covering(
+        self, on: date, *, firm_id: UUID
+    ) -> AccountingPeriod | None:
+        """Return the open period that covers a date, if there is one."""
+        return self._session.scalar(
+            select(AccountingPeriod).where(
+                AccountingPeriod.firm_id == firm_id,
+                AccountingPeriod.starts_on <= on,
+                AccountingPeriod.ends_on >= on,
+                AccountingPeriod.status == PeriodStatus.OPEN.value,
+                AccountingPeriod.is_deleted.is_(False),
+            )
+        )
 
     def _require_open_period(
         self, accounting_period_id: UUID, *, firm_id: UUID
