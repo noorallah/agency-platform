@@ -118,13 +118,23 @@ class RedemptionService:
             ).all()
         )
         for row in pending:
-            promotion = self._session.scalar(
-                select(Promotion)
-                .where(Promotion.id == row.promotion_id)
-                .with_for_update()
-            )
+            promotion = self._session.get(Promotion, row.promotion_id)
             if promotion is None:
                 continue
+            # The whole version group is held, not the row this claim was
+            # priced against: an order priced before an edit claims the old
+            # revision and one priced after claims the new, and a lock on
+            # each row alone would let both through at once (D-SELL-15). In
+            # id order, so two approvals lock a group the same way round.
+            self._session.scalars(
+                select(Promotion.id)
+                .where(
+                    Promotion.firm_id == firm_id,
+                    Promotion.version_group_id == promotion.version_group_id,
+                )
+                .order_by(Promotion.id)
+                .with_for_update()
+            ).all()
             self._assert_room(promotion, row, firm_id=firm_id)
             row.status = CLAIMED
             row.updated_by = actor_id
@@ -210,13 +220,27 @@ class RedemptionService:
         customer_id: UUID | None = None,
         coupon_id: UUID | None = None,
     ) -> int:
-        """Count live claims. A reversal and a pending row both count nothing."""
+        """Count live claims on one offer. Reversed and pending count nothing.
+
+        Counted across the offer's whole **version group**, as pricing counts
+        them (`PromotionService._claimed`). A published promotion is
+        superseded rather than edited, so counting the claimed row alone
+        stopped every claim on an earlier revision counting against the limit
+        the moment the offer was edited -- a campaign limited to one was
+        claimed twice (D-SELL-15, 2026-09-19).
+        """
+        group = select(Promotion.version_group_id).where(Promotion.id == promotion_id)
         statement = (
             select(func.count())
             .select_from(PromotionRedemption)
             .where(
                 PromotionRedemption.firm_id == firm_id,
-                PromotionRedemption.promotion_id == promotion_id,
+                PromotionRedemption.promotion_id.in_(
+                    select(Promotion.id).where(
+                        Promotion.firm_id == firm_id,
+                        Promotion.version_group_id == group.scalar_subquery(),
+                    )
+                ),
                 PromotionRedemption.status == CLAIMED,
                 PromotionRedemption.is_deleted.is_(False),
             )
