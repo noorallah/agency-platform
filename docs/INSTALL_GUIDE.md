@@ -302,16 +302,11 @@ The settings it writes, and why they matter (sourced:
 | `AGENCY_DATABASE_HOST` / `_PORT` / `_NAME` / `_USERNAME` | `localhost` / `5432` / `agency_platform` / `agency_app` | Where the database is |
 | `AGENCY_LOG_DIRECTORY` | `logs` | Relative to the backend folder, which puts the logs in `backend\logs\` |
 
-Two lines in that file come from the template and need attention. To edit it,
-run Notepad as administrator:
-
-- **`AGENCY_TENANCY_CONNECTION_PROFILES`**: the template ships an active example
-  profile, `REMOTE_A`, pointing at `127.0.0.1:5433` with the password
-  `CHANGE_ME`. It is harmless unless a firm is created against it. **Put a `#`
-  at the start of that line** unless you are setting up a second database
-  server ([section 7.2](#72-firms-that-keep-their-data-in-their-own-database)).
-- **`AGENCY_APP_VERSION=0.1.0`**: this overrides the real version. **Delete the
-  line**, or `/health` and `agency-server where` will report `0.1.0`.
+The file sets no version (the program's own is used) and names no second
+database server; the `AGENCY_TENANCY_CONNECTION_PROFILES` example in it is
+commented out. Uncomment and fill it in only when a firm is to keep its data on
+another server ([section 7.2](#72-firms-that-keep-their-data-in-their-own-database)).
+To edit the file, run Notepad as administrator.
 
 **b. Create the database account and the database.** The superuser password is
 passed in an environment variable rather than typed on the command line, so it
@@ -843,9 +838,6 @@ clean-machine install has been run.
   `storage` are created, but the configuration step never points
   `AGENCY_LOG_DIRECTORY` there. Logs go under `Program Files`, which is why the
   server needs administrator or SYSTEM rights.
-- **The settings template carries development leftovers** into a production
-  `config\.env`: `AGENCY_APP_VERSION=0.1.0` and an active `REMOTE_A` connection
-  profile. See section 5.2.
 - **A firm with its own database on the same server** needs `CREATEDB` on
   `agency_app`, which the installer does not grant. See section 7.2.
 - **The Visual C++ runtime is not bundled,** and whether a new machine needs it
