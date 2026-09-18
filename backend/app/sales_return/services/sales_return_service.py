@@ -395,8 +395,6 @@ class SalesReturnService(TransactionalDocumentService):
             exchange_rate=data.exchange_rate,
             reference_number=data.reference_number,
             remarks=data.remarks,
-            allow_over_return=data.allow_over_return,
-            over_return_percent=self._q(data.over_return_percent),
             status=SalesReturnStatus.DRAFT.value,
             additional_charges=self._q(data.additional_charges),
             round_off=self._q(data.round_off),
@@ -480,8 +478,6 @@ class SalesReturnService(TransactionalDocumentService):
         row.exchange_rate = data.exchange_rate
         row.reference_number = data.reference_number
         row.remarks = data.remarks
-        row.allow_over_return = data.allow_over_return
-        row.over_return_percent = self._q(data.over_return_percent)
         row.additional_charges = self._q(data.additional_charges)
         row.round_off = self._q(data.round_off)
         row.updated_by = actor_id
@@ -1082,10 +1078,9 @@ class SalesReturnService(TransactionalDocumentService):
                 source_document_line_id=source_line.id,
                 exclude_return_id=row.id,
             )
-            if (
-                not row.allow_over_return
-                and return_quantity + already_returned > dispatched
-            ):
+            # No request can lift this cap: a body flag the caller sets was
+            # all it took to credit 50 against a note for 5 (D-SELL-29).
+            if return_quantity + already_returned > dispatched:
                 raise ValidationError(
                     "Return quantity exceeds what was dispatched on the source "
                     f"document ({dispatched} sent, {already_returned} already "
@@ -1856,8 +1851,6 @@ class SalesReturnService(TransactionalDocumentService):
             exchange_rate=row.exchange_rate,
             reference_number=row.reference_number,
             remarks=row.remarks,
-            allow_over_return=row.allow_over_return,
-            over_return_percent=row.over_return_percent,
             status=SalesReturnStatus(row.status),
             total_source_quantity=row.total_source_quantity,
             total_already_returned_quantity=row.total_already_returned_quantity,
