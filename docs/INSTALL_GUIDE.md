@@ -72,10 +72,15 @@ Extract the folder you were given, open it, and **double-click `install.bat`**.
 A window opens and asks where to install:
 
 ```
-Install where? [C:\AgencyPlatform, or a path of your own]:
+Install where? [Enter for C:\AgencyPlatform, B to browse, or type a folder]:
 ```
 
-Press **Enter** to accept the default, or type a folder and press Enter.
+Press **Enter** to accept the default, type a folder and press Enter, or type
+**B** and press Enter to pick one in the Windows folder window. A folder you
+pick is used as it is when it is empty or already holds an install (an
+update); any other folder gets an `AgencyPlatform` folder made inside it, so
+picking `D:\` installs into `D:\AgencyPlatform`. The installer prints the
+folder it settled on. Cancelling the window brings the question back.
 
 ### What you should see
 
