@@ -3359,6 +3359,8 @@ class InventoryService:
             storage_node_id=storage_node_id,
             product_id=product_id,
         )
+        if batch_id is not None:
+            self._require_batch_of(batch_id, firm_id=firm_id, product_id=product_id)
         locator = self._storage_locator(storage_node.id if storage_node else None)
         row = self._find_inventory_row(
             firm_id=firm_id,
@@ -3395,6 +3397,29 @@ class InventoryService:
         self._session.add(row)
         self._session.flush()
         return row
+
+    def _require_batch_of(
+        self, batch_id: UUID, *, firm_id: UUID, product_id: UUID
+    ) -> None:
+        """Refuse a batch that is not this product's, in this firm.
+
+        Every stock row a movement lands on is found or made here, so this is
+        the one place a batch named on an adjustment, a write-off, a hold, a
+        transfer or a count line is checked. None of them checked: an
+        adjustment for one product naming another product's batch made a
+        stock row for the first under the second's batch (D-STK-14, driven on
+        2026-09-19 in fx_t09194k75_p).
+        """
+        batch = self._session.get(BatchRecord, batch_id)
+        if (
+            batch is None
+            or batch.is_deleted
+            or batch.firm_id != firm_id
+            or batch.product_id != product_id
+        ):
+            raise ValidationError(
+                "The batch named is not one of this product's batches in this firm."
+            )
 
     def _stage_movement(
         self, inventory: InventoryRecord, *, actor_id: UUID, movement: _Movement
