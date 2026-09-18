@@ -16,7 +16,7 @@ from app.business.models import BusinessFeature, BusinessProfile, ProfileFeature
 from app.business.models import framework as _business_models  # noqa: F401
 from app.common.audit.models import AuditLog
 from app.core.database.base import Base
-from app.core.exceptions import AuthorizationError
+from app.core.exceptions import AuthorizationError, ValidationError
 from app.customers.models import Customer
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.delivery_note.schemas import (
@@ -1655,11 +1655,11 @@ def test_dispatch_from_another_warehouse_releases_where_the_order_reserved() -> 
     assert _held(depot) == (Decimal("95"), Decimal("0"))
 
 
-@pytest.mark.parametrize("action", ["close", "cancel"])
-def test_ending_a_part_shipped_order_gives_back_the_rest_of_its_hold(
-    action: str,
-) -> None:
-    """Closing or cancelling released stock only for an APPROVED order.
+def test_closing_a_part_shipped_order_gives_back_the_rest_of_its_hold() -> None:
+    """Closing (or cancelling) released stock only for an APPROVED order.
+
+    Closing is the only way to end a part-shipped order now: cancelling one
+    that a note has shipped is refused (D-SELL-11).
 
     Once a note ships part of it the order reads PARTIALLY_DELIVERED, and
     both actions checked for APPROVED alone -- so the undelivered remainder
@@ -1697,9 +1697,9 @@ def test_ending_a_part_shipped_order_gives_back_the_rest_of_its_hold(
     session.refresh(order)
     assert order.status == SalesOrderStatus.PARTIALLY_DELIVERED.value
 
-    orders = SalesOrderService(session)
-    end = orders.close_order if action == "close" else orders.cancel_order
-    end(order.id, firm_scope=firm.id, actor_id=actor_id, reason="customer gone")
+    SalesOrderService(session).close_order(
+        order.id, firm_scope=firm.id, actor_id=actor_id, reason="customer gone"
+    )
 
     records = session.scalars(
         select(InventoryRecord).where(
@@ -1715,6 +1715,124 @@ def test_ending_a_part_shipped_order_gives_back_the_rest_of_its_hold(
     ) == Decimal("96")
     session.refresh(order_line)
     assert order_line.reserved_quantity == Decimal("0")
+
+
+def _order_with_a_shipment(
+    session: Session,
+) -> tuple[Firm, SalesOrder, SalesOrderLine, UUID]:
+    """Return a firm and its order for 10, of which a note has shipped 4."""
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+    _stock(session, firm=firm, branch=branch, warehouse=warehouse, product=product)
+    order, order_line = _approved_order(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+        quantity=Decimal("10"),
+        actor_id=actor_id,
+    )
+    _dispatch(
+        session,
+        firm=firm,
+        order=order,
+        order_line=order_line,
+        quantity=Decimal("4"),
+        on=date(2026, 8, 4),
+        actor_id=actor_id,
+    )
+    session.refresh(order)
+    return firm, order, order_line, actor_id
+
+
+def test_an_order_that_has_shipped_cannot_be_cancelled() -> None:
+    """D-SELL-11: the goods had left and the order read CANCELLED.
+
+    Driven 2026-09-19 on ``fx_t09194xes_s``: SO-2026-2027-000001, DELIVERED
+    by two dispatched notes, was cancelled with a 200, which also handed its
+    offer claims back while the discount stood on the bill. Closing is the
+    way to end an order part of which has happened.
+    """
+    session = _session_factory()()
+    firm, order, _, actor_id = _order_with_a_shipment(session)
+
+    with pytest.raises(ValidationError, match="cannot be cancelled while"):
+        SalesOrderService(session).cancel_order(
+            order.id, firm_scope=firm.id, actor_id=actor_id, reason="too late"
+        )
+    session.rollback()
+    session.refresh(order)
+    assert order.status == SalesOrderStatus.PARTIALLY_DELIVERED.value
+
+
+def test_a_closed_order_takes_no_further_note() -> None:
+    """D-SELL-11: a note was accepted against a CLOSED order.
+
+    Closing released the reservation for the undelivered 6, and a new note
+    for them could still be raised, approved and shipped.
+    """
+    session = _session_factory()()
+    firm, order, order_line, actor_id = _order_with_a_shipment(session)
+    SalesOrderService(session).close_order(
+        order.id, firm_scope=firm.id, actor_id=actor_id, reason="customer gone"
+    )
+
+    with pytest.raises(ValidationError, match="is CLOSED"):
+        DeliveryNoteService(session).create_note(
+            DeliveryNoteCreate(
+                sales_order_id=order.id,
+                delivery_date=date(2026, 8, 5),
+                lines=[
+                    DeliveryNoteLineWrite(
+                        sales_order_line_id=order_line.id,
+                        line_number=1,
+                        current_delivery_quantity=Decimal("2"),
+                        unit_price=Decimal("100"),
+                    )
+                ],
+            ),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+
+
+def test_a_note_approved_before_the_close_does_not_ship() -> None:
+    """Only create asked, so a note already approved still went out."""
+    session = _session_factory()()
+    firm, order, order_line, actor_id = _order_with_a_shipment(session)
+    service = DeliveryNoteService(session)
+    note = service.create_note(
+        DeliveryNoteCreate(
+            sales_order_id=order.id,
+            delivery_date=date(2026, 8, 5),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=order_line.id,
+                    line_number=1,
+                    current_delivery_quantity=Decimal("2"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    service.approve_note(note.id, firm_scope=firm.id, actor_id=actor_id)
+    SalesOrderService(session).close_order(
+        order.id, firm_scope=firm.id, actor_id=actor_id, reason="customer gone"
+    )
+
+    with pytest.raises(ValidationError, match="is CLOSED"):
+        service.dispatch_note(note.id, firm_scope=firm.id, actor_id=actor_id)
+    session.rollback()
+    with pytest.raises(ValidationError, match="is CLOSED"):
+        service.complete_note(note.id, firm_scope=firm.id, actor_id=actor_id)
 
 
 def test_dispatch_from_another_branchs_warehouse_finds_its_stock() -> None:

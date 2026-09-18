@@ -81,18 +81,12 @@ class DocumentStatusGate {
     // credit check runs and stock is reserved.
     DocumentLifecycleAction.approve: {'DRAFT'},
     // Both cancel and close refuse a cancelled or closed order with
-    // "Sales order is already closed for updates." Everything else is
-    // permitted, PARTIALLY_DELIVERED and DELIVERED included -- which was
-    // already true before those statuses were written, because a delivered
-    // order simply read APPROVED. Listing them here keeps the gate saying
-    // what the service does; whether a shipped order *should* be cancellable
-    // is a separate question, recorded in docs/SALES_FRAMEWORK.md.
-    DocumentLifecycleAction.cancel: {
-      'DRAFT',
-      'APPROVED',
-      'PARTIALLY_DELIVERED',
-      'DELIVERED',
-    },
+    // "Sales order is already closed for updates." Cancel also refuses an
+    // order any live delivery note or bill stands against (D-SELL-11), so a
+    // part- or fully-delivered order is never offered it: closing is how one
+    // of those ends. An APPROVED order may still be refused for a note that
+    // has not shipped yet, and the server names it.
+    DocumentLifecycleAction.cancel: {'DRAFT', 'APPROVED'},
     DocumentLifecycleAction.close: {
       'DRAFT',
       'APPROVED',

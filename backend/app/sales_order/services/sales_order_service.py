@@ -28,6 +28,7 @@ from app.core.utils.pricing import (
 )
 from app.customers.models import Customer, CustomerGroup
 from app.customers.services import CreditAssessment, CreditControlService
+from app.delivery_note.models import DeliveryNote
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentTypeDefinition,
@@ -54,6 +55,7 @@ from app.promotions.schemas import (
 from app.promotions.services import PromotionService, RedemptionService
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales.services.scope_resolution import resolve_sales_scope
+from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_order.models import (
     SalesOrder,
     SalesOrderAttachment,
@@ -596,6 +598,7 @@ class SalesOrderService(TransactionalDocumentService):
             SalesOrderStatus.CLOSED.value,
         }:
             raise ValidationError("Sales order is already closed for updates.")
+        self._refuse_if_documents_raised(row)
         from_status = row.status
         # Whatever is still held goes back, whatever the status says. This
         # checked for APPROVED alone, so an order a note had part-shipped
@@ -632,6 +635,51 @@ class SalesOrderService(TransactionalDocumentService):
         )
         self._session.commit()
         return row
+
+    def _refuse_if_documents_raised(self, row: SalesOrder) -> None:
+        """Refuse to cancel an order that a live note or bill continues.
+
+        Cancelling handed the reservations and the offer claims back and read
+        CANCELLED while the goods had left and the bill stood (D-SELL-11,
+        driven 2026-09-19: SO-2026-2027-000001, DELIVERED by two dispatched
+        notes, cancelled with 200). A cancellation undoes a promise nothing
+        has acted on; once a note or a bill exists, those are cancelled first
+        -- which is what takes the stock and the journal back -- or the order
+        is closed, which stops what is still to come and keeps what happened.
+        """
+        notes = self._session.scalars(
+            select(DeliveryNote.delivery_note_number).where(
+                DeliveryNote.firm_id == row.firm_id,
+                DeliveryNote.sales_order_id == row.id,
+                DeliveryNote.status != "CANCELLED",
+                DeliveryNote.is_deleted.is_(False),
+            )
+        ).all()
+        bills = self._session.scalars(
+            select(SalesInvoice.invoice_number)
+            .join(
+                SalesInvoiceLine,
+                SalesInvoiceLine.sales_invoice_id == SalesInvoice.id,
+            )
+            .where(
+                SalesInvoice.firm_id == row.firm_id,
+                SalesInvoiceLine.source_document_type == "SALES_ORDER",
+                SalesInvoiceLine.source_document_id == row.id,
+                SalesInvoiceLine.is_deleted.is_(False),
+                SalesInvoice.status != "CANCELLED",
+                SalesInvoice.is_deleted.is_(False),
+            )
+        ).all()
+        raised = [
+            *(f"delivery note {number}" for number in sorted(set(notes))),
+            *(f"sales invoice {number}" for number in sorted(set(bills))),
+        ]
+        if raised:
+            raise ValidationError(
+                f"{row.order_number} cannot be cancelled while "
+                f"{', '.join(raised)} stands against it. Cancel those first, "
+                "or close the order to stop what is still to come."
+            )
 
     def hold_order(
         self,
