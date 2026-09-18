@@ -31,7 +31,7 @@ from app.goods_receipt.services import GoodsReceiptService
 from app.inventory.models import ProductValuation
 from app.products.models import Product
 from app.purchase.models import PurchaseOrderLine
-from app.purchase.schemas import PurchaseOrderCreate, PurchaseOrderStatus
+from app.purchase.schemas import PurchaseOrderCreate
 from app.purchase.services import PurchaseService
 from app.sales_invoice.schemas import (
     SalesInvoiceCreate,
@@ -171,7 +171,6 @@ def test_order_to_cash_reaches_a_balanced_ledger(
             branch_id=branch.id,
             warehouse_id=warehouse.id,
             purchase_date=date(2026, 8, 4),
-            status=PurchaseOrderStatus.APPROVED,
             lines=[
                 {
                     "product_id": str(product.id),
@@ -183,6 +182,9 @@ def test_order_to_cash_reaches_a_balanced_ledger(
         firm_id=firm_id,
         actor_id=ACTOR,
     )
+    # A create is always a draft; approval is its own two steps.
+    purchase.submit_order(order.id, firm_scope=firm_id, actor_id=ACTOR)
+    order = purchase.approve_order(order.id, firm_scope=firm_id, actor_id=ACTOR)
     # The number carries the firm's own code, which lives in the platform store.
     assert order.po_number.startswith(
         f"PO-{_firm_code(session, firm_id)}-HO-2026-2027-"

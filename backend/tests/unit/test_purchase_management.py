@@ -703,11 +703,12 @@ def test_purchase_service_calculations_lifecycle_audit_and_history() -> None:
             product_id=product.id,
             tax_profile_id=tax_profile_id,
             po_number="PO-CLOSE-001",
-            status="APPROVED",
         ),
         firm_id=firm.id,
         actor_id=actor_id,
     )
+    service.submit_order(closed.id, firm_scope=firm.id, actor_id=actor_id)
+    service.approve_order(closed.id, firm_scope=firm.id, actor_id=actor_id)
     closed = service.close_order(
         closed.id, firm_scope=firm.id, actor_id=actor_id, reason="Completed"
     )
@@ -1287,11 +1288,12 @@ def test_purchase_api_routes_import_export_summary_history_and_permissions() -> 
             product_id=product.id,
             tax_profile_id=tax_profile_id,
             po_number="PO-API-CLOSE-001",
-            status="APPROVED",
         ),
         scope,
         session,
     )
+    submit_purchase_order(closed.data.id, scope, session)
+    approve_purchase_order(closed.data.id, scope, session)
     closed_response = close_purchase_order(
         closed.data.id,
         ActionReasonRequest(reason="Closed after validation"),
@@ -1564,6 +1566,60 @@ def test_a_draft_cannot_be_approved_without_being_submitted() -> None:
         service.get_order(order.id, firm_scope=firm_id).status
         == PurchaseOrderStatus.DRAFT.value
     )
+
+
+@pytest.mark.parametrize(
+    "status",
+    [
+        PurchaseOrderStatus.SUBMITTED,
+        PurchaseOrderStatus.APPROVED,
+        PurchaseOrderStatus.PARTIALLY_RECEIVED,
+        PurchaseOrderStatus.CLOSED,
+    ],
+)
+def test_an_order_cannot_be_created_past_draft(status: PurchaseOrderStatus) -> None:
+    """A create that states a status beyond DRAFT is refused, and writes nothing.
+
+    D-BUY-1: the create wrote whatever status it was given, so an order could
+    be born APPROVED without anybody submitting or approving it -- 64 in the
+    shared store were, from the seeder. The import's Status column reached the
+    same line.
+    """
+    session = _session_factory()()
+    actor_id = uuid4()
+    firm = _firm(session, "SKIP")
+    branch = _branch(session, firm_id=firm.id, actor_id=actor_id)
+    warehouse = _warehouse(
+        session, firm_id=firm.id, branch_id=branch.id, actor_id=actor_id
+    )
+    vendor = _vendor(session, firm_id=firm.id, actor_id=actor_id)
+    product = _product(session, firm_id=firm.id, actor_id=actor_id)
+
+    def _payload(stated: PurchaseOrderStatus | None) -> PurchaseOrderCreate:
+        return PurchaseOrderCreate(
+            vendor_id=vendor.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            purchase_date=date(2026, 8, 4),
+            status=stated,
+            lines=[
+                {
+                    "product_id": str(product.id),
+                    "ordered_quantity": "5",
+                    "unit_price": "10",
+                }
+            ],
+        )
+
+    service = PurchaseService(session)
+    with pytest.raises(ValidationError, match="saved as a draft"):
+        service.create_order(_payload(status), firm_id=firm.id, actor_id=actor_id)
+    assert session.scalar(select(PurchaseOrder.id)) is None
+
+    # Saying DRAFT, or saying nothing, is what every real client does.
+    for stated in (PurchaseOrderStatus.DRAFT, None):
+        row = service.create_order(_payload(stated), firm_id=firm.id, actor_id=actor_id)
+        assert row.status == PurchaseOrderStatus.DRAFT.value
 
 
 def test_submitting_twice_is_not_an_error() -> None:
