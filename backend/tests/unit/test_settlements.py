@@ -23,7 +23,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database.base import Base
 from app.core.exceptions import ResourceNotFoundError, ValidationError
-from app.customers.models import Customer
+from app.customers.models import Customer, CustomerReceivableTransaction
 from app.customers.schemas.customer import (
     CustomerReceivableTransactionCreate,
     CustomerReceivableTransactionType,
@@ -580,6 +580,66 @@ def test_a_reversed_receipt_stops_clearing_its_invoice() -> None:
     )
     assert [row.outstanding_amount for row in remaining] == [Decimal("500.00")]
     assert len(service.allocations_for(settlement.id)) == 1, "the record stays"
+
+
+def test_a_receipt_whose_advance_was_applied_reverses_in_full() -> None:
+    """A bounced cheque is taken back even after its advance was applied.
+
+    D-SELL-8: applying an advance writes an `ADVANCE_APPLY` row beside the
+    receipt's own, and the reversal took "the" row with `scalar()`. Undoing the
+    receipt alone put back an advance the applications had already spent and
+    was refused as overtaken; undoing an application alone left the customer's
+    balance out of step with 1100 by the receipt. Every row goes back.
+    """
+    books = _Books(_session_factory()())
+    books.owe_us("300.00")
+    first = books.sales_invoice("SI-1", "300.00")
+    # 500 against 300 owed: 300 off the balance, 200 held as advance.
+    settlement = _receipt(
+        books,
+        "500.00",
+        [SettlementAllocationWrite(invoice_id=first.id, amount=Decimal("300.00"))],
+    )
+    books.session.commit()
+    books.owe_us("200.00")
+    service = ReceiptService(books.session)
+    # The advance goes to two later bills, so the receipt carries two
+    # applications beside its own row.
+    for number, part in (("SI-2", "120.00"), ("SI-3", "80.00")):
+        service.allocate(
+            settlement.id,
+            invoice_id=books.sales_invoice(number, part).id,
+            amount=Decimal(part),
+            firm_id=books.firm.id,
+            actor_id=books.actor_id,
+        )
+    books.session.refresh(books.customer)
+    assert books.customer.current_outstanding == Decimal("0.00")
+    assert books.customer.unapplied_advance_balance == Decimal("0.00")
+
+    service.reverse(
+        settlement.id,
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+        reason="Cheque bounced",
+    )
+    books.session.commit()
+
+    books.session.refresh(books.customer)
+    # Everything the 500 cleared is owed again, and no advance is left over.
+    assert books.customer.current_outstanding == Decimal("500.00")
+    assert books.customer.unapplied_advance_balance == Decimal("0.00")
+    rows = books.session.scalars(
+        select(CustomerReceivableTransaction).where(
+            CustomerReceivableTransaction.customer_id == books.customer.id
+        )
+    ).all()
+    # The customer's own ledger agrees with the balance it carries.
+    assert sum(row.outstanding_delta for row in rows) == Decimal("500.00")
+    assert sum(row.advance_delta for row in rows) == Decimal("0.00")
+    assert [
+        row.transaction_type for row in rows if row.reference_type == "reversal"
+    ].count("REVERSAL") == 3, "the receipt and both applications are undone"
 
 
 def test_a_settlement_cannot_be_reversed_twice() -> None:
