@@ -554,10 +554,22 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         actor_id: UUID,
         reason: str | None = None,
     ) -> PurchaseInvoice:
-        """Close one purchase invoice."""
+        """Close one approved purchase invoice.
+
+        Closing says a bill is finished with, so only an approved bill -- one
+        that posted -- can be. It refused only one already closed, so a DRAFT
+        bill that never posted, or a CANCELLED one, could be closed and then
+        read as settled business (D-BUY-12, driven on TEST01 on 2026-09-18:
+        PI-2026-2027-000008 closed from DRAFT).
+        """
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status == PurchaseInvoiceStatus.CLOSED.value:
             raise ValidationError("This purchase invoice is already closed.")
+        if row.status != PurchaseInvoiceStatus.APPROVED.value:
+            raise ValidationError(
+                f"Only approved purchase invoices can be closed; "
+                f"{row.invoice_number} is {row.status.lower()}."
+            )
         before = row.status
         row.status = PurchaseInvoiceStatus.CLOSED.value
         row.close_reason = reason
