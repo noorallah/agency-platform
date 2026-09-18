@@ -1782,16 +1782,26 @@ class SalesOrderService(TransactionalDocumentService):
             # committing the product put the movement on the untracked row
             # whatever the goods were actually in, which drove that row's
             # available negative while the batch rows sat apparently free.
-            allocation = self._inventory.allocate_for_reservation(
+            # Expired batches are not candidates, judged on the order's own
+            # date -- the same stock dispatch will draw from, so the hold
+            # protects what will actually ship (D-STK-2).
+            plan = self._inventory.allocate_for_reservation(
                 firm_scope=row.firm_id,
                 branch_id=row.branch_id,
                 warehouse_id=line.warehouse_id or row.warehouse_id,
                 storage_node_id=line.storage_node_id,
                 product_id=line.product_id,
                 quantity=line.reservable_quantity,
+                as_of=row.order_date,
             )
+            allocation = plan.batches
             entered_total = self._q(line.quantity + line.free_quantity)
-            for batch_id, held in allocation:
+            for index, (batch_id, held) in enumerate(allocation):
+                remarks = f"sales_order reserve line {line.line_number}"
+                if plan.expired_note and index == len(allocation) - 1:
+                    # A note means the last pair is the back order; it says
+                    # why, by batch, where the hold is.
+                    remarks = f"{remarks}:{plan.expired_note}"
                 self._inventory.record_sales_order_reservation(
                     firm_scope=row.firm_id,
                     actor_id=actor_id,
@@ -1807,7 +1817,7 @@ class SalesOrderService(TransactionalDocumentService):
                     ),
                     entered_uom_id=line.sales_uom_id,
                     conversion_version=line.conversion_version,
-                    remarks=f"sales_order reserve line {line.line_number}",
+                    remarks=remarks,
                     batch_id=batch_id,
                 )
             line.reserved_quantity = line.reservable_quantity

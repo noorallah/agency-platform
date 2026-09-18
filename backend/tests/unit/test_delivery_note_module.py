@@ -549,6 +549,188 @@ def test_a_reservation_larger_than_the_stock_holds_what_it_can() -> None:
     assert held[None] == Decimal("15.0000"), "the back order is held by no batch"
 
 
+def _stale_and_fresh_order(
+    order_date: date, quantity: str
+) -> tuple[Session, UUID, UUID, dict[str, BatchRecord], SalesOrder]:
+    """Stock ten of a batch expired on 2026-08-17 and ten in date; approve.
+
+    Returns the session, the firm and actor, the two batches by name, and the
+    order approved for ``quantity`` on ``order_date``.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+
+    inventory = InventoryService(session)
+    batches: dict[str, BatchRecord] = {}
+    for batch_number, expiry in (
+        ("STALE", date(2026, 8, 17)),
+        ("FRESH", date(2027, 10, 21)),
+    ):
+        batch = BatchRecord(
+            firm_id=firm.id,
+            product_id=product.id,
+            batch_number=batch_number,
+            expiry_date=expiry,
+            status="AVAILABLE",
+            created_by=actor_id,
+            updated_by=actor_id,
+        )
+        session.add(batch)
+        session.flush()
+        batches[batch_number] = batch
+        inventory.record_goods_receipt(
+            firm_scope=firm.id,
+            actor_id=actor_id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            storage_node_id=None,
+            product_id=product.id,
+            reference_number=f"GRN-{batch_number}",
+            transaction_date=date(2026, 8, 3),
+            total_quantity=Decimal("10"),
+            unit_cost=Decimal("0"),
+            batch_id=batch.id,
+        )
+    session.commit()
+
+    sales_service = SalesOrderService(session)
+    order = sales_service.create_order(
+        SalesOrderCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            order_date=order_date,
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=product.id,
+                    quantity=Decimal(quantity),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    approved = sales_service.approve_order(
+        order.id, firm_scope=firm.id, actor_id=actor_id
+    )
+    return session, firm.id, actor_id, batches, approved
+
+
+def _movements(
+    session: Session, transaction_type: str, reference_number: str
+) -> list[InventoryTransaction]:
+    """Return the movements of one type posted under one reference."""
+    return list(
+        session.scalars(
+            select(InventoryTransaction).where(
+                InventoryTransaction.transaction_type == transaction_type,
+                InventoryTransaction.reference_number == reference_number,
+            )
+        ).all()
+    )
+
+
+def test_a_reservation_skips_a_batch_that_has_expired() -> None:
+    """The hold goes on the stock that will ship, not on stock that cannot.
+
+    Dispatch stopped drawing expired batches (D-8-1) while reservation went on
+    holding them, earliest expiry read literally: a pharmacy approving an
+    order for five held the batch that expired in August, the note then
+    shipped from the in-date batch, and that batch had stayed free for anybody
+    else to promise the whole time (D-STK-2). Reserve and dispatch now drop
+    the same stock, so the batch released is the batch drawn.
+    """
+    session, firm_id, actor_id, batches, order = _stale_and_fresh_order(
+        date(2026, 9, 16), "5"
+    )
+
+    reserved = _movements(session, "RESERVE", order.order_number)
+    assert [(row.batch_id, row.reserved_quantity_delta) for row in reserved] == [
+        (batches["FRESH"].id, Decimal("5.0000"))
+    ], "expired stock is not a candidate for a hold"
+    stale_row = session.scalar(
+        select(InventoryRecord).where(InventoryRecord.batch_id == batches["STALE"].id)
+    )
+    assert stale_row is not None
+    assert stale_row.reserved_quantity == Decimal("0.0000")
+
+    source_line = session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
+    )
+    assert source_line is not None
+    service = DeliveryNoteService(session)
+    note = service.create_note(
+        DeliveryNoteCreate(
+            sales_order_id=order.id,
+            delivery_date=date(2026, 9, 17),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=source_line.id,
+                    line_number=1,
+                    current_delivery_quantity=Decimal("5"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm_id,
+        actor_id=actor_id,
+    )
+    approved_note = service.approve_note(note.id, firm_scope=firm_id, actor_id=actor_id)
+    service.dispatch_note(approved_note.id, firm_scope=firm_id, actor_id=actor_id)
+
+    released = _movements(session, "UNRESERVE", order.order_number)
+    dispatched = _movements(session, "DISPATCH", note.delivery_note_number)
+    assert {row.batch_id for row in released} == {batches["FRESH"].id}
+    assert {row.batch_id for row in dispatched} == {
+        batches["FRESH"].id
+    }, "the batch let go is the batch shipped"
+
+
+def test_a_back_order_behind_expired_stock_names_the_batch() -> None:
+    """Twenty on the shelf and five back-ordered needs saying why, by name.
+
+    The ten in date are held; the other five have no batch behind them,
+    because the only other stock went out of date on 2026-08-17. The hold on
+    no batch carries the same words dispatch refuses with.
+    """
+    session, _firm_id, _actor_id, batches, order = _stale_and_fresh_order(
+        date(2026, 9, 16), "15"
+    )
+
+    reserved = _movements(session, "RESERVE", order.order_number)
+    held = {row.batch_id: row for row in reserved}
+    assert set(held) == {batches["FRESH"].id, None}
+    assert held[batches["FRESH"].id].reserved_quantity_delta == Decimal("10.0000")
+    back_order = held[None]
+    assert back_order.reserved_quantity_delta == Decimal("5.0000")
+    assert back_order.remarks is not None
+    assert "STALE expired 2026-08-17" in back_order.remarks
+    assert "cannot be reserved" in back_order.remarks
+    assert held[batches["FRESH"].id].remarks == "sales_order reserve line 1"
+
+
+def test_a_reservation_judges_expiry_on_the_orders_own_date() -> None:
+    """An order dated while the batch was good holds it, for ever.
+
+    The demo history is rebuilt from the services long after the fact, so
+    reading the clock rather than the order would move a replayed hold -- the
+    same rule dispatch follows with the note's date.
+    """
+    session, _firm_id, _actor_id, batches, order = _stale_and_fresh_order(
+        date(2026, 8, 16), "5"
+    )
+
+    reserved = _movements(session, "RESERVE", order.order_number)
+    assert [row.batch_id for row in reserved] == [batches["STALE"].id]
+
+
 def test_delivery_by_route_labels_the_route_without_crashing() -> None:
     """A route profile has no name of its own; the territory carries it.
 

@@ -788,7 +788,7 @@ the fixture builds (a minute or two).
   - Step 1: three batches, 10 available each, with their expiry dates.
   - Step 2–3: status DISPATCHED; ledger `DISPATCH` −5 referencing the note. **The 5 comes from `-B2`, the earliest batch that has *not* expired**; `-B1` is skipped. Fixed 2026-09-16; see defect **D-8-1**.
   - Step 4: the six cards — Expired Today, Expire in 7 Days, Expire in 30 Days, Total Expired, Quarantine, Recalled — with `-B1` counted as expired and `-B2` inside 30 days; then the **All Batches** grid (Batch #, Product, Status, Qty, Available, Expiry Date, Warehouse).
-- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §10.6, in schema `fx_<suffix>_p` — the three `batches` rows and their per-batch `inventories` rows; the order's `RESERVE` sitting on `-B1` (expired stock is still reserved — D-STK-2); at dispatch an `UNRESERVE` on `-B1`, a `DISPATCH` of 5 on `-B2` costed 300.00, and the note's journal Dr 5200 Cost of Goods Sold / Cr 1200 Inventory 300.00. The Expiry Monitor counts `batches` rows, not stock.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §10.6, in schema `fx_<suffix>_p` — the three `batches` rows and their per-batch `inventories` rows; the order's `RESERVE` sitting on `-B2` (expired stock is not reserved, judged on the order's date — D-STK-2; a store built before that fix holds `-B1`); at dispatch an `UNRESERVE` on `-B2`, a `DISPATCH` of 5 on `-B2` costed 300.00, and the note's journal Dr 5200 Cost of Goods Sold / Cr 1200 Inventory 300.00. The Expiry Monitor counts `batches` rows, not stock.
 - **Leaves:** a dispatched note.
 
 ### TC-STOCK-006 — A delivery short of stock saves but will not dispatch

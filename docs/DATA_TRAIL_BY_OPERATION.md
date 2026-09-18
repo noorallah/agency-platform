@@ -1071,14 +1071,20 @@ below is in the pharmacy firm's schema, `fx_<suffix>_p`.
   `opening_stock.posted`. `batches.status` **stays AVAILABLE when the date
   passes** — expiry is a fact about `expiry_date`, and nothing ever writes
   `EXPIRED`. Approving the order for 5 writes a `RESERVE` (§10.0) chosen
-  earliest-expiry-first **with expired batches included**, so the hold sits on
-  `<SUFFIX>-B1`, the expired one (confirmed on both pharmacy stores; D-STK-2).
+  earliest-expiry-first **among batches not expired on the order's date** —
+  the same candidates dispatch draws from — so the hold sits on `<SUFFIX>-B2`.
+  Before the D-STK-2 fix it sat on `<SUFFIX>-B1`, the expired one (both
+  pharmacy stores of 2026-09-16). What no in-date batch covers is held on the
+  untracked row as a back order, and when expired stock stands behind it that
+  `RESERVE`'s remarks name it: "sales_order reserve line 1: 10 of this
+  product's stock is past its expiry date (<SUFFIX>-B1 expired 2026-08-17)
+  and cannot be reserved: write it off or quarantine it."
 - **Batches screen:** a batch holds **no quantity**; Qty and Available are
   sums over the `inventories` rows carrying its id.
 - **Dispatch inserts**, per note line: an **`UNRESERVE`** where the order
   held it (`reference_number` = the **order** number, dated the delivery date,
   remarks "delivery_note release line 1", `reserved_quantity_delta` −5,
-  `batch_id` = B1, no cost); then the allocation — batches in expiry order,
+  `batch_id` = B2 — B1 on a store built before D-STK-2 — no cost); then the allocation — batches in expiry order,
   **skipping any expired on the note's date** — and one **`DISPATCH`** per
   batch drawn (`reference_number` = the DN number, `reference_type`
   `DELIVERY_NOTE`, `current_quantity_delta` −5, `batch_id` = **B2**,
@@ -1137,7 +1143,7 @@ below is in the pharmacy firm's schema, `fx_<suffix>_p`.
   order  by je.created_at, jl.line_number;
   ```
   After the case: B1 10 / 10 / 0, **B2 5 / 5 / 0**, B3 10 / 10 / 0; three
-  `OPENING_STOCK`, a `RESERVE` on B1, an `UNRESERVE` on B1, a `DISPATCH` on B2;
+  `OPENING_STOCK`, a `RESERVE` on B2, an `UNRESERVE` on B2, a `DISPATCH` on B2;
   the DN journal Dr 5200 300.00 / Cr 1200 300.00 beside the opening one.
 
 ### 10.7 A delivery short of stock (TC-STOCK-006)
