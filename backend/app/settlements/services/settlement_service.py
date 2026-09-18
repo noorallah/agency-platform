@@ -555,13 +555,7 @@ class SettlementService(TransactionalDocumentService):
             The part that must come out of the advance, never negative.
 
         """
-        original = self._session.scalar(
-            select(CustomerReceivableTransaction).where(
-                CustomerReceivableTransaction.reference_type == "settlement",
-                CustomerReceivableTransaction.reference_id == row.id,
-                CustomerReceivableTransaction.is_deleted.is_(False),
-            )
-        )
+        original = self._recording_row(row)
         if original is None:
             # Nothing recorded the split, so nothing can be claimed about it.
             # Treating it as advance would risk the double count this method
@@ -769,16 +763,19 @@ class SettlementService(TransactionalDocumentService):
             SettlementDirection.RECEIPT,
             SettlementDirection.REFUND,
         ):
-            original = self._session.scalar(
-                select(CustomerReceivableTransaction).where(
-                    CustomerReceivableTransaction.reference_type == "settlement",
-                    CustomerReceivableTransaction.reference_id == row.id,
-                    CustomerReceivableTransaction.is_deleted.is_(False),
-                )
-            )
-            if original is not None:
+            # Every row the settlement wrote, newest first: the receipt's own
+            # and one `ADVANCE_APPLY` per later application of its advance
+            # (D-SELL-8). Taking "the" row with `scalar()` picked one of them
+            # at random -- undoing the receipt alone put back an advance the
+            # application had already spent, and was refused as overtaken, so
+            # a bounced cheque that had been applied could never be taken
+            # back; undoing the application alone left the balance out of
+            # step with 1100 by the whole receipt. The applications are undone
+            # first because they are later, and undoing them returns the
+            # advance the receipt's own reversal then takes away.
+            for written in self._rows_written_by(row):
                 self._customers.reverse_receivable_transaction(
-                    original.id,
+                    written.id,
                     firm_scope=firm_id,
                     actor_id=actor_id,
                     reference_number=f"{row.settlement_number}-REV",
@@ -818,6 +815,41 @@ class SettlementService(TransactionalDocumentService):
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _rows_written_by(self, row: Settlement) -> list[CustomerReceivableTransaction]:
+        """Return the receivable rows a settlement wrote, to be undone in order.
+
+        The row written when it was recorded comes last; every `ADVANCE_APPLY`
+        an allocation added since comes before it, newest first.
+        """
+        written = self._session.scalars(
+            select(CustomerReceivableTransaction)
+            .where(
+                CustomerReceivableTransaction.reference_type == "settlement",
+                CustomerReceivableTransaction.reference_id == row.id,
+                CustomerReceivableTransaction.is_deleted.is_(False),
+            )
+            .order_by(
+                CustomerReceivableTransaction.created_at.desc(),
+                CustomerReceivableTransaction.id.desc(),
+            )
+        ).all()
+        applied = CustomerReceivableTransactionType.ADVANCE_APPLY.value
+        return sorted(written, key=lambda item: item.transaction_type != applied)
+
+    def _recording_row(self, row: Settlement) -> CustomerReceivableTransaction | None:
+        """Return the receivable row written when the settlement was recorded.
+
+        Not an `ADVANCE_APPLY` a later allocation added beside it: only the
+        recording row remembers how the money split between balance and
+        advance.
+        """
+        written = self._rows_written_by(row)
+        if not written:
+            return None
+        last = written[-1]
+        applied = CustomerReceivableTransactionType.ADVANCE_APPLY.value
+        return None if last.transaction_type == applied else last
 
     def _scoped(
         self, statement: Select[tuple[Settlement]], firm_id: UUID
