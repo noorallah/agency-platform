@@ -25,7 +25,11 @@ confirmed and which it could not. **Stock followed the same day (§10)**: the
 reads, transfers, write-offs, quarantine, physical counts, the stock side of
 a dispatch, batches and serials, and the `_REVERSAL` twins, checked against
 TEST01, WHOLE01 and the per-run pharmacy and electronics stores the fixtures
-left behind (§10.12). Selling, finance, loyalty and TCS follow.
+left behind (§10.12). **Selling followed on 2026-09-19 (§11)**: price
+resolution, quotations, orders and their claims, credit limits, holds,
+delivery notes, invoices, receipts and TCS, returns, credit notes, proformas,
+loyalty and the shortened chain, checked against the selling fixture stores
+and WHOLE01 (§11.22). Finance and the rest follow.
 
 ---
 
@@ -362,7 +366,7 @@ All routes under `/api/v1/firms` are platform-only. The registry rows are in `pl
 | You might expect | What actually happens |
 | --- | --- |
 | A row saying which template a user came from | Nothing on `users`; only the `user_template.applied` audit row records it |
-| Physical deletion anywhere | Never for a document, a master or a person; `is_deleted = true`. **The exception is a purchase document's child rows** — attachments, notes, delivery schedules, dropped lines, and every child of a draft invoice or return — which are deleted and re-inserted on save (§9.14) |
+| Physical deletion anywhere | Never for a document, a master or a person; `is_deleted = true`. **The exception is a document's child rows** — attachments, notes, delivery schedules, dropped lines, and every child of a draft invoice or return — which are deleted and re-inserted on save, on the buying side (§9.14) and the selling side (§11.21) alike |
 | A firm's user rows in the firm's store | `users`, `user_firms`, `user_roles` are **platform-only**; the firm store has none |
 | An audit row for a read | Reads write nothing, including readiness and the audit screen itself |
 | A refused write leaving a partial row | A refusal is raised before commit; nothing lands — with one known exception, 20.2b before #402, where the user was created and the roles call then failed |
@@ -760,7 +764,7 @@ and one from after it, which is what let the batch claims be seen both ways.
   | `OPENING_STOCK` | `OPENING_STOCK` | the batch's reference | posting an opening-stock batch |
   | `GOODS_RECEIPT` | `GOODS_RECEIPT` | the GRN | §9.5 |
   | `RETURN` | `PURCHASE_RETURN` | the PR | §9.10 |
-  | `SALES_RETURN` | `SALES_RETURN` | the SR | Selling |
+  | `SALES_RETURN` | `SALES_RETURN` | the SR | §11.16 |
   | `RESERVE` / `UNRESERVE` | `SALES_ORDER` | the **order** number | approving / cancelling an order; dispatching a note (§10.6) |
   | `DISPATCH` | `DELIVERY_NOTE` | the DN | dispatching a note (§10.6) |
   | `TRANSFER_OUT` / `TRANSFER_IN` | `TRANSFER` | typed | §10.2 |
@@ -1323,3 +1327,959 @@ below is in the pharmacy firm's schema, `fx_<suffix>_p`.
   exist only in the two pharmacy stores (three each) and serials only in the
   electronics store (five). The seeded firms hold **no** batch or serial rows at
   all.
+
+---
+
+## 11. Selling — quotation to cash (TC-SELL-001 to 017)
+
+Read on 2026-09-19 off `quotation_service.py`, `sales_order_service.py`,
+`workflow_settings_service.py`, `delivery_note_service.py`,
+`sales_invoice_service.py`, `sales_chain_service.py`, `sales_return_service.py`,
+`credit_note_service.py`, `proforma_service.py`, `settlement_service.py`,
+`tcs_service.py`, `loyalty_service.py`, `credit_control.py`,
+`customer_service.py`, `app/core/utils/pricing.py`, the price-list resolver and
+the promotion and redemption services, and off what they call —
+`InventoryService` (§10 has the stock detail), `DocumentPostingService`,
+`JournalEntryEngine`, `DocumentFrameworkService`,
+`DocumentPrintTemplateService`. Then checked, read-only, against the four
+selling fixture stores of 2026-09-16 and against WHOLE01. §11.22 says which
+claims a live row confirmed and which it could not. A claim marked *(not seen
+in a live row)* was read off the code only.
+
+### 11.0 Before you look
+
+- **Store: not TEST01.** Every `selling-*` fixture, `loyalty-points` and
+  `policy-firm` builds a Wholesale firm of the run's own, `<SUFFIX>-S`, whose
+  schema is **`fx_<suffix>_s`** with the suffix in lower case (`fx_t0916h2j3_s`).
+  The fixture's **Tables** line prints the name. For WHOLE01 put
+  `wholesale_hub`. TEST01 holds a few orders, notes and invoices from other
+  fixtures and none of the TC-SELL cases.
+- **Find your rows by the fixture's codes:** customers `<SUFFIX>-C01` (Vijaya)
+  and `<SUFFIX>-C02` (Anand), product `<SUFFIX>-DET`. Every number restarts in
+  each fixture store, so `SO-2026-2027-000001` is a different order in every
+  run.
+- **All selling audit rows go to the firm's own trail**, `fx_<suffix>_s.audit_logs`.
+  None reaches `platform.audit_logs`.
+- **Numbers.** Only the delivery note carries firm and branch:
+
+  | Document | Number | Lifecycle `source_module_code` |
+  | --- | --- | --- |
+  | Quotation | `QT-2026-2027-000001` | `SALES_QUOTATION` |
+  | Sales order | `SO-2026-2027-000001` | `SALES_ORDER` |
+  | Delivery note | `DN-<SUFFIX>-S-HO-2026-2027-000001` | `DELIVERY_NOTE` |
+  | Sales invoice | `SI-2026-2027-000001` | `SALES_INVOICE` |
+  | Sales return | `SR-2026-2027-000001` | `SALES_RETURN` |
+  | Credit note | `CN-2026-2027-000001` | `CREDIT_NOTE` — `CREATED` only (D-SELL-23) |
+  | Proforma | `PI-2026-2027-000001` — the **same series letters as a purchase invoice** (D-SELL-17) | `PROFORMA_INVOICE`, actions `PROFORMA.CREATED` / `PROFORMA.ISSUED` / `PROFORMA.CANCELLED` |
+  | Receipt | `RC-2026-2027-000001` (refund `RF-…`) | none — settlements write no lifecycle event |
+
+  Every create accepts a typed number instead (`order_number`,
+  `delivery_note_number`, `invoice_number`, …). Issuing a number moves
+  `document_number_sequences` and the rule, as in §9.0, and the first document
+  of its kind in a firm inserts its type, states and numbering rule.
+- **Two log rows ride along with every priced save.** Each line's tax is
+  worked out by `TaxRuleService.simulate`, which writes a
+  `tax_rule_execution_logs` row and an audit row `tax.rule.simulated`
+  (`after_data.transaction_type` `SALES_QUOTATION`, `SALES_ORDER`,
+  `DELIVERY_NOTE`, `SALES_INVOICE` or `SALES_RETURN`). Each quotation or order
+  save also stages one `promotion_execution_logs` row (the engine's input,
+  trace and result), with no audit row.
+- **The customer's balance moves only through `customer_receivable_transactions`.**
+  One row per movement — `transaction_type` `INVOICE`, `RECEIPT`, `TCS`,
+  `ADVANCE_APPLY`, `CREDIT_NOTE`, `LOYALTY`, `REFUND` or `REVERSAL`;
+  `amount`; the split it made, `outstanding_delta` and `advance_delta`; the
+  balance after it, `outstanding_after` and `advance_after`; and
+  `reference_type` / `reference_id` / `reference_number`. The same request
+  moves `customers.current_outstanding`, `customers.unapplied_advance_balance`
+  and `customers.version`, and writes audit `customer.receivable_transaction_posted`
+  (or `…_reversed`). This is the table that explains the Outstanding and
+  Advance figures on the customer screen:
+  ```sql
+  select t.created_at, t.transaction_type, t.amount, t.outstanding_delta,
+         t.advance_delta, t.outstanding_after, t.advance_after,
+         t.reference_type, t.reference_number
+  from   fx_<suffix>_s.customer_receivable_transactions t
+  join   fx_<suffix>_s.customers c on c.id = t.customer_id
+  where  c.code = '<SUFFIX>-C01'
+  order  by t.created_at, t.id;
+  ```
+- **One click, all its audit rows** — the §9.0 request-id query works
+  unchanged with `fx_<suffix>_s` as the schema and the action you took
+  (`delivery_note.dispatched`, `sales_invoice.approved`,
+  `settlement.receipt.reversed`).
+- **What points at what.** None of the source links below has a foreign key:
+
+  | From | Column | To |
+  | --- | --- | --- |
+  | `sales_orders` | `reference_number` (the QT number, after a convert) | `sales_quotations` |
+  | `sales_quotations` | `converted_sales_order_id`, `converted_sales_order_number` | `sales_orders` |
+  | `delivery_notes` | `sales_order_id`, `sales_order_reference` (copied) | `sales_orders` |
+  | `delivery_note_lines` | `sales_order_line_id`; `inventory_transaction_id`, `released_reservation_transaction_id` | `sales_order_lines`; the `DISPATCH` and `UNRESERVE` (§10.6) |
+  | `sales_invoice_lines`, `sales_return_lines` | `source_document_type`, `source_document_id`, `source_document_line_id` | the note (or invoice) and its line |
+  | `credit_note_lines` | `sales_invoice_line_id` | `sales_invoice_lines` |
+  | `proforma_invoice_lines` | `source_sales_order_line_id` | `sales_order_lines` |
+  | `promotion_redemptions` | `document_type` `SALES_ORDER` + `document_id` | the order |
+  | `settlement_allocations` | `settlement_id`, `sales_invoice_id` | `settlements`, `sales_invoices` |
+  | `journal_entries` | `source_module` + `source_id`; `reference_number` the document number, `-REV` for a reversal | `delivery_note`, `sales_invoice`, `sales_return`, `credit_note`, `settlements`, `tcs`, `loyalty` |
+  | `inventory_transactions` | `reference_number` = the **order** number (`RESERVE`/`UNRESERVE`), the DN (`DISPATCH`), the SR (`SALES_RETURN`) | — |
+
+- **Where the selling rows are, 2026-09-19.** `fx_t0916h2j3_s` is a store
+  somebody walked through TC-SELL-001 to 017 by API on 2026-09-16 (six
+  quotations, five orders, two notes, two invoices, two receipts, a return, a
+  credit note, a proforma) — most "confirmed" below means that store.
+  `fx_t0916d751_s` is `selling-paid` plus a cancelled order carrying an issued
+  proforma. `fx_t09164wau_s` is `loyalty-points` followed by `policy-firm`'s
+  steps, including a bill raised through the automatic chain. `fx_t0916z0ph_s`
+  is `policy-firm` untouched. WHOLE01 holds 34 quotations, 72 orders, 62 notes,
+  53 invoices, 11 returns, 12 credit notes, 52 settlements and 18 proformas.
+
+### 11.1 Price resolution — nothing is written until the document saves (TC-SELL-001 to 004, 006)
+
+- **Reads, never writes:** `resolve_line_discount` (`app/core/utils/pricing.py`)
+  takes, in order, a typed `discount_amount` → `discount_source` `amount`; a
+  typed `discount_percent`, **0 included** → `percent`; what a promotion gave
+  → `promotion`; the price list's break → `price_list`; the customer's
+  `default_discount_percent` above 0 → `customer`; their segment's
+  (`customer_groups.default_discount_percent`) above 0 → `customer_group`;
+  otherwise `none`. The stored percentage is derived from the amount actually
+  taken.
+- **The price list** (`PriceListResolver`) reads `price_lists` (ACTIVE, not
+  deleted, `effective_from` ≤ the document date ≤ `effective_to` or open) and
+  `price_list_items`. A customer's own list outranks a territory's, which
+  outranks the firm-wide one, and the more specific list **replaces** the
+  ladder rather than amending it. Within a list, the highest `min_quantity` at
+  or below the line's quantity wins.
+- **Where the answer lands:** only `sales_quotation_lines.discount_source` and
+  `sales_order_lines.discount_source` carry the source, beside
+  `discount_percent` and `discount_amount`; `sales_orders.bill_discount_source`
+  is `typed`, `promotion` or `none`; `customer_discount_percent` on both
+  headers snapshots the standing rate. **Notes, invoices and returns store the
+  percentage and amount they inherited and no source.**
+- **Confirmed** in `fx_t0916h2j3_s`: QT-…-000001 (C01, 12) 2.0000 `price_list`,
+  1,165.6512; QT-…-000002 (18) 6.7500 `price_list`; QT-…-000003 (C02, 18)
+  9.2500 `price_list`; QT-…-000004 (C02, 30) 7.5000 `promotion`; QT-…-000005
+  (typed 0) 0.0000 `percent`, 2,973.60. Orders: WELCOME10 and WELCOME10B 2.5000
+  `promotion`, NOSUCHCODE 2.0000 `price_list`.
+- **Check** — every line of the customer's quotations and orders, with its
+  source:
+  ```sql
+  select 'QT' as doc, q.quotation_number as number, q.status, l.quantity,
+         l.discount_percent, l.discount_source, q.grand_total
+  from   fx_<suffix>_s.sales_quotations q
+  join   fx_<suffix>_s.sales_quotation_lines l on l.sales_quotation_id = q.id
+  join   fx_<suffix>_s.customers c             on c.id = q.customer_id
+  where  c.code = '<SUFFIX>-C01'
+  union all
+  select 'SO', o.order_number, o.status, l.quantity,
+         l.discount_percent, l.discount_source, o.grand_total
+  from   fx_<suffix>_s.sales_orders o
+  join   fx_<suffix>_s.sales_order_lines l on l.sales_order_id = o.id
+  join   fx_<suffix>_s.customers c         on c.id = o.customer_id
+  where  c.code = '<SUFFIX>-C01'
+  order  by 1, 2;
+  ```
+  Put `-C02` for TC-SELL-003 and 004.
+
+### 11.2 Quotation — create, revise, send, accept (TC-SELL-001 to 005)
+
+- **Create** inserts `sales_quotations` (`status` DRAFT always — the create
+  body has no status field and refuses one; `valid_until`, totals,
+  `customer_discount_percent`, `bill_discount_*`, `freight_amount`),
+  `sales_quotation_lines` (reconciled on `line_number`, with `discount_source`),
+  attachments and notes; lifecycle `CREATED`. **Audit:** `quotation.created`
+  (`after_data` `quotation_number`, `status`) and one `tax.rule.simulated`.
+  No stock, no journal, and **no promotion claim** — a quotation stages none,
+  and it has no coupon field at all (D-SELL-28).
+- **Revise** (DRAFT or SENT only — "Only draft or sent quotations can be
+  edited.") updates the lines in place by `line_number`, **physically
+  deletes** dropped lines, attachments and notes and re-inserts the last two;
+  lifecycle `UPDATED`; audit `quotation.updated` with `grand_total` and
+  `valid_until` before and after. A revision prices every resolved line
+  afresh, which is why TC-SELL-002 gets 6.75 after 12 → 18. *(Not seen in a
+  fixture store; WHOLE01 has 16.)*
+- **Mark as sent:** DRAFT → SENT, `sent_at`; lifecycle `SENT`; audit
+  `quotation.sent`. **Customer accepted:** DRAFT or SENT → ACCEPTED,
+  `decided_at`, the reason as lifecycle `remarks` and in `after_data.remarks`;
+  audit `quotation.accepted`. Sending is not required before accepting.
+  Declined: `decline_reason`, audit `quotation.declined`. Cancel: audit
+  `quotation.cancelled`, refused only once converted. Delete (DRAFT only):
+  soft delete, audit `quotation.deleted`, no lifecycle event.
+- **Refused, nothing written:** sending or accepting after `valid_until`
+  ("… expired on …").
+- **Check** — the quotation's life:
+  ```sql
+  select e.created_at, e.document_number, e.action, e.from_state, e.to_state, e.remarks
+  from   fx_<suffix>_s.document_lifecycle_events e
+  where  e.source_module_code = 'SALES_QUOTATION'
+  order  by e.created_at;
+  ```
+
+### 11.3 Convert an accepted quotation (TC-SELL-005)
+
+- **Writes, in two commits:** first a whole sales order through the ordinary
+  create (§11.4) — `sales_orders` DRAFT with `reference_number` = the QT
+  number, its lines, lifecycle `CREATED`, audits `sales_order.created` and
+  `tax.rule.simulated`, **committed**; then on the quotation `status`
+  CONVERTED, `converted_sales_order_id`, `converted_sales_order_number`,
+  `converted_at`, lifecycle `CONVERTED` with remarks "Became SO-…", audit
+  `quotation.converted`. Because they are two commits, a failure between
+  them leaves an order beside a quotation still ACCEPTED (D-SELL-14).
+- **The order's lines arrive as typed discounts.** Each line is handed over
+  with both the percentage and the amount, so the order reads
+  `discount_source` **`amount`** and `bill_discount_source` **`typed`** — and
+  a line priced by hand is skipped by the promotion engine, so a converted
+  order **stages no claim and never counts against an offer's limit**
+  (D-SELL-9). Confirmed: `fx_t0916h2j3_s` SO-…-000005 from QT-…-000006 reads
+  9.2500 `amount` and `typed`; WHOLE01's three converted orders have no
+  `promotion_redemptions` row.
+- **Refused, nothing written:** a second convert ("Quotation QT-… already
+  became SO-…."), one that is not ACCEPTED ("Only an accepted quotation can
+  become an order."), an expired one.
+
+### 11.4 Sales order — create and edit a draft; coupons (TC-SELL-006)
+
+- **Inserts:** `sales_orders` (`status` **DRAFT always** — `SalesOrderCreate`
+  has no status field, so unlike D-BUY-1 an order cannot be born approved;
+  `coupon_code` stored upper-cased **whether or not anything recognises it**;
+  `customer_discount_percent`; `credit_limit_snapshot`;
+  `outstanding_balance_snapshot` — which is the customer's **opening** balance,
+  not what they owe, so it reads 0.00 on every live order (D-SELL-25);
+  `line_discount_total`, `subtotal`, `tax_total`, `grand_total`,
+  `bill_discount_*`, `freight_amount`); `sales_order_lines` (`quantity`,
+  `free_quantity`, `unit_price`, `discount_percent`, `discount_source`,
+  `discount_amount`, `bill_discount_amount`, `freight_amount`, `gross_amount`,
+  `tax_amount`, `net_amount`, `reservable_quantity`, `reserved_quantity` 0, and
+  a snapshot of `available_stock` / `reserved_stock`); a gift the engine gave
+  becomes its own line at price 0 ("Free with <code>"); attachments and notes;
+  lifecycle `CREATED`.
+- **The promotion claim is staged, not counted:** one
+  `promotion_redemptions` row per applied offer (`promotion_id`, `coupon_id`,
+  `customer_id`, `document_type` `SALES_ORDER`, `document_id`,
+  `document_number`, `redeemed_on`, `benefit_amount`, `status` **PENDING**).
+  A PENDING row counts against no limit.
+- **Audit:** `sales_order.created` (`order_number`, `status`) and
+  `tax.rule.simulated`. No stock, no journal, nothing on the customer.
+- **Edit a draft** ("Only draft sales orders can be updated."): lines matched
+  on `line_number`, dropped ones physically deleted; attachments and notes
+  physically deleted and re-inserted; the order's PENDING claims
+  **soft-deleted** and staged again, CLAIMED ones untouched; lifecycle
+  `UPDATED`; audit `sales_order.updated`.
+- **A coupon nobody recognises refuses nothing and claims nothing:** it is
+  kept on `coupon_code` and simply matches no offer. Confirmed in
+  `fx_t0916h2j3_s`: SO-…-000001 WELCOME10 and SO-…-000002 WELCOME10B each hold
+  a PENDING WELCOME claim of 25.20; SO-…-000003 NOSUCHCODE holds none and is
+  priced at the list's 2%.
+
+### 11.5 Approve an order — the reservation and the claim (TC-SELL-007)
+
+In this order, all in one request:
+
+- **Credit** is judged first (§11.6). A block raises here and nothing below
+  is written.
+- **The claim:** PENDING → **CLAIMED** on each of the order's
+  `promotion_redemptions` rows, under a row lock on the `promotions` row (and
+  the `promotion_coupons` row when a coupon reached it). Refused, with
+  nothing written, when an offer or coupon has reached its limit ("Promotion
+  … has been claimed as often as it allows. Re-save the document to price it
+  without."). **No audit row of its own** — it rides on `sales_order.approved`.
+- **The reservation:** per line, one `RESERVE` movement (§10.0) per batch held,
+  `reference_number` = the **order** number, `reference_type` `SALES_ORDER`,
+  dated the order date, remarks "sales_order reserve line 1", no cost;
+  `inventories.reserved_quantity` up and `available_quantity` down;
+  `sales_order_lines.reserved_quantity` = `reservable_quantity`.
+- **Then** `sales_orders.status` APPROVED, `approved_at`; lifecycle
+  `APPROVED`.
+- **Audit — two rows** (confirmed): `inventory.transaction.created` (the
+  `RESERVE`) and `sales_order.approved`.
+- **Not written:** no journal, nothing on the customer's balance.
+- **Refused:** an order that is not DRAFT ("Only draft sales orders can be
+  approved.").
+- **Check** — the hold on the shelf and the claim:
+  ```sql
+  select w.code as warehouse, i.current_quantity, i.reserved_quantity, i.available_quantity
+  from   fx_<suffix>_s.inventories i
+  join   fx_<suffix>_s.products p   on p.id = i.product_id
+  join   fx_<suffix>_s.warehouses w on w.id = i.warehouse_id
+  where  p.code = '<SUFFIX>-DET';
+
+  select r.document_number, r.status, r.benefit_amount, r.is_deleted,
+         p.code as promotion, c.code as coupon, r.reversed_at
+  from   fx_<suffix>_s.promotion_redemptions r
+  join   fx_<suffix>_s.promotions p       on p.id = r.promotion_id
+  left join fx_<suffix>_s.promotion_coupons c on c.id = r.coupon_id
+  order  by r.created_at;
+  ```
+  For `selling-ordered`: MAIN 100 / 12 / 88; one WELCOME row, coupon
+  WELCOME10, **CLAIMED**, 25.20.
+
+### 11.6 Credit limit — warn, and block where the firm asks (TC-CUST-004, TC-FIN-008)
+
+- **The policy** is `credit_control_settings` (`enforcement` OFF / WARN /
+  BLOCK, `warn_at_percent`, `block_at_percent`), one row per firm. A firm with
+  no row warns at 80% and never blocks; a limit of 0 means no limit. Writing
+  it (`PUT /customers/credit-settings`, `CUSTOMER_MANAGE_SETTINGS`) records
+  audit **`CREATE`** or **`UPDATE`** with `entity_type` `CreditControlSettings`
+  (D-SELL-24).
+- **Judged at** order approval and again at invoice approval (the invoice
+  locks the customer row first). Exposure = outstanding − advance + the
+  document's `grand_total`.
+- **A warning writes nothing.** The approval goes through; the warning the
+  desktop shows comes from `GET /customers/{id}/credit-status`. The order
+  service computes the assessment and discards it (D-SELL-26).
+- **A block writes nothing** — no status move, no reservation, no claim, no
+  audit row. Confirmed: `fx_t09164wau_s` and `fx_t0916z0ph_s` each hold
+  Anand's order for 1,799.03 against a 1,000.00 limit at DRAFT with
+  `approved_at` null and only `sales_order.created` in the trail.
+- **Check:**
+  ```sql
+  select s.enforcement, s.warn_at_percent, s.block_at_percent from fx_<suffix>_s.credit_control_settings s;
+
+  select o.order_number, o.status, o.approved_at, o.grand_total, c.credit_limit,
+         c.current_outstanding, c.unapplied_advance_balance
+  from   fx_<suffix>_s.sales_orders o
+  join   fx_<suffix>_s.customers c on c.id = o.customer_id
+  where  c.code = '<SUFFIX>-C02';
+  ```
+
+### 11.7 Hold and release (TC-SELL-008)
+
+- **Hold** updates `sales_orders` only: `is_on_hold` true, `hold_reason`,
+  `held_at`, `held_by`, `released_at`/`released_by` cleared, `version` +1.
+  **`status` does not move** — a hold is a flag. Lifecycle `HELD` with
+  `from_state` = `to_state` = the status and the reason as remarks. Audit
+  `sales_order.held` (`after_data` `status`, `is_on_hold` true, `hold_reason`).
+- **The reservation stays.** No `UNRESERVE`, nothing on `inventories`.
+- **The refused note writes nothing.** "SO-… is on hold and cannot be
+  dispatched ("awaiting cheque"). Release it first." is raised by the note's
+  **create** before any row exists.
+- **A hold does not stop a note that already exists.** Only create checks the
+  flag; editing, approving, dispatching or completing a note raised before the
+  hold goes through, and the goods leave while the order reads "on hold"
+  (D-SELL-5). *(Not seen in a live row.)*
+- **Release:** `is_on_hold` false, `released_at`, `released_by`;
+  **`hold_reason` is kept**. Lifecycle `RELEASED` (remarks = what was typed
+  on release). Audit `sales_order.released` with `before_data`
+  `{is_on_hold: true, hold_reason}`.
+- Confirmed in `fx_t0916h2j3_s` on SO-…-000004: HELD "awaiting cheque",
+  RELEASED "cheque cleared", both APPROVED → APPROVED; the hold reason still
+  on the row after it was delivered.
+- **Check:**
+  ```sql
+  select o.order_number, o.status, o.is_on_hold, o.hold_reason, o.held_at, o.released_at,
+         l.reserved_quantity
+  from   fx_<suffix>_s.sales_orders o
+  join   fx_<suffix>_s.sales_order_lines l on l.sales_order_id = o.id;
+  ```
+
+### 11.8 Cancel or close an order (TC-SELL-017 step 2)
+
+- **Cancel:** every line still holding stock is released — one `UNRESERVE`
+  per batch, `reference_number` the order number, remarks "sales_order
+  release line 1", **dated today (UTC)**, so it can read a day before the
+  reservation (D-STK-7; confirmed on `fx_t0916d751_s` SO-…-000002, reserved
+  2026-09-16 and released 2026-09-15); `sales_order_lines.reserved_quantity`
+  0. Every PENDING or CLAIMED claim → **REVERSED** with `reversed_at` (the row
+  kept). `status` CANCELLED, `cancel_reason`; lifecycle `CANCELLED`; audit
+  `inventory.transaction.created` per release and `sales_order.cancelled`.
+- **Cancel is refused only for an order already CANCELLED or CLOSED.** A
+  DELIVERED or billed order can be cancelled: its claims are handed back
+  while the discount stays on the invoice, and the order leaves every report
+  of live orders (D-SELL-11). *(Not seen in a live row.)*
+- **Close** releases what is held the same way and writes `closed_at`,
+  `close_reason`, lifecycle `CLOSED`, audit `sales_order.closed` — but
+  **leaves the claims alone**, and accepts a DRAFT, whose PENDING claims then
+  stay forever (D-SELL-22).
+- **Not written by either:** no journal. A proforma raised on the order is
+  not touched (§11.18).
+
+### 11.9 Delivery note — create and approve (TC-SELL-009)
+
+- **Create** (the order must be APPROVED, PARTIALLY_DELIVERED, DELIVERED —
+  or CLOSED, D-SELL-11 — and not on hold) inserts `delivery_notes` (DRAFT;
+  `sales_order_id`, `sales_order_reference`, customer, branch, warehouse,
+  salesman, route and territory copied from the order; totals) and
+  `delivery_note_lines`: `sales_order_line_id`, `ordered_quantity`,
+  `reserved_quantity` (a snapshot of the order line's),
+  `previously_delivered_quantity` (what earlier **approved, dispatched,
+  completed or closed** notes took), `current_delivery_quantity`,
+  `free_quantity`, `delivered_quantity` (charged + free, in inventory units),
+  `remaining_quantity`, `short_shipment_quantity`, and the **order line's**
+  `unit_price` and discount rate where the form sent none (TC-SELL-010:
+  84, 2.5000, `discount_amount` 10.50, net 483.21 — never re-read from the
+  customer or a price list); `inventory_transaction_id` null. Lifecycle
+  `CREATED`; audits `delivery_note.created` and `tax.rule.simulated`.
+- **Approve:** `status` APPROVED, `approved_at`; lifecycle `APPROVED`; audit
+  `delivery_note.approved` (no data beyond the request id). **Moves
+  nothing** — TC-SELL-009's "an approved note moves nothing".
+- **Refused:** more than the order line has left ("Delivery quantity exceeds
+  allowed quantity for the order line.").
+- **Cancel** (DRAFT or APPROVED only) writes the status, `cancel_reason`,
+  lifecycle `CANCELLED`, audit `delivery_note.cancelled`. A DISPATCHED note
+  cannot be cancelled and nothing reverses a dispatch (§10.10).
+- **Close** refuses only a DRAFT. **An APPROVED note that never dispatched
+  can be closed**, and a closed note counts as delivered for the order and is
+  offered for billing (D-SELL-4). *(Not seen in a live row.)*
+
+### 11.10 Dispatch — part deliveries move the order (TC-SELL-009, 010)
+
+The stock side is §10.6; this is the whole request.
+
+- **Inserts,** per line: an **`UNRESERVE`** of what the order held for it,
+  where the order held it (`reference_number` the **order** number, dated the
+  note's `delivery_date`, remarks "delivery_note release line 1"); then one
+  **`DISPATCH`** per batch drawn (`reference_number` the DN, `reference_type`
+  `DELIVERY_NOTE`, costed at the average); their `stock_ledger_entries`
+  rows. Once per note: **`journal_entries`** (`source_module`
+  `delivery_note`, `source_id` the note, reference the DN number) **Dr 5200
+  Cost of Goods Sold / Cr 1200 Inventory** at the movements' `total_cost` —
+  300.00 for 5 at 60, 420.00 for 7.
+- **Updates:** `inventories`, `product_valuations`;
+  `sales_order_lines.reserved_quantity` down by what was released;
+  `delivery_note_lines.inventory_transaction_id`,
+  `released_reservation_transaction_id`, `batch_id`; `delivery_notes.status`
+  DISPATCHED, `dispatched_at`; lifecycle `DISPATCHED`; and the order's
+  `status` **re-derived** from the sum of dispatched, completed and closed
+  notes — PARTIALLY_DELIVERED, then DELIVERED.
+- **Audit — six rows, one request** (confirmed twice in `fx_t0916h2j3_s`):
+  `inventory.transaction.created` ×2 (the `UNRESERVE` and the `DISPATCH`),
+  `finance.journal_entry.created`, `finance.journal_entry.posted`,
+  `sales_order.delivered_status_changed` (`before_data`/`after_data`
+  `status`, only when it moved), `delivery_note.dispatched`.
+- **Not written:** no lifecycle event and no history row on the **order**
+  when dispatch moves it — `sales_order.delivered_status_changed` in the trail
+  is the only record. No revenue, nothing on the customer: goods leave here,
+  and the sale is the invoice.
+- **Refused, nothing written:** not enough available stock (§10.7), a
+  reservation short of the quantity ("Reservation is insufficient for
+  dispatch quantity."), a note that is not APPROVED.
+- **Check** — the notes, and the movements and journals behind them:
+  ```sql
+  select d.delivery_note_number, d.status, d.dispatched_at, o.order_number, o.status as order_status,
+         l.current_delivery_quantity, l.previously_delivered_quantity, l.remaining_quantity,
+         l.unit_price, l.discount_percent, l.discount_amount, l.net_amount
+  from   fx_<suffix>_s.delivery_notes d
+  join   fx_<suffix>_s.delivery_note_lines l on l.delivery_note_id = d.id
+  join   fx_<suffix>_s.sales_orders o        on o.id = d.sales_order_id
+  order  by d.delivery_note_number;
+
+  select t.created_at, t.transaction_type, t.reference_number, t.transaction_date,
+         t.quantity, t.current_quantity_delta, t.reserved_quantity_delta,
+         t.new_current_quantity, t.new_reserved_quantity, s.total_cost, t.remarks
+  from   fx_<suffix>_s.inventory_transactions t
+  join   fx_<suffix>_s.stock_ledger_entries s on s.transaction_id = t.id
+  join   fx_<suffix>_s.products p             on p.id = t.product_id
+  where  p.code = '<SUFFIX>-DET'
+  order  by t.created_at, t.id;
+
+  select je.reference_number, je.source_module, je.status, je.journal_date,
+         je.reversal_of_id is not null as is_reversal,
+         la.code, la.name, jl.debit_amount, jl.credit_amount
+  from   fx_<suffix>_s.journal_entries je
+  join   fx_<suffix>_s.journal_lines jl   on jl.journal_entry_id = je.id
+  join   fx_<suffix>_s.ledger_accounts la on la.id = jl.ledger_account_id
+  where  je.source_module <> 'inventory'
+  order  by je.created_at, jl.line_number;
+  ```
+  The last query is every selling journal in the store — notes, invoices,
+  receipts, TCS, returns, credit notes, loyalty — and is used again below.
+  After TC-SELL-009: OPENING_STOCK +100, RESERVE 12, UNRESERVE 5, DISPATCH −5,
+  UNRESERVE 7, DISPATCH −7; MAIN 88 / 0; two DN journals of 300.00 and
+  420.00; the order DELIVERED.
+
+### 11.11 Invoice from a note — the cap, the approval, its journal (TC-SELL-011)
+
+- **Create** inserts `sales_invoices` (DRAFT; `due_date` from the customer's
+  terms, `place_of_supply` from their billing address — both empty for the
+  fixture's customers; `allow_direct_sales_order` true only when the firm's
+  delivery-note stage is automatic); `sales_invoice_sources`, one per note;
+  `sales_invoice_lines` (`source_document_type` DELIVERY_NOTE,
+  `source_document_id`, `source_document_line_id`, `delivered_quantity` = the
+  note line's **charged** quantity, `already_invoiced_quantity`,
+  `current_invoice_quantity`, the note's `unit_price` and discount rate where
+  the form sent none, `cost_amount` = that share of the dispatch's
+  `total_cost`, `tax_amount`, `net_amount`, `accounting_event_reference`
+  `SI-…:1`); **`sales_invoice_line_taxes`** — one row per component,
+  CGST 9 and SGST 9 on 409.50, 36.855 each, which is where the split the
+  printed bill shows lives; **`sales_invoice_accounting_events` — three
+  placeholders** (`SALES_REVENUE`, `OUTPUT_TAX`, `ACCOUNTS_RECEIVABLE`,
+  narration "Placeholder accounting event for …"), which are **not the
+  ledger**; attachments and notes; lifecycle `CREATED`. Audits
+  `sales_invoice.created` and `tax.rule.simulated`.
+- **The cap:** billed + already billed by every invoice that is not CANCELLED
+  (drafts included) ≤ the note line's charged quantity. Refused, nothing
+  written: "Invoice quantity exceeds the available source quantity." — the
+  desktop says "Only 5.0 left to bill." before sending.
+- **Not checked by the server: that the note was dispatched.** A DRAFT,
+  APPROVED or CANCELLED note can be billed through the API; only the
+  desktop's picker filters (D-SELL-3). *(Every live invoice line sits on a
+  DISPATCHED note.)*
+- **Edit a draft** physically deletes every child — lines (their taxes by
+  cascade), sources, accounting events, attachments, notes — and inserts them
+  again; lifecycle `EDITED`; audit `sales_invoice.updated`.
+- **Approve** (DRAFT only), after the credit check under a lock on the
+  customer:
+  - `customer_receivable_transactions` `INVOICE`, `reference_type`
+    `SALES_INVOICE`, 483.21 — Outstanding up;
+  - `journal_entries` (`source_module` `sales_invoice`, reference the SI
+    number, dated the invoice date): **Dr 1100 Trade Receivables 483.21 /
+    Cr 4000 Sales 409.50 / Cr 2200 Output Tax 73.71** — one tax line; the
+    split is on the invoice;
+  - `sales_invoices.status` APPROVED, `approved_at`; lifecycle `APPROVED`;
+  - **audit — four rows** (confirmed): `customer.receivable_transaction_posted`,
+    `finance.journal_entry.created`, `finance.journal_entry.posted`,
+    `sales_invoice.approved`.
+- **Loyalty points should follow and do not.** Approval commits, then stages
+  the `EARNED` entry and its journal with nothing left to commit them — so no
+  invoice approved through the API or the desktop earns a point (D-SELL-1,
+  §11.19).
+- **Not written:** no stock and no cost of goods — both were the note's
+  (§11.10). Nothing on the note or the order.
+- **Check:**
+  ```sql
+  select i.invoice_number, i.status, i.subtotal, i.tax_total, i.grand_total,
+         l.source_document_number, l.delivered_quantity, l.already_invoiced_quantity,
+         l.current_invoice_quantity, l.unit_price, l.discount_percent, l.cost_amount,
+         t.component_code, t.percentage, t.base_amount, t.amount
+  from   fx_<suffix>_s.sales_invoices i
+  join   fx_<suffix>_s.sales_invoice_lines l      on l.sales_invoice_id = i.id
+  left join fx_<suffix>_s.sales_invoice_line_taxes t on t.sales_invoice_line_id = l.id
+  order  by i.invoice_number, l.line_number, t.sequence;
+  ```
+  and the §11.10 journal query and the §11.0 receivable query.
+
+### 11.12 Cancel or close an invoice (not in the cases)
+
+- **Cancel** is refused while anything rests on the bill — a POSTED receipt
+  applied to it, a live credit note, a live return sourced on it, points
+  spent on it, a registration with the tax portal ("SI-… cannot be cancelled
+  while it has …. Reverse or cancel those first."). Otherwise an APPROVED
+  invoice gets `SI-…-REV` (`reversal_of_id`, the original REVERSED, dated the
+  first of the period — D-BUY-4) and a receivable row `CREDIT_NOTE`,
+  `reference_type` `SALES_INVOICE`, dated today, remarks "Auto reversal for
+  cancelled invoice …" (or the reason). Status CANCELLED, `cancel_reason`;
+  lifecycle `CANCELLED`; audit `sales_invoice.cancelled`. Its quantity goes
+  back on the notes, so they are offered for billing again. **The points it
+  earned are not taken back** (D-SELL-2). Cancelling a DRAFT writes the status,
+  the lifecycle event and the audit row only.
+- **Close** refuses only an invoice already CLOSED — **a DRAFT or a CANCELLED
+  invoice can be closed.** A closed draft never posts, yet keeps its quantity
+  against the note, so those goods can never be billed; a cancelled one
+  closed takes back the quantity its cancellation released (D-SELL-12).
+  Closing writes `closed_at`, `close_reason`, lifecycle `CLOSED`, audit
+  `sales_invoice.closed`, and no journal. *(Not seen in a live row.)*
+
+### 11.13 Print settings and printing (TC-SELL-012)
+
+- **Print settings** save one `document_print_templates` row per firm ×
+  `document_type` (`SALES_INVOICE`): `title_text`, `accent_color`,
+  `header_note`, `show_bank_details`, `bank_details`, `terms`, `declaration`,
+  `jurisdiction`, `footer_note`, `signatory_text`, `show_discount_column`,
+  `show_batch_column`, `show_expiry_column`, **`copy_labels`** (a JSON list —
+  `["ORIGINAL FOR RECIPIENT", "DUPLICATE FOR TRANSPORTER"]`), `page_size`,
+  `margin_mm`. Inserted on the first save, updated after. Audit
+  `document_print_template.created` or `.updated`, `after_data` naming only
+  the `document_type`. Needs `SETTINGS_UPDATE`. Confirmed on WHOLE01; no
+  fixture store has one.
+- **Printing writes nothing** — `GET /sales-invoices/{id}/print` renders the
+  PDF from the invoice, its line taxes and the template, with no audit row.
+- **Check:**
+  ```sql
+  select document_type, copy_labels, title_text, show_bank_details, version, updated_at
+  from   fx_<suffix>_s.document_print_templates;
+  ```
+
+### 11.14 Record a receipt — allocation and TCS (TC-SELL-013)
+
+- **Inserts, in order:** `journal_entries` (`source_module` `settlements`,
+  `source_id` the settlement, reference the RC number) **Dr 1010 Bank**
+  (`1000 Cash` for CASH) **/ Cr 1100 Trade Receivables** for the whole
+  amount; `settlements` (`direction` RECEIPT, `customer_id`, `amount`,
+  `allocated_amount`, `unallocated_amount`, `sales_order_id` when "Against
+  order" was named, `method`, `ledger_account_id`, `status` POSTED,
+  `journal_entry_id`); one `settlement_allocations` row per bill
+  (`sales_invoice_id`, `amount`); a receivable row `RECEIPT`
+  (`reference_type` `settlement`) that **stores the split** — whatever the
+  customer owed comes off `outstanding_delta`, the excess goes to
+  `advance_delta`.
+- **Then TCS**, when the firm collects it and the receipt is above the
+  threshold: `tcs_collections` (`consideration_amount`, `cumulative_before`
+  — this year's earlier receipts, summed each time rather than held —
+  `taxable_amount`, `rate_percent`, `without_pan`, `tcs_amount`, `status`
+  COLLECTED, `journal_entry_id`, `receivable_transaction_id`); a journal
+  `TCS-RC-…` (`source_module` `tcs`) **Dr 1100 / Cr 2500 TCS Payable**; a
+  receivable row `TCS` (`reference_type` null, remarks "Tax collected at
+  source under 206C(1H).") — the customer now owes the tax.
+- **Audit — eight rows, one request** (confirmed):
+  `customer.receivable_transaction_posted` ×2, `finance.journal_entry.created`
+  ×2, `finance.journal_entry.posted` ×2, `settlement.receipt.recorded`
+  (`settlement_number`, `amount`, `allocated_amount`, `party` = the customer's
+  code), `tcs.collected`.
+- **Not written:** no lifecycle event; nothing on `sales_invoices` — there is
+  no PAID status, and what a bill still owes is its total less POSTED
+  allocations and redeemed points, derived each time.
+- **Refused, nothing written:** a draft or cancelled bill, another customer's,
+  more than it owes, allocations beyond the amount.
+- **Confirmed** on `fx_t0916d751_s` (the `selling-paid` rows): RC-…-000001
+  241.60, RECEIPT −241.60 / 0 → 241.61, TCS 2.42 at 1% (`without_pan` true,
+  `cumulative_before` 0) → **244.03**; RC-…-000002 341.61 with 241.61
+  allocated and 100.00 unallocated, RECEIPT **−244.03 / +97.58** → 0.00 /
+  97.58, TCS 3.42 (`cumulative_before` 241.60) → **3.42 / 97.58**.
+- **Record Receipt keeps offering a bill's full remainder after a return or a
+  credit note against it** — SI-…-000001 in `fx_t0916h2j3_s` is offered at
+  241.60 though a 193.28 return and a 59.00 credit note stand against it
+  (D-SELL-10).
+- **Check:**
+  ```sql
+  select s.settlement_number, s.status, s.amount, s.allocated_amount, s.unallocated_amount,
+         s.method, i.invoice_number, a.amount as applied,
+         tc.tcs_amount, tc.rate_percent, tc.without_pan, tc.status as tcs_status
+  from   fx_<suffix>_s.settlements s
+  left join fx_<suffix>_s.settlement_allocations a on a.settlement_id = s.id and a.is_deleted = false
+  left join fx_<suffix>_s.sales_invoices i         on i.id = a.sales_invoice_id
+  left join fx_<suffix>_s.tcs_collections tc       on tc.settlement_id = s.id
+  where  s.direction = 'RECEIPT'
+  order  by s.settlement_number, i.invoice_number;
+  ```
+  with the §11.0 receivable query for the balance after each step.
+
+### 11.15 Apply an advance; reverse a receipt (TC-SELL-014)
+
+- **Apply to an invoice** inserts one `settlement_allocations` row and, only
+  for the part that really comes out of the advance, a receivable row
+  `ADVANCE_APPLY` (`reference_type` `settlement`). It updates
+  `settlements.allocated_amount` / `unallocated_amount`. **No journal** — the
+  money arrived when the receipt was recorded. Audits
+  `customer.receivable_transaction_posted` and `settlement.receipt.allocated`
+  (`settlement_number`, `invoice_number`, `amount`, `unallocated_amount`).
+  Confirmed in `fx_t0916h2j3_s`: applying 97.58 of RC-…-000002 to
+  SI-…-000002 wrote `ADVANCE_APPLY` **95.16** (−95.16 / −95.16 → **584.75 /
+  2.42**) — the other 2.42 had already gone to RC-…-000001's TCS when the
+  receipt split — and left RC-…-000002 allocated 339.19, unallocated 2.42.
+  Refused beyond what is left: "RC-… has only 2.42 left unapplied."
+- **Reverse:** `RC-…-REV` (the mirror, `reversal_of_id`, the original
+  REVERSED, **dated the first of the period** — 2026-09-01 — D-BUY-4); a
+  receivable row `REVERSAL` (`reference_type` `reversal`, the stored deltas
+  negated, reference `RC-…-REV`, remarks the reason); and the TCS undone —
+  `TCS-RC-…-REV` Dr 2500 / Cr 1100, a second `REVERSAL` row carrying
+  reference `TCS-RC-…` with no `-REV` and no remarks (D-SELL-27),
+  `tcs_collections.status` REVERSED. `settlements.status` REVERSED,
+  `reversal_journal_entry_id`, `reversed_at`, `reversed_by`,
+  `reversal_reason`. **The allocations stay**, not even soft-deleted; they
+  stop counting because the receipt is no longer POSTED, so the bill comes
+  back to Record Receipt.
+- **Audit — ten rows, one request** (confirmed):
+  `customer.receivable_transaction_reversed` ×2, `finance.journal_entry.created`
+  ×2, `.posted` ×2, `.reversed` ×2, `settlement.receipt.reversed`
+  (`before_data` POSTED; `after_data` `status`, `reversal_journal_entry_id`,
+  `reason`), `tcs.reversed`.
+- Confirmed in `fx_t0916h2j3_s` (RC-…-000001, "bounced"): +241.60 → 826.35,
+  −2.42 → **823.93**, a net rise of **239.18**; GL 1100 still agrees with the
+  customer's balance less their advance.
+- **A receipt whose advance has been applied does not reverse cleanly.** The
+  reversal looks up "the" receivable row for the settlement and there are now
+  two (`RECEIPT` and `ADVANCE_APPLY`); whichever comes back is the one undone
+  (D-SELL-8). RC-…-000002 in `fx_t0916h2j3_s` is in that state. *(Not driven —
+  read-only.)*
+- **Refused:** a second reversal ("RC-… has already been reversed."), one that
+  would drive the balance below zero.
+
+### 11.16 Sales return (TC-SELL-015)
+
+- **Create** inserts `sales_returns` (DRAFT always), `sales_return_sources`,
+  `sales_return_lines` (`source_document_type` SALES_INVOICE or
+  DELIVERY_NOTE, `source_document_line_id`, `dispatched_quantity` — the
+  source line's charged quantity — `already_returned_quantity`,
+  `current_return_quantity`, `restock_quantity`, `damaged_quantity`,
+  `scrap_quantity`, `unit_price`, `discount_percent`, `discount_amount`,
+  `bill_discount_amount`, `tax_amount`, `net_amount`,
+  `inventory_transaction_id` null), `sales_return_line_taxes` (CGST, SGST),
+  attachments and notes; lifecycle `CREATED`; audits `sales_return.created`
+  and `tax.rule.simulated`.
+- **A missing price is not 0** — unlike the purchase return (D-BUY-3), the
+  line takes the source line's `unit_price` and discount **rate**. Confirmed:
+  84, 2.5000, 163.80 + 29.484 = 193.284.
+- **The cap:** returned + already returned (every return not CANCELLED,
+  drafts included, **on the same source line**) ≤ what the source line
+  charged. Refused, nothing written: "Return quantity exceeds what was
+  dispatched on the source document (5.0000 sent, 0.0000 already returned)."
+  Because the count is per source line, goods returned against the note are
+  not counted against the invoice that billed them (D-SELL-7), and the source
+  document's **status is never checked** — a draft note or a cancelled
+  invoice can be returned against (D-SELL-6).
+- **The tax is worked out again** at the return date through the
+  `SALES_RETURN` rules, not copied from what the invoice charged (D-SELL-21).
+- **Edit a draft:** lines, sources, attachments and notes **physically
+  deleted** and re-inserted (line taxes by cascade); lifecycle `UPDATED`;
+  audit `sales_return.updated`.
+- **Approve:** `status` APPROVED, `approved_at`; lifecycle `APPROVED`; audit
+  `sales_return.approved`. Nothing moves.
+- **Complete** (APPROVED only):
+  - per line, `inventory_transactions` **`SALES_RETURN`** (`reference_type`
+    `SALES_RETURN`, `reference_number` the SR number, +2, remarks
+    "sales_return buckets restock=2.0000 damaged=0.0000 scrap=0.0000") and its
+    ledger row at the average (120.00); `sales_return_lines.inventory_transaction_id`;
+  - journal (`source_module` `sales_return`, reference the SR number):
+    **Dr 4100 Sales Returns 163.80 / Dr 2200 Output Tax 29.48 / Cr 1100 Trade
+    Receivables 193.28**;
+  - a second journal **`SR-…-COST`: Dr 1200 Inventory / Cr 5200 Cost of Goods
+    Sold 120.00**, at the movement's value;
+  - receivable row `CREDIT_NOTE`, `reference_type` `SALES_RETURN`, 193.28 —
+    Outstanding 823.93 → 630.65 in `fx_t0916h2j3_s`;
+  - `sales_returns.status` COMPLETED, `completed_at`, `journal_entry_id`,
+    `cost_journal_entry_id`; lifecycle `COMPLETED`;
+  - **audit — seven rows, one request** (confirmed):
+    `inventory.transaction.created`, `finance.journal_entry.created` ×2,
+    `.posted` ×2, `customer.receivable_transaction_posted`,
+    `sales_return.completed` (`after_data.stock_value` "120.0000").
+- **Cancel a completed return:** a `SALES_RETURN_REVERSAL` per line (dated the
+  original's date — D-STK-9), `SR-…-REV` and `SR-…-COST-REV` (both dated the
+  first of the period — D-BUY-4), the originals REVERSED, a receivable
+  `REVERSAL` by the stored deltas, `inventory_transaction_id`,
+  `journal_entry_id` and `cost_journal_entry_id` cleared, `cancel_reason`;
+  nine audit rows. Confirmed on WHOLE01 SR-2026-2027-000004.
+- **Close** only from COMPLETED ("Only completed sales returns can be
+  closed.") — the Buying defect does not recur here. Delete: DRAFT only, soft,
+  audit `sales_return.deleted`.
+- **Check:**
+  ```sql
+  select r.return_number, r.status, r.grand_total, l.source_document_type,
+         l.source_document_number, l.dispatched_quantity, l.already_returned_quantity,
+         l.current_return_quantity, l.unit_price, l.discount_percent, l.tax_amount,
+         l.net_amount, t.transaction_type, t.current_quantity_delta, t.remarks
+  from   fx_<suffix>_s.sales_returns r
+  join   fx_<suffix>_s.sales_return_lines l on l.sales_return_id = r.id
+  left join fx_<suffix>_s.inventory_transactions t on t.id = l.inventory_transaction_id;
+  ```
+  and the §11.10 journal query (the SR and SR-…-COST entries).
+
+### 11.17 Credit note (TC-SELL-016)
+
+- **Raise** (the invoice must be APPROVED or CLOSED) inserts `credit_notes`
+  (DRAFT, `reason` — `RATE_DIFFERENCE`, `POST_SALE_DISCOUNT`,
+  `DEFICIENCY_IN_SERVICE`, `OTHER` — `taxable_amount`, `tax_amount`,
+  `total_amount`, `sales_invoice_id`) and `credit_note_lines`
+  (`sales_invoice_line_id`, `quantity` 0 when none was sent,
+  `taxable_amount`, `tax_amount`, `total_amount`, **`tax_rate_percent` = the
+  rate that line was charged** — its tax ÷ its charged value, 18.0000).
+  Lifecycle `CREATED`; audit `credit_note.created` (a full snapshot).
+- **The cap**, read under a lock on the invoice line: credited + already
+  credited by live credit notes ≤ what the line was charged. Refused, nothing
+  written: "A credit note cannot credit more than the line was charged:
+  409.5000 charged, 50.0000 already credited." Returns are not netted against
+  it.
+- **Approve:** journal (`source_module` `credit_note`, reference the CN
+  number, dated the note's date) **Dr 4100 Sales Returns 50.00 / Dr 2200
+  Output Tax 9.00 / Cr 1100 Trade Receivables 59.00**; receivable row
+  `CREDIT_NOTE` 59.00 with **`reference_type` and `reference_id` null**
+  (D-SELL-23); `status` APPROVED, `journal_entry_id`,
+  `receivable_transaction_id`. **Audit — four rows** (confirmed):
+  `finance.journal_entry.created`, `.posted`,
+  `customer.receivable_transaction_posted`, `credit_note.approved`. **No
+  lifecycle event** — the timeline stops at CREATED (D-SELL-23).
+  Outstanding 630.65 → **571.65** in `fx_t0916h2j3_s`.
+- **Not written:** no stock — a credit note is money only.
+- **Edit a draft:** old lines **soft-deleted**, new ones inserted; audit
+  `credit_note.updated`. **Cancel** (DRAFT or APPROVED): `CN-…-REV` dated the
+  note's own date, the receivable reversed by its deltas, audit
+  `credit_note.cancelled`. There is no close. *(Neither seen in a live row.)*
+- **Check:**
+  ```sql
+  select n.credit_note_number, n.status, n.reason, n.taxable_amount, n.tax_amount,
+         n.total_amount, l.tax_rate_percent, il.line_number as invoice_line,
+         n.journal_entry_id is not null as posted
+  from   fx_<suffix>_s.credit_notes n
+  join   fx_<suffix>_s.credit_note_lines l  on l.credit_note_id = n.id and l.is_deleted = false
+  join   fx_<suffix>_s.sales_invoice_lines il on il.id = l.sales_invoice_line_id;
+  ```
+
+### 11.18 Proforma — posts nothing and does not follow the order (TC-SELL-017)
+
+- **Raise** (the order must be APPROVED, PARTIALLY_DELIVERED, DELIVERED or
+  CLOSED) inserts `proforma_invoices` (DRAFT, `sales_order_id`, customer,
+  branch and currency from the order, `payment_terms`, `delivery_terms`,
+  `supersedes_id`) and `proforma_invoice_lines` **copied** from the order's
+  lines (`source_sales_order_line_id`, quantity, price, `discount_percent`,
+  `discount_amount`, `bill_discount_amount`, `gross_amount`, `tax_amount`,
+  `net_amount`), totals summed from them. Lifecycle `PROFORMA.CREATED`; audit
+  `proforma.created` (`proforma_number`, `status`, `sales_order_id`,
+  `grand_total`).
+- **Issue:** DRAFT → ISSUED, `issued_at`; lifecycle `PROFORMA.ISSUED`; audit
+  `proforma.issued`. **Cancel:** `cancelled_at`, `cancel_reason`, audit
+  `proforma.cancelled`.
+- **Posts nothing, by design:** neither table has a `journal_entry_id` or a
+  receivable link; no stock; the customer's balance does not move.
+- **Snapshotted:** cancelling the order changes nothing on the proforma.
+  Confirmed on `fx_t0916d751_s`: PI-2026-2027-000001 ISSUED at 291.4128 on
+  SO-2026-2027-000002, which is CANCELLED; WHOLE01's PI-…-000004 and -000006
+  the same.
+- **Its totals leave out freight and the order's header charges** (D-SELL-16);
+  the fixture's order has neither.
+- **Check:**
+  ```sql
+  select p.proforma_number, p.status, p.issued_at, p.grand_total,
+         o.order_number, o.status as order_status, o.grand_total as order_total
+  from   fx_<suffix>_s.proforma_invoices p
+  join   fx_<suffix>_s.sales_orders o on o.id = p.sales_order_id;
+  ```
+  No `journal_entries` row carries a proforma's id as `source_id`.
+
+### 11.19 Loyalty — earn, spend, adjust, expire (TC-INCENT-005)
+
+`loyalty_entries` is the whole scheme: `kind` `EARNED`, `REDEEMED`,
+`EXPIRED`, `ADJUSTED` (and `REVERSED`, which nothing writes), signed
+`points`, `amount`, `sales_invoice_id`, `earned_on`, `expires_on`,
+`reverses_id`, `journal_entry_id`. **The balance is the sum of `points`**; no
+column holds it. The settings are `loyalty_settings`, audit
+`loyalty.settings_changed`.
+
+- **Earn** — meant to happen at invoice approval: one `EARNED` row (points =
+  grand total × `points_per_amount` / 100), a journal `LOY-SI-…`
+  (`source_module` `loyalty`) **Dr 5700 Loyalty Expense / Cr 2600 Loyalty
+  Payable**, audit `loyalty.earned`. **It is lost on every approval made
+  through the API or the desktop** (D-SELL-1): no fixture store holds an
+  `EARNED` row, and WHOLE01's invoices approved by hand on 2026-09-13
+  (SI-…-000010 to 000013) have none while the 49 the seeder approved do. That
+  is why TC-INCENT-005 reads exactly **200** — the invoice's 9.66 never
+  arrived. Cancelling an invoice leaves any earned points and their journal
+  standing (D-SELL-2; WHOLE01 SI-2026-2027-000008).
+- **Adjust** (the fixture's 200): one `ADJUSTED` row, `amount` 0, `remarks`
+  the reason; **posts nothing**; audit `loyalty.adjusted`. Adjusted points
+  never expire.
+- **Use points on an invoice** — the customer row locked: one `REDEEMED` row
+  (negative points, `amount`, `sales_invoice_id`, `earned_on` = today UTC); a
+  journal `LOY-RED-SI-…` **Dr 2600 Loyalty Payable / Cr 1100 Trade
+  Receivables**, dated today UTC — 2026-09-15 for a 2026-09-16 invoice in
+  `fx_t09164wau_s` (D-SELL-27); a receivable row `LOYALTY` (reference the SI
+  number, remarks "100.0000 points spent on SI-…", no `reference_type`) —
+  Outstanding 483.21 → **383.21**; audit `loyalty.redeemed`. The invoice's
+  total and tax do not move: the bill is settled, not discounted, and what it
+  still owes has the redeemed amount taken off. Spending goodwill points
+  debits 2600 for value that was never accrued — `fx_t09164wau_s` reads
+  **2600 at −100.00** (D-SELL-19) — and a second spend on the same bill is
+  refused by the journal's unique reference (D-SELL-20).
+- **Refused, nothing written:** "That customer holds 100.0000 points, not
+  5000.0000."; under the minimum; more than the bill owes; a bill that is not
+  approved.
+- **Expire:** one `EXPIRED` row per lapsing batch for what is left of it,
+  `reverses_id` the batch, journal `LOY-EXP-…` Dr 2600 / Cr 5700, audit
+  `loyalty.expired`. Confirmed on WHOLE01 only.
+- **Check:**
+  ```sql
+  select e.created_at, e.kind, e.points, e.amount, e.earned_on, e.expires_on,
+         i.invoice_number, je.reference_number as journal, e.remarks
+  from   fx_<suffix>_s.loyalty_entries e
+  join   fx_<suffix>_s.customers c          on c.id = e.customer_id
+  left join fx_<suffix>_s.sales_invoices i  on i.id = e.sales_invoice_id
+  left join fx_<suffix>_s.journal_entries je on je.id = e.journal_entry_id
+  where  c.code = '<SUFFIX>-C01'
+  order  by e.created_at;
+
+  select sum(points) as balance
+  from   fx_<suffix>_s.loyalty_entries e
+  join   fx_<suffix>_s.customers c on c.id = e.customer_id
+  where  c.code = '<SUFFIX>-C01' and e.is_deleted = false;
+  ```
+
+### 11.20 The shortened chain — a stage switched to automatic (TC-FIN-009)
+
+- **The setting** is one `sales_workflow_settings` row per firm
+  (`quotation_stage`, `sales_order_stage`, `delivery_note_stage`,
+  `default_branch_id`, `default_warehouse_id`); a firm with no row types
+  every stage. Writing it needs `SALES_MANAGE_SETTINGS` and records audit
+  **`CREATE`** / **`UPDATE`**, `entity_type` `SalesWorkflowSettings`, both
+  sides in full (D-SELL-24).
+- **Delivery-note stage off, bill the order:** the invoice's **create**
+  raises, approves and dispatches the note itself, then bills it — all in the
+  one request that saves the **draft** invoice. Confirmed on `fx_t09164wau_s`:
+  one request at 03:34:30.913 wrote `delivery_note.created`,
+  `delivery_note.approved`, `delivery_note.dispatched`, the `UNRESERVE` and
+  `DISPATCH` of 4, the COGS journal of 240.00,
+  `sales_order.delivered_status_changed` (APPROVED → DELIVERED),
+  `sales_invoice.created` and two `tax.rule.simulated`; the invoice reads
+  `allow_direct_sales_order` true. Approving it later is §11.11 unchanged.
+- **So a draft bill has already moved the stock.** Cancelling that draft
+  leaves the goods dispatched, their cost posted and the order DELIVERED, with
+  no revenue behind them until the note is billed again (D-SELL-13).
+- **Order and note stages both off, bare lines:** the create also raises and
+  approves the order (credit check, reservation, claim) from the invoice's
+  lines, at the firm's default branch and warehouse — refused if there is
+  none ("This firm has no default branch, so a bill cannot decide where its
+  goods ship from."). *(Not seen in a live row.)*
+- **A firm on the whole chain** cannot bill an order directly ("This firm
+  ships on a delivery note before it bills. Dispatch the order, or turn the
+  delivery-note stage off.").
+- **Check:**
+  ```sql
+  select quotation_stage, sales_order_stage, delivery_note_stage,
+         default_branch_id, default_warehouse_id, updated_at
+  from   fx_<suffix>_s.sales_workflow_settings;
+
+  select i.invoice_number, i.status, i.allow_direct_sales_order, i.created_at,
+         d.delivery_note_number, d.status as note_status, d.created_at as note_created
+  from   fx_<suffix>_s.sales_invoices i
+  join   fx_<suffix>_s.sales_invoice_sources s on s.sales_invoice_id = i.id
+  join   fx_<suffix>_s.delivery_notes d        on d.id = s.source_document_id;
+  ```
+  The note and the invoice share a `created_at` to the microsecond.
+
+### 11.21 What selling does not write, and is often looked for
+
+| You might expect | What actually happens |
+| --- | --- |
+| A PAID status on a sales invoice | It stays APPROVED; what it owes is derived from POSTED allocations and redeemed points (§11.14) |
+| A journal when an order is approved | None; a `RESERVE` and a CLAIMED row only (§11.5) |
+| Revenue at dispatch, or cost of goods at invoice | The reverse: COGS at dispatch (§11.10), revenue at invoice approval (§11.11) |
+| A lifecycle or history row when dispatch moves the order | Audit `sales_order.delivered_status_changed` only (§11.10) |
+| An audit row for a promotion claim, or for a refused credit approval | None; the claim rides on `sales_order.approved`, and a block writes nothing (§11.5, §11.6) |
+| The discount source on a note, invoice or return | Only quotation and order lines carry `discount_source` (§11.1) |
+| `sales_invoice_accounting_events` being the journal | Placeholders written at create; the journal is `journal_entries` with `source_module` `sales_invoice` |
+| The CGST/SGST split in the journal | One Output Tax line; the split is `sales_invoice_line_taxes` |
+| A proforma journal or receivable | None, by design (§11.18) |
+| Loyalty points from an approved invoice | Lost (D-SELL-1, §11.19) |
+| A reversal dated the day of the cancel | Receipts, returns and invoices: the first of the period; credit notes: the note's date (D-BUY-4, D-SELL-27) |
+| A credit note's APPROVED on its timeline | None; only CREATED (D-SELL-23) |
+| Soft-deleted child rows | Order and note attachments and notes, dropped lines, every child of a draft invoice or return are **physically** deleted; a credit note's old lines are soft-deleted |
+
+### 11.22 Checked against live rows, and not
+
+- **Confirmed in `fx_t0916h2j3_s`** (TC-SELL-001 to 017 run by API on
+  2026-09-16): every `discount_source` in §11.1; the quotation's CREATED → SENT
+  → ACCEPTED → CONVERTED and the converted order reading `amount` / `typed`;
+  PENDING claims for WELCOME10 and WELCOME10B and none for NOSUCHCODE; the
+  CLAIMED row and the two-row approval; HELD and RELEASED with the reason
+  kept; two dispatches of six audit rows each, the order PARTIALLY_DELIVERED
+  then DELIVERED, COGS 300.00 and 420.00; the note line at 84 less 2.5%; the
+  invoice's CGST/SGST rows, placeholders, receivable and journal Dr 1100 /
+  Cr 4000 / Cr 2200; the receipts, TCS, the advance applied as 95.16 and the
+  reversal's ten audit rows; the return's two journals and seven audit rows;
+  the credit note at 18% with no APPROVED lifecycle and a null
+  `reference_type`; an issued proforma; zero loyalty entries.
+- **Confirmed in `fx_t0916d751_s`, `fx_t09164wau_s`, `fx_t0916z0ph_s`:** the
+  `selling-paid` receipts and balances; the cancelled order's release dated
+  the day before its reservation and its issued proforma unchanged; the
+  goodwill adjustment, the 100-point spend dated UTC and 2600 at −100.00; the
+  blocking policy with Anand's order left DRAFT and nothing else written; the
+  automatic note raised and dispatched by a draft invoice's create; the
+  `CREATE` audit rows for both settings tables.
+- **Confirmed on WHOLE01:** a saved invoice print template with two copy
+  labels; a completed return cancelled with its nine audit rows and two
+  `-REV` journals on 2026-09-01; `EXPIRED` loyalty rows; earned points
+  missing from the four invoices approved by hand and still standing on a
+  cancelled one; proforma and purchase invoice numbers colliding; the
+  REVERSED claims of a cancelled order; `outstanding_balance_snapshot` 0.00
+  on orders whose customers owe thousands.
+- **Not seen in a live row:** a quotation revision in a fixture store; a
+  refused claim at its limit; a warned approval; a note dispatched while its
+  order was held; a note closed without dispatch; an invoice from an
+  undispatched note; an invoice closed from DRAFT or CANCELLED; a cancelled
+  approved invoice with its receivable reversal in a fixture store; a
+  delivered order cancelled; a cancelled credit note; a closed or edited
+  return; a return against a note line already billed; a reversed receipt
+  whose advance had been applied; a refund; a proforma on an order with
+  freight; a bare-line bill with both stages off.
+- **Where the selling rows are, 2026-09-19:** `fx_t0916h2j3_s` 6 quotations,
+  5 orders, 2 notes, 2 invoices, 1 return, 1 credit note, 2 receipts, 1
+  proforma; `fx_t0916d751_s` 2 orders, 2 notes, 2 invoices, 2 receipts, 1
+  proforma; `fx_t09164wau_s` 7 orders, 3 notes, 2 invoices; `fx_t0916z0ph_s`
+  2 orders; TEST01 9 orders, 7 notes, 9 invoices, 4 settlements from other
+  fixtures; WHOLE01 as in §11.0.
