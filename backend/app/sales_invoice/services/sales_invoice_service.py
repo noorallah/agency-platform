@@ -33,6 +33,7 @@ from app.customers.schemas import (
 from app.customers.services import CreditControlService
 from app.customers.services.customer_service import CustomerService
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
+from app.delivery_note.rules import require_dispatched_note
 from app.delivery_note.schemas import DeliveryNoteStatus
 from app.document_framework.models import (
     DocumentLifecycleEvent,
@@ -671,6 +672,23 @@ class SalesInvoiceService(TransactionalDocumentService):
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status != SalesInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft sales invoices can be approved.")
+        # Checked again here, not only when the draft is saved: a draft saved
+        # before the save refused an undispatched note would otherwise still
+        # post revenue for goods that never left (D-SELL-3).
+        for note in self._session.scalars(
+            select(DeliveryNote)
+            .join(
+                SalesInvoiceSource,
+                SalesInvoiceSource.source_document_id == DeliveryNote.id,
+            )
+            .where(
+                SalesInvoiceSource.sales_invoice_id == row.id,
+                SalesInvoiceSource.source_document_type
+                == SalesInvoiceSourceType.DELIVERY_NOTE.value,
+                SalesInvoiceSource.is_deleted.is_(False),
+            )
+        ).all():
+            require_dispatched_note(note, "billed")
         # Approval is what puts the amount on the customer's account, so it is
         # the last point at which a limit can still be enforced.
         #
@@ -1761,6 +1779,14 @@ class SalesInvoiceService(TransactionalDocumentService):
     def _prepare_invoice_sources(
         self, data: SalesInvoiceCreate, firm_id: UUID
     ) -> tuple[dict[str, UUID], list[dict[str, object]], list[dict[str, object]]]:
+        if any(item.serial_ids for item in data.lines):
+            # Left over only on a line billing a note already dispatched --
+            # the chain moves them onto the note it raises. Taking them here
+            # would record units the bill never moved.
+            raise ValidationError(
+                "Serial numbers are picked on the delivery note that ships the "
+                "goods; this bill names a note that has already been dispatched."
+            )
         lines = [item.model_dump(mode="python") for item in data.lines]
         sources = [item.model_dump(mode="python") for item in data.source_documents]
         inferred_sources = {
@@ -1790,6 +1816,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 )
                 if note is None:
                     raise ResourceNotFoundError("Delivery note not found.")
+                require_dispatched_note(note, "billed")
                 source_rows.append(
                     {
                         "source_document_type": source_type,

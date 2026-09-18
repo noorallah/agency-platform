@@ -10,6 +10,7 @@ import '../../core/business/business_features.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
+import '../../models/batch_serial.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/document_framework.dart';
 import '../../models/entities.dart';
@@ -377,7 +378,12 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
               unitPrice: line.unitPrice,
               amount: line.grossAmount,
               netAmount: line.netAmount,
-              remarks: line.remarks,
+              // Which units went, for a serial-tracked product (D-STK-4).
+              remarks: [
+                if (line.remarks.isNotEmpty) line.remarks,
+                if (line.serialNumbers.isNotEmpty)
+                  'Serials: ${line.serialNumbers.join(', ')}',
+              ].join(' · '),
             ),
         ],
         totals: row.toTotals(),
@@ -778,6 +784,7 @@ class _DeliveryNoteLine {
     required this.grossAmount,
     required this.netAmount,
     required this.remarks,
+    this.serialNumbers = const [],
   });
 
   final int lineNumber;
@@ -794,6 +801,10 @@ class _DeliveryNoteLine {
   final String netAmount;
   final String remarks;
 
+  /// The serialised units this line names -- picked on the draft, SOLD once
+  /// it is dispatched.
+  final List<String> serialNumbers;
+
   factory _DeliveryNoteLine.fromJson(Json json) => _DeliveryNoteLine(
         lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
         productId: stringValue(json['product_id']),
@@ -808,5 +819,9 @@ class _DeliveryNoteLine {
         grossAmount: stringValue(json['gross_amount']),
         netAmount: stringValue(json['net_amount']),
         remarks: stringValue(json['remarks']),
+        serialNumbers: [
+          for (final PickedSerial unit in PickedSerial.listFrom(json['serials']))
+            unit.serialNumber,
+        ],
       );
 }

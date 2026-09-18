@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.batch_serial.schemas import PickedSerial
+
 
 class SalesReturnSchema(BaseModel):
     """Apply strict input and ORM response behavior."""
@@ -116,6 +118,12 @@ class SalesReturnLineWrite(SalesReturnSchema):
     expiry_date: date | None = None
     manufacturing_date: date | None = None
     remarks: str | None = None
+    #: Which serialised units are coming back, for a serial-tracked product:
+    #: units sold on the source line (``GET /returnable-serials`` lists
+    #: them), one per unit returned -- completing the return refuses until
+    #: the count matches. None (or absent) keeps the line's picks as they
+    #: were; an empty list clears them.
+    serial_ids: list[UUID] | None = Field(default=None, max_length=10000)
 
     @model_validator(mode="after")
     def _condition_adds_up(self) -> "SalesReturnLineWrite":
@@ -310,6 +318,9 @@ class SalesReturnLineResponse(SalesReturnSchema):
     manufacturing_date: date | None
     inventory_transaction_id: UUID | None
     remarks: str | None
+    #: The serialised units this line names -- picked while it is a draft,
+    #: back on the shelf once it is completed.
+    serials: list[PickedSerial] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 

@@ -1,6 +1,6 @@
 # Table catalogue — every table, where it lives, what it holds
 
-**198 tables**, of which **14** live only in the platform store.
+**199 tables**, of which **14** live only in the platform store.
 Generated from the ORM metadata, not written by hand:
 
 ```powershell
@@ -65,6 +65,7 @@ trigger each schema owns its own copy of.
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
 | `batches` | firm store ¹ | Track one batch/lot of a product across the warehouse. | `firms`, `products`, `warehouses`, `branches`, `vendors`, `warehouse_storage_nodes` |
+| `document_line_serials` | firm store ¹ | Name one serialised unit a document line moves. | `serial_numbers` |
 | `lots` | firm store ¹ | Track one production lot across manufacturing steps. | `firms`, `products`, `warehouses`, `branches` |
 | `serial_numbers` | firm store ¹ | Track one serialized unit through its full lifecycle. | `firms`, `products`, `inventories`, `warehouses`, `branches`, `batches` |
 

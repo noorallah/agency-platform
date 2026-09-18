@@ -24,7 +24,16 @@ from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.batch_serial.models import SerialNumber
+from app.batch_serial.schemas import PickedSerial, ReturnableSerials, SerialStatus
 from app.batch_serial.services import BatchSerialService
+from app.batch_serial.services.serial_trail_service import (
+    DELIVERY_NOTE,
+    SALES_RETURN,
+    LineRef,
+    SerialCheck,
+    SerialTrailService,
+)
 from app.branches.models import Warehouse
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
@@ -162,6 +171,7 @@ class SalesReturnService(TransactionalDocumentService):
         self._inventory = InventoryService(session)
         self._posting = DocumentPostingService(session)
         self._customers = CustomerService(session)
+        self._trail = SerialTrailService(session)
 
     # ---- reads ---------------------------------------------------------
 
@@ -579,6 +589,23 @@ class SalesReturnService(TransactionalDocumentService):
                 )
                 or row.branch_id
             )
+            # A serial-tracked product comes back unit by unit: the return
+            # names which of the units sold on its source line these are, and
+            # each has to still be out with the customer (D-STK-4).
+            line_ref = self._line_ref(line)
+            serialised = self._trail.is_serialised(line.product_id)
+            picks = self._trail.line_picks(line.id) if serialised else []
+            if serialised:
+                self._trail.check_receivable(
+                    line_ref,
+                    picks,
+                    eligible=self._returnable_check(
+                        self._source_line(
+                            line.source_document_type, line.source_document_line_id
+                        ),
+                        customer_id=row.customer_id,
+                    ),
+                )
             transaction = self._inventory.record_sales_return(
                 firm_scope=firm_scope,
                 actor_id=actor_id,
@@ -597,7 +624,27 @@ class SalesReturnService(TransactionalDocumentService):
                 conversion_version=line.conversion_version,
                 remarks=line.remarks or row.remarks,
                 batch_id=batch_id,
+                # One unit coming back is named on the movement itself; the
+                # count below refuses the line if the movement is not one unit.
+                serial_id=picks[0][1].id if len(picks) == 1 else None,
             )
+            if serialised:
+                # Counted on the movement, which is in the product's own unit
+                # whatever unit the line was entered in.
+                self._trail.assert_count(
+                    line_ref,
+                    len(picks),
+                    transaction.quantity,
+                    verb="brings back",
+                    where="sales return",
+                )
+                self._trail.mark_returned(
+                    line_ref,
+                    picks,
+                    movement=transaction,
+                    reference=row.return_number,
+                    actor_id=actor_id,
+                )
             line.inventory_transaction_id = transaction.id
             line.updated_by = actor_id
             movement_ids.append(transaction.id)
@@ -853,9 +900,18 @@ class SalesReturnService(TransactionalDocumentService):
         figure rather than mirror the first.
         """
         movement_ids: list[UUID] = []
+        owner = self._customer_name(row.customer_id)
         for line in self._lines_of(row.id):
             if line.inventory_transaction_id is None:
                 continue
+            # The units it brought back leave with the stock, so they are the
+            # customer's again -- refused by name if one was sold on since.
+            self._trail.unreceive(
+                self._line_ref(line),
+                owner=owner,
+                reference=f"{row.return_number} cancelled",
+                actor_id=actor_id,
+            )
             movement = self._inventory.reverse_transaction(
                 line.inventory_transaction_id,
                 firm_scope=firm_scope,
@@ -983,6 +1039,10 @@ class SalesReturnService(TransactionalDocumentService):
         business_profile_id: UUID | None,
         actor_id: UUID,
     ) -> dict[str, Decimal]:
+        # The lines are re-inserted below with new ids, so what they picked is
+        # carried across by line number for a line that says nothing new.
+        previous_picks = self._trail.picks_by_line_number(row.id)
+        self._trail.clear_document(row.id)
         self._session.query(SalesReturnLine).filter(
             SalesReturnLine.sales_return_id == row.id
         ).delete(synchronize_session=False)
@@ -1137,6 +1197,21 @@ class SalesReturnService(TransactionalDocumentService):
             # Flushed here so the components have a line id to hang from --
             # the same shape `sales_invoice` uses, and for the same reason.
             self._session.flush()
+            stated = spec.get("serial_ids")
+            serial_ids = (
+                [UUID(str(item)) for item in stated]
+                if isinstance(stated, list)
+                else previous_picks.get(index)
+            )
+            if serial_ids is not None:
+                self._trail.replace_picks(
+                    self._line_ref(line),
+                    serial_ids,
+                    check=self._returnable_check(
+                        source_line, customer_id=row.customer_id
+                    ),
+                    actor_id=actor_id,
+                )
             for sequence, component in enumerate(line_tax.components, start=1):
                 self._session.add(
                     SalesReturnLineTax(
@@ -1349,6 +1424,113 @@ class SalesReturnService(TransactionalDocumentService):
                     "Every return line must reference a selected source document."
                 )
         return header, source_rows, lines
+
+    # ---- serials -------------------------------------------------------
+
+    @staticmethod
+    def _line_ref(line: SalesReturnLine) -> LineRef:
+        """Describe a return line to the serial trail."""
+        return LineRef(
+            firm_id=line.firm_id,
+            document_type=SALES_RETURN,
+            document_id=line.sales_return_id,
+            line_id=line.id,
+            line_number=line.line_number,
+            product_id=line.product_id,
+        )
+
+    def _customer_name(self, customer_id: UUID) -> str:
+        """Name the customer a unit goes back out to."""
+        customer = self._session.get(Customer, customer_id)
+        return "" if customer is None else (customer.display_name or customer.name)
+
+    @staticmethod
+    def _dispatch_line_id(source_line: SourceLine) -> UUID | None:
+        """Return the delivery-note line the goods on a source line left on.
+
+        A return raised against a note names that line. One raised against a
+        bill reaches it through the bill line's own source; a bill raised
+        straight from an order or by hand has no note line to name.
+        """
+        if isinstance(source_line, DeliveryNoteLine):
+            return source_line.id
+        if source_line.source_document_type == DELIVERY_NOTE:
+            return source_line.source_document_line_id
+        return None
+
+    def _returnable_check(
+        self, source_line: SourceLine, *, customer_id: UUID
+    ) -> SerialCheck:
+        """Build the rule a unit must meet to come back on this line.
+
+        It must be out -- SOLD -- and the latest dispatch that took it out
+        must be the source line's own, or, where the source cannot name a
+        note line, a note to this customer. A unit sold, returned and sold
+        again to somebody else is not this customer's to return.
+        """
+        dispatch_line_id = self._dispatch_line_id(source_line)
+
+        def _check(serial: SerialNumber) -> str | None:
+            """Say why this unit cannot come back here, or None if it can."""
+            if serial.status != SerialStatus.SOLD.value:
+                return (
+                    f"is {serial.status}, not SOLD, so it is not out with a "
+                    "customer to be returned."
+                )
+            latest = self._trail.last_dispatch([serial.id]).get(serial.id)
+            if latest is None:
+                return "was never dispatched on a delivery note."
+            if dispatch_line_id is not None:
+                if latest.document_line_id != dispatch_line_id:
+                    return "did not go out on the line this return is raised against."
+                return None
+            note = self._session.get(DeliveryNote, latest.document_id)
+            if note is None or note.customer_id != customer_id:
+                return "was not dispatched to this customer."
+            return None
+
+        return _check
+
+    def returnable_serials(
+        self,
+        *,
+        firm_scope: UUID,
+        source_document_type: str,
+        source_document_line_id: UUID,
+    ) -> ReturnableSerials:
+        """List the units a return line against this source line may name."""
+        source_type = self._source_type(source_document_type)
+        source_line = self._source_line(source_type, source_document_line_id)
+        if source_line.firm_id != firm_scope:
+            raise ResourceNotFoundError("Source document line not found.")
+        if not self._trail.is_serialised(source_line.product_id):
+            return ReturnableSerials(
+                product_id=source_line.product_id, serial_tracked=False, serials=[]
+            )
+        if isinstance(source_line, DeliveryNoteLine):
+            note = self._session.get(DeliveryNote, source_line.delivery_note_id)
+            customer_id = None if note is None else note.customer_id
+        else:
+            invoice = self._session.get(SalesInvoice, source_line.sales_invoice_id)
+            customer_id = None if invoice is None else invoice.customer_id
+        if customer_id is None:
+            raise ResourceNotFoundError("Source document not found.")
+        check = self._returnable_check(source_line, customer_id=customer_id)
+        return ReturnableSerials(
+            product_id=source_line.product_id,
+            serial_tracked=True,
+            serials=[
+                PickedSerial(
+                    serial_id=serial.id,
+                    serial_number=serial.serial_number,
+                    status=serial.status,
+                )
+                for serial in self._trail.sold_serials(
+                    firm_id=firm_scope, product_id=source_line.product_id
+                )
+                if check(serial) is None
+            ],
+        )
 
     def _source_line(self, source_type: str, line_id: object) -> SourceLine:
         row: SourceLine | None
@@ -1629,6 +1811,7 @@ class SalesReturnService(TransactionalDocumentService):
     def return_response(self, row: SalesReturn) -> SalesReturnResponse:
         """Build the full response for one sales return."""
         lines = self._lines_of(row.id)
+        serials = self._trail.picked_serials(line.id for line in lines)
         sources = list(
             self._session.scalars(
                 select(SalesReturnSource).where(
@@ -1698,7 +1881,9 @@ class SalesReturnService(TransactionalDocumentService):
             updated_at=row.updated_at,
             version=row.version,
             lines=[
-                SalesReturnLineResponse.model_validate(line, from_attributes=True)
+                SalesReturnLineResponse.model_validate(
+                    line, from_attributes=True
+                ).model_copy(update={"serials": serials.get(line.id, [])})
                 for line in lines
             ],
             sources=[
