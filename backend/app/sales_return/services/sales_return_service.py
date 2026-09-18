@@ -39,6 +39,7 @@ from app.customers.schemas import (
 )
 from app.customers.services import CustomerService
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
+from app.delivery_note.rules import goods_have_left
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentTypeDefinition,
@@ -56,6 +57,7 @@ from app.inventory.services import InventoryService
 from app.products.models import Product
 from app.sales.services.scope_resolution import resolve_sales_scope
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
+from app.sales_invoice.schemas import SalesInvoiceStatus
 from app.sales_return.models import (
     SalesReturn,
     SalesReturnAttachment,
@@ -106,6 +108,35 @@ def _optional_uuid(value: object) -> UUID | None:
 def _decimal(value: object, default: Decimal = ZERO) -> Decimal:
     """Read a Decimal out of an untyped line spec."""
     return Decimal(str(value)) if value is not None else default
+
+
+#: The states in which a bill stands, so the goods it names were sold.
+_RETURNABLE_INVOICE_STATES = frozenset(
+    {SalesInvoiceStatus.APPROVED.value, SalesInvoiceStatus.CLOSED.value}
+)
+
+
+def _refuse_unreturnable(document: DeliveryNote | SalesInvoice) -> None:
+    """Refuse a source document whose goods never reached the customer.
+
+    Only goods that left can come back. The source was checked for existence
+    only, so a return could be raised on an approved note that never
+    dispatched -- and completing it shelved stock that had never gone out and
+    credited the customer for it -- or on a draft or cancelled bill (D-SELL-6,
+    driven 2026-09-19; WHOLE01 SR-2026-2027-000002 names a cancelled bill).
+    """
+    if isinstance(document, DeliveryNote):
+        if goods_have_left(document):
+            return
+        number, what = document.delivery_note_number, "a dispatched delivery note"
+    else:
+        if document.status in _RETURNABLE_INVOICE_STATES:
+            return
+        number, what = document.invoice_number, "an approved sales invoice"
+    raise ValidationError(
+        f"{number} is {document.status.lower()}, so nothing can be returned "
+        f"against it: only goods on {what} can come back."
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -559,6 +590,22 @@ class SalesReturnService(TransactionalDocumentService):
             raise ValidationError("Cancelled/closed sales returns cannot be completed.")
         if row.status != SalesReturnStatus.APPROVED.value:
             raise ValidationError("Only approved sales returns can be completed.")
+        # Asked again where the stock arrives and the customer is credited: a
+        # return saved before its source was checked must not complete.
+        for source in self._session.scalars(
+            select(SalesReturnSource).where(
+                SalesReturnSource.sales_return_id == row.id,
+                SalesReturnSource.is_deleted.is_(False),
+            )
+        ).all():
+            document: DeliveryNote | SalesInvoice | None = (
+                self._session.get(DeliveryNote, source.source_document_id)
+                if source.source_document_type
+                == SalesReturnSourceType.DELIVERY_NOTE.value
+                else self._session.get(SalesInvoice, source.source_document_id)
+            )
+            if document is not None:
+                _refuse_unreturnable(document)
         lines = self._lines_of(row.id)
         if not lines:
             raise ValidationError("Sales return must contain at least one line.")
@@ -992,6 +1039,17 @@ class SalesReturnService(TransactionalDocumentService):
             source_line = self._source_line(
                 source_type, spec["source_document_line_id"]
             )
+            # The line must be one of the document named beside it, or a
+            # checked document could front for a line of an unchecked one.
+            owner = (
+                source_line.delivery_note_id
+                if isinstance(source_line, DeliveryNoteLine)
+                else source_line.sales_invoice_id
+            )
+            if owner != spec["source_document_id"]:
+                raise ValidationError(
+                    "A return line must be a line of the source document it names."
+                )
             requested = self._q(_decimal(spec["current_return_quantity"]))
             dispatched = self._source_quantity(source_type, source_line)
             source_uom_id = self._source_uom_id(source_line)
@@ -1285,6 +1343,7 @@ class SalesReturnService(TransactionalDocumentService):
                 )
                 if note is None:
                     raise ResourceNotFoundError("Delivery note not found.")
+                _refuse_unreturnable(note)
                 source_rows.append(
                     {
                         "source_document_type": source_type,
@@ -1307,6 +1366,7 @@ class SalesReturnService(TransactionalDocumentService):
                 )
                 if invoice is None:
                     raise ResourceNotFoundError("Sales invoice not found.")
+                _refuse_unreturnable(invoice)
                 source_rows.append(
                     {
                         "source_document_type": source_type,
