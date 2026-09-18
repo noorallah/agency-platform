@@ -118,7 +118,7 @@ from app.promotions.models import (
     PromotionCoupon,
 )
 from app.purchase.models import PurchaseOrderLine
-from app.purchase.schemas import PurchaseOrderCreate, PurchaseOrderStatus
+from app.purchase.schemas import PurchaseOrderCreate
 from app.purchase.services import PurchaseService
 from app.purchase_invoice.schemas import (
     PurchaseInvoiceCreate,
@@ -1966,7 +1966,6 @@ class HistoryBuilder:
                 purchase_date=on,
                 expected_delivery_date=expected,
                 buyer_id=(buyers[self._buyer_cycle % len(buyers)] if buyers else None),
-                status=PurchaseOrderStatus.APPROVED,
                 lines=[
                     {
                         "product_id": str(product.id),
@@ -1977,6 +1976,13 @@ class HistoryBuilder:
             ),
             firm_id=self._target.firm_id,
             actor_id=ACTOR,
+        )
+        # Through the two steps a person takes. A create can no longer state
+        # APPROVED, and the history is the better for it: every seeded order
+        # now carries its submitted and approved rows.
+        purchase.submit_order(order.id, firm_scope=self._target.firm_id, actor_id=ACTOR)
+        order = purchase.approve_order(
+            order.id, firm_scope=self._target.firm_id, actor_id=ACTOR
         )
         self._buyer_cycle += 1
         self._tally.purchase_orders += 1

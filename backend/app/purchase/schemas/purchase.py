@@ -129,7 +129,12 @@ class PurchaseOrderWrite(PurchaseSchema):
     external_reference: str | None = Field(default=None, max_length=80)
     priority: str = Field(default="NORMAL", max_length=20)
     remarks: str | None = None
-    status: PurchaseOrderStatus = PurchaseOrderStatus.DRAFT
+    #: Never obeyed. A create accepts DRAFT or nothing and refuses anything
+    #: else by name; an update ignores it. The status belongs to the lifecycle
+    #: endpoints (submit, approve, cancel, close). It stays declared because
+    #: clients send it -- the desktop's create body says DRAFT, and so does the
+    #: import's Status column -- and the schema forbids unknown fields.
+    status: PurchaseOrderStatus | None = None
     header_discount_amount: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )

@@ -250,7 +250,22 @@ class PurchaseService(TransactionalDocumentService):
     def create_order(
         self, data: PurchaseOrderCreate, *, firm_id: UUID, actor_id: UUID
     ) -> PurchaseOrder:
-        """Create order."""
+        """Create order, always as a draft.
+
+        A create used to write whatever status it was given, so an order could
+        be born APPROVED -- 64 in the shared store were, from the seeder -- and
+        the import's Status column did the same. Approval is the control point
+        `approve_order` exists to be; a status a caller can state on the way in
+        is a way round it. A payload saying DRAFT, or nothing, is accepted; any
+        other status is refused by name rather than quietly turned into a draft,
+        because a caller who asked for APPROVED believes they got it.
+        """
+        if data.status is not None and data.status != PurchaseOrderStatus.DRAFT:
+            raise ValidationError(
+                "A new purchase order is saved as a draft. Its status cannot be "
+                f"set to {data.status.value} when it is created: submit it, then "
+                "approve it."
+            )
         assert_feature_fields(
             self._session,
             firm_id,
@@ -307,7 +322,7 @@ class PurchaseService(TransactionalDocumentService):
             external_reference=data.external_reference,
             priority=data.priority,
             remarks=data.remarks,
-            status=data.status.value,
+            status=PurchaseOrderStatus.DRAFT.value,
             header_discount_amount=data.header_discount_amount,
             additional_charges=data.additional_charges,
             round_off=data.round_off,
