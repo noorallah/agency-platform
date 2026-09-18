@@ -21,8 +21,11 @@ receipt, cancellation, supplier invoice, return, payment and the purchasing
 reports. It was read off the five purchasing services and everything they
 call, then checked with read-only queries against the rows the fixtures left
 in TEST01 and the history in WHOLE01; §9.15 says which claims a live row
-confirmed and which it could not. Selling, stock, finance, loyalty and TCS
-follow the same way.
+confirmed and which it could not. **Stock followed the same day (§10)**: the
+reads, transfers, write-offs, quarantine, physical counts, the stock side of
+a dispatch, batches and serials, and the `_REVERSAL` twins, checked against
+TEST01, WHOLE01 and the per-run pharmacy and electronics stores the fixtures
+left behind (§10.12). Selling, finance, loyalty and TCS follow.
 
 ---
 
@@ -693,3 +696,630 @@ Each is computed from the tables every time it opens, and **writes nothing**, no
 - **Confirmed on WHOLE01:** two cancelled receipts with `-REV` journals dated 2026-09-01; two withdrawn approvals ordered as in §9.3; three reversed receipts keeping their allocations; zero-priced seeded returns.
 - **Not seen in a live row:** a cancelled supplier invoice; a cancelled purchase return; a reversed payment; a receipt carrying a new batch number; a draft invoice being edited; a price variance on a receipt cancellation (every TEST01 purchase was at 100, so the average never moved).
 - **Where the buying rows are, 2026-09-18:** TEST01 4 orders, 7 receipts, 2 invoices, 1 return, 1 payment; WHOLE01 35, 35, 30, 7, 1; `firm_shared` (MEDI01 and FOOD01) 64, 60, 60, 12, none; ELEC01 32, 30, 30, 6, none. **TEST02 and LEARN01 hold none.**
+
+---
+
+## 10. Stock on its own (TC-STOCK-001 to 008)
+
+Read on 2026-09-18 off `inventory_service.py`, `physical_count_service.py`,
+`batch_serial_service.py`, the stock side of `delivery_note_service.py` and
+`sales_order_service.py`, and `DocumentPostingService`. Then checked, read-only,
+against TEST01's rows (the `stock-ready` run of 2026-09-16, `T0916NF7T`),
+WHOLE01's history, and the per-run stores two `pharma-firm` runs and one
+`electronics-firm` run left behind — one pharmacy run from before the D-8-1 fix
+and one from after it, which is what let the batch claims be seen both ways.
+§10.12 says which claims a live row confirmed and which it could not.
+
+### 10.0 Before you look
+
+- **Store:** every stock table is firm-owned. TC-STOCK-001 to 004 run in
+  **TEST01**, so their queries read `test_fixtures`. TC-STOCK-005 to 007 run in
+  the run's own **Pharmacy** firm, `<SUFFIX>-P`, whose schema is
+  **`fx_<suffix>_p`** with the suffix in lower case (`fx_t0916f8m2_p`); TC-STOCK-008
+  in the Electronics firm `<SUFFIX>-E`, schema `fx_<suffix>_e`. The fixture's
+  **Tables** line prints the name. For WHOLE01 put `wholesale_hub`.
+- **Find your rows by the fixture's codes.** `<SUFFIX>-P` is the product and
+  `<SUFFIX>-W2` the second warehouse; `<SUFFIX>-TRF`, `-WO`, `-QH`, `-QR` are
+  the references the case types, stored **upper-cased**; `<SUFFIX>-AMX` has
+  batches `<SUFFIX>-B1`, `-B2`, `-B3`; `<SUFFIX>-SHT` is the short product;
+  `<SUFFIX>-MIX-0001` to `-0005` are the serials.
+- **Three tables per movement, one per balance.** `inventories` is the balance
+  — **one row per product × branch × warehouse × storage locator, and per
+  batch where the product is batch-tracked** (`batch_id` is part of the key;
+  untracked stock sits on the row whose `batch_id` is null). `inventory_transactions`
+  is one immutable row per movement, carrying every bucket's `previous_*` and
+  `new_*`. `stock_ledger_entries` is one row per transaction (unique on
+  `transaction_id`) with the same figures plus `unit_cost`, `total_cost` and
+  `average_cost_after`. The Stock Ledger screen reads the third, the
+  Transactions tab the second, the Inventory tab the first.
+- **The balance is maintained, not summed.** Each movement rewrites the
+  `inventories` row (`current_quantity`, `reserved_quantity`,
+  `available_quantity` = current − reserved − blocked, `blocked_quantity`,
+  `damaged_quantity`, `quarantine_quantity`, `in_transit_quantity`,
+  `display_quantity` = current, `last_transaction_at` = the movement's
+  `transaction_date`, `version` +1) and writes the before-and-after onto the
+  movement. So the ledger's `new_current_quantity` on the latest row must equal
+  the row's `current_quantity`, and the sum of `current_quantity_delta` over the
+  row's movements must equal it too — the reconciliation in §10.1.
+- **Valuation is one row per firm × product**, `product_valuations`
+  (`quantity_on_hand`, `average_cost`, `total_value`, `costing_method`
+  `WEIGHTED_AVERAGE`), inserted on first use. Stock arriving with a cost moves
+  the average toward it; stock leaving is valued at the average. The ledger
+  row's `unit_cost` and `total_cost` are what the movement was worth, and
+  **every journal below reads `total_cost` off that ledger row** rather than
+  computing it again. A movement that changes ownership of nothing — a hold, a
+  release, a reservation — writes `unit_cost` and `total_cost` **null** and
+  leaves the valuation alone.
+- **The vocabulary is thirteen types plus a suffix.** `transaction_type` is a
+  string; `InventoryTransactionType` (`app/inventory/schemas/inventory.py`)
+  names what the service writes and `reverse_transaction` appends `_REVERSAL`
+  to whatever it reverses:
+
+  | `transaction_type` | `reference_type` | `reference_number` | Written by |
+  | --- | --- | --- | --- |
+  | `OPENING_STOCK` | `OPENING_STOCK` | the batch's reference | posting an opening-stock batch |
+  | `GOODS_RECEIPT` | `GOODS_RECEIPT` | the GRN | §9.5 |
+  | `RETURN` | `PURCHASE_RETURN` | the PR | §9.10 |
+  | `SALES_RETURN` | `SALES_RETURN` | the SR | Selling |
+  | `RESERVE` / `UNRESERVE` | `SALES_ORDER` | the **order** number | approving / cancelling an order; dispatching a note (§10.6) |
+  | `DISPATCH` | `DELIVERY_NOTE` | the DN | dispatching a note (§10.6) |
+  | `TRANSFER_OUT` / `TRANSFER_IN` | `TRANSFER` | typed | §10.2 |
+  | `WRITE_OFF` | **the reason** — `DAMAGE`, `EXPIRY` or `LOSS` | typed | §10.3 |
+  | `QUARANTINE_HOLD` / `QUARANTINE_RELEASE` | `QUARANTINE` | typed | §10.4 |
+  | `ADJUSTMENT` | `PHYSICAL_COUNT` from a count; typed (default `ADJUSTMENT`) from `POST /inventory/adjustments` | the count number, or typed | §10.5 |
+  | `<TYPE>_REVERSAL` | the original's | the original's | §10.10 |
+
+  The Stock Ledger's type dropdown was typed by hand and names none of the
+  last six (BL-31.13); filter by **reference** instead.
+- **The reference on a transfer, write-off or hold is typed, not issued**
+  (BACKLOG §34). Nothing checks it is unique among movements; a write-off's
+  reference also becomes its journal's `reference_number`, which *is* unique,
+  so a repeated write-off reference is refused by the journal. Counts are the
+  exception: `PC-2026-2027-000001` comes from the `PHYSICAL_COUNT` numbering
+  rule, with no firm or branch in it.
+- **Every movement writes `inventory.transaction.created`** (`after_data`:
+  `inventory_id`, `transaction_type`, `reference_number`, `new_current_quantity`,
+  `new_available_quantity`), and every journal `finance.journal_entry.created`
+  and `.posted`, all in the firm's own trail. The §9.0 request-id query works
+  here unchanged — put `inventory.stock_written_off` or
+  `inventory.stock_transferred` as the action.
+- **Who may:** `INVENTORY_ADJUST` for transfers, write-offs, quarantine,
+  adjustments and counts; `OPENING_STOCK_CREATE` to post opening stock;
+  `INVENTORY_VIEW`, `INVENTORY_LEDGER_VIEW`, `INVENTORY_TRANSACTION_VIEW` to
+  read the three tables.
+- **What points at what:**
+
+  | From | Column | To |
+  | --- | --- | --- |
+  | `stock_ledger_entries` | `transaction_id` | `inventory_transactions`, one each |
+  | `inventory_transactions` | `inventory_id`; `batch_id`; `reversal_of_transaction_id` | `inventories`; `batches`; the movement reversed |
+  | `journal_entries` | `source_module` `inventory` + `source_id` = the **movement** (write-off, adjustment) or the **opening-stock batch**; `delivery_note` + the note (dispatch cost) | — |
+  | `physical_count_lines` | `transaction_id` (no FK); `batch_id` (no FK) | the `ADJUSTMENT` it posted; `batches` |
+  | `opening_stock_lines` | `transaction_id`, `batch_id` | the `OPENING_STOCK` movement; the batch it registered |
+  | `delivery_note_lines` | `inventory_transaction_id`, `released_reservation_transaction_id`, `batch_id` | the first `DISPATCH` and `UNRESERVE` of the line, and the first batch drawn |
+  | `serial_numbers` | `inventory_id`, `batch_id` (both optional, both null in the fixture) | `inventories`, `batches` — **and nothing points back**: no movement ever carries `serial_id` or `lot_id` |
+
+### 10.1 The summary and the ledger — reads (TC-STOCK-001)
+
+- **Inventory tab** — `GET /api/v1/inventory`: `inventories` rows joined to
+  `products`, `branches`, `warehouses`, one row per location (and per batch).
+  Current, Available, Reserved are the row's columns.
+- **Stock Summary** — `GET /api/v1/inventory/summary`: the **whole firm's**
+  `inventories` summed — row count, each bucket, and how many rows are at or
+  below their reorder level, at zero, or negative. `/summary/by-firm`,
+  `/by-branch`, `/by-warehouse` roll the same rows up; `/summary/by-product`
+  exists on the API and no screen calls it.
+- **Stock Ledger** — `GET /api/v1/inventory/ledger`: `stock_ledger_entries`,
+  newest first with `id` as the tiebreaker (two rows of one dispatch share a
+  timestamp). The balance after each row is `new_current_quantity`. The
+  **Transactions** tab is `inventory_transactions`, the same figures without
+  the cost. Both accept `transaction_type` as an **exact string** — the enum
+  types nothing on the read side, so `RESERVATION` is accepted and matches
+  nothing (BL-31.13).
+- **Writes nothing.** No audit row for any of these, nor for the exports.
+- **Check** — the balance, the chain that produced it, and that the two agree:
+  ```sql
+  select w.code as warehouse, i.current_quantity, i.reserved_quantity,
+         i.available_quantity, i.quarantine_quantity, i.last_transaction_at,
+         i.version, pv.quantity_on_hand, pv.average_cost, pv.total_value
+  from   test_fixtures.inventories i
+  join   test_fixtures.products p   on p.id = i.product_id
+  join   test_fixtures.warehouses w on w.id = i.warehouse_id
+  left join test_fixtures.product_valuations pv
+         on pv.product_id = p.id and pv.is_deleted = false
+  where  p.code = '<SUFFIX>-B';
+
+  select s.created_at, s.transaction_type, s.reference_type, s.reference_number,
+         s.quantity, s.current_quantity_delta, s.previous_current_quantity,
+         s.new_current_quantity, s.unit_cost, s.total_cost, s.average_cost_after
+  from   test_fixtures.stock_ledger_entries s
+  join   test_fixtures.products p on p.id = s.product_id
+  where  p.code = '<SUFFIX>-B'
+  order  by s.created_at, s.id;
+
+  select i.current_quantity,
+         (select sum(t.current_quantity_delta)
+          from   test_fixtures.inventory_transactions t
+          where  t.inventory_id = i.id)                     as summed_deltas,
+         (select t.new_current_quantity
+          from   test_fixtures.inventory_transactions t
+          where  t.inventory_id = i.id
+          order  by t.created_at desc, t.id desc limit 1)    as last_balance
+  from   test_fixtures.inventories i
+  join   test_fixtures.products p on p.id = i.product_id
+  where  p.code = '<SUFFIX>-B';
+  ```
+  For the case: two `GOODS_RECEIPT` rows +4 and +6 naming their GRNs,
+  `new_current_quantity` 4 then 10, `unit_cost` 100; the three figures in the
+  last query all read 10.
+
+### 10.2 Transfer between warehouses — Inventory → Transfer (TC-STOCK-002)
+
+- **Inserts:** **two** `inventory_transactions`, in this order: `TRANSFER_OUT`
+  on the source row (`quantity` 3, `current_quantity_delta` −3) and
+  `TRANSFER_IN` on the destination (`current_quantity_delta` +3), both with the
+  typed `reference_number` upper-cased, `reference_type` `TRANSFER`, the same
+  `transaction_date` and remarks; two `stock_ledger_entries`, **both at the
+  held average** (`unit_cost` 60, `total_cost` 180, `average_cost_after` 60 —
+  the inbound leg is given the average explicitly so the move cannot revalue
+  the product); the `inventories` row for `<SUFFIX>-W2` **inserted** the first
+  time anything lands there (`current_quantity` 3, `display_uom_id` from the
+  product); MAIN 50 → 47; `product_valuations` moved down by 180 and back up
+  by 180, net nothing. The destination's `branch_id` is read off the
+  destination warehouse, so a transfer may cross branches.
+- **Audit — three rows, one request** (confirmed on TEST01):
+  `inventory.transaction.created` ×2 and `inventory.stock_transferred`
+  (`entity_id` = the **outbound** movement; `after_data`: `reference_number`,
+  `quantity`, `from_warehouse_id`, `to_branch_id`, `to_warehouse_id`).
+- **Not written, on purpose:** **no journal** — both legs read `has_journal`
+  false in TEST01 and in WHOLE01's `TRF-0001`/`TRF-0002`. There is one
+  inventory control account, so the entry would debit and credit 1200 for the
+  same amount. No lifecycle event, no document number.
+- **Refused, nothing written:** more than the source's `current − reserved`
+  ("The source holds 47.0000 available, so 999 cannot be transferred out of
+  it." — the desktop checks first and shows the same sentence; the server would
+  say the same), the same warehouse and node ("A transfer must move stock
+  somewhere else than where it is."), a destination outside the firm.
+- **Check:**
+  ```sql
+  select t.created_at, t.transaction_type, w.code as warehouse, t.quantity,
+         t.current_quantity_delta, t.previous_current_quantity, t.new_current_quantity,
+         s.unit_cost, s.total_cost, s.average_cost_after,
+         exists (select 1 from test_fixtures.journal_entries je
+                 where  je.source_id = t.id) as has_journal
+  from   test_fixtures.inventory_transactions t
+  join   test_fixtures.stock_ledger_entries s on s.transaction_id = t.id
+  join   test_fixtures.warehouses w           on w.id = t.warehouse_id
+  where  t.reference_number = '<SUFFIX>-TRF'
+  order  by t.created_at;
+  ```
+  Expect two rows, MAIN −3 → 47 and `<SUFFIX>-W2` +3 → 3, both costed 60 /
+  180, `has_journal` false on both.
+
+### 10.3 Write off — Inventory → Write off (TC-STOCK-003 step 1)
+
+- **Inserts:** `inventory_transactions` `WRITE_OFF` with `reference_type` =
+  **the reason** (`DAMAGE`), `quantity` 1, `current_quantity_delta` −1,
+  `owned_quantity_delta` −1, `remarks` "Stock written off as damage" (or
+  "Damage: <your remarks>" when you typed any); its `stock_ledger_entries` row
+  at the average (`unit_cost` 60, `total_cost` 60); `journal_entries`
+  (`source_module` `inventory`, `source_id` = **the movement's id**,
+  `reference_number` = the typed reference, `description` "Stock adjustment
+  <REF>", `journal_date` = the transaction date, POSTED) with **Dr 5500
+  Inventory Adjustment / Cr 1200 Inventory** 60.00, both lines' `description`
+  = the narration; `gl_postings`; `ledger_balances`. MAIN 47 → 46;
+  `product_valuations` down 1 and 60.
+- **Quarantined stock is condemned first:** the amount is taken from
+  `quarantine_quantity` before `current_quantity`, and the limit is the two
+  together. A write-off worth nothing (average cost 0) writes the movement and
+  **no journal**.
+- **Audit — four rows, one request** (confirmed): `inventory.transaction.created`,
+  `finance.journal_entry.created`, `finance.journal_entry.posted`,
+  `inventory.stock_written_off` (`after_data`: `reference_number`, `reason`,
+  `quantity`).
+- **Refused, nothing written:** more than `current + quarantine` ("This
+  location holds 46.0000, so 999 cannot be written off from it."); a reference
+  a journal already carries; no open period for the date; 1200 or 5500 not
+  mapped in `firm_control_accounts`.
+- **Check** — the movement and its journal, by reference:
+  ```sql
+  select t.transaction_type, t.reference_type, t.quantity, t.current_quantity_delta,
+         t.quarantine_quantity_delta, t.owned_quantity_delta, t.remarks,
+         s.unit_cost, s.total_cost,
+         je.reference_number as journal, je.status, je.journal_date,
+         la.code, la.name, jl.debit_amount, jl.credit_amount
+  from   test_fixtures.inventory_transactions t
+  join   test_fixtures.stock_ledger_entries s   on s.transaction_id = t.id
+  left join test_fixtures.journal_entries je    on je.source_id = t.id
+  left join test_fixtures.journal_lines jl      on jl.journal_entry_id = je.id
+  left join test_fixtures.ledger_accounts la    on la.id = jl.ledger_account_id
+  where  t.reference_number = '<SUFFIX>-WO'
+  order  by jl.line_number;
+  ```
+
+### 10.4 Quarantine — hold back and release (TC-STOCK-003 steps 2–3)
+
+- **Inserts:** `inventory_transactions` `QUARANTINE_HOLD` (`reference_type`
+  `QUARANTINE`, `quantity` 2, `current_quantity_delta` **−2**,
+  `quarantine_quantity_delta` **+2**) and its ledger row with `unit_cost` and
+  `total_cost` **null** and `average_cost_after` unchanged — the movement is
+  staged with `revalues=False`, so `product_valuations` is not touched. A
+  release is the mirror: `QUARANTINE_RELEASE`, +2 current, −2 quarantine.
+- **Which way the row moves — the question TC-STOCK-003 asks you to record:**
+  holding 2 of 46 read `current_quantity` 46 → **44**, `available_quantity` 46
+  → **44**, `quarantine_quantity` 0 → **2** (TEST01, confirmed). Current and
+  Available both fall and Quarantine rises; what is physically on the premises
+  is `current + quarantine`. The plan's expectation that Current stays put is
+  not what the code does.
+- **Audit — one row only:** `inventory.transaction.created`. There is no
+  `inventory.stock_quarantined`; the hold and the release are told apart by
+  `after_data.transaction_type`. Listed in the PR (D-STK-6).
+- **Not written:** no journal (confirmed `has_journal` false on TEST01's
+  `<SUFFIX>-QH` and WHOLE01's `4444`); nothing on `batches.status` — a
+  quarantined *batch* is a separate, hand-set status on the batch row, which
+  the Expiry Monitor counts and this movement does not set.
+- **Refused, nothing written:** a hold beyond `current − reserved` ("There is
+  44.0000 to hold, so 999 cannot be."); a release beyond `quarantine_quantity`
+  ("There is 2.0000 to release, so 999 cannot be.").
+- **Check** — both movements, and the row's buckets before and after each:
+  ```sql
+  select t.created_at, t.transaction_type, t.quantity,
+         t.current_quantity_delta, t.quarantine_quantity_delta,
+         t.previous_current_quantity, t.new_current_quantity,
+         t.previous_available_quantity, t.new_available_quantity,
+         t.previous_quarantine_quantity, t.new_quarantine_quantity,
+         s.unit_cost, s.total_cost, s.average_cost_after
+  from   test_fixtures.inventory_transactions t
+  join   test_fixtures.stock_ledger_entries s on s.transaction_id = t.id
+  where  t.reference_number in ('<SUFFIX>-QH', '<SUFFIX>-QR')
+  order  by t.created_at;
+  ```
+
+### 10.5 Physical count — open, save progress, post (TC-STOCK-004)
+
+A count is a document: `physical_counts` and `physical_count_lines`, numbered
+from the document framework, with no lifecycle events (0 rows in every store).
+
+- **Open Count** — `POST /api/v1/inventory/counts`. **Inserts** `physical_counts`
+  (`count_number` `PC-2026-2027-000001`, `status` DRAFT, `branch_id`,
+  `warehouse_id`, `count_date`, `remarks`) and **one `physical_count_lines`
+  row per `inventories` row in the warehouse** — every product ever stocked
+  there, other runs' too, rows at zero included, and one line per batch row
+  (`batch_id`), in the order the rows were created; `expected_quantity` = what
+  the warehouse held **at that moment**, `counted_quantity` null. The **first
+  count in a firm** also inserts the `PHYSICAL_COUNT` document type, its three
+  states and its numbering rule (audits `document_type.created`,
+  `document_state.created` ×3, `document_numbering_rule.created` — seen in the
+  same request on TEST01). **Audit:** `inventory.physical_count.opened`
+  (`after_data`: `count_number`, `line_count`).
+- **Save progress** — `PUT /counts/{id}`. **Updates** `physical_count_lines.counted_quantity`
+  and `remarks` on the lines named (matched on product and batch; unnamed lines
+  are left alone), `version` +1 on each; `physical_counts.remarks`, `version`.
+  **No audit row** (D-STK-6). Refused once the sheet is not DRAFT ("PC-… is
+  posted, so it cannot be changed.").
+- **Post count** — `POST /counts/{id}/post`. For each line whose
+  `counted_quantity` is **not null**: `variance_quantity` = counted − **what the
+  warehouse holds now** (re-read, not `expected_quantity`, so a dispatch made
+  while you counted is not undone); when the variance is not zero, one
+  `ADJUSTMENT` movement (`reference_number` = **the count number**,
+  `reference_type` `PHYSICAL_COUNT`, `quantity` 1, `current_quantity_delta` −1,
+  `transaction_date` = the count date, `remarks` "Physical count PC-…: counted
+  49.0000 against 50.0000" — the decimals as stored), its ledger row at the
+  average (60 / 60), and a journal (`source_module` `inventory`, `source_id` =
+  the movement, `reference_number` = the count number, `description` "Stock
+  adjustment PC-…") of **Dr 5500 Inventory Adjustment / Cr 1200 Inventory**
+  60.00 — the other way round when the count found more; the line's
+  `transaction_id` set. Then `physical_counts.status` POSTED, `posted_at`,
+  `posted_by`. **Lines nobody counted are skipped**: `variance_quantity` stays
+  null and nothing moves. **Audit:** per adjusted line
+  `inventory.transaction.created`, `finance.journal_entry.created`,
+  `finance.journal_entry.posted`; then `inventory.physical_count.posted`
+  (`before_data` status DRAFT; `after_data` status POSTED, `adjusted_lines`).
+- **Cancel** — status CANCELLED, audit `inventory.physical_count.cancelled`.
+  Only a DRAFT can be posted or cancelled; a posted sheet cannot be reopened.
+- **Three things to know before you rely on it** (all listed in the PR):
+  the adjustment is posted **without the line's batch** — a count line for a
+  batch row measures its variance against that batch and moves the product's
+  *untracked* row instead, creating one if there is none (D-STK-1; TEST01's
+  Wholesale profile has no batches, so the case will not meet it); **each
+  adjusted line is committed on its own** before the sheet's status is written
+  (D-STK-3); and a sheet with **nothing counted posts** with `adjusted_lines`
+  0 — WHOLE01's `PC-2026-2027-000005` is one (D-STK-5).
+- **Not seen in a live row:** an adjusted line. WHOLE01's only posted sheet
+  counted nothing and TEST01's is a draft; the block above is read off the
+  code and off the plain adjustment path, which the two `CLEANUP-…`
+  adjustments in TEST01 confirm (Dr 5500 / Cr 1200 at the average, `source_id`
+  = the movement).
+- **Check** — the sheet, its lines, and the movement and journal behind the
+  counted one:
+  ```sql
+  select c.count_number, c.status, c.count_date, c.posted_at, c.version,
+         l.line_number, p.code, l.batch_id is not null as batched,
+         l.expected_quantity, l.counted_quantity, l.variance_quantity,
+         t.transaction_type, t.reference_type, t.current_quantity_delta, t.remarks,
+         je.reference_number as journal, la.code, jl.debit_amount, jl.credit_amount
+  from   test_fixtures.physical_counts c
+  join   test_fixtures.physical_count_lines l on l.physical_count_id = c.id
+  join   test_fixtures.products p             on p.id = l.product_id
+  left join test_fixtures.inventory_transactions t on t.id = l.transaction_id
+  left join test_fixtures.journal_entries je       on je.source_id = t.id
+  left join test_fixtures.journal_lines jl         on jl.journal_entry_id = je.id
+  left join test_fixtures.ledger_accounts la       on la.id = jl.ledger_account_id
+  where  c.count_number = 'PC-2026-2027-<your number>'
+  order  by l.line_number, jl.line_number;
+  ```
+  Expect one line with `counted_quantity` 49, `variance_quantity` −1, an
+  `ADJUSTMENT` of −1 referenced `PHYSICAL_COUNT`, Dr 5500 60.00 / Cr 1200
+  60.00; every other line null throughout; MAIN at 49.
+
+### 10.6 Dispatch — the stock side (TC-STOCK-005)
+
+The delivery note itself is Selling; this is what it does to stock. Everything
+below is in the pharmacy firm's schema, `fx_<suffix>_p`.
+
+- **What the fixture leaves.** `pharma-firm` posts an opening-stock batch of
+  four lines (§10.0's `OPENING_STOCK`): each batched line first **registers
+  its batch** through `resolve_for_receipt` — `batches` row with
+  `batch_number`, `product_id`, `warehouse_id`, `branch_id`, `expiry_date`,
+  `status` AVAILABLE, `vendor_id` null; audit action **`CREATE`**, entity
+  `batch`, no `after_data` — then lands the 10 in **that batch's own
+  `inventories` row** (three rows for `<SUFFIX>-AMX`, one untracked row for
+  `<SUFFIX>-SHT`), ledger rows at `unit_cost` 60, one journal for the batch
+  (`source_module` `inventory`, `source_id` = the `opening_stock_batches` row,
+  reference `<SUFFIX>-OS`): **Dr 1200 Inventory / Cr 3000 Opening Balance
+  Equity** 1,980.00 (33 × 60); audits `opening_stock.created`,
+  `opening_stock.posted`. `batches.status` **stays AVAILABLE when the date
+  passes** — expiry is a fact about `expiry_date`, and nothing ever writes
+  `EXPIRED`. Approving the order for 5 writes a `RESERVE` (§10.0) chosen
+  earliest-expiry-first **with expired batches included**, so the hold sits on
+  `<SUFFIX>-B1`, the expired one (confirmed on both pharmacy stores; D-STK-2).
+- **Batches screen:** a batch holds **no quantity**; Qty and Available are
+  sums over the `inventories` rows carrying its id.
+- **Dispatch inserts**, per note line: an **`UNRESERVE`** where the order
+  held it (`reference_number` = the **order** number, dated the delivery date,
+  remarks "delivery_note release line 1", `reserved_quantity_delta` −5,
+  `batch_id` = B1, no cost); then the allocation — batches in expiry order,
+  **skipping any expired on the note's date** — and one **`DISPATCH`** per
+  batch drawn (`reference_number` = the DN number, `reference_type`
+  `DELIVERY_NOTE`, `current_quantity_delta` −5, `batch_id` = **B2**,
+  `unit_cost` 60, `total_cost` 300); B2's `inventories` row 10 → 5;
+  `product_valuations` for AMX 30 → 25, 1,800.00 → 1,500.00;
+  `delivery_note_lines.inventory_transaction_id` and `.batch_id` (the first
+  batch drawn) and `.released_reservation_transaction_id`; one journal for the
+  note (`source_module` `delivery_note`, `source_id` = the note, reference the
+  DN number with no suffix): **Dr 5200 Cost of Goods Sold / Cr 1200 Inventory**
+  300.00 — the sum of the movements' `total_cost`, never the selling price.
+  Then `delivery_notes.status` DISPATCHED, `dispatched_at`; lifecycle
+  `DISPATCHED`; audits `delivery_note.dispatched` and, when the order's status
+  moves, `sales_order.delivered_status_changed`.
+- **Seen both ways.** The pharmacy store built at 02:31 on 2026-09-16, before
+  the D-8-1 fix, dispatched from `B1`; the one built at 21:42, after it,
+  dispatched from `B2` while its reservation still sat on `B1`.
+- **Refused, and the whole dispatch rolls back:** not enough in-date stock —
+  "Insufficient available stock to dispatch: short by 5. 10 of this product's
+  stock is past its expiry date (<SUFFIX>-B1 expired 2026-08-17) and cannot be
+  dispatched: write it off or quarantine it." Nothing is written, no audit row.
+- **Expiry Monitor** — `GET /batch-serial/batches/expiry-dashboard` counts
+  **`batches` rows**, not stock: expired = `expiry_date <= today` or status
+  `EXPIRED`, never `DESTROYED`; "in 7 days" / "in 30 days" = `expiry_date`
+  after today and within the window; Quarantine and Recalled by `status`. A
+  batch with nothing left still counts, and **Expired Today and Total Expired
+  are the same condition** (D-STK-8). The All Batches grid is `GET /batches`.
+- **Check** (pharmacy schema):
+  ```sql
+  select b.batch_number, b.expiry_date, b.status,
+         coalesce(sum(i.current_quantity), 0)   as on_hand,
+         coalesce(sum(i.available_quantity), 0) as available,
+         coalesce(sum(i.reserved_quantity), 0)  as reserved
+  from   fx_<suffix>_p.batches b
+  left join fx_<suffix>_p.inventories i on i.batch_id = b.id
+  where  b.batch_number like '<SUFFIX>-B%'
+  group  by b.batch_number, b.expiry_date, b.status
+  order  by b.batch_number;
+
+  select t.created_at, t.transaction_type, t.reference_number, t.transaction_date,
+         b.batch_number, t.quantity, t.current_quantity_delta,
+         t.reserved_quantity_delta, t.new_current_quantity, t.new_available_quantity,
+         s.unit_cost, s.total_cost, t.remarks
+  from   fx_<suffix>_p.inventory_transactions t
+  join   fx_<suffix>_p.stock_ledger_entries s on s.transaction_id = t.id
+  join   fx_<suffix>_p.products p             on p.id = t.product_id
+  left join fx_<suffix>_p.batches b           on b.id = t.batch_id
+  where  p.code = '<SUFFIX>-AMX'
+  order  by t.created_at;
+
+  select je.reference_number, je.source_module, je.status, je.journal_date,
+         la.code, la.name, jl.debit_amount, jl.credit_amount
+  from   fx_<suffix>_p.journal_entries je
+  join   fx_<suffix>_p.journal_lines jl   on jl.journal_entry_id = je.id
+  join   fx_<suffix>_p.ledger_accounts la on la.id = jl.ledger_account_id
+  where  je.source_module in ('delivery_note', 'inventory')
+  order  by je.created_at, jl.line_number;
+  ```
+  After the case: B1 10 / 10 / 0, **B2 5 / 5 / 0**, B3 10 / 10 / 0; three
+  `OPENING_STOCK`, a `RESERVE` on B1, an `UNRESERVE` on B1, a `DISPATCH` on B2;
+  the DN journal Dr 5200 300.00 / Cr 1200 300.00 beside the opening one.
+
+### 10.7 A delivery short of stock (TC-STOCK-006)
+
+- **What the fixture leaves:** `<SUFFIX>-SHT` on one untracked row with
+  `current_quantity` 3, and an approved order for 10 — which wrote **two**
+  `RESERVE` rows on that same row, 3 (what the row could cover) and 7 (the
+  remainder, "no batch behind it"), so the row reads `reserved_quantity` 10
+  and **`available_quantity` −7** (confirmed live). A reservation may drive
+  available negative; that is the back order.
+- **Save and Approve the note write no stock rows** — the note's own tables
+  and lifecycle only. The "Short by 7 — there is not enough available stock to
+  cover this line." line in the editor is computed on the client from the
+  inventory rows it read.
+- **Dispatch writes nothing.** The gate sums `available_quantity` across the
+  product's rows in that bay (−7) against the line's 10 and raises
+  "Insufficient available stock for dispatch line." **before** any movement is
+  staged; the request rolls back whole — no `UNRESERVE`, no `DISPATCH`, no
+  journal, no audit row, `delivery_notes.status` still APPROVED and its
+  `version` unmoved.
+- *(Not seen in a live row: neither pharmacy store holds a refused dispatch —
+  the SHT note had not been raised in either. Read off the code, and the
+  reservation rows above are live.)*
+- **Check** (pharmacy schema) — the row, its reservations, and the absence of
+  a `DISPATCH`:
+  ```sql
+  select i.current_quantity, i.reserved_quantity, i.available_quantity, i.version
+  from   fx_<suffix>_p.inventories i
+  join   fx_<suffix>_p.products p on p.id = i.product_id
+  where  p.code = '<SUFFIX>-SHT';
+
+  select t.transaction_type, t.reference_number, t.quantity,
+         t.reserved_quantity_delta, t.new_reserved_quantity, t.new_available_quantity
+  from   fx_<suffix>_p.inventory_transactions t
+  join   fx_<suffix>_p.products p on p.id = t.product_id
+  where  p.code = '<SUFFIX>-SHT'
+  order  by t.created_at;
+  ```
+
+### 10.8 A remembered filter from another firm (TC-STOCK-007)
+
+- **Not a table row.** The Inventory tab's filters are this **machine's**:
+  `workspace_state.inventory_management` inside
+  `%APPDATA%\.agency_platform\desktop_preferences.json` (keys `status`,
+  `transaction_type`, `branch_id`, `warehouse_id`, `product_id`,
+  `include_deleted`, `low_stock_only`, `out_of_stock_only`, `negative_only`,
+  `default_post_after_save`, `default_export_format`). The server never sees
+  it: `platform.user_preferences` carries none of these columns, and
+  `_applyServerPreferences` cannot overwrite it at sign-in because it lives
+  outside the server document.
+- **What the case *does* write:** the firm switch saves the server
+  preferences, so the platform trail gains a `user_preferences.updated` row
+  with no before or after (§3), and `user_preferences.default_firm_id` moves.
+  That is the only row.
+- **The drop** happens in memory when the tab's lookups load: an id not among
+  this firm's branches, warehouses or products is cleared, and the file is
+  rewritten on the next Apply. Open the JSON file to see the stale id before
+  and its absence after.
+
+### 10.9 Serial numbers (TC-STOCK-008)
+
+- **What the fixture leaves** (schema `fx_<suffix>_e`): 5 on one untracked
+  `inventories` row from an opening-stock batch (`track_serial` is on the
+  product; nothing in stock posting reads it), then five `POST
+  /api/v1/batch-serial/serials`: one `serial_numbers` row each —
+  `serial_number`, `product_id`, `warehouse_id`, `branch_id`, `status`
+  `AVAILABLE`, `warranty_start` today, `warranty_end` a year on; `inventory_id`,
+  `batch_id`, `manufactured_date`, `current_owner`, `asset_reference` null (the
+  request may name the first two; the fixture does not). Audit action
+  **`CREATE`**, entity `serial_number`, no `after_data`. Warranty dates are
+  refused on a profile without the `WARRANTY` feature; Electronics has it.
+- **The screen reads** `GET /batch-serial/serials` — search is `ilike` on
+  `serial_number`, the Status filter exact on `status` (`AVAILABLE`,
+  `RESERVED`, `SOLD`, `INSTALLED`, `RETURNED`, `REPAIRED`, `SCRAPPED`, `LOST`).
+- **Not written, ever:** nothing outside `app/batch_serial` touches the
+  table. No movement carries `serial_id` (or `lot_id`) — zero rows across every
+  store — so receiving or dispatching a serialised product leaves every
+  serial `AVAILABLE` (D-STK-4). Editing one writes `UPDATE` with the previous
+  status and number in `before_data`; deleting soft-deletes with `DELETE`.
+- **Check:**
+  ```sql
+  select s.serial_number, s.status, s.warranty_start, s.warranty_end,
+         w.code as warehouse, s.inventory_id, s.batch_id, s.version
+  from   fx_<suffix>_e.serial_numbers s
+  join   fx_<suffix>_e.warehouses w on w.id = s.warehouse_id
+  where  s.serial_number like '<SUFFIX>-MIX-%'
+  order  by s.serial_number;
+  ```
+
+### 10.10 Reversals — the `_REVERSAL` twins
+
+- **What `reverse_transaction` writes:** one movement typed
+  `<original type>_REVERSAL` with `quantity` = **minus** the original's, every
+  bucket delta negated (`owned_quantity_delta` too, so a return that owned two
+  and shelved one is undone in full), the original's `reference_number` and
+  `reference_type`, **the original's `transaction_date`**, `remarks` = the
+  reason the caller passed, `reversal_of_transaction_id` = the original. Its
+  ledger row is valued at **today's average** — stock leaving is always issued
+  at the average — which is why the caller's journal books any gap to 5400 or
+  leaves it in 5200 (§9.6, §9.10). It writes **no journal itself** and refuses
+  a second reversal of the same row ("This inventory movement was already
+  reversed."). Reversing a reversal is legal, and the type grows another suffix
+  (cut at 40 characters).
+- **Only three callers:** cancelling a completed goods receipt
+  (`GOODS_RECEIPT_REVERSAL`, §9.6), a completed purchase return
+  (`RETURN_REVERSAL`), a completed sales return (`SALES_RETURN_REVERSAL`).
+  **Nothing reverses** a transfer, a write-off, a hold, an adjustment, a
+  posted count, an opening-stock batch or a dispatch: no endpoint exists, and a
+  delivery note refuses cancellation once DISPATCHED. Undoing one is a second
+  movement the other way — a release for a hold, a transfer back, an adjustment
+  up — which the ledger then shows as two facts rather than one undone.
+- **The date is the original's, not today's.** WHOLE01's
+  `SALES_RETURN_REVERSAL` for SR-2026-2027-000002 is dated 2026-08-19, the day
+  the return completed, and `inventories.last_transaction_at` goes back with
+  it; the journal the caller posts is dated the first of that period
+  (D-BUY-4). Neither says when the cancel happened — `created_at` does.
+- **Seen live:** `GOODS_RECEIPT_REVERSAL` (TEST01 ×2, WHOLE01 ×2),
+  `SALES_RETURN_REVERSAL` (WHOLE01 ×2). *(`RETURN_REVERSAL` not seen in a live
+  row.)*
+
+### 10.11 What stock does not write, and is often looked for
+
+| You might expect | What actually happens |
+| --- | --- |
+| A journal for a transfer | None, deliberately (§10.2) |
+| A journal for a hold or release | None; the valuation is not touched either (§10.4) |
+| A system number on a transfer, write-off or hold | Typed, upper-cased, checked for nothing (BACKLOG §34); only counts are numbered |
+| A `PHYSICAL_COUNT` transaction type | `ADJUSTMENT` with `reference_type` `PHYSICAL_COUNT` and the count number as reference (§10.5) |
+| A lifecycle event for a count | None, ever; the `PHYSICAL_COUNT` document type exists only to number it |
+| An audit row for a hold, a release, or Save progress on a count | Only `inventory.transaction.created` for the first two; nothing for the third (D-STK-6) |
+| A quantity on `batches` | None; summed from `inventories` rows by `batch_id` every time |
+| `batches.status` becoming `EXPIRED` | Never written; expiry is judged on `expiry_date` |
+| A serial's status moving when it ships | Never; no movement names a serial (§10.9) |
+| `in_transit_quantity` moving on a transfer | Never written by anything — a transfer is out and in at once |
+| `blocked_quantity` / `damaged_quantity` moving here | Only a goods receipt (rejected, damaged) and a sales return write them; write-offs and holds use `current` and `quarantine` |
+| A reversal for a write-off, transfer, hold, adjustment or dispatch | None (§10.10) |
+| A row on the server for the remembered filter | None; a JSON file on the machine (§10.8) |
+| `inventories.status`, min / max / reorder levels changing with stock | Master edits only — `PUT /inventory/{id}`, audit `inventory.updated` |
+| A batch or serial audit row named like the rest (`batch.created`) | Bare `CREATE` / `UPDATE` / `DELETE`, no `after_data` (D-STK-10) |
+
+### 10.12 Checked against live rows, and not
+
+- **Confirmed on TEST01** (the `T0916NF7T` run): the movement chain
+  `OPENING_STOCK` 50 → `TRANSFER_OUT` 47 → `WRITE_OFF` 46 → `QUARANTINE_HOLD`
+  44 with `previous_*`/`new_*` agreeing at every step; the `<SUFFIX>-W2` row
+  inserted by the inbound leg; both transfer legs costed 60 / 180 with no
+  journal; the write-off's journal Dr 5500 60.00 / Cr 1200 60.00 with
+  `source_id` = the movement; the hold's null cost and untouched average; four
+  audit rows for the write-off, three for the transfer, one for the hold, all
+  grouped by request id; a first count bootstrapping its document type, states
+  and numbering rule in the same request as `inventory.physical_count.opened`;
+  a draft sheet drawn over ten lines of other runs' products.
+- **Confirmed on WHOLE01:** `TRF-0001` / `TRF-0002` at 95.670659 both legs, no
+  journal; write-off `33` Dr 5500 95.67 / Cr 1200; hold `4444`;
+  `PC-2026-2027-000005` posted with nothing counted; two
+  `SALES_RETURN_REVERSAL` rows dated their originals; `RESERVE` on the order
+  date and `UNRESERVE` on cancel dated the day before it (D-STK-7);
+  `inventory.updated` from master edits.
+- **Confirmed on the pharmacy stores** (`fx_t0916ei35_p` before the D-8-1 fix,
+  `fx_t0916f8m2_p` after): three `batches` rows per run inserted by opening
+  stock with audit `CREATE`; the opening journal Dr 1200 / Cr 3000 1,980.00;
+  the reservation on the expired `B1` in both; `DISPATCH` from `B1` before the
+  fix and from `B2` after; the COGS journal Dr 5200 300.00 / Cr 1200; SHT's
+  two reservations of 3 and 7 leaving available −7.
+- **Confirmed on the electronics store:** five serials `AVAILABLE` with
+  warranty a year on, `inventory_id` and `batch_id` null; no movement in any
+  of the nineteen stores read carries `serial_id` or `lot_id`.
+- **Not seen in a live row:** a count line that was adjusted; a quarantine
+  release; a write-off taken from quarantine; a refused dispatch; a
+  `RETURN_REVERSAL`; a transfer, write-off or hold entered in a unit other than
+  the base one (`entered_uom_id` is null on every movement looked at); a count
+  over a batch row; a batch or serial edited or deleted through the API in a
+  fixture store.
+- **Where the stock rows are, 2026-09-18:** TEST01 52 movements (12
+  `GOODS_RECEIPT`, 12 `OPENING_STOCK`, 8 `RESERVE`, 5 `UNRESERVE`, 5
+  `DISPATCH`, 2 `RETURN`, 2 `GOODS_RECEIPT_REVERSAL`, 2 `ADJUSTMENT`, one each
+  of the transfer legs, `WRITE_OFF`, `QUARANTINE_HOLD`), one draft count, no
+  batches or serials; WHOLE01 262 (68 `RESERVE`, 67 `UNRESERVE`, 62 `DISPATCH`,
+  34 `GOODS_RECEIPT`, 11 `SALES_RETURN`, 7 `RETURN`, 3 `OPENING_STOCK`, two
+  each of the transfer legs, `GOODS_RECEIPT_REVERSAL` and
+  `SALES_RETURN_REVERSAL`, one `WRITE_OFF`, one `QUARANTINE_HOLD`), five counts
+  (one posted, three draft, one cancelled), no batches or serials. Batches
+  exist only in the two pharmacy stores (three each) and serials only in the
+  electronics store (five). The seeded firms hold **no** batch or serial rows at
+  all.
