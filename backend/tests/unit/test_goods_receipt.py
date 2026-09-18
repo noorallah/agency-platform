@@ -1032,3 +1032,155 @@ def test_cancelling_a_receipt_credits_what_the_stock_actually_gave_back() -> Non
     # back -- while inventory is credited only with what left the shelf.
     accrual = sum(line.debit_amount for line in reversal.lines if line.debit_amount > 0)
     assert accrual == original.total_debit
+
+
+def _approved_bill(fixture: "_Fixture", receipt: GoodsReceipt) -> PurchaseInvoice:
+    """Raise and approve a real supplier invoice for the whole receipt."""
+    from app.purchase_invoice.schemas import (
+        PurchaseInvoiceCreate,
+        PurchaseInvoiceLineWrite,
+        PurchaseInvoiceSourceType,
+    )
+    from app.purchase_invoice.services import PurchaseInvoiceService
+
+    line = fixture.session.scalars(
+        select(GoodsReceiptLine).where(GoodsReceiptLine.goods_receipt_id == receipt.id)
+    ).first()
+    assert line is not None
+    service = PurchaseInvoiceService(fixture.session)
+    invoice = service.create_invoice(
+        PurchaseInvoiceCreate(
+            supplier_invoice_number=f"SUP-{receipt.grn_number}",
+            supplier_invoice_date=date(2026, 8, 6),
+            invoice_date=date(2026, 8, 6),
+            source_documents=[
+                {
+                    "source_document_type": PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                    "source_document_id": receipt.id,
+                }
+            ],
+            lines=[
+                PurchaseInvoiceLineWrite(
+                    source_document_type=PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                    source_document_id=receipt.id,
+                    source_document_line_id=line.id,
+                    line_number=1,
+                    current_invoice_quantity=Decimal("10"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    return service.approve_invoice(
+        invoice.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+
+
+def _journals_for(session: Session, *source_ids: UUID) -> list[JournalEntry]:
+    """Every journal entry raised against the given documents."""
+    return list(
+        session.scalars(
+            select(JournalEntry).where(
+                JournalEntry.source_id.in_(source_ids),
+                JournalEntry.is_deleted.is_(False),
+            )
+        ).all()
+    )
+
+
+def test_cancelling_an_approved_bill_takes_its_journal_back() -> None:
+    """D-BUY-2: the bill's journal stayed posted after it was cancelled.
+
+    Cancelling changed the status and left Dr accrual / Dr input tax / Cr
+    payable in the ledger, and the receipt -- no longer invoiced -- could then
+    be cancelled too, clearing the accrual a second time. Driven on TEST01 on
+    2026-09-18: 2300 was left debited 600 on its own. With both cancelled,
+    every account the two documents touched must net to nothing.
+    """
+    from app.purchase_invoice.services import PurchaseInvoiceService
+
+    session = _session_factory()()
+    fixture = _Fixture(session, "BILL-REV")
+    receipts = GoodsReceiptService(session)
+    receipt = receipts.create_receipt(
+        fixture.receipt_payload("10"),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    receipts.complete_receipt(
+        receipt.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    bill = _approved_bill(fixture, receipt)
+
+    PurchaseInvoiceService(session).cancel_invoice(
+        bill.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    bill_entries = [
+        e
+        for e in _journals_for(session, bill.id)
+        if e.source_module == "purchase_invoice"
+    ]
+    assert len(bill_entries) == 2, "cancelling must raise a mirror of the bill"
+    assert {e.status for e in bill_entries} == {
+        JournalStatus.REVERSED.value,
+        JournalStatus.POSTED.value,
+    }
+
+    receipts.cancel_receipt(
+        receipt.id,
+        firm_scope=fixture.firm.id,
+        actor_id=fixture.actor_id,
+        reason="sent back after the bill was cancelled",
+    )
+    net: dict[UUID, Decimal] = {}
+    for entry in _journals_for(session, bill.id, receipt.id):
+        for line in entry.lines:
+            net[line.ledger_account_id] = (
+                net.get(line.ledger_account_id, Decimal("0"))
+                + line.debit_amount
+                - line.credit_amount
+            )
+    assert set(net.values()) == {Decimal("0")}, net
+
+
+def test_a_paid_bill_cannot_be_cancelled() -> None:
+    """A payment applied to a bill is undone first, by reversing the payment."""
+    from app.purchase_invoice.services import PurchaseInvoiceService
+    from app.settlements.schemas import SettlementCreate
+    from app.settlements.services import PaymentService
+
+    session = _session_factory()()
+    fixture = _Fixture(session, "BILL-PAID")
+    receipts = GoodsReceiptService(session)
+    receipt = receipts.create_receipt(
+        fixture.receipt_payload("10"),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    receipts.complete_receipt(
+        receipt.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    bill = _approved_bill(fixture, receipt)
+    payment = PaymentService(session).create(
+        SettlementCreate.model_validate(
+            {
+                "party_id": fixture.vendor.id,
+                "settlement_date": "2026-08-07",
+                "amount": "100",
+                "method": "BANK",
+                "allocations": [{"invoice_id": bill.id, "amount": "100"}],
+            }
+        ),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+
+    with pytest.raises(ValidationError, match=payment.settlement_number):
+        PurchaseInvoiceService(session).cancel_invoice(
+            bill.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+        )
+    session.expire_all()
+    still = session.get(PurchaseInvoice, bill.id)
+    assert still is not None and still.status == "APPROVED"

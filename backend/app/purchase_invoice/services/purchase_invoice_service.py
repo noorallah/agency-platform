@@ -29,7 +29,9 @@ from app.document_framework.services.transactional_document_service import (
     DocumentTypeSpec,
     TransactionalDocumentService,
 )
+from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
+from app.finance.services.journal_engine import JournalEntryEngine
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.inventory.models import StockLedgerEntry
 from app.products.models import Product
@@ -501,17 +503,27 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         actor_id: UUID,
         reason: str | None = None,
     ) -> PurchaseInvoice:
-        """Cancel one purchase invoice."""
+        """Cancel one purchase invoice, taking back the journal it posted."""
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status in {
             PurchaseInvoiceStatus.CANCELLED.value,
             PurchaseInvoiceStatus.CLOSED.value,
         }:
             raise ValidationError("This purchase invoice can no longer be cancelled.")
+        self._assert_nothing_rests_on(row)
         before = row.status
         row.status = PurchaseInvoiceStatus.CANCELLED.value
         row.cancel_reason = reason
         row.updated_by = actor_id
+        if before == PurchaseInvoiceStatus.APPROVED.value:
+            # Approval posted Dr goods-received-not-invoiced, Dr input tax,
+            # Cr payable. Cancelling used to change the status and leave all
+            # three, so the payable carried a bill that no longer existed --
+            # and the receipt, no longer invoiced, could be cancelled too,
+            # clearing the same accrual a second time (D-BUY-2, driven on
+            # TEST01: 2300 left debited 600 on its own). The entry faces the
+            # supplier, not the stock, so a mirror is the right reversal.
+            self._reverse_invoice_posting(row, firm_scope=firm_scope, actor_id=actor_id)
         self._record_event(
             firm_id=firm_scope,
             document_type=self._document_type(firm_scope),
@@ -1522,6 +1534,88 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             )
         )
         return self._q(accrued)
+
+    def _assert_nothing_rests_on(self, row: PurchaseInvoice) -> None:
+        """Refuse to cancel a bill that a payment or a return rests on.
+
+        Each has its own undo -- reverse the payment, cancel the return -- and
+        doing that first keeps the books telling one story: a payment applied
+        to a cancelled bill would clear a debt that no longer exists. The
+        refusal names what is in the way, as the sales invoice's does.
+        """
+        # Imported here: both modules import the invoice model.
+        from app.purchase_return.models import PurchaseReturn, PurchaseReturnSource
+        from app.settlements.models import Settlement, SettlementAllocation
+
+        blockers: list[str] = []
+        payments = self._session.scalars(
+            select(Settlement.settlement_number)
+            .join(
+                SettlementAllocation,
+                SettlementAllocation.settlement_id == Settlement.id,
+            )
+            .where(
+                SettlementAllocation.purchase_invoice_id == row.id,
+                SettlementAllocation.is_deleted.is_(False),
+                Settlement.status == "POSTED",
+                Settlement.is_deleted.is_(False),
+            )
+            .distinct()
+        ).all()
+        if payments:
+            blockers.append("payment " + ", ".join(sorted(payments)))
+        returns = self._session.scalars(
+            select(PurchaseReturn.return_number)
+            .join(
+                PurchaseReturnSource,
+                PurchaseReturnSource.purchase_return_id == PurchaseReturn.id,
+            )
+            .where(
+                PurchaseReturnSource.source_document_type == "PURCHASE_INVOICE",
+                PurchaseReturnSource.source_document_id == row.id,
+                PurchaseReturn.status != "CANCELLED",
+                PurchaseReturn.is_deleted.is_(False),
+            )
+            .distinct()
+        ).all()
+        if returns:
+            blockers.append("purchase return " + ", ".join(sorted(returns)))
+        if blockers:
+            raise ValidationError(
+                f"{row.invoice_number} cannot be cancelled while it has "
+                + "; ".join(blockers)
+                + ". Reverse or cancel those first."
+            )
+
+    def _reverse_invoice_posting(
+        self, row: PurchaseInvoice, *, firm_scope: UUID, actor_id: UUID
+    ) -> None:
+        """Cancel the journal an approved invoice wrote, if it wrote one.
+
+        `reversal_of_id IS NULL` matters: `reverse_entry` copies the source
+        module and id onto the mirror it posts, so without it a second pass
+        would find that mirror and reverse the reversal.
+        """
+        entry_id = self._session.scalar(
+            select(JournalEntry.id).where(
+                JournalEntry.firm_id == firm_scope,
+                JournalEntry.source_module == "purchase_invoice",
+                JournalEntry.source_id == row.id,
+                JournalEntry.status == JournalStatus.POSTED.value,
+                JournalEntry.reversal_of_id.is_(None),
+                JournalEntry.is_deleted.is_(False),
+            )
+        )
+        if entry_id is None:
+            # Nothing posted, so there is nothing to take back -- a firm that
+            # approved bills before posting existed is in this state.
+            return
+        JournalEntryEngine(self._session).reverse_entry(
+            entry_id,
+            firm_id=firm_scope,
+            reference_number=f"{row.invoice_number}-REV",
+            actor_id=actor_id,
+        )
 
     def _record_event(
         self,
