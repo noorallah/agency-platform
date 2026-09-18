@@ -52,6 +52,7 @@ class _OtherFirmApi extends ApiClient {
         );
 
   final List<Map<String, String>?> inventoryQueries = [];
+  final List<Map<String, String>?> ledgerQueries = [];
 
   @override
   Future<Json> request(
@@ -65,6 +66,10 @@ class _OtherFirmApi extends ApiClient {
   }) async {
     if (path == '/api/v1/inventory') {
       inventoryQueries.add(query);
+      return _paged(const []);
+    }
+    if (path == '/api/v1/inventory/ledger') {
+      ledgerQueries.add(query);
       return _paged(const []);
     }
     if (path == '/api/v1/branches') {
@@ -149,5 +154,53 @@ void main() {
     await tester.pumpAndSettle();
     expect(valueAssertions(), isEmpty);
     expect(find.text('Warehouse'), findsOneWidget);
+  });
+
+  /// Open the Stock Ledger with [remembered] as the saved type filter and
+  /// return the type its first load asked the server for.
+  Future<String?> ledgerTypeSent(WidgetTester tester, String remembered) async {
+    final Directory directory =
+        Directory.systemTemp.createTempSync('inventory_stale_type');
+    addTearDown(() => directory.deleteSync(recursive: true));
+    final DesktopPreferencesService preferences =
+        DesktopPreferencesService(directory: directory);
+    await tester.runAsync(() async {
+      await preferences.load();
+      await preferences.saveWorkspaceState('inventory_management', {
+        'transaction_type': remembered,
+      });
+    });
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _OtherFirmApi api = _OtherFirmApi();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: InventoryManagementPage(
+            api: api,
+            preferences: preferences,
+            permissions: _permissions(),
+            hasActiveFirm: true,
+            section: InventorySection.stockLedger,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(api.ledgerQueries, isNotEmpty);
+    return api.ledgerQueries.first?['transaction_type'];
+  }
+
+  // BL-31.13: the picker used to offer types the server never writes, and a
+  // remembered one filtered the ledger to nothing while the picker, which no
+  // longer holds it, showed All.
+  testWidgets('a remembered type the server never writes is dropped',
+      (tester) async {
+    expect(await ledgerTypeSent(tester, 'RESERVATION'), isNull);
+  });
+
+  testWidgets('a remembered type the server writes is kept', (tester) async {
+    expect(await ledgerTypeSent(tester, 'DISPATCH'), 'DISPATCH');
   });
 }

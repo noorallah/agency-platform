@@ -145,7 +145,7 @@ void main() {
     // Choose a type so the label floats, which is when it was cut off.
     await tester.tap(find.text('Transaction type'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('GOODS_RECEIPT').last);
+    await tester.tap(find.text('Goods receipt').last);
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);
 

@@ -769,8 +769,12 @@ and one from after it, which is what let the batch claims be seen both ways.
   | `ADJUSTMENT` | `PHYSICAL_COUNT` from a count; typed (default `ADJUSTMENT`) from `POST /inventory/adjustments` | the count number, or typed | §10.5 |
   | `<TYPE>_REVERSAL` | the original's | the original's | §10.10 |
 
-  The Stock Ledger's type dropdown was typed by hand and names none of the
-  last six (BL-31.13); filter by **reference** instead.
+  The Stock Ledger's type dropdown offers exactly these, by name, plus the
+  three `_REVERSAL` twins that are ever written (`GOODS_RECEIPT_REVERSAL`,
+  `RETURN_REVERSAL`, `SALES_RETURN_REVERSAL`);
+  `test_stock_ledger_types_match_the_server.py` fails when the two drift.
+  Before BL-31.13 it was typed by hand and offered eight types nothing
+  writes.
 - **The reference on a transfer, write-off or hold is typed, not issued**
   (BACKLOG §34). Nothing checks it is unique among movements; a write-off's
   reference also becomes its journal's `reference_number`, which *is* unique,
@@ -815,7 +819,8 @@ and one from after it, which is what let the batch claims be seen both ways.
   **Transactions** tab is `inventory_transactions`, the same figures without
   the cost. Both accept `transaction_type` as an **exact string** — the enum
   types nothing on the read side, so `RESERVATION` is accepted and matches
-  nothing (BL-31.13).
+  nothing. The desktop no longer offers such a type (BL-31.13), and drops one
+  remembered from before.
 - **Writes nothing.** No audit row for any of these, nor for the exports.
 - **Check** — the balance, the chain that produced it, and that the two agree:
   ```sql
