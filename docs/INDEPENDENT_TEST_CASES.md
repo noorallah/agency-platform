@@ -851,7 +851,7 @@ promotion, or the customer's standing rate).
 - **Fixture:** `selling-firm`
 - **Steps:** Quotations → **New Quotation**: customer `<SUFFIX>-C01`; **Add line** `<SUFFIX>-DET` quantity **12**, Discount % empty (helper: "Blank takes this customer's 7.5%, or a price list where one applies.") → **Create draft** → **Revise**.
 - **Expect:** "QT-… drafted, good until … Nothing is reserved by it." Under the blank box: "Last priced at **2**% by the price list." — STANDING's first break beats Vijaya's 7.5% standing rate.
-- **Data (HTTP):** the quotation's line carries `discount_percent` 2.0000, `discount_source` `price_list`; grand total 1,165.65.
+- **Data (HTTP):** the quotation's line carries `discount_percent` 2.0000, `discount_source` `price_list`; grand total 1,165.65. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §11.1 in schema `fx_<suffix>_s` — nothing is written until the quotation saves; `sales_quotation_lines.discount_source` records which tier won; audits `quotation.created` and `tax.rule.simulated`.
 - **Leaves:** a draft quotation.
 
 ### TC-SELL-002 — A ladder takes the highest break at or below the quantity
@@ -860,6 +860,7 @@ promotion, or the customer's standing rate).
 - **Fixture:** `selling-firm`
 - **Steps:** a quotation for `<SUFFIX>-C01`, DET quantity **18**, Discount % empty → Create draft → Revise.
 - **Expect:** "Last priced at **6.75**% by the price list" — the break at 18, not the first one above zero. Revising 12 → 18 on one quotation and saving gives the same, because a revision prices resolved lines afresh.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.1 and §11.2 — a revision updates the line in place by `line_number` and re-prices it; audit `quotation.updated`.
 - **Leaves:** a draft quotation.
 
 ### TC-SELL-003 — A customer's own list replaces the firm-wide ladder
@@ -868,6 +869,7 @@ promotion, or the customer's standing rate).
 - **Fixture:** `selling-firm`
 - **Steps:** a quotation for `<SUFFIX>-C02` (Anand), DET quantity **18** → Create draft → Revise.
 - **Expect:** "Last priced at **9.25**% by the price list" — Anand's `NEGOTIATED` list replaces STANDING rather than amending it.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.1 — the customer's own list replaces the firm-wide ladder; the line reads `price_list` at 9.25.
 - **Leaves:** a draft quotation.
 
 ### TC-SELL-004 — A promotion outranks both lists; a typed zero refuses them all
@@ -880,7 +882,7 @@ promotion, or the customer's standing rate).
 - **Expect**
   - Step 1: "Last priced at **7.5**% by a promotion" — BULK5 applies at 25+ and a promotion outranks either list.
   - Step 2: the box itself reads **0** (a typed rate is kept) and the line total is the full 30 × 84 = 2,520 before tax. Zero is a refusal of every arrangement, not a silence.
-- **Data (HTTP):** step 1 `discount_source` `promotion`, 7.5; step 2 `discount_source` `percent`, 0, grand total 2,973.60.
+- **Data (HTTP):** step 1 `discount_source` `promotion`, 7.5; step 2 `discount_source` `percent`, 0, grand total 2,973.60. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §11.1 — `promotion` at 7.5, then `percent` at 0: a typed zero is stored as a refusal, not a silence.
 - **Leaves:** a draft quotation.
 
 ### TC-SELL-005 — An accepted quotation converts once
@@ -889,6 +891,7 @@ promotion, or the customer's standing rate).
 - **Fixture:** `selling-firm`
 - **Steps:** a quotation for `<SUFFIX>-C02`, DET 12 → Create draft → **Mark as sent** → **Customer accepted** (give a reason) → **Convert to order**. Then look for Convert again.
 - **Expect:** toasts "QT-… marked as sent…", "QT-… accepted. Converting it is what creates the order.", "QT-… became SO-…. The order reserves the stock when it is approved." Afterwards **no Convert to order**. **(HTTP)** `POST /api/v1/quotations/{id}/convert` with `{"order_date": "<today>"}` → **422**, "Quotation QT-… already became SO-….".
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.2 and §11.3 — lifecycle CREATED, SENT, ACCEPTED, CONVERTED on the quotation; the order arrives DRAFT with `reference_number` = the QT number, its lines reading `discount_source` `amount` and no promotion claim staged (D-SELL-9). The refused second convert writes nothing.
 - **Leaves:** a converted quotation and a draft order.
 
 ### TC-SELL-006 — A coupon reaches its offer; a code nobody recognises gives nothing and refuses nothing
@@ -903,6 +906,7 @@ promotion, or the customer's standing rate).
   - Step 1: "Order drafted. Approve it to commit the stock and the credit."; "Last priced at **2.5**% by a promotion" — the coupon's offer **replaces** the list's 2%, it does not compound onto it.
   - Step 2: still **2.5** — a second code on the same offer.
   - Step 3: "Order updated."; the helper falls back to "Last priced at **2**% by the price list". The Coupon helper says "Unrecognised codes are ignored".
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.4 in schema `fx_<suffix>_s` — `sales_orders.coupon_code` keeps whatever was typed, NOSUCHCODE included; one PENDING `promotion_redemptions` row per recognised coupon, none for an unknown one; no stock, no journal.
 - **Leaves:** a draft order.
 
 ### TC-SELL-007 — Approving reserves the stock and claims the offer
@@ -911,6 +915,7 @@ promotion, or the customer's standing rate).
 - **Fixture:** `selling-ordered`
 - **Steps:** Inventory → Stock → Inventory, filtered to `<SUFFIX>-DET`. Then Reports → Operational Reports → **Promotion claims**.
 - **Expect:** MAIN: Current **100**, Reserved **12**, Available **88**. The claims report lists `WELCOME`, coupon `WELCOME10`, Vijaya, the order, **CLAIMED** (it was PENDING while a draft; only a claim at approval counts against a limit).
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.5 — a `RESERVE` of 12 referenced to the order number, the claim PENDING → CLAIMED under a lock, and two audit rows (`inventory.transaction.created`, `sales_order.approved`); no journal.
 - **Leaves:** unchanged.
 
 ### TC-SELL-008 — A hold stops a delivery; releasing restores the status it had
@@ -923,6 +928,7 @@ promotion, or the customer's standing rate).
 - **Expect**
   - Step 1: "SO-… is on hold."; Status **APPROVED (on hold)**. The note is refused **on save**: "SO-… is on hold and cannot be dispatched ("awaiting cheque"). Release it first." Reserved stays **12** — a hold says "not yet", not "never".
   - Step 2: "SO-… released."; Status plain **APPROVED** — the status it had, not a reset.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.7 — `is_on_hold`, `hold_reason`, `held_at` on `sales_orders` with `status` unmoved; lifecycle HELD then RELEASED; the refused note writes nothing; the reservation stays. A hold does not stop a note that already exists (D-SELL-5).
 - **Leaves:** the order released.
 
 ### TC-SELL-009 — Part deliveries move the order's status
@@ -935,6 +941,7 @@ promotion, or the customer's standing rate).
 - **Expect**
   - Step 1: "Delivery note DN-… created as a draft. Dispatching it is what moves the stock."; the note **DISPATCHED**; the order **PARTIALLY_DELIVERED**; MAIN on hand **95**, Reserved **7**; ledger `DISPATCH` −5; Journal Entries has the note's cost-of-goods entry.
   - Step 2: the order **DELIVERED** (only once both notes are dispatched); ledger `DISPATCH` −7; Reserved **0**, on hand **88**.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.9 and §11.10 — approving a note moves nothing; each dispatch is six audit rows in one request: `UNRESERVE` and `DISPATCH`, a journal Dr 5200 / Cr 1200 of 300.00 then 420.00, and `sales_order.delivered_status_changed` (PARTIALLY_DELIVERED, then DELIVERED), which has no lifecycle row.
 - **Leaves:** a delivered order.
 
 ### TC-SELL-010 — A delivery ships the deal the order struck
@@ -943,7 +950,7 @@ promotion, or the customer's standing rate).
 - **Fixture:** `selling-delivered`
 - **Steps:** open the note for 5 and read its line's Unit Price and discount; open the order and compare.
 - **Expect:** **identical** — 84 less 2.5%, from the coupon on the order. The note does not re-read the customer's current rate or price list.
-- **Data (HTTP):** the note's line: `unit_price` 84, `discount_percent` 2.5, `net_amount` 483.21.
+- **Data (HTTP):** the note's line: `unit_price` 84, `discount_percent` 2.5, `net_amount` 483.21. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §11.9 — the note line inherits the order line's `unit_price` and discount rate; notes carry no `discount_source`.
 - **Leaves:** unchanged.
 
 ### TC-SELL-011 — Billing a note: the cap, the approval and its journal
@@ -958,6 +965,7 @@ promotion, or the customer's standing rate).
   - Step 1: refused before sending: "Only 5.0 left to bill." (an API client gets "Invoice quantity exceeds the available source quantity.").
   - Step 2: "Invoice created as a draft. Approve it to post the journal."; **APPROVED**.
   - Step 3: Dr **1100 Trade Receivables 483.21**, Cr **Sales 409.50**, Cr **Output Tax 73.71** — one tax line; the CGST/SGST split is on the invoice. Vijaya's Outstanding **483.21**.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.11 — the invoice's lines, `sales_invoice_line_taxes` (CGST and SGST 36.855 each) and three placeholder accounting events at create; at approval a receivable row `INVOICE` 483.21 and journal Dr 1100 483.21 / Cr 4000 409.50 / Cr 2200 73.71, four audit rows. The refused 6 writes nothing. No loyalty points arrive (D-SELL-1).
 - **Leaves:** an approved invoice.
 
 ### TC-SELL-012 — Print settings and a printed bill
@@ -966,6 +974,7 @@ promotion, or the customer's standing rate).
 - **Fixture:** `selling-invoiced`
 - **Steps:** select the invoice → **Print settings** icon → How many copies **2**, Copy 1 label / Copy 2 label (they prefill ORIGINAL FOR RECIPIENT / DUPLICATE FOR TRANSPORTER) → save → **Print**.
 - **Expect:** the PDF carries the CGST/SGST split, an HSN column, the HSN-wise summary, "AMOUNT CHARGEABLE, IN WORDS", and two labelled copies. Saving print settings needs `SETTINGS_UPDATE`, which the firm admin holds. *(The fixture's firm and customer carry no GSTIN and the product no HSN, so those cells print empty; WHOLE01's did.)*
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.13 — one `document_print_templates` row (`document_type` SALES_INVOICE, `copy_labels` a JSON list), audit `document_print_template.created` or `.updated`; printing writes nothing.
 - **Leaves:** the firm's print settings for invoices.
 
 ### TC-SELL-013 — Receipts charge TCS; an excess with nothing else owed becomes an advance
@@ -978,7 +987,7 @@ promotion, or the customer's standing rate).
 - **Expect**
   - Step 1: the TCS notice (small text under **Against order (optional)**) charges **1%** — Vijaya has no PAN — **2.42** on 241.60. "RC-… recorded and posted to the ledger."; the row reads "Cleared SI-…". Outstanding **244.03** (483.21 − 241.60 + 2.42).
   - Step 2: TCS **3.42**; the running line says 100.00 left over before saving. The invoice drops out of the outstanding list. Customers: Outstanding **3.42** (this receipt's TCS) and Advance **97.58** — the excess over everything owed. *(WHOLE01's Vijaya owed on older bills, so there the excess came off the account instead; this firm has none.)*
-- **Data (HTTP):** `GET /api/v1/customers/{id}` → `current_outstanding`, `unapplied_advance_balance`.
+- **Data (HTTP):** `GET /api/v1/customers/{id}` → `current_outstanding`, `unapplied_advance_balance`. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §11.14 — per receipt: `settlements`, `settlement_allocations`, a receivable row `RECEIPT` that stores the balance/advance split, `tcs_collections` and a second receivable row `TCS`, journals `RC-…` (Dr 1010 / Cr 1100) and `TCS-RC-…` (Dr 1100 / Cr 2500), eight audit rows.
 - **Leaves:** two receipts.
 
 ### TC-SELL-014 — Applying an advance posts nothing; reversing a receipt puts everything back
@@ -991,6 +1000,7 @@ promotion, or the customer's standing rate).
 - **Expect**
   - Step 1: "RC-… applied to SI-…"; the dialog says "Nothing moves in the ledger. The money arrived when the receipt was recorded." — Journal Entries has **no** new entry. Customers: Outstanding **584.75**, Advance **2.42** (the net owed is unchanged). Applying 5 more is refused: "RC-… has only 2.42 left unapplied."
   - Step 2: "RC-… reversed."; badge **Reversed**; Journal Entries shows `RC-…-REV` and the receipt's TCS reversed. Outstanding rises by **239.18** — the 241.60 less the 2.42 TCS that is also undone. Reversing again: "RC-… has already been reversed."
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.15 — applying writes an allocation and an `ADVANCE_APPLY` receivable row of 95.16 and no journal; reversing writes `RC-…-REV` and `TCS-RC-…-REV` (dated the first of the month), two `REVERSAL` receivable rows and ten audit rows, and keeps the allocations. A receipt whose advance was applied does not reverse cleanly (D-SELL-8).
 - **Leaves:** one receipt reversed, one applied.
 
 ### TC-SELL-015 — A sales return is capped at what was dispatched
@@ -999,6 +1009,7 @@ promotion, or the customer's standing rate).
 - **Fixture:** `selling-invoiced`
 - **Steps:** Sales Returns → **New Return** → Returned against the invoice (entries read "SI-… · date · Vijaya Stores <suffix>") → Line 1 → Taken back into MAIN → Quantity returned **9** → Create draft. Then **2** → Create draft → **Approve** → **Complete**.
 - **Expect:** 9 is refused: "Only 5.0 went out on this line." (server: "Return quantity exceeds what was dispatched on the source document (5.0000 sent, 0.0000 already returned)."). With 2: "SR-… created as a draft…", "SR-… approved. Nothing has moved yet…", "SR-… completed: 2 back on the shelf and 193.28 credited to the customer." Ledger `SALES_RETURN` +2; Outstanding down **193.28** (2 × 84 less 2.5% plus 18%).
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.16 — the refused 9 writes nothing; Complete writes a `SALES_RETURN` +2 movement, journals `SR-…` (Dr 4100 163.80 / Dr 2200 29.48 / Cr 1100 193.28) and `SR-…-COST` (Dr 1200 / Cr 5200 120.00), a receivable row `CREDIT_NOTE`, seven audit rows.
 - **Leaves:** a completed return.
 
 ### TC-SELL-016 — A credit note reverses the tax the line was charged, and no more than the line
@@ -1011,6 +1022,7 @@ promotion, or the customer's standing rate).
 - **Expect**
   - Step 1: the row reads `59.00 (tax 9.00)` — 18%, the rate that line was charged. "CN-… — approved. The credit and the tax are on the ledger." Outstanding down **59**.
   - Step 2: refused: "A credit note cannot credit more than the line was charged: 409.5000 charged, 50.0000 already credited."
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.17 — `credit_note_lines.tax_rate_percent` 18.0000; approval posts Dr 4100 50.00 / Dr 2200 9.00 / Cr 1100 59.00 and a receivable row `CREDIT_NOTE` with no reference type, and writes no lifecycle event (D-SELL-23). The refused 400 writes nothing.
 - **Leaves:** an approved credit note.
 
 ### TC-SELL-017 — A proforma posts nothing and does not follow the order afterwards
@@ -1023,6 +1035,7 @@ promotion, or the customer's standing rate).
 - **Expect**
   - Step 1: "PI-… raised. Issue it when the customer needs it." then "PI-… issued."; a `PI` series number; **nothing** posted; Outstanding unchanged; the pane says "Not a tax invoice — no input tax credit is available against this document."
   - Step 2: the proforma's lines and totals are unchanged — snapshotted when it was raised.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.18 and §11.8 — `proforma_invoices` and copied `proforma_invoice_lines`, lifecycle `PROFORMA.CREATED` / `PROFORMA.ISSUED`, no journal or receivable; cancelling the order writes an `UNRESERVE` dated today (UTC), claims REVERSED, and nothing on the proforma.
 - **Leaves:** an issued proforma and a cancelled order.
 
 ---
