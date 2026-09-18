@@ -164,6 +164,12 @@ class SalesInvoiceLineWrite(SalesInvoiceSchema):
     expiry_date: date | None = None
     manufacturing_date: date | None = None
     remarks: str | None = None
+    #: The serialised units this line ships, where the bill dispatches its own
+    #: goods -- a firm whose delivery note stage is off. The chain hands them
+    #: to the note it raises, which refuses to dispatch a serial-tracked line
+    #: without one per unit (D-STK-4). A line billing a note already
+    #: dispatched takes none: its units were picked on that note.
+    serial_ids: list[UUID] | None = Field(default=None, max_length=10000)
 
     @model_validator(mode="after")
     def _one_provenance(self) -> "SalesInvoiceLineWrite":

@@ -1761,6 +1761,14 @@ class SalesInvoiceService(TransactionalDocumentService):
     def _prepare_invoice_sources(
         self, data: SalesInvoiceCreate, firm_id: UUID
     ) -> tuple[dict[str, UUID], list[dict[str, object]], list[dict[str, object]]]:
+        if any(item.serial_ids for item in data.lines):
+            # Left over only on a line billing a note already dispatched --
+            # the chain moves them onto the note it raises. Taking them here
+            # would record units the bill never moved.
+            raise ValidationError(
+                "Serial numbers are picked on the delivery note that ships the "
+                "goods; this bill names a note that has already been dispatched."
+            )
         lines = [item.model_dump(mode="python") for item in data.lines]
         sources = [item.model_dump(mode="python") for item in data.source_documents]
         inferred_sources = {

@@ -13,11 +13,12 @@ from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.batch_serial.models import SerialNumber
+from app.batch_serial.models import BatchRecord, SerialNumber
 from app.batch_serial.schemas import SerialStatus
 from app.batch_serial.services.serial_trail_service import (
     DELIVERY_NOTE,
     LineRef,
+    Pick,
     SerialTrailService,
 )
 from app.branches.models import Branch, Warehouse, WarehouseStorageNode
@@ -1460,6 +1461,79 @@ class DeliveryNoteService(TransactionalDocumentService):
                 actor_id=actor_id,
             )
 
+    def _units_by_batch(
+        self,
+        line_ref: LineRef,
+        picks: list[Pick],
+        *,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        storage_node_id: UUID | None,
+        as_of: date,
+    ) -> dict[UUID | None, list[Pick]] | None:
+        """Group picked units by the batch each one belongs to.
+
+        None when no picked unit names a batch, which leaves the batches to
+        the allocator, earliest expiry first. Where they do, the unit decides:
+        SAP Business One and Odoo ship a serial from the lot it belongs to,
+        and a batch chosen by expiry would record a different lot against the
+        very unit the customer holds. Each batch must still hold the units
+        here and must not have expired on the note's date -- the same two
+        refusals the allocator gives, said about the unit that caused them.
+        """
+        if not any(serial.batch_id is not None for _pick, serial in picks):
+            return None
+        label = line_ref.label(self._trail.product(line_ref.product_id))
+        loose = [serial.serial_number for _pick, serial in picks if not serial.batch_id]
+        if loose:
+            raise ValidationError(
+                f"{label}: serial {', '.join(loose)} names no batch while the "
+                "line's other units do; give each unit its batch first."
+            )
+        grouped: dict[UUID | None, list[Pick]] = defaultdict(list)
+        for pick, serial in picks:
+            grouped[serial.batch_id].append((pick, serial))
+        batches = {
+            batch.id: batch
+            for batch in self._session.scalars(
+                select(BatchRecord).where(
+                    BatchRecord.id.in_([key for key in grouped if key is not None])
+                )
+            ).all()
+        }
+        for batch_id, share in grouped.items():
+            batch = batches.get(batch_id) if batch_id is not None else None
+            number = batch.batch_number if batch is not None else str(batch_id)
+            if (
+                batch is not None
+                and batch.expiry_date is not None
+                and batch.expiry_date < as_of
+            ):
+                raise ValidationError(
+                    f"{label}: serial {share[0][1].serial_number} is in batch "
+                    f"{number}, which expired on {batch.expiry_date.isoformat()}."
+                )
+            held = self._q(
+                self._session.scalar(
+                    select(
+                        func.coalesce(func.sum(InventoryRecord.available_quantity), 0)
+                    ).where(
+                        InventoryRecord.branch_id == branch_id,
+                        InventoryRecord.warehouse_id == warehouse_id,
+                        InventoryRecord.storage_node_id == storage_node_id,
+                        InventoryRecord.product_id == line_ref.product_id,
+                        InventoryRecord.batch_id == batch_id,
+                        InventoryRecord.is_deleted.is_(False),
+                    )
+                )
+            )
+            if held < len(share):
+                raise ValidationError(
+                    f"{label}: {len(share)} of the picked units are in batch "
+                    f"{number}, which has {held} available here."
+                )
+        return dict(grouped)
+
     @staticmethod
     def _line_ref(line: DeliveryNoteLine) -> LineRef:
         """Describe a note line to the serial trail."""
@@ -1681,21 +1755,41 @@ class DeliveryNoteService(TransactionalDocumentService):
             # earliest expiry first. One movement is posted per batch drawn
             # from; the line records the first, and the movements carry the
             # whole split.
-            allocation = self._inventory.allocate_for_dispatch(
-                firm_scope=row.firm_id,
+            by_batch = self._units_by_batch(
+                line_ref,
+                picks,
                 branch_id=goods_branch_id,
                 warehouse_id=line.warehouse_id,
                 storage_node_id=line.storage_node_id,
-                product_id=line.product_id,
-                quantity=line.delivered_quantity,
-                # Expired stock is not dispatched, judged on the note's own
-                # date rather than today, so rebuilding a year of history
-                # posts what it posted at the time.
                 as_of=row.delivery_date,
             )
+            if by_batch is not None:
+                # Units that carry a batch leave from it: the unit named is
+                # the unit shipped, so its batch is not the allocator's to
+                # choose.
+                allocation = [
+                    (batch_id, Decimal(len(share)))
+                    for batch_id, share in by_batch.items()
+                ]
+                shares = list(by_batch.values())
+            else:
+                allocation = self._inventory.allocate_for_dispatch(
+                    firm_scope=row.firm_id,
+                    branch_id=goods_branch_id,
+                    warehouse_id=line.warehouse_id,
+                    storage_node_id=line.storage_node_id,
+                    product_id=line.product_id,
+                    quantity=line.delivered_quantity,
+                    # Expired stock is not dispatched, judged on the note's
+                    # own date rather than today, so rebuilding a year of
+                    # history posts what it posted at the time.
+                    as_of=row.delivery_date,
+                )
+                shares = self._trail.deal(
+                    picks, [allocated for _, allocated in allocation]
+                )
             entered_total = self._q(line.current_delivery_quantity + line.free_quantity)
             dispatched = None
-            shares = self._trail.deal(picks, [allocated for _, allocated in allocation])
             for index, (batch_id, allocated) in enumerate(allocation):
                 # The entered quantity is what the customer was billed in, so
                 # it is apportioned with the split rather than repeated whole.

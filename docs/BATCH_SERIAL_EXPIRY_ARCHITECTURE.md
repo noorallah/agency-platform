@@ -300,21 +300,27 @@ movement's units are listed; `inventory_transactions.serial_id` is set only
 where a movement carried exactly one unit. `app/batch_serial/services/serial_trail_service.py`
 owns all of it and never commits.
 
-Decisions taken conservatively, to revisit if they bite:
+Decisions taken, following what Tally, SAP Business One, Odoo and Zoho do:
 
-- A product both batch- and serial-tracked has its units dealt out across the
-  batch movements in pick order; the serial's own `batch_id` is not matched to
-  the batch the allocation chose.
+- **The document that issues the stock names the units.** A firm whose
+  delivery note stage is off bills and ships in one step, so the bill line
+  carries `serial_ids` and the sales chain hands them to the note it raises;
+  a bill naming none for a serial-tracked product is refused by name before
+  anything is staged. A bill of a note already dispatched names none -- its
+  units were picked on the note -- and is refused if it tries.
+- **A unit of a batch-tracked product leaves from its own batch.** Where the
+  picked serials carry a `batch_id`, the dispatch draws from those batches
+  instead of the earliest-expiry allocation, refusing a unit whose batch has
+  expired or holds too little here; units with no batch leave the choice to
+  the allocator, and a line mixing the two is refused.
+- **The count is in the stock unit.** A line entered in another unit is
+  counted by the server after conversion; the desktop checks the count only
+  where the two units are the same.
 - A return with damaged or scrap quantity still makes every returned unit
   `AVAILABLE`, as the owner specified; the stock row puts the damaged units in
   the damaged bucket, but the serial does not say which unit is which.
-- A line entered in another unit than the stock unit is counted by the server
-  after conversion; the desktop checks the count only where the two units are
-  the same.
-- A bill that would have the sales chain raise the note for a serial-tracked
-  product is refused by name (nobody is there to pick): raise the note by
-  hand. `require_serial_on_issue` / `require_serial_on_receipt` are still read
-  by nothing -- `track_serial` alone decides.
+- `require_serial_on_issue` / `require_serial_on_receipt` are still read by
+  nothing -- `track_serial` alone decides.
 - Receiving stock (goods receipt, opening stock) numbers no units; serials are
   still created on the Serial Numbers screen or by the seeders.
 

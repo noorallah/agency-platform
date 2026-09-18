@@ -138,10 +138,27 @@ class SalesChainService:
         SalesOrderService(self._session).stage_approval(
             order.id, firm_scope=firm_id, actor_id=actor_id
         )
+        # The order's lines were raised one per bill line, under its number.
+        stated = {
+            line.line_number: line.serial_ids
+            for line in data.lines
+            if line.serial_ids is not None
+        }
+        serials = {
+            line.id: stated[line.line_number]
+            for line in self._session.scalars(
+                select(SalesOrderLine).where(
+                    SalesOrderLine.sales_order_id == order.id,
+                    SalesOrderLine.is_deleted.is_(False),
+                )
+            ).all()
+            if line.line_number in stated
+        }
         return self._dispatch_and_rebind(
             data,
             order=order,
             quantities=None,
+            serials=serials,
             firm_id=firm_id,
             actor_id=actor_id,
         )
@@ -181,10 +198,16 @@ class SalesChainService:
             for line in data.lines
             if line.source_document_line_id is not None
         }
+        serials = {
+            line.source_document_line_id: line.serial_ids
+            for line in data.lines
+            if line.source_document_line_id is not None and line.serial_ids is not None
+        }
         return self._dispatch_and_rebind(
             data,
             order=order,
             quantities=quantities,
+            serials=serials,
             firm_id=firm_id,
             actor_id=actor_id,
         )
@@ -195,13 +218,15 @@ class SalesChainService:
         *,
         order: SalesOrder,
         quantities: dict[UUID, Decimal] | None,
+        serials: dict[UUID, list[UUID]],
         firm_id: UUID,
         actor_id: UUID,
     ) -> SalesInvoiceCreate:
         """Raise, approve and dispatch the note, then bill it instead.
 
         `quantities` names how much of each order line to ship; None ships the
-        whole order, which is what a bare bill means.
+        whole order, which is what a bare bill means. `serials` names the units
+        each order line ships, for a serial-tracked product.
         """
         order_lines = list(
             self._session.scalars(
@@ -214,7 +239,11 @@ class SalesChainService:
             ).all()
         )
         self._refuse_serialised(
-            [line for line in order_lines if self._shipping(line, quantities) > ZERO]
+            [
+                line
+                for line in order_lines
+                if self._shipping(line, quantities) > ZERO and line.id not in serials
+            ]
         )
         notes = DeliveryNoteService(self._session)
         note = notes.stage_note(
@@ -228,7 +257,7 @@ class SalesChainService:
                 bill_discount_amount=data.bill_discount_amount,
                 freight_amount=data.freight_amount,
                 lines=[
-                    self._note_line(line, quantities)
+                    self._note_line(line, quantities, serials.get(line.id))
                     for line in order_lines
                     if self._shipping(line, quantities) > ZERO
                 ],
@@ -241,13 +270,16 @@ class SalesChainService:
         return self._rebind(data, note=note)
 
     def _refuse_serialised(self, lines: list[SalesOrderLine]) -> None:
-        """Refuse to ship a serial-tracked product from a bill alone.
+        """Refuse a serial-tracked line whose bill names no units.
 
-        Its units are picked by serial number on a delivery note, one per unit
-        leaving, and dispatch refuses a note that names none (D-STK-4). A note
-        the chain raises for a bill has nobody to pick them, so the bill is
-        refused by name here -- before anything is staged -- rather than
-        failing at dispatch with a sentence about a note nobody typed.
+        The document that moves the stock is where the units are named -- the
+        way Tally, SAP Business One and Odoo ask for serials on whichever
+        document issues the goods -- and dispatch refuses a serial-tracked
+        line without one per unit (D-STK-4). A bill that dispatches its own
+        goods names them in each line's ``serial_ids`` and the chain hands
+        them to the note; one that names none is refused by name here, before
+        anything is staged, rather than at dispatch with a sentence about a
+        note nobody typed.
         """
         ids = {line.product_id for line in lines}
         if not ids:
@@ -260,14 +292,16 @@ class SalesChainService:
         )
         if serialised:
             raise ValidationError(
-                f"{', '.join(serialised)} is serial-tracked: its units are "
-                "picked by serial number on a delivery note, so a bill cannot "
-                "dispatch it by itself. Raise a delivery note for the order, "
-                "pick the serials, and bill that note."
+                f"{', '.join(serialised)} is serial-tracked: name the serial "
+                "numbers going out on the bill line, or raise a delivery note "
+                "for the order, pick them there, and bill that note."
             )
 
     def _note_line(
-        self, line: SalesOrderLine, quantities: dict[UUID, Decimal] | None
+        self,
+        line: SalesOrderLine,
+        quantities: dict[UUID, Decimal] | None,
+        serial_ids: list[UUID] | None = None,
     ) -> DeliveryNoteLineWrite:
         """Ship one order line, carrying the deal the order already struck.
 
@@ -296,6 +330,7 @@ class SalesChainService:
             warehouse_id=line.warehouse_id,
             storage_node_id=line.storage_node_id,
             remarks=line.remarks,
+            serial_ids=serial_ids,
         )
 
     @staticmethod

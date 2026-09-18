@@ -17,7 +17,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.batch_serial.models import DocumentLineSerial, SerialNumber
+from app.batch_serial.models import BatchRecord, DocumentLineSerial, SerialNumber
 from app.branches.models import Branch, Warehouse
 from app.common.audit.models import AuditLog
 from app.core.database.base import Base
@@ -36,6 +36,12 @@ from app.inventory.models import InventoryTransaction
 from app.inventory.schemas import InventoryAdjustmentCreate
 from app.inventory.services import InventoryService
 from app.products.models import Product
+from app.sales_invoice.schemas import (
+    SalesInvoiceCreate,
+    SalesInvoiceLineWrite,
+    SalesInvoiceSourceType,
+)
+from app.sales_invoice.services import SalesInvoiceService
 from app.sales_order.models import SalesOrderLine
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
@@ -598,3 +604,107 @@ def test_editing_a_draft_return_keeps_its_units_unless_told_otherwise() -> None:
 
     assert _edit(None) == ["MIX-0001"]
     assert _edit([]) == []
+
+
+def test_a_bill_of_a_dispatched_note_names_no_serials() -> None:
+    """The units were picked on the note; a bill cannot re-pick them."""
+    shop = _Shop(_session())
+    note = shop.dispatch(shop.note(shop.ids(0, 1)))
+
+    with pytest.raises(ValidationError, match="picked on the delivery note"):
+        SalesInvoiceService(shop.session).create_invoice(
+            SalesInvoiceCreate(
+                invoice_date=ON,
+                lines=[
+                    SalesInvoiceLineWrite(
+                        source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                        source_document_id=note.id,
+                        source_document_line_id=shop.note_line(note).id,
+                        line_number=1,
+                        current_invoice_quantity=Decimal("2"),
+                        serial_ids=shop.ids(2, 3),
+                    )
+                ],
+            ),
+            firm_id=shop.firm.id,
+            actor_id=shop.actor,
+        )
+
+
+def _batched_tv(shop: _Shop) -> tuple[Product, dict[str, SerialNumber]]:
+    """Stock a batch- and serial-tracked product in three batches.
+
+    One unit each: an expired batch, one expiring soon and one late, so the
+    allocator left alone would pick the early one.
+    """
+    tv = shop._product("TV", serialised=True)
+    tv.track_batch = True
+    shop.session.commit()
+    units: dict[str, SerialNumber] = {}
+    for number, expiry in (
+        ("OLD", date(2026, 7, 1)),
+        ("EARLY", date(2027, 1, 31)),
+        ("LATE", date(2027, 12, 31)),
+    ):
+        batch = BatchRecord(
+            firm_id=shop.firm.id,
+            product_id=tv.id,
+            batch_number=number,
+            expiry_date=expiry,
+            status="AVAILABLE",
+        )
+        shop.session.add(batch)
+        shop.session.flush()
+        InventoryService(shop.session).record_goods_receipt(
+            firm_scope=shop.firm.id,
+            actor_id=shop.actor,
+            branch_id=shop.branch.id,
+            warehouse_id=shop.warehouse.id,
+            storage_node_id=None,
+            product_id=tv.id,
+            reference_number=f"GRN-{number}",
+            transaction_date=date(2026, 6, 1),
+            total_quantity=Decimal("1"),
+            unit_cost=Decimal("0"),
+            batch_id=batch.id,
+        )
+        unit = shop.serial(f"TV-{number}", tv, shop.warehouse)
+        unit.batch_id = batch.id
+        units[number] = unit
+    shop.session.commit()
+    return tv, units
+
+
+def test_a_unit_leaves_from_its_own_batch() -> None:
+    """The unit named decides the batch, not the earliest expiry.
+
+    The allocator would draw the EARLY batch; the storekeeper handed over the
+    unit from LATE, so LATE is what the movement and the ledger must say.
+    """
+    shop = _Shop(_session())
+    tv, units = _batched_tv(shop)
+    line = shop.order(tv, Decimal("1"))
+    shop.dispatch(shop.note([units["LATE"].id], order_line=line, quantity=Decimal("1")))
+
+    movement = shop.session.scalar(
+        select(InventoryTransaction).where(
+            InventoryTransaction.transaction_type == "DISPATCH",
+            InventoryTransaction.product_id == tv.id,
+        )
+    )
+    assert movement is not None
+    assert movement.batch_id == units["LATE"].batch_id
+    assert movement.serial_id == units["LATE"].id
+    assert shop.status(units["LATE"]) == "SOLD"
+    assert shop.status(units["EARLY"]) == "AVAILABLE"
+
+
+def test_a_unit_in_an_expired_batch_is_refused_by_name() -> None:
+    """Expired stock does not ship, whichever way it was chosen."""
+    shop = _Shop(_session())
+    tv, units = _batched_tv(shop)
+    line = shop.order(tv, Decimal("1"))
+    note = shop.note([units["OLD"].id], order_line=line, quantity=Decimal("1"))
+
+    with pytest.raises(ValidationError, match="TV-OLD is in batch OLD, which expired"):
+        shop.dispatch(note)
