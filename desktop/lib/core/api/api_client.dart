@@ -3545,6 +3545,15 @@ class ApiClient {
         body: const <String, dynamic>{},
       );
 
+  /// Raise a supplier bill against a completed goods receipt.
+  ///
+  /// Named rather than reached through the generic `create`, because the
+  /// generic helpers are how this route read as called for a year while no
+  /// screen could reach it (BL-31.9): the orphan-route guard matches the
+  /// literal `'purchase-invoices'` in `documentPage` and stops looking.
+  Future<Json> createPurchaseInvoice(Json body) =>
+      request('POST', '/api/v1/purchase-invoices', body: body);
+
   // ---- price lists ---------------------------------------------------
 
   Future<PagedResult<PriceListRecord>> priceLists({

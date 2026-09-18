@@ -12,10 +12,12 @@ import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/document_framework.dart';
+import '../../models/goods_receipt.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../document_framework/document_status_gate.dart';
 import '../document_framework/document_view_dialog.dart';
 import '../workspace/desktop_framework.dart';
+import 'purchase_invoice_editor_dialog.dart';
 
 class PurchaseInvoiceManagementPage extends StatefulWidget {
   const PurchaseInvoiceManagementPage({
@@ -49,7 +51,11 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
   List<_PurchaseInvoiceRecord> _invoices = const [];
   _PurchaseInvoiceRecord? _selected;
   List<DocumentTimelineSnapshot> _history = const [];
+  // Reference data the editor needs, loaded once with the workspace.
+  List<GoodsReceiptRecord> _billableReceipts = const [];
+  List<Product> _products = const [];
 
+  bool get _canCreate => widget.permissions.hasPermission('PURCHASE_CREATE');
 
   /// The lists the view dialog resolves a line's ids against. Read on their
   /// own, after the workspace's own data, so a failure here costs a name and
@@ -90,6 +96,63 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
     super.initState();
     unawaited(_load());
     unawaited(_loadLabels());
+    unawaited(_loadReferenceData());
+  }
+
+  /// Load the receipts that can be billed and the products they name.
+  ///
+  /// Failing here leaves the create action disabled rather than taking the
+  /// workspace down; the list of invoices is still readable without it.
+  Future<void> _loadReferenceData() async {
+    if (!widget.hasActiveFirm || !_canCreate) return;
+    try {
+      final List<dynamic> results = await Future.wait<dynamic>([
+        widget.api.goodsReceipts(
+          page: 1,
+          pageSize: 100,
+          sortBy: 'receipt_date',
+          descending: true,
+          filters: const {'status': 'COMPLETED'},
+        ),
+        widget.api.products(page: 1, pageSize: 100),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _billableReceipts =
+            (results[0] as PagedResult<GoodsReceiptRecord>).items;
+        _products = (results[1] as PagedResult<Product>).items;
+      });
+    } on ApiException {
+      if (!mounted) return;
+      setState(() => _billableReceipts = const []);
+    }
+  }
+
+  /// Open the editor and reload if it saved a bill.
+  ///
+  /// Nothing called `POST /purchase-invoices` from the desktop until
+  /// 2026-09-18 (BL-31.9): the screen listed, approved and closed bills the
+  /// seeder had raised, and the orphan-route guard could not see it because
+  /// the generic `documentPage` helper names the same literal.
+  Future<void> _createInvoice() async {
+    final Json? saved = await showDialog<Json>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => PurchaseInvoiceEditorDialog(
+        api: widget.api,
+        receipts: _billableReceipts,
+        products: _products,
+      ),
+    );
+    if (saved == null || !mounted) return;
+    await _load();
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      'Purchase invoice ${stringValue(saved['invoice_number'])} created as a '
+      'draft. Approving it is what posts it to the books.',
+      kind: AppNotificationKind.success,
+    );
   }
 
   @override
@@ -262,16 +325,28 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
       );
 
   Widget _buildToolbar() => WorkspaceToolbar(
-        actions: const [ToolbarAction.view, ToolbarAction.refresh],
+        actions: const [
+          ToolbarAction.newItem,
+          ToolbarAction.view,
+          ToolbarAction.refresh,
+        ],
+        isVisible: (action) => action != ToolbarAction.newItem || _canCreate,
         isEnabled: (action) =>
             !_loading &&
             switch (action) {
+              // A bill line needs a completed receipt line behind it, so
+              // nothing to bill against is a disabled button rather than an
+              // empty dialog.
+              ToolbarAction.newItem =>
+                _canCreate && _billableReceipts.isNotEmpty,
               ToolbarAction.view => _selected != null,
               ToolbarAction.refresh => true,
               _ => false,
             },
         onAction: (action) {
           switch (action) {
+            case ToolbarAction.newItem:
+              unawaited(_createInvoice());
             case ToolbarAction.view:
               final _PurchaseInvoiceRecord? selected = _selected;
               if (selected != null) unawaited(_openInvoice(selected));
@@ -281,11 +356,11 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
               break;
           }
         },
-        // Only the three the backend has. The pane offered eight -- new,
-        // print, export, email and reject among them -- and five fell through
-        // to a notification saying "Placeholder action for purchase
+        // Only the three lifecycle actions the backend has. The pane offered
+        // eight -- print, export, email and reject among them -- and five fell
+        // through to a notification saying "Placeholder action for purchase
         // invoices.", which is a button that exists to tell you it does
-        // nothing.
+        // nothing. New is the standard action above, not one of these.
         trailing: [
           _actionButton(
             'Approve',
