@@ -530,7 +530,7 @@ class LoyaltyService:
         posted = self._posting.post_loyalty(
             firm_id=firm_scope,
             entry_id=entry.id,
-            reference=f"LOY-RED-{invoice.invoice_number}",
+            reference=self._redemption_reference(invoice, firm_scope=firm_scope),
             on=entry.earned_on,
             amount=amount,
             earning=False,
@@ -874,6 +874,35 @@ class LoyaltyService:
             )
             .with_for_update()
         )
+
+    def _redemption_reference(self, invoice: SalesInvoice, *, firm_scope: UUID) -> str:
+        """Return a journal reference no earlier redemption of this bill holds.
+
+        Points can be spent on one bill more than once -- a part now, the rest
+        later -- and a journal reference is unique per firm, so a second
+        redemption posting `LOY-RED-<invoice>` again was refused outright
+        (D-SELL-20, 2026-09-19). The first keeps the plain reference, so what
+        is already posted reads the same; each later one is numbered,
+        `LOY-RED-<invoice>-2`, `-3`. Deleted journals are counted too, because
+        the unique key counts them. The customer's row is held by the caller,
+        so two redemptions of one bill cannot pick the same number.
+        """
+        base = f"LOY-RED-{invoice.invoice_number}"
+        taken = set(
+            self._session.scalars(
+                select(JournalEntry.reference_number).where(
+                    JournalEntry.firm_id == firm_scope,
+                    (JournalEntry.reference_number == base)
+                    | JournalEntry.reference_number.like(f"{base}-%"),
+                )
+            ).all()
+        )
+        if base not in taken:
+            return base
+        number = 2
+        while f"{base}-{number}" in taken:
+            number += 1
+        return f"{base}-{number}"
 
     def _points_of(self, customer_id: UUID, *, firm_scope: UUID) -> Decimal:
         """Return a customer's balance, summed from the ledger."""

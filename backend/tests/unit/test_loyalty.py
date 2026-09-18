@@ -273,6 +273,38 @@ def test_redeeming_settles_the_bill_rather_than_discounting_it() -> None:
     assert len(accounts) == 2
 
 
+def test_points_can_be_spent_on_one_bill_more_than_once() -> None:
+    """D-SELL-20: each redemption posts under a reference of its own.
+
+    The journal reference was `LOY-RED-<invoice>` every time and references
+    are unique per firm, so a second partial redemption of the same bill was
+    refused with "A journal entry with this reference number already exists"
+    (driven on fixture store `fx_t0919o4ck_s`: 60 points on SI-2026-2027-000001
+    went through, the next 60 were refused).
+    """
+    books = _Books(_session_factory()())
+    books.earn(books.invoice("SI-1", total="10000"))
+    later = books.invoice("SI-2", total="500")
+    service = LoyaltyService(books.session)
+
+    spent = [
+        service.redeem(
+            firm_scope=books.firm.id,
+            invoice_id=later.id,
+            points=Decimal(points),
+            actor_id=books.actor_id,
+        )
+        for points in ("60", "60", "50")
+    ]
+
+    references = [
+        books.session.get(JournalEntry, entry.journal_entry_id).reference_number
+        for entry in spent
+    ]
+    assert references == ["LOY-RED-SI-2", "LOY-RED-SI-2-2", "LOY-RED-SI-2-3"]
+    assert books.points() == Decimal("30.0000")
+
+
 def test_more_points_than_the_customer_holds_is_refused() -> None:
     """Refused, not trimmed.
 
