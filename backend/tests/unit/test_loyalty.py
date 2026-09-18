@@ -403,29 +403,50 @@ def test_the_balance_says_whether_it_can_be_spent() -> None:
     assert answer.redeemable is False
 
 
-def test_an_adjustment_posts_nothing() -> None:
-    """It is a correction to a count, not a transaction.
+def test_goodwill_points_are_owed_before_they_are_spent() -> None:
+    """D-SELL-19: points given by hand accrue, as points earned do.
 
-    The money side was either already booked when the points were earned or
-    was never right to book, and booking it again would double what the scheme
-    appears to have cost.
+    An adjustment used to post nothing, so goodwill points spent on a bill
+    debited `Loyalty Payable` for a debt never raised (driven on fixture store
+    `fx_t0919o4ck_s`: 200 goodwill points beside 9.66 earned, 60 spent, and
+    2600 went from 9.66 owed to 50.34 *owed to the firm*). The liability now
+    follows the count: giving accrues it, taking back releases it, and
+    spending what was given leaves the account where the points left it.
     """
     books = _Books(_session_factory()())
-    books.earn(books.invoice("SI-1", total="1000"))
-    before = books.session.scalar(select(func.count()).select_from(JournalEntry))
+    books.earn(books.invoice("SI-1", total="1000"))  # 20 points, 20.00 owed
+    bill = books.invoice("SI-2", total="500")
+    service = LoyaltyService(books.session)
 
-    LoyaltyService(books.session).adjust(
+    given = service.adjust(
         firm_scope=books.firm.id,
         customer_id=books.customer.id,
-        points=Decimal("5"),
+        points=Decimal("100"),
         reason="Goodwill after a late delivery.",
         actor_id=books.actor_id,
     )
+    assert given.amount == Decimal("100.00")
+    assert given.journal_entry_id is not None
+    assert _payable(books) == Decimal("120.00"), "the goodwill is owed"
 
-    assert books.points() == Decimal("25.0000")
-    assert (
-        books.session.scalar(select(func.count()).select_from(JournalEntry)) == before
+    service.redeem(
+        firm_scope=books.firm.id,
+        invoice_id=bill.id,
+        points=Decimal("110"),
+        actor_id=books.actor_id,
     )
+    assert books.points() == Decimal("10.0000")
+    assert _payable(books) == Decimal("10.00"), "never below what is still held"
+
+    service.adjust(
+        firm_scope=books.firm.id,
+        customer_id=books.customer.id,
+        points=Decimal("-10"),
+        reason="Credited in error.",
+        actor_id=books.actor_id,
+    )
+    assert books.points() == Decimal("0.0000")
+    assert _payable(books) == Decimal("0.00"), "taking points back releases them"
 
 
 def test_an_adjustment_cannot_take_a_balance_below_zero() -> None:
