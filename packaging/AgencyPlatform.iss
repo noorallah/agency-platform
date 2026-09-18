@@ -115,7 +115,7 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; \
 ; from [Code] below, where the exit code and the output are both read.
 Filename: "{app}\{#AppExeName}"; Description: "Start {#AppName}"; \
   WorkingDir: "{app}"; Flags: nowait postinstall skipifsilent; \
-  Check: IsDatabaseReady
+  Check: CanStart
 
 [UninstallDelete]
 ; Nothing here removes logs, storage, the configuration or the database. An
@@ -142,8 +142,14 @@ Type: filesandordirs; Name: "{app}\backend\__pycache__"
     page. The step prints it once and nothing else ever will; a hidden window
     used to swallow it, leaving it readable only in config\.env.
 
-  The page is skipped once a run has succeeded (the marker file below), which is
-  what an upgrade looks like. It is shown again after a failure, so running
+  A client PC has no database of its own. It says so on the "This PC" page and
+  gets neither the Database page nor the configure step: it only needs the
+  program people sign in to, pointed at the server. Asking is what stops a
+  client install reading as a failed server install, which is how every client
+  PC would otherwise end. The answer is remembered, so an upgrade does not ask.
+
+  The Database page is skipped once a run has succeeded (the marker file
+  below), which is what an upgrade looks like. It is shown again after a failure, so running
   Setup again is the repair -- config\.env already exists by then and is left
   alone, and the role is moved to the password it holds. }
 
@@ -154,6 +160,7 @@ const
   NL = #13#10;
 
 var
+  RolePage: TInputOptionWizardPage;
   DatabasePage: TInputQueryWizardPage;
   DatabaseReady: Boolean;
   ConfigureRan: Boolean;
@@ -173,14 +180,32 @@ begin
   Result := ExpandConstant('{commonappdata}\{#AppName}\logs\setup-configure.log');
 end;
 
-function IsDatabaseReady: Boolean;
+function IsClient: Boolean;
 begin
-  Result := DatabaseReady;
+  Result := RolePage.SelectedValueIndex = 1;
+end;
+
+function CanStart: Boolean;
+begin
+  Result := IsClient or DatabaseReady;
 end;
 
 procedure InitializeWizard;
 begin
-  DatabasePage := CreateInputQueryPage(wpSelectDir,
+  RolePage := CreateInputOptionPage(wpSelectDir,
+    'This PC',
+    'Is this PC the server, or a client of it?',
+    'One PC keeps the data, in PostgreSQL, and runs the server program. ' +
+    'Every other PC is a client and connects to it over the network.',
+    True, False);
+  RolePage.Add('The server. PostgreSQL 17 is installed on this PC, or on a machine it can reach.');
+  RolePage.Add('A client. The server is another PC; this one only runs the program people sign in to.');
+  if GetPreviousData('MachineRole', 'server') = 'client' then
+    RolePage.SelectedValueIndex := 1
+  else
+    RolePage.SelectedValueIndex := 0;
+
+  DatabasePage := CreateInputQueryPage(RolePage.ID,
     'Database',
     'The PostgreSQL server {#AppName} keeps its data in.',
     'PostgreSQL 17 must already be installed and running.' + NL + NL +
@@ -198,7 +223,20 @@ end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
-  Result := (PageID = DatabasePage.ID) and FileExists(ReadyMarker(WizardDirValue));
+  if PageID = RolePage.ID then
+    Result := GetPreviousData('MachineRole', '') <> ''
+  else if PageID = DatabasePage.ID then
+    Result := IsClient or FileExists(ReadyMarker(WizardDirValue))
+  else
+    Result := False;
+end;
+
+procedure RegisterPreviousData(PreviousDataKey: Integer);
+begin
+  if IsClient then
+    SetPreviousData(PreviousDataKey, 'MachineRole', 'client')
+  else
+    SetPreviousData(PreviousDataKey, 'MachineRole', 'server');
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -312,12 +350,21 @@ end;
 
 procedure CurStepChanged(CurStep: TSetupStep);
 begin
-  if CurStep = ssPostInstall then RunConfigure;
+  if (CurStep = ssPostInstall) and not IsClient then RunConfigure;
 end;
 
 procedure CurPageChanged(CurPageID: Integer);
 begin
-  if (CurPageID <> wpFinished) or not ConfigureRan then Exit;
+  if CurPageID <> wpFinished then Exit;
+  if IsClient then begin
+    WizardForm.FinishedLabel.Caption :=
+      '{#AppName} is installed as a client.' + NL + NL +
+      'On its sign-in screen, click the gear (Application Settings) and type ' +
+      'the server''s address in API URL, for example http://192.168.1.50:8000. ' +
+      'Each Windows user on this PC sets it once.';
+    Exit;
+  end;
+  if not ConfigureRan then Exit;
   if not DatabaseReady then
     WizardForm.FinishedLabel.Caption :=
       '{#AppName}''s files are installed, but its database is not set up, ' +
