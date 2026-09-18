@@ -873,6 +873,12 @@ class SalesInvoiceService(TransactionalDocumentService):
             # the entry mirrors what it raised, which is right in a way that
             # booking the lot as a sales return would not be.
             self._reverse_invoice_posting(row, firm_scope=firm_scope, actor_id=actor_id)
+            # The points the bill earned go with it, and their accrual with
+            # them; kept, they could be spent from a sale that never happened
+            # (D-SELL-2, 2026-09-19).
+            LoyaltyService(self._session).stage_reversal(
+                row, firm_id=firm_scope, actor_id=actor_id
+            )
             CustomerService(self._session).post_receivable_transaction(
                 row.customer_id,
                 CustomerReceivableTransactionCreate(

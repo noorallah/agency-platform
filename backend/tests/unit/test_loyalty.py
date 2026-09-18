@@ -31,7 +31,7 @@ from app.branches.models import Branch
 from app.core.database.base import Base
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.customers.models import Customer
-from app.finance.models import JournalEntry, JournalLine
+from app.finance.models import JournalEntry, JournalLine, LedgerAccount
 from app.finance.services.control_accounts import (
     ControlAccountPurpose,
     ControlAccountService,
@@ -703,3 +703,116 @@ def test_points_spent_on_a_bill_come_off_what_the_receipts_screen_says_it_owes()
         )
     }
     assert owed["SI-2"] == Decimal("480.00")
+
+
+def _payable(books: _Books) -> Decimal:
+    """Return what `Loyalty Payable` holds, across every entry that touched it."""
+    total = books.session.scalar(
+        select(
+            func.coalesce(
+                func.sum(JournalLine.credit_amount - JournalLine.debit_amount), 0
+            )
+        )
+        .join(LedgerAccount, LedgerAccount.id == JournalLine.ledger_account_id)
+        .where(
+            LedgerAccount.firm_id == books.firm.id,
+            LedgerAccount.code == "2600",
+        )
+    )
+    return Decimal(str(total)).quantize(Decimal("0.01"))
+
+
+def _take_back(books: _Books, invoice: SalesInvoice) -> LoyaltyEntry | None:
+    """Reverse what a bill earned, the way cancelling it does."""
+    entry = LoyaltyService(books.session).stage_reversal(
+        invoice, firm_id=books.firm.id, actor_id=books.actor_id
+    )
+    books.session.commit()
+    return entry
+
+
+def test_cancelling_a_bill_takes_its_points_and_their_accrual_back() -> None:
+    """A cancelled sale earns nothing, and owes nothing to the scheme.
+
+    Cancelling an invoice left its points with the customer and its accrual
+    in `Loyalty Payable`, so the points could be spent from a sale that never
+    happened (D-SELL-2, 2026-09-19).
+    """
+    books = _Books(_session_factory()())
+    invoice = books.invoice("SI-1", total="1000")
+    earned = books.earn(invoice)
+    assert earned is not None and _payable(books) == Decimal("20.00")
+
+    taken = _take_back(books, invoice)
+
+    assert taken is not None
+    assert taken.kind == LoyaltyEntryKind.REVERSED.value
+    assert taken.reverses_id == earned.id
+    assert Decimal(str(taken.points)) == Decimal("-20")
+    assert books.points() == Decimal("0.0000")
+    assert _payable(books) == Decimal("0.00"), "the accrual comes back with them"
+    accrual = books.session.get(JournalEntry, earned.journal_entry_id)
+    assert accrual is not None and accrual.status == "REVERSED"
+    mirror = books.session.get(JournalEntry, taken.journal_entry_id)
+    assert mirror is not None
+    assert mirror.reference_number == "LOY-SI-1-REV"
+    assert mirror.reversal_of_id == accrual.id
+
+
+def test_a_bill_s_points_are_taken_back_once() -> None:
+    """A second cancellation of the same earning takes nothing more."""
+    books = _Books(_session_factory()())
+    invoice = books.invoice("SI-1", total="1000")
+    books.earn(invoice)
+    _take_back(books, invoice)
+
+    assert _take_back(books, invoice) is None
+    assert books.points() == Decimal("0.0000")
+
+
+def test_points_already_spent_stay_spent_when_their_bill_is_cancelled() -> None:
+    """Only what is left of the batch comes back, as the expiry sweep takes it.
+
+    The spent share settled another bill, which cancelling this one does not
+    undo; taking it again would put the customer below zero.
+    """
+    books = _Books(_session_factory()())
+    invoice = books.invoice("SI-1", total="1000")
+    books.earn(invoice)
+    books.spend("15", on=WHEN)
+
+    taken = _take_back(books, invoice)
+
+    assert taken is not None
+    assert Decimal(str(taken.points)) == Decimal("-5")
+    assert Decimal(str(taken.amount)) == Decimal("5.00")
+    assert books.points() == Decimal("0.0000")
+    legs = books.session.scalars(
+        select(JournalLine).where(
+            JournalLine.journal_entry_id == taken.journal_entry_id
+        )
+    ).all()
+    assert sum(Decimal(str(leg.debit_amount)) for leg in legs) == Decimal("5.00")
+
+
+def test_a_reversed_batch_is_not_left_for_the_sweep() -> None:
+    """The reversal names its batch, so nothing is left to lapse or to spend."""
+    books = _Books(_session_factory()())
+    books.enable(expiry_months=1)
+    invoice = books.invoice("SI-1", total="1000")
+    # Older, so a reversal that was pooled like a spend would eat this one
+    # first and leave the cancelled bill's batch for the sweep.
+    books.batch("30", earned_on=date(2026, 6, 1), expires_on=None)
+    books.earn(invoice)
+    _take_back(books, invoice)
+
+    lapsed = LoyaltyService(books.session).expire(
+        firm_scope=books.firm.id, actor_id=uuid4(), as_of=date(2026, 12, 1)
+    )
+
+    assert lapsed == 0
+    left = LoyaltyService(books.session).unspent_batches(
+        books.customer.id, firm_scope=books.firm.id
+    )
+    assert [remaining for _, remaining in left] == [Decimal("30")]
+    assert books.points() == Decimal("30.0000")

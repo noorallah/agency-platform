@@ -834,6 +834,59 @@ def test_the_points_a_bill_earns_are_saved_with_its_approval() -> None:
     assert journal.status == JournalStatus.POSTED.value
 
 
+def test_cancelling_an_invoice_takes_back_the_points_it_earned() -> None:
+    """The points and their accrual go with the bill (D-SELL-2, 2026-09-19).
+
+    `cancel_invoice` reversed the invoice's own journal and never touched
+    `loyalty_entries`, so the customer could spend points from a sale that
+    had been undone and `Loyalty Payable` kept the debt.
+    """
+    from app.loyalty.models import LoyaltyEntry, LoyaltyEntryKind
+    from app.loyalty.schemas import LoyaltySettingsWrite
+    from app.loyalty.services import LoyaltyService
+
+    session = _session_factory()()
+    firm = _firm(session)
+    service, invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=uuid4()
+    )
+    LoyaltyService(session).write_settings(
+        firm.id,
+        LoyaltySettingsWrite(
+            is_enabled=True,
+            points_per_amount=Decimal("2"),
+            amount_per_point=Decimal("1"),
+        ),
+        actor_id=uuid4(),
+    )
+    invoice = service.approve_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+    session.commit()
+    customer_id = invoice.customer_id
+    earned = session.scalar(
+        select(LoyaltyEntry).where(
+            LoyaltyEntry.sales_invoice_id == invoice_id,
+            LoyaltyEntry.kind == LoyaltyEntryKind.EARNED.value,
+        )
+    )
+    assert earned is not None
+
+    service.cancel_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+
+    taken = session.scalar(
+        select(LoyaltyEntry).where(
+            LoyaltyEntry.reverses_id == earned.id,
+            LoyaltyEntry.kind == LoyaltyEntryKind.REVERSED.value,
+        )
+    )
+    assert taken is not None, "the cancelled bill's points are taken back"
+    assert LoyaltyService(session).balance(
+        customer_id, firm_scope=firm.id
+    ).points == Decimal("0.0000")
+    accrual = session.get(JournalEntry, earned.journal_entry_id)
+    assert accrual is not None and accrual.status == JournalStatus.REVERSED.value
+
+
 def _dispatched_line_for(
     session: Session,
     *,
