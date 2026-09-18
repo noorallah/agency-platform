@@ -260,6 +260,66 @@ The `BusinessProfileFeatureFlag` and `ProductConfig` tables (Phase 10) control w
 
 ---
 
+## A serial's status moves with the stock (D-STK-4)
+
+Until 2026-09-19 nothing outside `app/batch_serial` read or wrote
+`serial_numbers`, and no movement set `inventory_transactions.serial_id`: a
+mixer grinder that left on a delivery note kept its serial `AVAILABLE` for
+ever. The owner decided on 2026-09-18 that **the storekeeper picks the
+units**:
+
+- **A delivery note line for a serial-tracked product** (`products.track_serial`)
+  names the units going out in `serial_ids` -- the product's `AVAILABLE`
+  serials in the line's warehouse. Saving refuses a unit named twice, of
+  another product, in another warehouse, or not `AVAILABLE`; a draft may be
+  picked short.
+- **Dispatch refuses** until the line names exactly one serial per unit
+  leaving (`delivered_quantity`, free goods included, in the stock unit),
+  naming the line and the shortfall, and re-checks each unit -- two drafts may
+  pick the same one, and only the first to ship takes it. Each unit then
+  becomes `SOLD`, `current_owner` becomes the customer's name, and an audit
+  row `serial_number.sold` is written, all inside the dispatch's own
+  transaction.
+- **A sales return line** names the units coming back, from those whose
+  latest dispatch was the source line (`GET
+  /api/v1/sales-returns/returnable-serials` lists them; a return against a
+  bill reaches the note line through the bill line's source). Completing it
+  refuses unless there is one serial per unit returned, then makes each
+  `AVAILABLE` in the warehouse, branch and stock row the goods landed in
+  (`serial_number.returned`). Cancelling a completed return makes them `SOLD`
+  again (`serial_number.return_cancelled`) -- and is refused if one of them has
+  been sold on since.
+- **A delivery note cannot be cancelled once dispatched**, so there is no
+  dispatch reversal to undo.
+
+`document_line_serials` (migration `20260919_0138`) holds the picks: one row
+per unit per line, with the document, the line, the movement that carried the
+unit and when (`moved_at`, empty while it is only picked). A dispatch posts one
+movement per **batch** drawn from, not one per unit, so the rows are where a
+movement's units are listed; `inventory_transactions.serial_id` is set only
+where a movement carried exactly one unit. `app/batch_serial/services/serial_trail_service.py`
+owns all of it and never commits.
+
+Decisions taken conservatively, to revisit if they bite:
+
+- A product both batch- and serial-tracked has its units dealt out across the
+  batch movements in pick order; the serial's own `batch_id` is not matched to
+  the batch the allocation chose.
+- A return with damaged or scrap quantity still makes every returned unit
+  `AVAILABLE`, as the owner specified; the stock row puts the damaged units in
+  the damaged bucket, but the serial does not say which unit is which.
+- A line entered in another unit than the stock unit is counted by the server
+  after conversion; the desktop checks the count only where the two units are
+  the same.
+- A bill that would have the sales chain raise the note for a serial-tracked
+  product is refused by name (nobody is there to pick): raise the note by
+  hand. `require_serial_on_issue` / `require_serial_on_receipt` are still read
+  by nothing -- `track_serial` alone decides.
+- Receiving stock (goods receipt, opening stock) numbers no units; serials are
+  still created on the Serial Numbers screen or by the seeders.
+
+---
+
 ## Traceability Strategy
 
 ### Forward Trace (from Batch)
@@ -294,7 +354,9 @@ Each of `batches`, `lots`, `serial_numbers`, and `inventory_transactions` has FK
 
 ### Sales Module (Phase 18)
 - Issue transactions record batch/serial consumed
-- Serial status transitions: `available → sold`
+- Serial status transitions: `available → sold` -- built for delivery notes
+  and sales returns on 2026-09-19; see "A serial's status moves with the
+  stock" above
 
 ### Manufacturing (Phase 20)
 - Lot hierarchy (`parent_lot_id`) supports mixing/blending traceability

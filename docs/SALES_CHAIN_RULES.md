@@ -66,6 +66,13 @@ A column per stage rather than a mode, because a firm grows: an enum needs a
 new value for every combination on that path. The switch governs **new**
 documents only, so turning a stage on never strands work in flight.
 
+**A serial-tracked product cannot ship from a bill alone** (D-STK-4,
+2026-09-19). Its units are picked by serial number on the delivery note and
+dispatch refuses a line that names none, so a note the chain raises -- with
+nobody to pick -- could never ship one. `SalesChainService._refuse_serialised`
+refuses the bill by name before anything is staged; the firm raises that
+order's note by hand. `docs/BATCH_SERIAL_EXPIRY_ARCHITECTURE.md` has the rest.
+
 ## A chain of committing services is not a transaction
 
 **A chain of committing services is not a transaction, and `begin_nested` does

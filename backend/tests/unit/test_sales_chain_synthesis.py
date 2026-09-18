@@ -307,6 +307,29 @@ def test_a_failed_bill_leaves_no_order_no_note_and_no_movement() -> None:
     )
 
 
+def test_a_bill_cannot_dispatch_a_serial_tracked_product_by_itself() -> None:
+    """Its units are picked on a delivery note, and a bill has nobody to pick.
+
+    Dispatch refuses a serial-tracked line that names no units (D-STK-4), so
+    a note the chain raised for a bare bill could never ship one. The bill is
+    refused by name before anything is staged, and nothing is left behind.
+    """
+    session = _session_factory()()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    setup.product.track_serial = True
+    session.commit()
+    before = _counts(session)
+
+    with pytest.raises(ValidationError, match="SKU-001 is serial-tracked"):
+        SalesInvoiceService(session).create_invoice(
+            setup.bare_bill(), firm_id=setup.firm.id, actor_id=uuid4()
+        )
+    session.rollback()
+
+    assert _counts(session) == before
+
+
 def test_switching_a_stage_off_does_not_move_an_existing_document() -> None:
     """Configuration governs new documents, never the ones already in flight.
 

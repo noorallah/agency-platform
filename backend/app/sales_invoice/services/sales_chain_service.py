@@ -25,6 +25,7 @@ from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.delivery_note.schemas import DeliveryNoteCreate, DeliveryNoteLineWrite
 from app.delivery_note.services.delivery_note_service import DeliveryNoteService
+from app.products.models import Product
 from app.sales_invoice.schemas import (
     SalesInvoiceCreate,
     SalesInvoiceLineWrite,
@@ -212,6 +213,9 @@ class SalesChainService:
                 .order_by(SalesOrderLine.line_number.asc())
             ).all()
         )
+        self._refuse_serialised(
+            [line for line in order_lines if self._shipping(line, quantities) > ZERO]
+        )
         notes = DeliveryNoteService(self._session)
         note = notes.stage_note(
             DeliveryNoteCreate(
@@ -235,6 +239,32 @@ class SalesChainService:
         notes.stage_approval(note.id, firm_scope=firm_id, actor_id=actor_id)
         notes.stage_dispatch(note.id, firm_scope=firm_id, actor_id=actor_id)
         return self._rebind(data, note=note)
+
+    def _refuse_serialised(self, lines: list[SalesOrderLine]) -> None:
+        """Refuse to ship a serial-tracked product from a bill alone.
+
+        Its units are picked by serial number on a delivery note, one per unit
+        leaving, and dispatch refuses a note that names none (D-STK-4). A note
+        the chain raises for a bill has nobody to pick them, so the bill is
+        refused by name here -- before anything is staged -- rather than
+        failing at dispatch with a sentence about a note nobody typed.
+        """
+        ids = {line.product_id for line in lines}
+        if not ids:
+            return
+        serialised = sorted(
+            product.code
+            for product in self._session.scalars(
+                select(Product).where(Product.id.in_(ids), Product.track_serial)
+            ).all()
+        )
+        if serialised:
+            raise ValidationError(
+                f"{', '.join(serialised)} is serial-tracked: its units are "
+                "picked by serial number on a delivery note, so a bill cannot "
+                "dispatch it by itself. Raise a delivery note for the order, "
+                "pick the serials, and bill that note."
+            )
 
     def _note_line(
         self, line: SalesOrderLine, quantities: dict[UUID, Decimal] | None

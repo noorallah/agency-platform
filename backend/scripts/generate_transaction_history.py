@@ -55,6 +55,9 @@ from sqlalchemy import func, inspect, select, text
 from sqlalchemy.engine import Inspector
 from sqlalchemy.orm import Session
 
+from app.batch_serial.models import SerialNumber
+from app.batch_serial.schemas import SerialCreate, SerialStatus
+from app.batch_serial.services import BatchSerialService
 from app.branches.models import Branch, Warehouse
 from app.business.gating import resolve_capabilities
 from app.commission.schemas import (
@@ -302,6 +305,9 @@ RESET_ORDER: tuple[str, ...] = (
     # Unlike `batches`, which deliberately survive because regenerating reuses
     # them by number, a serial is not reused -- it goes with the movements
     # that created it. Latent rather than seen: no demo firm serialises yet.
+    # Which units each note and return line moved RESTRICTs the serial, so it
+    # goes first (D-STK-4).
+    "document_line_serials",
     "serial_numbers",
     "inventories",
     "product_valuations",
@@ -2326,6 +2332,12 @@ class HistoryBuilder:
                             free_quantity=Decimal(free_quantity),
                             unit_price=Decimal(unit_price),
                             warehouse_id=warehouse.id,
+                            serial_ids=self._units_to_ship(
+                                product=product,
+                                warehouse=warehouse,
+                                branch=branch,
+                                count=Decimal(quantity) + Decimal(free_quantity),
+                            ),
                         )
                     ],
                 ),
@@ -2451,6 +2463,69 @@ class HistoryBuilder:
         self._tally.delivery_notes += 1  # raised by the service, still real
         self._session.commit()
         return approved
+
+    def _units_to_ship(
+        self,
+        *,
+        product: Product,
+        warehouse: Warehouse,
+        branch: Branch,
+        count: Decimal,
+    ) -> list[UUID] | None:
+        """Name the units a serial-tracked line ships, minting any it lacks.
+
+        A delivery note for a serial-tracked product is refused at dispatch
+        until it names one serial per unit leaving (D-STK-4). Stock arrives in
+        this history through receipts that record no serials, so the units a
+        sale takes are given numbers here, on the shelf they leave from, and
+        then picked -- the same two steps a storekeeper takes. None for a
+        product nobody tracks by serial, which leaves the line as it was.
+        """
+        if not product.track_serial:
+            return None
+        wanted = int(count)
+        on_shelf = list(
+            self._session.scalars(
+                select(SerialNumber)
+                .where(
+                    SerialNumber.firm_id == product.firm_id,
+                    SerialNumber.product_id == product.id,
+                    SerialNumber.warehouse_id == warehouse.id,
+                    SerialNumber.status == SerialStatus.AVAILABLE.value,
+                    SerialNumber.is_deleted.is_(False),
+                )
+                .order_by(SerialNumber.serial_number)
+                .limit(wanted)
+            ).all()
+        )
+        minted = int(
+            self._session.scalar(
+                select(func.count())
+                .select_from(SerialNumber)
+                .where(
+                    SerialNumber.firm_id == product.firm_id,
+                    SerialNumber.product_id == product.id,
+                )
+            )
+            or 0
+        )
+        service = BatchSerialService(self._session)
+        while len(on_shelf) < wanted:
+            minted += 1
+            on_shelf.append(
+                service.create_serial(
+                    firm_scope=product.firm_id,
+                    actor_id=ACTOR,
+                    data=SerialCreate(
+                        product_id=product.id,
+                        warehouse_id=warehouse.id,
+                        branch_id=branch.id,
+                        serial_number=f"{product.code}-H{minted:05d}",
+                        remarks="Numbered by the history as it was sold.",
+                    ),
+                )
+            )
+        return [serial.id for serial in on_shelf]
 
     def _quote_and_convert(
         self,
@@ -2600,6 +2675,18 @@ class HistoryBuilder:
         if quantity <= 0:
             return
         returns = SalesReturnService(self._session)
+        # A serial-tracked line names the units coming back -- the first of
+        # those sold on it -- or completing the return is refused (D-STK-4).
+        serial_ids: list[UUID] | None = None
+        returnable = returns.returnable_serials(
+            firm_scope=firm_id,
+            source_document_type=SalesReturnSourceType.SALES_INVOICE.value,
+            source_document_line_id=line.id,
+        )
+        if returnable.serial_tracked:
+            serial_ids = [
+                unit.serial_id for unit in returnable.serials[: int(quantity)]
+            ]
         try:
             row = returns.create_return(
                 SalesReturnCreate(
@@ -2615,6 +2702,7 @@ class HistoryBuilder:
                             source_document_line_id=line.id,
                             line_number=1,
                             current_return_quantity=quantity,
+                            serial_ids=serial_ids,
                         )
                     ],
                 ),

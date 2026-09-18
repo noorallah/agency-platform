@@ -428,3 +428,54 @@ class SerialQuery {
         if (includeDeleted) 'include_deleted': 'true',
       };
 }
+
+/// One serialised unit a document line names.
+///
+/// A delivery note line for a serial-tracked product names the units going
+/// out, and a sales return line the units coming back; the server marks them
+/// SOLD at dispatch and AVAILABLE again when the return completes (D-STK-4).
+class PickedSerial {
+  const PickedSerial({
+    required this.id,
+    required this.serialNumber,
+    this.status = '',
+  });
+
+  /// The serial's own id -- what a line sends back in `serial_ids`.
+  final String id;
+  final String serialNumber;
+  final String status;
+
+  factory PickedSerial.fromJson(Json json) => PickedSerial(
+        id: stringValue(json['serial_id']),
+        serialNumber: stringValue(json['serial_number']),
+        status: stringValue(json['status']),
+      );
+
+  /// Read the `serials` a document line carries.
+  static List<PickedSerial> listFrom(dynamic value) => [
+        for (final dynamic item in value is List ? value : const [])
+          if (item is Map)
+            PickedSerial.fromJson(Map<String, dynamic>.from(item)),
+      ];
+}
+
+/// The units a return line against one source line may name.
+class ReturnableSerials {
+  const ReturnableSerials({
+    required this.serialTracked,
+    required this.serials,
+  });
+
+  /// False for a product nobody tracks by serial: its return names none.
+  final bool serialTracked;
+  final List<PickedSerial> serials;
+
+  static const ReturnableSerials untracked =
+      ReturnableSerials(serialTracked: false, serials: []);
+
+  factory ReturnableSerials.fromJson(Json json) => ReturnableSerials(
+        serialTracked: json['serial_tracked'] == true,
+        serials: PickedSerial.listFrom(json['serials']),
+      );
+}
