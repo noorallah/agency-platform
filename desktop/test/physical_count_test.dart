@@ -67,14 +67,21 @@ Json _line({
   required String expected,
   String counted = '',
   String variance = '',
+  String? productId,
+  String storageNodeId = '',
+  String storageNodeCode = '',
+  String storageNodeName = '',
 }) =>
     {
       'id': id,
       'line_number': int.parse(id.split('-').last),
-      'product_id': 'p-$id',
+      'product_id': productId ?? 'p-$id',
       'product_code': 'SKU-$id',
       'product_name': 'Item $id',
       'batch_id': '',
+      'storage_node_id': storageNodeId,
+      'storage_node_code': storageNodeCode,
+      'storage_node_name': storageNodeName,
       'expected_quantity': expected,
       'counted_quantity': counted,
       'variance_quantity': variance,
@@ -297,5 +304,40 @@ void main() {
     await _pumpSheet(tester, _CountApi(sheets: [sheet]), sheet);
     expect(find.text('SKU-l-1 - Item l-1'), findsOneWidget);
     expect(find.text('p-l-1'), findsNothing);
+  });
+
+  testWidgets('a line is counted, and sent, in its own storage location',
+      (tester) async {
+    // D-STK-13: a line is one stock row -- product, batch and location. The
+    // same product held unlocated and in BIN-A is two lines, and the server
+    // finds each again by its location, so the location has to go back.
+    final PhysicalCountSheet sheet = _sheet(lines: [
+      _line(id: 'l-1', expected: '10', productId: 'p-1'),
+      _line(
+        id: 'l-2',
+        expected: '5',
+        productId: 'p-1',
+        storageNodeId: 'node-a',
+        storageNodeCode: 'BIN-A',
+        storageNodeName: 'Bin A',
+      ),
+    ]);
+    final _CountApi api = _CountApi(sheets: [sheet]);
+    await _pumpSheet(tester, api, sheet);
+
+    expect(find.text('Location'), findsOneWidget);
+    expect(find.text('Unlocated'), findsOneWidget);
+    expect(find.text('BIN-A - Bin A'), findsOneWidget);
+
+    await tester.enterText(find.byType(TextField).at(1), '3');
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Save progress'));
+    await tester.pumpAndSettle();
+
+    final List<dynamic> lines = api.recorded!['lines'] as List<dynamic>;
+    expect((lines[0] as Map).containsKey('storage_node_id'), isFalse,
+        reason: 'the unlocated row is named by leaving the location out');
+    expect((lines[1] as Map)['storage_node_id'], 'node-a');
+    expect((lines[1] as Map)['counted_quantity'], '3');
   });
 }

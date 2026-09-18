@@ -13,6 +13,14 @@ from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.batch_serial.models import BatchRecord, SerialNumber
+from app.batch_serial.schemas import SerialStatus
+from app.batch_serial.services.serial_trail_service import (
+    DELIVERY_NOTE,
+    LineRef,
+    Pick,
+    SerialTrailService,
+)
 from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
@@ -31,6 +39,11 @@ from app.delivery_note.models import (
     DeliveryNoteAttachment,
     DeliveryNoteLine,
     DeliveryNoteNote,
+)
+from app.delivery_note.rules import (
+    SHIPPED_STATES,
+    goods_have_left,
+    goods_have_left_clause,
 )
 from app.delivery_note.schemas import (
     DeliveryNoteAttachmentResponse,
@@ -128,6 +141,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         """Bind the lifecycle base plus this module's collaborators."""
         super().__init__(session)
         self._tax = TaxRuleService(session)
+        self._trail = SerialTrailService(session)
         self._uom = UomService(session)
         self._inventory = InventoryService(session)
 
@@ -699,12 +713,22 @@ class DeliveryNoteService(TransactionalDocumentService):
         actor_id: UUID,
         reason: str | None = None,
     ) -> DeliveryNote:
-        """Close one delivery note."""
+        """Close one delivery note whose goods have left.
+
+        Closing refused only a draft, so an APPROVED note that never dispatched
+        could be closed -- and a closed note counts as delivered for its order
+        and is offered for billing, while its reservation stayed held for good
+        (D-SELL-4, driven 2026-09-19: the order read DELIVERED with 7 of 12
+        shipped). A note that will not ship is cancelled, not closed.
+        """
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status == DeliveryNoteStatus.CLOSED.value:
             return row
-        if row.status == DeliveryNoteStatus.DRAFT.value:
-            raise ValidationError("Draft delivery notes cannot be closed.")
+        if not goods_have_left(row):
+            raise ValidationError(
+                f"Only dispatched or completed delivery notes can be closed; "
+                f"{row.delivery_note_number} is {row.status.lower()}."
+            )
         before = row.status
         row.status = DeliveryNoteStatus.CLOSED.value
         row.closed_at = utc_now()
@@ -773,6 +797,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             ).all()
         )
         products = self._products_named(lines)
+        serials = self._trail.picked_serials(line.id for line in lines)
         return DeliveryNoteResponse(
             id=row.id,
             version=row.version,
@@ -819,7 +844,9 @@ class DeliveryNoteService(TransactionalDocumentService):
             created_at=row.created_at,
             updated_at=row.updated_at,
             lines=[
-                self._line_response(item, products.get(item.product_id))
+                self._line_response(item, products.get(item.product_id)).model_copy(
+                    update={"serials": serials.get(item.id, [])}
+                )
                 for item in lines
             ],
             attachments=[self._attachment_response(item) for item in attachments],
@@ -1402,8 +1429,147 @@ class DeliveryNoteService(TransactionalDocumentService):
             totals["tax_total"] += tax
         for line_number, obsolete in existing.items():
             if line_number not in seen:
+                self._trail.clear_lines([obsolete.id])
                 self._session.delete(obsolete)
+        self._replace_serial_picks(row, lines, actor_id=actor_id)
         return {key: self._q(value) for key, value in totals.items()}
+
+    def _replace_serial_picks(
+        self,
+        row: DeliveryNote,
+        lines: list[DeliveryNoteLineWrite],
+        *,
+        actor_id: UUID,
+    ) -> None:
+        """Record which serialised units each line ships.
+
+        Only lines that said something are touched: ``serial_ids`` absent
+        leaves a line's picks as they were, and an empty list clears them.
+        The count is not checked here -- a draft may be picked a unit at a
+        time -- but dispatch refuses until it matches (D-STK-4).
+        """
+        stated = {
+            item.line_number: item.serial_ids
+            for item in lines
+            if item.serial_ids is not None
+        }
+        if not stated:
+            return
+        self._session.flush()
+        persisted = {
+            line.line_number: line
+            for line in self._session.scalars(
+                select(DeliveryNoteLine).where(
+                    DeliveryNoteLine.delivery_note_id == row.id,
+                    DeliveryNoteLine.is_deleted.is_(False),
+                )
+            ).all()
+        }
+        for line_number, serial_ids in stated.items():
+            line = persisted[line_number]
+            warehouse_id = line.warehouse_id
+
+            def _may_leave(
+                serial: SerialNumber, warehouse_id: UUID | None = warehouse_id
+            ) -> str | None:
+                """Refuse a unit that is not on this line's shelf."""
+                if serial.status != SerialStatus.AVAILABLE.value:
+                    return f"is {serial.status}, not AVAILABLE."
+                if serial.warehouse_id != warehouse_id:
+                    return "is not in the warehouse this line ships from."
+                return None
+
+            self._trail.replace_picks(
+                self._line_ref(line),
+                serial_ids,
+                check=_may_leave,
+                actor_id=actor_id,
+            )
+
+    def _units_by_batch(
+        self,
+        line_ref: LineRef,
+        picks: list[Pick],
+        *,
+        branch_id: UUID,
+        warehouse_id: UUID,
+        storage_node_id: UUID | None,
+        as_of: date,
+    ) -> dict[UUID | None, list[Pick]] | None:
+        """Group picked units by the batch each one belongs to.
+
+        None when no picked unit names a batch, which leaves the batches to
+        the allocator, earliest expiry first. Where they do, the unit decides:
+        SAP Business One and Odoo ship a serial from the lot it belongs to,
+        and a batch chosen by expiry would record a different lot against the
+        very unit the customer holds. Each batch must still hold the units
+        here and must not have expired on the note's date -- the same two
+        refusals the allocator gives, said about the unit that caused them.
+        """
+        if not any(serial.batch_id is not None for _pick, serial in picks):
+            return None
+        label = line_ref.label(self._trail.product(line_ref.product_id))
+        loose = [serial.serial_number for _pick, serial in picks if not serial.batch_id]
+        if loose:
+            raise ValidationError(
+                f"{label}: serial {', '.join(loose)} names no batch while the "
+                "line's other units do; give each unit its batch first."
+            )
+        grouped: dict[UUID | None, list[Pick]] = defaultdict(list)
+        for pick, serial in picks:
+            grouped[serial.batch_id].append((pick, serial))
+        batches = {
+            batch.id: batch
+            for batch in self._session.scalars(
+                select(BatchRecord).where(
+                    BatchRecord.id.in_([key for key in grouped if key is not None])
+                )
+            ).all()
+        }
+        for batch_id, share in grouped.items():
+            batch = batches.get(batch_id) if batch_id is not None else None
+            number = batch.batch_number if batch is not None else str(batch_id)
+            if (
+                batch is not None
+                and batch.expiry_date is not None
+                and batch.expiry_date < as_of
+            ):
+                raise ValidationError(
+                    f"{label}: serial {share[0][1].serial_number} is in batch "
+                    f"{number}, which expired on {batch.expiry_date.isoformat()}."
+                )
+            held = self._q(
+                self._session.scalar(
+                    select(
+                        func.coalesce(func.sum(InventoryRecord.available_quantity), 0)
+                    ).where(
+                        InventoryRecord.branch_id == branch_id,
+                        InventoryRecord.warehouse_id == warehouse_id,
+                        InventoryRecord.storage_node_id == storage_node_id,
+                        InventoryRecord.product_id == line_ref.product_id,
+                        InventoryRecord.batch_id == batch_id,
+                        InventoryRecord.is_deleted.is_(False),
+                    )
+                )
+            )
+            if held < len(share):
+                raise ValidationError(
+                    f"{label}: {len(share)} of the picked units are in batch "
+                    f"{number}, which has {held} available here."
+                )
+        return dict(grouped)
+
+    @staticmethod
+    def _line_ref(line: DeliveryNoteLine) -> LineRef:
+        """Describe a note line to the serial trail."""
+        return LineRef(
+            firm_id=line.firm_id,
+            document_type=DELIVERY_NOTE,
+            document_id=line.delivery_note_id,
+            line_id=line.id,
+            line_number=line.line_number,
+            product_id=line.product_id,
+        )
 
     def _replace_attachments(
         self,
@@ -1515,6 +1681,25 @@ class DeliveryNoteService(TransactionalDocumentService):
             )
             if source_line is None:
                 raise ValidationError("Sales order line not found for dispatch.")
+            # A serial-tracked product leaves unit by unit: the storekeeper
+            # named the units on the note, one per unit leaving, and each has
+            # to still be on this line's shelf. Refused before anything moves
+            # so a short pick leaves the note APPROVED and the stock untouched
+            # (D-STK-4).
+            line_ref = self._line_ref(line)
+            serialised = self._trail.is_serialised(line.product_id)
+            picks = self._trail.line_picks(line.id) if serialised else []
+            if serialised:
+                self._trail.assert_count(
+                    line_ref,
+                    len(picks),
+                    line.delivered_quantity,
+                    verb="ships",
+                    where="delivery note",
+                )
+                self._trail.check_issuable(
+                    line_ref, picks, warehouse_id=line.warehouse_id
+                )
             # Goods leave from the line's warehouse, which belongs to its own
             # branch -- not necessarily the note's, which comes from the order.
             # Pairing the note's branch with another branch's warehouse looked
@@ -1595,21 +1780,42 @@ class DeliveryNoteService(TransactionalDocumentService):
             # earliest expiry first. One movement is posted per batch drawn
             # from; the line records the first, and the movements carry the
             # whole split.
-            allocation = self._inventory.allocate_for_dispatch(
-                firm_scope=row.firm_id,
+            by_batch = self._units_by_batch(
+                line_ref,
+                picks,
                 branch_id=goods_branch_id,
                 warehouse_id=line.warehouse_id,
                 storage_node_id=line.storage_node_id,
-                product_id=line.product_id,
-                quantity=line.delivered_quantity,
-                # Expired stock is not dispatched, judged on the note's own
-                # date rather than today, so rebuilding a year of history
-                # posts what it posted at the time.
                 as_of=row.delivery_date,
             )
+            if by_batch is not None:
+                # Units that carry a batch leave from it: the unit named is
+                # the unit shipped, so its batch is not the allocator's to
+                # choose.
+                allocation = [
+                    (batch_id, Decimal(len(share)))
+                    for batch_id, share in by_batch.items()
+                ]
+                shares = list(by_batch.values())
+            else:
+                allocation = self._inventory.allocate_for_dispatch(
+                    firm_scope=row.firm_id,
+                    branch_id=goods_branch_id,
+                    warehouse_id=line.warehouse_id,
+                    storage_node_id=line.storage_node_id,
+                    product_id=line.product_id,
+                    quantity=line.delivered_quantity,
+                    # Expired stock is not dispatched, judged on the note's
+                    # own date rather than today, so rebuilding a year of
+                    # history posts what it posted at the time.
+                    as_of=row.delivery_date,
+                )
+                shares = self._trail.deal(
+                    picks, [allocated for _, allocated in allocation]
+                )
             entered_total = self._q(line.current_delivery_quantity + line.free_quantity)
             dispatched = None
-            for batch_id, allocated in allocation:
+            for index, (batch_id, allocated) in enumerate(allocation):
                 # The entered quantity is what the customer was billed in, so
                 # it is apportioned with the split rather than repeated whole.
                 share = (
@@ -1635,7 +1841,17 @@ class DeliveryNoteService(TransactionalDocumentService):
                     conversion_version=line.conversion_version,
                     remarks=line.remarks or row.remarks,
                     batch_id=batch_id,
+                    serial_id=self._trail.single_serial(shares[index], allocated),
                 )
+                if shares[index]:
+                    self._trail.mark_sold(
+                        line_ref,
+                        shares[index],
+                        movement_id=posted.id,
+                        owner=self._customer_name(row.customer_id),
+                        reference=row.delivery_note_number,
+                        actor_id=actor_id,
+                    )
                 issued_cost += self._issue_cost(posted.id)
                 if dispatched is None:
                     dispatched = posted
@@ -2119,6 +2335,12 @@ class DeliveryNoteService(TransactionalDocumentService):
                 DeliveryNoteLine.is_deleted.is_(False),
                 DeliveryNote.is_deleted.is_(False),
                 DeliveryNote.status.in_(list(statuses)),
+                # A shipped state counts only when the goods left: a note
+                # closed before this refused it never dispatched (D-SELL-4).
+                or_(
+                    DeliveryNote.status.not_in(sorted(SHIPPED_STATES)),
+                    goods_have_left_clause(),
+                ),
             )
         )
         if exclude_delivery_note_id is not None:

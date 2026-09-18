@@ -18,8 +18,13 @@ from uuid import UUID
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
+from app.branches.models import WarehouseStorageNode
 from app.common.audit.services import record_audit
-from app.core.exceptions import ConflictError, ResourceNotFoundError
+from app.core.exceptions import (
+    ConflictError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.core.utils.dates import utc_now
 from app.document_framework.services.transactional_document_service import (
     DocumentStateSpec,
@@ -43,6 +48,11 @@ from app.inventory.services.inventory_service import InventoryService
 from app.products.models import Product
 
 ZERO = Decimal("0")
+
+#: What a line counts: a product, a batch and a storage location -- exactly as
+#: the stock is held. ``None`` for the batch is the untracked row, and ``None``
+#: for the location is the warehouse's unlocated ROOT row (D-STK-13).
+_LineKey = tuple[UUID, UUID | None, UUID | None]
 
 
 class PhysicalCountService(TransactionalDocumentService):
@@ -147,7 +157,18 @@ class PhysicalCountService(TransactionalDocumentService):
 
         Naming no lines takes everything in the warehouse, which is what a
         counter walks out with. Naming them counts part of one.
+
+        Either way a line is one stock row -- product, batch and storage
+        location, as the stock is held. A line keyed on the product alone
+        measured every bin summed and posted onto ROOT, so the total came out
+        right and the rows wrong (D-STK-13).
         """
+        wanted: list[tuple[_LineKey, PhysicalCountLineWrite | None]] = [
+            (self._key(line), line) for line in data.lines
+        ]
+        # Checked before a number is reserved, so a refused sheet spends none.
+        self._require_distinct([key for key, _ in wanted])
+        self._require_locations_in(data.warehouse_id, {key[2] for key, _ in wanted})
         _, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
@@ -179,17 +200,15 @@ class PhysicalCountService(TransactionalDocumentService):
         self._session.add(row)
         self._session.flush()
 
-        wanted: list[tuple[UUID, UUID | None, PhysicalCountLineWrite | None]] = [
-            (line.product_id, line.batch_id, line) for line in data.lines
-        ]
         if not wanted:
             wanted = [
-                (stock.product_id, stock.batch_id, None)
+                ((stock.product_id, stock.batch_id, stock.storage_node_id), None)
                 for stock in self._stock_in(
                     firm_id=firm_id, warehouse_id=data.warehouse_id
                 )
             ]
-        for index, (product_id, batch_id, written) in enumerate(wanted, start=1):
+        for index, (key, written) in enumerate(wanted, start=1):
+            product_id, batch_id, storage_node_id = key
             self._session.add(
                 PhysicalCountLine(
                     firm_id=firm_id,
@@ -197,11 +216,11 @@ class PhysicalCountService(TransactionalDocumentService):
                     line_number=index,
                     product_id=product_id,
                     batch_id=batch_id,
+                    storage_node_id=storage_node_id,
                     expected_quantity=self._on_hand(
                         firm_id=firm_id,
                         warehouse_id=data.warehouse_id,
-                        product_id=product_id,
-                        batch_id=batch_id,
+                        key=key,
                     ),
                     counted_quantity=(
                         written.counted_quantity if written is not None else None
@@ -231,12 +250,26 @@ class PhysicalCountService(TransactionalDocumentService):
         firm_id: UUID,
         actor_id: UUID,
     ) -> PhysicalCount:
-        """Record what was found, on a sheet nobody has posted yet."""
+        """Record what was found, on a sheet nobody has posted yet.
+
+        A written line is matched to the sheet on product, batch and storage
+        location. One that matches no line is refused rather than dropped: a
+        count typed against a bin the sheet does not hold would otherwise
+        vanish while the save reported success.
+        """
         row = self.get(count_id, firm_id=firm_id)
         self._require_draft(row)
-        counted = {(line.product_id, line.batch_id): line for line in data.lines}
-        for line in self.lines_for(row.id):
-            written = counted.get((line.product_id, line.batch_id))
+        self._require_distinct([self._key(line) for line in data.lines])
+        counted = {self._key(line): line for line in data.lines}
+        lines = self.lines_for(row.id)
+        missing = set(counted) - {self._key(line) for line in lines}
+        if missing:
+            raise ValidationError(
+                f"{len(missing)} counted line(s) are not on {row.count_number}; "
+                "a line is its product, batch and storage location."
+            )
+        for line in lines:
+            written = counted.get(self._key(line))
             if written is None:
                 continue
             line.counted_quantity = written.counted_quantity
@@ -277,8 +310,7 @@ class PhysicalCountService(TransactionalDocumentService):
             on_hand = self._on_hand(
                 firm_id=firm_id,
                 warehouse_id=row.warehouse_id,
-                product_id=line.product_id,
-                batch_id=line.batch_id,
+                key=self._key(line),
             )
             variance = Decimal(str(line.counted_quantity)) - on_hand
             line.variance_quantity = variance
@@ -304,6 +336,11 @@ class PhysicalCountService(TransactionalDocumentService):
                     # out corrected the product's untracked row instead, so a
                     # batch counted short stayed short on the books.
                     batch_id=line.batch_id,
+                    # And the location it was measured in. Leaving it out
+                    # took a bin's shortage off ROOT -- which could go
+                    # negative -- while the bin kept its phantom stock
+                    # (D-STK-13).
+                    storage_node_id=line.storage_node_id,
                     quantity=variance,
                     reference_number=row.count_number,
                     reference_type="PHYSICAL_COUNT",
@@ -399,15 +436,78 @@ class PhysicalCountService(TransactionalDocumentService):
             ).all()
         )
 
+    @staticmethod
+    def _key(line: PhysicalCountLine | PhysicalCountLineWrite) -> _LineKey:
+        """Return the stock row a line counts: product, batch and location."""
+        return (line.product_id, line.batch_id, line.storage_node_id)
+
+    @staticmethod
+    def _require_distinct(keys: list[_LineKey]) -> None:
+        """Refuse a request naming the same stock row twice.
+
+        A line is found again by its product, batch and location, so two lines
+        with the same three could never be told apart when counts are written.
+        """
+        if len(set(keys)) != len(keys):
+            raise ValidationError(
+                "The same product, batch and storage location is named twice."
+            )
+
+    def _require_locations_in(
+        self, warehouse_id: UUID, storage_node_ids: set[UUID | None]
+    ) -> None:
+        """Refuse a storage location that is not a live node of the warehouse."""
+        wanted = {node_id for node_id in storage_node_ids if node_id is not None}
+        if not wanted:
+            return
+        found = set(
+            self._session.scalars(
+                select(WarehouseStorageNode.id).where(
+                    WarehouseStorageNode.id.in_(wanted),
+                    WarehouseStorageNode.warehouse_id == warehouse_id,
+                    WarehouseStorageNode.is_deleted.is_(False),
+                )
+            ).all()
+        )
+        if wanted - found:
+            raise ValidationError(
+                "Storage node does not belong to the warehouse being counted."
+            )
+
+    def storage_labels(
+        self, storage_node_ids: Iterable[UUID | None]
+    ) -> dict[UUID, tuple[str, str]]:
+        """Return code and name for each storage location a sheet names.
+
+        One query for the whole sheet, as for the products. The ROOT row has
+        no node and so no entry.
+        """
+        wanted = {node_id for node_id in storage_node_ids if node_id is not None}
+        if not wanted:
+            return {}
+        rows = self._session.execute(
+            select(
+                WarehouseStorageNode.id,
+                WarehouseStorageNode.code,
+                WarehouseStorageNode.name,
+            ).where(WarehouseStorageNode.id.in_(wanted))
+        ).all()
+        return {node_id: (code or "", name or "") for node_id, code, name in rows}
+
     def _on_hand(
         self,
         *,
         firm_id: UUID,
         warehouse_id: UUID,
-        product_id: UUID,
-        batch_id: UUID | None,
+        key: _LineKey,
     ) -> Decimal:
-        """Return what the system holds for one product in one place."""
+        """Return what the system holds in the one stock row a line counts.
+
+        The row is the product, the batch and the storage location. Summing
+        every location in the warehouse measured a bin's shortage against the
+        whole warehouse and posted it onto ROOT (D-STK-13).
+        """
+        product_id, batch_id, storage_node_id = key
         statement = select(
             func.coalesce(func.sum(InventoryRecord.current_quantity), 0)
         ).where(
@@ -420,6 +520,11 @@ class PhysicalCountService(TransactionalDocumentService):
             InventoryRecord.batch_id == batch_id
             if batch_id is not None
             else InventoryRecord.batch_id.is_(None)
+        )
+        statement = statement.where(
+            InventoryRecord.storage_node_id == storage_node_id
+            if storage_node_id is not None
+            else InventoryRecord.storage_node_id.is_(None)
         )
         return Decimal(str(self._session.scalar(statement) or 0))
 

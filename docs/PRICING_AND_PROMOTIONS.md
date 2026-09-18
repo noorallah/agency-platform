@@ -301,6 +301,18 @@ them, against 49 earnings that had all posted. A lapse now posts
 `expire` takes an `actor_id` because a journal with no author is one nobody
 can ask about.
 
+**Cancelling a bill takes back what is left of the points it earned.**
+`cancel_invoice` reversed the invoice's journal and never touched the
+ledger, so a cancelled sale's points could still be spent and `Loyalty
+Payable` kept their accrual (D-SELL-2, 2026-09-19). `stage_reversal` writes
+a `REVERSED` entry naming the earning, and reverses the `LOY-SI-…` accrual
+as `LOY-SI-…-REV` -- a mirror when the whole batch comes back, the share
+that is left when it does not. It takes **what is left**, by the same
+`unspent_batches` answer the sweep uses: a share that lapsed already had its
+cost released, and a share already spent settled another bill, which the
+cancellation does not undo. `unspent_batches` attributes a reversal to its
+batch as it does an expiry, rather than pooling it with spends.
+
 ## Freight is the bill discount's mirror image, and it has to reach the line
 
 **Freight is the bill discount's mirror image, and it has to reach the

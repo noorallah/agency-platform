@@ -35,6 +35,7 @@ from app.inventory.services import InventoryService
 from app.products.models import Product
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales.models import territory as _sales_models  # noqa: F401
+from app.sales_invoice.services import SalesInvoiceService
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_order.schemas import (
     SalesOrderCreate,
@@ -1283,12 +1284,42 @@ def test_an_undispatched_note_leaves_the_order_where_it_is() -> None:
     assert order.status == SalesOrderStatus.APPROVED.value
 
 
-def test_a_note_approved_before_the_hold_does_not_ship() -> None:
-    """Neither dispatching it nor completing it, which dispatches it too.
+def _approved_note(
+    session: Session,
+    *,
+    firm: Firm,
+    order: SalesOrder,
+    order_line: SalesOrderLine,
+    quantity: Decimal,
+    actor_id: UUID,
+) -> DeliveryNote:
+    """Raise and approve one note against the order, without dispatching it."""
+    service = DeliveryNoteService(session)
+    note = service.create_note(
+        DeliveryNoteCreate(
+            sales_order_id=order.id,
+            delivery_date=date(2026, 8, 4),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=order_line.id,
+                    line_number=1,
+                    current_delivery_quantity=quantity,
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    return service.approve_note(note.id, firm_scope=firm.id, actor_id=actor_id)
 
-    D-SELL-5, driven 2026-09-19: only a note's create asked about the hold, so
-    notes approved before it were dispatched and completed while the order
-    read "on hold", and the goods left.
+
+def test_an_approved_note_that_never_dispatched_cannot_be_closed() -> None:
+    """A closed note reads as delivered, so only one whose goods left may close.
+
+    D-SELL-4, driven 2026-09-19: an APPROVED note for 5 was closed, a second
+    for 7 was dispatched, and the order of 12 read DELIVERED with 7 shipped --
+    the closed note offered for billing and its 5 still reserved.
     """
     session = _session_factory()()
     firm = _firm(session)
@@ -1308,44 +1339,82 @@ def test_a_note_approved_before_the_hold_does_not_ship() -> None:
         quantity=Decimal("10"),
         actor_id=actor_id,
     )
-    service = DeliveryNoteService(session)
-    note = service.create_note(
-        DeliveryNoteCreate(
-            sales_order_id=order.id,
-            delivery_date=date(2026, 8, 4),
-            lines=[
-                DeliveryNoteLineWrite(
-                    sales_order_line_id=order_line.id,
-                    line_number=1,
-                    current_delivery_quantity=Decimal("4"),
-                    unit_price=Decimal("100"),
-                )
-            ],
-        ),
-        firm_id=firm.id,
+    note = _approved_note(
+        session,
+        firm=firm,
+        order=order,
+        order_line=order_line,
+        quantity=Decimal("4"),
         actor_id=actor_id,
     )
-    service.approve_note(note.id, firm_scope=firm.id, actor_id=actor_id)
-    SalesOrderService(session).hold_order(
-        order.id, reason="Awaiting cheque.", firm_scope=firm.id, actor_id=actor_id
-    )
+    service = DeliveryNoteService(session)
 
-    for act in (service.dispatch_note, service.complete_note):
-        with pytest.raises(ValidationError, match=r"on hold .*Awaiting cheque"):
-            act(note.id, firm_scope=firm.id, actor_id=actor_id)
-        session.rollback()
-
+    with pytest.raises(
+        ValidationError, match="Only dispatched or completed delivery notes"
+    ):
+        service.close_note(note.id, firm_scope=firm.id, actor_id=actor_id)
+    session.rollback()
     session.refresh(note)
     assert note.status == DeliveryNoteStatus.APPROVED.value
-    assert note.dispatched_at is None
-    assert (
-        session.scalar(
-            select(InventoryTransaction).where(
-                InventoryTransaction.transaction_type == "DISPATCH"
-            )
-        )
-        is None
+
+    # Once it has shipped, closing is what it always was.
+    service.dispatch_note(note.id, firm_scope=firm.id, actor_id=actor_id)
+    closed = service.close_note(note.id, firm_scope=firm.id, actor_id=actor_id)
+    assert closed.status == DeliveryNoteStatus.CLOSED.value
+
+
+def test_a_note_closed_without_dispatching_delivers_nothing() -> None:
+    """A note closed before the refusal must not count as goods that left.
+
+    Such rows exist, so the reads judge the goods, not the status: the order
+    is not moved to DELIVERED by it and the bill screen does not offer it.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+    _stock(session, firm=firm, branch=branch, warehouse=warehouse, product=product)
+    order, order_line = _approved_order(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+        quantity=Decimal("10"),
+        actor_id=actor_id,
     )
+    stale = _approved_note(
+        session,
+        firm=firm,
+        order=order,
+        order_line=order_line,
+        quantity=Decimal("4"),
+        actor_id=actor_id,
+    )
+    # What `close_note` wrote before it refused an undispatched note.
+    stale.status = DeliveryNoteStatus.CLOSED.value
+    session.commit()
+
+    shipped = _dispatch(
+        session,
+        firm=firm,
+        order=order,
+        order_line=order_line,
+        quantity=Decimal("6"),
+        on=date(2026, 8, 5),
+        actor_id=actor_id,
+    )
+
+    session.refresh(order)
+    assert order.status == SalesOrderStatus.PARTIALLY_DELIVERED.value
+    offered = SalesInvoiceService(session).billable_documents(
+        firm_scope=firm.id, limit=50
+    )
+    assert [row.source_document_id for row in offered] == [shipped.id]
 
 
 def test_a_note_ships_the_deal_the_order_struck() -> None:
@@ -1865,3 +1934,68 @@ def test_dispatch_from_another_branchs_warehouse_finds_its_stock() -> None:
 
     assert _held(depot, head_office) == (Decimal("95"), Decimal("0"))
     assert _held(north_wh, north) == (Decimal("0"), Decimal("7"))
+
+
+def test_a_note_approved_before_the_hold_does_not_ship() -> None:
+    """Neither dispatching it nor completing it, which dispatches it too.
+
+    D-SELL-5, driven 2026-09-19: only a note's create asked about the hold, so
+    notes approved before it were dispatched and completed while the order
+    read "on hold", and the goods left.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+    _stock(session, firm=firm, branch=branch, warehouse=warehouse, product=product)
+    order, order_line = _approved_order(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+        quantity=Decimal("10"),
+        actor_id=actor_id,
+    )
+    service = DeliveryNoteService(session)
+    note = service.create_note(
+        DeliveryNoteCreate(
+            sales_order_id=order.id,
+            delivery_date=date(2026, 8, 4),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=order_line.id,
+                    line_number=1,
+                    current_delivery_quantity=Decimal("4"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    service.approve_note(note.id, firm_scope=firm.id, actor_id=actor_id)
+    SalesOrderService(session).hold_order(
+        order.id, reason="Awaiting cheque.", firm_scope=firm.id, actor_id=actor_id
+    )
+
+    for act in (service.dispatch_note, service.complete_note):
+        with pytest.raises(ValidationError, match=r"on hold .*Awaiting cheque"):
+            act(note.id, firm_scope=firm.id, actor_id=actor_id)
+        session.rollback()
+
+    session.refresh(note)
+    assert note.status == DeliveryNoteStatus.APPROVED.value
+    assert note.dispatched_at is None
+    assert (
+        session.scalar(
+            select(InventoryTransaction).where(
+                InventoryTransaction.transaction_type == "DISPATCH"
+            )
+        )
+        is None
+    )

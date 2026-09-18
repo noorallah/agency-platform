@@ -33,6 +33,7 @@ from app.customers.schemas import (
 from app.customers.services import CreditControlService
 from app.customers.services.customer_service import CustomerService
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
+from app.delivery_note.rules import goods_have_left_clause, require_dispatched_note
 from app.delivery_note.schemas import DeliveryNoteStatus
 from app.document_framework.models import (
     DocumentLifecycleEvent,
@@ -671,6 +672,23 @@ class SalesInvoiceService(TransactionalDocumentService):
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status != SalesInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft sales invoices can be approved.")
+        # Checked again here, not only when the draft is saved: a draft saved
+        # before the save refused an undispatched note would otherwise still
+        # post revenue for goods that never left (D-SELL-3).
+        for note in self._session.scalars(
+            select(DeliveryNote)
+            .join(
+                SalesInvoiceSource,
+                SalesInvoiceSource.source_document_id == DeliveryNote.id,
+            )
+            .where(
+                SalesInvoiceSource.sales_invoice_id == row.id,
+                SalesInvoiceSource.source_document_type
+                == SalesInvoiceSourceType.DELIVERY_NOTE.value,
+                SalesInvoiceSource.is_deleted.is_(False),
+            )
+        ).all():
+            require_dispatched_note(note, "billed")
         # Approval is what puts the amount on the customer's account, so it is
         # the last point at which a limit can still be enforced.
         #
@@ -873,6 +891,12 @@ class SalesInvoiceService(TransactionalDocumentService):
             # the entry mirrors what it raised, which is right in a way that
             # booking the lot as a sales return would not be.
             self._reverse_invoice_posting(row, firm_scope=firm_scope, actor_id=actor_id)
+            # The points the bill earned go with it, and their accrual with
+            # them; kept, they could be spent from a sale that never happened
+            # (D-SELL-2, 2026-09-19).
+            LoyaltyService(self._session).stage_reversal(
+                row, firm_id=firm_scope, actor_id=actor_id
+            )
             CustomerService(self._session).post_receivable_transaction(
                 row.customer_id,
                 CustomerReceivableTransactionCreate(
@@ -919,10 +943,23 @@ class SalesInvoiceService(TransactionalDocumentService):
         actor_id: UUID,
         reason: str | None = None,
     ) -> SalesInvoice:
-        """Close one sales invoice."""
+        """Close one approved sales invoice.
+
+        Closing says a bill is finished with, so only an approved bill -- one
+        that posted -- can be. It refused only one already closed, so a DRAFT
+        that never posted kept its quantity against the note for good, and a
+        CANCELLED one took back the quantity its cancellation had released
+        (D-SELL-12, driven on `fx_t0919psxt_s` on 2026-09-19). The twin of
+        D-BUY-12.
+        """
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status == SalesInvoiceStatus.CLOSED.value:
             raise ValidationError("This sales invoice is already closed.")
+        if row.status != SalesInvoiceStatus.APPROVED.value:
+            raise ValidationError(
+                f"Only approved sales invoices can be closed; "
+                f"{row.invoice_number} is {row.status.lower()}."
+            )
         before = row.status
         row.status = SalesInvoiceStatus.CLOSED.value
         row.close_reason = reason
@@ -1761,6 +1798,14 @@ class SalesInvoiceService(TransactionalDocumentService):
     def _prepare_invoice_sources(
         self, data: SalesInvoiceCreate, firm_id: UUID
     ) -> tuple[dict[str, UUID], list[dict[str, object]], list[dict[str, object]]]:
+        if any(item.serial_ids for item in data.lines):
+            # Left over only on a line billing a note already dispatched --
+            # the chain moves them onto the note it raises. Taking them here
+            # would record units the bill never moved.
+            raise ValidationError(
+                "Serial numbers are picked on the delivery note that ships the "
+                "goods; this bill names a note that has already been dispatched."
+            )
         lines = [item.model_dump(mode="python") for item in data.lines]
         sources = [item.model_dump(mode="python") for item in data.source_documents]
         inferred_sources = {
@@ -1790,6 +1835,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 )
                 if note is None:
                     raise ResourceNotFoundError("Delivery note not found.")
+                require_dispatched_note(note, "billed")
                 source_rows.append(
                     {
                         "source_document_type": source_type,
@@ -2119,13 +2165,9 @@ class SalesInvoiceService(TransactionalDocumentService):
             .where(
                 DeliveryNote.firm_id == firm_scope,
                 DeliveryNote.is_deleted.is_(False),
-                DeliveryNote.status.in_(
-                    [
-                        DeliveryNoteStatus.DISPATCHED.value,
-                        DeliveryNoteStatus.COMPLETED.value,
-                        DeliveryNoteStatus.CLOSED.value,
-                    ]
-                ),
+                # The goods left, not merely the status: a note closed without
+                # dispatching was offered here (D-SELL-4).
+                goods_have_left_clause(),
                 DeliveryNote.id.in_(open_notes),
             )
             .order_by(DeliveryNote.delivery_date.desc())

@@ -570,6 +570,21 @@ def test_the_ledger_renders_every_movement_type_the_service_writes() -> None:
     assert {row.transaction_type for row in transactions.data} == written
 
 
+def _real_batch(session: Session, firm_id: UUID, product_id: UUID, number: str) -> UUID:
+    """Register a batch of the product, as a stock row's batch must be (D-STK-14)."""
+    batch = BatchRecord(
+        firm_id=firm_id,
+        product_id=product_id,
+        batch_number=number,
+        status="AVAILABLE",
+        created_by=uuid4(),
+        updated_by=uuid4(),
+    )
+    session.add(batch)
+    session.commit()
+    return batch.id
+
+
 def test_two_batches_of_one_product_are_two_stock_rows() -> None:
     """The batch is part of a stock row's identity, not a label on it.
 
@@ -583,8 +598,8 @@ def test_two_batches_of_one_product_are_two_stock_rows() -> None:
     profile = _profile(setup, firm.id)
     branch, warehouse, product = _branch_warehouse_product(setup, firm, profile)
     branch_id, warehouse_id, product_id = branch.id, warehouse.id, product.id
-    first = uuid4()
-    second = uuid4()
+    first = _real_batch(setup, firm.id, product_id, "FIRST")
+    second = _real_batch(setup, firm.id, product_id, "SECOND")
     setup.close()
 
     session = factory()
@@ -621,7 +636,7 @@ def test_a_movement_records_the_batch_it_moved() -> None:
     profile = _profile(setup, firm.id)
     branch, warehouse, product = _branch_warehouse_product(setup, firm, profile)
     branch_id, warehouse_id, product_id = branch.id, warehouse.id, product.id
-    batch_id = uuid4()
+    batch_id = _real_batch(setup, firm.id, product_id, "GRAIN-1")
     setup.close()
 
     session = factory()
@@ -677,12 +692,14 @@ def test_product_totals_sum_across_a_product_s_batches() -> None:
     profile = _profile(setup, firm.id)
     branch, warehouse, product = _branch_warehouse_product(setup, firm, profile)
     branch_id, warehouse_id, product_id = branch.id, warehouse.id, product.id
+    batch_a = _real_batch(setup, firm.id, product_id, "ROLL-A")
+    batch_b = _real_batch(setup, firm.id, product_id, "ROLL-B")
     setup.close()
 
     session = factory()
     service = InventoryService(session)
     actor_id = uuid4()
-    for batch_id, quantity in ((uuid4(), "40"), (uuid4(), "60"), (None, "5")):
+    for batch_id, quantity in ((batch_a, "40"), (batch_b, "60"), (None, "5")):
         inventory = service._ensure_inventory_projection(
             firm_id=firm.id,
             branch_id=branch_id,
@@ -1918,3 +1935,46 @@ def test_expiry_is_judged_on_the_documents_own_date() -> None:
     )
 
     assert allocation == [(stale_id, Decimal("5"))]
+
+
+def test_a_stock_row_cannot_take_another_products_batch() -> None:
+    """D-STK-14: a batch named for one product could hold another's stock.
+
+    Driven on 2026-09-19 in fx_t09194k75_p: an adjustment of the SHT product
+    naming the AMX product's batch was accepted and made an SHT stock row under
+    AMX's batch. Every stock row is found or made in one place, so the check
+    there covers adjustments, write-offs, holds, transfers and counts.
+    """
+    factory = _session_factory()
+    setup = factory()
+    firm = _firm(setup, "XBATCH")
+    profile = _profile(setup, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(setup, firm, profile)
+    other = Product(
+        firm_id=firm.id,
+        code="OTHER-1",
+        name="Other Product",
+        product_type="STOCK_ITEM",
+        status="ACTIVE",
+        created_by=uuid4(),
+        updated_by=uuid4(),
+    )
+    setup.add(other)
+    setup.commit()
+    others_batch = _real_batch(setup, firm.id, other.id, "OTHERS")
+    branch_id, warehouse_id, product_id = branch.id, warehouse.id, product.id
+    setup.close()
+
+    session = factory()
+    service = InventoryService(session)
+    for batch_id in (others_batch, uuid4()):
+        with pytest.raises(ValidationError, match="not one of this product's batches"):
+            service._ensure_inventory_projection(
+                firm_id=firm.id,
+                branch_id=branch_id,
+                warehouse_id=warehouse_id,
+                storage_node_id=None,
+                product_id=product_id,
+                actor_id=uuid4(),
+                batch_id=batch_id,
+            )

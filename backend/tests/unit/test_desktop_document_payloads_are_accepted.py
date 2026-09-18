@@ -17,6 +17,10 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
+from app.delivery_note.schemas.delivery_note import (
+    DeliveryNoteCreate,
+    DeliveryNoteLineWrite,
+)
 from app.goods_receipt.schemas.goods_receipt import (
     GoodsReceiptCreate,
     GoodsReceiptLineWrite,
@@ -31,11 +35,17 @@ from app.purchase_return.schemas.purchase_return import (
     PurchaseReturnLineWrite,
     PurchaseReturnSourceWrite,
 )
+from app.sales_return.schemas.sales_return import (
+    SalesReturnCreate,
+    SalesReturnLineWrite,
+)
 
 _UI = Path(__file__).resolve().parents[3] / "desktop" / "lib" / "ui"
 _RETURN = _UI / "purchase_returns" / "purchase_return_editor_dialog.dart"
 _RECEIPT = _UI / "goods_receipts" / "goods_receipt_editor_dialog.dart"
 _INVOICE = _UI / "purchase_invoices" / "purchase_invoice_editor_dialog.dart"
+_NOTE = _UI / "delivery_notes" / "delivery_note_editor_dialog.dart"
+_SALES_RETURN = _UI / "sales_returns" / "sales_return_editor_dialog.dart"
 
 
 def _keys_between(path: Path, first_key: str, stop: str) -> set[str]:
@@ -116,3 +126,37 @@ def test_the_bill_editor_never_sends_a_blank_price_as_zero() -> None:
     text = _INVOICE.read_text(encoding="utf-8")
     assert "'unit_price': '0'" not in text
     assert "isEmpty ? '0' : unitPrice" not in text
+
+
+def test_a_delivery_note_line_carries_only_line_fields() -> None:
+    """The note line's keys, ``serial_ids`` included, are DeliveryNoteLineWrite's.
+
+    ``serial_ids`` arrived with the serial picker (D-STK-4, 2026-09-19): a
+    line for a serial-tracked product names the units going out.
+    """
+    sent = _keys_between(_NOTE, "sales_order_line_id", "};")
+    assert "serial_ids" in sent
+    unknown = sent - set(DeliveryNoteLineWrite.model_fields)
+    assert not unknown, unknown
+
+
+def test_a_delivery_note_carries_only_document_fields() -> None:
+    """The note's keys are all fields of DeliveryNoteCreate."""
+    sent = _keys_between(_NOTE, "delivery_date", "'lines': [")
+    unknown = sent - set(DeliveryNoteCreate.model_fields)
+    assert not unknown, unknown
+
+
+def test_a_sales_return_line_carries_only_line_fields() -> None:
+    """The return line's keys, ``serial_ids`` included, are SalesReturnLineWrite's."""
+    sent = _keys_between(_SALES_RETURN, "source_document_type", "]")
+    assert "serial_ids" in sent
+    unknown = sent - set(SalesReturnLineWrite.model_fields)
+    assert not unknown, unknown
+
+
+def test_a_sales_return_carries_only_document_fields() -> None:
+    """The return's keys are all fields of SalesReturnCreate."""
+    sent = _keys_between(_SALES_RETURN, "warehouse_id", "'lines': [")
+    unknown = sent - set(SalesReturnCreate.model_fields)
+    assert not unknown, unknown

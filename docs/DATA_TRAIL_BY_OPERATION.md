@@ -802,7 +802,7 @@ and one from after it, which is what let the batch claims be seen both ways.
   | `stock_ledger_entries` | `transaction_id` | `inventory_transactions`, one each |
   | `inventory_transactions` | `inventory_id`; `batch_id`; `reversal_of_transaction_id` | `inventories`; `batches`; the movement reversed |
   | `journal_entries` | `source_module` `inventory` + `source_id` = the **movement** (write-off, adjustment) or the **opening-stock batch**; `delivery_note` + the note (dispatch cost) | — |
-  | `physical_count_lines` | `transaction_id` (no FK); `batch_id` (no FK) | the `ADJUSTMENT` it posted; `batches` |
+  | `physical_count_lines` | `transaction_id` (no FK); `batch_id` (no FK); `storage_node_id` (no FK, null = ROOT) | the `ADJUSTMENT` it posted; `batches`; `warehouse_storage_nodes` |
   | `opening_stock_lines` | `transaction_id`, `batch_id` | the `OPENING_STOCK` movement; the batch it registered |
   | `delivery_note_lines` | `inventory_transaction_id`, `released_reservation_transaction_id`, `batch_id` | the first `DISPATCH` and `UNRESERVE` of the line, and the first batch drawn |
   | `serial_numbers` | `inventory_id`, `batch_id` (both optional, both null in the fixture) | `inventories`, `batches` — **and nothing points back**: no movement ever carries `serial_id` or `lot_id` |
@@ -994,27 +994,36 @@ from the document framework, with no lifecycle events (0 rows in every store).
   `warehouse_id`, `count_date`, `remarks`) and **one `physical_count_lines`
   row per `inventories` row in the warehouse** — every product ever stocked
   there, other runs' too, rows at zero included, and one line per batch row
-  (`batch_id`), in the order the rows were created; `expected_quantity` = what
-  the warehouse held **at that moment**, `counted_quantity` null. The **first
+  (`batch_id`) **and per storage location** (`storage_node_id`, null for the
+  warehouse's unlocated ROOT row — D-STK-13, fixed), in the order the rows
+  were created; `expected_quantity` = what **that row** held **at that
+  moment**, `counted_quantity` null. Lines named in the request may give a
+  `storage_node_id` (absent = ROOT); one that is not a live node of the
+  warehouse, or the same product, batch and location twice, is refused before
+  a number is reserved. The **first
   count in a firm** also inserts the `PHYSICAL_COUNT` document type, its three
   states and its numbering rule (audits `document_type.created`,
   `document_state.created` ×3, `document_numbering_rule.created` — seen in the
   same request on TEST01). **Audit:** `inventory.physical_count.opened`
   (`after_data`: `count_number`, `line_count`).
 - **Save progress** — `PUT /counts/{id}`. **Updates** `physical_count_lines.counted_quantity`
-  and `remarks` on the lines named (matched on product and batch; unnamed lines
-  are left alone), `version` +1 on each; `physical_counts.remarks`, `version`.
+  and `remarks` on the lines named (matched on product, batch and storage
+  location; unnamed lines are left alone, and a named line the sheet does not
+  hold is refused rather than dropped), `version` +1 on each; `physical_counts.remarks`, `version`.
   **No audit row** (D-STK-6). Refused once the sheet is not DRAFT ("PC-… is
   posted, so it cannot be changed.").
 - **Post count** — `POST /counts/{id}/post`. For each line whose
   `counted_quantity` is **not null**: `variance_quantity` = counted − **what the
-  warehouse holds now** (re-read, not `expected_quantity`, so a dispatch made
+  line's row holds now** — product, batch and storage location, never the
+  warehouse summed (re-read, not `expected_quantity`, so a dispatch made
   while you counted is not undone); when the variance is not zero, one
   `ADJUSTMENT` movement (`reference_number` = **the count number**,
   `reference_type` `PHYSICAL_COUNT`, `quantity` 1, `current_quantity_delta` −1,
   `transaction_date` = the count date, `remarks` "Physical count PC-…: counted
   49.0000 against 50.0000" — the decimals as stored) on the counted row — its
-  batch when the line names one (D-STK-1, fixed) — and its ledger row at the
+  batch when the line names one (D-STK-1, fixed), and its storage location
+  (`inventory_transactions.storage_node_id`; D-STK-13, fixed — a bin's
+  shortage used to come off ROOT) — and its ledger row at the
   average (60 / 60); the line's `transaction_id` set. **Then one journal for
   the whole sheet** (D-STK-11, fixed; the owner chose one voucher per
   stock-take): `source_module` `physical_count`, `source_id` = the sheet,
@@ -1034,8 +1043,10 @@ from the document framework, with no lifecycle events (0 rows in every store).
   Only a DRAFT can be posted or cancelled; a posted sheet cannot be reopened.
 - **One thing to know before you rely on it:** a sheet with **nothing
   counted posts** with `adjusted_lines` 0 — WHOLE01's `PC-2026-2027-000005` is
-  one (D-STK-5, open). D-STK-1 (the wrong row), D-STK-3 (a commit per line) and
-  D-STK-11 (a second difference refused on the journal reference) are fixed.
+  one (D-STK-5, open). D-STK-1 (the wrong row), D-STK-3 (a commit per line),
+  D-STK-11 (a second difference refused on the journal reference) and
+  D-STK-13 (a bin counted against the whole warehouse and corrected on ROOT)
+  are fixed.
 - **Not seen in a live row:** an adjusted line. WHOLE01's only posted sheet
   counted nothing and TEST01's is a draft; the block above is read off the
   code and off the plain adjustment path, which the two `CLEANUP-…`

@@ -834,6 +834,107 @@ def test_the_points_a_bill_earns_are_saved_with_its_approval() -> None:
     assert journal.status == JournalStatus.POSTED.value
 
 
+def test_cancelling_an_invoice_takes_back_the_points_it_earned() -> None:
+    """The points and their accrual go with the bill (D-SELL-2, 2026-09-19).
+
+    `cancel_invoice` reversed the invoice's own journal and never touched
+    `loyalty_entries`, so the customer could spend points from a sale that
+    had been undone and `Loyalty Payable` kept the debt.
+    """
+    from app.loyalty.models import LoyaltyEntry, LoyaltyEntryKind
+    from app.loyalty.schemas import LoyaltySettingsWrite
+    from app.loyalty.services import LoyaltyService
+
+    session = _session_factory()()
+    firm = _firm(session)
+    service, invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=uuid4()
+    )
+    LoyaltyService(session).write_settings(
+        firm.id,
+        LoyaltySettingsWrite(
+            is_enabled=True,
+            points_per_amount=Decimal("2"),
+            amount_per_point=Decimal("1"),
+        ),
+        actor_id=uuid4(),
+    )
+    invoice = service.approve_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+    session.commit()
+    customer_id = invoice.customer_id
+    earned = session.scalar(
+        select(LoyaltyEntry).where(
+            LoyaltyEntry.sales_invoice_id == invoice_id,
+            LoyaltyEntry.kind == LoyaltyEntryKind.EARNED.value,
+        )
+    )
+    assert earned is not None
+
+    service.cancel_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+
+    taken = session.scalar(
+        select(LoyaltyEntry).where(
+            LoyaltyEntry.reverses_id == earned.id,
+            LoyaltyEntry.kind == LoyaltyEntryKind.REVERSED.value,
+        )
+    )
+    assert taken is not None, "the cancelled bill's points are taken back"
+    assert LoyaltyService(session).balance(
+        customer_id, firm_scope=firm.id
+    ).points == Decimal("0.0000")
+    accrual = session.get(JournalEntry, earned.journal_entry_id)
+    assert accrual is not None and accrual.status == JournalStatus.REVERSED.value
+
+
+def test_only_an_approved_invoice_can_be_closed() -> None:
+    """A draft or a cancelled bill is refused by name; an approved one closes.
+
+    `close_invoice` refused only a bill already closed, so a DRAFT that never
+    posted kept its quantity against the note for good and a CANCELLED one
+    took back what its cancellation had released (D-SELL-12, driven on
+    `fx_t0919psxt_s` on 2026-09-19).
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    service, invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)
+    number = service.get_invoice(invoice_id, firm_scope=firm.id).invoice_number
+
+    with pytest.raises(ValidationError) as refused:
+        service.close_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+    assert str(refused.value) == (
+        f"Only approved sales invoices can be closed; {number} is draft."
+    )
+    session.rollback()
+
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=uuid4()
+    )
+    service.approve_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+    closed = service.close_invoice(
+        invoice_id, firm_scope=firm.id, actor_id=uuid4(), reason="settled"
+    )
+    assert closed.status == SalesInvoiceStatus.CLOSED.value
+
+
+def test_a_cancelled_invoice_cannot_be_closed() -> None:
+    """Closing it would take back the quantity its cancellation released."""
+    session = _session_factory()()
+    firm = _firm(session)
+    service, invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)
+    service.cancel_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+
+    with pytest.raises(ValidationError) as refused:
+        service.close_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+
+    assert "is cancelled" in str(refused.value)
+    session.rollback()
+    assert (
+        service.get_invoice(invoice_id, firm_scope=firm.id).status
+        == SalesInvoiceStatus.CANCELLED.value
+    )
+
+
 def _dispatched_line_for(
     session: Session,
     *,
@@ -1919,6 +2020,88 @@ def test_an_undispatched_note_is_not_billable() -> None:
     )
 
     assert len(billable) == 1
+
+
+def test_a_note_whose_goods_never_left_cannot_be_billed() -> None:
+    """Only a dispatched note is billed, whatever the caller sends.
+
+    `_prepare_invoice_sources` checked only that the note existed, so a DRAFT,
+    APPROVED or CANCELLED note could be billed through the API and the bill
+    approved: revenue and a receivable with no stock out and no cost of goods
+    (D-SELL-3, driven on `fx_t0919psxt_s` on 2026-09-19). Only the desktop's
+    picker filtered them.
+    """
+    setup = _Billing(_session_factory()())
+    InventoryService(setup.session).create_adjustment(
+        InventoryAdjustmentCreate(
+            branch_id=setup.branch.id,
+            warehouse_id=setup.warehouse.id,
+            product_id=setup.product.id,
+            quantity=Decimal("100"),
+            reference_number="ADJ-UNSHIPPED",
+            reference_type="ADJUSTMENT",
+            transaction_date=date(2026, 8, 3),
+        ),
+        firm_scope=setup.firm.id,
+        actor_id=uuid4(),
+    )
+    SalesOrderService(setup.session).approve_order(
+        setup.order.id, firm_scope=setup.firm.id, actor_id=uuid4()
+    )
+    notes = DeliveryNoteService(setup.session)
+
+    def one_unit() -> DeliveryNote:
+        return notes.create_note(
+            DeliveryNoteCreate(
+                sales_order_id=setup.order.id,
+                delivery_date=date(2026, 8, 4),
+                lines=[
+                    DeliveryNoteLineWrite(
+                        sales_order_line_id=setup.order_line.id,
+                        line_number=1,
+                        current_delivery_quantity=Decimal("1"),
+                        unit_price=Decimal("100"),
+                    )
+                ],
+            ),
+            firm_id=setup.firm.id,
+            actor_id=uuid4(),
+        )
+
+    draft = one_unit()
+    approved = one_unit()
+    notes.approve_note(approved.id, firm_scope=setup.firm.id, actor_id=uuid4())
+    cancelled = one_unit()
+    notes.cancel_note(cancelled.id, firm_scope=setup.firm.id, actor_id=uuid4())
+
+    for note, state in (
+        (draft, "draft"),
+        (approved, "approved"),
+        (cancelled, "cancelled"),
+    ):
+        with pytest.raises(ValidationError) as refused:
+            _bill_note(setup, note, Decimal("1"))
+        assert f"{note.delivery_note_number} is {state}" in str(refused.value)
+        setup.session.rollback()
+    assert setup.session.scalar(select(func.count(SalesInvoice.id))) == 0
+
+
+def test_a_draft_on_a_note_that_never_left_is_not_approved() -> None:
+    """Approval asks again, for a draft saved before the save refused it."""
+    setup = _Billing(_session_factory()())
+    note = _dispatched_note(setup)
+    draft = _bill_note(setup, note, Decimal("4"))
+    # What a draft saved against an undispatched note looks like.
+    note.status = "APPROVED"
+    note.dispatched_at = None
+    setup.session.commit()
+
+    with pytest.raises(ValidationError) as refused:
+        SalesInvoiceService(setup.session).approve_invoice(
+            draft.id, firm_scope=setup.firm.id, actor_id=uuid4()
+        )
+
+    assert "only a dispatched delivery note can" in str(refused.value)
 
 
 def test_billable_documents_stop_at_the_firm_boundary() -> None:

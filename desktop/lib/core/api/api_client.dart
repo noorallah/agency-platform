@@ -3458,6 +3458,26 @@ class ApiClient {
         ),
       );
 
+  /// The serialised units a return line against one source line may name:
+  /// those sold on it and still out with the customer. A product nobody
+  /// tracks by serial answers `serialTracked: false` (D-STK-4).
+  Future<ReturnableSerials> returnableSerials({
+    required String sourceType,
+    required String sourceLineId,
+  }) async =>
+      ReturnableSerials.fromJson(
+        _unwrapMap(
+          await request(
+            'GET',
+            '/api/v1/sales-returns/returnable-serials',
+            query: {
+              'source_document_type': sourceType,
+              'source_document_line_id': sourceLineId,
+            },
+          ),
+        ),
+      );
+
   /// The documents a return can be raised against.
   ///
   /// Delivery notes and sales invoices are read together and flattened, so the
