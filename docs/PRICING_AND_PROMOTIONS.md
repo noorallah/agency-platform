@@ -117,6 +117,15 @@ the order is what gets approved. An unrecognised code leaves the order
 saveable and simply gives nothing -- a typo in a field that gives money away
 must not refuse a sale.
 
+**An order converted from a quotation is priced and claims as an order.**
+A quotation quotes offers but claims nothing; converting it used to hand the
+order both figures of every line, so every line read as priced by hand, the
+engine skipped it and no offer's limit ever saw a converted order (D-SELL-9,
+2026-09-19). Only what somebody typed on the quotation -- a line's percentage
+or amount, a bill discount -- carries over as typed; everything the pricing
+rule derived is derived again by the order on its own date, which is what
+stages the pending claim that approval counts under the lock.
+
 ## `customer_type` is a legal classification, not a commercial one
 
 **`customer_type` is a legal classification, not a commercial one.** It holds
