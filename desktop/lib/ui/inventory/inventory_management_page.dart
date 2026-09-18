@@ -56,23 +56,34 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
   static const String _preferencesKey = 'inventory_management';
 
   static const List<String> _statusValues = ['', 'ACTIVE', 'INACTIVE', 'ARCHIVED', 'DRAFT', 'POSTED'];
-  static const List<String> _transactionTypeValues = [
-    '',
-    'OPENING_STOCK',
-    'GOODS_RECEIPT',
-    'GOODS_ISSUE',
-    'TRANSFER_IN',
-    'TRANSFER_OUT',
-    'ADJUSTMENT',
-    'PHYSICAL_COUNT',
-    'RESERVATION',
-    'RESERVATION_RELEASE',
-    'DAMAGE',
-    'EXPIRY',
-    'QUARANTINE',
-    'RETURN',
-    'CORRECTION',
-  ];
+  /// Every `transaction_type` the server writes, and what to call it.
+  ///
+  /// The server filters on the exact string and accepts any, so a type it
+  /// never writes is offered, chosen, and matches nothing. This list was
+  /// typed by hand and named eight such types while leaving out DISPATCH,
+  /// WRITE_OFF, the quarantine pair, RESERVE/UNRESERVE, SALES_RETURN and the
+  /// reversals (BL-31.13). The keys are `InventoryTransactionType` plus the
+  /// `_REVERSAL` twins the three cancellations write;
+  /// `backend/tests/unit/test_stock_ledger_types_match_the_server.py` reads
+  /// them and fails when the two drift.
+  static const Map<String, String> _transactionTypeLabels = {
+    'OPENING_STOCK': 'Opening stock',
+    'GOODS_RECEIPT': 'Goods receipt',
+    'GOODS_RECEIPT_REVERSAL': 'Goods receipt cancelled',
+    'RETURN': 'Purchase return',
+    'RETURN_REVERSAL': 'Purchase return cancelled',
+    'RESERVE': 'Reserved for an order',
+    'UNRESERVE': 'Reservation released',
+    'DISPATCH': 'Dispatch',
+    'SALES_RETURN': 'Sales return',
+    'SALES_RETURN_REVERSAL': 'Sales return cancelled',
+    'TRANSFER_OUT': 'Transfer out',
+    'TRANSFER_IN': 'Transfer in',
+    'WRITE_OFF': 'Write-off',
+    'QUARANTINE_HOLD': 'Quarantine hold',
+    'QUARANTINE_RELEASE': 'Quarantine release',
+    'ADJUSTMENT': 'Adjustment / count',
+  };
 
   final TextEditingController _search = TextEditingController();
   final FocusNode _searchFocus = FocusNode();
@@ -189,9 +200,12 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         widget.preferences.workspaceState(_preferencesKey);
     _status =
         stringValue(raw['status']).isEmpty ? null : stringValue(raw['status']);
-    _transactionType = stringValue(raw['transaction_type']).isEmpty
-        ? null
-        : stringValue(raw['transaction_type']);
+    // A type remembered from before BL-31.13 may be one the server never
+    // writes; restored, it would filter to nothing while the picker shows
+    // All. Keep only a type the picker offers.
+    final String savedType = stringValue(raw['transaction_type']);
+    _transactionType =
+        _transactionTypeLabels.containsKey(savedType) ? savedType : null;
     _branchId = stringValue(raw['branch_id']).isEmpty
         ? null
         : stringValue(raw['branch_id']);
@@ -853,19 +867,20 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
           SizedBox(
             width: 220,
             child: DropdownButtonFormField<String>(
-              initialValue: _transactionTypeValues.contains(_transactionType)
+              initialValue: _transactionTypeLabels.containsKey(_transactionType)
                   ? _transactionType
                   : null,
               isExpanded: true,
               decoration: const InputDecoration(labelText: 'Transaction type'),
-              items: _transactionTypeValues
-                  .map(
-                    (value) => DropdownMenuItem<String>(
-                      value: value.isEmpty ? null : value,
-                      child: Text(value.isEmpty ? 'All' : value, overflow: TextOverflow.ellipsis),
-                    ),
-                  )
-                  .toList(),
+              items: [
+                const DropdownMenuItem<String>(value: null, child: Text('All')),
+                for (final MapEntry<String, String> type
+                    in _transactionTypeLabels.entries)
+                  DropdownMenuItem<String>(
+                    value: type.key,
+                    child: Text(type.value, overflow: TextOverflow.ellipsis),
+                  ),
+              ],
               onChanged: (value) => setState(() => _transactionType = value),
             ),
           ),
