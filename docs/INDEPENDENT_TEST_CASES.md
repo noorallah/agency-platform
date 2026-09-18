@@ -411,7 +411,7 @@ that an edit changes what it names and nothing else.
 - **Expect**
   - Step 1: opening 0.00; the invoice (debit 590, balance 590), then the receipt (credit 200, balance **390**); closing **390.00** — the customer's current balance. Lines are in date order and the running balance is recomputed, not read off the stored snapshot.
   - Step 2: total outstanding **390.00**, all of it in the 0–29 day bucket; the buckets sum to the total, and the reconciliation line has nothing to explain (no unapplied credits, no charges not billed).
-- **Data (HTTP):** `GET /api/v1/customers/{id}/statement?from_date=2026-04-01&to_date=2027-03-31` and `GET /api/v1/customers/ageing`.
+- **Data (HTTP):** `GET /api/v1/customers/{id}/statement?from_date=2026-04-01&to_date=2027-03-31` and `GET /api/v1/customers/ageing`. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §12.10 — both read `customer_receivable_transactions` (the ageing, the allocations too) and write nothing; its query recomputes the running balance.
 - **Leaves:** unchanged.
 
 ### TC-CUST-006 — Segments: assigning one, and refusing to delete one in use
@@ -1327,6 +1327,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 - **Fixture:** `ready-firm`
 - **Steps:** as the fixture's **Firm admin**, Finance → **Chart of Accounts** → **New**: group chip **REV** first, code `9999`, name `Manual test account`, type EXPENSE → Save. Then group **EXP · Direct Expenses** → Save. Select it → **Edit**.
 - **Expect:** with REV: "A ledger account must share its group's account type." With EXP: the row appears (Code, Account, Type, Status). No Delete on the toolbar. On Edit, group, type and code are fixed; only Name, Description, the two "Requires a …" boxes and **Active** change.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §12.3, in schema `fx_<suffix>_r` — one `ledger_accounts` row (9999, EXPENSE, group EXP, `is_profit_loss` true) and audit `finance.ledger_account.created`; the refused REV save writes nothing. An Edit writes `finance.ledger_account.updated` recording only name and active flag (D-FIN-13). The fresh chart is §12.1.
 - **Leaves:** account 9999 in the fixture's store.
 
 ### TC-FIN-002 — The three statements balance and agree
@@ -1335,6 +1336,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 - **Fixture:** `selling-paid`
 - **Steps:** as the fixture's **Firm admin**, Finance → **Trial Balance**, this month's period; then **Profit & Loss** and **Balance Sheet**, the same period.
 - **Expect:** the trial balance has Code, Account, Type, Opening, Debit, Credit, Closing, a Total row and a **Balanced** chip — 1100 Trade Receivables among the rows. P&L: Income and Expenses with a Net profit or loss row (This period, Year to date). Balance Sheet: Assets, Liabilities, Equity with Retained earnings brought forward and Result for the year, chip **Balanced**. They agree: Total assets = Liabilities and equity; the sheet's Result for the year = the P&L's year-to-date net; total debit = total credit. *(The figures are this fixture's own; the relationships are the test.)*
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §12.9 in schema `fx_<suffix>_s` — all three read `ledger_balances` and write nothing; its query recomputes assets = liabilities + equity + earnings from the stored rows. The trial balance's Total row is the closing balances by side, not the sum of the Debit and Credit columns above it (D-FIN-18).
 - **Leaves:** unchanged.
 
 ### TC-FIN-003 — A closed period refuses a posting; its trail says who closed it
@@ -1352,6 +1354,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
   - Step 3: refused: "Accounting period P03 is closed and cannot accept postings." (June is P03 in an April year.)
   - Step 4: "Journal entry MT-CLOSE-1 posted." The trial balance for a later month still reads **Balanced**.
   - Step 5: in the firm, the caption "The trail for Ready <suffix>…" and **two** rows (closed, reopened); `finance` alone would find nothing (exact match). On Platform the same search finds **nothing** — finance events stay in the firm's trail.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §12.2 (close and reopen: `accounting_periods.status`, one `finance.accounting_period.updated` each, none on the platform) and §12.4 (the draft: `journal_entries` DRAFT and its lines, no posting; the refused post writes nothing; the post: `gl_postings` and `ledger_balances`, audit `finance.journal_entry.posted`). The June posting moves every later month's stored opening (§12.8). All in `fx_<suffix>_r`.
 - **Leaves:** a posted June entry.
 
 ### TC-FIN-004 — Journal entries say which module posted them
@@ -1360,6 +1363,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 - **Fixture:** `selling-paid`
 - **Steps:** Finance → Journal Entries; search each: `SI-2026-2027-000001`, `DN-`, `RC-2026-2027-000001`, `TCS-RC-2026-2027-000001`; open each with **View**.
 - **Expect:** each row's subtitle is the entry's description; the View dialog's first line reads "POSTED · posted by <module> · <description>" — sales_invoice, delivery_note, settlements, tcs. The search matches reference or description; there is no source-module filter (BACKLOG §31.15).
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §12.5 — `journal_entries.source_module` is what the View dialog names (`sales_invoice`, `delivery_note`, `settlements`, `tcs`), every entry `GEN`/`JV`; its query lists the four in `fx_<suffix>_s`.
 - **Leaves:** unchanged.
 
 ### TC-FIN-005 — Every report opens, and an empty one says so
@@ -1368,6 +1372,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 - **Fixture:** `selling-paid`
 - **Steps:** Reports → **Operational Reports** and **Financial Reports**: open every entry.
 - **Expect:** each renders with `N row(s)` in the header, or — when empty — "Nothing to report / This firm has nothing matching it yet." rather than a blank grid. The sales order register, delivery note register and invoice reports hold the fixture's documents; the purchase reports are empty (this store bought nothing).
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §12.9 (the financial reports) and §9.13 (the purchasing ones) — each reads its tables and writes nothing, not even an audit row.
 - **Leaves:** unchanged.
 
 ### TC-FIN-006 — Ctrl+K finds a product and lands on its screen
@@ -1376,6 +1381,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 - **Fixture:** `product-master`
 - **Steps:** as the fixture's **Firm admin**, type in any search box, move to another screen, press **Ctrl+K**, type `<SUFFIX>-PM` → Search; select the result → **Open Details**.
 - **Expect:** the dialog opens wherever focus is; one result, **Slot Check <suffix>** (a product), "1 result found."; Open Details closes the search and lands on **Masters → Products**. **(HTTP)** `GET /api/v1/search?query=<SUFFIX>-PM` → 200 (the parameter is `query`; `q` answers 422).
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §12.13 — the search reads and writes nothing; landing on a screen can leave only the last-screen `user_preferences.updated` on the platform (§3).
 - **Leaves:** unchanged.
 
 ### TC-FIN-007 — Cost and profit centres, and an account that demands one
@@ -1391,6 +1397,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
   - Step 1: the rows appear; the second SALES: "A cost centre with this code already exists." No Delete on either grid — deactivate with Active.
   - Step 2: a **Cost centre \*** dropdown on that line and no other; with SALES chosen the entry saves.
   - Step 3: **422**, "Ledger account 5000 requires a cost centre."
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §12.6, in schema `fx_<suffix>_r` — `cost_centers` SALES and `profit_centers` NORTH with `finance.cost_center.created` / `finance.profit_center.created`; the duplicate writes nothing; the flag is `ledger_accounts.requires_cost_center`; the refused POST writes nothing; the entry saved with SALES carries it on `journal_lines.cost_center_id`. No report reads a centre.
 - **Leaves:** centres SALES and NORTH.
 
 ### TC-FIN-008 — A blocking credit policy refuses the approval
@@ -1399,6 +1406,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 - **Fixture:** `policy-firm` — BLOCK at 100%; Anand's limit 1,000; a draft order for 20 detergent.
 - **Steps:** as the fixture's **Firm admin**, Customers → toolbar **Settings**; Cancel. Sales Orders → the fixture's draft → **Approve**.
 - **Expect:** the policy reads **Warn, then block**, warn 80, block 100. Approve is refused: "Anand Agencies <suffix> would be at 179.9% of a 1000.00 credit limit. Collect payment or raise the limit before continuing." The order stays DRAFT.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.6 — `credit_control_settings` BLOCK at 80/100; the refused approval writes nothing and the order stays DRAFT (§12.13).
 - **Leaves:** unchanged.
 
 ### TC-FIN-009 — A firm that does not type delivery notes
@@ -1407,6 +1415,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 - **Fixture:** `policy-firm` — delivery-note stage off; Vijaya's order for 4, approved.
 - **Steps:** as the fixture's **Firm admin**, Sales Invoices → **Sales stages** icon. Look for Delivery Notes in the sidebar. Then Sales Invoices → New → bill the fixture's **order** (4) → Create draft → Approve. Reports → Operational → **Delivery note register**.
 - **Expect:** Sales stages shows **Delivery note** switched off, and **Delivery Notes is not in the sidebar** — a stage the firm does not type is hidden. The invoice approves straight off the order; the service raises and dispatches the note itself (the order reads **DELIVERED**), and the register lists that note. *(Whether a hidden screen should hide notes that exist is an open product question, not a defect.)*
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.20 — the invoice's create raises, approves and dispatches the note in one request; the journals it leaves are §12.5's `delivery_note` and `sales_invoice` rows.
 - **Leaves:** a billed, delivered order.
 
 ### TC-FIN-010 — Roles and Permissions are one sidebar entry with two addresses
@@ -1415,6 +1424,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 - **Fixture:** `firm-admin`
 - **Steps:** as the fixture's **Firm admin**, look at the Administration sidebar; open **Roles & Permissions**; switch the strip to Permissions. Ctrl+K a permission code (e.g. `CUSTOMER_VIEW`) → open it. Sign out and in.
 - **Expect:** **one** entry, Roles & Permissions, with a Roles / Permissions strip; switching keeps the entry highlighted and the heading. Ctrl+K lands on **Permissions** directly; after signing in again the last screen restores to the same half. (Creating and editing roles is TC-ROLE-001 and TC-ROLE-002.)
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §12.13 — reads only; the restored half is the last-screen preference on the platform (§3).
 - **Leaves:** a firm admin user.
 
 ### TC-FIN-011 — A crash report reaches Diagnostics
@@ -1423,6 +1433,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 - **Fixture:** `platform-admin`
 - **Steps:** sign in on the desktop, end **agency_desktop** in Task Manager, start it again and sign in as the fixture's **Platform admin** (the queued report is sent then). Settings → **Diagnostics** → Source **Desktop** → Search; open the **UnexpectedTermination** group's first occurrence. Then Source **Server**, any group's first occurrence.
 - **Expect:** Desktop: the UnexpectedTermination count one higher than before; occurrences / first seen / last seen / versions chips; the newest occurrence shows Firm, User and "Leading up to it" breadcrumbs ("Previous session started at … ended without a clean exit…") — no Request and no stack trace. Server: **Request <request_id>** and the stack trace.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §12.13 — one `platform.error_reports` row per report, `source` CLIENT for the desktop (the screen's Desktop) and SERVER for the server, no audit row; its query counts them by source and type.
 - **Leaves:** one more crash report.
 
 ---
