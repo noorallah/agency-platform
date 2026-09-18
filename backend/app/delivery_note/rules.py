@@ -1,5 +1,7 @@
 """Rules other modules apply to a delivery note they are about to build on."""
 
+from sqlalchemy import ColumnElement, and_
+
 from app.core.exceptions import ValidationError
 from app.delivery_note.models import DeliveryNote
 
@@ -16,6 +18,14 @@ def goods_have_left(note: DeliveryNote) -> bool:
     takes the stock out, and only by it.
     """
     return note.status in SHIPPED_STATES and note.dispatched_at is not None
+
+
+def goods_have_left_clause() -> ColumnElement[bool]:
+    """Say the same as `goods_have_left`, as a filter for a query."""
+    return and_(
+        DeliveryNote.status.in_(sorted(SHIPPED_STATES)),
+        DeliveryNote.dispatched_at.is_not(None),
+    )
 
 
 def require_dispatched_note(note: DeliveryNote, verb: str) -> None:

@@ -40,6 +40,11 @@ from app.delivery_note.models import (
     DeliveryNoteLine,
     DeliveryNoteNote,
 )
+from app.delivery_note.rules import (
+    SHIPPED_STATES,
+    goods_have_left,
+    goods_have_left_clause,
+)
 from app.delivery_note.schemas import (
     DeliveryNoteAttachmentResponse,
     DeliveryNoteAttachmentWrite,
@@ -698,12 +703,22 @@ class DeliveryNoteService(TransactionalDocumentService):
         actor_id: UUID,
         reason: str | None = None,
     ) -> DeliveryNote:
-        """Close one delivery note."""
+        """Close one delivery note whose goods have left.
+
+        Closing refused only a draft, so an APPROVED note that never dispatched
+        could be closed -- and a closed note counts as delivered for its order
+        and is offered for billing, while its reservation stayed held for good
+        (D-SELL-4, driven 2026-09-19: the order read DELIVERED with 7 of 12
+        shipped). A note that will not ship is cancelled, not closed.
+        """
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status == DeliveryNoteStatus.CLOSED.value:
             return row
-        if row.status == DeliveryNoteStatus.DRAFT.value:
-            raise ValidationError("Draft delivery notes cannot be closed.")
+        if not goods_have_left(row):
+            raise ValidationError(
+                f"Only dispatched or completed delivery notes can be closed; "
+                f"{row.delivery_note_number} is {row.status.lower()}."
+            )
         before = row.status
         row.status = DeliveryNoteStatus.CLOSED.value
         row.closed_at = utc_now()
@@ -2271,6 +2286,12 @@ class DeliveryNoteService(TransactionalDocumentService):
                 DeliveryNoteLine.is_deleted.is_(False),
                 DeliveryNote.is_deleted.is_(False),
                 DeliveryNote.status.in_(list(statuses)),
+                # A shipped state counts only when the goods left: a note
+                # closed before this refused it never dispatched (D-SELL-4).
+                or_(
+                    DeliveryNote.status.not_in(sorted(SHIPPED_STATES)),
+                    goods_have_left_clause(),
+                ),
             )
         )
         if exclude_delivery_note_id is not None:
