@@ -1347,7 +1347,7 @@ class PurchaseReturnService(TransactionalDocumentService):
                 raise ValidationError(
                     "Return quantity exceeds the available source quantity."
                 )
-            unit_price = self._q(Decimal(str(spec.get("unit_price", ZERO))))
+            unit_price = self._unit_price(spec, source_line)
             charges_amount = self._q(Decimal(str(spec.get("charges_amount", ZERO))))
             gross_amount = self._q(return_quantity * unit_price)
             line_discount = self._line_discount(
@@ -1805,6 +1805,20 @@ class PurchaseReturnService(TransactionalDocumentService):
 
     def _product_id(self, source_line: SourceLine) -> UUID:
         return source_line.product_id
+
+    def _unit_price(self, spec: dict[str, object], source_line: object) -> Decimal:
+        """Return the price one return line is valued at.
+
+        What the line says wins; where it says nothing, the source line's price
+        carries over, the same as its discount rate. It used to default to
+        zero, so a return sent without a price -- every one the seeder raised,
+        and the test fixture's -- took its stock out at nothing: the value went
+        to the write-off account and the supplier was debited 0 (D-BUY-3).
+        """
+        stated = spec.get("unit_price")
+        if stated is None:
+            stated = getattr(source_line, "unit_price", None) or ZERO
+        return self._q(Decimal(str(stated)))
 
     def _line_discount(
         self,

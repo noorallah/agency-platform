@@ -236,3 +236,67 @@ def test_purchase_invoice_direct_po_invoice_creates_lifecycle_setup() -> None:
     )
     assert service.summary(firm_scope=firm.id).total == 1
     assert session.scalar(select(AuditLog.id)) is not None
+
+
+def test_an_invoice_line_with_no_price_bills_at_the_source_lines_price() -> None:
+    """Silence takes the order or receipt line's price; a stated zero is zero.
+
+    D-BUY-3, invoice half: the price defaulted to zero, so a bill sent without
+    prices was worth nothing.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    vendor = _vendor(session, firm_id=firm.id)
+    order = _purchase_order(
+        session,
+        firm_id=firm.id,
+        vendor_id=vendor.id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+    )
+    po_line = session.scalar(
+        select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+    )
+    assert po_line is not None
+
+    def _bill(number: str, price: Decimal | None) -> PurchaseInvoiceLine:
+        line: dict[str, object] = {
+            "source_document_type": PurchaseInvoiceSourceType.PURCHASE_ORDER,
+            "source_document_id": order.id,
+            "source_document_line_id": po_line.id,
+            "line_number": 1,
+            "current_invoice_quantity": Decimal("2"),
+        }
+        if price is not None:
+            line["unit_price"] = price
+        row = PurchaseInvoiceService(session).create_invoice(
+            PurchaseInvoiceCreate(
+                supplier_invoice_number=number,
+                supplier_invoice_date=date(2026, 8, 2),
+                invoice_date=date(2026, 8, 2),
+                allow_direct_purchase_order=True,
+                source_documents=[
+                    {
+                        "source_document_type": (
+                            PurchaseInvoiceSourceType.PURCHASE_ORDER
+                        ),
+                        "source_document_id": order.id,
+                    }
+                ],
+                lines=[PurchaseInvoiceLineWrite.model_validate(line)],
+            ),
+            firm_id=firm.id,
+            actor_id=uuid4(),
+        )
+        saved = session.scalar(
+            select(PurchaseInvoiceLine).where(
+                PurchaseInvoiceLine.purchase_invoice_id == row.id
+            )
+        )
+        assert saved is not None
+        return saved
+
+    assert _bill("SUP-SILENT", None).unit_price == Decimal("100")
+    assert _bill("SUP-ZERO", Decimal("0")).unit_price == Decimal("0")

@@ -84,8 +84,12 @@ class PurchaseReturnLineWrite(PurchaseReturnSchema):
     is_scrap: bool = False
     is_damaged: bool = False
     is_expired: bool = False
-    unit_price: Decimal = Field(
-        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    #: None means the caller said nothing, so the price on the source line
+    #: carries over -- goods go back at what they came in at. Zero is an
+    #: instruction, not a default: it defaulted to zero once, and every return
+    #: sent without a price was valued at nothing (D-BUY-3).
+    unit_price: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=4
     )
     #: None means the caller said nothing, so the rate on the source line
     #: carries over. Zero means they said no discount on this one.
