@@ -724,7 +724,22 @@ a firm administrator cannot reach one to clone; and a platform caller who can
 reach one gets their roles and not the `platform_admins` row.
 
 A firm caller copies only what their scope can see — the firm-scoped rows plus
-the unscoped firm roles — so another firm's roles stay invisible. The audit row
+the unscoped firm roles — so another firm's roles stay invisible.
+
+A platform caller naming no firm copies **each role into the tier it came
+from**: the source's global rows become the clone's global rows, and a role
+the source holds in one firm (where they are still an active member) is
+copied into that firm alone. Until 2026-09-19 every tier was written global,
+so a role granted for one firm applied to the clone in every firm (D-IDN-3).
+A firm-tier role in a firm the caller may not staff
+(`_firms_the_caller_may_staff`) refuses the whole clone, by firm code, before
+any account is opened.
+
+The same rule holds wherever a grant reaches every firm: the global tier of
+`set_user_roles` and a platform-wide template refuse a custom role one firm
+owns (`_assert_no_firm_owned_roles`), `apply_user_template` with no firm
+named refuses a firm's own template, and a template edit is validated against
+the firm that **owns** the template rather than the caller's scope. The audit row
 records `source_user_id`, because "a user was created" with nothing about where
 their access came from is the one question anybody reviewing it will ask.
 
@@ -947,6 +962,27 @@ template runs on the platform session and is recorded there.
 Those rows carry the firm. They were simply in a store the firm cannot read, so
 until 2026-09-06 a firm administrator could not see their own staffing
 decisions. `GET /api/v1/audit-logs` with `X-Firm-ID` now reads both.
+
+**Which firm a row carries is the firm the change concerns, never the
+caller's scope** (D-IDN-5, 2026-09-19). The caller's scope is null for every
+platform administrator, so until then `user.firms_set` carried no firm at all
+and `user.updated`, `.deleted`, `.roles_set` and `role.*` reached a firm's
+screen only when a firm administrator made the change. Now:
+
+| Row | Firm(s) | Data |
+| --- | --- | --- |
+| `user.updated`, `.deleted`, `.restored`, `.password_reset` | every firm the person actively belongs to, one row each | the fields that moved, both sides (never the password or its hash) |
+| `user.roles_set` | the firm written, or — for the global tier — every firm the person belongs to | `tier` and the role codes before and after |
+| `user.firm_roles_set` | that firm | role codes before and after |
+| `user.firms_set` | each firm whose membership moved, one row each | that membership before and after (`member`, `is_active`, `is_primary`) |
+| `user.cloned` | every firm the clone joined | source, email, firms, role codes |
+| `user_template.applied` | the firm applied in, or the person's firms for the global tier | template and role codes |
+| `role.*`, `user_template.updated/deleted` | the firm that **owns** the role or template (none for a global one) | the fields that moved; `role.permissions_set` the codes before and after |
+| `firm.updated` | the firm | every column that moved, not only name, code and active flag |
+
+A person in no firm, or a global role, gets one platform row. A save that
+changes nothing writes nothing — the convention `record_change` set for
+configuration in D-CFG-13.
 
 The write was left where it is on purpose. A DATABASE-mode firm is a separate
 database, possibly on a separate server, so writing the audit row there would
