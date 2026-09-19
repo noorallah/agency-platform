@@ -3,6 +3,7 @@
 from collections import Counter
 from datetime import date, timedelta
 from decimal import Decimal
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
@@ -16,6 +17,7 @@ from app.core.database.base import Base
 from app.core.exceptions import ConflictError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_money
+from app.customers.models import Customer, CustomerAddress
 from app.firms.models import Firm
 from app.products.schemas import ProductCreate
 from app.products.services import ProductService
@@ -38,6 +40,7 @@ from app.tax.schemas import (
     TaxSystemWrite,
 )
 from app.tax.services import TaxFrameworkService, TaxRetentionService, TaxRuleService
+from app.tax.services.place_of_supply import gst_state_code
 
 
 def _session_factory() -> sessionmaker[Session]:
@@ -1454,3 +1457,129 @@ def test_bulk_activation_and_restore_run_the_overlap_check() -> None:
         service.bulk_restore_profiles(
             [replaced.id], firm_scope=firm.id, actor_id=actor_id
         )
+
+
+@pytest.mark.parametrize(
+    ("written", "code"),
+    [
+        ("33AABCU9603R1ZM", "33"),
+        ("29", "29"),
+        ("KA", "29"),
+        ("tn", "33"),
+        ("Tamil Nadu", "33"),
+        ("  jammu &  kashmir ", "01"),
+        ("Atlantis", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_a_state_is_read_as_its_gst_code_however_it_is_written(
+    written: str | None, code: str | None
+) -> None:
+    """A GSTIN, a code, an abbreviation and a name all name the same state."""
+    assert gst_state_code(written) == code
+
+
+def _supplier_and_buyer(
+    session: Session,
+    *,
+    firm_gstin: str | None,
+    buyer_gstin: str | None = None,
+    address: tuple[str, str] | None = None,
+) -> tuple[Firm, Customer]:
+    """Make a firm and one buyer, the buyer optionally with a billing address."""
+    firm = _firm(session)
+    firm.gst_number = firm_gstin
+    buyer = Customer(
+        firm_id=firm.id,
+        code="B1",
+        customer_type="BUSINESS",
+        name="Buyer",
+        display_name="Buyer",
+        currency_code="INR",
+        status="ACTIVE",
+        gst_number=buyer_gstin,
+    )
+    session.add(buyer)
+    session.flush()
+    if address is not None:
+        state, country = address
+        session.add(
+            CustomerAddress(
+                customer_id=buyer.id,
+                address_type="BILLING",
+                address_line1="1 Main Road",
+                city="Somewhere",
+                state=state,
+                country=country,
+                postal_code="000000",
+            )
+        )
+    session.commit()
+    session.refresh(buyer)
+    return firm, buyer
+
+
+@pytest.mark.parametrize(
+    ("firm_gstin", "buyer_gstin", "address", "priced_as"),
+    [
+        # The buyer's GSTIN names another state.
+        ("33AABCU9603R1ZM", "29AAACR5055K1Z5", None, "SALES_INTERSTATE"),
+        # The GSTIN wins over an address in the seller's own state.
+        (
+            "33AABCU9603R1ZM",
+            "29AAACR5055K1Z5",
+            ("Tamil Nadu", "IN"),
+            "SALES_INTERSTATE",
+        ),
+        # Unregistered: the billing address decides.
+        ("33AABCU9603R1ZM", None, ("Kerala", "IN"), "SALES_INTERSTATE"),
+        ("33AABCU9603R1ZM", None, ("Tamil Nadu", "IN"), "SALES_INVOICE"),
+        # A buyer abroad is an inter-state supply (IGST Act s.7(5)(a)).
+        ("33AABCU9603R1ZM", None, ("Dubai", "AE"), "SALES_INTERSTATE"),
+        # Either side unknown: nothing is guessed.
+        ("33AABCU9603R1ZM", None, None, "SALES_INVOICE"),
+        (None, "29AAACR5055K1Z5", None, "SALES_INVOICE"),
+    ],
+)
+def test_an_outward_supply_is_priced_by_where_it_is_made(
+    firm_gstin: str | None,
+    buyer_gstin: str | None,
+    address: tuple[str, str] | None,
+    priced_as: str,
+) -> None:
+    """D-CMP-1: the border, not the document's name, decides IGST."""
+    session = _session_factory()()
+    firm, buyer = _supplier_and_buyer(
+        session, firm_gstin=firm_gstin, buyer_gstin=buyer_gstin, address=address
+    )
+
+    assert (
+        TaxRuleService(session).outward_transaction_type(
+            "SALES_INVOICE", firm_id=firm.id, branch_id=None, customer_id=buyer.id
+        )
+        == priced_as
+    )
+
+
+def test_every_outward_document_asks_where_its_supply_is_made() -> None:
+    """No outward module may name its own type to the engine again.
+
+    Five modules each wrote ``transaction_type="SALES_..."`` into the request,
+    which is how none of them ever sent ``SALES_INTERSTATE`` (D-CMP-1).
+    """
+    root = Path(__file__).resolve().parents[2] / "app"
+    offenders: list[str] = []
+    for module in (
+        "sales_invoice",
+        "sales_order",
+        "quotation",
+        "delivery_note",
+        "sales_return",
+    ):
+        for path in (root / module / "services").glob("*.py"):
+            source = path.read_text(encoding="utf-8")
+            for chunk in source.split("TaxRuleSimulationRequest(")[1:]:
+                if "outward_transaction_type(" not in chunk[:400]:
+                    offenders.append(f"{module}/{path.name}")
+    assert offenders == []
