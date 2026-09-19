@@ -44,12 +44,27 @@ class _SalesWorkflowSettingsDialogState
   bool _saving = false;
   String? _error;
 
+  /// True only once the firm's own settings arrived. The switches start from
+  /// the whole chain, so saving after a failed read would replace whatever
+  /// the firm chose with a chain nobody picked (D-CFG-14): the dialog must
+  /// prove it read the settings before it may write them.
+  bool _read = false;
+
   bool get _mayManage =>
       widget.permissions.hasPermission('SALES_MANAGE_SETTINGS');
 
   @override
   void initState() {
     super.initState();
+    _load();
+  }
+
+  void _retry() {
+    setState(() {
+      _loading = true;
+      _read = false;
+      _error = null;
+    });
     _load();
   }
 
@@ -60,18 +75,21 @@ class _SalesWorkflowSettingsDialogState
       if (!mounted) return;
       setState(() {
         _settings = settings;
+        _read = true;
         _loading = false;
       });
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() {
-        _error = error.message;
+        _error = 'The sales stages could not be read, so they cannot be '
+            'saved: ${error.message}';
         _loading = false;
       });
     }
   }
 
   Future<void> _save() async {
+    if (!_read) return;
     setState(() {
       _saving = true;
       _error = null;
@@ -114,6 +132,9 @@ class _SalesWorkflowSettingsDialogState
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     return AlertDialog(
+      // An AlertDialog gives its content unbounded height; three switches,
+      // four notices and an error overflow a short window without this.
+      scrollable: true,
       icon: const Icon(Icons.linear_scale_outlined),
       title: const Text('Sales stages'),
       content: SizedBox(
@@ -133,7 +154,7 @@ class _SalesWorkflowSettingsDialogState
                     'saves — so stock, cost and the audit trail are unchanged.',
                     style: theme.textTheme.bodySmall,
                   ),
-                  if (!_settings.isConfigured) ...[
+                  if (_read && !_settings.isConfigured) ...[
                     const SizedBox(height: AppSpacing.md),
                     _Notice(
                       icon: Icons.info_outline,
@@ -147,7 +168,7 @@ class _SalesWorkflowSettingsDialogState
                     label: 'Quotation',
                     detail: 'An offer, before there is an order.',
                     value: _settings.quotationStage,
-                    enabled: _mayManage && !_saving,
+                    enabled: _mayManage && _read && !_saving,
                     onChanged: (value) => setState(
                       () => _settings =
                           _settings.copyWith(quotationStage: value),
@@ -157,7 +178,7 @@ class _SalesWorkflowSettingsDialogState
                     label: 'Sales order',
                     detail: 'What the customer asked for, before it ships.',
                     value: _settings.salesOrderStage,
-                    enabled: _mayManage && !_saving,
+                    enabled: _mayManage && _read && !_saving,
                     onChanged: (value) => setState(
                       () => _settings =
                           _settings.copyWith(salesOrderStage: value),
@@ -168,7 +189,7 @@ class _SalesWorkflowSettingsDialogState
                     detail: 'Confirms what left the warehouse. Turning this '
                         'off means the bill confirms it instead.',
                     value: _settings.deliveryNoteStage,
-                    enabled: _mayManage && !_saving,
+                    enabled: _mayManage && _read && !_saving,
                     onChanged: (value) => setState(
                       () => _settings =
                           _settings.copyWith(deliveryNoteStage: value),
@@ -209,8 +230,16 @@ class _SalesWorkflowSettingsDialogState
           onPressed: _saving ? null : () => Navigator.of(context).pop(false),
           child: const Text('Close'),
         ),
+        if (!_read && !_loading)
+          TextButton(
+            key: const ValueKey('sales-stages-retry'),
+            onPressed: _retry,
+            child: const Text('Try again'),
+          ),
         FilledButton(
-          onPressed: _mayManage && !_loading && !_saving ? _save : null,
+          onPressed: _mayManage && _read && !_loading && !_saving
+              ? _save
+              : null,
           child: Text(_saving ? 'Saving…' : 'Save'),
         ),
       ],

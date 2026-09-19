@@ -163,12 +163,13 @@ class SalesWorkflowSettings {
         isConfigured: boolValue(json['is_configured']),
       );
 
+  /// The three switches only. No screen here edits the default branch or
+  /// warehouse, and the server leaves an omitted default as it is, so a
+  /// stages save cannot clear or overwrite one (D-CFG-14).
   Json toJson() => <String, dynamic>{
         'quotation_stage': quotationStage,
         'sales_order_stage': salesOrderStage,
         'delivery_note_stage': deliveryNoteStage,
-        'default_branch_id': defaultBranchId,
-        'default_warehouse_id': defaultWarehouseId,
       };
 
   SalesWorkflowSettings copyWith({

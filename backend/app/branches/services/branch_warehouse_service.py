@@ -4,7 +4,7 @@ from uuid import UUID
 
 from sqlalchemy import or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.branches.models import (
     Branch,
@@ -39,6 +39,7 @@ from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.inventory.models import InventoryRecord
+from app.sales_order.models import SalesWorkflowSettings
 
 
 class BranchWarehouseService:
@@ -1011,6 +1012,36 @@ class BranchWarehouseService:
             raise ValidationError(
                 "This branch still has warehouses. Remove or reassign them first."
             )
+        self._assert_not_a_sales_default(
+            SalesWorkflowSettings.default_branch_id, branch, "branch"
+        )
+
+    def _assert_not_a_sales_default(
+        self,
+        column: InstrumentedAttribute[UUID | None],
+        row: Branch | Warehouse,
+        noun: str,
+    ) -> None:
+        """Refuse to delete the place the firm's bare bills ship from.
+
+        ``sales_workflow_settings`` names a default branch and warehouse by id
+        with no foreign key, so deleting one left every bill raised without an
+        order or a note failing at bill time, far from the delete that broke
+        it (D-CFG-14). Refused by name here instead.
+        """
+        named = self._session.scalar(
+            select(SalesWorkflowSettings.id).where(
+                SalesWorkflowSettings.firm_id == row.firm_id,
+                SalesWorkflowSettings.is_deleted.is_(False),
+                column == row.id,
+            )
+        )
+        if named is not None:
+            raise ValidationError(
+                f"{noun.capitalize()} {row.code} is the default {noun} bills "
+                "ship from when no order or note names one. Choose another in "
+                "Sales stages first."
+            )
 
     def _assert_warehouse_removable(self, warehouse: Warehouse) -> None:
         """Refuse to delete a warehouse that still holds stock.
@@ -1034,6 +1065,9 @@ class BranchWarehouseService:
             raise ValidationError(
                 "This warehouse still holds stock. Move or write it off first."
             )
+        self._assert_not_a_sales_default(
+            SalesWorkflowSettings.default_warehouse_id, warehouse, "warehouse"
+        )
 
     def _demote_other_default_branches(
         self, firm_id: UUID, *, is_default: bool, exclude_id: UUID | None
