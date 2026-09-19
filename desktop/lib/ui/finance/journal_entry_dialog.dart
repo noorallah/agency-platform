@@ -127,7 +127,9 @@ class _JournalEntryDialogState extends State<JournalEntryDialog> {
   late String _voucherTypeId =
       widget.voucherTypes.isEmpty ? '' : widget.voucherTypes.first.id;
   String _journalDate = DateTime.now().toIso8601String().split('T').first;
-  String _reference = '';
+  // Hand journals live under JV- so they can never take a document's
+  // reference (D-FIN-9); the server refuses anything else.
+  String _reference = 'JV-';
   String _description = '';
   final List<JournalDraftLine> _lines = [
     JournalDraftLine(),
@@ -199,9 +201,14 @@ class _JournalEntryDialogState extends State<JournalEntryDialog> {
   }
 
   Future<void> _save() async {
-    final String? problem = _reference.trim().isEmpty
-        ? 'A reference number identifies this entry in the ledger.'
-        : validateJournalLines(_lines);
+    final String reference = _reference.trim();
+    final String? problem =
+        reference.isEmpty || reference.toUpperCase() == 'JV-'
+            ? 'A reference number identifies this entry in the ledger.'
+            : !reference.toUpperCase().startsWith('JV-')
+                ? 'A journal written by hand is referenced JV-<something>; '
+                    'other references belong to the documents that post them.'
+                : validateJournalLines(_lines);
     if (problem != null) {
       setState(() => _error = problem);
       return;
@@ -294,7 +301,8 @@ class _JournalEntryDialogState extends State<JournalEntryDialog> {
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton.icon(
-                  onPressed: () => setState(() => _lines.add(JournalDraftLine())),
+                  onPressed: () =>
+                      setState(() => _lines.add(JournalDraftLine())),
                   icon: const Icon(Icons.add),
                   label: const Text('Add line'),
                 ),
@@ -336,7 +344,8 @@ class _JournalEntryDialogState extends State<JournalEntryDialog> {
             child: DropdownButtonFormField<String>(
               initialValue: _periodId.isEmpty ? null : _periodId,
               isExpanded: true,
-              decoration: const InputDecoration(labelText: 'Accounting period *'),
+              decoration:
+                  const InputDecoration(labelText: 'Accounting period *'),
               items: [
                 for (final AccountingPeriod period in widget.periods)
                   DropdownMenuItem<String>(
@@ -360,7 +369,8 @@ class _JournalEntryDialogState extends State<JournalEntryDialog> {
                     child: Text(type.label, overflow: TextOverflow.ellipsis),
                   ),
               ],
-              onChanged: (value) => setState(() => _journalTypeId = value ?? ''),
+              onChanged: (value) =>
+                  setState(() => _journalTypeId = value ?? ''),
             ),
           ),
           SizedBox(
@@ -376,7 +386,8 @@ class _JournalEntryDialogState extends State<JournalEntryDialog> {
                     child: Text(type.label, overflow: TextOverflow.ellipsis),
                   ),
               ],
-              onChanged: (value) => setState(() => _voucherTypeId = value ?? ''),
+              onChanged: (value) =>
+                  setState(() => _voucherTypeId = value ?? ''),
             ),
           ),
           SizedBox(
@@ -394,7 +405,10 @@ class _JournalEntryDialogState extends State<JournalEntryDialog> {
             width: 220,
             child: TextFormField(
               initialValue: _reference,
-              decoration: const InputDecoration(labelText: 'Reference *'),
+              decoration: const InputDecoration(
+                labelText: 'Reference *',
+                helperText: 'Starts with JV-',
+              ),
               onChanged: (value) => setState(() => _reference = value),
             ),
           ),
@@ -423,7 +437,8 @@ class _JournalEntryDialogState extends State<JournalEntryDialog> {
                         ? null
                         : _lines[index].ledgerAccountId,
                     isExpanded: true,
-                    decoration: InputDecoration(labelText: 'Account ${index + 1}'),
+                    decoration:
+                        InputDecoration(labelText: 'Account ${index + 1}'),
                     items: [
                       for (final LedgerAccount account in widget.accounts)
                         DropdownMenuItem<String>(
@@ -445,7 +460,8 @@ class _JournalEntryDialogState extends State<JournalEntryDialog> {
                     initialValue: _lines[index].debit,
                     decoration: const InputDecoration(labelText: 'Debit'),
                     keyboardType: TextInputType.number,
-                    onChanged: (value) => setState(() => _lines[index].debit = value),
+                    onChanged: (value) =>
+                        setState(() => _lines[index].debit = value),
                   ),
                 ),
                 const SizedBox(width: AppSpacing.md),
@@ -469,11 +485,13 @@ class _JournalEntryDialogState extends State<JournalEntryDialog> {
                         setState(() => _lines[index].description = value),
                   ),
                 ),
-                if (_centrePicker(index, profit: false) case final Widget cost) ...[
+                if (_centrePicker(index, profit: false)
+                    case final Widget cost) ...[
                   const SizedBox(width: AppSpacing.md),
                   cost,
                 ],
-                if (_centrePicker(index, profit: true) case final Widget profit) ...[
+                if (_centrePicker(index, profit: true)
+                    case final Widget profit) ...[
                   const SizedBox(width: AppSpacing.md),
                   profit,
                 ],

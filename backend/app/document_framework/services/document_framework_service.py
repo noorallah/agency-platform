@@ -375,6 +375,9 @@ class DocumentFrameworkService:
         self, firm_id: UUID, data: DocumentNumberingRuleCreate, actor_id: UUID
     ) -> DocumentNumberingRule:
         self._assert_unique_numbering_rule(firm_id, data.document_type_id, data.code)
+        self._assert_outside_the_manual_journal_namespace(
+            prefix=data.prefix, separator=data.separator
+        )
         self._assert_a_reset_shows_its_year(
             auto_reset=data.auto_reset,
             include_financial_year=data.include_financial_year,
@@ -450,6 +453,10 @@ class DocumentFrameworkService:
             "next_sequence": row.next_sequence,
         }
         values = data.model_dump(exclude_unset=True)
+        self._assert_outside_the_manual_journal_namespace(
+            prefix=values.get("prefix", row.prefix),
+            separator=values.get("separator", row.separator),
+        )
         # Judged on what the rule will be, not on what the request mentions.
         # This update is partial, so a caller turning the year off says
         # nothing about `auto_reset` and the collision would be assembled from
@@ -768,6 +775,29 @@ class DocumentFrameworkService:
         existing = self._session.scalar(statement)
         if existing is not None:
             raise ConflictError("A document state with this code already exists.")
+
+    @staticmethod
+    def _assert_outside_the_manual_journal_namespace(
+        *, prefix: str | None, separator: str | None
+    ) -> None:
+        """Refuse a document number that would start in the hand-journal space.
+
+        Documents post their journals under their own numbers, and hand
+        journals are kept to ``JV-`` so the two can never take each other's
+        reference (D-FIN-9). A rule numbering documents ``JV-...`` would undo
+        that from the other side.
+        """
+        # Imported here: finance is a domain this framework otherwise does
+        # not depend on.
+        from app.finance.services.journal_engine import MANUAL_REFERENCE_PREFIX
+
+        start = f"{prefix or ''}{separator or ''}".upper()
+        if prefix and start.startswith(MANUAL_REFERENCE_PREFIX):
+            raise ValidationError(
+                f"A numbering prefix of {prefix!r} would number documents "
+                f"{MANUAL_REFERENCE_PREFIX}..., which is reserved for journals "
+                "written by hand. Choose another prefix."
+            )
 
     @staticmethod
     def _assert_a_reset_shows_its_year(

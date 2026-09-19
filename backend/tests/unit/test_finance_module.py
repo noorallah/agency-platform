@@ -1446,6 +1446,68 @@ def test_finance_api_scope_enforces_membership_and_permissions() -> None:
     assert report.data.total_debit == Decimal("40.00")
 
 
+def test_a_hand_journal_cannot_take_a_documents_reference() -> None:
+    """D-FIN-9: a hand entry typed with a document's number took it for good.
+
+    Driven on a fixture firm: a hand journal referenced RC-2026-2027-000002
+    was accepted, and the next receipt then failed on that number. Hand
+    journals now live in their own namespace, JV-, for writing and for
+    reversing; a taken reference is refused without rolling back the session.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    user_id = uuid4()
+    book = _Book(session, firm.id, user_id)
+    session.add(UserFirm(user_id=user_id, firm_id=firm.id, is_active=True))
+    session.commit()
+    scope = _firm_scope(
+        _principal(user_id, {"JOURNAL_CREATE", "JOURNAL_POST", "JOURNAL_REVERSE"}),
+        session,
+        firm.id,
+    )
+
+    def _payload(reference: str) -> JournalEntryCreate:
+        """Build one hand entry under the given reference."""
+        return JournalEntryCreate(
+            journal_type_id=book.journal_type.id,
+            voucher_type_id=book.voucher_type.id,
+            accounting_period_id=book.period.id,
+            journal_date=date(2026, 4, 12),
+            reference_number=reference,
+            description="By hand",
+            lines=[
+                {"ledger_account_id": book.cash.id, "debit_amount": "40.00"},
+                {"ledger_account_id": book.sales.id, "credit_amount": "40.00"},
+            ],
+        )
+
+    for reference in ("RC-2026-2027-000002", "SI-2026-2027-000004", "ADJ-1"):
+        with pytest.raises(ValidationError, match="referenced JV-"):
+            create_journal_entry(_payload(reference), scope, session)
+    created = create_journal_entry(_payload("JV-0001"), scope, session)
+    post_journal_entry(created.data.id, scope, session)
+
+    # Reversing by hand is writing by hand, so the same namespace holds.
+    with pytest.raises(ValidationError, match="referenced JV-"):
+        reverse_journal_entry(
+            created.data.id,
+            JournalEntryReverse(reference_number="SI-2026-2027-000005"),
+            scope,
+            session,
+        )
+    session.rollback()
+
+    # A reference already taken is refused by name, and the request's other
+    # work is not rolled back with it.
+    kept = FinanceService(session).create_cost_center(
+        CostCenterCreate(code="KEEP", name="Kept"), firm_id=firm.id, actor_id=user_id
+    )
+    with pytest.raises(ConflictError, match="reference JV-0001 already exists"):
+        create_journal_entry(_payload("JV-0001"), scope, session)
+    assert kept in session
+    assert session.get(CostCenter, kept.id) is not None
+
+
 def test_journal_line_schema_rejects_two_sided_and_empty_lines() -> None:
     """A journal line must carry exactly one of debit or credit."""
     common = {
