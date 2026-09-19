@@ -106,7 +106,12 @@ class _Books:
         )
         self.session.commit()
 
-    def target(self, amount: str, period: tuple[date, date] = APRIL) -> None:
+    def target(
+        self,
+        amount: str,
+        period: tuple[date, date] = APRIL,
+        basis: SalesTargetBasis = SalesTargetBasis.INVOICED,
+    ) -> None:
         """Set one target over a period."""
         SalesTargetService(self.session).create_target(
             SalesTargetWrite(
@@ -114,7 +119,7 @@ class _Books:
                 period_start=period[0],
                 period_end=period[1],
                 period_type=SalesTargetPeriod.MONTHLY,
-                basis=SalesTargetBasis.INVOICED,
+                basis=basis,
                 target_amount=Decimal(amount),
             ),
             firm_id=self.firm.id,
@@ -274,3 +279,22 @@ def test_a_floor_and_a_bonus_together_read_in_that_order() -> None:
     earned, met = books.row(APRIL)
     assert met is True, "the target was beaten"
     assert earned == Decimal("0.00"), "but the arrangement pays nothing yet"
+
+
+def test_targets_on_different_bases_are_judged_each_on_their_own() -> None:
+    """D-TER-2: an invoiced and a collected target are not one number.
+
+    Asha bills 12,000 against an invoiced target of 10,000 and collects
+    nothing against a collected target of 1,000. Summed across bases that
+    read as 12,000 against 11,000 -- met, and the bonus paid. Judged per
+    basis the collected one is missed, so she is not.
+    """
+    books = _Books(_session_factory()())
+    books.rule("10", bonus_percentage="5")
+    books.target("10000", period=APRIL)
+    books.target("1000", period=APRIL, basis=SalesTargetBasis.COLLECTED)
+    books.invoice("SI-1", "12000.00")
+
+    earned, met = books.row(APRIL)
+    assert met is False
+    assert earned == Decimal("1200.00")
