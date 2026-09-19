@@ -21,6 +21,7 @@ from app.core.utils.dates import utc_now
 from app.finance.models import (
     DEBIT_BALANCE_ACCOUNT_TYPES,
     AccountingPeriod,
+    FinancialYear,
     GLPosting,
     JournalEntry,
     JournalLine,
@@ -659,6 +660,20 @@ class JournalEntryEngine:
             raise ValidationError(
                 f"Accounting period {period.code} is {period.status.lower()} "
                 f"and cannot accept postings."
+            )
+        # An open period inside a locked year is still closed to postings: the
+        # lock is the year-end close, and it was read only by the year's own
+        # edit and delete, so documents went on posting into it (D-FIN-3).
+        locked_year = self._session.scalar(
+            select(FinancialYear.code).where(
+                FinancialYear.id == period.financial_year_id,
+                FinancialYear.is_locked.is_(True),
+            )
+        )
+        if locked_year is not None:
+            raise ValidationError(
+                f"Accounting period {period.code} belongs to financial year "
+                f"{locked_year}, which is locked, and cannot accept postings."
             )
         return period
 
