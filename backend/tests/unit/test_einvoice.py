@@ -612,3 +612,37 @@ def test_an_invoice_under_a_live_eway_bill_cannot_be_cancelled() -> None:
         SalesInvoiceService(books.session).cancel_invoice(
             books.invoice.id, firm_scope=books.firm.id, actor_id=books.actor_id
         )
+
+
+def test_a_withdrawn_registration_is_never_registered_again() -> None:
+    """A cancelled IRN is not reused for the same document number (D-CMP-6).
+
+    Registering again reused the row: the withdrawal was overwritten --
+    REGISTERED, ``attempts`` 2, the cancellation reason still on it -- and the
+    sandbox handed back the very IRN that had been cancelled. The withdrawal
+    stays as history, and the supply is corrected by a new invoice.
+    """
+    books = _Books(_session_factory()())
+    first = books.register()
+    irn = first.irn
+    service = books.service()
+    service.cancel(
+        books.invoice.id,
+        reason="Raised against the wrong customer.",
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+
+    with pytest.raises(ConflictError, match="cannot be reused"):
+        service.register(
+            books.invoice.id, firm_scope=books.firm.id, actor_id=books.actor_id
+        )
+    books.session.rollback()
+
+    kept = service.registration_for(books.invoice.id, firm_scope=books.firm.id)
+    assert kept is not None
+    assert kept.status == RegistrationStatus.CANCELLED.value
+    assert kept.irn == irn
+    assert kept.attempts == 1
+    assert kept.cancellation_reason == "Raised against the wrong customer."
