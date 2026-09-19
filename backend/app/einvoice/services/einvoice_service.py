@@ -164,7 +164,8 @@ class EInvoiceService:
             The registration, REGISTERED or FAILED.
 
         Raises:
-            ConflictError: If the invoice already carries a live registration.
+            ConflictError: If the invoice already carries a live registration,
+                or carried one that was withdrawn.
             ValidationError: If the invoice cannot produce a valid payload.
 
         """
@@ -177,6 +178,21 @@ class EInvoiceService:
                 f"{existing.irn}. Cancel that registration before raising "
                 "another."
             )
+        # The authority never reissues a cancelled IRN, and never registers
+        # the same document number twice: the IRN is a hash of the seller's
+        # GSTIN, the year, the document type and its number. A withdrawn
+        # registration is history -- reusing its row overwrote the withdrawal
+        # and handed back the same IRN (D-CMP-6). The supply is corrected by
+        # a new invoice under a new number.
+        if existing is not None and existing.status == (
+            RegistrationStatus.CANCELLED.value
+        ):
+            raise ConflictError(
+                f"{invoice.invoice_number}'s registration {existing.irn} was "
+                "withdrawn, and a cancelled IRN cannot be reused for the same "
+                "document number. Cancel this invoice and raise a new one to "
+                "register the supply again."
+            )
         payload = self._payloads.build(invoice, firm_id=firm_scope)
         row = existing or EInvoiceRegistration(
             firm_id=firm_scope,
@@ -184,8 +200,9 @@ class EInvoiceService:
             mode=self._mode,
             created_by=actor_id,
         )
-        # A retry keeps the row and the count. Two rows for one invoice would
-        # break the promise that a supply has one reference.
+        # A retry after a refusal keeps the row and the count: no IRN was
+        # issued, so there is nothing to keep as history. Two rows for one
+        # invoice would break the promise that a supply has one reference.
         row.mode = self._mode
         row.request_payload = payload
         row.attempts = int(row.attempts or 0) + 1

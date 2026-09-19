@@ -42,6 +42,9 @@ class EInvoiceRegistrationRecord {
   final String cancellationReason;
 
   bool get isRegistered => status == 'REGISTERED';
+
+  /// The portal refused it; no IRN was issued, so it can be sent again.
+  bool get isFailed => status == 'FAILED';
   bool get isSandbox => mode == 'SANDBOX';
 
   /// What to show where the reference goes, mode included.
