@@ -42,7 +42,7 @@ from app.products.schemas import (
     ProductUpdate,
 )
 from app.products.services import ProductService
-from app.products.services.product_service import PRODUCT_DUTY_FIELDS
+from app.products.services.product_service import PRODUCT_DUTIES
 
 
 def _can_view_cost(scope: ResolvedFirmScope) -> bool:
@@ -57,14 +57,15 @@ def _can_view_cost(scope: ResolvedFirmScope) -> bool:
 def _withheld_duties(scope: ResolvedFirmScope) -> frozenset[str]:
     """Return the product duties the caller does not hold.
 
-    ``PRODUCT_PRICING_MANAGE`` and ``PRODUCT_TAX_MANAGE`` were seeded and read
-    by no route, so a price and a tax group both rode on ``PRODUCT_UPDATE``
+    ``PRODUCT_PRICING_MANAGE``, ``PRODUCT_TAX_MANAGE`` and
+    ``PRODUCT_ATTRIBUTE_MANAGE`` were seeded and read by no route, so a price,
+    a tax group and the custom fields all rode on ``PRODUCT_UPDATE``
     (D-MST-10). A projection of the principal, like the cost price above,
     because the duty is over *fields* of a resource every product editor
     writes, not over an endpoint.
     """
     return frozenset(
-        code for code in PRODUCT_DUTY_FIELDS if not scope.principal.has_permission(code)
+        code for code in PRODUCT_DUTIES if not scope.principal.has_permission(code)
     )
 
 
@@ -345,7 +346,13 @@ def update_product(
         expected_version,
     )
     row = service.update_product(
-        product_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
+        product_id,
+        data,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        # Somebody who cannot see the cost is served null and sends it back;
+        # their save must not clear what they were never shown (D-MST-5).
+        may_write_cost_price=_can_view_cost(scope),
     )
     set_etag(response, row)
     return ApiResponse(data=_response(row, can_view_cost=_can_view_cost(scope), db=db))

@@ -1143,7 +1143,7 @@ commission uses `commission-firm`:
   - **Asha**: collected **5,900.00**, commission **495.60** — 15% of 2,360 on `-P` plus 4% of 3,540 on everything else: **8.4%**, neither of the two rates that govern her. Target **Met**.
   - **Bala**: collected **4,720.00**, commission **94.40** — exactly **2.00%**, the bottom band; above the 1,000 floor; target **Missed**, so no bonus.
   - Achievement: Asha 1,000 target achieved; Bala 100,000 wanted, 4,720 invoiced (4.72%), 95,280 short.
-- **Data (HTTP):** `GET /api/v1/commission/report?from_date=2026-04-01&to_date=<month end>`; `GET /api/v1/sales-targets/achievement?from_date=…&to_date=…`.
+- **Data (HTTP):** `GET /api/v1/commission/report?from_date=2026-04-01&to_date=<month end>`; `GET /api/v1/sales-targets/achievement?from_date=…&to_date=…`. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §17.10, §17.11 and §17.16 in the fixture's own schema — both reads write nothing and are recomputed every time: the report walks `settlement_allocations` per receipt date and resolves the rule per row, the achievement sums each target over its own dates. A `measure` of MARGIN sent to a rule is dropped (D-TER-1), a credit note takes nothing off either figure (D-TER-3), and two targets over the same days count the same sales twice (D-TER-2).
 - **Leaves:** unchanged.
 
 ### TC-INCENT-007 — Payouts: accrue, approve, pay, cancel
@@ -1160,6 +1160,7 @@ commission uses `commission-firm`:
   - Step 2: no Pay on a draft (**(HTTP)** paying it: 422, "Only an approved payout can be paid. Approve it first, which is what recognises the debt."). Approve: "… approved. The cost and the debt are on the ledger."; Pay: "… paid." Journal Entries: `COMM-YYYYMM-<id>` (Dr Commission Expense / Cr Commission Payable) and `COMM-YYYYMM-<id>-PAY` (Dr Commission Payable / Cr Cash).
   - Step 3: "… cancelled. The period is free to accrue again." — nothing posted, because a draft had no journal.
   - Step 4: refused — "A commission payout already covers part of that period for this salesman (…)." Bala's paid payout still holds it; accruing for Asha alone would succeed.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §17.12 to §17.14 — accrual inserts one DRAFT `commission_payouts` row per earner with the report's figures snapshotted and **no journal** (audit `commission.payout.accrued`); approval posts `COMM-<yyyymm>-<id8>` dated `accrued_on` — the period's last day, so a date that has not arrived when the month is accrued early (D-TER-6); payment posts `…-PAY` against whatever account and date are sent (D-TER-5); cancelling a draft posts nothing and an approved one posts `…-REV`. The query in §17.12 shows the payout beside both journals.
 - **Leaves:** Bala paid, Asha cancelled.
 
 ### TC-INCENT-008 — Whoever states a debt must not move the cash
@@ -1168,6 +1169,7 @@ commission uses `commission-firm`:
 - **Fixture:** `commission-firm`
 - **Steps:** sign in as the fixture's **Asha** (`SALES_EXECUTIVE`), expand Sales. **(HTTP)** as Asha: `GET /api/v1/commission/payouts`; `POST /api/v1/commission/payouts/{any id}/approve` and `/pay`.
 - **Expect:** no Commission, Targets, Price Lists or Promotions under Sales. All three calls **403**.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §17.13 and §17.14 — the three refusals write nothing. `COMMISSION_PAY` is its own code and `SALES_MANAGER` holds neither it nor `COMMISSION_MANAGE`; `ACCOUNTANT` and `FIRM_ADMIN` hold both, and nothing compares the actor with the payout's own salesperson (D-TER-4).
 - **Leaves:** unchanged.
 
 ---
@@ -1200,6 +1202,7 @@ admin**.
 - **Expect**
   - Step 1: Chennai Region (Region) → North Zone and South Zone (Territory) → North Sales Beat and North Collections under North, South Sales Beat under South (Route), each node with its code and full path; the grid's Hierarchy column carries the path.
   - Step 2: **Route** section: Route type **Sales Route**, Visit frequency **Weekly**, Working days **Mon, Wed, Fri**, Runs from **Always**, Runs until **No end**. 2 customers, both active; Salespeople 1. Customers: Revise Check, Classic Stores. Salespeople: Asha Sales.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §17.2 and §17.5 in the fixture's own schema (`fx_<suffix>_t`) — reads only. A route is a `sales_territories` row with a live `territory_route_profiles` row and its `territory_working_days`; the query in §17.2 shows all three, and §17.5's the salespeople beside their membership.
 - **Leaves:** unchanged.
 
 ### TC-TERR-002 — A call list for a Monday, with reasons for every plan that does not run
@@ -1208,7 +1211,7 @@ admin**.
 - **Fixture:** `territory-firm`
 - **Steps:** Sales → **Call Lists**. Move to **Monday 2026-09-21** (› Next day or the date button), Salesperson Everyone. Then **Back to today**.
 - **Expect:** the date button reads "Monday 2026-09-21"; the status bar "1 of 9 plan(s) run on Monday 2026-09-21". `-BP-R1-MON` is badged **Runs on Monday** and calls Revise Check then Classic Stores (the route's round, in order). Every other plan is **Not on Monday** with its reason — e.g. `-BP-R1-FRI` "Runs on Fridays; this is a Monday."
-- **Data (HTTP):** `GET /api/v1/sales-territories/call-lists?date=2026-09-21` → nine `entries`, one with `occurs: true`.
+- **Data (HTTP):** `GET /api/v1/sales-territories/call-lists?date=2026-09-21` → nine `entries`, one with `occurs: true`. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §17.6 and §17.7 — a call list is computed from `sales_beat_plans`, the route profile's window and working days and `territory_customer_assignments`, and **writes nothing**.
 - **Leaves:** unchanged.
 
 ### TC-TERR-003 — Fortnightly and monthly plans, and why they skip a week
@@ -1220,6 +1223,7 @@ admin**.
   - 2027-01-12 (a second Tuesday and an even fortnight from 2026-04-07): "4 of 9 plan(s) run" — `-R2-TUE` and `-COLL` (both Vijaya), `-R3-TUE` and `-MTH` (both Anand).
   - 2026-10-13 (second Tuesday, off fortnight): `-COLL` **Not on Tuesday**, "Runs every other Tuesday counted from 2026-04-07; this is the week between."; `-MTH` runs.
   - 2026-10-20 (third Tuesday): `-COLL` runs; `-MTH` "Runs on the second Tuesday of the month; this is the third."
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §17.6 and §17.7 — reads only; `weekday`, `week_of_month` and `starts_on` on `sales_beat_plans` are the whole recurrence, and the query in §17.6 shows them.
 - **Leaves:** unchanged.
 
 ### TC-TERR-004 — Building a round, and saving one unchanged
@@ -1232,6 +1236,7 @@ admin**.
 - **Expect**
   - Step 1: "3 outlet(s) on North Sales Beat, in order."; reopened: 1. SN, 2. Revise Check, 3. Classic Stores — the stops moved without a collision.
   - Step 2: "2 outlet(s) on North Sales Beat, in order." both times; the same two stops in the same order. The status bar says "Saving replaces the whole round with the list on the right." — which is why the screen refuses to save a round it could not read.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §17.4 — each save replaces the node's whole list: a shop left out is soft-deleted, one brought back has its old row un-deleted, and every stop number about to move is set to NULL and flushed before the new ones are written, which is why the swap does not collide. One `sales_territory.customers_set` per save, carrying a count only. A shop that was primary here and has since become primary elsewhere is refused back with a bare 409 (D-TER-10).
 - **Leaves:** N1's round as the fixture made it.
 
 ### TC-TERR-005 — A salesperson must cover the customer's route
@@ -1240,6 +1245,7 @@ admin**.
 - **Fixture:** `territory-firm`
 - **Steps:** Sales Orders → **New Order** for `<SUFFIX>-C4` (Anand, on S1, covered by Asha): ships from MAIN, **Salesman Bala**, one line `<SUFFIX>-P` qty 1 → Create draft. Then Asha → Create draft. Then Salesman blank → Create draft → reopen.
 - **Expect:** Bala is refused in the editor's banner: "The selected salesperson is not assigned to this territory." — nothing saved. Asha saves. Blank saves and, reopened, the salesman is **Asha**, supplied by the customer's route.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §17.8 — `resolve_sales_scope` writes `territory_id`, `route_id` and `salesman_id` on the order and nothing else; the refusal writes nothing. A blank route is judged on the order's own date; a route the caller names is kept as sent (D-TER-9), and a derived salesperson is not checked for membership (D-TER-11).
 - **Leaves:** two draft orders.
 
 ### Known defects found while writing these cases
@@ -1531,6 +1537,7 @@ redo yours."*
 - **Fixture:** `commission-firm`
 - **Steps:** on A and B: Sales → Commission → **Payouts** → **Accrue period**, this month on both; **Accrue** on A, then on B.
 - **Expect:** A: "2 payout(s) accrued." B: "A commission payout already covers part of that period for this salesman (…)." — a **409** by name, never a 500. The database holds the rule (`UQ_commission_payouts_period_active`); the service supplies the sentence.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §17.12 — A's run inserts two DRAFT rows and two `commission.payout.accrued`; B's is refused by `_assert_period_is_free` and writes nothing. `UQ_commission_payouts_period_active` is what holds when both reads pass at once.
 - **Leaves:** two draft payouts.
 
 ---

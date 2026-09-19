@@ -2,12 +2,14 @@
 
 # ruff: noqa: D102, D107
 
-from collections.abc import Iterable
-from decimal import Decimal
+from collections.abc import Callable, Iterable
+from decimal import Decimal, InvalidOperation
+from functools import partial
 from io import BytesIO
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import String, case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -33,6 +35,7 @@ from app.common.open_documents import (
     find_stock_holdings,
 )
 from app.core.exceptions import (
+    ApplicationError,
     AuthorizationError,
     ConflictError,
     ResourceNotFoundError,
@@ -76,6 +79,11 @@ PRODUCT_DUTY_FIELDS: dict[str, dict[str, str]] = {
     },
     "PRODUCT_TAX_MANAGE": {"tax_profile_group_code": "tax group"},
 }
+#: The custom fields are the third duty, over a collection rather than a
+#: column, so it is judged by ``_assert_attribute_duty_held`` instead.
+ATTRIBUTE_DUTY = "PRODUCT_ATTRIBUTE_MANAGE"
+#: Every product duty a router projects from the principal.
+PRODUCT_DUTIES: frozenset[str] = frozenset(PRODUCT_DUTY_FIELDS) | {ATTRIBUTE_DUTY}
 
 
 class ProductService:
@@ -174,7 +182,23 @@ class ProductService:
     def create_product(
         self, data: ProductCreate, *, firm_id: UUID, actor_id: UUID
     ) -> Product:
+        product = self.stage_product(data, firm_id=firm_id, actor_id=actor_id)
+        self._commit()
+        self._session.refresh(product)
+        return product
+
+    def stage_product(
+        self, data: ProductCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> Product:
+        """Build, flush and audit one product without committing it.
+
+        Split out so the import can stage a whole file and commit once. Nothing
+        here is durable until the caller commits.
+        """
+        # The form and all three import formats end here, so one check covers
+        # every way a product is created (D-MST-10).
         self._assert_duties_held(None, self._product_values(data), code=data.code)
+        self._assert_attribute_duty_held(None, data.attributes, code=data.code)
         self._assert_unique_code(firm_id, data.code)
         self._assert_unique_barcode(firm_id, data.barcode)
         category = self._validate_category_reference(firm_id, data.category_id)
@@ -209,8 +233,6 @@ class ProductService:
             firm_id=firm_id,
             after_data={"code": product.code},
         )
-        self._commit()
-        self._session.refresh(product)
         return product
 
     def get_product(
@@ -239,33 +261,71 @@ class ProductService:
         *,
         firm_scope: UUID,
         actor_id: UUID,
+        may_write_cost_price: bool = True,
     ) -> Product:
+        """Apply the fields the caller sent, and only those (D-MST-5).
+
+        The update dumped its whole write model, so a ``PUT`` naming a code, a
+        name and a type wrote every other field back at its schema default --
+        no category, no tax group, no units, no price -- and replaced the
+        custom fields and the images with nothing. Absent now means leave
+        alone; an explicit ``null`` still clears, which is what keeps a
+        complete client able to empty a field. ``attributes`` and ``media``
+        are replaced only when the caller sent them: omitted leaves them, an
+        empty list clears them.
+
+        ``may_write_cost_price`` says the caller can *see* the cost price. One
+        who cannot is served ``purchase_price: null`` and a form sends that
+        null straight back, so their save leaves the stored cost alone.
+        """
         product = self.get_product(
             product_id, firm_scope=firm_scope, include_deleted=True
         )
+        values = self._product_values(data, partial=True)
+        if not may_write_cost_price:
+            values.pop("purchase_price", None)
         self._assert_unique_code(firm_scope, data.code, current_id=product.id)
-        self._assert_unique_barcode(firm_scope, data.barcode, current_id=product.id)
-        category = self._validate_category_reference(firm_scope, data.category_id)
-        self._validate_sub_category_reference(
-            firm_id=firm_scope,
-            category_id=data.category_id,
-            sub_category_id=data.sub_category_id,
+        if "barcode" in values:
+            self._assert_unique_barcode(firm_scope, data.barcode, current_id=product.id)
+        # Read with the row as the fallback: a category the caller did not
+        # mention is still the category the custom-field rules are judged by.
+        category_id = self._as_uuid(values.get("category_id", product.category_id))
+        sub_category_id = self._as_uuid(
+            values.get("sub_category_id", product.sub_category_id)
         )
-        self._validate_tax_profile_group_code(firm_scope, data.tax_profile_group_code)
-        self._assert_duties_held(product, self._product_values(data), code=data.code)
+        self._assert_duties_held(product, values, code=data.code)
+        if "attributes" in data.model_fields_set:
+            self._assert_attribute_duty_held(product, data.attributes, code=data.code)
+        if "category_id" in values:
+            category = self._validate_category_reference(firm_scope, category_id)
+        else:
+            category = self._stored_category(firm_scope, category_id)
+        if "category_id" in values or "sub_category_id" in values:
+            self._validate_sub_category_reference(
+                firm_id=firm_scope,
+                category_id=category_id,
+                sub_category_id=sub_category_id,
+            )
+        if "tax_profile_group_code" in values:
+            self._validate_tax_profile_group_code(
+                firm_scope, data.tax_profile_group_code
+            )
         self._validate_uom_references(data)
         self._validate_feature_gated_fields(data, firm_scope)
+        self._assert_price_within_mrp(product, values)
         before: dict[str, object] = {
             "code": product.code,
             "category_id": str(product.category_id),
         }
-        for field, value in self._product_values(data).items():
+        for field, value in values.items():
             setattr(product, field, value)
         product.updated_by = actor_id
-        self._store_attributes(
-            product, data.attributes, category=category, actor_id=actor_id
-        )
-        self._reconcile_media(product, data.media, actor_id)
+        if "attributes" in data.model_fields_set:
+            self._store_attributes(
+                product, data.attributes, category=category, actor_id=actor_id
+            )
+        if "media" in data.model_fields_set:
+            self._reconcile_media(product, data.media, actor_id)
         record_audit(
             self._session,
             action="product.updated",
@@ -450,6 +510,50 @@ class ProductService:
                     f"{code}: setting a product's {label} needs the "
                     f"{duty.replace('_', ' ').lower()} permission ({duty})."
                 )
+
+    def _assert_attribute_duty_held(
+        self,
+        product: Product | None,
+        attributes: list[ProductAttributeInput],
+        *,
+        code: str,
+    ) -> None:
+        """Refuse a change to the custom fields without ``PRODUCT_ATTRIBUTE_MANAGE``.
+
+        The custom fields are the third duty the seed split off ``PRODUCT_UPDATE``
+        and no route read (D-MST-10). On a create any value at all counts; on an
+        update only a set that differs from what is stored, so a form resending
+        the values it was served saves as before. Numbers compare as decimals,
+        because a stored ``10.00`` and a resent ``10`` are the same value.
+        """
+        if ATTRIBUTE_DUTY not in self._withheld_duties:
+            return
+        sent = {
+            self._attribute_key(item.attribute_definition_id, item.value)
+            for item in attributes
+        }
+        stored: set[tuple[str, str]] = set()
+        if product is not None:
+            stored = {
+                self._attribute_key(
+                    cast(UUID, item["attribute_definition_id"]), item["value"]
+                )
+                for item in self._attribute_inputs_for(product)
+            }
+        if sent != stored:
+            raise AuthorizationError(
+                f"{code}: setting a product's custom fields needs the manage "
+                f"product attributes permission ({ATTRIBUTE_DUTY})."
+            )
+
+    @staticmethod
+    def _attribute_key(definition_id: UUID, value: object) -> tuple[str, str]:
+        """Normalise one attribute value so a resend compares equal to the row."""
+        if isinstance(value, bool):
+            return (str(definition_id), str(value))
+        if isinstance(value, int | float | Decimal):
+            return (str(definition_id), str(Decimal(str(value)).normalize()))
+        return (str(definition_id), str(value))
 
     def _audit_bulk(self, product: Product, *, action: str, actor_id: UUID) -> None:
         """Record a bulk mutation the way the single-row endpoint records it.
@@ -675,11 +779,35 @@ class ProductService:
     def import_products_json(
         self, records: list[ProductCreate], *, firm_scope: UUID, actor_id: UUID
     ) -> list[Product]:
+        """Import a batch of products in one transaction.
+
+        This looped over ``create_product``, which commits -- so a file whose
+        second row clashed answered 409 with the first row written, and the
+        corrected file was then refused as a duplicate of what the failed one
+        had left behind (D-MST-9). Every row is staged, and the batch commits
+        once; a row that fails rolls the whole file back and is named by its
+        position, because a 409 that does not say which of 3,000 rows clashed
+        is not much of an answer.
+        """
         result: list[Product] = []
-        for item in records:
-            result.append(
-                self.create_product(item, firm_id=firm_scope, actor_id=actor_id)
-            )
+        try:
+            for position, item in enumerate(records, start=1):
+                try:
+                    result.append(
+                        self.stage_product(item, firm_id=firm_scope, actor_id=actor_id)
+                    )
+                except ApplicationError as error:
+                    raise type(error)(
+                        f"Row {position} ({item.code}): {error.message} "
+                        "Nothing was imported.",
+                        details=error.details,
+                    ) from error
+        except Exception:
+            self._session.rollback()
+            raise
+        self._commit()
+        for product in result:
+            self._session.refresh(product)
         return result
 
     def import_products_csv(
@@ -689,42 +817,14 @@ class ProductService:
         import io
 
         reader = csv.DictReader(io.StringIO(csv_content))
-        records: list[ProductCreate] = []
-        for row in reader:
-            code = (row.get("Code") or "").strip().upper()
-            if not code:
-                continue
-            records.append(
-                ProductCreate(
-                    code=code,
-                    barcode=None,
-                    qr_code=None,
-                    name=(row.get("Name") or "").strip(),
-                    short_name=None,
-                    description=None,
-                    product_type=(row.get("Type") or "STOCK_ITEM").strip().upper(),
-                    category_id=None,
-                    sub_category_id=None,
-                    unit=None,
-                    brand=(row.get("Brand") or "").strip() or None,
-                    model=None,
-                    hsn_sac=(row.get("HSN") or "").strip().upper() or None,
-                    tax_profile_group_code=None,
-                    purchase_price=None,
-                    selling_price=(
-                        Decimal(row["SellingPrice"])
-                        if row.get("SellingPrice")
-                        else None
-                    ),
-                    mrp=None,
-                    status=(row.get("Status") or "ACTIVE").strip().upper(),
-                    remarks=None,
-                    attributes=[],
-                    media=[],
-                )
-            )
+        records = [
+            self._import_record(number, row.get)
+            for number, row in enumerate(reader, start=2)
+        ]
         return self.import_products_json(
-            records, firm_scope=firm_scope, actor_id=actor_id
+            [record for record in records if record is not None],
+            firm_scope=firm_scope,
+            actor_id=actor_id,
         )
 
     def import_products_xlsx(
@@ -743,49 +843,75 @@ class ProductService:
             return []
         header = [str(value or "").strip() for value in rows[0]]
         index = {name: position for position, name in enumerate(header)}
-        records: list[ProductCreate] = []
-        for values in rows[1:]:
-            code = str(values[index.get("Code", -1)] or "").strip().upper()
-            if not code:
-                continue
-            records.append(
-                ProductCreate(
-                    code=code,
-                    barcode=None,
-                    qr_code=None,
-                    name=str(values[index.get("Name", -1)] or "").strip(),
-                    short_name=None,
-                    description=None,
-                    product_type=str(values[index.get("Type", -1)] or "STOCK_ITEM")
-                    .strip()
-                    .upper(),
-                    category_id=None,
-                    sub_category_id=None,
-                    unit=None,
-                    brand=str(values[index.get("Brand", -1)] or "").strip() or None,
-                    model=None,
-                    hsn_sac=str(values[index.get("HSN", -1)] or "").strip().upper()
-                    or None,
-                    tax_profile_group_code=None,
-                    purchase_price=None,
-                    selling_price=(
-                        Decimal(str(values[index.get("SellingPrice", -1)]).strip())
-                        if index.get("SellingPrice", -1) >= 0
-                        and values[index["SellingPrice"]] is not None
-                        else None
-                    ),
-                    mrp=None,
-                    status=str(values[index.get("Status", -1)] or "ACTIVE")
-                    .strip()
-                    .upper(),
-                    remarks=None,
-                    attributes=[],
-                    media=[],
-                )
-            )
+
+        def cell(values: tuple[object, ...], name: str) -> object:
+            """Read a named column, or nothing when the sheet has no such one.
+
+            Looked up with ``index.get(name, -1)`` before, which read a missing
+            column as the **last** one.
+            """
+            position = index.get(name)
+            if position is None or position >= len(values):
+                return None
+            return values[position]
+
+        records = [
+            self._import_record(number, partial(cell, values))
+            for number, values in enumerate(rows[1:], start=2)
+        ]
         return self.import_products_json(
-            records, firm_scope=firm_scope, actor_id=actor_id
+            [record for record in records if record is not None],
+            firm_scope=firm_scope,
+            actor_id=actor_id,
         )
+
+    @staticmethod
+    def _import_record(
+        row_number: int, read: Callable[[str], object]
+    ) -> ProductCreate | None:
+        """Build one product from a spreadsheet row, or skip a row with no code.
+
+        The two readers each spelled this out and called ``Decimal(...)`` and
+        the schema bare, so a bad number or an unknown status surfaced as a
+        server error naming nothing. It is refused here by row number -- the
+        header is row 1, as a spreadsheet shows it.
+        """
+
+        def text(name: str) -> str:
+            """Read a column as trimmed text."""
+            value = read(name)
+            return "" if value is None else str(value).strip()
+
+        code = text("Code").upper()
+        if not code:
+            return None
+        price = text("SellingPrice")
+        try:
+            selling_price = Decimal(price) if price else None
+        except InvalidOperation as error:
+            raise ValidationError(
+                f"Row {row_number} ({code}): SellingPrice: '{price}' is not a "
+                "number. Nothing was imported."
+            ) from error
+        try:
+            return ProductCreate.model_validate(
+                {
+                    "code": code,
+                    "name": text("Name"),
+                    "product_type": (text("Type") or "STOCK_ITEM").upper(),
+                    "brand": text("Brand") or None,
+                    "hsn_sac": text("HSN").upper() or None,
+                    "selling_price": selling_price,
+                    "status": (text("Status") or "ACTIVE").upper(),
+                }
+            )
+        except PydanticValidationError as error:
+            first = error.errors()[0]
+            column = ".".join(str(part) for part in first["loc"]) or "row"
+            raise ValidationError(
+                f"Row {row_number} ({code}): {column}: {first['msg']}. "
+                "Nothing was imported."
+            ) from error
 
     def _apply_filters(
         self,
@@ -1110,11 +1236,62 @@ class ProductService:
             )
 
     @staticmethod
-    def _product_values(data: ProductCreate | ProductUpdate) -> dict[str, object]:
-        payload = data.model_dump(exclude={"attributes", "media"}, mode="python")
+    def _product_values(
+        data: ProductCreate | ProductUpdate, *, partial: bool = False
+    ) -> dict[str, object]:
+        """Return the columns to write.
+
+        ``partial`` is what an update passes: only the fields the caller sent.
+        Create keeps the full dump, because there a default really is the
+        value to store.
+        """
+        payload = data.model_dump(
+            exclude={"attributes", "media"}, mode="python", exclude_unset=partial
+        )
         payload["product_type"] = data.product_type.value
-        payload["status"] = data.status.value
+        if "status" in payload:
+            payload["status"] = data.status.value
         return payload
+
+    @staticmethod
+    def _as_uuid(value: object) -> UUID | None:
+        """Read an id out of the untyped dump."""
+        return None if value is None else UUID(str(value))
+
+    def _stored_category(
+        self, firm_id: UUID, category_id: UUID | None
+    ) -> ProductCategory | None:
+        """Return the category a product already holds, without judging it.
+
+        A save that does not mention the category must not be refused because
+        the one on file was retired since; it is only read for its rules.
+        """
+        if category_id is None:
+            return None
+        return self._session.scalar(
+            select(ProductCategory).where(
+                ProductCategory.id == category_id,
+                ProductCategory.firm_id == firm_id,
+            )
+        )
+
+    @staticmethod
+    def _assert_price_within_mrp(product: Product, values: dict[str, object]) -> None:
+        """Hold the MRP rule across what was sent and what is stored.
+
+        The schema compares the two only when both arrive in one request, so a
+        partial save of either could otherwise cross the other on file.
+        """
+        if "mrp" not in values and "selling_price" not in values:
+            return
+        mrp = values.get("mrp", product.mrp)
+        selling_price = values.get("selling_price", product.selling_price)
+        if (
+            mrp is not None
+            and selling_price is not None
+            and Decimal(str(mrp)) < Decimal(str(selling_price))
+        ):
+            raise ValidationError("MRP must be greater than or equal to selling price.")
 
     @staticmethod
     def _build_media(

@@ -27,6 +27,7 @@ from app.business.models import (
     AttributeEntityType,
 )
 from app.business.schemas import AttributeValueInput
+from app.common.scope import ResolvedFirmScope
 from app.core.database.base import Base
 from app.core.enums import TokenType
 from app.core.exceptions import AuthorizationError, ValidationError
@@ -233,7 +234,10 @@ class TestVendors:
         assert len(stored) == 1
         assert stored[0].value_number == 2
         assert stored[0].value_text is None
-        assert vendor_response(vendor, session).attributes[0].value_number == 2
+        # The response withholds bank accounts by the caller's codes (D-MST-10);
+        # the custom fields are served whoever asks.
+        scope = ResolvedFirmScope(principal=_principal(_ACTOR), firm_id=firm.id)
+        assert vendor_response(vendor, session, scope).attributes[0].value_number == 2
 
     def test_none_leaves_them_and_an_empty_list_clears(self) -> None:
         session = _session()
