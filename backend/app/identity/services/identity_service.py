@@ -893,6 +893,8 @@ class IdentityService:
         data: UserCloneRequest,
         actor_id: UUID,
         firm_scope: UUID | None = None,
+        *,
+        allowed_firm_ids: frozenset[UUID] | None = None,
     ) -> User:
         """Hire somebody to do what an existing person does.
 
@@ -913,11 +915,20 @@ class IdentityService:
         can express; cloning a platform administrator gives you their roles and
         not their designation, or this method would be a way to mint one.
 
+        **Each role keeps its tier** when a platform caller names no firm
+        (D-IDN-3). A global grant is copied as a global grant; a role the
+        source holds in one firm is copied into that firm alone -- it used to
+        be written global, so a role granted for one firm applied to the clone
+        in every firm they were copied into. And only into firms the caller
+        may administer (`allowed_firm_ids`): a firm-tier role outside that
+        reach is refused by name rather than dropped or widened.
+
         Args:
             source_id: The person whose access to copy.
             data: The new person's own details.
             actor_id: Who is doing the hiring.
             firm_scope: The caller's firm, or None for a platform caller.
+            allowed_firm_ids: The firms the caller may staff, or None for all.
 
         Returns:
             The new user.
@@ -925,6 +936,11 @@ class IdentityService:
         """
         target = self._target_firm(firm_scope, data.firm_id)
         source = self._get_user(source_id, target)
+        firm_tier = (
+            self._firm_roles_held_by(source.id, allowed_firm_ids)
+            if target is None
+            else {}
+        )
         clone = self.create_user(
             UserCreate(
                 email=data.email,
@@ -941,6 +957,8 @@ class IdentityService:
         role_ids = self._roles_held_by(source.id, target)
         if role_ids:
             self.set_user_roles(clone.id, role_ids, actor_id, target)
+        for firm_id, firm_role_ids in firm_tier.items():
+            self._replace_scoped_user_roles(clone.id, firm_role_ids, actor_id, firm_id)
         # A platform caller is not creating inside any firm, so the clone would
         # otherwise land nowhere. Copy where the source works.
         if target is None:
@@ -966,7 +984,9 @@ class IdentityService:
         A firm caller copies what the source holds **in their firm** -- the
         firm-scoped rows plus the unscoped firm roles that reach every firm.
         Anything belonging to another firm is invisible to them and stays that
-        way. A platform caller copies every role the source holds.
+        way. A platform caller naming no firm gets the **global** rows only:
+        what the source holds in one firm is `_firm_roles_held_by`'s, and is
+        copied into that firm rather than into every one (D-IDN-3).
         """
         conditions = [
             UserRole.user_id == user_id,
@@ -974,7 +994,9 @@ class IdentityService:
             Role.is_deleted.is_(False),
             Role.is_active.is_(True),
         ]
-        if firm_scope is not None:
+        if firm_scope is None:
+            conditions.append(UserRole.firm_id.is_(None))
+        else:
             conditions.append(
                 or_(
                     UserRole.firm_id == firm_scope,
@@ -992,6 +1014,58 @@ class IdentityService:
                 .distinct()
             )
         )
+
+    def _firm_roles_held_by(
+        self, user_id: UUID, allowed_firm_ids: frozenset[UUID] | None
+    ) -> dict[UUID, list[UUID]]:
+        """Return the roles a user holds in each firm they actively belong to.
+
+        The firm tier of a platform clone. A row in a firm the source no longer
+        belongs to grants nothing and is not copied. A role the firm could not
+        hold -- anything but its own custom roles and the seeded firm roles --
+        is left behind, since no firm writer could have put it there.
+
+        Raises:
+            BusinessRuleError: If the source holds roles in a firm outside the
+                caller's reach, named by code.
+
+        """
+        rows = self._session.execute(
+            select(UserRole.firm_id, UserRole.role_id)
+            .join(Role, Role.id == UserRole.role_id)
+            .join(
+                UserFirm,
+                and_(
+                    UserFirm.user_id == UserRole.user_id,
+                    UserFirm.firm_id == UserRole.firm_id,
+                ),
+            )
+            .where(
+                UserRole.user_id == user_id,
+                UserRole.firm_id.is_not(None),
+                UserRole.is_deleted.is_(False),
+                Role.is_deleted.is_(False),
+                Role.is_active.is_(True),
+                or_(Role.firm_id == UserRole.firm_id, Role.code.in_(FIRM_ROLE_CODES)),
+                UserFirm.is_active.is_(True),
+                UserFirm.is_deleted.is_(False),
+            )
+            .order_by(UserRole.firm_id, UserRole.role_id)
+        ).all()
+        by_firm: dict[UUID, list[UUID]] = {}
+        for firm_id, role_id in rows:
+            by_firm.setdefault(firm_id, []).append(role_id)
+        if allowed_firm_ids is not None:
+            beyond = set(by_firm) - allowed_firm_ids
+            if beyond:
+                codes = sorted(
+                    self._session.scalars(select(Firm.code).where(Firm.id.in_(beyond)))
+                )
+                raise BusinessRuleError(
+                    "You can only copy roles in firms you administer. The person "
+                    f"being copied also has roles in: {', '.join(codes)}."
+                )
+        return by_firm
 
     def _copy_memberships(
         self, source_id: UUID, clone_id: UUID, actor_id: UUID
@@ -1155,7 +1229,10 @@ class IdentityService:
         for field, value in values.items():
             setattr(template, field, value)
         if role_ids is not None:
-            self._assert_roles_are_assignable(role_ids, firm_scope)
+            # Against the firm that owns the template, as at creation -- not
+            # the caller's scope, which is None for a platform caller and
+            # validated nothing (D-IDN-3).
+            self._assert_roles_are_assignable(role_ids, template.firm_id)
             self._set_template_roles(template, role_ids, actor_id)
         template.updated_by = actor_id
         record_audit(
@@ -1222,6 +1299,13 @@ class IdentityService:
         """
         target = self._target_firm(firm_scope, firm_id)
         template = self._get_user_template(template_id, target)
+        if target is None and template.firm_id is not None:
+            # A platform caller naming no firm writes the global tier, and a
+            # firm's own job applied there becomes a grant in every firm the
+            # person belongs to (D-IDN-3). Name the firm to apply it in it.
+            raise BusinessRuleError(
+                "This template belongs to one firm. Name that firm to apply it."
+            )
         if not template.is_active:
             raise BusinessRuleError("This template is no longer offered.")
         role_ids = [
@@ -1387,6 +1471,9 @@ class IdentityService:
         """
         self._ensure_identifiers(Role, role_ids)
         if firm_scope is None:
+            # Offered to every firm, so it may not bundle a role one firm owns:
+            # applied anywhere else it would be another firm's grant.
+            self._assert_no_firm_owned_roles(role_ids)
             return
         allowed = self._session.scalar(
             select(func.count())
@@ -1400,6 +1487,32 @@ class IdentityService:
         if int(allowed or 0) != len(set(role_ids)):
             raise BusinessRuleError(
                 "A template cannot bundle platform or cross-firm roles."
+            )
+
+    def _assert_no_firm_owned_roles(self, role_ids: list[UUID]) -> None:
+        """Refuse a firm's own custom role in a grant that reaches every firm.
+
+        The global tier and a platform-wide template both apply in every firm.
+        A custom role with a `firm_id` is that firm's decision, and granting it
+        there would carry it into firms that never made it (D-IDN-3).
+
+        Raises:
+            BusinessRuleError: If any role belongs to one firm, named by code.
+
+        """
+        if not role_ids:
+            return
+        owned = sorted(
+            self._session.scalars(
+                select(Role.code).where(
+                    Role.id.in_(role_ids), Role.firm_id.is_not(None)
+                )
+            )
+        )
+        if owned:
+            raise BusinessRuleError(
+                "A role one firm owns cannot be granted in every firm: "
+                f"{', '.join(owned)}. Grant it in that firm."
             )
 
     def _set_template_roles(
@@ -1650,6 +1763,7 @@ class IdentityService:
             # row as well, then re-create the survivors unscoped -- so a
             # platform administrator opening this and pressing Save, changing
             # nothing, collapsed each firm's own roles into global ones.
+            self._assert_no_firm_owned_roles(role_ids)
             self._replace_global_user_roles(user.id, role_ids, actor_id)
         else:
             allowed_count = self._session.scalar(
