@@ -306,12 +306,27 @@ class TransactionalDocumentService:
                 ),
                 actor_id,
             )
+        # The series a document is numbered from: an active one before an
+        # inactive one, the default before the rest, then the oldest -- every
+        # key non-null, so no database's NULL ordering decides it. It used to
+        # be whichever live row the database returned first, so "Use this
+        # series by default" and "Active" changed nothing (D-CFG-6). An
+        # inactive series is still returned when it is all the type has, so
+        # a document can be read; `reserve_number` refuses to issue from it.
         numbering_rule = self._session.scalar(
-            select(DocumentNumberingRule).where(
+            select(DocumentNumberingRule)
+            .where(
                 DocumentNumberingRule.firm_id == firm_id,
                 DocumentNumberingRule.document_type_id == document_type.id,
                 DocumentNumberingRule.is_deleted.is_(False),
             )
+            .order_by(
+                DocumentNumberingRule.is_active.desc(),
+                DocumentNumberingRule.is_default.desc(),
+                DocumentNumberingRule.created_at.asc(),
+                DocumentNumberingRule.id.asc(),
+            )
+            .limit(1)
         )
         if numbering_rule is None:
             numbering_rule = self._documents.create_numbering_rule(

@@ -389,6 +389,7 @@ class DocumentFrameworkService:
             created_by=actor_id,
             updated_by=actor_id,
         )
+        self._keep_one_default(row, firm_id=firm_id, actor_id=actor_id)
         self._session.add(row)
         self._session.flush()
         record_audit(
@@ -471,6 +472,7 @@ class DocumentFrameworkService:
         for field, value in values.items():
             setattr(row, field, value)
         row.updated_by = actor_id
+        self._keep_one_default(row, firm_id=firm_id, actor_id=actor_id)
         record_audit(
             self._session,
             action="document_numbering_rule.updated",
@@ -565,6 +567,13 @@ class DocumentFrameworkService:
         actor_id: UUID | None = None,
     ) -> str:
         rule = self.get_numbering_rule(firm_id, rule_id, for_update=True)
+        if not rule.is_active:
+            # An inactive series is never used (D-CFG-6).
+            raise ValidationError(
+                f"The numbering series {rule.code} is switched off, and no other "
+                "series of this document type is active. Switch a series on "
+                "before raising the document."
+            )
         on = document_date or utc_now().date()
         # The same derivation `preview_number` uses, so the two cannot answer
         # differently for the same rule and date.
@@ -775,6 +784,43 @@ class DocumentFrameworkService:
         existing = self._session.scalar(statement)
         if existing is not None:
             raise ConflictError("A document state with this code already exists.")
+
+    def _keep_one_default(
+        self, row: DocumentNumberingRule, *, firm_id: UUID, actor_id: UUID
+    ) -> None:
+        """Hold a document type to one default series, and never an inactive one.
+
+        The series a document is numbered from is the active default
+        (D-CFG-6), so a second default would leave the choice to row order
+        again. Saving a series as the default takes the flag off the type's
+        other series, the way choosing a default anywhere else works; a
+        series that is switched off cannot be the default at all.
+
+        Raises:
+            ValidationError: If the series is the default and switched off.
+
+        """
+        if not row.is_default:
+            return
+        if not row.is_active:
+            raise ValidationError(
+                f"The numbering series {row.code} is switched off, so it cannot "
+                "be the default. Switch it on, or make another series the "
+                "default."
+            )
+        others = self._session.scalars(
+            select(DocumentNumberingRule).where(
+                DocumentNumberingRule.firm_id == firm_id,
+                DocumentNumberingRule.document_type_id == row.document_type_id,
+                DocumentNumberingRule.is_default.is_(True),
+                DocumentNumberingRule.is_deleted.is_(False),
+            )
+        ).all()
+        for other in others:
+            if other is row:
+                continue
+            other.is_default = False
+            other.updated_by = actor_id
 
     @staticmethod
     def _assert_outside_the_manual_journal_namespace(
