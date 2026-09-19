@@ -1930,7 +1930,14 @@ class SalesReturnService(TransactionalDocumentService):
             )
         response = self._tax.simulate(
             TaxRuleSimulationRequest(
-                transaction_type="SALES_RETURN",
+                # The supply's own nature, not just the document's name: a buyer in
+                # another state is charged IGST (D-CMP-1).
+                transaction_type=self._tax.outward_transaction_type(
+                    "SALES_RETURN",
+                    firm_id=firm_id,
+                    branch_id=branch_id,
+                    customer_id=customer_id,
+                ),
                 transaction_date=return_date,
                 business_profile_id=business_profile_id,
                 tax_profile_id=tax_profile_id,
@@ -1939,7 +1946,10 @@ class SalesReturnService(TransactionalDocumentService):
                 customer_id=customer_id,
                 product_id=product_id,
                 invoice_value=invoice_value,
-                additional_context={"source": "sales_return"},
+                additional_context={
+                    "source": "sales_return",
+                    "document_type": "SALES_RETURN",
+                },
             ),
             firm_scope=firm_id,
             actor_id=actor_id,
