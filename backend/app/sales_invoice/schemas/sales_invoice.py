@@ -92,6 +92,15 @@ class BillableLine(SalesInvoiceSchema):
     #: free and no more.
     free_quantity: Decimal
 
+    #: Whether each unit of the product carries its own serial number. A bill
+    #: that dispatches its own goods -- one billing an order, for a firm that
+    #: types no delivery notes -- names the units on the line (D-STK-15).
+    track_serial: bool = False
+
+    #: Where the source line ships from, so a picker can offer the units on
+    #: that shelf. None where the line does not say.
+    warehouse_id: UUID | None = None
+
 
 class BillableDocument(SalesInvoiceSchema):
     """A dispatched delivery note or approved order with something left to bill.

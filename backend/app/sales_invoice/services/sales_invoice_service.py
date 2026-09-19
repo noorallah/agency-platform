@@ -2367,6 +2367,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                         discount_percent=self._q(item.discount_percent),
                         discount_amount=self._q(item.discount_amount),
                         free_quantity=self._q(item.free_quantity),
+                        warehouse_id=item.warehouse_id,
                     )
                     for item in lines
                 )
@@ -2506,6 +2507,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                         discount_percent=self._q(item.discount_percent),
                         discount_amount=self._q(item.discount_amount),
                         free_quantity=self._q(item.free_quantity),
+                        warehouse_id=item.warehouse_id or order.warehouse_id,
                     )
                     for item in lines
                 )
@@ -2540,6 +2542,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         discount_percent: Decimal,
         discount_amount: Decimal,
         free_quantity: Decimal,
+        warehouse_id: UUID | None = None,
     ) -> BillableLine | None:
         """Return one line's remaining quantity, or None if it is fully billed.
 
@@ -2576,7 +2579,16 @@ class SalesInvoiceService(TransactionalDocumentService):
             discount_percent=discount_percent,
             discount_amount=discount_amount,
             free_quantity=free_quantity,
+            track_serial=self._tracks_serial(product_id),
+            warehouse_id=warehouse_id,
         )
+
+    def _tracks_serial(self, product_id: UUID | None) -> bool:
+        """Say whether a product's units each carry a serial number."""
+        if product_id is None:
+            return False
+        product = self._session.get(Product, product_id)
+        return bool(product is not None and product.track_serial)
 
     def _customer_name(self, customer_id: UUID | None) -> str:
         """Name the customer so a picker is not a list of UUIDs."""

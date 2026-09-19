@@ -1977,6 +1977,27 @@ def test_a_dispatched_note_is_offered_with_what_is_left_to_bill() -> None:
     assert billable[0].customer_name
 
 
+def test_a_billable_line_says_whether_its_units_carry_serials() -> None:
+    """D-STK-15: the bill editor has to know which lines name their units.
+
+    A bill that dispatches its own goods must name a serial-tracked line's
+    units, and the editor offers the units on the shelf the line ships from.
+    """
+    setup = _Billing(_session_factory()())
+    _dispatched_note(setup)
+    setup.product.track_serial = True
+    setup.session.commit()
+
+    line = (
+        SalesInvoiceService(setup.session)
+        .billable_documents(firm_scope=setup.firm.id)[0]
+        .lines[0]
+    )
+
+    assert line.track_serial is True
+    assert line.warehouse_id == setup.warehouse.id
+
+
 def test_a_partly_billed_note_offers_only_the_rest() -> None:
     """The number offered is the number the save will accept."""
     setup = _Billing(_session_factory()())
