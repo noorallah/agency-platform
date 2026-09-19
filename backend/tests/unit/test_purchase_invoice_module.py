@@ -483,3 +483,67 @@ def test_a_bill_cannot_skip_the_receipt() -> None:
                 actor_id=uuid4(),
             )
     assert session.scalar(select(PurchaseInvoice.id)) is None
+
+
+def test_a_bill_cannot_lift_its_own_cap() -> None:
+    """D-BUY-15: the request body used to carry a switch for the cap.
+
+    Driven 2026-09-19 on TEST01 (fixture ``po-received``, suffix t0919hv0b):
+    PI-2026-2027-000010 for 60 against GRN-TEST01-HO-2026-2027-000020, a
+    receipt of 6, with ``allow_over_invoice`` true -- created and approved at
+    7,080.00 owed to the supplier for goods that never came in. Neither field
+    is on the write schema any more, and the cap applies to every bill.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    vendor = _vendor(session, firm_id=firm.id)
+    order = _purchase_order(
+        session,
+        firm_id=firm.id,
+        vendor_id=vendor.id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+    )
+    po_line = session.scalar(
+        select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+    )
+    assert po_line is not None
+    receipt, receipt_line = _received(session, po_line)
+    body = PurchaseInvoiceCreate(
+        supplier_invoice_number="SUP-OVER",
+        supplier_invoice_date=date(2026, 8, 2),
+        invoice_date=date(2026, 8, 2),
+        source_documents=[
+            {
+                "source_document_type": PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                "source_document_id": receipt.id,
+            }
+        ],
+        lines=[
+            PurchaseInvoiceLineWrite(
+                source_document_type=PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                source_document_id=receipt.id,
+                source_document_line_id=receipt_line.id,
+                line_number=1,
+                current_invoice_quantity=Decimal("60"),
+            )
+        ],
+    ).model_dump(mode="json")
+
+    for field, value in (("allow_over_invoice", True), ("over_invoice_percent", 1000)):
+        with pytest.raises(PydanticValidationError, match=field):
+            PurchaseInvoiceCreate.model_validate({**body, field: value})
+
+    # Without the switch the cap holds: ten were received, sixty cannot be
+    # billed.
+    with pytest.raises(ValidationError, match="exceeds the available source"):
+        PurchaseInvoiceService(session).create_invoice(
+            PurchaseInvoiceCreate.model_validate(body),
+            firm_id=firm.id,
+            actor_id=uuid4(),
+        )
+    # The request's session is rolled back on the refusal, as here.
+    session.rollback()
+    assert session.scalar(select(PurchaseInvoice.id)) is None
