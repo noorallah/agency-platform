@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/concurrency.dart';
 import '../../core/design/design_tokens.dart';
+import '../../models/batch_serial.dart';
 import '../../models/entities.dart';
 import '../../models/customer.dart';
 import '../../models/product.dart';
@@ -81,6 +82,15 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   List<Product> _products = const [];
   String? _customerId;
   final List<_DirectLine> _directLines = <_DirectLine>[_DirectLine()];
+
+  /// The serials picked for a document line, keyed by its source line id.
+  /// Direct lines carry their own on [_DirectLine.serialIds].
+  final Map<String, List<String>> _pickedSerials = <String, List<String>>{};
+
+  /// AVAILABLE serials of each serial-tracked product, keyed by product and
+  /// warehouse: what the bill picks from when it ships its own goods.
+  final Map<String, List<SerialRecord>> _serialsOnShelf =
+      <String, List<SerialRecord>>{};
 
   @override
   void initState() {
@@ -226,9 +236,13 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       controller.dispose();
     }
     _quantities.clear();
+    _pickedSerials.clear();
     for (final BillableLine line in document.lines) {
       _quantities[line.sourceDocumentLineId] =
           TextEditingController(text: line.remainingQuantity);
+      if (_picksSerials(document, line)) {
+        _loadSerials(line.productId, line.warehouseId);
+      }
     }
     _document = document;
   }
@@ -290,6 +304,8 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         'line_number': lines.length + 1,
         'current_invoice_quantity': typed,
         'unit_price': line.unitPrice,
+        if (_picksSerials(document, line))
+          'serial_ids': [...?_pickedSerials[line.sourceDocumentLineId]],
       });
     }
     if (lines.isEmpty) return null;
@@ -337,6 +353,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         // arrangement the customer already has; sending a zero refuses it.
         if (line.discount.text.trim().isNotEmpty)
           'discount_percent': line.discount.text.trim(),
+        if (_isSerialised(product)) 'serial_ids': [...line.serialIds],
       });
     }
     if (lines.isEmpty) return null;
@@ -357,6 +374,11 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     final Json? payload = _payload();
     if (payload == null) {
       setState(() => _error = 'Bill at least one line.');
+      return;
+    }
+    final String? short = _serialShortfall();
+    if (short != null) {
+      setState(() => _error = short);
       return;
     }
     setState(() {
@@ -387,6 +409,154 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         _saving = false;
       });
     }
+  }
+
+  // ── Serial numbers (D-STK-15) ──────────────────────────────────────────
+  // A bill that dispatches its own goods -- the firm types no delivery note --
+  // is the document that issues the stock, so it names the units going out,
+  // one per unit, the way the delivery note editor does (D-STK-4). The server
+  // refuses such a line without them. A bill of a note already dispatched
+  // names none: the note picked them.
+
+  bool _isSerialised(String productId) {
+    for (final Product product in _products) {
+      if (product.id == productId) return product.trackSerial;
+    }
+    return false;
+  }
+
+  /// Whether a document line is one this bill must name serials for.
+  bool _picksSerials(BillableDocument document, BillableLine line) =>
+      document.sourceDocumentType == 'SALES_ORDER' && line.trackSerial;
+
+  /// Where a direct bill's goods leave from, when the firm has said.
+  String get _directWarehouse => _stages.defaultWarehouseId ?? '';
+
+  static String _shelfKey(String productId, String warehouseId) =>
+      '$productId@$warehouseId';
+
+  /// Read the AVAILABLE units of one product, once per product and shelf.
+  ///
+  /// With no warehouse named -- a direct bill whose firm set no default --
+  /// every shelf's units are offered and the server refuses one that is not
+  /// on the shelf the goods leave from, by name.
+  Future<void> _loadSerials(String productId, String warehouseId) async {
+    final String key = _shelfKey(productId, warehouseId);
+    if (productId.isEmpty || _serialsOnShelf.containsKey(key)) return;
+    try {
+      _serialsOnShelf[key] = await fetchAllPages<SerialRecord>(
+        (int page) => widget.api.serials(
+          page: page,
+          pageSize: maxApiPageSize,
+          sortBy: 'serial_number',
+          descending: false,
+          filters: SerialQuery(
+            productId: productId,
+            warehouseId: warehouseId.isEmpty ? null : warehouseId,
+            status: 'AVAILABLE',
+          ),
+        ),
+      );
+    } on ApiException catch (exception) {
+      _serialsOnShelf[key] = const [];
+      _error = 'Could not read the serial numbers on the shelf: '
+          '${exception.message}';
+    }
+    if (mounted) setState(() {});
+  }
+
+  /// How many units a quantity is, or null when it is not a whole number.
+  static int? _units(String quantity) {
+    final double value = double.tryParse(quantity.trim()) ?? 0;
+    return value == value.roundToDouble() ? value.toInt() : null;
+  }
+
+  /// Say which line is short of serials, before the round trip.
+  String? _serialShortfall() {
+    if (_direct) {
+      for (int index = 0; index < _directLines.length; index++) {
+        final _DirectLine line = _directLines[index];
+        if (!_isSerialised(line.productId ?? '')) continue;
+        final int? needed = _units(line.quantity.text);
+        if (needed != null && needed > 0 && line.serialIds.length != needed) {
+          return 'Line ${index + 1}: pick one serial number per unit going '
+              'out -- $needed needed, ${line.serialIds.length} picked.';
+        }
+      }
+      return null;
+    }
+    final BillableDocument? document = _document;
+    if (document == null) return null;
+    for (final BillableLine line in document.lines) {
+      if (!_picksSerials(document, line)) continue;
+      final int? needed =
+          _units(_quantities[line.sourceDocumentLineId]?.text ?? '');
+      final int picked = _pickedSerials[line.sourceDocumentLineId]?.length ?? 0;
+      if (needed != null && needed > 0 && picked != needed) {
+        return '${line.label}: pick one serial number per unit going out -- '
+            '$needed needed, $picked picked.';
+      }
+    }
+    return null;
+  }
+
+  /// Let whoever bills say which units are going out.
+  Widget _serialPicker({
+    required Key key,
+    required String productId,
+    required String warehouseId,
+    required List<String> picked,
+    required int? needed,
+  }) {
+    final ThemeData theme = Theme.of(context);
+    final List<SerialRecord> onShelf =
+        _serialsOnShelf[_shelfKey(productId, warehouseId)] ?? const [];
+    final bool short = needed != null && picked.length != needed;
+    return Padding(
+      key: key,
+      padding: const EdgeInsets.only(bottom: AppSpacing.md),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            needed == null
+                ? 'Serial numbers going out — ${picked.length} picked'
+                : 'Serial numbers going out — pick $needed, '
+                    '${picked.length} picked',
+            style: theme.textTheme.labelMedium?.copyWith(
+              color: short ? theme.colorScheme.error : null,
+            ),
+          ),
+          const SizedBox(height: AppSpacing.xs),
+          if (onShelf.isEmpty)
+            Text(
+              'No serial numbers of this product are AVAILABLE. Number the '
+              'units under Inventory → Batch & Serial first.',
+              style: theme.textTheme.bodySmall,
+            )
+          else
+            Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: [
+                for (final SerialRecord serial in onShelf)
+                  FilterChip(
+                    key: ValueKey<String>('serial-pick-${serial.id}'),
+                    label: Text(serial.serialNumber),
+                    selected: picked.contains(serial.id),
+                    onSelected: (bool on) => setState(() {
+                      if (on) {
+                        picked.add(serial.id);
+                      } else {
+                        picked.remove(serial.id);
+                      }
+                    }),
+                  ),
+              ],
+            ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -461,8 +631,17 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
                 onChanged: (value) => setState(() => _customerId = value),
               ),
               const SizedBox(height: AppSpacing.md),
-              for (int index = 0; index < _directLines.length; index++)
+              for (int index = 0; index < _directLines.length; index++) ...[
                 _directLineRow(index, theme),
+                if (_isSerialised(_directLines[index].productId ?? ''))
+                  _serialPicker(
+                    key: ValueKey<String>('serials-direct-$index'),
+                    productId: _directLines[index].productId ?? '',
+                    warehouseId: _directWarehouse,
+                    picked: _directLines[index].serialIds,
+                    needed: _units(_directLines[index].quantity.text),
+                  ),
+              ],
               Align(
                 alignment: Alignment.centerLeft,
                 child: TextButton.icon(
@@ -535,7 +714,16 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
                     child: Text(item.name, overflow: TextOverflow.ellipsis),
                   ),
               ],
-              onChanged: (value) => setState(() => line.productId = value),
+              onChanged: (value) {
+                setState(() {
+                  line.productId = value;
+                  // Units of the last product are not units of this one.
+                  line.serialIds.clear();
+                });
+                if (value != null && _isSerialised(value)) {
+                  _loadSerials(value, _directWarehouse);
+                }
+              },
             ),
           ),
           const SizedBox(width: AppSpacing.sm),
@@ -544,6 +732,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
               controller: line.quantity,
               decoration: const InputDecoration(labelText: 'Qty'),
               keyboardType: TextInputType.number,
+              onChanged: (_) => setState(() {}),
             ),
           ),
           const SizedBox(width: AppSpacing.sm),
@@ -620,8 +809,20 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
               ),
               const SizedBox(height: AppSpacing.md),
               if (_document != null) ...[
-                for (final BillableLine line in _document!.lines)
+                for (final BillableLine line in _document!.lines) ...[
                   _lineRow(line, theme),
+                  if (_picksSerials(_document!, line))
+                    _serialPicker(
+                      key: ValueKey<String>(
+                          'serials-${line.sourceDocumentLineId}'),
+                      productId: line.productId,
+                      warehouseId: line.warehouseId,
+                      picked: _pickedSerials.putIfAbsent(
+                          line.sourceDocumentLineId, () => <String>[]),
+                      needed: _units(
+                          _quantities[line.sourceDocumentLineId]?.text ?? ''),
+                    ),
+                ],
                 const SizedBox(height: AppSpacing.md),
                 TextFormField(
                   controller: _billDiscount,
@@ -727,6 +928,9 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
 /// One line of a bill raised without any paperwork behind it.
 class _DirectLine {
   String? productId;
+
+  /// The units picked for a serial-tracked product, by serial id.
+  final List<String> serialIds = <String>[];
   final TextEditingController quantity = TextEditingController();
   final TextEditingController price = TextEditingController();
   final TextEditingController discount = TextEditingController();
