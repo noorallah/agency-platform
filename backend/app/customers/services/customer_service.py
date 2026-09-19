@@ -12,7 +12,12 @@ from sqlalchemy.orm import Session
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit
-from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
+from app.core.exceptions import (
+    AuthorizationError,
+    ConflictError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.core.utils.dates import utc_now
 from app.customers.models import (
     Customer,
@@ -156,8 +161,14 @@ class CustomerService:
         *,
         firm_scope: UUID | None,
         actor_id: UUID,
+        may_change_credit_limit: bool = False,
     ) -> Customer:
-        """Replace customer fields and reconcile addresses and contacts."""
+        """Replace customer fields and reconcile addresses and contacts.
+
+        ``may_change_credit_limit`` says the caller holds
+        ``CUSTOMER_MANAGE_SETTINGS``. Without it a save that moves the limit is
+        refused by name, and one that resends the stored figure goes through.
+        """
         customer = self.get(customer_id, firm_scope=firm_scope)
         self._assert_unique(customer.firm_id, data, excluding_id=customer.id)
         # Partial on update: a field the caller never mentioned keeps what the
@@ -167,6 +178,9 @@ class CustomerService:
         # draft. An explicit null still clears, which is what keeps a complete
         # client able to empty a field.
         values = self._customer_values(data, partial=True)
+        self._assert_may_change_credit_limit(
+            customer, values, allowed=may_change_credit_limit
+        )
         # The dump is untyped, so the figure is read back as a Decimal before
         # any of the balance arithmetic below touches it.
         opening_balance = Decimal(
@@ -571,6 +585,28 @@ class CustomerService:
         return ConflictError(
             "Customer code, GST number, or PAN number already exists " "in this firm."
         )
+
+    @staticmethod
+    def _assert_may_change_credit_limit(
+        customer: Customer, values: dict[str, object], *, allowed: bool
+    ) -> None:
+        """Refuse a credit-limit change from somebody the limit constrains.
+
+        The credit policy -- `CUSTOMER_MANAGE_SETTINGS` -- is withheld from
+        `SALES_MANAGER` so the role the block limits cannot switch it off. The
+        limit is the other half of that control: raising it, or setting it to
+        zero ("no limit"), lifts a BLOCK for that customer just as surely, so
+        it takes the same code. A form resending the stored figure is not a
+        change and is not refused (D-CFG-17).
+        """
+        if allowed or "credit_limit" not in values:
+            return
+        sent = Decimal(str(values["credit_limit"]))
+        if sent != customer.credit_limit:
+            raise AuthorizationError(
+                "Changing a customer's credit limit needs the manage customer "
+                "settings permission (CUSTOMER_MANAGE_SETTINGS)."
+            )
 
     @staticmethod
     def _customer_values(
