@@ -16,6 +16,7 @@ from app.common.master_references import (
     MasterReferences,
     assert_master_references,
 )
+from app.common.open_documents import describe_documents, find_open_documents
 from app.core.exceptions import (
     AuthorizationError,
     ConflictError,
@@ -930,6 +931,21 @@ class CustomerService:
                 f"{'' if len(open_numbers) == 1 else 's'} ({shown}"
                 f"{f' and {more} more' if more > 0 else ''})"
             )
+        # The documents still in flight (D-MST-4). The guard stopped at
+        # invoices, so a customer went under an approved order holding a
+        # reservation, or with goods shipped and not billed -- and the note or
+        # the bill that order needs was then refused, because every sales
+        # service loads the customer with ``is_deleted`` false. A draft
+        # invoice is already named above.
+        in_flight = [
+            group
+            for group in find_open_documents(
+                self._session, customer.firm_id, customer_id=customer.id
+            )
+            if group.label != "draft sales invoice"
+        ]
+        if in_flight:
+            reasons.append(f"is on {describe_documents(in_flight)}")
         if reasons:
             raise ValidationError(
                 f"{customer.code} cannot be deleted: it {', '.join(reasons)}. "

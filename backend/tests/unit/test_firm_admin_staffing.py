@@ -30,6 +30,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 import app.core.database.all_models  # noqa: F401
+from app.common.scope import FirmScope
 from app.core.config.settings import Settings
 from app.core.database.base import Base
 from app.core.exceptions import BusinessRuleError, ValidationError
@@ -591,6 +592,9 @@ def _emails_listed(
     """Return the emails one caller sees when asking about one firm."""
     page = list_users(
         principal,
+        # What `optional_firm_scope` hands the route once it has checked the
+        # caller's membership of the firm they are working in (D-IDN-7).
+        caller_scope=FirmScope(principal=principal, firm_id=principal.firm_id),
         firm_id=firm_id,
         db=session,
         settings=Settings(),
