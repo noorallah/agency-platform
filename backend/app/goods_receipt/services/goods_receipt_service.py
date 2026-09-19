@@ -50,7 +50,7 @@ from app.goods_receipt.schemas import (
     GoodsReceiptUpdate,
 )
 from app.inventory.models import StockLedgerEntry
-from app.inventory.services import InventoryService
+from app.inventory.services import InventoryService, LineConversion
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
 from app.purchase.schemas import PurchaseOrderStatus
@@ -1272,6 +1272,9 @@ class GoodsReceiptService(TransactionalDocumentService):
                 ),
                 entered_uom_id=line.purchase_uom_id,
                 conversion_version=line.conversion_version,
+                line_conversion=LineConversion(
+                    line.conversion_factor, line.inventory_uom_id
+                ),
                 remarks=line.remarks,
                 batch_id=batch_id,
             )
