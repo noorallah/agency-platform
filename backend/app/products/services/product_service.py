@@ -26,6 +26,12 @@ from app.business.models import (
 from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader
+from app.common.open_documents import (
+    describe_documents,
+    describe_stock,
+    find_open_documents,
+    find_stock_holdings,
+)
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.products.models import (
@@ -248,6 +254,7 @@ class ProductService:
         self, product_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> None:
         product = self.get_product(product_id, firm_scope=firm_scope)
+        self._assert_product_removable(product)
         product.is_deleted = True
         product.deleted_at = utc_now()
         product.deleted_by = actor_id
@@ -318,9 +325,15 @@ class ProductService:
     def bulk_delete(
         self, ids: Iterable[UUID], *, firm_scope: UUID, actor_id: UUID
     ) -> int:
+        # Every row is judged before any is touched, so a batch whose fifth
+        # product still holds stock deletes none of them (D-MST-1).
+        products = [
+            self.get_product(product_id, firm_scope=firm_scope) for product_id in ids
+        ]
+        for product in products:
+            self._assert_product_removable(product)
         count = 0
-        for product_id in ids:
-            product = self.get_product(product_id, firm_scope=firm_scope)
+        for product in products:
             if product.is_deleted:
                 continue
             product.is_deleted = True
@@ -352,6 +365,36 @@ class ProductService:
         if count > 0:
             self._commit()
         return count
+
+    def _assert_product_removable(self, product: Product) -> None:
+        """Refuse to delete a product that still holds stock or is in flight.
+
+        Deleting one hid it and nothing else (D-MST-1): the stock rows and the
+        valuation stayed on the books, the stock summary filters deleted
+        products out, and every movement of one is refused -- "Product does
+        not belong to the active firm." -- so the quantity could be neither
+        seen nor written off until somebody restored the product. The rule
+        every stock package keeps: a product with quantity on hand, a
+        reservation, or a document still to be shipped, received or billed is
+        retired by setting it inactive, not by deleting it.
+        """
+        reasons: list[str] = []
+        holdings = find_stock_holdings(
+            self._session, product.firm_id, product_id=product.id
+        )
+        if holdings:
+            reasons.append(f"holds {describe_stock(holdings)}")
+        documents = find_open_documents(
+            self._session, product.firm_id, product_id=product.id
+        )
+        if documents:
+            reasons.append(f"is on {describe_documents(documents)}")
+        if reasons:
+            raise ValidationError(
+                f"{product.code} cannot be deleted: it {' and '.join(reasons)}. "
+                "Move or write off the stock and finish, cancel or close what "
+                "is open first, or set the product inactive to stop trading it."
+            )
 
     def _audit_bulk(self, product: Product, *, action: str, actor_id: UUID) -> None:
         """Record a bulk mutation the way the single-row endpoint records it.
