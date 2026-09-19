@@ -47,12 +47,7 @@ from app.finance.services.journal_engine import quantize_money as quantize_ledge
 from app.products.models import Product, ProductCategory
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_targets.services import SalesTargetService
-from app.settlements.models import (
-    Settlement,
-    SettlementAllocation,
-    SettlementDirection,
-    SettlementStatus,
-)
+from app.settlements.services.net_sales import collected_net, invoiced_net
 
 #: What the report calls money that belongs to nobody.
 UNASSIGNED_LABEL = "Unassigned"
@@ -884,14 +879,12 @@ class CommissionService:
                 # An unscoped rule matches every line and the shares sum to
                 # the invoice exactly, so it measures precisely what it
                 # measured before scoping existed. A scoped one takes only
-                # its lines' share -- of the bill on the invoiced basis, and
-                # of each receipt in the same proportion on the collected one,
-                # because a payment clears a share of every line it settles.
-                portion = (
-                    line.share
-                    if kind == CommissionBasis.INVOICED.value
-                    else (amount * line.share / billed if billed > ZERO else ZERO)
-                )
+                # its lines' share -- of what the bill is now worth on the
+                # invoiced basis, and of each receipt on the collected one,
+                # in the same proportion either way, because a payment clears
+                # a share of every line it settles and a credit takes a share
+                # off every line it credits.
+                portion = amount * line.share / billed if billed > ZERO else ZERO
                 if rule.measure == CommissionMeasure.MARGIN.value:
                     margin = self._margin_of(line, portion)
                     if margin is None:
@@ -969,35 +962,21 @@ class CommissionService:
         day the money arrived: two receipts against one invoice can fall either
         side of a rate change, and a sum taken first would have to pick one of
         the two rates for both.
+
+        Net of what has been credited against the bill since -- a credit note
+        or a completed return -- which comes off the latest receipts first.
+        `collected_net` is the one walk, shared with `app/sales_targets`, so
+        a target and a payout cannot disagree about the same money.
         """
-        statement = (
-            select(
-                SalesInvoice.salesman_id,
-                SalesInvoice.id,
-                Settlement.settlement_date,
-                SettlementAllocation.amount,
-            )
-            .join(Settlement, Settlement.id == SettlementAllocation.settlement_id)
-            .join(
-                SalesInvoice, SalesInvoice.id == SettlementAllocation.sales_invoice_id
-            )
-            .where(
-                SettlementAllocation.firm_id == firm_id,
-                SettlementAllocation.is_deleted.is_(False),
-                SettlementAllocation.sales_invoice_id.is_not(None),
-                Settlement.is_deleted.is_(False),
-                Settlement.status == SettlementStatus.POSTED.value,
-                Settlement.direction == SettlementDirection.RECEIPT.value,
-                Settlement.settlement_date >= from_date,
-                Settlement.settlement_date <= to_date,
-                SalesInvoice.is_deleted.is_(False),
-            )
-        )
-        if salesman_id is not None:
-            statement = statement.where(SalesInvoice.salesman_id == salesman_id)
         return [
-            (owner, invoice_id, when, Decimal(str(amount)))
-            for owner, invoice_id, when, amount in self._session.execute(statement)
+            (row.salesman_id, row.invoice_id, row.when, row.amount)
+            for row in collected_net(
+                self._session,
+                firm_id=firm_id,
+                from_date=from_date,
+                to_date=to_date,
+                salesman_id=salesman_id,
+            )
         ]
 
     def _active_rules(self, firm_id: UUID) -> list[CommissionRule]:
@@ -1290,22 +1269,19 @@ class CommissionService:
         reason the collections are -- the rule is resolved on the document's
         own date, so a rate change mid-period splits the period rather than
         pricing all of it one way.
+
+        Each bill is worth its total **less what has been credited against
+        it**, whenever that credit was raised: a sale later returned or
+        credited was not that much of a sale. `invoiced_net` is the one walk,
+        shared with `app/sales_targets`.
         """
-        statement = select(
-            SalesInvoice.salesman_id,
-            SalesInvoice.id,
-            SalesInvoice.invoice_date,
-            SalesInvoice.grand_total,
-        ).where(
-            SalesInvoice.firm_id == firm_id,
-            SalesInvoice.is_deleted.is_(False),
-            SalesInvoice.status.in_(("APPROVED", "CLOSED")),
-            SalesInvoice.invoice_date >= from_date,
-            SalesInvoice.invoice_date <= to_date,
-        )
-        if salesman_id is not None:
-            statement = statement.where(SalesInvoice.salesman_id == salesman_id)
         return [
-            (owner, invoice_id, when, Decimal(str(amount)))
-            for owner, invoice_id, when, amount in self._session.execute(statement)
+            (row.salesman_id, row.invoice_id, row.when, row.amount)
+            for row in invoiced_net(
+                self._session,
+                firm_id=firm_id,
+                from_date=from_date,
+                to_date=to_date,
+                salesman_id=salesman_id,
+            )
         ]
