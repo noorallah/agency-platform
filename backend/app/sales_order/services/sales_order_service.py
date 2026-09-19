@@ -28,6 +28,9 @@ from app.core.utils.pricing import (
 )
 from app.customers.models import Customer, CustomerGroup
 from app.customers.services import CreditAssessment, CreditControlService
+from app.customers.services.trading_status import (
+    assert_customer_takes_new_documents,
+)
 from app.delivery_note.models import DeliveryNote
 from app.document_framework.models import (
     DocumentLifecycleEvent,
@@ -296,9 +299,18 @@ class SalesOrderService(TransactionalDocumentService):
         return row
 
     def stage_order(
-        self, data: SalesOrderCreate, *, firm_id: UUID, actor_id: UUID
+        self,
+        data: SalesOrderCreate,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        raised_as: str = "sales order",
     ) -> SalesOrder:
         """Create one sales order without committing it.
+
+        ``raised_as`` is what the person is actually raising, for the refusal a
+        customer who is not ACTIVE gets: a firm that bills without typing an
+        order is raising a bill, and should be told so (D-MST-6).
 
         Split out so a caller composing several documents -- an import, or a
         firm whose configuration says this stage is synthesised -- can write
@@ -324,6 +336,9 @@ class SalesOrderService(TransactionalDocumentService):
             territory_id=data.territory_id,
             route_id=data.route_id,
         )
+        # Every way a sale starts comes through here -- the form, the import,
+        # a converted quotation and a bill raised without an order.
+        assert_customer_takes_new_documents(customer, document=raised_as)
         scope = resolve_sales_scope(
             self._session,
             firm_id=firm_id,
@@ -437,6 +452,10 @@ class SalesOrderService(TransactionalDocumentService):
             territory_id=data.territory_id,
             route_id=data.route_id,
         )
+        # A draft already raised carries on when its customer goes inactive;
+        # moving it to one who is, is a new sale to them.
+        if data.customer_id != row.customer_id:
+            assert_customer_takes_new_documents(customer, document="sales order")
         scope = resolve_sales_scope(
             self._session,
             firm_id=firm_scope,
@@ -1354,7 +1373,16 @@ class SalesOrderService(TransactionalDocumentService):
         customer = self._session.get(Customer, customer_id)
         if customer is None or customer.customer_group_id is None:
             return None, None
-        group = self._session.get(CustomerGroup, customer.customer_group_id)
+        # The customer's own firm's live segment, and nothing else: read by id
+        # alone, another firm's segment in the shared store -- or one retired
+        # since -- went on pricing this firm's documents (D-MST-3).
+        group = self._session.scalar(
+            select(CustomerGroup).where(
+                CustomerGroup.id == customer.customer_group_id,
+                CustomerGroup.firm_id == customer.firm_id,
+                CustomerGroup.is_deleted.is_(False),
+            )
+        )
         if group is None or not group.is_active:
             return None, None
         rate = self._q(group.default_discount_percent)

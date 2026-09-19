@@ -330,7 +330,13 @@ def update_product(
         expected_version,
     )
     row = service.update_product(
-        product_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
+        product_id,
+        data,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        # Somebody who cannot see the cost is served null and sends it back;
+        # their save must not clear what they were never shown (D-MST-5).
+        may_write_cost_price=_can_view_cost(scope),
     )
     set_etag(response, row)
     return ApiResponse(data=_response(row, can_view_cost=_can_view_cost(scope), db=db))

@@ -32,6 +32,9 @@ from app.core.utils.pricing import (
     resolve_line_discount,
 )
 from app.customers.models import Customer, CustomerGroup
+from app.customers.services.trading_status import (
+    assert_customer_takes_new_documents,
+)
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentTypeDefinition,
@@ -293,7 +296,8 @@ class QuotationService(TransactionalDocumentService):
         document_type, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
-        self._require_customer(data.customer_id, firm_id=firm_id)
+        customer = self._require_customer(data.customer_id, firm_id=firm_id)
+        assert_customer_takes_new_documents(customer, document="quotation")
         quotation_number = self._issue_number(
             numbering_rule,
             typed=data.quotation_number,
@@ -394,7 +398,11 @@ class QuotationService(TransactionalDocumentService):
             feature="ATTACHMENTS",
             values={"attachments": data.attachments},
         )
-        self._require_customer(data.customer_id, firm_id=firm_scope)
+        customer = self._require_customer(data.customer_id, firm_id=firm_scope)
+        # A quotation already sent carries on when its customer goes inactive;
+        # moving it to one who is, is a new offer to them (D-MST-6).
+        if data.customer_id != row.customer_id:
+            assert_customer_takes_new_documents(customer, document="quotation")
         before: dict[str, object] = {
             "grand_total": str(row.grand_total),
             "valid_until": row.valid_until.isoformat(),
@@ -801,7 +809,16 @@ class QuotationService(TransactionalDocumentService):
         customer = self._session.get(Customer, customer_id)
         if customer is None or customer.customer_group_id is None:
             return None, None
-        group = self._session.get(CustomerGroup, customer.customer_group_id)
+        # The customer's own firm's live segment, and nothing else: read by id
+        # alone, another firm's segment in the shared store -- or one retired
+        # since -- went on pricing this firm's documents (D-MST-3).
+        group = self._session.scalar(
+            select(CustomerGroup).where(
+                CustomerGroup.id == customer.customer_group_id,
+                CustomerGroup.firm_id == customer.firm_id,
+                CustomerGroup.is_deleted.is_(False),
+            )
+        )
         if group is None or not group.is_active:
             return None, None
         rate = self._q(group.default_discount_percent)

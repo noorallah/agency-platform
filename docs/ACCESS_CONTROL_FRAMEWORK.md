@@ -123,6 +123,22 @@ than an unchanged one for the few minutes an access token lives. An
 **unrecognised** value reads as `PLATFORM`, the narrow one — a column holding
 something nobody recognises is a reason to grant less, never more.
 
+### Who may act on an administrator's account
+
+Reach is ranked — no designation, then `PLATFORM`, then `ALL_FIRMS` — and
+`_assert_may_administer` lets an administrator reset the password of, rename,
+switch off or expire another account (`POST /users/{id}/password`,
+`PATCH /users/{id}`) only when their own rank is **at least** the target's.
+Peers act on peers; the wider reach acts on the narrower; a `PLATFORM`
+operator cannot act on an `ALL_FIRMS` administrator. Before 2026-09-19 only
+deletion looked at the target, so an operator could set an `ALL_FIRMS`
+administrator's password with no forced change and sign in as them (D-IDN-2).
+
+Two more refusals on the same routes: nobody switches off or sets an expiry
+on **their own** account (another administrator does, and the trail shows
+who), and the bootstrap administrator's password (`BOOTSTRAP_ADMIN_USER_ID`,
+the row `20260728_0001` seeds) is set only by its holder, from My profile.
+
 ## Tier 2: everybody else
 
 Everybody who is not a platform administrator holds access through two
@@ -737,6 +753,15 @@ to the person rather than to the job. That is the whole reason it is not
 "duplicate the row": a row copy carries all of it, silently. The clone always
 starts with `force_password_change` — a password somebody else chose is not a
 password.
+
+**It is one transaction.** `clone_user` used to call `create_user` (which
+commits), then `set_user_roles` (which commits), then copy the memberships --
+three commits, so a failure after the first left an account holding the
+address with no roles and no firms, and the retry was refused 409 on the
+email (D-IDN-8, 2026-09-19). The account, the roles, the memberships and the
+audit row are now staged (`_stage_create_user`, `_stage_set_user_roles`) and
+committed once; `apply_user_template` composes the same staged writer, so the
+grant and the row saying which job it was commit together.
 
 The platform designation is never copied, and there are two locks on it:
 `_get_user` excludes platform administrators from firm-scoped administration, so

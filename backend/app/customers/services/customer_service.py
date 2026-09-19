@@ -12,6 +12,11 @@ from sqlalchemy.orm import Session
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit
+from app.common.master_references import (
+    MasterReferences,
+    assert_master_references,
+)
+from app.common.open_documents import describe_documents, find_open_documents
 from app.core.exceptions import (
     AuthorizationError,
     ConflictError,
@@ -24,6 +29,7 @@ from app.customers.models import (
     CustomerAddress,
     CustomerAttributeValue,
     CustomerContact,
+    CustomerGroup,
     CustomerReceivableTransaction,
 )
 from app.customers.repositories import CustomerRepository
@@ -54,6 +60,13 @@ from app.sales.models.territory import (
 #: postal code calls its own column `postal_code`), which is all this module
 #: reads off them.
 GeoRow = GeoCountry | GeoState | GeoDistrict | GeoCity | GeoPostalCode | GeoLocality
+
+#: The masters a customer names by id. Each must be a live row of the
+#: customer's own firm (D-MST-3): in the shared store another firm's segment
+#: was accepted, and its discount then priced this firm's orders.
+_CUSTOMER_REFERENCES: MasterReferences = {
+    "customer_group_id": (CustomerGroup, "Customer segment"),
+}
 
 
 class CustomerService:
@@ -127,6 +140,9 @@ class CustomerService:
         """Stage one customer and audit event without committing."""
         self._assert_unique(firm_id, data)
         values = self._customer_values(data)
+        assert_master_references(
+            self._session, values, _CUSTOMER_REFERENCES, firm_id=firm_id
+        )
         (
             values["current_outstanding"],
             values["unapplied_advance_balance"],
@@ -203,6 +219,13 @@ class CustomerService:
         # draft. An explicit null still clears, which is what keeps a complete
         # client able to empty a field.
         values = self._customer_values(data, partial=True)
+        assert_master_references(
+            self._session,
+            values,
+            _CUSTOMER_REFERENCES,
+            firm_id=customer.firm_id,
+            current=customer,
+        )
         self._assert_may_change_credit_limit(
             customer, values, allowed=may_change_credit_limit
         )
@@ -908,6 +931,21 @@ class CustomerService:
                 f"{'' if len(open_numbers) == 1 else 's'} ({shown}"
                 f"{f' and {more} more' if more > 0 else ''})"
             )
+        # The documents still in flight (D-MST-4). The guard stopped at
+        # invoices, so a customer went under an approved order holding a
+        # reservation, or with goods shipped and not billed -- and the note or
+        # the bill that order needs was then refused, because every sales
+        # service loads the customer with ``is_deleted`` false. A draft
+        # invoice is already named above.
+        in_flight = [
+            group
+            for group in find_open_documents(
+                self._session, customer.firm_id, customer_id=customer.id
+            )
+            if group.label != "draft sales invoice"
+        ]
+        if in_flight:
+            reasons.append(f"is on {describe_documents(in_flight)}")
         if reasons:
             raise ValidationError(
                 f"{customer.code} cannot be deleted: it {', '.join(reasons)}. "

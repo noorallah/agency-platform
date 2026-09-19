@@ -33,13 +33,36 @@ from app.branches.schemas import (
     WarehouseTypeWrite,
     WarehouseUpdate,
 )
+from app.business.models import BusinessProfile
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit
+from app.common.master_references import (
+    MasterReferences,
+    assert_master_references,
+)
+from app.common.open_documents import (
+    describe_documents,
+    describe_stock,
+    find_open_documents,
+    find_stock_holdings,
+)
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.inventory.models import InventoryRecord
 from app.sales_order.models import SalesWorkflowSettings
+
+#: The masters a branch and a warehouse name by id. A type must be a live row
+#: of the same firm; a business profile has no firm and is shared by every
+#: firm in the store, so it only has to be live (D-MST-3).
+_BRANCH_REFERENCES: MasterReferences = {
+    "branch_type_id": (BranchType, "Branch type"),
+    "business_profile_id": (BusinessProfile, "Business profile"),
+}
+_WAREHOUSE_REFERENCES: MasterReferences = {
+    "warehouse_type_id": (WarehouseType, "Warehouse type"),
+    "business_profile_id": (BusinessProfile, "Business profile"),
+}
 
 
 class BranchWarehouseService:
@@ -82,6 +105,9 @@ class BranchWarehouseService:
         """
         self._assert_unique_branch_code(firm_id, data.code)
         values = self._branch_values(data)
+        assert_master_references(
+            self._session, values, _BRANCH_REFERENCES, firm_id=firm_id
+        )
         self._demote_other_default_branches(
             firm_id, is_default=bool(values["is_default"]), exclude_id=None
         )
@@ -164,6 +190,13 @@ class BranchWarehouseService:
         self._assert_unique_branch_code(row.firm_id, data.code, excluding_id=row.id)
         before: dict[str, object] = {"code": row.code, "status": row.status}
         values = self._branch_values(data, partial=True)
+        assert_master_references(
+            self._session,
+            values,
+            _BRANCH_REFERENCES,
+            firm_id=row.firm_id,
+            current=row,
+        )
         self._demote_other_default_branches(
             row.firm_id,
             is_default=bool(values.get("is_default", row.is_default)),
@@ -403,6 +436,9 @@ class BranchWarehouseService:
         self._assert_unique_warehouse_code(firm_id, data.code)
         branch = self._resolve_branch(data, firm_id=firm_id)
         values = self._warehouse_values(data)
+        assert_master_references(
+            self._session, values, _WAREHOUSE_REFERENCES, firm_id=firm_id
+        )
         values["branch_id"] = branch.id
         self._demote_other_default_warehouses(
             branch.id, is_default=bool(values["is_default"]), exclude_id=None
@@ -489,6 +525,13 @@ class BranchWarehouseService:
         )
         before: dict[str, object] = {"code": row.code, "status": row.status}
         values = self._warehouse_values(data, partial=True)
+        assert_master_references(
+            self._session,
+            values,
+            _WAREHOUSE_REFERENCES,
+            firm_id=row.firm_id,
+            current=row,
+        )
         if "branch_id" in values or data.branch_code:
             values["branch_id"] = branch.id
         self._demote_other_default_warehouses(
@@ -781,10 +824,23 @@ class BranchWarehouseService:
         )
         if any(item.parent_id == node.id for item in children):
             raise ValidationError("Cannot delete a storage node with active children.")
+        warehouse = self.get_warehouse(node.warehouse_id, firm_scope=firm_scope)
+        self._assert_storage_node_removable(node, warehouse)
         node.is_deleted = True
         node.deleted_at = utc_now()
         node.deleted_by = actor_id
         node.updated_by = actor_id
+        # The delete wrote no audit row at all, so a bin disappearing from the
+        # hierarchy left nothing in the trail to say who removed it.
+        record_audit(
+            self._session,
+            action="warehouse.storage_node.deleted",
+            entity_type="warehouse_storage_node",
+            entity_id=node.id,
+            actor_id=actor_id,
+            firm_id=warehouse.firm_id,
+            before_data={"code": node.code, "warehouse": warehouse.code},
+        )
         self._session.commit()
 
     def get_storage_node(
@@ -993,6 +1049,58 @@ class BranchWarehouseService:
             after_data={"status": row.status, "is_deleted": row.is_deleted},
         )
 
+    def _assert_storage_node_removable(
+        self, node: WarehouseStorageNode, warehouse: Warehouse
+    ) -> None:
+        """Refuse to delete a storage area that holds stock or is on a document.
+
+        The warehouse guard's missing twin (D-MST-8). Stock is held per node
+        (``inventories.storage_node_id``), and ``_validate_references`` refuses
+        any movement naming a deleted one -- "Storage node does not belong to
+        the selected warehouse." -- so 5 units in a deleted bin could be
+        neither seen nor moved back out. A line of an open document naming the
+        bin would fail the same way at dispatch or receipt.
+        """
+        reasons: list[str] = []
+        holdings = find_stock_holdings(
+            self._session, warehouse.firm_id, storage_node_id=node.id
+        )
+        if holdings:
+            reasons.append(f"holds {describe_stock(holdings)}")
+        documents = find_open_documents(
+            self._session, warehouse.firm_id, storage_node_id=node.id
+        )
+        if documents:
+            reasons.append(f"is named on {describe_documents(documents)}")
+        if reasons:
+            raise ValidationError(
+                f"{node.code} cannot be deleted: it {' and '.join(reasons)}. "
+                "Move the stock out and finish, cancel or close what is open "
+                "first, or set the storage area inactive to stop using it."
+            )
+
+    def _assert_no_open_documents(
+        self, row: Branch | Warehouse, *, branch: bool
+    ) -> None:
+        """Refuse to delete a branch or warehouse a document in flight names.
+
+        Every document service loads its branch and warehouse with
+        ``is_deleted`` false, so an approved order for a deleted warehouse can
+        be neither delivered nor cancelled (D-MST-8).
+        """
+        documents = find_open_documents(
+            self._session,
+            row.firm_id,
+            branch_id=row.id if branch else None,
+            warehouse_id=None if branch else row.id,
+        )
+        if documents:
+            raise ValidationError(
+                f"{row.code} cannot be deleted: it is named on "
+                f"{describe_documents(documents)}. Finish, cancel or close "
+                "them first, or set it inactive to stop using it."
+            )
+
     def _assert_branch_removable(self, branch: Branch) -> None:
         """Refuse to delete a branch that still has live warehouses.
 
@@ -1015,6 +1123,7 @@ class BranchWarehouseService:
         self._assert_not_a_sales_default(
             SalesWorkflowSettings.default_branch_id, branch, "branch"
         )
+        self._assert_no_open_documents(branch, branch=True)
 
     def _assert_not_a_sales_default(
         self,
@@ -1068,6 +1177,7 @@ class BranchWarehouseService:
         self._assert_not_a_sales_default(
             SalesWorkflowSettings.default_warehouse_id, warehouse, "warehouse"
         )
+        self._assert_no_open_documents(warehouse, branch=False)
 
     def _demote_other_default_branches(
         self, firm_id: UUID, *, is_default: bool, exclude_id: UUID | None

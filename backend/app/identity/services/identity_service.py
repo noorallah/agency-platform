@@ -26,6 +26,7 @@ from app.core.exceptions import (
     AccountInactiveError,
     AccountLockedError,
     AuthenticationError,
+    AuthorizationError,
     BusinessRuleError,
     ConflictError,
     ResourceNotFoundError,
@@ -99,6 +100,22 @@ One list because two lists drift: creation carried none of these at all, so a
 mobile number typed into the create form was dropped and the record opened
 blank afterwards.
 """
+
+
+#: The account migration `20260728_0001` seeds as `platform-admin@agency.local`
+#: -- the installation's break-glass administrator. Its password is its
+#: holder's alone: another administrator setting it would be a way to sign in
+#: as the one account every installation has (D-IDN-2).
+BOOTSTRAP_ADMIN_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
+
+#: How far each platform designation reaches, narrowest first. An
+#: administrator may act on another account only when their own reach is at
+#: least the target's; an account with no designation ranks lowest.
+_REACH_RANK: dict[PlatformAdminScope | None, int] = {
+    None: 0,
+    PlatformAdminScope.PLATFORM: 1,
+    PlatformAdminScope.ALL_FIRMS: 2,
+}
 
 
 def _locked_error(locked_until: datetime, now: datetime) -> AccountLockedError:
@@ -488,6 +505,21 @@ class IdentityService:
         self, data: UserCreate, actor_id: UUID, firm_scope: UUID | None = None
     ) -> User:
         """Provision a user with a policy-compliant initial password."""
+        user = self._stage_create_user(data, actor_id, firm_scope)
+        self._session.commit()
+        return user
+
+    def _stage_create_user(
+        self, data: UserCreate, actor_id: UUID, firm_scope: UUID | None = None
+    ) -> User:
+        """Write the account and its audit row without committing.
+
+        The internal half of `create_user`. `clone_user` composes this with
+        `_stage_set_user_roles` and commits once: a chain of committing
+        services is not a transaction, and a failure part-way used to leave an
+        account holding the address with no roles and no firms, whose retry
+        was then refused 409 (D-IDN-8).
+        """
         email = validate_email(data.email)
         # Only live accounts hold an address; soft-deleted users release theirs so
         # a leaver can be re-onboarded. This mirrors UQ_users_email_active and is
@@ -533,7 +565,6 @@ class IdentityService:
             firm_id=firm_scope,
             after_data=self._user_state(user),
         )
-        self._session.commit()
         return user
 
     def update_user(
@@ -547,6 +578,15 @@ class IdentityService:
         user = self._get_user(user_id, firm_scope)
         if firm_scope is not None:
             self._assert_exclusive_firm_user(user.id, firm_scope)
+        self._assert_may_administer(user.id, actor_id)
+        if user.id == actor_id and (
+            data.is_active is False
+            or ("expires_at" in data.model_fields_set and data.expires_at is not None)
+        ):
+            raise BusinessRuleError(
+                "You cannot switch off or set an expiry on your own account. "
+                "Ask another administrator."
+            )
         before = self._user_state(user)
         if data.full_name is not None:
             user.full_name = data.full_name.strip()
@@ -629,14 +669,23 @@ class IdentityService:
         password should not have to know what the person used before.
 
         Refused for the caller's own account -- My profile is that route, and
-        it asks for the current password for a reason.
+        it asks for the current password for a reason. Refused for the
+        bootstrap administrator, whose password only its holder sets, and for
+        an administrator whose designation reaches further than the caller's
+        (`_assert_may_administer`).
         """
         if user_id == actor_id:
             raise BusinessRuleError(
                 "Change your own password from My profile, where the current "
                 "one is asked for."
             )
+        if user_id == BOOTSTRAP_ADMIN_USER_ID:
+            raise BusinessRuleError(
+                "The bootstrap administrator's password can be changed only "
+                "by its holder, from My profile."
+            )
         user = self._get_user_for_update(user_id)
+        self._assert_may_administer(user.id, actor_id)
         validate_password_policy(new_password)
         self._session.add(
             PasswordHistory(
@@ -975,7 +1024,9 @@ class IdentityService:
             if target is None
             else {}
         )
-        clone = self.create_user(
+        # Staged, then committed once at the end: the account, its roles and
+        # its memberships are one hiring decision (D-IDN-8).
+        clone = self._stage_create_user(
             UserCreate(
                 email=data.email,
                 full_name=data.full_name,
@@ -990,7 +1041,7 @@ class IdentityService:
         )
         role_ids = self._roles_held_by(source.id, target)
         if role_ids:
-            self.set_user_roles(clone.id, role_ids, actor_id, target)
+            self._stage_set_user_roles(clone.id, role_ids, actor_id, target)
         for firm_id, firm_role_ids in firm_tier.items():
             self._replace_scoped_user_roles(clone.id, firm_role_ids, actor_id, firm_id)
         # A platform caller is not creating inside any firm, so the clone would
@@ -1399,8 +1450,9 @@ class IdentityService:
         ]
         # Through the ordinary path, so the firm-scope check that refuses a
         # platform or cross-firm role applies here too and there is one
-        # implementation of it rather than two.
-        self.set_user_roles(user_id, role_ids, actor_id, target)
+        # implementation of it rather than two. Staged, so the grant and the
+        # row saying which job it was commit together (D-IDN-8).
+        self._stage_set_user_roles(user_id, role_ids, actor_id, target)
         # The firm it was applied in; applied to the global tier it concerns
         # every firm the person works in.
         self._audit_for_firms(
@@ -1858,6 +1910,22 @@ class IdentityService:
         firm_scope: UUID | None = None,
     ) -> None:
         """Replace a user's role assignment set."""
+        self._stage_set_user_roles(user_id, role_ids, actor_id, firm_scope)
+        self._session.commit()
+
+    def _stage_set_user_roles(
+        self,
+        user_id: UUID,
+        role_ids: list[UUID],
+        actor_id: UUID,
+        firm_scope: UUID | None = None,
+    ) -> None:
+        """Replace a user's role set without committing (see `_stage_create_user`).
+
+        The no-self-grant check lives here rather than on the wrapper, so it
+        holds for every composed caller too -- applying a job template to
+        yourself is the same decision as granting yourself the roles (D-IDN-1).
+        """
         self._assert_not_own_access(user_id, actor_id)
         user = self._get_user(user_id, firm_scope)
         self._ensure_identifiers(Role, role_ids)
@@ -1913,7 +1981,6 @@ class IdentityService:
                 before_data={"tier": tier, "role_codes": before_codes},
                 after_data={"tier": tier, "role_codes": after_codes},
             )
-        self._session.commit()
 
     def set_user_firms(
         self,
@@ -3099,6 +3166,33 @@ class IdentityService:
         if code.strip().lower() in self._RESERVED_ROLE_CODES:
             raise BusinessRuleError(
                 f"'{code}' is reserved. Choose a different role code."
+            )
+
+    def _assert_may_administer(self, target_id: UUID, actor_id: UUID) -> None:
+        """Refuse acting on an account whose designation reaches further.
+
+        `reset_password` and `update_user` never looked at the target, so a
+        `PLATFORM` operator could set an `ALL_FIRMS` administrator's password
+        with no forced change and sign in as them -- every firm's books -- or
+        rename, switch off or expire one (D-IDN-2). Only deletion checked the
+        designation. An administrator may now act on another account only
+        when their own reach is at least as wide; peers may act on peers, and
+        anybody holding the route may act on an undesignated account.
+
+        Keyed on the `platform_admins` rows of both, not on the token, so it
+        holds whichever route reaches it.
+
+        Raises:
+            AuthorizationError: If the target's designation outranks the actor's.
+
+        """
+        target = self._platform_admin_scope(target_id)
+        if target is None:
+            return
+        if _REACH_RANK[self._platform_admin_scope(actor_id)] < _REACH_RANK[target]:
+            raise AuthorizationError(
+                "This administrator's reach is wider than yours, so only an "
+                "administrator with the same reach can change their account."
             )
 
     @staticmethod

@@ -142,6 +142,9 @@ class SalesChainService:
             ),
             firm_id=firm_id,
             actor_id=actor_id,
+            # The person is raising a bill, so a customer who is not ACTIVE is
+            # refused in those words rather than for an order nobody typed.
+            raised_as="bill",
         )
         SalesOrderService(self._session).stage_approval(
             order.id, firm_scope=firm_id, actor_id=actor_id
