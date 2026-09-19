@@ -100,6 +100,7 @@ from app.tax.schemas import (
     TaxSystemWrite,
 )
 from app.tax.services.gst_template import apply_india_gst_template
+from app.tax.services.place_of_supply import place_of_supply_label
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.models import uom as _uom_models  # noqa: F401
@@ -1214,8 +1215,8 @@ def test_the_invoice_fixes_the_place_of_supply_when_it_is_raised() -> None:
         actor_id=uuid4(),
     )
 
-    assert invoice.place_of_supply == "Maharashtra"
-    assert service.invoice_response(invoice).place_of_supply == "Maharashtra"
+    assert invoice.place_of_supply == "Maharashtra (27)"
+    assert service.invoice_response(invoice).place_of_supply == "Maharashtra (27)"
 
     # The customer moves. The issued invoice does not.
     address = session.scalar(
@@ -1225,7 +1226,87 @@ def test_the_invoice_fixes_the_place_of_supply_when_it_is_raised() -> None:
     address.state = "Karnataka"
     session.commit()
     session.refresh(invoice)
-    assert invoice.place_of_supply == "Maharashtra"
+    assert invoice.place_of_supply == "Maharashtra (27)"
+
+
+@pytest.mark.parametrize(
+    ("code", "label"),
+    [
+        ("29", "Karnataka (29)"),
+        ("26", "Dadra and Nagar Haveli and Daman and Diu (26)"),
+        ("01", "Jammu and Kashmir (01)"),
+        ("21", "Odisha (21)"),
+        ("96", "Other Countries (96)"),
+    ],
+)
+def test_a_place_of_supply_prints_its_name_and_code(code: str, label: str) -> None:
+    """The print names the state the tax was charged by, with its code."""
+    assert place_of_supply_label(code) == label
+
+
+def test_the_printed_place_of_supply_is_the_state_the_tax_was_charged_by() -> None:
+    """A registered buyer's GSTIN outranks its address, for the print too.
+
+    D-CMP-15: a buyer registered in Karnataka with a billing address in Tamil
+    Nadu was charged IGST under a place of supply reading "Tamil Nadu" -- the
+    print named one state and the tax another. A draft re-priced after the
+    buyer's registration changes follows it.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    customer.gst_number = "29AAACR5055K1Z5"
+    session.add(
+        CustomerAddress(
+            customer_id=customer.id,
+            address_type="BILLING",
+            address_line1="12 Anna Salai",
+            city="Chennai",
+            state="Tamil Nadu",
+            country="IN",
+            postal_code="600002",
+            is_default_billing=True,
+        )
+    )
+    session.commit()
+    product = _product(session, firm_id=firm.id)
+    note, note_line = _dispatched_line_for(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+    )
+    payload = SalesInvoiceCreate(
+        customer_id=customer.id,
+        branch_id=branch.id,
+        invoice_date=date(2026, 8, 4),
+        lines=[
+            SalesInvoiceLineWrite(
+                source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                source_document_id=note.id,
+                source_document_line_id=note_line.id,
+                line_number=1,
+                current_invoice_quantity=Decimal("4"),
+                unit_price=Decimal("250"),
+            )
+        ],
+    )
+    service = SalesInvoiceService(session)
+
+    invoice = service.create_invoice(payload, firm_id=firm.id, actor_id=uuid4())
+    assert invoice.place_of_supply == "Karnataka (29)"
+    assert service.invoice_response(invoice).place_of_supply == "Karnataka (29)"
+
+    customer.gst_number = "33AAACR5055K1Z5"
+    session.commit()
+    invoice = service.update_invoice(
+        invoice.id, payload, firm_id=firm.id, actor_id=uuid4()
+    )
+    assert invoice.place_of_supply == "Tamil Nadu (33)"
 
 
 def _gst_profile(session: Session, *, firm: object, actor_id: UUID) -> object:

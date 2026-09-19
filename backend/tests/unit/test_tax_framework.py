@@ -1,9 +1,12 @@
 """Enterprise tax framework service and API-scope tests."""
 
+import importlib.util
+import sys
 from collections import Counter
 from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
+from types import ModuleType
 from uuid import UUID, uuid4
 
 import pytest
@@ -21,7 +24,7 @@ from app.customers.models import Customer, CustomerAddress
 from app.firms.models import Firm
 from app.products.schemas import ProductCreate
 from app.products.services import ProductService
-from app.sales.models import GeoCountry
+from app.sales.models import GeoCountry, GeoState
 from app.tax.models import (
     TaxComponent,
     TaxMigrationMapping,
@@ -49,6 +52,7 @@ from app.tax.services import (
     gst_template,
 )
 from app.tax.services.place_of_supply import gst_state_code
+from app.vendors.models import Vendor, VendorAddress
 
 
 def _session_factory() -> sessionmaker[Session]:
@@ -1381,7 +1385,7 @@ def test_a_template_refused_part_way_writes_nothing(
     )
     session.commit()
     assert created["systems"] == 1
-    assert created["rules"] == 6
+    assert created["rules"] == 9
 
 
 def _audit_actions(session: Session) -> Counter[str]:
@@ -1805,5 +1809,209 @@ def test_every_outward_document_asks_where_its_supply_is_made() -> None:
             source = path.read_text(encoding="utf-8")
             for chunk in source.split("TaxRuleSimulationRequest(")[1:]:
                 if "outward_transaction_type(" not in chunk[:400]:
+                    offenders.append(f"{module}/{path.name}")
+    assert offenders == []
+
+
+def _inward_setup(
+    session: Session,
+    *,
+    firm_gstin: str | None,
+    vendor_gstin: str | None = None,
+    address_country: str | None = None,
+    address_state: str | None = None,
+) -> tuple[Firm, UUID]:
+    """Make a firm and one vendor, optionally with a primary address."""
+    firm = _firm(session)
+    firm.gst_number = firm_gstin
+    vendor = Vendor(
+        firm_id=firm.id,
+        code="V1",
+        name="Supplier",
+        display_name="Supplier",
+        gst_registration=vendor_gstin is not None,
+        gstin=vendor_gstin,
+    )
+    session.add(vendor)
+    session.flush()
+    if address_country is not None:
+        country = GeoCountry(code=address_country, name=address_country)
+        session.add(country)
+        session.flush()
+        state_id = None
+        if address_state is not None:
+            state = GeoState(
+                country_id=country.id, code=address_state, name=address_state
+            )
+            session.add(state)
+            session.flush()
+            state_id = state.id
+        session.add(
+            VendorAddress(
+                vendor_id=vendor.id,
+                address_type="BILLING",
+                address_line1="1 Mill Road",
+                country_id=country.id,
+                state_id=state_id,
+                is_primary=True,
+            )
+        )
+    session.commit()
+    return firm, vendor.id
+
+
+@pytest.mark.parametrize(
+    ("firm_gstin", "vendor_gstin", "country", "state", "priced_as"),
+    [
+        # The supplier's GSTIN names another state.
+        ("33AABCU9603R1ZM", "29AAACR5055K1Z5", None, None, "PURCHASE_INTERSTATE"),
+        # The same state: the document's own type.
+        ("33AABCU9603R1ZM", "33AAACR5055K1Z5", None, None, "PURCHASE_INVOICE"),
+        # Unregistered: the supplier's address decides.
+        ("33AABCU9603R1ZM", None, "IN", "KA", "PURCHASE_INTERSTATE"),
+        ("33AABCU9603R1ZM", None, "IN", "TN", "PURCHASE_INVOICE"),
+        # An import is an inter-state supply (IGST Act s.5(1), 7(2)).
+        ("33AABCU9603R1ZM", None, "AE", None, "PURCHASE_INTERSTATE"),
+        # Either side unknown: nothing is guessed.
+        ("33AABCU9603R1ZM", None, None, None, "PURCHASE_INVOICE"),
+        (None, "29AAACR5055K1Z5", None, None, "PURCHASE_INVOICE"),
+    ],
+)
+def test_an_inward_supply_is_priced_by_where_it_comes_from(
+    firm_gstin: str | None,
+    vendor_gstin: str | None,
+    country: str | None,
+    state: str | None,
+    priced_as: str,
+) -> None:
+    """D-CMP-14: a supplier in another state is an interstate purchase."""
+    session = _session_factory()()
+    firm, vendor_id = _inward_setup(
+        session,
+        firm_gstin=firm_gstin,
+        vendor_gstin=vendor_gstin,
+        address_country=country,
+        address_state=state,
+    )
+
+    assert (
+        TaxRuleService(session).inward_transaction_type(
+            "PURCHASE_INVOICE", firm_id=firm.id, branch_id=None, vendor_id=vendor_id
+        )
+        == priced_as
+    )
+
+
+def _template_firm_buying_from_karnataka(session: Session) -> tuple[Firm, UUID, UUID]:
+    """Make a Tamil Nadu firm on the GST template and a Karnataka supplier."""
+    firm, vendor_id = _inward_setup(
+        session, firm_gstin="33AABCU9603R1ZM", vendor_gstin="29AAACR5055K1Z5"
+    )
+    gst_template.apply_india_gst_template(session, firm_id=firm.id, actor_id=uuid4())
+    session.commit()
+    local = session.scalar(select(TaxProfile).where(TaxProfile.code == "GST_18_LOCAL"))
+    assert local is not None
+    return firm, vendor_id, local.id
+
+
+def _price_purchase(
+    session: Session, firm: Firm, vendor_id: UUID, profile_id: UUID
+) -> TaxRuleSimulationResponse:
+    """Price 1,000 of 18% goods on a supplier invoice, as the module does."""
+    service = TaxRuleService(session)
+    return service.simulate(
+        TaxRuleSimulationRequest(
+            transaction_type=service.inward_transaction_type(
+                "PURCHASE_INVOICE", firm_id=firm.id, branch_id=None, vendor_id=vendor_id
+            ),
+            transaction_date=date(2026, 9, 1),
+            tax_profile_id=profile_id,
+            vendor_id=vendor_id,
+            invoice_value=Decimal("1000"),
+        ),
+        firm_scope=firm.id,
+        actor_id=uuid4(),
+    )
+
+
+def test_the_gst_template_charges_igst_on_a_purchase_from_another_state() -> None:
+    """D-CMP-14: the template had no inward interstate rule at all."""
+    session = _session_factory()()
+    firm, vendor_id, local_id = _template_firm_buying_from_karnataka(session)
+
+    priced = _price_purchase(session, firm, vendor_id, local_id)
+
+    assert [(row.code, row.amount) for row in priced.applied_components] == [
+        ("IGST", Decimal("180.0000"))
+    ]
+    assert priced.input_credit_allowed is True
+
+
+def _inward_migration() -> ModuleType:
+    """Load ``20260919_0148`` by path; the versions directory is no package."""
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "alembic"
+        / "versions"
+        / "20260919_0148_inward_interstate_gst_rules.py"
+    )
+    spec = importlib.util.spec_from_file_location("_inward_rules_0148", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_a_firm_templated_before_the_fix_is_given_the_inward_rules_once() -> None:
+    """``20260919_0148`` copies the sales rules into purchase twins, only once."""
+    session = _session_factory()()
+    firm, vendor_id, local_id = _template_firm_buying_from_karnataka(session)
+    # A firm that applied the template before D-CMP-14 has no purchase twins.
+    for rule in session.scalars(
+        select(TaxRule).where(TaxRule.code.like("PURCHASE_INTERSTATE_%"))
+    ).all():
+        for child in [*rule.conditions, *rule.actions]:
+            session.delete(child)
+        session.delete(rule)
+    session.commit()
+    before = _price_purchase(session, firm, vendor_id, local_id)
+    assert sorted(row.code for row in before.applied_components) == ["CGST", "SGST"]
+
+    migration = _inward_migration()
+    assert migration.insert_inward_rules(session.connection()) == 3
+    session.commit()
+    assert migration.insert_inward_rules(session.connection()) == 0
+
+    priced = _price_purchase(session, firm, vendor_id, local_id)
+    assert [row.code for row in priced.applied_components] == ["IGST"]
+    assert priced.input_credit_allowed is True
+    # Sales are untouched: a same-state sale is still CGST and SGST.
+    sale = TaxRuleService(session).simulate(
+        TaxRuleSimulationRequest(
+            transaction_type="SALES_INVOICE",
+            transaction_date=date(2026, 9, 1),
+            tax_profile_id=local_id,
+            invoice_value=Decimal("1000"),
+        ),
+        firm_scope=firm.id,
+        actor_id=uuid4(),
+    )
+    assert sorted(row.code for row in sale.applied_components) == ["CGST", "SGST"]
+
+
+def test_every_inward_document_asks_where_its_supply_comes_from() -> None:
+    """No purchase-side module may name its own type to the engine again.
+
+    Four modules each wrote ``transaction_type="PURCHASE..."`` into the
+    request, which is how no purchase was ever charged IGST (D-CMP-14).
+    """
+    root = Path(__file__).resolve().parents[2] / "app"
+    offenders: list[str] = []
+    for module in ("purchase", "goods_receipt", "purchase_invoice", "purchase_return"):
+        for path in (root / module / "services").glob("*.py"):
+            source = path.read_text(encoding="utf-8")
+            for chunk in source.split("TaxRuleSimulationRequest(")[1:]:
+                if "inward_transaction_type(" not in chunk[:400]:
                     offenders.append(f"{module}/{path.name}")
     assert offenders == []

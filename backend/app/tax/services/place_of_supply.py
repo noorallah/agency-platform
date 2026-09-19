@@ -26,6 +26,18 @@ with -- because that is what a return and an e-invoice file:
   India is a supply to another country, which section 7(5)(a) makes
   inter-state.
 
+**Inward supplies** are the same question asked from the other side
+(D-CMP-14). The supplier is the vendor: its GSTIN, else its address -- the
+primary one, then the billing, head-office and office addresses, then any; an
+address abroad is an import, which IGST Act sections 5(1) and 7(2) tax as
+inter-state. The place of supply of goods delivered to the firm is the firm's
+own location (section 10(1)(a)), read exactly as an outward supplier's is --
+the receiving branch's own state where it is registered there, else the firm's
+GSTIN. A supplier in another state is ``PURCHASE_INTERSTATE``, which the
+template's ``PURCHASE_INTERSTATE_GST_*`` rules switch to IGST. Purchase order,
+goods receipt, supplier invoice and purchase return all ask through
+``inward_transaction_type``.
+
 Where either state cannot be told, the supply is treated as the document's own
 type, which is what every document did before; nothing is guessed.
 """
@@ -40,10 +52,18 @@ from sqlalchemy.orm import Session
 from app.branches.models import Branch
 from app.common.firm_metadata import FirmMetadataReader
 from app.customers.models import Customer, CustomerAddress
-from app.sales.models.territory import GeoState
+from app.sales.models.territory import GeoCountry, GeoState
+from app.vendors.models import Vendor, VendorAddress
 
 #: The transaction type the firm's interstate rules are conditioned on.
 SALES_INTERSTATE = "SALES_INTERSTATE"
+
+#: The transaction type the firm's inward interstate rules are conditioned on.
+PURCHASE_INTERSTATE = "PURCHASE_INTERSTATE"
+
+#: The vendor addresses a supplier's state is read from, in order of preference
+#: after the one marked primary.
+_VENDOR_ADDRESS_ORDER: tuple[str, ...] = ("BILLING", "HEAD_OFFICE", "OFFICE")
 
 #: The code a GST return and an e-invoice give a place outside India.
 FOREIGN_STATE_CODE = "96"
@@ -143,6 +163,26 @@ _CODES_BY_NAME: dict[str, str] = {
 }
 
 
+#: The name a tax invoice prints for each code: the first spelling
+#: ``_CODES_BY_NAME`` gives it, title-cased the way CBIC's list writes it, and
+#: "Other Countries" for 96 as the portal names it.
+_NAMES_BY_CODE: dict[str, str] = {
+    FOREIGN_STATE_CODE: "Other Countries",
+    **{
+        code: " ".join(
+            word if word == "and" else word.capitalize() for word in name.split()
+        )
+        for name, code in reversed(list(_CODES_BY_NAME.items()))
+    },
+}
+
+
+def place_of_supply_label(code: str) -> str:
+    """Return how a tax invoice names a place of supply: ``Karnataka (29)``."""
+    name = _NAMES_BY_CODE.get(code)
+    return f"{name} ({code})" if name else code
+
+
 def gst_state_code(value: str | None) -> str | None:
     """Return the GST state code a state is named by, however it is written.
 
@@ -236,6 +276,92 @@ class SupplyPlaceResolver:
             return self._geo_state_code(branch.state_id)
         return None
 
+    def inward_transaction_type(
+        self,
+        document_type: str,
+        *,
+        firm_id: UUID,
+        branch_id: UUID | None,
+        vendor_id: UUID | None,
+    ) -> str:
+        """Return the transaction type an inward supply is priced as.
+
+        Args:
+            document_type: The document's own type -- ``PURCHASE``,
+                ``PURCHASE_INVOICE`` and so on -- used for a supply within one
+                state.
+            firm_id: The receiving firm.
+            branch_id: The branch the goods are received at.
+            vendor_id: The supplier.
+
+        Returns:
+            ``PURCHASE_INTERSTATE`` when the supplier's state and the firm's
+            are both known and differ, otherwise ``document_type``.
+
+        """
+        own = self.supplier_state(firm_id=firm_id, branch_id=branch_id)
+        vendor = self.vendor_state(vendor_id)
+        if own is not None and vendor is not None and own != vendor:
+            return PURCHASE_INTERSTATE
+        return document_type
+
+    def vendor_state(self, vendor_id: UUID | None) -> str | None:
+        """Return the GST state code a vendor supplies from."""
+        if vendor_id is None:
+            return None
+        vendor = self._session.get(Vendor, vendor_id)
+        if vendor is None:
+            return None
+        registered = gst_state_code(vendor.gstin)
+        if registered is None:
+            details = sorted(
+                (row for row in vendor.tax_details or [] if not row.is_deleted),
+                key=lambda row: not row.is_primary,
+            )
+            registered = next(
+                (
+                    code
+                    for code in (gst_state_code(row.gstin) for row in details)
+                    if code is not None
+                ),
+                None,
+            )
+        if registered is not None:
+            return registered
+        address = self._vendor_address(vendor)
+        if address is None:
+            return None
+        if address.country_id is not None:
+            country = self._session.execute(
+                select(GeoCountry.code, GeoCountry.iso2).where(
+                    GeoCountry.id == address.country_id
+                )
+            ).first()
+            if country is not None and "IN" not in {
+                (value or "").strip().upper() for value in country
+            }:
+                return FOREIGN_STATE_CODE
+        if address.state_id is not None:
+            return self._geo_state_code(address.state_id)
+        return None
+
+    @staticmethod
+    def _vendor_address(vendor: Vendor) -> VendorAddress | None:
+        """Return the address a vendor's state is read from."""
+        live = [
+            address
+            for address in (vendor.addresses or [])
+            if not address.is_deleted and (address.state_id or address.country_id)
+        ]
+        for address in live:
+            if address.is_primary:
+                return address
+        for kind in _VENDOR_ADDRESS_ORDER:
+            for address in live:
+                if address.address_type == kind:
+                    return address
+        return live[0] if live else None
+
     def buyer_state(self, customer_id: UUID | None) -> str | None:
         """Return the GST state code of the buyer's place of supply."""
         if customer_id is None:
@@ -257,6 +383,27 @@ class SupplyPlaceResolver:
             if keyed is not None:
                 return keyed
         return gst_state_code(address.state)
+
+    def place_of_supply(self, customer_id: UUID | None) -> str | None:
+        """Return the place of supply a tax invoice to this buyer prints.
+
+        The state the tax is charged by -- ``buyer_state``, so a registered
+        buyer's GSTIN outranks its address exactly as it does for the tax --
+        named with its code, ``Karnataka (29)``, as Rule 46(n) of the CGST
+        Rules asks for an inter-state supply (D-CMP-15). Where no code can be
+        told, the address's own state text is kept, which is what was printed
+        before; nothing is guessed.
+        """
+        code = self.buyer_state(customer_id)
+        if code is not None:
+            return place_of_supply_label(code)
+        customer = (
+            self._session.get(Customer, customer_id)
+            if customer_id is not None
+            else None
+        )
+        address = self._addressed_to(customer) if customer is not None else None
+        return str(address.state) if address is not None and address.state else None
 
     @staticmethod
     def _addressed_to(customer: Customer) -> CustomerAddress | None:
