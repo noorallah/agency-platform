@@ -17,7 +17,9 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.branches.models import Branch, Warehouse
 from app.common.audit.services import record_audit
+from app.core.exceptions import ValidationError
 from app.sales_order.models import SalesWorkflowSettings
 from app.sales_order.schemas import (
     SalesWorkflowSettingsResponse,
@@ -89,6 +91,22 @@ class SalesWorkflowService:
         """
         row = self._stored_settings(firm_id)
         before: dict[str, object] | None = None
+        # The stages are required on every write; the two defaults are not.
+        # An omitted default is left alone and an explicit null clears it --
+        # a client that never showed them must not wipe them (D-CFG-14).
+        sent = data.model_fields_set
+        branch_id = (
+            data.default_branch_id
+            if "default_branch_id" in sent
+            else (row.default_branch_id if row is not None else None)
+        )
+        warehouse_id = (
+            data.default_warehouse_id
+            if "default_warehouse_id" in sent
+            else (row.default_warehouse_id if row is not None else None)
+        )
+        if sent & {"default_branch_id", "default_warehouse_id"}:
+            self._assert_defaults(firm_id, branch_id, warehouse_id)
         if row is None:
             row = SalesWorkflowSettings(firm_id=firm_id, created_by=actor_id)
             self._session.add(row)
@@ -97,8 +115,8 @@ class SalesWorkflowService:
         row.quotation_stage = data.quotation_stage
         row.sales_order_stage = data.sales_order_stage
         row.delivery_note_stage = data.delivery_note_stage
-        row.default_branch_id = data.default_branch_id
-        row.default_warehouse_id = data.default_warehouse_id
+        row.default_branch_id = branch_id
+        row.default_warehouse_id = warehouse_id
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -120,6 +138,58 @@ class SalesWorkflowService:
             default_warehouse_id=row.default_warehouse_id,
             is_configured=True,
         )
+
+    def _assert_defaults(
+        self, firm_id: UUID, branch_id: UUID | None, warehouse_id: UUID | None
+    ) -> None:
+        """Refuse a default the firm's bills could not ship from.
+
+        The ids have no foreign key -- the row lives beside ``branches`` in a
+        store other firms may share -- so an unknown id, another firm's
+        branch, a deleted or inactive one, or a warehouse outside the default
+        branch was saved and failed only at bill time (D-CFG-14).
+        """
+        branch: Branch | None = None
+        if branch_id is not None:
+            branch = self._session.scalar(
+                select(Branch).where(
+                    Branch.id == branch_id,
+                    Branch.firm_id == firm_id,
+                    Branch.is_deleted.is_(False),
+                )
+            )
+            if branch is None:
+                raise ValidationError(
+                    "The default branch is not one of this firm's branches."
+                )
+            if branch.status != "ACTIVE":
+                raise ValidationError(
+                    f"Branch {branch.code} is {branch.status.lower()}, so bills "
+                    "cannot ship from it."
+                )
+        if warehouse_id is None:
+            return
+        warehouse = self._session.scalar(
+            select(Warehouse).where(
+                Warehouse.id == warehouse_id,
+                Warehouse.firm_id == firm_id,
+                Warehouse.is_deleted.is_(False),
+            )
+        )
+        if warehouse is None:
+            raise ValidationError(
+                "The default warehouse is not one of this firm's warehouses."
+            )
+        if warehouse.status != "ACTIVE":
+            raise ValidationError(
+                f"Warehouse {warehouse.code} is {warehouse.status.lower()}, so "
+                "bills cannot ship from it."
+            )
+        if branch is not None and warehouse.branch_id != branch.id:
+            raise ValidationError(
+                f"Warehouse {warehouse.code} is not in branch {branch.code}. "
+                "The default warehouse must belong to the default branch."
+            )
 
     @staticmethod
     def _snapshot(row: SalesWorkflowSettings) -> dict[str, object]:
