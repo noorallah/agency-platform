@@ -11,6 +11,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -291,13 +292,11 @@ class _Dispatch:
         quantity: Decimal = Decimal("2"),
         damaged: Decimal = Decimal("0"),
         scrap: Decimal = Decimal("0"),
-        allow_over_return: bool = False,
     ) -> SalesReturnCreate:
         """Build a return of the dispatched line."""
         return SalesReturnCreate(
             warehouse_id=self.warehouse.id,
             return_date=date(2026, 8, 5),
-            allow_over_return=allow_over_return,
             lines=[
                 SalesReturnLineWrite(
                     source_document_type=SalesReturnSourceType.DELIVERY_NOTE,
@@ -475,96 +474,20 @@ def test_a_return_larger_than_the_dispatch_is_refused() -> None:
         )
 
 
-def _charge_gst(setup: _Dispatch) -> SalesInvoiceLine:
-    """Record that the bill charged 18% GST on its line, as CGST and SGST.
+def test_a_return_cannot_lift_its_own_cap() -> None:
+    """D-SELL-29: the request body used to carry a switch for the cap.
 
-    The unit suite configures no tax rules, so the rules would charge nothing
-    today: whatever a return reverses can only have come off the bill.
-    """
-    line = setup.session.scalar(
-        select(SalesInvoiceLine).where(
-            SalesInvoiceLine.sales_invoice_id == setup.invoice.id
-        )
-    )
-    assert line is not None
-    line.tax_amount = Decimal("72")  # 18% of 4 x 100
-    for sequence, code in enumerate(("CGST", "SGST"), start=1):
-        setup.session.add(
-            SalesInvoiceLineTax(
-                sales_invoice_line_id=line.id,
-                firm_id=setup.firm.id,
-                sequence=sequence,
-                component_code=code,
-                component_label=f"{code} 9%",
-                percentage=Decimal("9"),
-                base_amount=Decimal("400"),
-                amount=Decimal("36"),
-            )
-        )
-    setup.session.commit()
-    return line
-
-
-def _components(session: Session, row: SalesReturn) -> list[tuple[str, Decimal]]:
-    """Return what each component of a return reversed, in order."""
-    return [
-        (tax.component_code, tax.amount)
-        for tax in session.scalars(
-            select(SalesReturnLineTax)
-            .join(
-                SalesReturnLine,
-                SalesReturnLine.id == SalesReturnLineTax.sales_return_line_id,
-            )
-            .where(SalesReturnLine.sales_return_id == row.id)
-            .order_by(SalesReturnLineTax.sequence)
-        ).all()
-    ]
-
-
-def test_a_return_reverses_the_tax_the_bill_charged() -> None:
-    """D-SELL-21: the tax was worked out again through today's rules.
-
-    Driven 2026-09-19 on a fixture: a rule cutting GST 18% to 12% after the
-    sale made a return of goods billed at 18% reverse 12% -- a different tax
-    from the one collected. The bill charged CGST 36 + SGST 36 on four; two
-    coming back take half of each, whatever the rules say now.
+    Driven 2026-09-19 on ``fx_t09194xes_s``: 50 returned against a note for
+    5 with ``allow_over_return`` true, approved and completed -- 50 back on
+    the shelf and 4,832.10 credited. The write schema no longer takes it.
     """
     session = _session_factory()()
     setup = _Dispatch(session)
-    _charge_gst(setup)
+    body = setup.payload(quantity=Decimal("5")).model_dump(mode="json")
+    body["allow_over_return"] = True
 
-    row = SalesReturnService(session).create_return(
-        setup.payload(quantity=Decimal("2")),
-        firm_id=setup.firm.id,
-        actor_id=setup.actor_id,
-    )
-
-    assert row.tax_total == Decimal("36.0000")
-    assert _components(session, row) == [
-        ("CGST", Decimal("18.0000")),
-        ("SGST", Decimal("18.0000")),
-    ]
-
-
-def test_a_return_raised_on_the_bill_reverses_its_tax_too() -> None:
-    """The same goods named through the bill's own line."""
-    session = _session_factory()()
-    setup = _Dispatch(session)
-    charged = _charge_gst(setup)
-    payload = setup.payload(quantity=Decimal("1"))
-    payload.lines[0].source_document_type = SalesReturnSourceType.SALES_INVOICE
-    payload.lines[0].source_document_id = setup.invoice.id
-    payload.lines[0].source_document_line_id = charged.id
-
-    row = SalesReturnService(session).create_return(
-        payload, firm_id=setup.firm.id, actor_id=setup.actor_id
-    )
-
-    assert row.tax_total == Decimal("18.0000")
-    assert _components(session, row) == [
-        ("CGST", Decimal("9.0000")),
-        ("SGST", Decimal("9.0000")),
-    ]
+    with pytest.raises(PydanticValidationError, match="allow_over_return"):
+        SalesReturnCreate.model_validate(body)
 
 
 def test_a_second_return_counts_the_first_one() -> None:
@@ -1161,3 +1084,175 @@ def test_goods_returned_into_another_branchs_warehouse_land_on_its_row() -> None
     ).all()
     assert [r.branch_id for r in rows] == [head_office.id]
     assert Decimal(str(rows[0].current_quantity)) == Decimal("2")
+
+
+def _against_the_bill(setup: _Dispatch, quantity: str) -> SalesReturnCreate:
+    """Describe a return of the same goods through the bill that charged them."""
+    line = setup.session.scalar(
+        select(SalesInvoiceLine).where(
+            SalesInvoiceLine.sales_invoice_id == setup.invoice.id
+        )
+    )
+    assert line is not None
+    payload = setup.payload(quantity=Decimal(quantity))
+    payload.lines[0].source_document_type = SalesReturnSourceType.SALES_INVOICE
+    payload.lines[0].source_document_id = setup.invoice.id
+    payload.lines[0].source_document_line_id = line.id
+    return payload
+
+
+def test_goods_back_through_the_note_are_not_returned_again_through_the_bill() -> None:
+    """D-SELL-7: the cap was per source line, and these are one set of goods.
+
+    Driven 2026-09-19: 5 dispatched and billed, 5 returned against the note and
+    5 more against the bill, both completed -- 10 back on the shelf and the
+    customer credited twice.
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    service = SalesReturnService(session)
+    service.create_return(
+        setup.payload(quantity=Decimal("3")),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+
+    with pytest.raises(ValidationError, match="exceeds what left on DN"):
+        service.create_return(
+            _against_the_bill(setup, "2"),
+            firm_id=setup.firm.id,
+            actor_id=setup.actor_id,
+        )
+    session.rollback()
+    # What is left of the four still comes back either way.
+    assert service.create_return(
+        _against_the_bill(setup, "1"), firm_id=setup.firm.id, actor_id=setup.actor_id
+    )
+
+
+def test_goods_back_through_the_bill_are_not_returned_again_through_the_note() -> None:
+    """The same count read from the other side."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    service = SalesReturnService(session)
+    service.create_return(
+        _against_the_bill(setup, "3"), firm_id=setup.firm.id, actor_id=setup.actor_id
+    )
+
+    with pytest.raises(ValidationError, match="3.0000 already returned"):
+        service.create_return(
+            setup.payload(quantity=Decimal("2")),
+            firm_id=setup.firm.id,
+            actor_id=setup.actor_id,
+        )
+
+
+def test_a_bill_whose_goods_came_back_through_the_note_cannot_be_cancelled() -> None:
+    """Or the customer is credited for the return and the whole bill besides."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    returned = SalesReturnService(session).create_return(
+        setup.payload(quantity=Decimal("1")),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+
+    with pytest.raises(ValidationError, match=returned.return_number):
+        SalesInvoiceService(session).cancel_invoice(
+            setup.invoice.id,
+            firm_scope=setup.firm.id,
+            actor_id=setup.actor_id,
+            reason="Raised in error.",
+        )
+
+
+def _charge_gst(setup: _Dispatch) -> SalesInvoiceLine:
+    """Record that the bill charged 18% GST on its line, as CGST and SGST.
+
+    The unit suite configures no tax rules, so the rules would charge nothing
+    today: whatever a return reverses can only have come off the bill.
+    """
+    line = setup.session.scalar(
+        select(SalesInvoiceLine).where(
+            SalesInvoiceLine.sales_invoice_id == setup.invoice.id
+        )
+    )
+    assert line is not None
+    line.tax_amount = Decimal("72")  # 18% of 4 x 100
+    for sequence, code in enumerate(("CGST", "SGST"), start=1):
+        setup.session.add(
+            SalesInvoiceLineTax(
+                sales_invoice_line_id=line.id,
+                firm_id=setup.firm.id,
+                sequence=sequence,
+                component_code=code,
+                component_label=f"{code} 9%",
+                percentage=Decimal("9"),
+                base_amount=Decimal("400"),
+                amount=Decimal("36"),
+            )
+        )
+    setup.session.commit()
+    return line
+
+
+def _components(session: Session, row: SalesReturn) -> list[tuple[str, Decimal]]:
+    """Return what each component of a return reversed, in order."""
+    return [
+        (tax.component_code, tax.amount)
+        for tax in session.scalars(
+            select(SalesReturnLineTax)
+            .join(
+                SalesReturnLine,
+                SalesReturnLine.id == SalesReturnLineTax.sales_return_line_id,
+            )
+            .where(SalesReturnLine.sales_return_id == row.id)
+            .order_by(SalesReturnLineTax.sequence)
+        ).all()
+    ]
+
+
+def test_a_return_reverses_the_tax_the_bill_charged() -> None:
+    """D-SELL-21: the tax was worked out again through today's rules.
+
+    Driven 2026-09-19 on a fixture: a rule cutting GST 18% to 12% after the
+    sale made a return of goods billed at 18% reverse 12% -- a different tax
+    from the one collected. The bill charged CGST 36 + SGST 36 on four; two
+    coming back take half of each, whatever the rules say now.
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    _charge_gst(setup)
+
+    row = SalesReturnService(session).create_return(
+        setup.payload(quantity=Decimal("2")),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+
+    assert row.tax_total == Decimal("36.0000")
+    assert _components(session, row) == [
+        ("CGST", Decimal("18.0000")),
+        ("SGST", Decimal("18.0000")),
+    ]
+
+
+def test_a_return_raised_on_the_bill_reverses_its_tax_too() -> None:
+    """The same goods named through the bill's own line."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    charged = _charge_gst(setup)
+    payload = setup.payload(quantity=Decimal("1"))
+    payload.lines[0].source_document_type = SalesReturnSourceType.SALES_INVOICE
+    payload.lines[0].source_document_id = setup.invoice.id
+    payload.lines[0].source_document_line_id = charged.id
+
+    row = SalesReturnService(session).create_return(
+        payload, firm_id=setup.firm.id, actor_id=setup.actor_id
+    )
+
+    assert row.tax_total == Decimal("18.0000")
+    assert _components(session, row) == [
+        ("CGST", Decimal("9.0000")),
+        ("SGST", Decimal("9.0000")),
+    ]

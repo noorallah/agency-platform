@@ -604,7 +604,12 @@ class QuotationService(TransactionalDocumentService):
         lines = self._lines_of(row.id)
         if not lines:
             raise ValidationError("Quotation must contain at least one line.")
-        order = SalesOrderService(self._session).create_order(
+        # Staged, not created: `create_order` commits, and the CONVERTED move
+        # below was a second commit, so a failure between them left an order
+        # beside a quotation still ACCEPTED -- and convertible again, into a
+        # second order for one agreement (D-SELL-14, 2026-09-19). Both halves
+        # are written and committed once, together.
+        order = SalesOrderService(self._session).stage_order(
             SalesOrderCreate(
                 customer_id=row.customer_id,
                 salesman_id=row.salesman_id,
@@ -624,8 +629,14 @@ class QuotationService(TransactionalDocumentService):
                 # The deal carries over as the deal, not as each line's share
                 # of it. The order re-splits it across whatever lines it ends
                 # up with, which keeps the two documents' arithmetic the same
-                # rather than merely similar.
-                bill_discount_amount=row.bill_discount_amount,
+                # rather than merely similar. A quotation's bill discount is
+                # only ever typed, so none is none: handing the order a zero
+                # read as "refuse every offer on the bill" (D-SELL-9).
+                bill_discount_amount=(
+                    row.bill_discount_amount
+                    if row.bill_discount_amount > ZERO
+                    else None
+                ),
                 # Freight carries over the same way, and is re-split by the
                 # order across whatever lines it ends up with.
                 freight_amount=row.freight_amount,
@@ -640,8 +651,7 @@ class QuotationService(TransactionalDocumentService):
                         inventory_uom_id=line.inventory_uom_id,
                         packaging_type_id=line.packaging_type_id,
                         unit_price=line.unit_price,
-                        discount_percent=line.discount_percent,
-                        discount_amount=line.discount_amount,
+                        **self._typed_discount(line),
                         tax_profile_id=line.tax_profile_id,
                         warehouse_id=line.warehouse_id,
                         remarks=line.remarks,
@@ -662,8 +672,34 @@ class QuotationService(TransactionalDocumentService):
             firm_scope=firm_scope,
             actor_id=actor_id,
             remarks=f"Became {order.order_number}",
+            commit=False,
         )
+        self._session.commit()
         return converted, order
+
+    @staticmethod
+    def _typed_discount(line: SalesQuotationLine) -> dict[str, Decimal | None]:
+        """Return the discount a converted order line is handed, if any.
+
+        Only what somebody **typed** on the quotation carries over as typed,
+        in the form they typed it. Everything the pricing rule derived -- an
+        offer, a price list, the customer's or their segment's standing rate
+        -- is left for the order to derive again, exactly as it would for an
+        order raised directly.
+
+        Handing the order both figures of every line, as this did, made every
+        line "priced by hand": the promotion engine skipped it, no claim was
+        staged and none was counted at approval, so an offer's limits never
+        saw a converted order, and the order read `amount` for a discount an
+        offer had given (D-SELL-9, 2026-09-19).
+        """
+        # A line saved before the source was recorded cannot say where its
+        # discount came from, so the quoted figure stands as it always did.
+        if line.discount_source in (None, "amount"):
+            return {"discount_percent": None, "discount_amount": line.discount_amount}
+        if line.discount_source == "percent":
+            return {"discount_percent": line.discount_percent, "discount_amount": None}
+        return {"discount_percent": None, "discount_amount": None}
 
     def delete_quotation(
         self, quotation_id: UUID, *, firm_scope: UUID, actor_id: UUID
@@ -1380,8 +1416,13 @@ class QuotationService(TransactionalDocumentService):
         actor_id: UUID,
         stamp: str | None = None,
         remarks: str | None = None,
+        commit: bool = True,
     ) -> SalesQuotation:
-        """Apply one lifecycle transition, with its event and audit row."""
+        """Apply one lifecycle transition, with its event and audit row.
+
+        `commit=False` leaves the transaction to a caller composing the move
+        with other writes, as conversion does with the order it stages.
+        """
         before = row.status
         row.status = status.value
         row.updated_by = actor_id
@@ -1407,7 +1448,10 @@ class QuotationService(TransactionalDocumentService):
             before_data={"status": before},
             after_data={"status": row.status, "remarks": remarks or ""},
         )
-        self._session.commit()
+        if commit:
+            self._session.commit()
+        else:
+            self._session.flush()
         return row
 
     def _record_event(

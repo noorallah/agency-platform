@@ -530,7 +530,7 @@ class LoyaltyService:
         posted = self._posting.post_loyalty(
             firm_id=firm_scope,
             entry_id=entry.id,
-            reference=f"LOY-RED-{invoice.invoice_number}",
+            reference=self._redemption_reference(invoice, firm_scope=firm_scope),
             on=entry.earned_on,
             amount=amount,
             earning=False,
@@ -575,12 +575,18 @@ class LoyaltyService:
         reason: str,
         actor_id: UUID,
     ) -> LoyaltyEntry:
-        """Correct a balance by hand, saying why.
+        """Correct a balance by hand, saying why, and book what it is worth.
 
-        Posts nothing. An adjustment is a correction to a count, not a
-        transaction: the money side was either already booked when the points
-        were earned, or was never right to book at all. Booking it again would
-        double what the scheme appears to have cost.
+        **It posts, both ways** (D-SELL-19, 2026-09-19). It used to post
+        nothing, on the reading that the money side was booked when the points
+        were earned -- but points given as goodwill were never earned, so
+        spending them debited `Loyalty Payable` for a debt nobody had raised
+        and pushed it below zero. Every point a customer holds is a debt the
+        firm owes, so the liability follows the count: points given are
+        `Dr Loyalty Expense / Cr Loyalty Payable`, exactly as an earning is,
+        and points taken back release it, `Dr Loyalty Payable / Cr Loyalty
+        Expense`, exactly as a lapse does. Both at the scheme's current value
+        per point, which is what a redemption spends them at.
 
         Args:
             firm_scope: The owning firm.
@@ -610,18 +616,37 @@ class LoyaltyService:
                 f"That customer holds {held} points, so {change} would take "
                 "the balance below zero."
             )
+        settings = self.settings_for(firm_scope)
+        rate = ZERO if settings is None else Decimal(settings.amount_per_point)
+        worth = quantize_ledger(abs(change) * rate)
         entry = LoyaltyEntry(
             firm_id=firm_scope,
             customer_id=customer.id,
             kind=LoyaltyEntryKind.ADJUSTED.value,
             points=change,
-            amount=ZERO,
+            amount=worth,
             earned_on=utc_now().date(),
             remarks=reason,
             created_by=actor_id,
             updated_by=actor_id,
         )
         self._session.add(entry)
+        self._session.flush()
+        giving = change > ZERO
+        posted = self._posting.post_loyalty(
+            firm_id=firm_scope,
+            entry_id=entry.id,
+            reference=f"LOY-ADJ-{entry.id}",
+            on=entry.earned_on,
+            amount=worth,
+            earning=giving,
+            expiring=not giving,
+            description=(
+                "Loyalty points given" if giving else "Loyalty points taken back"
+            ),
+            actor_id=actor_id,
+        )
+        entry.journal_entry_id = None if posted is None else posted.id
         self._session.flush()
         record_audit(
             self._session,
@@ -875,6 +900,35 @@ class LoyaltyService:
             .with_for_update()
         )
 
+    def _redemption_reference(self, invoice: SalesInvoice, *, firm_scope: UUID) -> str:
+        """Return a journal reference no earlier redemption of this bill holds.
+
+        Points can be spent on one bill more than once -- a part now, the rest
+        later -- and a journal reference is unique per firm, so a second
+        redemption posting `LOY-RED-<invoice>` again was refused outright
+        (D-SELL-20, 2026-09-19). The first keeps the plain reference, so what
+        is already posted reads the same; each later one is numbered,
+        `LOY-RED-<invoice>-2`, `-3`. Deleted journals are counted too, because
+        the unique key counts them. The customer's row is held by the caller,
+        so two redemptions of one bill cannot pick the same number.
+        """
+        base = f"LOY-RED-{invoice.invoice_number}"
+        taken = set(
+            self._session.scalars(
+                select(JournalEntry.reference_number).where(
+                    JournalEntry.firm_id == firm_scope,
+                    (JournalEntry.reference_number == base)
+                    | JournalEntry.reference_number.like(f"{base}-%"),
+                )
+            ).all()
+        )
+        if base not in taken:
+            return base
+        number = 2
+        while f"{base}-{number}" in taken:
+            number += 1
+        return f"{base}-{number}"
+
     def _points_of(self, customer_id: UUID, *, firm_scope: UUID) -> Decimal:
         """Return a customer's balance, summed from the ledger."""
         total = self._session.scalar(
@@ -934,10 +988,17 @@ class LoyaltyService:
                 LoyaltyEntry.is_deleted.is_(False),
             )
         )
+        # Imported here: the settlement service imports loyalty models.
+        from app.settlements.services.settlement_service import credited_against
+
+        credited = credited_against(
+            self._session, firm_id=firm_scope, invoice_ids=[invoice.id]
+        ).get(invoice.id, ZERO)
         owed = (
             quantize_ledger(invoice.grand_total)
             - quantize_ledger(Decimal(str(paid or 0)))
             - quantize_ledger(Decimal(str(spent or 0)))
+            - credited
         )
         return owed if owed > ZERO else ZERO
 

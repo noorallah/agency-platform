@@ -5,6 +5,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -350,6 +351,34 @@ def _register_batch(
     session.add(batch)
     session.commit()
     return batch
+
+
+def test_a_return_cannot_lift_its_own_cap() -> None:
+    """D-SELL-29: the request body used to carry a switch for the cap.
+
+    ``allow_over_return`` true let a return send back more than was received,
+    and ``over_return_percent`` beside it was never read. The write schema no
+    longer takes either.
+    """
+    body = {
+        "return_date": "2026-08-02",
+        "warehouse_id": str(uuid4()),
+        "allow_over_return": True,
+        "lines": [
+            {
+                "source_document_type": "GOODS_RECEIPT",
+                "source_document_id": str(uuid4()),
+                "source_document_line_id": str(uuid4()),
+                "line_number": 1,
+                "current_return_quantity": "50",
+            }
+        ],
+    }
+
+    with pytest.raises(PydanticValidationError, match="allow_over_return"):
+        PurchaseReturnCreate.model_validate(body)
+    body.pop("allow_over_return")
+    PurchaseReturnCreate.model_validate(body)
 
 
 def test_completing_a_purchase_return_links_its_inventory_movement() -> None:

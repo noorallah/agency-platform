@@ -9,9 +9,11 @@ delivery note that order never got.
 Two things this deliberately does not do. It does not move stock or post to the
 ledger itself -- it drives the same services a person would, so goods still
 leave at dispatch and cost of goods sold still belongs to the delivery note.
-And it never commits: everything it stages belongs to the caller's transaction,
-so a bill that fails at approval leaves no order and no dispatched note behind
-it. That is the whole reason the `stage_*` methods exist.
+The note it raises is approved and left waiting: the bill's own approval is
+what dispatches it, because a draft bill is a proposal and must not ship
+anything (D-SELL-13). And it never commits: everything it stages belongs to
+the caller's transaction, so a bill that fails leaves no order and no note
+behind it. That is the whole reason the `stage_*` methods exist.
 """
 
 from decimal import Decimal
@@ -154,7 +156,7 @@ class SalesChainService:
             ).all()
             if line.line_number in stated
         }
-        return self._dispatch_and_rebind(
+        return self._raise_and_rebind(
             data,
             order=order,
             quantities=None,
@@ -203,7 +205,7 @@ class SalesChainService:
             for line in data.lines
             if line.source_document_line_id is not None and line.serial_ids is not None
         }
-        return self._dispatch_and_rebind(
+        return self._raise_and_rebind(
             data,
             order=order,
             quantities=quantities,
@@ -212,7 +214,7 @@ class SalesChainService:
             actor_id=actor_id,
         )
 
-    def _dispatch_and_rebind(
+    def _raise_and_rebind(
         self,
         data: SalesInvoiceCreate,
         *,
@@ -222,7 +224,13 @@ class SalesChainService:
         firm_id: UUID,
         actor_id: UUID,
     ) -> SalesInvoiceCreate:
-        """Raise, approve and dispatch the note, then bill it instead.
+        """Raise and approve the note, then bill it instead.
+
+        The note is not dispatched here. Saving a draft bill used to ship its
+        goods and post their cost there and then, so a draft cancelled a
+        minute later left the stock out and the order DELIVERED with nothing
+        billed (D-SELL-13, driven 2026-09-19). `SalesInvoiceService` dispatches
+        it when the bill is approved, and cancels it if the draft is.
 
         `quantities` names how much of each order line to ship; None ships the
         whole order, which is what a bare bill means. `serials` names the units
@@ -266,7 +274,6 @@ class SalesChainService:
             actor_id=actor_id,
         )
         notes.stage_approval(note.id, firm_scope=firm_id, actor_id=actor_id)
-        notes.stage_dispatch(note.id, firm_scope=firm_id, actor_id=actor_id)
         return self._rebind(data, note=note)
 
     def _refuse_serialised(self, lines: list[SalesOrderLine]) -> None:

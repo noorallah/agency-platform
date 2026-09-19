@@ -29,7 +29,13 @@ left behind (§10.12). **Selling followed on 2026-09-19 (§11)**: price
 resolution, quotations, orders and their claims, credit limits, holds,
 delivery notes, invoices, receipts and TCS, returns, credit notes, proformas,
 loyalty and the shortened chain, checked against the selling fixture stores
-and WHOLE01 (§11.22). Finance and the rest follow.
+and WHOLE01 (§11.22). **Finance followed the same day (§12)**: opening the
+books, closing and reopening periods, the chart, hand journals and their
+reversal, the journals each document posts, cost and profit centres, control
+accounts, how ledger balances roll forward, the three statements, customer
+statements and ageing, opening balances, the ledger side of money in and out,
+and what `verify_sample_data.py` checks — against the `ready-firm` and
+selling stores, TEST01 and WHOLE01 (§12.16). The rest follow.
 
 ---
 
@@ -366,7 +372,7 @@ All routes under `/api/v1/firms` are platform-only. The registry rows are in `pl
 | You might expect | What actually happens |
 | --- | --- |
 | A row saying which template a user came from | Nothing on `users`; only the `user_template.applied` audit row records it |
-| Physical deletion anywhere | Never for a document, a master or a person; `is_deleted = true`. **The exception is a document's child rows** — attachments, notes, delivery schedules, dropped lines, and every child of a draft invoice or return — which are deleted and re-inserted on save, on the buying side (§9.14) and the selling side (§11.21) alike |
+| Physical deletion anywhere | Never for a document, a master or a person; `is_deleted = true`. **The exception is a document's child rows** — attachments, notes, delivery schedules, dropped lines, and every child of a draft invoice or return — which are deleted and re-inserted on save, on the buying side (§9.14) and the selling side (§11.21) alike — and a customer's `OPENING_BALANCE` receivable row when the opening balance is revised (§12.11) |
 | A firm's user rows in the firm's store | `users`, `user_firms`, `user_roles` are **platform-only**; the firm store has none |
 | An audit row for a read | Reads write nothing, including readiness and the audit screen itself |
 | A refused write leaving a partial row | A refusal is raised before commit; nothing lands — with one known exception, 20.2b before #402, where the user was created and the roles call then failed |
@@ -2307,3 +2313,836 @@ column holds it. The settings are `loyalty_settings`, audit
   proforma; `fx_t09164wau_s` 7 orders, 3 notes, 2 invoices; `fx_t0916z0ph_s`
   2 orders; TEST01 9 orders, 7 notes, 9 invoices, 4 settlements from other
   fixtures; WHOLE01 as in §11.0.
+
+---
+
+## 12. Finance — the books themselves (TC-FIN-001 to 011)
+
+Read on 2026-09-19 off `app/finance` — `finance_service.py` (years, periods,
+groups, accounts, centres, journal and voucher types), `journal_engine.py`
+(create, post, reverse, the ledger balances and their roll-forward),
+`general_ledger_service.py` (trial balance, profit and loss, balance sheet,
+ledger statement), `control_accounts.py`, `opening_setup.py`
+(`seed_finance_setup`) and `document_posting.py` — and off the finance side of
+`settlement_service.py`, `customer_service.py`, `statement_service.py`,
+`app/firms/services/readiness.py` (`open_books`) and
+`scripts/verify_sample_data.py`. Then checked, read-only, against every store
+that holds a `journal_entries` table on the local server: the `ready-firm`
+store TC-FIN-001, 003 and 007 were walked in (`fx_t0916hkkx_r`), the
+`selling-paid` stores, TEST01 and WHOLE01. §12.16 says which claims a live row
+confirmed and which it could not. A claim marked *(not seen in a live row)* was
+read off the code only. The selling and buying money paths are §9.11–9.12 and
+§11.14–11.15; this section does not repeat them.
+
+### 12.0 Before you look
+
+- **Stores.** The cases that change a firm's books run in a store of the
+  run's own:
+
+  | Case | Fixture | Schema |
+  | --- | --- | --- |
+  | TC-FIN-001, 003, 007 | `ready-firm` | **`fx_<suffix>_r`** — firm `<SUFFIX>-R`, "Ready <suffix>" |
+  | TC-FIN-002, 004, 005 | `selling-paid` | `fx_<suffix>_s` |
+  | TC-FIN-008, 009 | `policy-firm` | `fx_<suffix>_s` — §11.6 and §11.20 |
+  | TC-FIN-006 | `product-master` | `test_fixtures` |
+  | TC-FIN-010, 011 | `firm-admin`, `platform-admin` | `platform` |
+
+  A `ready-firm` store starts with the default chart (24 accounts, 1000 Cash,
+  5000 Purchases, no 9999), one financial year of 12 OPEN periods, the 24
+  control-account mappings, a customer `FXCUST` and one receipt of 500.00
+  cash (`RC-2026-2027-000001`, Dr 1000 / Cr 1100) that locks the Cash and
+  Accounts receivable mappings. `fx_t0916hkkx_r` is the one TC-FIN-001, 003
+  and 007 were walked in on 2026-09-16; its firm has since been soft-deleted
+  by a clear and its schema stays.
+- **All finance audit rows go to the firm's own trail.** No `finance.*` row
+  exists in `platform.audit_logs` (checked 2026-09-19: zero). The one
+  platform row is `firm.books_opened` (§12.1).
+- **Three layers, and what reads which.**
+
+  | Table | One row per | Written when | Read by |
+  | --- | --- | --- | --- |
+  | `journal_entries` | voucher | created (DRAFT); `status`, `posted_at` on post; `status` REVERSED when reversed | Journal Entries screen |
+  | `journal_lines` | leg | with the entry, never edited | the entry's View; the ledger statement's narration |
+  | `gl_postings` | leg, as posted | on post, one per line, `status` always POSTED | ledger statement; `verify_sample_data.py` |
+  | `ledger_balances` | account × period | on post: inserted the first time an account moves in a period, then updated | trial balance, P&L, balance sheet, account summaries |
+
+  **No report sums `journal_lines`.** A line that never posted (a draft) is
+  on no report. `customer_ledgers` and `vendor_ledgers` exist and nothing
+  writes either — zero rows in every store.
+- **Money is two decimals** in every finance table. The engine rounds each
+  leg to 0.01 before it checks the entry balances, so the stored legs are the
+  ones that balance.
+- **Journal and voucher type.** Every document posts under the firm's
+  alphabetically first journal type and first voucher type — `GEN` / `JV` in
+  every store — so the type says nothing about which module posted. The
+  module is `journal_entries.source_module`; a hand-keyed entry has
+  `source_module` and `source_id` null.
+- **One click, all its audit rows** — the §9.0 request-id query works
+  unchanged with the store's schema and the action you took
+  (`finance.accounting_period.updated`, `finance.journal_entry.posted`).
+- **What points at what:**
+
+  | From | Column | To |
+  | --- | --- | --- |
+  | `accounting_periods` | `financial_year_id` | `financial_years` |
+  | `ledger_accounts` | `account_group_id` | `account_groups` (`parent_group_id` on a group) |
+  | `journal_entries` | `journal_type_id`, `voucher_type_id`, `accounting_period_id`; `reversal_of_id` on a reversal | — |
+  | `journal_entries` | `source_module` + `source_id` — **no foreign key** | the document (§12.5) |
+  | `journal_lines` | `ledger_account_id`, `cost_center_id`, `profit_center_id` | `ledger_accounts`, `cost_centers`, `profit_centers` |
+  | `gl_postings` | `journal_entry_id`, `journal_line_id`, `ledger_account_id`, `accounting_period_id` | — |
+  | `ledger_balances` | `ledger_account_id`, `accounting_period_id` (unique together) | — |
+  | `firm_control_accounts` | `purpose` → `ledger_account_id` (unique per firm and purpose) | `ledger_accounts` |
+  | `customer_receivable_transactions` | `journal_entry_id` — set **only** on `OPENING_BALANCE` rows | `journal_entries` |
+
+### 12.1 Open the books — the year, its periods, the chart (Firms → Set up → Open the books)
+
+`POST /api/v1/firms/{id}/open-books` is platform-only and runs
+`seed_finance_setup` against the **firm's** store. §6 has the platform half;
+this is the firm half.
+
+- **Inserts** (store: the firm's), each only if missing — by code, or by
+  year start and period number:
+  - `account_groups` **5**: CA Current Assets (ASSET), CL Current Liabilities
+    (LIABILITY), REV Revenue (INCOME), EXP Direct Expenses (EXPENSE), EQ Equity
+    (EQUITY);
+  - `ledger_accounts` **24**: 1000 Cash, 1010 Bank, 1100 Trade Receivables,
+    1200 Inventory, 1300 Input Tax, 2100 Trade Payables, 2200 Output Tax,
+    2300 Goods Received Not Invoiced, 2400 Commission Payable, 2500 TCS
+    Payable, 2600 Loyalty Payable, 3000 Opening Balance Equity, 4000 Sales,
+    4100 Sales Returns, 4200 Discount Received, 4900 Rounding, 5000 Purchases,
+    5100 Purchase Returns, 5200 Cost of Goods Sold, 5300 Discount Allowed,
+    5400 Purchase Price Variance, 5500 Inventory Adjustment, 5600 Commission
+    Expense, 5700 Loyalty Expense. `is_profit_loss` follows the type (INCOME
+    and EXPENSE true), `is_balance_sheet` its opposite;
+  - `financial_years` **1**: the year today (UTC) falls in, aligned to
+    `firms.financial_year_start` — code `FY2026`, name "Financial Year
+    2026-2027", `is_active` true, `is_locked` false;
+  - `accounting_periods` **12**: `period_number` 1–12, `code` `P01`…`P12`,
+    `name` "April 2026"…"March 2027", calendar months, `status` OPEN;
+  - `journal_types` `GEN` General and `voucher_types` `JV` Journal Voucher;
+  - `firm_control_accounts` **24**, one per purpose (§12.7).
+- **Audit, firm trail — 44 rows in one request:** `finance.account_group.created`
+  ×5, `finance.ledger_account.created` ×24, `finance.financial_year.created`,
+  `finance.accounting_period.created` ×12, `finance.journal_type.created`,
+  `finance.voucher_type.created`. **The 24 mappings write no audit row** —
+  `assign` records none (D-FIN-13).
+- **Audit, platform trail:** `firm.books_opened`, `after_data` =
+  `year_starts_on` and the counts (`groups` 5, `accounts` 24, `periods` 12,
+  `types` 2, `mappings` 24). **Only when something was created**; a second
+  press writes nothing and answers `already_open`.
+- **Only the current year.** No screen creates a financial year or a period:
+  the Financial Years page lists, closes and reopens. The next year is opened
+  by pressing Open the books again on or after its first day, or by
+  `POST /firms/{id}/open-books` with `year_starts_on` (platform-only), or by
+  `POST /finance/financial-years` and twelve `POST /finance/accounting-periods`
+  (`FINANCIAL_YEAR_CREATE`). A document dated in a year not yet opened is
+  refused: "No open accounting period covers 2027-04-02. Open the period
+  before approving documents dated in it."
+- **Check** (fresh store: `5, 24, 1, 12, 1, 1, 24`):
+  ```sql
+  select (select count(*) from fx_<suffix>_r.account_groups        where is_deleted = false) as groups,
+         (select count(*) from fx_<suffix>_r.ledger_accounts       where is_deleted = false) as accounts,
+         (select count(*) from fx_<suffix>_r.financial_years       where is_deleted = false) as years,
+         (select count(*) from fx_<suffix>_r.accounting_periods    where is_deleted = false) as periods,
+         (select count(*) from fx_<suffix>_r.journal_types         where is_deleted = false) as journal_types,
+         (select count(*) from fx_<suffix>_r.voucher_types         where is_deleted = false) as voucher_types,
+         (select count(*) from fx_<suffix>_r.firm_control_accounts where is_deleted = false) as mapped;
+
+  select y.code as year, y.is_locked, p.period_number, p.code, p.name,
+         p.starts_on, p.ends_on, p.status, p.version
+  from   fx_<suffix>_r.accounting_periods p
+  join   fx_<suffix>_r.financial_years y on y.id = p.financial_year_id
+  where  p.is_deleted = false
+  order  by p.starts_on;
+  ```
+
+### 12.2 Close, reopen or lock a period (TC-FIN-003 steps 2, 4, 5)
+
+Masters → Configuration → Financial Years → the year → a period → **Close** /
+**Open**. Both are `PATCH /api/v1/finance/accounting-periods/{id}` with
+`{"status": …}`, permission `FINANCIAL_YEAR_CLOSE`.
+
+- **Updates:** `accounting_periods.status` OPEN → CLOSED (or back),
+  `updated_by`, `version` +1. Nothing else moves: no journal, no balance, no
+  change to the year.
+- **Audit:** `finance.accounting_period.updated`, `before_data` and
+  `after_data` = `status` and `name` only. Two rows for a close and a reopen,
+  one request each. **The platform trail has none** (TC-FIN-003 step 5).
+- **What a CLOSED or LOCKED period refuses:** a manual entry dated in it at
+  **create** ("Accounting period P03 is closed and cannot accept postings.")
+  and at **post** (the same sentence — the check is repeated, so a draft
+  saved while June was open cannot be posted after June closed); every
+  document approval, dispatch, receipt or return dated in it ("No open
+  accounting period covers 2026-06-15. …"). A **reversal** of anything
+  posted in a closed period goes into the period open on the day it happens
+  (§12.4), so a cancellation is never refused for that reason alone.
+- **What it does not stop:** a posting into an **earlier** open period still
+  moves the closed period's stored opening and closing (§12.8), because
+  periods can be closed in any order.
+- **LOCKED** is an API-only status (the desktop offers Close and Open only).
+  A locked period refuses every edit except being reopened — so a lock is a
+  close that also freezes the name and dates, and `FINANCIAL_YEAR_CLOSE`
+  undoes it.
+- **A locked financial year locks nothing.** `financial_years.is_locked`
+  (API only, `PATCH /finance/financial-years/{id}` with `is_locked`) is read
+  only by the year's own edit and delete. Its periods can still be closed,
+  reopened and posted into through the API; only the desktop hides Close and
+  Open under a locked year. And once set it cannot be unset — the same PATCH
+  refuses "A locked financial year cannot be modified." (D-FIN-3). No year is
+  locked in any store.
+- **Dates:** the same PATCH accepts `starts_on` / `ends_on` and checks only
+  that the end follows the start — not that the period stays inside its year,
+  does not overlap another, or still covers the entries already in it
+  (D-FIN-6).
+- **Check:**
+  ```sql
+  select p.code, p.name, p.status, p.version, p.updated_at
+  from   fx_<suffix>_r.accounting_periods p
+  where  p.name = 'June 2026';
+
+  select created_at, action, before_data->>'status' as was, after_data->>'status' as now
+  from   fx_<suffix>_r.audit_logs
+  where  action = 'finance.accounting_period.updated'
+  order  by created_at;
+  ```
+- **Confirmed** in `fx_t0916hkkx_r`: June 2026 closed at 22:03:07 UTC and
+  reopened at 22:03:12, two audit rows (OPEN → CLOSED, CLOSED → OPEN);
+  `MT-CLOSE-2`, created at 22:03:05 while June was open, posted at 22:03:14
+  after the reopen. WHOLE01 holds the same pair for June 2026 (2026-09-14) and
+  for April 2024. No period in any store is CLOSED today.
+
+### 12.3 Create and edit a ledger account (TC-FIN-001)
+
+Finance → Chart of Accounts → New / Edit. `POST` and
+`PATCH /api/v1/finance/ledger-accounts`, permission `ACCOUNT_MANAGE`.
+
+- **Create inserts** one `ledger_accounts` row: `account_group_id`, `code`
+  (upper-case letters, digits, `_` and `-`, up to 20), `name`,
+  `account_type`, `description`, `is_balance_sheet` / `is_profit_loss`
+  (following the type unless sent), `requires_cost_center`,
+  `requires_profit_center`, `is_active`. **Audit:**
+  `finance.ledger_account.created` (`code`, `account_type`).
+- **Refused, nothing written:** a group of another type ("A ledger account
+  must share its group's account type." — the REV chip with type EXPENSE);
+  a code the firm already has ("A ledger account with this code already
+  exists."); a group that is not the firm's ("Account group not found.").
+- **Edit updates** `name`, `description`, the two statement flags, the two
+  "Requires a …" flags, `is_active`, and — through the API only — the group,
+  provided the new group has the same type. **`code` and `account_type`
+  cannot change**; the update schema does not carry them. `version` +1.
+- **Audit:** `finance.ledger_account.updated`, **both sides `name` and
+  `is_active` only** — ticking "Requires a cost centre" writes a row whose
+  before and after read the same (D-FIN-13).
+- **No delete.** There is no delete endpoint for an account, a group, a
+  centre, a journal type or a voucher type; **Active** is the only way out.
+  Deactivating an account mapped to a posting purpose is not refused, and
+  every document of that purpose then fails at approval with "Ledger accounts
+  are inactive: 1100." (D-FIN-8).
+- **Account groups** (`POST` / `PATCH /finance/account-groups`) write
+  `finance.account_group.created` / `.updated`. A new group with a parent
+  must share the parent's type; an edit that changes the parent checks
+  neither the type nor a cycle.
+- **Check:**
+  ```sql
+  select a.code, a.name, a.account_type, g.code as grp, a.is_balance_sheet, a.is_profit_loss,
+         a.requires_cost_center, a.requires_profit_center, a.is_active, a.version
+  from   fx_<suffix>_r.ledger_accounts a
+  join   fx_<suffix>_r.account_groups g on g.id = a.account_group_id
+  where  a.code in ('9999', '5000')
+  order  by a.code;
+  ```
+- **Confirmed** in `fx_t0916hkkx_r`: 9999 Manual test account, EXPENSE, group
+  EXP, `is_profit_loss` true, version 1 — 25 accounts; 5000 at version 3
+  after the flag was ticked and unticked, with two
+  `finance.ledger_account.updated` rows reading `{"name": "Purchases",
+  "is_active": true}` on both sides.
+
+### 12.4 A manual journal — draft, post, reverse (TC-FIN-003 steps 1, 3, 4)
+
+Finance → Journal Entries → **New Entry** → **Save Draft**, then **Post**; or
+**Reverse** on a posted one.
+
+- **Save Draft** — `POST /api/v1/finance/journal-entries`,
+  `JOURNAL_CREATE`. **Inserts** `journal_entries` (`status` DRAFT,
+  `journal_date`, `reference_number` as typed, `description`, `remarks`,
+  `total_debit` = `total_credit`, `is_balanced` true, `source_module` and
+  `source_id` null, `posted_at` null) and one `journal_lines` row per leg
+  (`line_number` from 1, `debit_amount` or `credit_amount`, the centres, a
+  narration). **Audit:** `finance.journal_entry.created`
+  (`reference_number`, `total_debit`, `total_credit`). **No posting and no
+  balance** — a draft is on no report.
+- **Refused at save, nothing written:** fewer than two lines; a line with
+  both sides or neither; debits ≠ credits ("Journal entry is not balanced:
+  debit 100, credit 90."); a zero entry; a date outside the chosen period
+  ("The journal date must fall inside the accounting period."); a period not
+  OPEN; an account that is inactive ("Ledger accounts are inactive: 5000.")
+  or not the firm's; a missing centre on an account that requires one
+  (§12.6); a journal or voucher type not the firm's; a reference the firm
+  already has ("A journal entry with this reference number already exists.").
+  **References are unique across every journal the firm holds, documents'
+  included** (D-FIN-9).
+- **Not refused at save:** a line on an account a document keeps in step
+  with something else — 1100 against the customers, 1200 against the stock,
+  2300 against uninvoiced receipts. A hand Dr 1100 moves the receivable
+  account with no customer owing it (D-FIN-11).
+- **Post** — `POST /journal-entries/{id}/post`, `JOURNAL_POST`.
+  **Updates** `journal_entries.status` → POSTED, `posted_at` = now (UTC),
+  `version` +1. **Inserts** one `gl_postings` row per line (`posting_date` =
+  the same instant, the entry's period, `status` POSTED, `posted_by`).
+  **Inserts or updates** one `ledger_balances` row per account for the
+  entry's period, and moves every **later** period's stored row for the same
+  account (§12.8). **Audit:** `finance.journal_entry.posted` (DRAFT →
+  POSTED). Refused: an entry not DRAFT ("Only draft entries can be posted;
+  this entry is posted."); a period closed since the draft was saved.
+- **Reverse** — `POST /journal-entries/{id}/reverse`, `JOURNAL_REVERSE`.
+  **Inserts** a new entry — lines flipped, `reversal_of_id` = the original,
+  **the original's `source_module` and `source_id` copied**, description
+  "Reversal of MT-CLOSE-1" — and posts it at once (created and posted in one
+  request, with its postings and balances). **Updates** the original's
+  `status` → REVERSED. **Audit:** `finance.journal_entry.created`,
+  `.posted`, and `.reversed` on the original (`reversal_entry_id`).
+  - **Its date.** The desktop's Reverse sends the original's period and date,
+    so a hand reversal lands **beside the original**, in its period — and is
+    refused if that period is closed. Called without them, the engine uses
+    **today in UTC**, in the period open on that day, or the original's own
+    date if no period is open today. This is what every document cancellation
+    does since D-BUY-4 (#442, 2026-09-18); rows written before it read the
+    first day of the original's period, which is what §9.6, §9.12 and §11.15
+    saw. **Today in UTC is the day before in India until 05:30**, so a bill
+    dated and cancelled in those hours reverses the day before it was raised
+    (D-FIN-5).
+  - **Any posted entry can be reversed here, a document's included** — the
+    desktop offers Reverse on every POSTED row. The document is left as it
+    was, its receivable and its stock with it (D-FIN-2).
+  - Refused: an entry not POSTED ("Only posted entries can be reversed.").
+- **No edit, no delete, no reject** for a draft: `JournalEntryUpdate` is
+  declared and no route uses it, and `REJECTED` is never written. A mistaken
+  draft keeps its reference for good (D-FIN-15).
+- **Check** — the entry, its lines, their postings, and what the accounts hold
+  in its period:
+  ```sql
+  select je.reference_number, je.status, je.journal_date, p.code as period, p.status as period_status,
+         je.posted_at, je.reversal_of_id, jl.line_number, la.code, jl.debit_amount, jl.credit_amount,
+         cc.code as cost_centre, pc.code as profit_centre, g.posting_date
+  from   fx_<suffix>_r.journal_entries je
+  join   fx_<suffix>_r.accounting_periods p on p.id = je.accounting_period_id
+  join   fx_<suffix>_r.journal_lines jl     on jl.journal_entry_id = je.id
+  join   fx_<suffix>_r.ledger_accounts la   on la.id = jl.ledger_account_id
+  left join fx_<suffix>_r.cost_centers cc   on cc.id = jl.cost_center_id
+  left join fx_<suffix>_r.profit_centers pc on pc.id = jl.profit_center_id
+  left join fx_<suffix>_r.gl_postings g     on g.journal_line_id = jl.id
+  where  je.source_module is null
+  order  by je.created_at, jl.line_number;
+  ```
+  A DRAFT row shows a null `posting_date`; a POSTED one, one posting per line.
+- **Confirmed** in `fx_t0916hkkx_r`: `MT-CLOSE-1`, `MT-CC-1`, `MT-CLOSE-2`,
+  each Dr 5000 / Cr 1000, `source_module` null, `GEN`/`JV`; the two June ones
+  in P03. No hand reversal exists in any store.
+
+### 12.5 Journals the documents post (TC-FIN-004)
+
+Journal Entries lists every entry; the View dialog's first line is "POSTED ·
+posted by <source_module> · <description>". The posting rules are
+`docs/LEDGER_POSTING_RULES.md`; the per-document rows are §9 (buying), §10
+(stock) and §11 (selling). This is the map from what you see to where it came
+from, read off WHOLE01's and TEST01's live journals:
+
+| `source_module` | Reference | Legs (default chart) | Written by |
+| --- | --- | --- | --- |
+| `goods_receipt` | `GRN-…` | Dr 1200 / Cr 2300 | completing a receipt (§9.5) |
+| `purchase_invoice` | `PI-…` | Dr 2300 + 1300 (± 5400) / Cr 2100 (± 5400) | approving a supplier bill (§9.9) |
+| `purchase_return` | `PR-…` | Dr 2100 / Cr 1200 + 1300 (± 5400) | completing a return (§9.10) |
+| `delivery_note` | `DN-…` | Dr 5200 / Cr 1200 | dispatch (§11.10) |
+| `sales_invoice` | `SI-…` | Dr 1100 / Cr 4000 + 2200 | approving a bill (§11.11) |
+| `sales_return` | `SR-…`, `SR-…-COST` | Dr 4100 + 2200 / Cr 1100; Dr 1200 / Cr 5200 | completing a return (§11.16) |
+| `credit_note` | `CN-…` | Dr 4100 + 2200 / Cr 1100 | approving a credit note (§11.17) |
+| `settlements` | `RC-…`, `PY-…`, `RF-…` | Dr 1010 or 1000 / Cr 1100; Dr 2100 / Cr 1010 or 1000; Dr 1100 / Cr 1010 or 1000 | receipt, payment, refund (§12.12) |
+| `tcs` | `TCS-RC-…` | Dr 1100 / Cr 2500 | a receipt past the threshold (§11.14) |
+| `loyalty` | `LOY-SI-…`, `LOY-RED-SI-…`, `LOY-EXP-…` | Dr 5700 / Cr 2600; Dr 2600 / Cr 1100; Dr 2600 / Cr 5700 | earn, spend, expire (§11.19) |
+| `commission` | `COMM-…`, `COMM-…-PAY` | Dr 5600 / Cr 2400; Dr 2400 / Cr 1000 or 1010 | approving and paying a payout |
+| `inventory` | the movement's or batch's reference | Dr 5500 / Cr 1200 (or back); Dr 1200 / Cr 3000 for opening stock | write-off, adjustment, opening stock (§10.3, §12.11) |
+| `physical_count` | the count number | Dr 5500 / Cr 1200 (or back) | posting a count (§10.5) |
+| `customers` | `<code>-OB` | Dr 1100 / Cr 3000 (swapped for a credit balance) | a customer's opening balance (§12.11) |
+| null | as typed | as typed | a hand entry (§12.4) |
+
+- A reversal carries the **same** `source_module` and `source_id` as what it
+  reverses, a reference ending `-REV`, and `reversal_of_id`; the original
+  reads REVERSED. **Look a document's live journal up with
+  `reversal_of_id is null`**, or you find its reversal too.
+- **The search matches reference or description; there is no module filter**
+  (BL-31.15).
+- **Check** (the four TC-FIN-004 looks for, in the selling store):
+  ```sql
+  select je.reference_number, je.status, je.source_module, je.journal_date, je.description,
+         je.total_debit, je.reversal_of_id
+  from   fx_<suffix>_s.journal_entries je
+  where  je.reference_number in ('SI-2026-2027-000001', 'RC-2026-2027-000001', 'TCS-RC-2026-2027-000001')
+     or  je.reference_number like 'DN-%'
+  order  by je.created_at;
+  ```
+- **Confirmed** in `fx_t0916d751_s` (`selling-paid`): `T0916D751-OS`
+  (`inventory`), two `DN-` (`delivery_note`, 300.00 and 420.00),
+  `SI-2026-2027-000001` / `-000002` (`sales_invoice`, 483.21 / 676.49),
+  `RC-…-000001` / `-000002` (`settlements`, 241.60 / 341.61), `TCS-RC-…`
+  (`tcs`, 2.42 / 3.42) — nine entries, all POSTED, all `GEN`/`JV`.
+
+### 12.6 Cost and profit centres, and an account that demands one (TC-FIN-007)
+
+- **New centre** — `POST /finance/cost-centers` or `/profit-centers`,
+  `ACCOUNT_MANAGE`. **Inserts** `cost_centers` / `profit_centers` (`code`,
+  `name`, `description`, `is_active`). **Audit:**
+  `finance.cost_center.created` / `finance.profit_center.created` (`code`).
+  A second SALES is refused with "A cost centre with this code already
+  exists." and writes nothing.
+- **Edit** updates `name`, `description`, `is_active`. **Audit:**
+  `finance.cost_center.updated` / `.profit_center.updated`, `after_data`
+  `name` and `is_active`, **no `before_data`**. No delete endpoint.
+- **"Requires a cost centre"** is `ledger_accounts.requires_cost_center`
+  (§12.3). It is enforced **when a journal is created** — a hand entry, and
+  every document journal too: a document posting to an account that demands
+  a centre is refused, since documents never name one — and not re-checked
+  at post, so a draft saved before the flag was ticked still posts.
+  Refused: "Ledger account 5000 requires a cost centre." (422, and nothing
+  written).
+- **A line's centre is checked for presence only** — not that it is the
+  firm's, live or active. In the shared store another firm's centre is
+  accepted; in a store of its own an unknown id fails the foreign key and is
+  reported as "A journal entry with this reference number already exists."
+  (D-FIN-12).
+- **No report reads a centre.** `journal_lines.cost_center_id` /
+  `profit_center_id` are written and shown on the entry; the trial balance,
+  P&L and balance sheet ignore them.
+- **Check:**
+  ```sql
+  select 'cost' as kind, code, name, is_active, version from fx_<suffix>_r.cost_centers
+  union all
+  select 'profit', code, name, is_active, version from fx_<suffix>_r.profit_centers;
+
+  select je.reference_number, la.code, la.requires_cost_center, cc.code as cost_centre, pc.code as profit_centre
+  from   fx_<suffix>_r.journal_lines jl
+  join   fx_<suffix>_r.journal_entries je  on je.id = jl.journal_entry_id
+  join   fx_<suffix>_r.ledger_accounts la  on la.id = jl.ledger_account_id
+  left join fx_<suffix>_r.cost_centers cc   on cc.id = jl.cost_center_id
+  left join fx_<suffix>_r.profit_centers pc on pc.id = jl.profit_center_id
+  where  je.source_module is null;
+  ```
+- **Confirmed:** `fx_t0916hkkx_r` holds SALES (audit
+  `finance.cost_center.created`) and no profit centre; `MT-CC-1` there was
+  posted before the flag was ticked and carries none. WHOLE01's `MT-CC-1`
+  carries SALES on its 5000 line; `JV-CENTRES-1` in WHOLE01 and in both
+  shared-store firms carries SALES / NORTH on 5300, each firm's own.
+
+### 12.7 Control accounts — which account a document posts to
+
+Finance → Control Accounts. `GET /finance/control-accounts` lists all 24
+purposes, mapped or not, with the account and `posted_lines` (POSTED lines
+already on it). `PUT /finance/control-accounts/{purpose}` with
+`ledger_account_id`, `ACCOUNT_MANAGE`.
+
+- **Purposes:** ACCOUNTS_RECEIVABLE 1100, ACCOUNTS_PAYABLE 2100,
+  SALES_REVENUE 4000, SALES_RETURNS 4100, PURCHASE_EXPENSE 5000,
+  PURCHASE_RETURNS 5100, OUTPUT_TAX 2200, INPUT_TAX 1300, INVENTORY 1200,
+  GOODS_RECEIVED_NOT_INVOICED 2300, COST_OF_GOODS_SOLD 5200,
+  PURCHASE_PRICE_VARIANCE 5400, INVENTORY_ADJUSTMENT 5500,
+  OPENING_BALANCE_EQUITY 3000, DISCOUNT_ALLOWED 5300, COMMISSION_EXPENSE 5600,
+  COMMISSION_PAYABLE 2400, TCS_PAYABLE 2500, LOYALTY_EXPENSE 5700,
+  LOYALTY_PAYABLE 2600, DISCOUNT_RECEIVED 4200, ROUNDING 4900, CASH 1000,
+  BANK 1010 — as the default chart maps them.
+- **Re-point** updates `firm_control_accounts.ledger_account_id` (or inserts
+  the row for an unmapped purpose), `version` +1. **Audit:**
+  `control_account.assigned`, `before_data.ledger_account_id` the old account,
+  `after_data` the purpose and the new one.
+- **Refused, nothing written:** an account not the firm's; the wrong type for
+  the purpose ("SALES_REVENUE must post to a INCOME account, but 5000 is
+  EXPENSE."); re-pointing a purpose whose current account already holds
+  POSTED lines ("Accounts receivable has 1 posted line on 1100 Trade
+  Receivables. Re-pointing it would …"). Choosing the same account again
+  is accepted and still writes an audit row.
+- **Not refused:** an **inactive** account (the docstring says it is;
+  D-FIN-8); a **CONTROL**-type account for the receivable, payable, tax,
+  GRNI, commission, TCS or loyalty purposes, which the balance sheet then
+  leaves out (D-FIN-7).
+- **A purpose with no mapping** refuses the document that needs it: "This
+  firm has no ledger account configured for: ACCOUNTS_RECEIVABLE. Set the
+  firm's control accounts before approving this document."
+- **Check:**
+  ```sql
+  select c.purpose, la.code, la.name, la.account_type, la.is_active, c.version, c.updated_at,
+         (select count(*) from fx_<suffix>_r.journal_lines jl
+          join fx_<suffix>_r.journal_entries je on je.id = jl.journal_entry_id
+          where jl.ledger_account_id = la.id and je.status = 'POSTED') as posted_lines
+  from   fx_<suffix>_r.firm_control_accounts c
+  join   fx_<suffix>_r.ledger_accounts la on la.id = c.ledger_account_id
+  where  c.is_deleted = false
+  order  by c.purpose;
+  ```
+- **Confirmed** on WHOLE01: two `control_account.assigned` rows on
+  2026-09-08 moving PURCHASE_EXPENSE away and back. Every store maps all 24,
+  none to an inactive account.
+
+### 12.8 Ledger balances — how a posting rolls forward, and a back-dated one
+
+`ledger_balances` is the stored figure every statement reads, one row per
+account per period the account has **moved in**.
+
+- **First posting to an account in a period inserts** the row with
+  `opening_balance` = the closing of the account's latest earlier row (0 if
+  none), then adds the line: `period_debit` / `period_credit` += the leg,
+  `closing_balance` = opening + movement on the account's normal side (debit
+  for ASSET and EXPENSE, credit for everything else, CONTROL included).
+- **Every later period's row for that account moves too:** `opening_balance`
+  and `closing_balance` += the line's movement; `period_debit` /
+  `period_credit` stay as they were. A **back-dated** entry — a June journal
+  posted in September, a bill dated last month cancelled today — therefore
+  leaves every later month chained. Rows in CLOSED periods move as well.
+- **A period an account did not move in has no row.** The trial balance and
+  balance sheet supply it in memory from the latest earlier closing and never
+  write it (§12.9).
+- **Nothing is ever deleted or recomputed from scratch.** A reversal is a
+  second posting in its own period, so the original's period keeps its
+  movement and the reversal's period gains the opposite.
+- **Balances run across years.** No year-end closing entry is written, so
+  INCOME and EXPENSE accounts carry into the next year's first period; the
+  P&L resets at the year by reading movement, and the balance sheet computes
+  retained earnings (§12.9).
+- **Check** — each row should open where the one before it closed:
+  ```sql
+  select a.code, p.code as period, p.name, b.opening_balance, b.period_debit, b.period_credit,
+         b.closing_balance,
+         lag(b.closing_balance) over (partition by b.ledger_account_id order by p.ends_on) as previous_close,
+         b.version, b.updated_at
+  from   fx_<suffix>_r.ledger_balances b
+  join   fx_<suffix>_r.ledger_accounts a    on a.id = b.ledger_account_id
+  join   fx_<suffix>_r.accounting_periods p on p.id = b.accounting_period_id
+  order  by a.code, p.starts_on;
+  ```
+- **Confirmed** in `fx_t0916hkkx_r`: 1000 Cash's September row was inserted at
+  19:27 UTC by the receipt (opening 0, Dr 500); the two June entries posted
+  from 22:02 inserted a June row (Cr 200 → −200.00) and moved September's
+  opening to **−200.00** and closing to **290.00** (version 5). 5000's
+  September row opens at 200.00 — June's close. The chain holds in every
+  store on the server (zero rows opening away from the previous close) and
+  every period's postings balance.
+
+### 12.9 Trial balance, profit and loss, balance sheet, ledger statement — reads (TC-FIN-002)
+
+All four **write nothing**, not even an audit row. Each takes one
+`accounting_period_id`.
+
+| Report | Route (permission) | Reads |
+| --- | --- | --- |
+| Trial balance | `GET /finance/trial-balance` (`TRIAL_BALANCE_VIEW`) | the period's `ledger_balances` rows, plus every account whose latest earlier row closed non-zero (built in memory); `ledger_accounts` |
+| Profit and loss | `GET /finance/profit-loss` (`PROFIT_LOSS_VIEW`) | `ledger_balances` of INCOME and EXPENSE accounts in the period's **financial year** up to and including the period — movement (`period_debit` / `period_credit`), never closings |
+| Balance sheet | `GET /finance/balance-sheet` (`BALANCE_SHEET_VIEW`) | the trial balance's rows; ASSET, LIABILITY and EQUITY listed; INCOME and EXPENSE netted into earnings; MEMO and CONTROL left out; the P&L for the year's result |
+| Ledger statement | `GET /finance/general-ledger/{account}` (`LEDGER_VIEW`) | the account's `ledger_balances` row (or the carried closing), and its `gl_postings` in the period joined to the entry and line, in journal-date order |
+
+- **Trial balance.** One line per account: Opening, Debit, Credit, Closing —
+  Debit and Credit are the **period's movement**. The Total row and the
+  Balanced chip compare the **closing balances split by side** (a debit-side
+  account's positive closing is a debit, and so on), **not** the sum of the
+  Debit and Credit columns above them (D-FIN-18). Accounts with a zero
+  carried balance and no movement are omitted.
+- **Profit and loss.** Income and Expenses, each line with "This period"
+  (movement in the period) and "Year to date"; an account with neither is
+  omitted. Sections follow `account_type`, not `is_profit_loss`. 4100 Sales
+  Returns is an INCOME account, so a return shows as a negative income line.
+- **Another firm's period is not refused.** All four read the period by id
+  without checking it is the firm's, so in the shared store one firm can ask
+  for a report on the other's period and gets its own figures, dated by the
+  other's calendar, instead of "not found" (D-FIN-14).
+- **Balance sheet.** Total assets = liabilities + equity, where equity =
+  the EQUITY accounts + **retained earnings brought forward** (every earlier
+  year's net, computed) + **result for the year** (= the P&L's year-to-date
+  net for the same period). Nothing is posted to make it balance.
+- **Check** — the three statements from the stored rows (September 2026 in
+  the selling store; any period code works):
+  ```sql
+  with p as (select id, starts_on, ends_on, financial_year_id
+             from fx_<suffix>_s.accounting_periods where code = 'P06' and is_deleted = false),
+  latest as (
+    select distinct on (b.ledger_account_id) a.code, a.account_type, b.closing_balance
+    from   fx_<suffix>_s.ledger_balances b
+    join   fx_<suffix>_s.accounting_periods ap on ap.id = b.accounting_period_id
+    join   fx_<suffix>_s.ledger_accounts a     on a.id = b.ledger_account_id, p
+    where  ap.ends_on <= p.ends_on
+    order  by b.ledger_account_id, ap.ends_on desc)
+  select sum(case when account_type = 'ASSET'     then closing_balance else 0 end) as assets,
+         sum(case when account_type = 'LIABILITY' then closing_balance else 0 end) as liabilities,
+         sum(case when account_type = 'EQUITY'    then closing_balance else 0 end) as equity,
+         sum(case when account_type = 'INCOME'  then closing_balance
+                  when account_type = 'EXPENSE' then -closing_balance else 0 end)  as earnings_to_date,
+         string_agg(code || ' ' || closing_balance, ', ' order by code)             as accounts
+  from   latest;
+  ```
+  Assets should equal liabilities + equity + earnings to date.
+- **Confirmed** in `fx_t0916d751_s` (`selling-paid`, untouched), September
+  2026: trial balance 7,165.54 each side; assets 6,445.54 = liabilities
+  182.74 + equity 6,000.00 + earnings 262.80; P&L 4000 982.80 less 5200
+  720.00 = **262.80** this period and year to date, so result for the year
+  262.80 and nothing brought forward. The Debit column of that trial balance
+  sums to 8,468.75 — the month's postings — beside a Total of 7,165.54.
+  WHOLE01 September: 496,202.07 = 458,173.01 + 0 + 38,029.06, with −4,194.86
+  for the year to date and 42,223.92 brought forward from earlier years.
+  TEST01: 46,738.00 = 7,198.00 + 42,000.00 − 2,460.00.
+
+### 12.10 Customer statement and ageing — reads (TC-CUST-005)
+
+Neither writes anything. Both read `customer_receivable_transactions`
+(§11.0), never the journal.
+
+- **Statement** — `GET /customers/{id}/statement?from_date=&to_date=`
+  (`CUSTOMER_VIEW`). Opening = the sum of `outstanding_delta` on the
+  customer's rows dated before `from_date`; lines = the rows dated in the
+  range, ordered by `transaction_date`, then `created_at`, then `id`; the
+  running balance is recomputed, never read off `outstanding_after`.
+  `unapplied_advance` is the customer's current advance, beside it rather
+  than netted. **A reversal row carries the date of what it reverses**, not
+  the day it happened, while its journal carries the cancel date — so a
+  statement for a month already sent changes when something in it is
+  cancelled later (D-FIN-17).
+- **Ageing** — `GET /customers/ageing[?customer_id=&as_of=]`. Per APPROVED or
+  CLOSED invoice: `grand_total` to two decimals less the allocations of
+  settlements not REVERSED; aged from `due_date`, or `invoice_date` when
+  there is none, to `as_of` (default today in UTC); buckets 0–29, 30–59,
+  60–89, 90+. Beside the bills: `account_balance` =
+  `customers.current_outstanding`, and the gap named as
+  `unapplied_credits` or `charges_not_billed`.
+  - **Points spent on a bill are not subtracted** here, though Record Receipt
+    subtracts them, so a bill part-settled by loyalty points ages at its full
+    remainder and the gap is labelled "unapplied credits" (D-FIN-10).
+  - **`as_of` moves only the day count.** Bills raised after it (age 0) and
+    receipts after it are counted (D-FIN-10).
+- **Check:**
+  ```sql
+  select t.transaction_date, t.created_at, t.transaction_type, t.reference_number,
+         t.outstanding_delta,
+         sum(t.outstanding_delta) over (order by t.transaction_date, t.created_at, t.id) as running
+  from   test_fixtures.customer_receivable_transactions t
+  join   test_fixtures.customers c on c.id = t.customer_id
+  where  c.code = '<SUFFIX>-C' and t.is_deleted = false
+  order  by t.transaction_date, t.created_at, t.id;
+
+  select i.invoice_number, i.invoice_date, i.due_date, round(i.grand_total, 2) as total,
+         coalesce(sum(a.amount) filter (where s.status <> 'REVERSED'), 0) as allocated,
+         (select coalesce(sum(e.amount), 0) from test_fixtures.loyalty_entries e
+          where e.sales_invoice_id = i.id and e.kind = 'REDEEMED' and e.is_deleted = false) as points_spent
+  from   test_fixtures.sales_invoices i
+  join   test_fixtures.customers c on c.id = i.customer_id
+  left join test_fixtures.settlement_allocations a on a.sales_invoice_id = i.id and a.is_deleted = false
+  left join test_fixtures.settlements s on s.id = a.settlement_id
+  where  c.code = '<SUFFIX>-C' and i.status in ('APPROVED', 'CLOSED') and i.is_deleted = false
+  group  by i.id;
+  ```
+  For TC-CUST-005: INVOICE 590.00 then RECEIPT −200.00, running 390.00;
+  the invoice ages at 390.00 in 0–29 with nothing unexplained.
+- **Confirmed:** TEST01's `invoiced-part-paid` customers carry exactly that
+  trail (INVOICE 590.00, RECEIPT 200.00, 390.00 outstanding). WHOLE01's
+  SI-2026-2027-000004 (3,698.95, nothing allocated, 100.00 of points spent)
+  ages at 3,698.95 where Record Receipt offers 3,598.95.
+
+### 12.11 Opening balances — customer, stock, vendor
+
+- **A customer's opening balance** is `customers.opening_balance` on create
+  (or an edit, while the customer has no other receivable row). **Inserts**
+  a journal `<code>-OB` (`<code>-OB2`, … when the reference is taken),
+  `source_module` `customers`, `source_id` the customer, dated **today in
+  UTC** in the period open then: **Dr 1100 / Cr 3000**, swapped for a
+  negative (credit) balance; and one `customer_receivable_transactions` row
+  `OPENING_BALANCE` (`amount` the absolute value, the deltas splitting it into
+  outstanding or advance, `reference_type` `CUSTOMER_MASTER`,
+  `journal_entry_id` the journal). **Audit:** `finance.journal_entry.created`,
+  `.posted`, `customer.created` (or `.updated`). Refused, with nothing
+  written, when the firm has no chart or no period open today: "<code>
+  cannot open with a balance: …".
+- **Changing it** (only while no other receivable row exists) reverses every
+  OB journal (`<ref>-REV`), **physically deletes** the old `OPENING_BALANCE`
+  row, and posts the new figure.
+- **Deleting the customer** reverses the OB journal and soft-deletes the
+  customer — **with nothing else checked**. A customer who still owes, or
+  holds an advance, leaves the receivable ledger with their balance still in
+  1100 and no live customer owing it; **restoring** them brings the balance
+  back without re-posting the opening journal (D-FIN-1).
+- **Opening stock** is §10.0 and §10.6: posting a batch writes the
+  `OPENING_STOCK` movements and one journal named by the batch reference,
+  `source_module` `inventory`, **Dr 1200 / Cr 3000** at the movements' cost,
+  dated the batch's `posting_date`; nothing when the value is zero. Audit
+  `opening_stock.posted`.
+- **A vendor has no opening balance.** `vendors` holds no balance column and
+  nothing posts one; a supplier's day-one payable has to be a hand journal
+  (Dr 3000 / Cr 2100) with no bill behind it.
+- **Check:**
+  ```sql
+  select c.code, c.is_deleted, c.opening_balance, c.current_outstanding, c.unapplied_advance_balance,
+         t.transaction_type, t.amount, t.outstanding_delta, t.advance_delta, je.reference_number, je.status
+  from   test_fixtures.customers c
+  left join test_fixtures.customer_receivable_transactions t
+         on t.customer_id = c.id and t.transaction_type = 'OPENING_BALANCE'
+  left join test_fixtures.journal_entries je on je.id = t.journal_entry_id
+  where  c.opening_balance <> 0 or c.is_deleted;
+  ```
+- **Confirmed:** WHOLE01's OB-LIFE, OB-REV1 and OB-REV3 — deleted customers
+  with a 25,000.00 opening balance, their OB rows gone and journals reversed.
+  **TEST01's receivable account holds 3,040.00 while its live customers owe
+  1,180.00:** five customers deleted on 2026-09-16 at 21:17 UTC still owe
+  1,960.00 on four approved invoices and hold 100.00 of advance
+  (`T09166ZCU-C`, `T0916RDX8-C`, `T0916KUGO-C`, `T0916LU5E-C`,
+  `T09169VIQ-TILL`). No customer opening balance is live in any fixture store.
+
+### 12.12 Money in and out — the ledger side of receipts, payments and refunds
+
+The document side is §9.11–9.12 (payments) and §11.14–11.15 (receipts,
+advances, TCS). What finance adds:
+
+- **Every settlement posts before its row is written**, and
+  `settlements.journal_entry_id` is NOT NULL. Receipt: Dr 1010 Bank (1000
+  Cash for CASH) / Cr 1100. Payment: Dr 2100 / Cr 1010 or 1000. **Refund**
+  (`POST /api/v1/refunds`, `PAYMENT_CREATE`, number `RF-2026-2027-…`): Dr 1100
+  / Cr 1010 or 1000, a receivable row `REFUND` taking the advance down —
+  refused beyond the advance held ("Refund amount exceeds unapplied
+  advance."), and refused with allocations ("A refund returns money held on
+  account, so it is not applied to an invoice."). **Audit:**
+  `settlement.refund.recorded`. *(No refund exists in any store — not seen in
+  a live row.)*
+- **The bank or cash account is the CASH or BANK mapping** (§12.7); an
+  unmapped one refuses the settlement by purpose.
+- **A reversal** (`POST /receipts|payments|refunds/{id}/reverse`) posts
+  `<number>-REV` through the engine with no date, so it is dated today (UTC)
+  in the period open then (§12.4), and marks the settlement REVERSED; a
+  receipt or refund also writes a receivable `REVERSAL` row dated the
+  **original's** date (§12.10).
+- **`POST /customers/{id}/receivables/transactions`** (`RECEIPT_CREATE`) is a
+  second way to move a customer's balance. It refuses RECEIPT and
+  ADVANCE_RECEIPT and posts a journal only for CREDIT_NOTE (Dr 4100 / Cr
+  1100, reference as typed or `CN-<8 chars>`); **INVOICE, TCS, LOYALTY,
+  ADVANCE_APPLY and REFUND move the balance with no journal**, no document
+  and no allocation (D-FIN-4). No desktop screen calls it.
+- **Check** — every settlement and its journals, and whether the two books
+  agree:
+  ```sql
+  select s.settlement_number, s.direction, s.status, s.amount, la.code as money_account,
+         je.reference_number, je.status as journal_status, je.journal_date,
+         rv.reference_number as reversal, rv.journal_date as reversed_on
+  from   fx_<suffix>_s.settlements s
+  join   fx_<suffix>_s.ledger_accounts la on la.id = s.ledger_account_id
+  join   fx_<suffix>_s.journal_entries je on je.id = s.journal_entry_id
+  left join fx_<suffix>_s.journal_entries rv on rv.id = s.reversal_journal_entry_id
+  order  by s.settlement_number;
+
+  select (select coalesce(sum(p.debit_amount - p.credit_amount), 0)
+          from fx_<suffix>_s.gl_postings p
+          join fx_<suffix>_s.firm_control_accounts c
+            on c.ledger_account_id = p.ledger_account_id and c.purpose = 'ACCOUNTS_RECEIVABLE') as ledger_1100,
+         (select sum(current_outstanding) - sum(unapplied_advance_balance)
+          from fx_<suffix>_s.customers where is_deleted = false)                             as customers_net;
+  ```
+  The two figures should be equal. They are in every store on the server
+  except TEST01 (§12.11).
+
+### 12.13 The other finance cases — what they write
+
+- **TC-FIN-005, every report** — reads only. The finance reports are §12.9,
+  the purchasing ones §9.13; none writes a row or an audit row.
+- **TC-FIN-006, Ctrl+K** — `GET /api/v1/search?query=` reads the masters
+  and documents the caller may see, in the firm in scope
+  (`app/search/services/search_service.py`); it writes nothing. The only row a navigation can
+  leave is the `user_preferences.updated` of the last screen (§3).
+- **TC-FIN-008, a blocking credit policy** — §11.6: the refused approval
+  writes nothing, the order stays DRAFT.
+- **TC-FIN-009, the delivery-note stage off** — §11.20: the invoice's create
+  raises, approves and dispatches the note in one request.
+- **TC-FIN-010, Roles and Permissions** — reads only; the sidebar entry and
+  the last-screen restore are `user_preferences` on the platform (§3, §4).
+- **TC-FIN-011, a crash report** — one `platform.error_reports` row per
+  report: `source` **CLIENT** for the desktop (the screen says Desktop) or
+  SERVER, `error_type` `UnexpectedTermination`, `fingerprint`, `message`,
+  `firm_id`, `user_id`, `breadcrumbs`, `occurred_at`, `received_at`; a server
+  row also carries `request_id` and `stack_trace`. No audit row. The platform
+  holds 263 CLIENT `UnexpectedTermination` rows (none with a request id or a
+  stack trace) and 31 SERVER `ValidationError` rows (all with a stack trace, 3
+  with a request id).
+  ```sql
+  select source, error_type, count(*), max(received_at),
+         count(request_id) as with_request, count(stack_trace) as with_stack
+  from   platform.error_reports
+  group  by source, error_type
+  order  by 3 desc;
+  ```
+
+### 12.14 `verify_sample_data.py` — what it checks, and what it does not
+
+`uv run python scripts/verify_sample_data.py` reads every store in the
+registry (SELECT only) and exits non-zero if any check fails:
+
+| Check | Compares | Fails when |
+| --- | --- | --- |
+| Stock against the ledger | `product_valuations.total_value` against the INVENTORY account's postings | apart by more than 1.00 — and names un-mirrored receipt cancellations from before 2026-08-18 when the arithmetic says so |
+| Every period balances | debits and credits of `gl_postings` per period | they differ |
+| Balances are chained | each `ledger_balances.opening_balance` against the account's previous closing | any row opens elsewhere |
+| Customers against the ledger | live customers' outstanding less advance, against the ACCOUNTS_RECEIVABLE postings | apart by more than 1.00 |
+| Settlements reached the ledger | `settlements.journal_entry_id` | names no journal |
+| Approved invoices posted | APPROVED, COMPLETED or CLOSED sales and purchase invoices | one has no journal with its `source_module` |
+
+- **It does not separate firms in the shared store:** the stock, receivable
+  and account sums carry no `firm_id`, so MEDI01's and FOOD01's differences
+  are added together and can cancel (D-FIN-16).
+- **It checks nothing about** payables against bills, GRNI against
+  uninvoiced receipts, TCS payable against collections, loyalty payable
+  against points, or cost and profit centres.
+- **Run by hand on 2026-09-19** (the same queries, read-only): every period
+  in every store balances and every balance is chained; stock agrees with
+  1200 everywhere; customers agree with 1100 everywhere **except TEST01**,
+  1,860.00 apart — the deleted customers of §12.11.
+
+### 12.15 What finance does not write, and is often looked for
+
+| You might expect | What actually happens |
+| --- | --- |
+| A row in `customer_ledgers` or `vendor_ledgers` | Never written; the customer side is `customer_receivable_transactions`, the vendor side does not exist |
+| A trial balance row for every account every month | Rows only where an account moved; the rest are carried in memory by the report (§12.8) |
+| A year-end closing entry | None; the balance sheet computes retained earnings (§12.9) |
+| A journal type per module | Everything posts under the first journal and voucher type, `GEN` / `JV`; the module is `source_module` |
+| A draft on a report | Drafts have no postings and no balances (§12.4) |
+| An audit row for the 24 control-account mappings at Open the books | None (§12.1) |
+| An audit row saying what changed on an account, a centre or a year | Name and active flag only (D-FIN-13) |
+| A delete for an account, group, centre, journal type or period | None; deactivate (§12.3) |
+| A finance row on the platform trail | Only `firm.books_opened` (§12.1) |
+| A report using a cost or profit centre | None does (§12.6) |
+| A vendor's opening balance | No mechanism (§12.11) |
+| A crash report in the audit trail | `platform.error_reports` only (§12.13) |
+
+### 12.16 Checked against live rows, and not
+
+- **Confirmed in `fx_t0916hkkx_r`** (TC-FIN-001, 003 and 007 walked on
+  2026-09-16): the 44 audit rows and the platform `firm.books_opened` of
+  Open the books; account 9999; the two identical
+  `finance.ledger_account.updated` rows; June closed and reopened with two
+  audit rows; `MT-CLOSE-1`, `MT-CC-1`, `MT-CLOSE-2` with null
+  `source_module`; the roll-forward of 1000 and 5000 into September;
+  the SALES cost centre.
+- **Confirmed in the selling stores:** the journal map of §12.5 in
+  `fx_t0916d751_s`; its three statements agreeing; reversals dated the UTC
+  day before the bills they cancel in `fx_t0919sosg_s` and `fx_t0919djcv_s`
+  (SI-2026-2027-000001 and -000002, dated 2026-09-19, reversed 2026-09-18,
+  and their receivable rows dated 2026-09-18 too); `SI-…-000002`'s
+  cancellation in `fx_t0919djcv_s` leaving a 193.28 advance where a return
+  had already credited the goods (D-SELL-7).
+- **Confirmed on TEST01 and WHOLE01:** the journal map; the three statements
+  agreeing; the deleted customers still owing in TEST01; the OB customers of
+  WHOLE01; WHOLE01's control-account re-point and back; `JV-CENTRES-1` and
+  `MT-CC-1` carrying centres; bills settled twice over by a full receipt plus
+  points (SI-2026-2027-000009 4,586.76 allocated and 354.00 of points), all
+  seeded on 2026-09-08, before Record Receipt began subtracting points on
+  2026-09-13 — they stay until a reseed; 1000 Cash at −1,775.16 in WHOLE01's
+  September.
+- **Across every store on the server:** zero unbalanced periods, zero
+  unchained balances, zero unbalanced entries, zero DRAFT journals, every line
+  with one posting, `gl_postings.status` only POSTED, no CLOSED or LOCKED
+  period, no locked year, no CONTROL or MEMO account, no overlapping periods,
+  no mapping to an inactive account, no refund, no reversed payment, no
+  cross-firm centre on a line.
+- **Not seen in a live row:** a hand reversal; a refused post in a closed
+  period (refusals write nothing); a locked period or year; a re-dated
+  period; a customer opening balance still live; a customer restored after a
+  delete; a refund; a receivable row posted through
+  `/customers/{id}/receivables/transactions`; an account deactivated while
+  mapped. ELEC01 (`agency_electrolink`) was not queried.

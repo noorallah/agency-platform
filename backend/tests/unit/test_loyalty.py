@@ -273,6 +273,38 @@ def test_redeeming_settles_the_bill_rather_than_discounting_it() -> None:
     assert len(accounts) == 2
 
 
+def test_points_can_be_spent_on_one_bill_more_than_once() -> None:
+    """D-SELL-20: each redemption posts under a reference of its own.
+
+    The journal reference was `LOY-RED-<invoice>` every time and references
+    are unique per firm, so a second partial redemption of the same bill was
+    refused with "A journal entry with this reference number already exists"
+    (driven on fixture store `fx_t0919o4ck_s`: 60 points on SI-2026-2027-000001
+    went through, the next 60 were refused).
+    """
+    books = _Books(_session_factory()())
+    books.earn(books.invoice("SI-1", total="10000"))
+    later = books.invoice("SI-2", total="500")
+    service = LoyaltyService(books.session)
+
+    spent = [
+        service.redeem(
+            firm_scope=books.firm.id,
+            invoice_id=later.id,
+            points=Decimal(points),
+            actor_id=books.actor_id,
+        )
+        for points in ("60", "60", "50")
+    ]
+
+    references = [
+        books.session.get(JournalEntry, entry.journal_entry_id).reference_number
+        for entry in spent
+    ]
+    assert references == ["LOY-RED-SI-2", "LOY-RED-SI-2-2", "LOY-RED-SI-2-3"]
+    assert books.points() == Decimal("30.0000")
+
+
 def test_more_points_than_the_customer_holds_is_refused() -> None:
     """Refused, not trimmed.
 
@@ -307,6 +339,40 @@ def test_more_than_the_bill_owes_is_refused() -> None:
         )
 
 
+def test_points_cannot_settle_what_a_credit_note_already_took_off() -> None:
+    """D-SELL-10: the loyalty cap reads the same remainder Record Receipt does.
+
+    An approved credit note posts Cr receivable against its bill, so the bill
+    owes that much less; points spent on the full total would over-settle it.
+    """
+    from app.credit_note.models import CreditNote
+
+    books = _Books(_session_factory()())
+    books.earn(books.invoice("SI-1", total="10000"))
+    bill = books.invoice("SI-2", total="100")
+    books.session.add(
+        CreditNote(
+            firm_id=books.firm.id,
+            customer_id=books.customer.id,
+            branch_id=books.branch.id,
+            sales_invoice_id=bill.id,
+            credit_note_number="CN-1",
+            credit_note_date=WHEN,
+            status="APPROVED",
+            total_amount=Decimal("59.00"),
+        )
+    )
+    books.session.commit()
+
+    with pytest.raises(ValidationError, match="owes only 41.00"):
+        LoyaltyService(books.session).redeem(
+            firm_scope=books.firm.id,
+            invoice_id=bill.id,
+            points=Decimal("100"),
+            actor_id=books.actor_id,
+        )
+
+
 def test_a_balance_below_the_floor_cannot_be_spent() -> None:
     """Firms use it to stop a scheme becoming a two-rupee deduction."""
     books = _Books(_session_factory()(), enabled=False)
@@ -337,29 +403,50 @@ def test_the_balance_says_whether_it_can_be_spent() -> None:
     assert answer.redeemable is False
 
 
-def test_an_adjustment_posts_nothing() -> None:
-    """It is a correction to a count, not a transaction.
+def test_goodwill_points_are_owed_before_they_are_spent() -> None:
+    """D-SELL-19: points given by hand accrue, as points earned do.
 
-    The money side was either already booked when the points were earned or
-    was never right to book, and booking it again would double what the scheme
-    appears to have cost.
+    An adjustment used to post nothing, so goodwill points spent on a bill
+    debited `Loyalty Payable` for a debt never raised (driven on fixture store
+    `fx_t0919o4ck_s`: 200 goodwill points beside 9.66 earned, 60 spent, and
+    2600 went from 9.66 owed to 50.34 *owed to the firm*). The liability now
+    follows the count: giving accrues it, taking back releases it, and
+    spending what was given leaves the account where the points left it.
     """
     books = _Books(_session_factory()())
-    books.earn(books.invoice("SI-1", total="1000"))
-    before = books.session.scalar(select(func.count()).select_from(JournalEntry))
+    books.earn(books.invoice("SI-1", total="1000"))  # 20 points, 20.00 owed
+    bill = books.invoice("SI-2", total="500")
+    service = LoyaltyService(books.session)
 
-    LoyaltyService(books.session).adjust(
+    given = service.adjust(
         firm_scope=books.firm.id,
         customer_id=books.customer.id,
-        points=Decimal("5"),
+        points=Decimal("100"),
         reason="Goodwill after a late delivery.",
         actor_id=books.actor_id,
     )
+    assert given.amount == Decimal("100.00")
+    assert given.journal_entry_id is not None
+    assert _payable(books) == Decimal("120.00"), "the goodwill is owed"
 
-    assert books.points() == Decimal("25.0000")
-    assert (
-        books.session.scalar(select(func.count()).select_from(JournalEntry)) == before
+    service.redeem(
+        firm_scope=books.firm.id,
+        invoice_id=bill.id,
+        points=Decimal("110"),
+        actor_id=books.actor_id,
     )
+    assert books.points() == Decimal("10.0000")
+    assert _payable(books) == Decimal("10.00"), "never below what is still held"
+
+    service.adjust(
+        firm_scope=books.firm.id,
+        customer_id=books.customer.id,
+        points=Decimal("-10"),
+        reason="Credited in error.",
+        actor_id=books.actor_id,
+    )
+    assert books.points() == Decimal("0.0000")
+    assert _payable(books) == Decimal("0.00"), "taking points back releases them"
 
 
 def test_an_adjustment_cannot_take_a_balance_below_zero() -> None:

@@ -1954,6 +1954,7 @@ class DocumentPostingService:
         earning: bool,
         actor_id: UUID,
         expiring: bool = False,
+        description: str | None = None,
     ) -> JournalEntry | None:
         """Post points being earned, spent, or run out of time.
 
@@ -1982,6 +1983,9 @@ class DocumentPostingService:
                 `Dr Loyalty Payable / Cr Loyalty Expense` -- because nothing
                 was settled and the credit can never be claimed. Not the
                 mirror of a redemption, which takes a receivable down.
+            description: What to call it in place of the default -- a goodwill
+                grant posts as an earning and a correction down as a lapse,
+                but neither should read as one.
 
         Returns:
             The posted entry, or None where there is nothing to post.
@@ -2014,6 +2018,8 @@ class DocumentPostingService:
             debit = accounts[ControlAccountPurpose.LOYALTY_PAYABLE]
             credit = accounts[ControlAccountPurpose.ACCOUNTS_RECEIVABLE]
             what = "Loyalty redeemed"
+        if description is not None:
+            what = description
         entry = self._journals.create_entry(
             firm_id=firm_id,
             journal_type_id=context.journal_type_id,

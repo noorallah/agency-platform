@@ -23,7 +23,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database.base import Base
 from app.core.exceptions import ResourceNotFoundError, ValidationError
-from app.customers.models import Customer
+from app.customers.models import Customer, CustomerReceivableTransaction
 from app.customers.schemas.customer import (
     CustomerReceivableTransactionCreate,
     CustomerReceivableTransactionType,
@@ -582,6 +582,66 @@ def test_a_reversed_receipt_stops_clearing_its_invoice() -> None:
     assert len(service.allocations_for(settlement.id)) == 1, "the record stays"
 
 
+def test_a_receipt_whose_advance_was_applied_reverses_in_full() -> None:
+    """A bounced cheque is taken back even after its advance was applied.
+
+    D-SELL-8: applying an advance writes an `ADVANCE_APPLY` row beside the
+    receipt's own, and the reversal took "the" row with `scalar()`. Undoing the
+    receipt alone put back an advance the applications had already spent and
+    was refused as overtaken; undoing an application alone left the customer's
+    balance out of step with 1100 by the receipt. Every row goes back.
+    """
+    books = _Books(_session_factory()())
+    books.owe_us("300.00")
+    first = books.sales_invoice("SI-1", "300.00")
+    # 500 against 300 owed: 300 off the balance, 200 held as advance.
+    settlement = _receipt(
+        books,
+        "500.00",
+        [SettlementAllocationWrite(invoice_id=first.id, amount=Decimal("300.00"))],
+    )
+    books.session.commit()
+    books.owe_us("200.00")
+    service = ReceiptService(books.session)
+    # The advance goes to two later bills, so the receipt carries two
+    # applications beside its own row.
+    for number, part in (("SI-2", "120.00"), ("SI-3", "80.00")):
+        service.allocate(
+            settlement.id,
+            invoice_id=books.sales_invoice(number, part).id,
+            amount=Decimal(part),
+            firm_id=books.firm.id,
+            actor_id=books.actor_id,
+        )
+    books.session.refresh(books.customer)
+    assert books.customer.current_outstanding == Decimal("0.00")
+    assert books.customer.unapplied_advance_balance == Decimal("0.00")
+
+    service.reverse(
+        settlement.id,
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+        reason="Cheque bounced",
+    )
+    books.session.commit()
+
+    books.session.refresh(books.customer)
+    # Everything the 500 cleared is owed again, and no advance is left over.
+    assert books.customer.current_outstanding == Decimal("500.00")
+    assert books.customer.unapplied_advance_balance == Decimal("0.00")
+    rows = books.session.scalars(
+        select(CustomerReceivableTransaction).where(
+            CustomerReceivableTransaction.customer_id == books.customer.id
+        )
+    ).all()
+    # The customer's own ledger agrees with the balance it carries.
+    assert sum(row.outstanding_delta for row in rows) == Decimal("500.00")
+    assert sum(row.advance_delta for row in rows) == Decimal("0.00")
+    assert [
+        row.transaction_type for row in rows if row.reference_type == "reversal"
+    ].count("REVERSAL") == 3, "the receipt and both applications are undone"
+
+
 def test_a_settlement_cannot_be_reversed_twice() -> None:
     """The second attempt is refused rather than doubling the undo."""
     books = _Books(_session_factory()())
@@ -982,4 +1042,98 @@ def test_goods_returned_against_a_bill_come_off_what_it_owes() -> None:
             ),
             firm_id=books.firm.id,
             actor_id=books.actor_id,
+        )
+
+
+def test_returns_and_credit_notes_against_a_bill_come_off_what_it_owes() -> None:
+    """D-SELL-10, the sales twin of D-BUY-6.
+
+    A completed sales return and an approved credit note both post Cr
+    receivable, but Record Receipt kept offering the bill's full remainder, so
+    a receipt could collect the returned or credited money again (driven on
+    fixture store `fx_t091908qh_s`: SI-2026-2027-000002 offered at 576.49
+    after SR-2026-2027-000001 of 193.28 and CN-2026-2027-000001 of 59.00
+    against it). A return raised from a delivery note, and a cancelled or
+    unfinished return or credit note, leave the bill alone.
+    """
+    from app.credit_note.models import CreditNote
+    from app.sales_return.models import SalesReturn, SalesReturnLine
+
+    books = _Books(_session_factory()())
+    books.owe_us("1000.00")
+    bill = books.sales_invoice("SI-RET", "1000.00")
+
+    def _return(number: str, status: str, source_type: str, net: str) -> None:
+        row = SalesReturn(
+            firm_id=books.firm.id,
+            customer_id=books.customer.id,
+            branch_id=books.branch_id,
+            warehouse_id=uuid4(),
+            return_number=number,
+            return_date=WHEN,
+            status=status,
+            created_by=books.actor_id,
+            updated_by=books.actor_id,
+        )
+        books.session.add(row)
+        books.session.flush()
+        books.session.add(
+            SalesReturnLine(
+                sales_return_id=row.id,
+                firm_id=books.firm.id,
+                line_number=1,
+                source_document_type=source_type,
+                source_document_id=bill.id,
+                source_document_number=bill.invoice_number,
+                source_document_line_id=uuid4(),
+                source_document_line_number=1,
+                product_id=uuid4(),
+                current_return_quantity=Decimal("2"),
+                net_amount=Decimal(net),
+                created_by=books.actor_id,
+                updated_by=books.actor_id,
+            )
+        )
+        books.session.commit()
+
+    def _credit_note(number: str, status: str, total: str) -> None:
+        books.session.add(
+            CreditNote(
+                firm_id=books.firm.id,
+                customer_id=books.customer.id,
+                branch_id=books.branch_id,
+                sales_invoice_id=bill.id,
+                credit_note_number=number,
+                credit_note_date=WHEN,
+                status=status,
+                total_amount=Decimal(total),
+                created_by=books.actor_id,
+                updated_by=books.actor_id,
+            )
+        )
+        books.session.commit()
+
+    _return("SR-1", "COMPLETED", "SALES_INVOICE", "193.28")
+    _return("SR-2", "CANCELLED", "SALES_INVOICE", "100.00")
+    _return("SR-3", "APPROVED", "SALES_INVOICE", "50.00")
+    # Raised from the delivery note: a credit on the account, not on this bill.
+    _return("SR-4", "COMPLETED", "DELIVERY_NOTE", "40.00")
+    _credit_note("CN-1", "APPROVED", "59.00")
+    _credit_note("CN-2", "CANCELLED", "30.00")
+    _credit_note("CN-3", "DRAFT", "20.00")
+
+    receipts = ReceiptService(books.session)
+    owed = {
+        record.invoice_id: record.outstanding_amount
+        for record in receipts.outstanding_invoices(
+            firm_id=books.firm.id, party_id=books.customer.id
+        )
+    }
+    assert owed[bill.id] == Decimal("747.72")
+
+    with pytest.raises(ValidationError, match="747.72 outstanding"):
+        _receipt(
+            books,
+            "1000.00",
+            [SettlementAllocationWrite(invoice_id=bill.id, amount=Decimal("1000.00"))],
         )

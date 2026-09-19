@@ -80,6 +80,9 @@ class SalesReturn(BaseEntity):
     exchange_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
     reference_number: Mapped[str | None] = mapped_column(String(120))
     remarks: Mapped[str | None] = mapped_column(Text)
+    # Retired (D-SELL-29): a return may never bring back more than left, and
+    # no request can say otherwise. The columns stay so no migration is
+    # needed; nothing reads or writes them.
     allow_over_return: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )

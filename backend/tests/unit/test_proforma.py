@@ -26,6 +26,7 @@ from app.branches.models import Branch, Warehouse
 from app.core.database.base import Base
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.customers.models import Customer, CustomerReceivableTransaction
+from app.document_framework.models import DocumentNumberingRule
 from app.finance.models import JournalEntry
 from app.firms.models import Firm
 from app.products.models import Product
@@ -168,6 +169,36 @@ def test_a_proforma_states_what_the_order_will_be_charged() -> None:
     assert row.bill_discount_amount == Decimal("50.0000")
 
 
+def test_freight_and_the_order_s_charges_reach_the_total() -> None:
+    """D-SELL-16: a proforma asked for less than the order would bill.
+
+    Driven 2026-09-19 on ``fx_t0919x8yq_s``: SO-2026-2027-000002 with 50 of
+    freight, 25 of other charges and 0.40 round-off totalled 375.81; its
+    proforma said 300.41 -- no freight in the taxable value while the tax
+    copied from the order included the freight's tax, and no charges.
+    """
+    books = _Books(_session_factory()())
+    line = books.session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == books.order.id)
+    )
+    assert line is not None
+    line.freight_amount = Decimal("40")
+    line.tax_amount = Decimal("160.20")  # 18% of 890
+    books.order.additional_charges = Decimal("25")
+    books.order.round_off = Decimal("-0.20")
+    books.session.commit()
+
+    row = books.raise_proforma()
+
+    # 850 taxable plus the line's 40 of freight; the order's 24.80 on top.
+    assert row.subtotal == Decimal("890.0000")
+    assert row.tax_total == Decimal("160.2000")
+    assert row.grand_total == Decimal("1075.0000")
+    response = ProformaService(books.session).proforma_response(row)
+    assert response.other_charges == Decimal("24.8000")
+    assert response.lines[0].net_amount == Decimal("1050.2000")
+
+
 def test_it_posts_nothing_at_all() -> None:
     """No journal, no receivable, no stock.
 
@@ -260,7 +291,7 @@ def test_a_draft_can_be_amended_and_an_omission_leaves_a_field_alone() -> None:
 def test_a_draft_order_cannot_be_stated() -> None:
     """A draft is not a deal, so there is nothing to state about it."""
     books = _Books(_session_factory()())
-    draft = books._order(status="DRAFT")  # noqa: SLF001
+    draft = books._order(status="DRAFT")
 
     with pytest.raises(ValidationError, match="approved order"):
         books.raise_proforma(sales_order_id=draft.id)
@@ -269,7 +300,7 @@ def test_a_draft_order_cannot_be_stated() -> None:
 def test_a_cancelled_order_cannot_be_stated() -> None:
     """It has been called off."""
     books = _Books(_session_factory()())
-    cancelled = books._order(status="CANCELLED")  # noqa: SLF001
+    cancelled = books._order(status="CANCELLED")
 
     with pytest.raises(ValidationError):
         books.raise_proforma(sales_order_id=cancelled.id)
@@ -278,7 +309,7 @@ def test_a_cancelled_order_cannot_be_stated() -> None:
 def test_a_part_delivered_order_can_still_be_stated() -> None:
     """A firm may well restate an order for the balance."""
     books = _Books(_session_factory()())
-    partial = books._order(status="PARTIALLY_DELIVERED")  # noqa: SLF001
+    partial = books._order(status="PARTIALLY_DELIVERED")
 
     assert books.raise_proforma(sales_order_id=partial.id).grand_total > 0
 
@@ -294,8 +325,54 @@ def test_the_number_comes_from_its_own_series() -> None:
 
     row = books.raise_proforma()
 
-    assert row.proforma_number.startswith("PI")
+    assert row.proforma_number.startswith("PF-")
     assert "SI" not in row.proforma_number
+
+
+def _proforma_rule(books: _Books) -> DocumentNumberingRule:
+    """Return the firm's proforma numbering rule, setting it up if needed."""
+    service = ProformaService(books.session)
+    _, rule = service._ensure_document_setup(
+        firm_id=books.firm.id, actor_id=books.actor_id
+    )
+    books.session.commit()
+    return rule
+
+
+def test_a_proforma_never_shares_the_purchase_invoice_s_prefix() -> None:
+    """D-SELL-17: proformas and purchase invoices were both numbered PI.
+
+    Driven 2026-09-19: ``fx_t0919x8yq_s``'s first proforma was
+    PI-2026-2027-000001, and WHOLE01 holds a proforma and a purchase invoice
+    each numbered PI-2026-2027-000004, -000005 and -000006. A firm whose
+    rule still carries the old default moves to PF on its next proforma, and
+    the sequence carries on, so nothing issued is renumbered or repeated.
+    """
+    books = _Books(_session_factory()())
+    rule = _proforma_rule(books)
+    rule.prefix = "PI"  # how every firm set up before the fix stands
+    rule.next_sequence = 7
+    books.session.commit()
+
+    row = books.raise_proforma()
+
+    assert row.proforma_number.startswith("PF-")
+    assert row.proforma_number.endswith("000007")
+    books.session.refresh(rule)
+    assert rule.prefix == "PF"
+
+
+def test_a_firm_that_chooses_pi_afterwards_keeps_it() -> None:
+    """The move happens once; a prefix somebody sets on purpose stands."""
+    books = _Books(_session_factory()())
+    books.raise_proforma()
+    rule = _proforma_rule(books)
+    rule.prefix = "PI"
+    books.session.commit()
+
+    row = books.raise_proforma(sales_order_id=books._order().id)
+
+    assert row.proforma_number.startswith("PI-")
 
 
 def test_cancelling_keeps_the_row_and_records_why() -> None:

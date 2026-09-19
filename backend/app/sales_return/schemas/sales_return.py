@@ -170,10 +170,6 @@ class SalesReturnCreate(SalesReturnSchema):
     )
     reference_number: str | None = Field(default=None, max_length=120)
     remarks: str | None = None
-    allow_over_return: bool = False
-    over_return_percent: Decimal = Field(
-        default=Decimal("0"), ge=0, max_digits=9, decimal_places=4
-    )
     additional_charges: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
@@ -347,8 +343,6 @@ class SalesReturnResponse(SalesReturnSchema):
     exchange_rate: Decimal | None
     reference_number: str | None
     remarks: str | None
-    allow_over_return: bool
-    over_return_percent: Decimal
     status: SalesReturnStatus
     total_source_quantity: Decimal
     total_already_returned_quantity: Decimal

@@ -24,6 +24,7 @@ from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO, quantize_money
 from app.customers.models import Customer
+from app.document_framework.models import DocumentNumberingRule
 from app.document_framework.services.transactional_document_service import (
     DocumentStateSpec,
     DocumentTypeSpec,
@@ -53,6 +54,11 @@ _STATEABLE_ORDER_STATUSES = (
 )
 
 
+#: The prefix proformas were numbered under until D-SELL-17. A firm's rule still
+#: carrying it is moved to the proforma's own on its next proforma.
+_SHARED_PREFIX = "PI"
+
+
 class ProformaService(TransactionalDocumentService):
     """Own the proforma's lifecycle, numbering and snapshot."""
 
@@ -65,8 +71,10 @@ class ProformaService(TransactionalDocumentService):
         # Its own series, never the tax invoice's. GSTR-1's DOCS section
         # declares the invoice series a firm issued, so a proforma drawing
         # from it would either leave a gap the return cannot explain or put a
-        # number in it that was never a supply.
-        prefix="PI",
+        # number in it that was never a supply. And its own prefix: this was
+        # "PI", which purchase invoices also use, so one firm held two
+        # different documents numbered PI-2026-2027-000004 (D-SELL-17).
+        prefix="PF",
         states=(
             DocumentStateSpec("DRAFT", "Draft", 1, allows_edit=True),
             DocumentStateSpec("ISSUED", "Issued", 2),
@@ -184,6 +192,7 @@ class ProformaService(TransactionalDocumentService):
         document_type, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
+        self._leave_the_shared_prefix(numbering_rule, actor_id=actor_id)
         order = self._stateable_order(data.sales_order_id, firm_id=firm_id)
         lines = self._order_lines(order)
         if not lines:
@@ -231,7 +240,13 @@ class ProformaService(TransactionalDocumentService):
         )
         self._session.add(row)
         self._session.flush()
-        self._snapshot_lines(row, lines, actor_id=actor_id)
+        self._snapshot_lines(
+            row,
+            lines,
+            charges=quantize_money(order.additional_charges)
+            + quantize_money(order.round_off),
+            actor_id=actor_id,
+        )
         self._flush_or_conflict("A proforma with this number already exists.")
 
         self._record_lifecycle_event(
@@ -459,6 +474,9 @@ class ProformaService(TransactionalDocumentService):
             bill_discount_amount=row.bill_discount_amount,
             subtotal=row.subtotal,
             tax_total=row.tax_total,
+            other_charges=quantize_money(
+                row.grand_total - row.subtotal - row.tax_total
+            ),
             grand_total=row.grand_total,
             issued_at=row.issued_at,
             cancelled_at=row.cancelled_at,
@@ -488,6 +506,42 @@ class ProformaService(TransactionalDocumentService):
         )
 
     # ---- internals -----------------------------------------------------
+
+    def _leave_the_shared_prefix(
+        self, rule: DocumentNumberingRule, *, actor_id: UUID
+    ) -> None:
+        """Move a firm's proforma series off the prefix purchase invoices use.
+
+        Every firm set up before D-SELL-17 has a proforma rule saying "PI",
+        written as the default rather than chosen. It moves to the proforma's
+        own prefix once: the rule is marked the first time it is looked at,
+        so a firm that later sets "PI" on purpose keeps it. The sequence
+        carries on, so nothing already issued is renumbered and no new number
+        can repeat an old one.
+        """
+        configuration = dict(rule.configuration or {})
+        if configuration.get("own_prefix_checked"):
+            return
+        configuration["own_prefix_checked"] = True
+        rule.configuration = configuration
+        if rule.prefix != _SHARED_PREFIX:
+            return
+        before: dict[str, object] = {"prefix": rule.prefix}
+        rule.prefix = self.DOCUMENT.prefix
+        rule.updated_by = actor_id
+        record_audit(
+            self._session,
+            action="document_numbering_rule.updated",
+            entity_type="document_numbering_rule",
+            entity_id=rule.id,
+            actor_id=actor_id,
+            firm_id=rule.firm_id,
+            before_data=before,
+            after_data={
+                "prefix": rule.prefix,
+                "reason": "Proformas number under their own prefix (D-SELL-17).",
+            },
+        )
 
     def _scoped(self, firm_scope: UUID) -> Select[tuple[ProformaInvoice]]:
         """Return the base query for one firm's live proformas."""
@@ -545,6 +599,7 @@ class ProformaService(TransactionalDocumentService):
         row: ProformaInvoice,
         lines: Sequence[SalesOrderLine],
         *,
+        charges: Decimal,
         actor_id: UUID,
     ) -> None:
         """Copy the order's priced lines onto the proforma, and total them.
@@ -553,6 +608,12 @@ class ProformaService(TransactionalDocumentService):
         off the order's header. The two agree today; summing what is actually
         on this document is what keeps them agreeing when a proforma covers
         part of an order, which is the next thing anybody will ask for.
+
+        A line's taxable value carries its share of the order's freight, the
+        way the order and the bill both tax it, and the header's other charges
+        and round-off reach the total. Both were left out, so a proforma asked
+        the customer for less than the order would bill while stating the tax
+        on the freight it had dropped (D-SELL-16).
         """
         subtotal = ZERO
         tax_total = ZERO
@@ -563,7 +624,8 @@ class ProformaService(TransactionalDocumentService):
             discount = quantize_money(source.discount_amount)
             bill_share = quantize_money(source.bill_discount_amount)
             tax = quantize_money(source.tax_amount)
-            taxable = gross - discount - bill_share
+            freight = quantize_money(source.freight_amount)
+            taxable = gross - discount - bill_share + freight
             self._session.add(
                 ProformaInvoiceLine(
                     proforma_invoice_id=row.id,
@@ -593,7 +655,7 @@ class ProformaService(TransactionalDocumentService):
         row.tax_total = quantize_money(tax_total)
         row.line_discount_total = quantize_money(line_discounts)
         row.bill_discount_amount = quantize_money(bill_discounts)
-        row.grand_total = quantize_money(subtotal + tax_total)
+        row.grand_total = quantize_money(subtotal + tax_total + charges)
 
     @staticmethod
     def _audit_snapshot(row: ProformaInvoice) -> dict[str, object]:

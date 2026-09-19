@@ -57,6 +57,7 @@ class ProformaRecord {
     required this.remarks,
     required this.subtotal,
     required this.taxTotal,
+    this.otherCharges = 0,
     required this.grandTotal,
     required this.isTaxInvoice,
     required this.supersedesId,
@@ -77,6 +78,7 @@ class ProformaRecord {
         remarks: stringValue(json['remarks']),
         subtotal: _decimal(json['subtotal']),
         taxTotal: _decimal(json['tax_total']),
+        otherCharges: _decimal(json['other_charges']),
         grandTotal: _decimal(json['grand_total']),
         // Defaults to false rather than true: a document wrongly presented as
         // a tax invoice is the one mistake this screen exists to prevent.
@@ -101,6 +103,9 @@ class ProformaRecord {
   final String remarks;
   final double subtotal;
   final double taxTotal;
+
+  /// The order's other charges and round-off, between the tax and the total.
+  final double otherCharges;
   final double grandTotal;
   final bool isTaxInvoice;
   final String supersedesId;

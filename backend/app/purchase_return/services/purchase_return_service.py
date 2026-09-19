@@ -292,8 +292,6 @@ class PurchaseReturnService(TransactionalDocumentService):
             reference_number=data.reference_number,
             remarks=data.remarks,
             allow_direct_purchase_order=data.allow_direct_purchase_order,
-            allow_over_return=data.allow_over_return,
-            over_return_percent=self._q(data.over_return_percent),
             status=PurchaseReturnStatus.DRAFT.value,
             additional_charges=self._q(data.additional_charges),
             round_off=self._q(data.round_off),
@@ -394,8 +392,6 @@ class PurchaseReturnService(TransactionalDocumentService):
         row.reference_number = data.reference_number
         row.remarks = data.remarks
         row.allow_direct_purchase_order = data.allow_direct_purchase_order
-        row.allow_over_return = data.allow_over_return
-        row.over_return_percent = self._q(data.over_return_percent)
         row.additional_charges = self._q(data.additional_charges)
         row.round_off = self._q(data.round_off)
         row.updated_by = actor_id
@@ -945,8 +941,6 @@ class PurchaseReturnService(TransactionalDocumentService):
             reference_number=row.reference_number,
             remarks=row.remarks,
             allow_direct_purchase_order=row.allow_direct_purchase_order,
-            allow_over_return=row.allow_over_return,
-            over_return_percent=row.over_return_percent,
             status=PurchaseReturnStatus(row.status),
             total_source_quantity=row.total_source_quantity,
             total_already_returned_quantity=row.total_already_returned_quantity,
@@ -1353,10 +1347,9 @@ class PurchaseReturnService(TransactionalDocumentService):
                 firm_id=firm_id,
                 source_document_line_id=source_line.id,
             )
-            if (
-                not row.allow_over_return
-                and return_quantity + already_returned > source_quantity
-            ):
+            # No request can lift this cap: a body flag the caller set was all
+            # it took to send back more than was received (D-SELL-29).
+            if return_quantity + already_returned > source_quantity:
                 raise ValidationError(
                     "Return quantity exceeds the available source quantity."
                 )

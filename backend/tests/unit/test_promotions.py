@@ -1813,6 +1813,96 @@ def test_editing_a_published_offer_does_not_reset_its_limit() -> None:
     )
 
 
+def _supersede(session: Session, promotion: Promotion, *, code: str) -> None:
+    """Edit a published offer, which supersedes it with a new version."""
+    PromotionCrudService(session).update_promotion(
+        promotion.id,
+        PromotionWrite(
+            code=code,
+            name=f"{code} (edited)",
+            status=PromotionStatus.ACTIVE,
+            max_redemptions=promotion.max_redemptions,
+            requires_coupon=promotion.requires_coupon,
+            conditions=[],
+            actions=[
+                PromotionActionWrite(
+                    sequence=1,
+                    action_type=PromotionActionType.LINE_DISCOUNT_PERCENT,
+                    percent=Decimal("10"),
+                )
+            ],
+        ),
+        firm_scope=promotion.firm_id,
+        actor_id=uuid4(),
+    )
+
+
+def test_approval_counts_claims_on_every_version_of_the_offer() -> None:
+    """D-SELL-15: the lock-guarded check counts across the version group.
+
+    Pricing counted a limit across the offer's versions and approval counted
+    the claimed row alone, so an order priced before an edit and one priced
+    after both took an offer limited to one (driven on fixture store
+    `fx_t09196pwr_s`: ONCE, max 1, CLAIMED by SO-…-000001 on v1 and
+    SO-…-000002 on v2).
+    """
+    session = _session_factory()()
+    shop = _Shop(session)
+    promotion = _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="ONCE",
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    promotion.max_redemptions = 1
+    session.commit()
+
+    before_edit = shop.order()
+    _supersede(session, promotion, code="ONCE")
+    after_edit = shop.order()
+    assert shop.line_of(after_edit).discount_amount == Decimal(
+        "100.0000"
+    ), "nothing was claimed yet, so the new version is quoted"
+
+    orders = SalesOrderService(session)
+    orders.approve_order(before_edit.id, firm_scope=shop.firm.id, actor_id=uuid4())
+    with pytest.raises(ValidationError) as refused:
+        orders.approve_order(after_edit.id, firm_scope=shop.firm.id, actor_id=uuid4())
+    assert "ONCE" in str(refused.value)
+
+
+def test_approval_counts_a_coupon_s_uses_on_every_version_of_its_offer() -> None:
+    """D-SELL-15, coupon limits likewise."""
+    session = _session_factory()()
+    shop = _Shop(session)
+    promotion = _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="WELCOME",
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    promotion.requires_coupon = True
+    session.commit()
+    _coupon(
+        session,
+        firm_id=shop.firm.id,
+        promotion=promotion,
+        code="ONEUSE",
+        max_redemptions=1,
+    )
+
+    before_edit = shop.order(coupon_code="ONEUSE")
+    _supersede(session, promotion, code="WELCOME")
+    after_edit = shop.order(coupon_code="ONEUSE")
+    assert shop.line_of(after_edit).discount_amount == Decimal("100.0000")
+
+    orders = SalesOrderService(session)
+    orders.approve_order(before_edit.id, firm_scope=shop.firm.id, actor_id=uuid4())
+    with pytest.raises(ValidationError) as refused:
+        orders.approve_order(after_edit.id, firm_scope=shop.firm.id, actor_id=uuid4())
+    assert "ONEUSE" in str(refused.value)
+
+
 def test_retiring_an_offer_retires_the_codes_that_reach_it() -> None:
     """A coupon with no live offer behind it is a code that lies.
 
