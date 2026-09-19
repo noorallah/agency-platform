@@ -1000,7 +1000,13 @@ def clone_user(
     return ApiResponse(
         data=UserResponse.model_validate(
             _service(db, settings).clone_user(
-                user_id, data, _actor_id(principal), _firm_scope(principal)
+                user_id,
+                data,
+                _actor_id(principal),
+                _firm_scope(principal),
+                # The same reach a direct membership write is held to
+                # (D-IDN-6): a clone puts somebody in firms.
+                allowed_firm_ids=_firms_the_caller_may_staff(principal),
             )
         ),
         message="The new user was created with the same access.",

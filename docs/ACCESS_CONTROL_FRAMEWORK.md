@@ -715,7 +715,15 @@ a firm administrator cannot reach one to clone; and a platform caller who can
 reach one gets their roles and not the `platform_admins` row.
 
 A firm caller copies only what their scope can see — the firm-scoped rows plus
-the unscoped firm roles — so another firm's roles stay invisible. The audit row
+the unscoped firm roles — so another firm's roles stay invisible.
+
+**A clone puts somebody in firms, so it meets the membership write's reach**
+(D-IDN-6, 2026-09-19). Every firm the clone would join — the one named, or,
+with none named, every firm the source actively works in — must be among
+`_firms_the_caller_may_staff`, or the clone is refused by firm code before
+the account is opened. Until then a `PLATFORM` operator, refused every
+`PUT /users/{id}/firms`, could staff any firm by copying somebody who worked
+there. An `ALL_FIRMS` administrator's reach is every firm and is unchanged. The audit row
 records `source_user_id`, because "a user was created" with nothing about where
 their access came from is the one question anybody reviewing it will ask.
 
