@@ -459,6 +459,117 @@ def test_turning_the_reset_off_gives_one_continuous_series() -> None:
     assert reserve("2026-2027", date(2026, 4, 2)) == "SEQ-000004"
 
 
+def test_turning_the_restart_off_and_on_never_goes_back() -> None:
+    """A series restarts when the year changes, never when a setting does.
+
+    D-CFG-7: off, the counter carried on under a year-less key and the yearly
+    one was retired; on again, nothing live was found under the yearly key,
+    the series started at 1, and the retired counter made the insert fail --
+    every document of the type refused, "The request conflicts with existing
+    data", for good. Driven on fixture store `fx_t0919snfh_r`:
+    `RC-2026-2027-000003`, restart off, `…000004`, restart on, 409 and 409.
+    """
+    service, firm_id, type_id, actor_id = _numbering_setup()
+    rule = service.create_numbering_rule(
+        firm_id,
+        DocumentNumberingRuleCreate(
+            document_type_id=type_id,
+            code="YEARLY",
+            name="Restarts yearly",
+            prefix="RC",
+            include_financial_year=True,
+        ),
+        actor_id,
+    )
+
+    def reserve() -> str:
+        return service.reserve_number(
+            rule.id,
+            firm_id=firm_id,
+            document_date=date(2026, 8, 1),
+            financial_year_label="2026-2027",
+            actor_id=actor_id,
+        )
+
+    def restart(on: bool) -> None:
+        service.update_numbering_rule(
+            firm_id,
+            rule.id,
+            DocumentNumberingRuleUpdate(
+                document_type_id=type_id,
+                code="YEARLY",
+                name="Restarts yearly",
+                prefix="RC",
+                include_financial_year=True,
+                auto_reset=on,
+            ),
+            actor_id,
+        )
+
+    assert [reserve() for _ in range(3)][-1] == "RC-2026-2027-000003"
+    restart(False)
+    assert reserve() == "RC-2026-2027-000004"
+    restart(True)
+    assert reserve() == "RC-2026-2027-000005"
+    assert service.preview_number(
+        rule.id, firm_id=firm_id, document_date=date(2026, 8, 1)
+    ) == ("RC-2026-2027-000006")
+    restart(False)
+    assert reserve() == "RC-2026-2027-000006"
+    restart(True)
+    assert reserve() == "RC-2026-2027-000007"
+    # The year changing is still a restart.
+    assert (
+        service.reserve_number(
+            rule.id,
+            firm_id=firm_id,
+            document_date=date(2027, 4, 1),
+            financial_year_label="2027-2028",
+            actor_id=actor_id,
+        )
+        == "RC-2027-2028-000001"
+    )
+
+
+def test_a_series_that_replaces_a_retired_one_starts_past_it() -> None:
+    """Retiring a type's last series does not start its numbers again at 1.
+
+    D-CFG-7: the next document bootstrapped a new default at 1 in the same
+    request and collided with the retired series' first number.
+    """
+    service, firm_id, type_id, actor_id = _numbering_setup()
+
+    def series(code: str) -> DocumentNumberingRule:
+        return service.create_numbering_rule(
+            firm_id,
+            DocumentNumberingRuleCreate(
+                document_type_id=type_id,
+                code=code,
+                name=code,
+                prefix="PO",
+                include_financial_year=True,
+                is_default=True,
+            ),
+            actor_id,
+        )
+
+    def reserve(rule: DocumentNumberingRule) -> str:
+        return service.reserve_number(
+            rule.id,
+            firm_id=firm_id,
+            document_date=date(2026, 8, 1),
+            financial_year_label="2026-2027",
+            actor_id=actor_id,
+        )
+
+    first = series("FIRST")
+    assert [reserve(first) for _ in range(2)][-1] == "PO-2026-2027-000002"
+    service.delete_numbering_rule(firm_id, first.id, actor_id)
+
+    replacement = series("REPLACEMENT")
+    assert reserve(replacement) == "PO-2026-2027-000003"
+
+
 def test_a_partial_update_is_judged_on_what_the_rule_will_be() -> None:
     """The collision can be assembled from one stored field and one sent one.
 

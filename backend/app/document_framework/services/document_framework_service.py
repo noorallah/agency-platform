@@ -607,9 +607,21 @@ class DocumentFrameworkService:
         """Return this scope's counter, creating it the first time it is used.
 
         A scope not seen before starts at the rule's configured
-        ``next_sequence`` when the rule has never issued anything, and at 1
-        otherwise -- a new financial year begins at one, which is the point of
-        ``auto_reset``.
+        ``next_sequence`` when the rule has never issued anything. It starts
+        at 1 only when the scope is genuinely new -- a new financial year, the
+        point of ``auto_reset``, or a branch or firm code the number prints.
+        A key that changed shape because a setting changed is the same series
+        and carries on (D-CFG-7).
+
+        **A series never goes back behind a number it has issued** (D-CFG-7).
+        Turning "restart each financial year" off and on again used to find
+        no live counter under the yearly key and start at 1; the retired
+        counter under that key then made the insert fail, and every document
+        of the type was refused. Retiring a type's last series did the same
+        through the default created in its place. So a counter retired under
+        this key is revived rather than duplicated, and a new or revived
+        counter starts past every number a series printing the same way has
+        issued under the same key.
         """
         counter = self._session.scalar(
             select(DocumentNumberSequence)
@@ -620,31 +632,146 @@ class DocumentFrameworkService:
             )
             .with_for_update()
         )
-        if counter is not None:
-            return counter
-        legacy = self._legacy_counters(rule, scope_signature)
-        if legacy:
-            # The series continues from wherever the old keys had got to; the
-            # rows under the old keys are retired so this happens once.
-            start = max(row.next_sequence for row in legacy)
+        if counter is None:
+            legacy = self._legacy_counters(rule, scope_signature)
+            start = max(
+                self._fresh_start(rule, scope_signature, legacy),
+                self._issued_under(rule, scope_signature),
+            )
+            # The rows under the old keys are retired so this happens once.
             for row in legacy:
                 row.is_deleted = True
                 row.deleted_at = utc_now()
                 if actor_id is not None:
                     row.updated_by = actor_id
-        else:
-            start = 1 if rule.last_scope_signature else rule.next_sequence
-        counter = DocumentNumberSequence(
-            firm_id=rule.firm_id,
-            numbering_rule_id=rule.id,
-            scope_signature=scope_signature,
-            next_sequence=max(start, 1),
-            created_by=actor_id,
-            updated_by=actor_id,
+            counter = self._session.scalar(
+                select(DocumentNumberSequence)
+                .where(
+                    DocumentNumberSequence.numbering_rule_id == rule.id,
+                    DocumentNumberSequence.scope_signature == scope_signature,
+                    DocumentNumberSequence.is_deleted.is_(True),
+                )
+                .with_for_update()
+            )
+            if counter is not None:
+                # Revived: the unique key covers retired rows, so a second row
+                # under this key could never be inserted.
+                counter.is_deleted = False
+                counter.deleted_at = None
+                counter.next_sequence = max(counter.next_sequence, start)
+                if actor_id is not None:
+                    counter.updated_by = actor_id
+            else:
+                counter = DocumentNumberSequence(
+                    firm_id=rule.firm_id,
+                    numbering_rule_id=rule.id,
+                    scope_signature=scope_signature,
+                    next_sequence=max(start, 1),
+                    created_by=actor_id,
+                    updated_by=actor_id,
+                )
+                self._session.add(counter)
+        # Back on a key the rule left when a setting changed: it carries on
+        # from where the rule had got to under the other key.
+        counter.next_sequence = max(
+            counter.next_sequence, self._carried_on(rule, scope_signature)
         )
-        self._session.add(counter)
         self._session.flush()
         return counter
+
+    @staticmethod
+    def _genuinely_new_scope(rule: DocumentNumberingRule, scope_signature: str) -> bool:
+        """Say whether a key is a new scope, not the same one reshaped.
+
+        A part that is present on both keys and differs -- another financial
+        year, another branch or firm code the number prints -- is a new
+        scope, and its numbers cannot collide with the last one's. A part
+        present on one key and absent from the other is a setting that
+        changed; the numbers are the same series.
+        """
+        if not rule.last_scope_signature:
+            return False
+        last = (rule.last_scope_signature.split("|") + ["", "", ""])[:3]
+        now = (scope_signature.split("|") + ["", "", ""])[:3]
+        return any(a and b and a != b for a, b in zip(last, now, strict=True))
+
+    def _fresh_start(
+        self,
+        rule: DocumentNumberingRule,
+        scope_signature: str,
+        legacy: list[DocumentNumberSequence],
+    ) -> int:
+        """Return where a counter the rule has no live row for begins."""
+        if legacy:
+            # The series continues from wherever the old keys had got to.
+            return max(row.next_sequence for row in legacy)
+        if not rule.last_scope_signature:
+            return rule.next_sequence
+        if self._genuinely_new_scope(rule, scope_signature):
+            return 1
+        return rule.next_sequence
+
+    def _carried_on(self, rule: DocumentNumberingRule, scope_signature: str) -> int:
+        """Return the floor a counter the rule returns to must start from.
+
+        The rule's own ``next_sequence`` follows the counter it last used, so
+        coming back to this key after issuing under another shape of it
+        continues from there. A genuinely new scope has no such floor.
+        """
+        if (
+            not rule.last_scope_signature
+            or rule.last_scope_signature == scope_signature
+            or self._genuinely_new_scope(rule, scope_signature)
+        ):
+            return 1
+        return rule.next_sequence
+
+    def _issued_under(self, rule: DocumentNumberingRule, scope_signature: str) -> int:
+        """Return the next number past what any look-alike series issued here.
+
+        Every series of the firm that prints numbers the same way -- this
+        rule's own retired counters, a series retired and replaced by a new
+        default, a document type deleted and bootstrapped again -- counts, if
+        its counter is under the same key: those numbers are the ones this
+        counter would otherwise issue a second time.
+        """
+        twins = [
+            row.id
+            for row in self._session.scalars(
+                select(DocumentNumberingRule).where(
+                    DocumentNumberingRule.firm_id == rule.firm_id,
+                    (
+                        DocumentNumberingRule.prefix == rule.prefix
+                        if rule.prefix is not None
+                        else DocumentNumberingRule.prefix.is_(None)
+                    ),
+                )
+            ).all()
+            if self._prints_alike(row, rule)
+        ]
+        if not twins:
+            return 1
+        highest = self._session.scalar(
+            select(func.max(DocumentNumberSequence.next_sequence)).where(
+                DocumentNumberSequence.numbering_rule_id.in_(twins),
+                DocumentNumberSequence.scope_signature == scope_signature,
+            )
+        )
+        return int(highest or 1)
+
+    @staticmethod
+    def _prints_alike(a: DocumentNumberingRule, b: DocumentNumberingRule) -> bool:
+        """Say whether two series print their numbers in the same shape."""
+        return (
+            (a.prefix or "") == (b.prefix or "")
+            and (a.suffix or "") == (b.suffix or "")
+            and a.separator == b.separator
+            and (a.format_pattern or "") == (b.format_pattern or "")
+            and a.include_financial_year == b.include_financial_year
+            and a.include_branch_code == b.include_branch_code
+            and a.include_company_code == b.include_company_code
+            and a.sequence_padding == b.sequence_padding
+        )
 
     def _legacy_counters(
         self, rule: DocumentNumberingRule, scope_signature: str
@@ -893,14 +1020,26 @@ class DocumentFrameworkService:
                 DocumentNumberSequence.is_deleted.is_(False),
             )
         )
+        # A preview writes nothing, so old and retired rows are left where they
+        # are; it still shows the number `_sequence_for` will issue.
         if counter is not None:
             sequence = counter.next_sequence
-        elif legacy := self._legacy_counters(rule, scope_signature):
-            # A preview writes nothing, so the old rows are left where they
-            # are; it still shows the number the reservation will issue.
-            sequence = max(row.next_sequence for row in legacy)
         else:
-            sequence = 1 if rule.last_scope_signature else rule.next_sequence
+            retired = self._session.scalar(
+                select(func.max(DocumentNumberSequence.next_sequence)).where(
+                    DocumentNumberSequence.numbering_rule_id == rule.id,
+                    DocumentNumberSequence.scope_signature == scope_signature,
+                    DocumentNumberSequence.is_deleted.is_(True),
+                )
+            )
+            sequence = max(
+                self._fresh_start(
+                    rule, scope_signature, self._legacy_counters(rule, scope_signature)
+                ),
+                self._issued_under(rule, scope_signature),
+                int(retired or 1),
+            )
+        sequence = max(sequence, self._carried_on(rule, scope_signature))
         if rule.format_pattern:
             return rule.format_pattern.format(
                 prefix=rule.prefix or "",
