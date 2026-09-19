@@ -65,6 +65,17 @@ from app.products.schemas.product import ProductCategoryResponse
 from app.tax.models import TaxProfile
 from app.uom.models import Uom
 
+#: The fields that say how a product's stock is counted and traced, and what
+#: each is called in a refusal. Changing one under stock is refused (D-MST-7).
+_STOCK_SHAPE_FIELDS = {
+    "base_uom_id": "base unit",
+    "inventory_uom_id": "inventory unit",
+    "track_batch": "batch tracking",
+    "track_serial": "serial tracking",
+    "require_batch_on_issue": "batch-on-issue rule",
+    "require_serial_on_issue": "serial-on-issue rule",
+}
+
 
 class ProductService:
     """Coordinate dynamic product validation, persistence, and retrieval."""
@@ -276,6 +287,7 @@ class ProductService:
             )
         self._validate_uom_references(data)
         self._validate_feature_gated_fields(data, firm_scope)
+        self._assert_stock_shape_unchanged(product, self._product_values(data))
         self._assert_price_within_mrp(product, values)
         before: dict[str, object] = {
             "code": product.code,
@@ -419,6 +431,54 @@ class ProductService:
         if count > 0:
             self._commit()
         return count
+
+    def _assert_stock_shape_unchanged(
+        self, product: Product, values: dict[str, object]
+    ) -> None:
+        """Refuse to change how stock is counted or traced while stock exists.
+
+        ``inventories.current_quantity`` is held in the product's base unit,
+        so moving the unit from PIECE to BOX re-reads 50 pieces as 50 boxes
+        without a single movement; and switching serial or batch tracking on
+        over stock received without serials or batches leaves quantity the
+        picker then refuses to dispatch (D-MST-7). The rule every stock
+        package keeps: the unit and the tracking mode are settled before the
+        first receipt, and changed only once the product is back at nothing --
+        no quantity anywhere, no reservation, no document still to ship,
+        receive or bill it.
+
+        ``values`` is what the update is about to write, so only a field that
+        is present **and different** is a change: a form resending what is
+        stored saves as before. Naming a unit for a product that had none is
+        not a change of unit -- nothing is re-read -- and is how a product
+        created without one is repaired, so it is let through.
+        """
+        changing = [
+            label
+            for field, label in _STOCK_SHAPE_FIELDS.items()
+            if field in values
+            and values[field] != getattr(product, field)
+            and not (field.endswith("_uom_id") and getattr(product, field) is None)
+        ]
+        if not changing:
+            return
+        reasons: list[str] = []
+        holdings = find_stock_holdings(
+            self._session, product.firm_id, product_id=product.id
+        )
+        if holdings:
+            reasons.append(f"holds {describe_stock(holdings)}")
+        documents = find_open_documents(
+            self._session, product.firm_id, product_id=product.id
+        )
+        if documents:
+            reasons.append(f"is on {describe_documents(documents)}")
+        if reasons:
+            raise ValidationError(
+                f"{product.code}: the {', '.join(changing)} cannot be changed "
+                f"while it {' and '.join(reasons)}. Move or write off the "
+                "stock and finish, cancel or close what is open first."
+            )
 
     def _assert_product_removable(self, product: Product) -> None:
         """Refuse to delete a product that still holds stock or is in flight.
