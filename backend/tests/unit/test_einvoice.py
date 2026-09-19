@@ -44,6 +44,9 @@ from app.sales_invoice.models import (
 )
 from app.sales_invoice.services import SalesInvoiceService
 
+# Fixtures here type their document numbers; see conftest (D-CFG-2).
+pytestmark = pytest.mark.typed_document_numbers
+
 WHEN = date(2026, 4, 20)
 
 #: Two GSTINs in the same state (27, Maharashtra) and one in another (29).

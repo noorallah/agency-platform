@@ -172,19 +172,16 @@ class PhysicalCountService(TransactionalDocumentService):
         _, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
-        number = (
-            data.reference_number.strip().upper()
-            if data.reference_number
-            else self._documents.reserve_number(
-                numbering_rule.id,
-                firm_id=firm_id,
-                financial_year_label=self._financial_year_label(
-                    data.count_date, firm_id
-                ),
-                company_code=self._company_code(firm_id),
-                document_date=data.count_date,
-                actor_id=actor_id,
-            )
+        number = self._issue_number(
+            numbering_rule,
+            typed=(
+                data.reference_number.strip().upper() if data.reference_number else None
+            ),
+            number_column=PhysicalCount.count_number,
+            firm_id=firm_id,
+            document_date=data.count_date,
+            actor_id=actor_id,
+            company_code=self._company_code(firm_id),
         )
         row = PhysicalCount(
             firm_id=firm_id,

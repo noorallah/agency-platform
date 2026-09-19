@@ -293,16 +293,15 @@ class QuotationService(TransactionalDocumentService):
             firm_id=firm_id, actor_id=actor_id
         )
         self._require_customer(data.customer_id, firm_id=firm_id)
-        quotation_number = data.quotation_number or self._documents.reserve_number(
-            numbering_rule.id,
+        quotation_number = self._issue_number(
+            numbering_rule,
+            typed=data.quotation_number,
+            number_column=SalesQuotation.quotation_number,
             firm_id=firm_id,
-            financial_year_label=self._financial_year_label(
-                data.quotation_date, firm_id
-            ),
-            branch_code=self._scope_code(data.branch_id),
-            company_code=self._company_code(firm_id),
             document_date=data.quotation_date,
             actor_id=actor_id,
+            branch_code=self._scope_code(data.branch_id),
+            company_code=self._company_code(firm_id),
         )
         scope = resolve_sales_scope(
             self._session,

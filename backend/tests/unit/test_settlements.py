@@ -54,6 +54,9 @@ from app.settlements.schemas import (
 from app.settlements.services import PaymentService, ReceiptService, RefundService
 from app.vendors.models import Vendor
 
+# Fixtures here type their document numbers; see conftest (D-CFG-2).
+pytestmark = pytest.mark.typed_document_numbers
+
 # Every test posts inside the seeded 2026-2027 financial year.
 WHEN = date(2026, 4, 20)
 

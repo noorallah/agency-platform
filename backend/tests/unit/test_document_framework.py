@@ -10,6 +10,8 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.branches.models import Branch, Warehouse
+from app.business.models import BusinessProfile
 from app.core.database.base import Base
 from app.core.exceptions import ValidationError
 from app.document_framework.models import (
@@ -28,6 +30,10 @@ from app.document_framework.schemas import (
 )
 from app.document_framework.services import DocumentFrameworkService
 from app.firms.models import Firm
+from app.products.models import Product
+from app.purchase.schemas import PurchaseOrderCreate
+from app.purchase.services import PurchaseService
+from app.vendors.models import Vendor
 
 importlib.import_module("app.document_framework.models.document_framework")
 
@@ -763,3 +769,136 @@ def test_a_firm_administers_its_own_print_settings() -> None:
         assert (
             "SETTINGS_UPDATE" in codes
         ), f"{key} enforces {sorted(codes) or 'no permission code'}"
+
+
+class _Buyer:
+    """A firm with what a purchase order needs, and nothing numbered yet."""
+
+    def __init__(self) -> None:
+        """Build the firm, its branch, warehouse, vendor and one product."""
+        self.session = _session_factory()()
+        self.actor_id = uuid4()
+        self.firm = _firm(self.session)
+        firm_id = self.firm.id
+        self.session.add(
+            BusinessProfile(
+                code="GENERIC",
+                name="Generic",
+                industry_type="GENERIC",
+                status="ACTIVE",
+                is_default=True,
+                default_settings={},
+            )
+        )
+        self.branch = Branch(
+            firm_id=firm_id,
+            code="HO",
+            name="Head Office",
+            display_name="Head Office",
+            currency_code="INR",
+            working_hours={"start": "09:00", "end": "18:00"},
+            status="ACTIVE",
+        )
+        self.session.add(self.branch)
+        self.session.flush()
+        self.warehouse = Warehouse(
+            firm_id=firm_id,
+            branch_id=self.branch.id,
+            code="MAIN",
+            name="Main",
+            display_name="Main",
+            status="ACTIVE",
+        )
+        self.vendor = Vendor(
+            firm_id=firm_id,
+            code="VEN",
+            name="Vendor",
+            display_name="Vendor",
+            status="ACTIVE",
+        )
+        self.product = Product(
+            firm_id=firm_id,
+            code="SKU",
+            name="Product",
+            product_type="STOCK_ITEM",
+            status="ACTIVE",
+        )
+        self.session.add_all([self.warehouse, self.vendor, self.product])
+        self.session.commit()
+        self.orders = PurchaseService(self.session)
+
+    def order(self, po_number: str | None = None) -> str:
+        """Raise a purchase order, typed or not, and return its number."""
+        payload: dict[str, object] = {
+            "branch_id": self.branch.id,
+            "warehouse_id": self.warehouse.id,
+            "vendor_id": self.vendor.id,
+            "purchase_date": "2026-08-02",
+            "lines": [
+                {
+                    "product_id": self.product.id,
+                    "ordered_quantity": "1",
+                    "unit_price": "10",
+                }
+            ],
+        }
+        if po_number is not None:
+            payload["po_number"] = po_number
+        row = self.orders.create_order(
+            PurchaseOrderCreate.model_validate(payload),
+            firm_id=self.firm.id,
+            actor_id=self.actor_id,
+        )
+        return row.po_number
+
+    def series(self) -> DocumentNumberingRule:
+        """Return the purchase order series the first order bootstrapped."""
+        rule = self.session.scalar(
+            select(DocumentNumberingRule).where(
+                DocumentNumberingRule.firm_id == self.firm.id,
+                DocumentNumberingRule.code == "PURCHASE_ORDER_DEFAULT",
+            )
+        )
+        assert rule is not None
+        return rule
+
+
+def test_a_typed_number_needs_a_series_that_allows_one() -> None:
+    """A number is typed only into a series with "allow typed numbers" on.
+
+    D-CFG-2: every create took the number it was sent, whatever the series
+    said. `manual_allowed` -- off by default -- was read only on a path no
+    typed number reached, so the switch meant nothing.
+    """
+    buyer = _Buyer()
+    issued = buyer.order()
+    assert buyer.series().manual_allowed is False, "the default a firm gets"
+
+    with pytest.raises(ValidationError, match="does not allow a number to be typed"):
+        buyer.order("PO-TYPED-1")
+    buyer.session.rollback()
+
+    buyer.series().manual_allowed = True
+    buyer.session.commit()
+    assert buyer.order("PO-TYPED-1") == "PO-TYPED-1"
+    assert issued.endswith("000001")
+
+
+def test_the_series_steps_over_a_number_typed_ahead_of_it() -> None:
+    """A number already used is stepped over, not issued a second time.
+
+    D-CFG-2: a number typed ahead of the counter was issued again when the
+    counter reached it; the insert failed, the failure rolled the reservation
+    back, and every retry was handed the same number -- the series was
+    blocked for good. #500 fixed that for settlements only.
+    """
+    buyer = _Buyer()
+    first = buyer.order()
+    assert first.endswith("000001")
+    buyer.series().manual_allowed = True
+    buyer.session.commit()
+    ahead = first[: -len("000001")] + "000002"
+    buyer.order(ahead)
+
+    assert buyer.order() == first[: -len("000001")] + "000003"
+    assert buyer.order() == first[: -len("000001")] + "000004"
