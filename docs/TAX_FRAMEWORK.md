@@ -254,6 +254,13 @@ first two; the **split** changes, and the split is what the GST return needs.
   `tax_profile_id`.** A profile id identifies one *version*, so a condition
   written against an id stops matching the moment a rate change creates a new
   version. The group code is stable across versions.
+- **An edit to an ACTIVE rule supersedes it, in the same transaction.** The
+  edit writes version *n*+1 and `_retire` takes version *n* out of force: made
+  INACTIVE, or -- when the new version starts later -- left ACTIVE and closed
+  the day before, so documents dated before the change are still decided by
+  it. A DRAFT successor retires nothing until it is itself activated. Until
+  2026-09-19 the old version stayed ACTIVE beside the new one and went on
+  matching, so switching a rule off changed nothing (D-CMP-3).
 - **An outward document never names its own transaction type.** It asks
   `TaxRuleService.outward_transaction_type`, which answers `SALES_INTERSTATE`
   when the buyer's state differs from the supplier's and the document's own
