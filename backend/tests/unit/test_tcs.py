@@ -15,7 +15,7 @@ defended:
   money they have just paid.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -38,6 +38,8 @@ from app.tcs.services import TcsService
 from app.vendors.models import Vendor
 
 WHEN = date(2026, 6, 10)
+#: Nine days before ``WHEN``, in the same financial year.
+EARLIER = WHEN - timedelta(days=9)
 #: Fifty lakh, the figure the section names.
 THRESHOLD = Decimal("5000000")
 
@@ -533,19 +535,20 @@ def test_a_back_dated_receipt_does_not_count_money_paid_after_it() -> None:
     The running total summed the whole year, so a receipt recorded late but
     dated early was charged on money the buyer paid after it: here 60 lakh
     received on 10 June, then 1 lakh received on 1 June recorded afterwards.
-    On 1 June the buyer had paid nothing, so nothing was due.
+    On 1 June the buyer had paid nothing, so nothing was due. Dated off
+    ``WHEN`` so the case holds in whichever year the suite collects in.
     """
     books = _Books(_session_factory()())
-    books.receipt("6000000", on=date(2026, 6, 10))
+    books.receipt("6000000", on=WHEN)
 
-    earlier = books.receipt("100000", on=date(2026, 6, 1))
+    earlier = books.receipt("100000", on=EARLIER)
 
     assert books.collection(earlier) is None
     preview = TcsService(books.session).preview(
         firm_id=books.firm.id,
         customer_id=books.customer.id,
         amount=Decimal("100000"),
-        on=date(2026, 6, 1),
+        on=EARLIER,
     )
     assert preview.cumulative_before == Decimal("100000.00")
 
@@ -553,9 +556,9 @@ def test_a_back_dated_receipt_does_not_count_money_paid_after_it() -> None:
 def test_a_receipt_on_the_same_day_counts_one_recorded_before_it() -> None:
     """Money received earlier the same day was received by that day."""
     books = _Books(_session_factory()())
-    books.receipt("4800000", on=date(2026, 6, 10))
+    books.receipt("4800000", on=WHEN)
 
-    row = books.collection(books.receipt("400000", on=date(2026, 6, 10)))
+    row = books.collection(books.receipt("400000", on=WHEN))
 
     assert row is not None
     assert row.cumulative_before == Decimal("4800000.00")
