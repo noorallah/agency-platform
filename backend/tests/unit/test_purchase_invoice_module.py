@@ -483,3 +483,145 @@ def test_a_bill_cannot_skip_the_receipt() -> None:
                 actor_id=uuid4(),
             )
     assert session.scalar(select(PurchaseInvoice.id)) is None
+
+
+def _other_receipt_line(
+    session: Session,
+    receipt: GoodsReceipt,
+    *,
+    number: str,
+    status: str,
+    firm_id: UUID | None = None,
+) -> GoodsReceiptLine:
+    """Record a second receipt beside ``receipt`` and return its line.
+
+    Same order line, so the only thing wrong with naming it from a line of
+    ``receipt`` is that it is not ``receipt``'s line -- which is the case.
+    """
+    firm = firm_id or receipt.firm_id
+    other = GoodsReceipt(
+        firm_id=firm,
+        purchase_order_id=receipt.purchase_order_id,
+        purchase_order_number=receipt.purchase_order_number,
+        vendor_id=receipt.vendor_id,
+        branch_id=receipt.branch_id,
+        warehouse_id=receipt.warehouse_id,
+        grn_number=number,
+        receipt_date=date(2026, 8, 2),
+        status=status,
+    )
+    session.add(other)
+    session.flush()
+    template = session.scalars(
+        select(GoodsReceiptLine).where(GoodsReceiptLine.goods_receipt_id == receipt.id)
+    ).one()
+    line = GoodsReceiptLine(
+        goods_receipt_id=other.id,
+        firm_id=firm,
+        line_number=1,
+        purchase_order_line_id=template.purchase_order_line_id,
+        purchase_order_line_number=template.purchase_order_line_number,
+        product_id=template.product_id,
+        ordered_quantity=template.ordered_quantity,
+        current_receipt_quantity=template.current_receipt_quantity,
+        accepted_quantity=template.accepted_quantity,
+        unit_price=template.unit_price,
+        warehouse_id=template.warehouse_id,
+    )
+    session.add(line)
+    session.commit()
+    return line
+
+
+def test_a_bill_line_cannot_front_for_another_receipts_line() -> None:
+    """D-BUY-17: a bill line was looked up by its id alone.
+
+    Driven 2026-09-19 on TEST01: PI-2026-2027-000011 named the completed
+    GRN-TEST01-HO-2026-2027-000020 (6) and carried the line id of the DRAFT
+    GRN-TEST01-HO-2026-2027-000024 of another order -- 10 billed and
+    approved, 1,180.00 owed for goods nobody had received. A line must be one
+    of the named receipt's own lines, in the same firm, and a bill saved
+    before the check cannot be approved through a line it does not own.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    vendor = _vendor(session, firm_id=firm.id)
+    order = _purchase_order(
+        session,
+        firm_id=firm.id,
+        vendor_id=vendor.id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+    )
+    po_line = session.scalar(
+        select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+    )
+    assert po_line is not None
+    receipt, receipt_line = _received(session, po_line)
+    draft_line = _other_receipt_line(
+        session, receipt, number="GRN-2026-000002", status="DRAFT"
+    )
+    elsewhere = Firm(
+        name="Elsewhere",
+        code="ELSEWHERE",
+        country="IN",
+        currency_code="INR",
+        financial_year_start=date(2026, 4, 1),
+    )
+    session.add(elsewhere)
+    session.commit()
+    foreign_line = _other_receipt_line(
+        session,
+        receipt,
+        number="GRN-2026-000003",
+        status="COMPLETED",
+        firm_id=elsewhere.id,
+    )
+    service = PurchaseInvoiceService(session)
+
+    def _bill(line_id: UUID, number: str) -> PurchaseInvoiceCreate:
+        return PurchaseInvoiceCreate(
+            supplier_invoice_number=number,
+            supplier_invoice_date=date(2026, 8, 2),
+            invoice_date=date(2026, 8, 2),
+            source_documents=[
+                {
+                    "source_document_type": PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                    "source_document_id": receipt.id,
+                }
+            ],
+            lines=[
+                PurchaseInvoiceLineWrite(
+                    source_document_type=PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                    source_document_id=receipt.id,
+                    source_document_line_id=line_id,
+                    line_number=1,
+                    current_invoice_quantity=Decimal("4"),
+                )
+            ],
+        )
+
+    for line_id in (draft_line.id, foreign_line.id):
+        with pytest.raises(ValidationError, match="GRN-2026-000001 has no line"):
+            service.create_invoice(
+                _bill(line_id, "SUP-FRONT"), firm_id=firm.id, actor_id=uuid4()
+            )
+        session.rollback()
+    assert session.scalar(select(PurchaseInvoice.id)) is None
+
+    # A bill saved before the check, pointing at the draft receipt's line, is
+    # not approved.
+    saved = service.create_invoice(
+        _bill(receipt_line.id, "SUP-SAVED"), firm_id=firm.id, actor_id=uuid4()
+    )
+    line = session.scalars(
+        select(PurchaseInvoiceLine).where(
+            PurchaseInvoiceLine.purchase_invoice_id == saved.id
+        )
+    ).one()
+    line.source_document_line_id = draft_line.id
+    session.commit()
+    with pytest.raises(ValidationError, match="GRN-2026-000001 has no line"):
+        service.approve_invoice(saved.id, firm_scope=firm.id, actor_id=uuid4())

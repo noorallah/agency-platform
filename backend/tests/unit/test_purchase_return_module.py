@@ -38,6 +38,13 @@ from app.inventory.models import (
 from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
+from app.purchase_invoice.models import PurchaseInvoiceLine
+from app.purchase_invoice.schemas import (
+    PurchaseInvoiceCreate,
+    PurchaseInvoiceLineWrite,
+    PurchaseInvoiceSourceType,
+)
+from app.purchase_invoice.services import PurchaseInvoiceService
 from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
 from app.purchase_return.schemas import (
     PurchaseReturnCreate,
@@ -1087,3 +1094,191 @@ def test_a_return_cannot_skip_the_receipt() -> None:
                 actor_id=uuid4(),
             )
     assert session.scalar(select(PurchaseReturn.id)) is None
+
+
+def _other_receipt_line(
+    session: Session,
+    receipt: GoodsReceipt,
+    *,
+    number: str,
+    status: str,
+    firm_id: UUID | None = None,
+) -> GoodsReceiptLine:
+    """Record a second receipt beside ``receipt`` and return its line.
+
+    Same order line, so the only thing wrong with naming it from a line of
+    ``receipt`` is that it is not ``receipt``'s line -- which is the case.
+    """
+    firm = firm_id or receipt.firm_id
+    other = GoodsReceipt(
+        firm_id=firm,
+        purchase_order_id=receipt.purchase_order_id,
+        purchase_order_number=receipt.purchase_order_number,
+        vendor_id=receipt.vendor_id,
+        branch_id=receipt.branch_id,
+        warehouse_id=receipt.warehouse_id,
+        grn_number=number,
+        receipt_date=date(2026, 8, 2),
+        status=status,
+    )
+    session.add(other)
+    session.flush()
+    template = session.scalars(
+        select(GoodsReceiptLine).where(GoodsReceiptLine.goods_receipt_id == receipt.id)
+    ).one()
+    line = GoodsReceiptLine(
+        goods_receipt_id=other.id,
+        firm_id=firm,
+        line_number=1,
+        purchase_order_line_id=template.purchase_order_line_id,
+        purchase_order_line_number=template.purchase_order_line_number,
+        product_id=template.product_id,
+        ordered_quantity=template.ordered_quantity,
+        current_receipt_quantity=template.current_receipt_quantity,
+        accepted_quantity=template.accepted_quantity,
+        unit_price=template.unit_price,
+        warehouse_id=template.warehouse_id,
+    )
+    session.add(line)
+    session.commit()
+    return line
+
+
+def test_a_return_line_cannot_front_for_another_documents_line() -> None:
+    """D-BUY-17: a return line was looked up by its id alone.
+
+    Driven 2026-09-19 on TEST01: PR-2026-2027-000007 named the completed
+    GRN-TEST01-HO-2026-2027-000020 (6) and carried the line id of the DRAFT
+    GRN-TEST01-HO-2026-2027-000024 of another order -- created, approved and
+    completed, that product's shelf at -10 for goods that never came in.
+    A line must be one of the named receipt's own lines, in the same firm;
+    a bill it is returned against must stand; and a return saved before the
+    check cannot complete through a line it does not own.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    vendor = _vendor(session, firm_id=firm.id)
+    order = _purchase_order(
+        session,
+        firm_id=firm.id,
+        vendor_id=vendor.id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+    )
+    po_line = session.scalar(
+        select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+    )
+    assert po_line is not None
+    receipt, receipt_line = _received(session, po_line)
+    draft_line = _other_receipt_line(
+        session, receipt, number="GRN-2026-000002", status="DRAFT"
+    )
+    elsewhere = Firm(
+        name="Elsewhere",
+        code="ELSEWHERE",
+        country="IN",
+        currency_code="INR",
+        financial_year_start=date(2026, 4, 1),
+    )
+    session.add(elsewhere)
+    session.commit()
+    foreign_line = _other_receipt_line(
+        session,
+        receipt,
+        number="GRN-2026-000003",
+        status="COMPLETED",
+        firm_id=elsewhere.id,
+    )
+    service = PurchaseReturnService(session)
+
+    def _return(
+        line_id: UUID,
+        source_type: PurchaseReturnSourceType = PurchaseReturnSourceType.GOODS_RECEIPT,
+        source_id: UUID | None = None,
+    ) -> PurchaseReturnCreate:
+        named = source_id or receipt.id
+        return PurchaseReturnCreate(
+            return_date=date(2026, 8, 2),
+            warehouse_id=warehouse.id,
+            source_documents=[
+                {"source_document_type": source_type, "source_document_id": named}
+            ],
+            lines=[
+                PurchaseReturnLineWrite(
+                    source_document_type=source_type,
+                    source_document_id=named,
+                    source_document_line_id=line_id,
+                    line_number=1,
+                    current_return_quantity=Decimal("4"),
+                    warehouse_id=warehouse.id,
+                )
+            ],
+        )
+
+    for line_id in (draft_line.id, foreign_line.id):
+        with pytest.raises(ValidationError, match="GRN-2026-000001 has no line"):
+            service.create_return(_return(line_id), firm_id=firm.id, actor_id=uuid4())
+        session.rollback()
+    assert session.scalar(select(PurchaseReturn.id)) is None
+
+    # A cancelled supplier bill takes no return, by name.
+    bills = PurchaseInvoiceService(session)
+    bill = bills.create_invoice(
+        PurchaseInvoiceCreate(
+            supplier_invoice_number="SUP-GONE",
+            supplier_invoice_date=date(2026, 8, 2),
+            invoice_date=date(2026, 8, 2),
+            source_documents=[
+                {
+                    "source_document_type": PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                    "source_document_id": receipt.id,
+                }
+            ],
+            lines=[
+                PurchaseInvoiceLineWrite(
+                    source_document_type=PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                    source_document_id=receipt.id,
+                    source_document_line_id=receipt_line.id,
+                    line_number=1,
+                    current_invoice_quantity=Decimal("4"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+    bills.cancel_invoice(bill.id, firm_scope=firm.id, actor_id=uuid4())
+    bill_line = session.scalars(
+        select(PurchaseInvoiceLine).where(
+            PurchaseInvoiceLine.purchase_invoice_id == bill.id
+        )
+    ).one()
+    with pytest.raises(ValidationError, match="is cancelled, so nothing can be"):
+        service.create_return(
+            _return(
+                bill_line.id,
+                PurchaseReturnSourceType.PURCHASE_INVOICE,
+                bill.id,
+            ),
+            firm_id=firm.id,
+            actor_id=uuid4(),
+        )
+    session.rollback()
+
+    # A return saved before the check, pointing at the draft receipt's line,
+    # does not complete.
+    saved = service.create_return(
+        _return(receipt_line.id), firm_id=firm.id, actor_id=uuid4()
+    )
+    service.approve_return(saved.id, firm_scope=firm.id, actor_id=uuid4())
+    line = session.scalars(
+        select(PurchaseReturnLine).where(
+            PurchaseReturnLine.purchase_return_id == saved.id
+        )
+    ).one()
+    line.source_document_line_id = draft_line.id
+    session.commit()
+    with pytest.raises(ValidationError, match="GRN-2026-000001 has no line"):
+        service.complete_return(saved.id, firm_scope=firm.id, actor_id=uuid4())
