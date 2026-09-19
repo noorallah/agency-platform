@@ -37,6 +37,9 @@ from app.tax.models import tax_framework as _tax_models  # noqa: F401
 from app.uom.models import uom as _uom_models  # noqa: F401
 from app.vendors.models import Vendor
 
+# Fixtures here type their document numbers; see conftest (D-CFG-2).
+pytestmark = pytest.mark.typed_document_numbers
+
 
 def _session_factory() -> sessionmaker[Session]:
     engine = create_engine(

@@ -6,6 +6,7 @@ from app.settlements.models.settlement import (
     SettlementDirection,
     SettlementMethod,
     SettlementStatus,
+    SupplierCreditApplication,
 )
 
 __all__ = [
@@ -14,4 +15,5 @@ __all__ = [
     "SettlementDirection",
     "SettlementMethod",
     "SettlementStatus",
+    "SupplierCreditApplication",
 ]

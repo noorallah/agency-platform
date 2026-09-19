@@ -74,6 +74,9 @@ from app.finance.services.opening_setup import CHART, seed_finance_setup
 from app.firms.models import Firm
 from app.identity.models import UserFirm
 
+# Fixtures here type their document numbers; see conftest (D-CFG-2).
+pytestmark = pytest.mark.typed_document_numbers
+
 
 def _firm_scope(
     principal: Principal, session: Session, firm_id: UUID | None

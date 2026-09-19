@@ -104,6 +104,9 @@ from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.models import uom as _uom_models  # noqa: F401
 
+# Fixtures here type their document numbers; see conftest (D-CFG-2).
+pytestmark = pytest.mark.typed_document_numbers
+
 
 def _firm_scope(
     principal: Principal, session: Session, firm_id: UUID | None

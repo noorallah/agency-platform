@@ -314,20 +314,15 @@ class DeliveryNoteService(TransactionalDocumentService):
             territory_id=order.territory_id,
             route_id=order.route_id,
         )
-        note_number = (
-            data.delivery_note_number
-            if data.delivery_note_number
-            else self._documents.reserve_number(
-                numbering_rule.id,
-                firm_id=firm_id,
-                financial_year_label=self._financial_year_label(
-                    data.delivery_date, firm_id
-                ),
-                branch_code=self._scope_code(order.branch_id),
-                company_code=self._company_code(firm_id),
-                document_date=data.delivery_date,
-                actor_id=actor_id,
-            )
+        note_number = self._issue_number(
+            numbering_rule,
+            typed=data.delivery_note_number,
+            number_column=DeliveryNote.delivery_note_number,
+            firm_id=firm_id,
+            document_date=data.delivery_date,
+            actor_id=actor_id,
+            branch_code=self._scope_code(order.branch_id),
+            company_code=self._company_code(firm_id),
         )
         row = DeliveryNote(
             firm_id=firm_id,

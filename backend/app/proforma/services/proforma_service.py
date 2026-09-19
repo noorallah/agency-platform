@@ -204,16 +204,15 @@ class ProformaService(TransactionalDocumentService):
             # here, because withdrawing it is a decision with its own reason.
             self.get_proforma(data.supersedes_id, firm_scope=firm_id)
 
-        number = data.proforma_number or self._documents.reserve_number(
-            numbering_rule.id,
+        number = self._issue_number(
+            numbering_rule,
+            typed=data.proforma_number,
+            number_column=ProformaInvoice.proforma_number,
             firm_id=firm_id,
-            financial_year_label=self._financial_year_label(
-                data.proforma_date, firm_id
-            ),
-            branch_code=self._scope_code(order.branch_id),
-            company_code=self._company_code(firm_id),
             document_date=data.proforma_date,
             actor_id=actor_id,
+            branch_code=self._scope_code(order.branch_id),
+            company_code=self._company_code(firm_id),
         )
 
         row = ProformaInvoice(

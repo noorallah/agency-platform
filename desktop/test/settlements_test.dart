@@ -113,6 +113,28 @@ class _SettlementApi extends ApiClient {
     return rows.first;
   }
 
+  /// What `/payments/supplier-credits` answers, and what was applied.
+  List<SupplierCredit> credits = const [];
+  Json? appliedCredit;
+
+  @override
+  Future<List<SupplierCredit>> supplierCredits(String vendorId) async =>
+      credits;
+
+  @override
+  Future<SupplierCredit> applySupplierCredit({
+    required String returnId,
+    required String invoiceId,
+    required String amount,
+  }) async {
+    appliedCredit = <String, dynamic>{
+      'return_id': returnId,
+      'invoice_id': invoiceId,
+      'amount': amount,
+    };
+    return credits.first;
+  }
+
   @override
   Future<Settlement> allocateReceipt({
     required String id,
@@ -525,6 +547,85 @@ void main() {
       expect(find.widgetWithText(FilledButton, 'Record Payment'), findsOneWidget);
       expect(find.textContaining('No payments yet'), findsOneWidget);
       expect(find.textContaining('owes the vendor'), findsOneWidget);
+    });
+  });
+
+  group('supplier credit from returns (D-FIN-19)', () {
+    SupplierCredit credit() => SupplierCredit.fromJson({
+          'purchase_return_id': 'pr-1',
+          'return_number': 'PR-2026-2027-000009',
+          'return_date': '2026-09-19',
+          'credit_amount': '236.00',
+          'applied_amount': '0.00',
+          'available_amount': '236.00',
+          'applied_to': <String>[],
+        });
+
+    _SettlementApi vendorApi({List<Settlement> rows = const []}) =>
+        _SettlementApi(
+          rows: rows,
+          outstanding: [_invoice('pi-1', 'PI-2026-2027-000012', '708.00')],
+        )
+          ..parties = const [
+            PartyOption(id: 'v-1', code: 'V1', name: 'Fixture Supplier'),
+          ]
+          ..credits = [credit()];
+
+    testWidgets('a supplier credit can be set against a bill', (tester) async {
+      // A return raised from the goods receipt debited payables and named no
+      // bill, and nothing on the desktop could set it against one.
+      final _SettlementApi api = vendorApi();
+      await _pump(
+        tester,
+        api,
+        direction: SettlementDirection.payment,
+        perms: const ['PAYMENT_VIEW', 'PAYMENT_CREATE'],
+      );
+
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Supplier credits'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Fixture Supplier'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Nothing moves in the ledger'), findsOneWidget);
+      expect(find.textContaining('236.00 of credit'), findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, 'Apply'));
+      await tester.pumpAndSettle();
+
+      expect(api.appliedCredit, <String, dynamic>{
+        'return_id': 'pr-1',
+        'invoice_id': 'pi-1',
+        'amount': '236.00',
+      });
+    });
+
+    testWidgets('recording a payment says the supplier holds a credit',
+        (tester) async {
+      // Paying the bill in full while the credit stands pays the supplier for
+      // the goods that went back.
+      final _SettlementApi api = vendorApi(rows: [_settlement()]);
+      await _pump(
+        tester,
+        api,
+        direction: SettlementDirection.payment,
+        perms: const ['PAYMENT_VIEW', 'PAYMENT_CREATE'],
+      );
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Record Payment'));
+      await tester.pumpAndSettle();
+      await _chooseParty(tester, 'Fixture Supplier');
+
+      expect(
+        find.textContaining('owes the firm 236.00 from returns '
+            '(PR-2026-2027-000009)'),
+        findsOneWidget,
+      );
+    });
+
+    testWidgets('receipts offer no supplier credit', (tester) async {
+      await _pump(tester, _SettlementApi());
+
+      expect(find.text('Supplier credits'), findsNothing);
     });
   });
 

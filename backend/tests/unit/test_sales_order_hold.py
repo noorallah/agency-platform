@@ -34,6 +34,9 @@ from app.products.models import Product
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_order.services import SalesOrderService
 
+# Fixtures here type their document numbers; see conftest (D-CFG-2).
+pytestmark = pytest.mark.typed_document_numbers
+
 WHEN = date(2026, 6, 10)
 
 

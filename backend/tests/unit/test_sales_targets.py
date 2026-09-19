@@ -35,6 +35,9 @@ from app.sales_targets.schemas import (
 )
 from app.sales_targets.services import SalesTargetService
 
+# Fixtures here type their document numbers; see conftest (D-CFG-2).
+pytestmark = pytest.mark.typed_document_numbers
+
 APRIL = (date(2026, 4, 1), date(2026, 4, 30))
 
 

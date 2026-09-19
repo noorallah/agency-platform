@@ -89,6 +89,11 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
   String _method = 'BANK';
   DateTime _date = DateTime.now();
   List<OutstandingInvoice> _invoices = const [];
+
+  /// What the chosen supplier owes the firm from returns, not yet set
+  /// against a bill. Said before the money goes, because paying a bill
+  /// in full while a credit stands pays the supplier twice (D-FIN-19).
+  List<SupplierCredit> _credits = const [];
   bool _busy = false;
   String? _error;
 
@@ -148,6 +153,19 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
       setState(() => _error = exception.message);
     } finally {
       if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _loadCredits(String partyId) async {
+    setState(() => _credits = const []);
+    try {
+      final List<SupplierCredit> rows =
+          await widget.api.supplierCredits(partyId);
+      if (!mounted || _partyId != partyId) return;
+      setState(() => _credits = rows);
+    } on ApiException {
+      // The notice is advice, not a gate: failing to read it must not stop a
+      // payment being recorded.
     }
   }
 
@@ -301,6 +319,18 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
               if (widget.direction.allocates) ...[
                 _allocationHeader(context, unapplied),
                 const SizedBox(height: AppSpacing.sm),
+                if (_credits.isNotEmpty) ...[
+                  Text(
+                    'This supplier owes the firm '
+                    '${_credits.fold<double>(0, (sum, c) => sum + c.available).toStringAsFixed(2)} '
+                    'from returns '
+                    '(${_credits.map((c) => c.returnNumber).join(', ')}). '
+                    'Set it against a bill with Supplier credits on the '
+                    'Payments screen first, and pay only what is left.',
+                    style: Theme.of(context).textTheme.bodyMedium,
+                  ),
+                  const SizedBox(height: AppSpacing.sm),
+                ],
                 _invoiceTable(context),
               ] else
                 Text(
@@ -535,6 +565,9 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
       _tcs = null;
     });
     if (widget.direction.allocates) unawaited(_loadInvoices(party.id));
+    if (widget.direction == SettlementDirection.payment) {
+      unawaited(_loadCredits(party.id));
+    }
     // The notice was read only when the amount changed, so a customer chosen
     // after the amount cleared it and nothing brought it back (plan item
     // 9.19, 2026-09-13).
