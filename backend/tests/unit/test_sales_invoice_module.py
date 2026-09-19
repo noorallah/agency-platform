@@ -1960,6 +1960,47 @@ def test_a_partly_billed_note_offers_only_the_rest() -> None:
     assert line.remaining_quantity == Decimal("3.0000")
 
 
+def test_older_billable_notes_are_reached_a_page_at_a_time() -> None:
+    """D-SELL-18: the list stopped at the newest fifty notes.
+
+    A firm with more waiting could not bill the older ones from the desktop.
+    Paged now, each note is on exactly one page.
+    """
+    setup = _Billing(_session_factory()())
+    first = _dispatched_note(setup, quantity=Decimal("2"))
+    notes = DeliveryNoteService(setup.session)
+    second = notes.create_note(
+        DeliveryNoteCreate(
+            sales_order_id=setup.order.id,
+            delivery_date=date(2026, 8, 5),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=setup.order_line.id,
+                    line_number=1,
+                    current_delivery_quantity=Decimal("2"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=uuid4(),
+    )
+    notes.approve_note(second.id, firm_scope=setup.firm.id, actor_id=uuid4())
+    notes.dispatch_note(second.id, firm_scope=setup.firm.id, actor_id=uuid4())
+    service = SalesInvoiceService(setup.session)
+
+    pages = [
+        service.billable_documents(firm_scope=setup.firm.id, limit=1, page=page)
+        for page in (1, 2, 3)
+    ]
+
+    assert [[doc.source_document_id for doc in page] for page in pages] == [
+        [second.id],
+        [first.id],
+        [],
+    ]
+
+
 def test_a_fully_billed_note_drops_off_the_list() -> None:
     """Offered and then refused is the experience this exists to avoid."""
     setup = _Billing(_session_factory()())

@@ -88,6 +88,7 @@ SalesInvoiceImportScope = Annotated[
 def list_billable_documents(
     scope: SalesInvoiceViewScope,
     limit: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 50,
+    page: Annotated[int, Query(ge=1)] = 1,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[BillableDocument]]:
     """List what is still waiting to be billed.
@@ -98,7 +99,7 @@ def list_billable_documents(
     """
     return ApiResponse(
         data=SalesInvoiceService(db).billable_documents(
-            firm_scope=scope.firm_id, limit=limit
+            firm_scope=scope.firm_id, limit=limit, page=page
         )
     )
 
