@@ -2175,7 +2175,14 @@ class SalesInvoiceService(TransactionalDocumentService):
                 tax_profile_id, invoice_date, firm_scope=firm_id
             )
         request = TaxRuleSimulationRequest(
-            transaction_type="SALES_INVOICE",
+            # The supply's own nature, not just the document's name: a buyer in
+            # another state is charged IGST (D-CMP-1).
+            transaction_type=self._tax.outward_transaction_type(
+                "SALES_INVOICE",
+                firm_id=firm_id,
+                branch_id=branch_id,
+                customer_id=customer_id,
+            ),
             transaction_date=invoice_date,
             business_profile_id=business_profile_id,
             tax_profile_id=tax_profile_id,
@@ -2184,7 +2191,10 @@ class SalesInvoiceService(TransactionalDocumentService):
             customer_id=customer_id,
             product_id=product_id,
             invoice_value=invoice_value,
-            additional_context={"source": "sales_invoice"},
+            additional_context={
+                "source": "sales_invoice",
+                "document_type": "SALES_INVOICE",
+            },
         )
         response = self._tax.simulate(request, firm_scope=firm_id, actor_id=actor_id)
         return _LineTax(

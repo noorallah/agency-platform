@@ -1982,7 +1982,14 @@ class SalesOrderService(TransactionalDocumentService):
                 tax_profile_id, order_date, firm_scope=firm_id
             )
         request = TaxRuleSimulationRequest(
-            transaction_type="SALES_ORDER",
+            # The supply's own nature, not just the document's name: a buyer in
+            # another state is charged IGST (D-CMP-1).
+            transaction_type=self._tax.outward_transaction_type(
+                "SALES_ORDER",
+                firm_id=firm_id,
+                branch_id=branch_id,
+                customer_id=customer_id,
+            ),
             transaction_date=order_date,
             business_profile_id=business_profile_id,
             tax_profile_id=tax_profile_id,
@@ -1991,7 +1998,10 @@ class SalesOrderService(TransactionalDocumentService):
             customer_id=customer_id,
             product_id=product_id,
             invoice_value=invoice_value,
-            additional_context={"source": "sales_order"},
+            additional_context={
+                "source": "sales_order",
+                "document_type": "SALES_ORDER",
+            },
         )
         response = self._tax.simulate(request, firm_scope=firm_id, actor_id=actor_id)
         return self._q(response.total_tax_amount)
