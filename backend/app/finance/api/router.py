@@ -543,8 +543,15 @@ def create_journal_entry(
 
     Its reference must sit in the manual namespace (JV-...): anything else
     belongs to a document, which could then never post (D-FIN-9).
+
+    A hand line may not land on an account a sub-ledger keeps -- receivables,
+    payables, stock, GRNI, commission or loyalty payable, or any CONTROL
+    account -- which only its documents post to (D-FIN-11).
     """
     assert_manual_reference(payload.reference_number)
+    ControlAccountService(db).assert_open_to_hand_journals(
+        scope.firm_id, (line.ledger_account_id for line in payload.lines)
+    )
     entry = JournalEntryEngine(db).create_entry(
         firm_id=scope.firm_id,
         journal_type_id=payload.journal_type_id,
@@ -627,10 +634,18 @@ def get_journal_entry(
 def post_journal_entry(
     entry_id: UUID, scope: JournalPostScope, db: Session = Depends(get_db)
 ) -> ApiResponse[JournalEntryResponse]:
-    """Post one draft journal entry to the general ledger."""
-    entry = JournalEntryEngine(db).post_entry(
-        entry_id, firm_id=scope.firm_id, actor_id=scope.actor_id
-    )
+    """Post one draft journal entry to the general ledger.
+
+    A hand-written draft is asked the create's question again: it may have
+    been written before an account was mapped, or before this rule (D-FIN-11).
+    """
+    engine = JournalEntryEngine(db)
+    draft = engine.get_entry(entry_id, firm_id=scope.firm_id)
+    if draft.source_module is None:
+        ControlAccountService(db).assert_open_to_hand_journals(
+            scope.firm_id, (line.ledger_account_id for line in draft.lines)
+        )
+    entry = engine.post_entry(entry_id, firm_id=scope.firm_id, actor_id=scope.actor_id)
     db.commit()
     return ApiResponse(data=JournalEntryResponse.model_validate(entry))
 

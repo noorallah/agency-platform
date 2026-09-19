@@ -2803,3 +2803,105 @@ def test_posting_picks_one_period_the_same_way_every_time() -> None:
     # Outside the narrow one, the month is still the answer.
     context = DocumentPostingService(session).context_for(firm.id, date(2026, 4, 25))
     assert context.accounting_period_id == book.period.id
+
+
+def test_a_hand_journal_leaves_the_sub_ledger_accounts_to_their_documents() -> None:
+    """D-FIN-11: hand journals posted to receivables, stock and GRNI.
+
+    Driven on a fixture firm: hand journals debiting 1100 (Accounts
+    receivable), 1200 (Inventory) and 2300 (GRNI) were created and POSTED,
+    each moving an account with no customer, stock or receipt behind it.
+    Those accounts, and any CONTROL account, are posted only by their
+    documents; tax, cash, income and expense stay open to a hand journal.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    user_id = uuid4()
+    book = _Book(session, firm.id, user_id)
+    finance = FinanceService(session)
+
+    def _account(code: str, name: str, group_id: UUID, kind: AccountTypeEnum) -> UUID:
+        """Open one more account."""
+        return finance.create_ledger_account(
+            LedgerAccountCreate(
+                account_group_id=group_id, code=code, name=name, account_type=kind
+            ),
+            firm_id=firm.id,
+            actor_id=user_id,
+        ).id
+
+    receivable = _account(
+        "1100", "Trade receivables", book.asset_group.id, AccountTypeEnum.ASSET
+    )
+    input_tax = _account(
+        "1300", "Input GST", book.asset_group.id, AccountTypeEnum.ASSET
+    )
+    control_group = finance.create_account_group(
+        AccountGroupCreate(
+            code="CTL", name="Control", account_type=AccountTypeEnum.CONTROL
+        ),
+        firm_id=firm.id,
+        actor_id=user_id,
+    )
+    suspense = _account("1990", "Suspense", control_group.id, AccountTypeEnum.CONTROL)
+    controls = ControlAccountService(session)
+    controls.assign(
+        firm.id, ControlAccountPurpose.ACCOUNTS_RECEIVABLE, receivable, actor_id=user_id
+    )
+    controls.assign(
+        firm.id, ControlAccountPurpose.INPUT_TAX, input_tax, actor_id=user_id
+    )
+    session.add(UserFirm(user_id=user_id, firm_id=firm.id, is_active=True))
+    session.commit()
+    scope = _firm_scope(
+        _principal(user_id, {"JOURNAL_CREATE", "JOURNAL_POST"}), session, firm.id
+    )
+
+    def _payload(reference: str, debit: UUID) -> JournalEntryCreate:
+        """Build one hand entry debiting the given account."""
+        return JournalEntryCreate(
+            journal_type_id=book.journal_type.id,
+            voucher_type_id=book.voucher_type.id,
+            accounting_period_id=book.period.id,
+            journal_date=date(2026, 4, 12),
+            reference_number=reference,
+            description="By hand",
+            lines=[
+                {"ledger_account_id": debit, "debit_amount": "7.00"},
+                {"ledger_account_id": book.sales.id, "credit_amount": "7.00"},
+            ],
+        )
+
+    with pytest.raises(
+        ValidationError, match=r"1100 Trade receivables \(Accounts receivable\)"
+    ):
+        create_journal_entry(_payload("JV-AR", receivable), scope, session)
+    with pytest.raises(ValidationError, match=r"1990 Suspense \(a control account\)"):
+        create_journal_entry(_payload("JV-CTL", suspense), scope, session)
+    # Tax and cash are what hand journals are for.
+    for reference, debit in (("JV-TAX", input_tax), ("JV-CASH", book.cash.id)):
+        created = create_journal_entry(_payload(reference, debit), scope, session)
+        assert post_journal_entry(created.data.id, scope, session).data.status == (
+            JournalStatus.POSTED.value
+        )
+
+    # A hand draft written before the rule is asked again when it is posted.
+    draft = JournalEntryEngine(session).create_entry(
+        firm_id=firm.id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 12),
+        reference_number="JV-OLD",
+        description="Written before the rule",
+        lines=[
+            JournalLineData(ledger_account_id=receivable, debit_amount=Decimal("7")),
+            JournalLineData(
+                ledger_account_id=book.sales.id, credit_amount=Decimal("7")
+            ),
+        ],
+        actor_id=user_id,
+    )
+    session.commit()
+    with pytest.raises(ValidationError, match="Accounts receivable"):
+        post_journal_entry(draft.id, scope, session)
