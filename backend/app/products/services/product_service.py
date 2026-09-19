@@ -210,32 +210,68 @@ class ProductService:
         *,
         firm_scope: UUID,
         actor_id: UUID,
+        may_write_cost_price: bool = True,
     ) -> Product:
+        """Apply the fields the caller sent, and only those (D-MST-5).
+
+        The update dumped its whole write model, so a ``PUT`` naming a code, a
+        name and a type wrote every other field back at its schema default --
+        no category, no tax group, no units, no price -- and replaced the
+        custom fields and the images with nothing. Absent now means leave
+        alone; an explicit ``null`` still clears, which is what keeps a
+        complete client able to empty a field. ``attributes`` and ``media``
+        are replaced only when the caller sent them: omitted leaves them, an
+        empty list clears them.
+
+        ``may_write_cost_price`` says the caller can *see* the cost price. One
+        who cannot is served ``purchase_price: null`` and a form sends that
+        null straight back, so their save leaves the stored cost alone.
+        """
         product = self.get_product(
             product_id, firm_scope=firm_scope, include_deleted=True
         )
+        values = self._product_values(data, partial=True)
+        if not may_write_cost_price:
+            values.pop("purchase_price", None)
         self._assert_unique_code(firm_scope, data.code, current_id=product.id)
-        self._assert_unique_barcode(firm_scope, data.barcode, current_id=product.id)
-        category = self._validate_category_reference(firm_scope, data.category_id)
-        self._validate_sub_category_reference(
-            firm_id=firm_scope,
-            category_id=data.category_id,
-            sub_category_id=data.sub_category_id,
+        if "barcode" in values:
+            self._assert_unique_barcode(firm_scope, data.barcode, current_id=product.id)
+        # Read with the row as the fallback: a category the caller did not
+        # mention is still the category the custom-field rules are judged by.
+        category_id = self._as_uuid(values.get("category_id", product.category_id))
+        sub_category_id = self._as_uuid(
+            values.get("sub_category_id", product.sub_category_id)
         )
-        self._validate_tax_profile_group_code(firm_scope, data.tax_profile_group_code)
+        if "category_id" in values:
+            category = self._validate_category_reference(firm_scope, category_id)
+        else:
+            category = self._stored_category(firm_scope, category_id)
+        if "category_id" in values or "sub_category_id" in values:
+            self._validate_sub_category_reference(
+                firm_id=firm_scope,
+                category_id=category_id,
+                sub_category_id=sub_category_id,
+            )
+        if "tax_profile_group_code" in values:
+            self._validate_tax_profile_group_code(
+                firm_scope, data.tax_profile_group_code
+            )
         self._validate_uom_references(data)
         self._validate_feature_gated_fields(data, firm_scope)
+        self._assert_price_within_mrp(product, values)
         before: dict[str, object] = {
             "code": product.code,
             "category_id": str(product.category_id),
         }
-        for field, value in self._product_values(data).items():
+        for field, value in values.items():
             setattr(product, field, value)
         product.updated_by = actor_id
-        self._store_attributes(
-            product, data.attributes, category=category, actor_id=actor_id
-        )
-        self._reconcile_media(product, data.media, actor_id)
+        if "attributes" in data.model_fields_set:
+            self._store_attributes(
+                product, data.attributes, category=category, actor_id=actor_id
+            )
+        if "media" in data.model_fields_set:
+            self._reconcile_media(product, data.media, actor_id)
         record_audit(
             self._session,
             action="product.updated",
@@ -1055,11 +1091,62 @@ class ProductService:
             )
 
     @staticmethod
-    def _product_values(data: ProductCreate | ProductUpdate) -> dict[str, object]:
-        payload = data.model_dump(exclude={"attributes", "media"}, mode="python")
+    def _product_values(
+        data: ProductCreate | ProductUpdate, *, partial: bool = False
+    ) -> dict[str, object]:
+        """Return the columns to write.
+
+        ``partial`` is what an update passes: only the fields the caller sent.
+        Create keeps the full dump, because there a default really is the
+        value to store.
+        """
+        payload = data.model_dump(
+            exclude={"attributes", "media"}, mode="python", exclude_unset=partial
+        )
         payload["product_type"] = data.product_type.value
-        payload["status"] = data.status.value
+        if "status" in payload:
+            payload["status"] = data.status.value
         return payload
+
+    @staticmethod
+    def _as_uuid(value: object) -> UUID | None:
+        """Read an id out of the untyped dump."""
+        return None if value is None else UUID(str(value))
+
+    def _stored_category(
+        self, firm_id: UUID, category_id: UUID | None
+    ) -> ProductCategory | None:
+        """Return the category a product already holds, without judging it.
+
+        A save that does not mention the category must not be refused because
+        the one on file was retired since; it is only read for its rules.
+        """
+        if category_id is None:
+            return None
+        return self._session.scalar(
+            select(ProductCategory).where(
+                ProductCategory.id == category_id,
+                ProductCategory.firm_id == firm_id,
+            )
+        )
+
+    @staticmethod
+    def _assert_price_within_mrp(product: Product, values: dict[str, object]) -> None:
+        """Hold the MRP rule across what was sent and what is stored.
+
+        The schema compares the two only when both arrive in one request, so a
+        partial save of either could otherwise cross the other on file.
+        """
+        if "mrp" not in values and "selling_price" not in values:
+            return
+        mrp = values.get("mrp", product.mrp)
+        selling_price = values.get("selling_price", product.selling_price)
+        if (
+            mrp is not None
+            and selling_price is not None
+            and Decimal(str(mrp)) < Decimal(str(selling_price))
+        ):
+            raise ValidationError("MRP must be greater than or equal to selling price.")
 
     @staticmethod
     def _build_media(
