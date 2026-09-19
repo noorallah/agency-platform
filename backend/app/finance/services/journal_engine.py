@@ -57,6 +57,27 @@ SOURCE_DOCUMENT_NAMES = {
     "loyalty": "loyalty entry",
 }
 
+#: The namespace every hand-written journal's reference lives in (D-FIN-9).
+#: References are unique per firm across every journal, and documents post
+#: under their own numbers -- SI-, RC-, GRN-, LOY-, COMM-, a customer's -OB
+#: and so on. A hand entry typed "SI-2026-2027-000004" took that invoice's
+#: reference for good, and its approval then failed every time. Rather than a
+#: list of every shape a document reference can take, which rots, hand
+#: entries keep to "JV-" (journal voucher), and no numbering rule may use it.
+MANUAL_REFERENCE_PREFIX = "JV-"
+
+
+def assert_manual_reference(reference_number: str) -> None:
+    """Refuse a hand journal reference outside the manual namespace."""
+    if not reference_number.strip().upper().startswith(MANUAL_REFERENCE_PREFIX):
+        raise ValidationError(
+            f"A journal written by hand is referenced "
+            f"{MANUAL_REFERENCE_PREFIX}<something> -- for example "
+            f"{MANUAL_REFERENCE_PREFIX}{reference_number.strip() or '0001'}. "
+            "Other references belong to the documents that post them, and one "
+            "taken by hand would stop that document from ever posting."
+        )
+
 
 def quantize_money(value: Decimal | None) -> Decimal:
     """Round a monetary value to two decimal places."""
@@ -145,6 +166,15 @@ class JournalEntryEngine:
             raise ValidationError("A journal entry must carry a non-zero amount.")
 
         accounts = self._load_accounts(lines, firm_id=firm_id)
+        # Asked before the insert rather than learnt from the unique key
+        # (D-FIN-9): the IntegrityError path below has to roll the session
+        # back, which threw away everything else the request had done -- a
+        # receipt's reserved number included, so every retry was handed the
+        # same number and failed the same way.
+        if self.reference_taken(reference_number, firm_id=firm_id):
+            raise ConflictError(
+                f"A journal entry with reference {reference_number} already " "exists."
+            )
         entry = JournalEntry(
             firm_id=firm_id,
             journal_type_id=journal_type_id,
@@ -240,6 +270,23 @@ class JournalEntryEngine:
         )
         return entry
 
+    def reference_taken(self, reference_number: str, *, firm_id: UUID) -> bool:
+        """Say whether any journal of the firm already carries a reference.
+
+        Deleted rows count: the unique key does not exclude them.
+        """
+        return (
+            self._session.scalar(
+                select(JournalEntry.id)
+                .where(
+                    JournalEntry.firm_id == firm_id,
+                    JournalEntry.reference_number == reference_number,
+                )
+                .limit(1)
+            )
+            is not None
+        )
+
     def reverse_by_hand(
         self,
         journal_entry_id: UUID,
@@ -276,6 +323,7 @@ class JournalEntryEngine:
                 "that reverses this journal together with everything else the "
                 "document moved."
             )
+        assert_manual_reference(reference_number)
         return self.reverse_entry(
             journal_entry_id,
             firm_id=firm_id,

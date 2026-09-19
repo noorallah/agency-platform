@@ -58,6 +58,7 @@ from app.finance.services.control_accounts import (
     ControlAccountService,
     ControlAccountView,
 )
+from app.finance.services.journal_engine import assert_manual_reference
 
 router = APIRouter(
     prefix="/api/v1/finance",
@@ -538,7 +539,12 @@ def create_journal_entry(
     scope: JournalCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[JournalEntryResponse]:
-    """Create one balanced draft journal entry."""
+    """Create one balanced draft journal entry, written by hand.
+
+    Its reference must sit in the manual namespace (JV-...): anything else
+    belongs to a document, which could then never post (D-FIN-9).
+    """
+    assert_manual_reference(payload.reference_number)
     entry = JournalEntryEngine(db).create_entry(
         firm_id=scope.firm_id,
         journal_type_id=payload.journal_type_id,
