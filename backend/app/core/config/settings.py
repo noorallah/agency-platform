@@ -92,6 +92,10 @@ class TenancySettings(BaseModel):
     dedicated_schema_prefix: str
     dedicated_database_prefix: str
     connection_profiles: dict[str, "ConnectionProfileSettings"]
+    #: The platform store, which no dedicated firm may be routed to (D-IDN-4).
+    #: Defaulted so a caller building this by hand keeps working.
+    platform_database_name: str = ""
+    platform_schema_name: str = "platform"
 
 
 class ConnectionProfileSettings(BaseModel):
@@ -252,6 +256,8 @@ class Settings(BaseSettings):
             dedicated_schema_prefix=self.tenancy_dedicated_schema_prefix,
             dedicated_database_prefix=self.tenancy_dedicated_database_prefix,
             connection_profiles=profiles,
+            platform_database_name=self.database_name,
+            platform_schema_name=self.database_schema or "platform",
         )
 
     def _parse_connection_profiles(self) -> dict[str, ConnectionProfileSettings]:
