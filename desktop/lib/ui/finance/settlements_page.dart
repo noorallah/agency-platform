@@ -178,6 +178,19 @@ class _SettlementsPageState extends State<SettlementsPage> {
               ),
             ),
             const SizedBox(width: AppSpacing.md),
+            // Goods sent back against a receipt leave a credit on the
+            // supplier's account; this is where it is set against a bill
+            // (D-FIN-19). Not about any row in the list, so it sits beside
+            // Record Payment rather than on a row.
+            if (_canCreate &&
+                widget.direction == SettlementDirection.payment) ...[
+              OutlinedButton.icon(
+                onPressed: () => unawaited(_supplierCredits()),
+                icon: const Icon(Icons.assignment_return_outlined),
+                label: const Text('Supplier credits'),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+            ],
             if (_canCreate)
               FilledButton.icon(
                 onPressed: () => unawaited(_record()),
@@ -335,7 +348,12 @@ class _SettlementsPageState extends State<SettlementsPage> {
     final _Application? chosen = await showDialog<_Application>(
       context: context,
       builder: (context) => _ApplyDialog(
-        settlement: row,
+        title: 'Apply ${row.settlementNumber}',
+        note: 'Nothing moves in the ledger. The money arrived when the '
+            'receipt was recorded; this says which invoice it clears.',
+        available: row.unallocatedAmount,
+        availableLabel: 'on account',
+        invoiceLabel: 'Invoice',
         invoices: invoices,
       ),
     );
@@ -353,6 +371,111 @@ class _SettlementsPageState extends State<SettlementsPage> {
         kind: AppNotificationKind.success,
       );
       await _load();
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(context, error.message,
+          kind: AppNotificationKind.error);
+    }
+  }
+
+  /// Set a supplier's credit from returns against one of their bills.
+  ///
+  /// Nothing is posted: the return debited payables when it completed and the
+  /// bill credited them when it was approved. The screen says so.
+  Future<void> _supplierCredits() async {
+    setState(() => _loading = true);
+    List<PartyOption> parties = const [];
+    try {
+      parties = await widget.api.settlementParties(direction: widget.direction);
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      setState(() => _error = exception.message);
+      return;
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+    if (!mounted || parties.isEmpty) return;
+    final PartyOption? vendor = await showDialog<PartyOption>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: const Text('Whose credit?'),
+        children: [
+          for (final PartyOption party in parties)
+            SimpleDialogOption(
+              onPressed: () => Navigator.pop(dialogContext, party),
+              child: Text('${party.code}  ${party.name}'),
+            ),
+        ],
+      ),
+    );
+    if (vendor == null || !mounted) return;
+    final List<SupplierCredit> credits;
+    final List<OutstandingInvoice> bills;
+    try {
+      credits = await widget.api.supplierCredits(vendor.id);
+      bills = await widget.api.outstandingInvoices(
+        direction: SettlementDirection.payment,
+        partyId: vendor.id,
+      );
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      setState(() => _error = exception.message);
+      return;
+    }
+    if (!mounted) return;
+    if (credits.isEmpty || bills.isEmpty) {
+      NotificationService.show(
+        context,
+        credits.isEmpty
+            ? '${vendor.name} holds no credit from returns.'
+            : '${vendor.name} has no unpaid bills to set the credit against.',
+        kind: AppNotificationKind.information,
+      );
+      return;
+    }
+    final SupplierCredit? credit = credits.length == 1
+        ? credits.single
+        : await showDialog<SupplierCredit>(
+            context: context,
+            builder: (dialogContext) => SimpleDialog(
+              title: const Text('Which return?'),
+              children: [
+                for (final SupplierCredit row in credits)
+                  SimpleDialogOption(
+                    onPressed: () => Navigator.pop(dialogContext, row),
+                    child: Text(
+                      '${row.returnNumber} -- ${row.availableAmount} left',
+                    ),
+                  ),
+              ],
+            ),
+          );
+    if (credit == null || !mounted) return;
+    final _Application? chosen = await showDialog<_Application>(
+      context: context,
+      builder: (context) => _ApplyDialog(
+        title: 'Set ${credit.returnNumber} against a bill',
+        note: 'Nothing moves in the ledger. The return debited the supplier '
+            'when it completed; this says which bill that credit settles.',
+        available: credit.availableAmount,
+        availableLabel: 'of credit',
+        invoiceLabel: 'Bill',
+        invoices: bills,
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    try {
+      await widget.api.applySupplierCredit(
+        returnId: credit.purchaseReturnId,
+        invoiceId: chosen.invoiceId,
+        amount: chosen.amount,
+      );
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        '${credit.returnNumber} set against ${chosen.invoiceNumber}.',
+        kind: AppNotificationKind.success,
+      );
     } on ApiException catch (error) {
       if (!mounted) return;
       NotificationService.show(context, error.message,
@@ -425,9 +548,23 @@ class _Application {
 
 /// Pick an invoice and an amount for money already on account.
 class _ApplyDialog extends StatefulWidget {
-  const _ApplyDialog({required this.settlement, required this.invoices});
+  const _ApplyDialog({
+    required this.title,
+    required this.note,
+    required this.available,
+    required this.availableLabel,
+    required this.invoiceLabel,
+    required this.invoices,
+  });
 
-  final Settlement settlement;
+  final String title;
+  final String note;
+
+  /// What there is to apply, and what to call it: money on account, or a
+  /// supplier's credit from returns.
+  final String available;
+  final String availableLabel;
+  final String invoiceLabel;
   final List<OutstandingInvoice> invoices;
 
   @override
@@ -436,7 +573,7 @@ class _ApplyDialog extends StatefulWidget {
 
 class _ApplyDialogState extends State<_ApplyDialog> {
   late final TextEditingController _amount =
-      TextEditingController(text: widget.settlement.unallocatedAmount);
+      TextEditingController(text: widget.available);
   late String _invoiceId = widget.invoices.first.invoiceId;
 
   @override
@@ -452,7 +589,7 @@ class _ApplyDialogState extends State<_ApplyDialog> {
 
   @override
   Widget build(BuildContext context) => AlertDialog(
-        title: Text('Apply ${widget.settlement.settlementNumber}'),
+        title: Text(widget.title),
         content: SizedBox(
           width: 460,
           child: Column(
@@ -460,15 +597,14 @@ class _ApplyDialogState extends State<_ApplyDialog> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                'Nothing moves in the ledger. The money arrived when the '
-                'receipt was recorded; this says which invoice it clears.',
+                widget.note,
                 style: Theme.of(context).textTheme.bodySmall,
               ),
               const SizedBox(height: AppSpacing.md),
               DropdownButtonFormField<String>(
                 isExpanded: true,
                 initialValue: _invoiceId,
-                decoration: const InputDecoration(labelText: 'Invoice'),
+                decoration: InputDecoration(labelText: widget.invoiceLabel),
                 items: [
                   for (final OutstandingInvoice invoice in widget.invoices)
                     DropdownMenuItem<String>(
@@ -487,8 +623,8 @@ class _ApplyDialogState extends State<_ApplyDialog> {
                 controller: _amount,
                 decoration: InputDecoration(
                   labelText: 'Amount',
-                  helperText: '${widget.settlement.unallocatedAmount} on '
-                      'account, ${_chosen.outstandingAmount} still owed',
+                  helperText: '${widget.available} ${widget.availableLabel}, '
+                      '${_chosen.outstandingAmount} still owed',
                 ),
               ),
             ],

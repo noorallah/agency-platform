@@ -60,6 +60,7 @@ from app.settlements.schemas import (
     OutstandingInvoiceRecord,
     SettlementCreate,
 )
+from app.settlements.services.supplier_credits import credit_applied_against
 from app.tcs.services import TcsService
 from app.vendors.models import Vendor
 
@@ -340,9 +341,17 @@ class SettlementService(TransactionalDocumentService):
         # receipt or an order stays a credit on the supplier, as a sales
         # return does on the customer.
         returned: dict[UUID, Decimal] = {}
+        credited: dict[UUID, Decimal] = {}
         if not is_receipt and rows:
             returned = self._returned_against(
                 firm_id=firm_id, invoice_ids=[row.id for row, _ in rows]
+            )
+            # And supplier credit from a return raised off the goods receipt,
+            # once somebody has set it against this bill (D-FIN-19).
+            credited = credit_applied_against(
+                self._session,
+                firm_id=firm_id,
+                invoice_ids=[row.id for row, _ in rows],
             )
         records: list[OutstandingInvoiceRecord] = []
         for row, allocated_amount in rows:
@@ -351,6 +360,7 @@ class SettlementService(TransactionalDocumentService):
                 if is_receipt
                 else quantize_ledger(Decimal(allocated_amount))
                 + quantize_ledger(returned.get(row.id, ZERO))
+                + credited.get(row.id, ZERO)
             )
             total = quantize_ledger(row.grand_total)
             outstanding = total - already

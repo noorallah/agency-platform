@@ -672,6 +672,19 @@ class PurchaseReturnService(TransactionalDocumentService):
         row.status = PurchaseReturnStatus.CANCELLED.value
         row.cancel_reason = reason
         row.updated_by = actor_id
+        # The payables debit is reversed, so the supplier credit it gave is
+        # gone and any bill it was set against owes that part again
+        # (D-FIN-19).
+        from app.settlements.services.supplier_credits import (
+            withdraw_credit_applications,
+        )
+
+        withdraw_credit_applications(
+            self._session,
+            firm_id=firm_scope,
+            actor_id=actor_id,
+            purchase_return_id=row.id,
+        )
         self._record_event(
             firm_id=firm_scope,
             document_type=self._document_type(firm_scope),

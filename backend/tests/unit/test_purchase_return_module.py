@@ -1087,3 +1087,65 @@ def test_a_return_cannot_skip_the_receipt() -> None:
                 actor_id=uuid4(),
             )
     assert session.scalar(select(PurchaseReturn.id)) is None
+
+
+def test_a_return_off_the_receipt_leaves_a_supplier_credit_until_cancelled() -> None:
+    """D-FIN-19: completing it credits the supplier; cancelling takes that back.
+
+    A return raised from the goods receipt names no bill, so its payables debit
+    is a credit on the supplier's account. Set against a bill, the bill owes
+    less; cancelling the return reverses the debit, so what was set against
+    the bill is withdrawn and the bill owes it again.
+    """
+    from app.purchase_invoice.models import PurchaseInvoice
+    from app.settlements.services import PaymentService
+    from app.settlements.services.supplier_credits import (
+        apply_supplier_credit,
+        supplier_credits,
+    )
+
+    session = _session_factory()()
+    firm = _firm(session)
+    service, row = _approved_return_with_stock_posted(session, firm_id=firm.id)
+    credits = supplier_credits(session, firm_id=firm.id, vendor_id=row.vendor_id)
+    assert [(credit.return_number, credit.available_amount) for credit in credits] == [
+        (row.return_number, Decimal("400.00"))
+    ]
+    bill = PurchaseInvoice(
+        firm_id=firm.id,
+        vendor_id=row.vendor_id,
+        branch_id=row.branch_id,
+        invoice_number="PI-NEXT",
+        invoice_date=date(2026, 8, 3),
+        supplier_invoice_number="SUP-NEXT",
+        supplier_invoice_date=date(2026, 8, 3),
+        status="APPROVED",
+        grand_total=Decimal("1000.00"),
+    )
+    session.add(bill)
+    session.commit()
+    apply_supplier_credit(
+        session,
+        firm_id=firm.id,
+        purchase_return_id=row.id,
+        invoice_id=bill.id,
+        amount=Decimal("400"),
+        actor_id=uuid4(),
+    )
+    session.commit()
+
+    def _owed() -> Decimal:
+        return next(
+            record.outstanding_amount
+            for record in PaymentService(session).outstanding_invoices(
+                firm_id=firm.id, party_id=row.vendor_id
+            )
+            if record.invoice_id == bill.id
+        )
+
+    assert _owed() == Decimal("600.00")
+
+    service.cancel_return(row.id, firm_scope=firm.id, actor_id=uuid4(), reason="x")
+
+    assert _owed() == Decimal("1000.00")
+    assert supplier_credits(session, firm_id=firm.id) == []

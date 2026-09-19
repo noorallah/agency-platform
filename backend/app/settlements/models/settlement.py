@@ -191,3 +191,50 @@ class SettlementAllocation(BaseEntity):
         UUIDType(), ForeignKey("purchase_invoices.id", ondelete="RESTRICT")
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+
+
+class SupplierCreditApplication(BaseEntity):
+    """Store how much of one purchase return's supplier credit cleared one bill.
+
+    A completed purchase return debits accounts payable with its whole total.
+    Where its lines name the supplier's bill, that bill owes less (D-BUY-6).
+    Where they name the goods receipt instead, the debit is a credit the
+    supplier owes the firm, standing on the vendor's account until it is set
+    against a bill -- the payable twin of a customer's advance (D-FIN-19).
+
+    What a return has left to give is derived: its total, less what its
+    bill-sourced lines already took off their bills, less its live rows here.
+    Applying posts nothing, exactly as applying a customer's advance posts
+    nothing: the return already debited payables and the bill already credited
+    them, and this row only says which bill the debit belongs to. A row is
+    withdrawn (soft-deleted) when either the return or the bill is cancelled.
+    """
+
+    __tablename__ = "supplier_credit_applications"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="CK_supplier_credit_applications_positive"),
+        Index(
+            "IX_supplier_credit_applications_return", "firm_id", "purchase_return_id"
+        ),
+        Index(
+            "IX_supplier_credit_applications_invoice", "firm_id", "purchase_invoice_id"
+        ),
+        Index("IX_supplier_credit_applications_vendor", "firm_id", "vendor_id"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    vendor_id: Mapped[UUID] = mapped_column(
+        UUIDType(), ForeignKey("vendors.id", ondelete="RESTRICT"), nullable=False
+    )
+    purchase_return_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("purchase_returns.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    purchase_invoice_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("purchase_invoices.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    applied_on: Mapped[date] = mapped_column(Date, nullable=False)
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)

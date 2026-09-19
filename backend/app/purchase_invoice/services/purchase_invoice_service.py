@@ -520,6 +520,19 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             # TEST01: 2300 left debited 600 on its own). The entry faces the
             # supplier, not the stock, so a mirror is the right reversal.
             self._reverse_invoice_posting(row, firm_scope=firm_scope, actor_id=actor_id)
+        # Supplier credit set against this bill is free again: the bill's
+        # payable is gone, the return's debit still stands (D-FIN-19). Nothing
+        # posts -- applying it posted nothing either.
+        from app.settlements.services.supplier_credits import (
+            withdraw_credit_applications,
+        )
+
+        withdraw_credit_applications(
+            self._session,
+            firm_id=firm_scope,
+            actor_id=actor_id,
+            purchase_invoice_id=row.id,
+        )
         self._record_event(
             firm_id=firm_scope,
             document_type=self._document_type(firm_scope),
