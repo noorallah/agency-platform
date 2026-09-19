@@ -19,7 +19,7 @@ from sqlalchemy.orm import Session
 
 from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ValidationError
-from app.core.utils.money import ZERO, quantize_money
+from app.core.utils.money import ZERO, quantize_ledger, quantize_money
 from app.customers.models import Customer
 from app.products.models import Product
 from app.sales_invoice.models import (
@@ -27,7 +27,12 @@ from app.sales_invoice.models import (
     SalesInvoiceLine,
     SalesInvoiceLineTax,
 )
-from app.tax.services.gst_buckets import TaxComponent, split_components
+from app.tax.services.gst_buckets import (
+    GstBuckets,
+    TaxComponent,
+    settle_to_ledger,
+    split_components,
+)
 
 #: The components the portal wants separated. A firm's tax framework may name
 #: them anything; these are the codes the return is filed under, matched on the
@@ -124,6 +129,8 @@ class EInvoicePayloadBuilder:
         taxes = self._taxes_by_line([line.id for line in lines])
 
         item_list: list[dict[str, object]] = []
+        splits: list[GstBuckets] = []
+        taxables: list[Decimal] = []
         totals = {
             "taxable": ZERO,
             _CGST: ZERO,
@@ -188,18 +195,28 @@ class EInvoicePayloadBuilder:
                     "OthChrg": float(other_charges),
                     "AssAmt": float(taxable),
                     "GstRt": float(split.rate),
-                    "CgstAmt": float(split.cgst),
-                    "SgstAmt": float(split.sgst),
-                    "IgstAmt": float(split.igst),
-                    "CesAmt": float(split.cess),
-                    "TotItemVal": float(quantize_money(taxable + split.total)),
                 }
             )
+            splits.append(split)
+            taxables.append(taxable)
             totals["taxable"] += taxable
-            totals[_CGST] += split.cgst
-            totals[_SGST] += split.sgst
-            totals[_IGST] += split.igst
-            totals[_CESS] += split.cess
+
+        # Registered at paise, adding up to what the journal credited: the
+        # tax is rounded once as the invoice's sum and the odd paisa put on
+        # the last component, rather than each bucket rounded on its own
+        # (D-CMP-4). What is registered, filed and posted are one figure.
+        for item, taxable, filed in zip(
+            item_list, taxables, settle_to_ledger(splits), strict=True
+        ):
+            item["CgstAmt"] = float(filed.cgst)
+            item["SgstAmt"] = float(filed.sgst)
+            item["IgstAmt"] = float(filed.igst)
+            item["CesAmt"] = float(filed.cess)
+            item["TotItemVal"] = float(quantize_ledger(taxable + filed.total))
+            totals[_CGST] += filed.cgst
+            totals[_SGST] += filed.sgst
+            totals[_IGST] += filed.igst
+            totals[_CESS] += filed.cess
 
         if problems:
             raise ValidationError(
@@ -250,10 +267,10 @@ class EInvoicePayloadBuilder:
             "ItemList": item_list,
             "ValDtls": {
                 "AssVal": float(quantize_money(totals["taxable"])),
-                "CgstVal": float(quantize_money(totals[_CGST])),
-                "SgstVal": float(quantize_money(totals[_SGST])),
-                "IgstVal": float(quantize_money(totals[_IGST])),
-                "CesVal": float(quantize_money(totals[_CESS])),
+                "CgstVal": float(quantize_ledger(totals[_CGST])),
+                "SgstVal": float(quantize_ledger(totals[_SGST])),
+                "IgstVal": float(quantize_ledger(totals[_IGST])),
+                "CesVal": float(quantize_ledger(totals[_CESS])),
                 "TotInvVal": float(quantize_money(Decimal(str(invoice.grand_total)))),
             },
         }

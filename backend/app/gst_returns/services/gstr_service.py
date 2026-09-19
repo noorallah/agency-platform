@@ -59,7 +59,13 @@ from app.sales_invoice.models import (
     SalesInvoiceLineTax,
 )
 from app.sales_return.models import SalesReturn, SalesReturnLine, SalesReturnLineTax
-from app.tax.services.gst_buckets import GstBuckets, TaxComponent, split_components
+from app.tax.services.gst_buckets import (
+    GstBuckets,
+    TaxComponent,
+    intra_state_halves,
+    settle_to_ledger,
+    split_components,
+)
 
 
 def _filed(value: Decimal) -> float:
@@ -645,6 +651,17 @@ class GstReturnService:
                     by_invoice.get(invoice.id, []), key=lambda row: row.line_number
                 )
             ]
+            # Declared at paise, adding up to what the journal credited for
+            # this invoice -- rounded once, as a sum, not bucket by bucket
+            # (D-CMP-4). Every section below folds these, so B2B, B2CS, HSN
+            # and 3B all carry the same paise the ledger does.
+            settled = settle_to_ledger([buckets for _, buckets, _, _ in priced])
+            priced = [
+                (taxable, filed, product, quantity)
+                for (taxable, _, product, quantity), filed in zip(
+                    priced, settled, strict=True
+                )
+            ]
             answer.append((invoice, customer, priced))
         return answer
 
@@ -776,6 +793,8 @@ class GstReturnService:
             # than off an address -- the same rule the place of supply uses,
             # and the only one an unregistered buyer can be judged by at all.
             interstate = note.sales_invoice_id in crossed_a_border
+            # Halved at paise so the two add to what the journal credited.
+            central, state = intra_state_halves(tax)
             answer.append(
                 _Credit(
                     number=note.credit_note_number,
@@ -791,9 +810,9 @@ class GstReturnService:
                             rate=rate,
                             taxable=Decimal(str(note.taxable_amount)),
                             buckets=GstBuckets(
-                                igst=tax if interstate else ZERO,
-                                cgst=ZERO if interstate else tax / 2,
-                                sgst=ZERO if interstate else tax / 2,
+                                igst=quantize_ledger(tax) if interstate else ZERO,
+                                cgst=ZERO if interstate else central,
+                                sgst=ZERO if interstate else state,
                                 rate=rate,
                             ),
                         )
@@ -866,20 +885,29 @@ class GstReturnService:
         for sales_return in returns:
             rates: dict[Decimal, _RateRow] = {}
             against: list[UUID] = []
-            for line in sorted(
+            ordered = sorted(
                 by_return.get(sales_return.id, []), key=lambda row: row.line_number
-            ):
-                buckets = split_components(
-                    [
-                        TaxComponent(
-                            code=component.component_code,
-                            percentage=Decimal(str(component.percentage)),
-                            amount=Decimal(str(component.amount)),
-                        )
-                        for component in taxes.get(line.id, [])
-                        if not component.included_in_price
-                    ]
-                )
+            )
+            # Settled at paise to what the return's journal reversed, as an
+            # invoice's lines are (D-CMP-4): rounding each bucket on its own
+            # declares a paisa the ledger never moved.
+            settled = settle_to_ledger(
+                [
+                    split_components(
+                        [
+                            TaxComponent(
+                                code=component.component_code,
+                                percentage=Decimal(str(component.percentage)),
+                                amount=Decimal(str(component.amount)),
+                            )
+                            for component in taxes.get(line.id, [])
+                            if not component.included_in_price
+                        ]
+                    )
+                    for line in ordered
+                ]
+            )
+            for line, buckets in zip(ordered, settled, strict=True):
                 # What the line credited before tax: `net_amount` carries the
                 # tax, exactly as an invoice line's does.
                 taxable = Decimal(str(line.net_amount)) - Decimal(str(line.tax_amount))

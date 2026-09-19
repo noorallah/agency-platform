@@ -19,7 +19,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -515,6 +515,26 @@ def test_a_registration_page_names_each_invoice_and_customer() -> None:
         )
         == {}
     )
+
+
+def test_the_registered_tax_is_what_the_journal_credited() -> None:
+    """Rounding the sum is not rounding the parts (D-CMP-4).
+
+    CGST and SGST of 36.855 each were registered as 36.86 + 36.86 = 73.72 on
+    a bill whose journal credited ``quantize_ledger(73.71)``. The two halves
+    are rounded so they add to the ledger's figure, the odd paisa on SGST.
+    """
+    books = _Books(_session_factory()())
+    for component in books.session.scalars(select(SalesInvoiceLineTax)).all():
+        component.amount = Decimal("36.855")
+    books.session.commit()
+
+    payload = books.register().request_payload
+
+    item = payload["ItemList"][0]
+    assert (item["CgstAmt"], item["SgstAmt"]) == (36.86, 36.85)
+    assert payload["ValDtls"]["CgstVal"] == 36.86
+    assert payload["ValDtls"]["SgstVal"] == 36.85
 
 
 def _on_the_road(books: _Books) -> str:

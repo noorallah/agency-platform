@@ -128,6 +128,16 @@ time. `split_components` in `app/tax/services/gst_buckets.py` is the one
 place a component code becomes a bucket, shared with `app/einvoice`, so what
 is filed and what was registered cannot disagree.
 
+**The filed tax is what the journal credited, per document.** The journal
+credits `quantize_ledger` of a document's whole tax, once; rounding CGST and
+SGST each on its own declared 36.86 + 36.86 = 73.72 on a bill whose halves
+were 36.855 and whose journal credited 73.71 -- 30 of WHOLE01's 52 live bills
+(D-CMP-4). `settle_to_ledger` (same module) rounds every bucket of every line
+to paise and puts the residual on the last bucket that carried tax (SGST
+intra-state, IGST inter-state), and both GSTR-1/3B and the e-invoice payload
+fold its answer; `intra_state_halves` does the same for a credit note, which
+stores one tax figure.
+
 **A month once due is not rewritten.** Derived on read, a return re-read a
 bill's *current* status, so cancelling an August bill in September took it
 out of August's GSTR-1 -- a return already due on 11 September -- and no
