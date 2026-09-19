@@ -7,10 +7,11 @@ from fastapi import APIRouter, Depends, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.dependencies.settings import get_request_settings
+from app.common.scope import FirmScope, optional_firm_scope
 from app.core.config.settings import Settings
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
-from app.core.exceptions import ValidationError
+from app.core.exceptions import AuthorizationError, ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
@@ -119,12 +120,44 @@ def _firms_the_caller_may_staff(principal: Principal) -> frozenset[UUID] | None:
     )
 
 
-def _firm_scope(principal: Principal) -> UUID | None:
-    """Return tenant scope for firm principals and global scope for platform admins."""
-    return None if principal.is_platform_admin else principal.firm_id
+#: The caller's firm, resolved by the one shared resolver in `app/common/scope.py`
+#: -- an active firm, and an active membership in it unless the designation
+#: reaches every firm. Defaulted to None only so a route function called
+#: directly (the unit suite does) still runs; FastAPI always resolves it, and
+#: `_firm_scope` treats a missing scope as no firm, which a caller without the
+#: designation is refused.
+IdentityScope = Annotated[FirmScope | None, Depends(optional_firm_scope)]
 
 
-def _requested_firm_scope(principal: Principal, firm_id: UUID | None) -> UUID | None:
+def _firm_scope(principal: Principal, scope: FirmScope | None) -> UUID | None:
+    """Return the firm an identity route acts in, or None for platform-wide.
+
+    A platform administrator acts platform-wide, as they always have. Anybody
+    else acts in the firm `app/common/scope.py` resolved for them -- which
+    checked the firm is live and that they belong to it. This used to return
+    the raw `X-Firm-ID` header, checked against nothing: a private resolver
+    that let anybody holding a code in the **global** claim (a global custom
+    role, a platform role) list a firm's people, create users into it and set
+    its roles merely by naming it (D-IDN-7). And with no header it returned
+    None, which the service reads as platform-wide.
+
+    Raises:
+        AuthorizationError: If a caller without the designation names no firm.
+
+    """
+    if principal.is_platform_admin:
+        return None
+    if scope is None or scope.firm_id is None:
+        raise AuthorizationError(
+            "X-Firm-ID is required: user and role administration acts in one "
+            "firm unless you are a platform administrator."
+        )
+    return scope.firm_id
+
+
+def _requested_firm_scope(
+    principal: Principal, scope: FirmScope | None, firm_id: UUID | None
+) -> UUID | None:
     """Resolve which firm a user list is being asked about.
 
     A platform administrator sees every user, which makes "who works at
@@ -136,10 +169,10 @@ def _requested_firm_scope(principal: Principal, firm_id: UUID | None) -> UUID | 
     a different firm than the one asked for is how somebody comes to believe
     an account exists somewhere it does not.
     """
-    scope = _firm_scope(principal)
+    working_in = _firm_scope(principal, scope)
     if firm_id is None:
-        return scope
-    if scope is not None and firm_id != scope:
+        return working_in
+    if working_in is not None and firm_id != working_in:
         raise ValidationError(
             "A user list can only be filtered by the firm you are working in. "
             "Switch firms to see another one's people."
@@ -362,6 +395,7 @@ def set_my_primary_firm(
 @router.get("/users", response_model=PaginatedResponse[UserResponse], tags=["Users"])
 def list_users(
     principal: UserViewPrincipal,
+    caller_scope: IdentityScope = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
@@ -398,7 +432,7 @@ def list_users(
     precedence rather than trusting that.
     """
     params = PaginationParams(page=page, page_size=page_size)
-    scope = _requested_firm_scope(principal, firm_id)
+    scope = _requested_firm_scope(principal, caller_scope, firm_id)
     rows, total = _service(db, settings).list_users(
         params.page,
         params.page_size,
@@ -433,12 +467,13 @@ def list_users(
 def create_user(
     data: UserCreate,
     principal: UserCreatePrincipal,
+    caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[UserResponse]:
     """Provision an interactive user."""
     user = _service(db, settings).create_user(
-        data, _actor_id(principal), _firm_scope(principal)
+        data, _actor_id(principal), _firm_scope(principal, caller_scope)
     )
     return ApiResponse(data=UserResponse.model_validate(user))
 
@@ -450,6 +485,7 @@ def create_user(
 )
 def lookup_users(
     principal: UserCreatePrincipal,
+    caller_scope: IdentityScope = None,
     q: Annotated[str, Query(max_length=320)] = "",
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
@@ -477,8 +513,8 @@ def lookup_users(
     params = PaginationParams(page=page, page_size=page_size)
     found, total = _service(db, settings).lookup_users(
         q,
-        _firm_scope(principal),
-        hiring_firm_id=principal.firm_id,
+        _firm_scope(principal, caller_scope),
+        hiring_firm_id=caller_scope.firm_id if caller_scope is not None else None,
         page=params.page,
         page_size=params.page_size,
     )
@@ -502,6 +538,7 @@ def lookup_users(
 def get_user(
     user_id: UUID,
     principal: UserViewPrincipal,
+    caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[UserResponse]:
@@ -510,7 +547,7 @@ def get_user(
     A platform caller may read a deleted one -- it is how a deleted user is
     inspected before being restored -- and the response says `is_deleted`.
     """
-    scope = _firm_scope(principal)
+    scope = _firm_scope(principal, caller_scope)
     service = _service(db, settings)
     user = service._get_user(user_id, scope, include_deleted=scope is None)
     return ApiResponse(
@@ -531,12 +568,13 @@ def update_user(
     user_id: UUID,
     data: UserUpdate,
     principal: UserUpdatePrincipal,
+    caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[UserResponse]:
     """Update user status, expiry, name, or clear a lock."""
     user = _service(db, settings).update_user(
-        user_id, data, _actor_id(principal), _firm_scope(principal)
+        user_id, data, _actor_id(principal), _firm_scope(principal, caller_scope)
     )
     return ApiResponse(data=UserResponse.model_validate(user))
 
@@ -547,12 +585,13 @@ def update_user(
 def delete_user(
     user_id: UUID,
     principal: UserDeletePrincipal,
+    caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> Response:
     """Soft delete a user and revoke active refresh tokens."""
     _service(db, settings).delete_user(
-        user_id, _actor_id(principal), _firm_scope(principal)
+        user_id, _actor_id(principal), _firm_scope(principal, caller_scope)
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -611,12 +650,13 @@ def set_user_roles(
     user_id: UUID,
     data: IdentifierList,
     principal: UserRoleAssignmentPrincipal,
+    caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[None]:
     """Replace a user's role assignment collection."""
     _service(db, settings).set_user_roles(
-        user_id, data.ids, _actor_id(principal), _firm_scope(principal)
+        user_id, data.ids, _actor_id(principal), _firm_scope(principal, caller_scope)
     )
     return ApiResponse(data=None)
 
@@ -629,6 +669,7 @@ def set_user_roles(
 def list_user_roles(
     user_id: UUID,
     principal: UserRoleReadPrincipal,
+    caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[IdentifierList]:
@@ -636,7 +677,7 @@ def list_user_roles(
     return ApiResponse(
         data=IdentifierList(
             ids=_service(db, settings).list_user_role_ids(
-                user_id, _firm_scope(principal)
+                user_id, _firm_scope(principal, caller_scope)
             )
         )
     )
@@ -706,6 +747,7 @@ def list_user_firm_roles(
     user_id: UUID,
     firm_id: UUID,
     principal: RoleViewPrincipal,
+    caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[IdentifierList]:
@@ -721,7 +763,7 @@ def list_user_firm_roles(
             ids=_service(db, settings).list_user_firm_role_ids(
                 user_id,
                 firm_id,
-                _firm_scope(principal),
+                _firm_scope(principal, caller_scope),
                 allowed_firm_ids=_firms_the_caller_may_staff(principal),
             )
         )
@@ -792,6 +834,7 @@ def list_roles(
     # except the one place a firm administrator would start, and the firm
     # filtering below was written for a caller who could never reach it.
     principal: RoleViewPrincipal,
+    caller_scope: IdentityScope = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
@@ -808,7 +851,7 @@ def list_roles(
         search,
         sort_by,
         sort_direction == "desc",
-        _firm_scope(principal),
+        _firm_scope(principal, caller_scope),
     )
     return PaginatedResponse(
         data=[RoleResponse.model_validate(item) for item in rows],
@@ -825,6 +868,7 @@ def list_roles(
 def create_role(
     data: RoleCreate,
     principal: RoleCreatePrincipal,
+    caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[RoleResponse]:
@@ -832,7 +876,7 @@ def create_role(
     return ApiResponse(
         data=RoleResponse.model_validate(
             _service(db, settings).create_role(
-                data, _actor_id(principal), _firm_scope(principal)
+                data, _actor_id(principal), _firm_scope(principal, caller_scope)
             )
         )
     )
@@ -865,6 +909,7 @@ def _template_response(template: UserTemplate) -> UserTemplateResponse:
 )
 def list_user_templates(
     principal: RoleViewPrincipal,
+    caller_scope: IdentityScope = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
@@ -881,7 +926,7 @@ def list_user_templates(
         search,
         sort_by,
         sort_direction == "desc",
-        _firm_scope(principal),
+        _firm_scope(principal, caller_scope),
     )
     return PaginatedResponse(
         data=[_template_response(item) for item in rows],
@@ -898,6 +943,7 @@ def list_user_templates(
 def create_user_template(
     data: UserTemplateCreate,
     principal: RoleCreatePrincipal,
+    caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[UserTemplateResponse]:
@@ -905,7 +951,7 @@ def create_user_template(
     return ApiResponse(
         data=_template_response(
             _service(db, settings).create_user_template(
-                data, _actor_id(principal), _firm_scope(principal)
+                data, _actor_id(principal), _firm_scope(principal, caller_scope)
             )
         )
     )
@@ -919,6 +965,7 @@ def create_user_template(
 def get_user_template(
     template_id: UUID,
     principal: RoleViewPrincipal,
+    caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[UserTemplateResponse]:
@@ -926,7 +973,7 @@ def get_user_template(
     return ApiResponse(
         data=_template_response(
             _service(db, settings).get_user_template(
-                template_id, _firm_scope(principal)
+                template_id, _firm_scope(principal, caller_scope)
             )
         )
     )
@@ -941,6 +988,7 @@ def update_user_template(
     template_id: UUID,
     data: UserTemplateUpdate,
     principal: RoleUpdatePrincipal,
+    caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[UserTemplateResponse]:
@@ -948,7 +996,10 @@ def update_user_template(
     return ApiResponse(
         data=_template_response(
             _service(db, settings).update_user_template(
-                template_id, data, _actor_id(principal), _firm_scope(principal)
+                template_id,
+                data,
+                _actor_id(principal),
+                _firm_scope(principal, caller_scope),
             )
         )
     )
@@ -962,12 +1013,13 @@ def update_user_template(
 def delete_user_template(
     template_id: UUID,
     principal: RoleDeletePrincipal,
+    caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[None]:
     """Retire a job template, leaving every user it created untouched."""
     _service(db, settings).delete_user_template(
-        template_id, _actor_id(principal), _firm_scope(principal)
+        template_id, _actor_id(principal), _firm_scope(principal, caller_scope)
     )
     return ApiResponse(data=None, message="The template was retired.")
 
@@ -982,6 +1034,7 @@ def clone_user(
     user_id: UUID,
     data: UserCloneRequest,
     principal: UserRoleAssignmentPrincipal,
+    caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[UserResponse]:
@@ -1000,7 +1053,10 @@ def clone_user(
     return ApiResponse(
         data=UserResponse.model_validate(
             _service(db, settings).clone_user(
-                user_id, data, _actor_id(principal), _firm_scope(principal)
+                user_id,
+                data,
+                _actor_id(principal),
+                _firm_scope(principal, caller_scope),
             )
         ),
         message="The new user was created with the same access.",
@@ -1016,6 +1072,7 @@ def apply_user_template(
     user_id: UUID,
     data: UserTemplateApply,
     principal: UserRoleAssignmentPrincipal,
+    caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[list[UUID]]:
@@ -1029,7 +1086,7 @@ def apply_user_template(
             user_id,
             data.template_id,
             _actor_id(principal),
-            _firm_scope(principal),
+            _firm_scope(principal, caller_scope),
             data.firm_id,
         ),
         message="The template was applied.",
@@ -1042,13 +1099,16 @@ def apply_user_template(
 def get_role(
     role_id: UUID,
     principal: RoleViewPrincipal,
+    caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[RoleResponse]:
     """Retrieve a system or custom role."""
     return ApiResponse(
         data=RoleResponse.model_validate(
-            _service(db, settings).get_role(role_id, _firm_scope(principal))
+            _service(db, settings).get_role(
+                role_id, _firm_scope(principal, caller_scope)
+            )
         )
     )
 
@@ -1060,6 +1120,7 @@ def update_role(
     role_id: UUID,
     data: RoleUpdate,
     principal: RoleUpdatePrincipal,
+    caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[RoleResponse]:
@@ -1067,7 +1128,10 @@ def update_role(
     return ApiResponse(
         data=RoleResponse.model_validate(
             _service(db, settings).update_role(
-                role_id, data, _actor_id(principal), _firm_scope(principal)
+                role_id,
+                data,
+                _actor_id(principal),
+                _firm_scope(principal, caller_scope),
             )
         )
     )
@@ -1079,12 +1143,13 @@ def update_role(
 def delete_role(
     role_id: UUID,
     principal: RoleDeletePrincipal,
+    caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> Response:
     """Soft delete a custom role."""
     _service(db, settings).delete_role(
-        role_id, _actor_id(principal), _firm_scope(principal)
+        role_id, _actor_id(principal), _firm_scope(principal, caller_scope)
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -1096,12 +1161,13 @@ def set_role_permissions(
     role_id: UUID,
     data: IdentifierList,
     principal: RolePermissionAssignmentPrincipal,
+    caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[None]:
     """Replace role permission assignments."""
     _service(db, settings).set_role_permissions(
-        role_id, data.ids, _actor_id(principal), _firm_scope(principal)
+        role_id, data.ids, _actor_id(principal), _firm_scope(principal, caller_scope)
     )
     return ApiResponse(data=None)
 
@@ -1114,6 +1180,7 @@ def set_role_permissions(
 def list_role_permissions(
     role_id: UUID,
     principal: RolePermissionReadPrincipal,
+    caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[IdentifierList]:
@@ -1121,7 +1188,7 @@ def list_role_permissions(
     return ApiResponse(
         data=IdentifierList(
             ids=_service(db, settings).list_role_permission_ids(
-                role_id, _firm_scope(principal)
+                role_id, _firm_scope(principal, caller_scope)
             )
         )
     )
@@ -1134,6 +1201,7 @@ def list_role_permissions(
 )
 def list_permissions(
     principal: PermissionViewPrincipal,
+    caller_scope: IdentityScope = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     search: str | None = None,
@@ -1150,7 +1218,7 @@ def list_permissions(
         search,
         sort_by,
         sort_direction == "desc",
-        _firm_scope(principal),
+        _firm_scope(principal, caller_scope),
     )
     return PaginatedResponse(
         data=[PermissionResponse.model_validate(item) for item in rows],
@@ -1196,13 +1264,16 @@ def create_permission(
 def get_permission(
     permission_id: UUID,
     principal: PlatformPrincipal,
+    caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[PermissionResponse]:
     """Retrieve a visible permission."""
     return ApiResponse(
         data=PermissionResponse.model_validate(
-            _service(db, settings).get_permission(permission_id, _firm_scope(principal))
+            _service(db, settings).get_permission(
+                permission_id, _firm_scope(principal, caller_scope)
+            )
         )
     )
 
