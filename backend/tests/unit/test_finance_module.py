@@ -49,6 +49,7 @@ from app.finance.schemas import (
     AccountTypeEnum,
     CostCenterCreate,
     FinancialYearCreate,
+    FinancialYearUpdate,
     JournalEntryCreate,
     JournalTypeCreate,
     LedgerAccountCreate,
@@ -1456,6 +1457,100 @@ def test_locked_period_accepts_only_a_reopen() -> None:
         actor_id=actor_id,
     )
     assert reopened.status == PeriodStatus.OPEN.value
+
+
+def test_a_locked_year_takes_no_postings_and_its_periods_stay_as_they_are() -> None:
+    """D-FIN-3: locking a year stopped nothing but the year's own edit.
+
+    Driven on a fixture firm: with FY3031 locked, its period was closed,
+    reopened and posted into through the API, and the audit row for the lock
+    read the same on both sides. The lock is the year-end close -- final by
+    design -- so it freezes the periods, refuses every posting, and says so in
+    the trail.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    service = FinanceService(session)
+    engine = JournalEntryEngine(session)
+    draft = engine.create_entry(
+        firm_id=firm.id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 10),
+        reference_number="JV-DRAFT",
+        description="Written before the lock",
+        lines=_sale_lines(book, "10.00"),
+        actor_id=actor_id,
+    )
+    session.commit()
+
+    service.update_financial_year(
+        book.year.id,
+        FinancialYearUpdate(is_locked=True),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    session.commit()
+
+    audit = session.scalars(
+        select(AuditLog).where(AuditLog.action == "finance.financial_year.updated")
+    ).one()
+    assert audit.before_data is not None and audit.after_data is not None
+    assert audit.before_data["is_locked"] is False
+    assert audit.after_data["is_locked"] is True
+
+    for status in (PeriodStatusEnum.CLOSED, PeriodStatusEnum.OPEN):
+        with pytest.raises(ValidationError, match="FY2027 is locked"):
+            service.update_accounting_period(
+                book.period.id,
+                AccountingPeriodUpdate(status=status),
+                firm_id=firm.id,
+                actor_id=actor_id,
+            )
+        session.rollback()
+    with pytest.raises(ValidationError, match="FY2027 is locked"):
+        service.create_accounting_period(
+            AccountingPeriodCreate(
+                financial_year_id=book.year.id,
+                period_number=2,
+                code="P2",
+                name="May 2026",
+                starts_on=date(2026, 5, 1),
+                ends_on=date(2026, 5, 31),
+            ),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+    session.rollback()
+
+    with pytest.raises(ValidationError, match="FY2027, which is locked"):
+        engine.create_entry(
+            firm_id=firm.id,
+            journal_type_id=book.journal_type.id,
+            voucher_type_id=book.voucher_type.id,
+            accounting_period_id=book.period.id,
+            journal_date=date(2026, 4, 12),
+            reference_number="JV-LOCKED",
+            description="After the lock",
+            lines=_sale_lines(book, "10.00"),
+            actor_id=actor_id,
+        )
+    session.rollback()
+    with pytest.raises(ValidationError, match="FY2027, which is locked"):
+        engine.post_entry(draft.id, firm_id=firm.id, actor_id=actor_id)
+    session.rollback()
+
+    # And the lock is final: unlocking is refused like any other change.
+    with pytest.raises(ValidationError, match="cannot be modified or unlocked"):
+        service.update_financial_year(
+            book.year.id,
+            FinancialYearUpdate(is_locked=False),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
 
 
 def test_control_accounts_map_posting_purposes_to_nominated_accounts() -> None:
