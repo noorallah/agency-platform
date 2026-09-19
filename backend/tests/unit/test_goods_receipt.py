@@ -69,6 +69,8 @@ from app.purchase_invoice.services import PurchaseInvoiceService
 from app.sales.models import territory as _sales_models  # noqa: F401
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
 from app.uom.models import uom as _uom_models  # noqa: F401
+from app.uom.schemas import ConversionRuleCreate, ConversionRuleUpdate, UomCreate
+from app.uom.services import UomService
 from app.vendors.models import Vendor
 
 
@@ -1512,3 +1514,112 @@ def test_the_bill_that_completes_a_receipt_takes_the_rounding_residual() -> None
     session.expire_all()
     assert cleared == [Decimal("33.33"), Decimal("33.33"), Decimal("33.34")]
     assert _control_balance(session, fixture.firm.id, accrual) == Decimal("0")
+
+
+def test_a_rule_edited_under_a_draft_receipt_leaves_its_stock_alone() -> None:
+    """A receipt's stock moves at the factor its line was written with.
+
+    D-CFG-1: a line stored factor 1 and the rule's version number, and when
+    the receipt was completed stock re-read the rule by that number. Edited to
+    2 in the meantime, the line said 10 PACK at 1 and 20 KG went onto the
+    shelf, valued and journalled at double the order; renumbered, the draft
+    matched no rule and could not be completed at all.
+    """
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-CONV")
+    units = UomService(session)
+    kg = units.create_uom(
+        UomCreate(code="KGCONV", name="Kilogram"), actor_id=fixture.actor_id
+    )
+    pack = units.create_uom(
+        UomCreate(code="PACKCONV", name="Pack"), actor_id=fixture.actor_id
+    )
+    fixture.product.base_uom_id = kg.id
+    fixture.product.inventory_uom_id = kg.id
+    session.commit()
+    rule = units.create_conversion_rule(
+        ConversionRuleCreate(
+            product_id=fixture.product.id,
+            from_uom_id=pack.id,
+            to_uom_id=kg.id,
+            conversion_factor=Decimal("1"),
+            effective_from=date(2026, 1, 1),
+            version_number=1,
+        ),
+        firm_scope=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    purchases = PurchaseService(session)
+    order = purchases.create_order(
+        PurchaseOrderCreate.model_validate(
+            {
+                "po_number": "PO-GRN-CONV-PACK",
+                "branch_id": fixture.branch.id,
+                "warehouse_id": fixture.warehouse.id,
+                "vendor_id": fixture.vendor.id,
+                "purchase_date": "2026-08-02",
+                "lines": [
+                    {
+                        "product_id": fixture.product.id,
+                        "ordered_quantity": "10",
+                        "unit_price": "100",
+                        "purchase_uom_id": pack.id,
+                        "inventory_uom_id": kg.id,
+                        "warehouse_id": fixture.warehouse.id,
+                    }
+                ],
+            }
+        ),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    purchases.submit_order(
+        order.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    purchases.approve_order(
+        order.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    order_line = session.scalar(
+        select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+    )
+    assert order_line is not None
+    service = GoodsReceiptService(session)
+    receipt = service.create_receipt(
+        fixture.receipt_payload(
+            purchase_order_id=order.id,
+            lines=[
+                {
+                    "purchase_order_line_id": order_line.id,
+                    "line_number": 1,
+                    "current_receipt_quantity": "10",
+                    "unit_price": "100",
+                    "warehouse_id": fixture.warehouse.id,
+                }
+            ],
+        ),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    line = session.scalar(
+        select(GoodsReceiptLine).where(GoodsReceiptLine.goods_receipt_id == receipt.id)
+    )
+    assert line is not None
+    assert line.conversion_factor == Decimal("1")
+
+    # The factor doubled and the revision renumbered while the receipt waits.
+    units.update_conversion_rule(
+        rule.id,
+        ConversionRuleUpdate(conversion_factor=Decimal("2"), version_number=7),
+        firm_scope=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    service.complete_receipt(
+        receipt.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+
+    session.expire_all()
+    assert _stock(session, fixture.firm.id, fixture.product.id) == Decimal("10")
+    assert _stock_value(session, fixture.firm.id) == Decimal("1000.00")
+    line = session.get(GoodsReceiptLine, line.id)
+    assert line is not None
+    assert line.conversion_factor == Decimal("1"), "the line is never rewritten"
