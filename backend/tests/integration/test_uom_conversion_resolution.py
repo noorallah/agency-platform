@@ -12,6 +12,8 @@ from datetime import date
 from decimal import Decimal
 from uuid import uuid4
 
+import pytest
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.firms.models import Firm
@@ -161,3 +163,19 @@ def test_the_newest_version_of_a_rule_wins(temp_session: Session) -> None:
     # It was called `version` on the wire until the concurrency counter needed
     # that name; the two are separate fields now.
     assert result.version_number == 2
+
+
+def test_two_firm_wide_rules_cannot_share_a_version(temp_session: Session) -> None:
+    """D-CFG-10: PostgreSQL treats NULL product ids as distinct in a unique key.
+
+    ``UQ_uom_conversion_rules_unique_version`` held two firm-wide rules for one
+    pair at version 1 here -- the unit suite's SQLite cannot show that, which
+    is why the partial index has its own guard on the deployment target.
+    """
+    firm, _product, box, piece = _seed(temp_session)
+    _rule(temp_session, firm=firm, product_id=None, box=box, piece=piece, factor="10")
+
+    with pytest.raises(IntegrityError):
+        _rule(
+            temp_session, firm=firm, product_id=None, box=box, piece=piece, factor="12"
+        )

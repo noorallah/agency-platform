@@ -67,6 +67,26 @@ from app.uom.models import ConversionRule
 ZERO = Decimal("0")
 
 
+@dataclass(frozen=True, slots=True)
+class LineConversion:
+    """The conversion a document line was written with.
+
+    A line carries the factor it was priced and counted at, the way every
+    ERP document line does, and its stock moves at that factor -- never at
+    whatever the rule says by the time the document is completed. Re-reading
+    the rule by version let an edit to it move a draft receipt's stock, value
+    and GRNI journal away from its own line (D-CFG-1).
+
+    ``to_uom_id`` is the unit the factor converts *into*. The stored factor is
+    only used when that is the unit stock is counted in; a line whose factor
+    converts into some other unit (a return's factor is into the source line's
+    unit) still has its stock quantity resolved from the rule.
+    """
+
+    factor: Decimal
+    to_uom_id: UUID | None
+
+
 @dataclass(slots=True)
 class _Movement:
     transaction_type: str
@@ -1812,6 +1832,7 @@ class InventoryService:
         entered_quantity: Decimal | None = None,
         entered_uom_id: UUID | None = None,
         conversion_version: int | None = None,
+        line_conversion: LineConversion | None = None,
         remarks: str | None = None,
         unit_cost: Decimal | None = None,
         batch_id: UUID | None = None,
@@ -1835,6 +1856,7 @@ class InventoryService:
             ),
             entered_uom_id=entered_uom_id,
             conversion_version=conversion_version,
+            line_conversion=line_conversion,
             on_date=transaction_date,
         )
         conversion_factor = (
@@ -2269,6 +2291,7 @@ class InventoryService:
         entered_quantity: Decimal | None = None,
         entered_uom_id: UUID | None = None,
         conversion_version: int | None = None,
+        line_conversion: LineConversion | None = None,
         remarks: str | None = None,
         batch_id: UUID | None = None,
     ) -> InventoryTransaction:
@@ -2293,6 +2316,7 @@ class InventoryService:
             ),
             entered_uom_id=entered_uom_id,
             conversion_version=conversion_version,
+            line_conversion=line_conversion,
             on_date=transaction_date,
         )
         inventory = self._ensure_inventory_projection(
@@ -2339,6 +2363,7 @@ class InventoryService:
         entered_quantity: Decimal | None = None,
         entered_uom_id: UUID | None = None,
         conversion_version: int | None = None,
+        line_conversion: LineConversion | None = None,
         remarks: str | None = None,
         batch_id: UUID | None = None,
     ) -> InventoryTransaction:
@@ -2356,6 +2381,7 @@ class InventoryService:
             ),
             entered_uom_id=entered_uom_id,
             conversion_version=conversion_version,
+            line_conversion=line_conversion,
             on_date=transaction_date,
         )
         inventory = self._ensure_inventory_projection(
@@ -2724,6 +2750,7 @@ class InventoryService:
         entered_quantity: Decimal | None = None,
         entered_uom_id: UUID | None = None,
         conversion_version: int | None = None,
+        line_conversion: LineConversion | None = None,
         remarks: str | None = None,
         batch_id: UUID | None = None,
         serial_id: UUID | None = None,
@@ -2746,6 +2773,7 @@ class InventoryService:
             ),
             entered_uom_id=entered_uom_id,
             conversion_version=conversion_version,
+            line_conversion=line_conversion,
             on_date=transaction_date,
         )
         inventory = self._ensure_inventory_projection(
@@ -3817,6 +3845,7 @@ class InventoryService:
         entered_uom_id: UUID | None,
         conversion_version: int | None,
         on_date: date,
+        line_conversion: LineConversion | None = None,
     ) -> tuple[Decimal, Decimal, UUID | None, int | None]:
         entered = Decimal(str(quantity))
         if entered_uom_id is None:
@@ -3833,6 +3862,16 @@ class InventoryService:
         target_uom_id = product.base_uom_id or product.inventory_uom_id
         if target_uom_id is None or target_uom_id == entered_uom_id:
             return entered, entered, entered_uom_id, conversion_version
+        if (
+            line_conversion is not None
+            and line_conversion.to_uom_id == target_uom_id
+            and line_conversion.factor > ZERO
+        ):
+            # The line's own factor, as written. Editing the rule since --
+            # its factor, or its version number -- changes nothing already on
+            # a document (D-CFG-1).
+            base_quantity = entered * Decimal(str(line_conversion.factor))
+            return base_quantity, entered, entered_uom_id, conversion_version
         statement = select(ConversionRule).where(
             ConversionRule.firm_id == firm_scope,
             ConversionRule.is_deleted.is_(False),
@@ -3870,6 +3909,7 @@ class InventoryService:
                 # this second copy kept the defect.
                 case((ConversionRule.product_id.is_(None), 1), else_=0).asc(),
                 ConversionRule.version_number.desc(),
+                ConversionRule.created_at.desc(),
             )
         ).first()
         if rule is None:

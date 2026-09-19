@@ -427,6 +427,14 @@ BATCH_NUMBER, MANUFACTURER and IMEI with **no** profile or category scope, so
 until `20260815_0087` cleared it. Where a field really is required, say so in
 `category_attribute_rules`, scoped.
 
+Either way, **mandatory means a value, not merely a key in the request.** The
+same union decides both refusals in `replace_values`: the field must be sent,
+and what is sent must not be blank (`""`, whitespace or `null`). Until
+2026-09-19 the second refusal read only the definition's own flag, so a field a
+category rule required was satisfied by sending it blank and stored with every
+value column null (D-CFG-5) -- the desktop form refused the blank, and no other
+client did.
+
 ### What changing a firm's profile does to existing data
 
 Nothing to the rows, and everything to what is read. Values live in

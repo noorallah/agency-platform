@@ -20,6 +20,7 @@ from app.business.models import (
     AttributeDefinition,
     AttributeEntityType,
     BusinessProfile,
+    CategoryAttributeRule,
     FirmBusinessProfile,
 )
 from app.business.services import AttributeInput, AttributeService
@@ -281,6 +282,59 @@ def test_mandatory_attribute_must_be_supplied() -> None:
         [AttributeInput(attribute_definition_id=required.id, value="FS-1")],
         firm_id=firm.id,
         actor_id=uuid4(),
+    )
+
+
+@pytest.mark.parametrize("blank", ["", "   ", None])
+def test_a_field_a_category_rule_requires_refuses_a_blank(blank: str | None) -> None:
+    """A category rule's mandatory refuses a blank value, not only an omission.
+
+    D-CFG-5: the empty-value refusal read the definition's own flag and not
+    the rule's, so sending a rule-required field as "" stored it with every
+    value column null -- the requirement satisfied by nothing.
+    """
+    session = _session()
+    firm = _firm(session)
+    product = _product(session, firm)
+    cold_chain = _definition(session, "COLD_CHAIN_ID")
+    session.add(
+        CategoryAttributeRule(
+            category_code="CHILLED",
+            attribute_definition_id=cold_chain.id,
+            is_mandatory=True,
+        )
+    )
+    session.commit()
+    service = AttributeService(session)
+
+    with pytest.raises(ValidationError, match="COLD_CHAIN_ID is required"):
+        service.replace_values(
+            ProductAttributeValue,
+            product.id,
+            [AttributeInput(attribute_definition_id=cold_chain.id, value=blank)],
+            firm_id=firm.id,
+            actor_id=uuid4(),
+            category_code="CHILLED",
+        )
+    session.rollback()
+    assert session.scalars(select(ProductAttributeValue)).all() == []
+
+    # Outside the rule's category the same field stays optional.
+    service.replace_values(
+        ProductAttributeValue,
+        product.id,
+        [AttributeInput(attribute_definition_id=cold_chain.id, value=blank)],
+        firm_id=firm.id,
+        actor_id=uuid4(),
+        category_code="AMBIENT",
+    )
+    service.replace_values(
+        ProductAttributeValue,
+        product.id,
+        [AttributeInput(attribute_definition_id=cold_chain.id, value="CC-7")],
+        firm_id=firm.id,
+        actor_id=uuid4(),
+        category_code="CHILLED",
     )
 
 

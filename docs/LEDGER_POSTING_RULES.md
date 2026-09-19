@@ -104,6 +104,14 @@ The direction check is `SettlementDirection.RECEIPT`, not `"IN"` -- the
 first version compared against a string the column never holds, so it
 collected nothing anywhere and only the tests said so.
 
+**Section 206C(1H) was omitted by the Finance Act 2025 with effect from
+1 April 2025.** A receipt dated on or after that day collects nothing under
+it, whatever the settings say, and the preview says why
+(`SECTION_206C_1H_OMITTED_FROM` in `app/tcs/services/tcs_service.py`);
+receipts dated earlier are charged as the law then stood, and collections
+already made are never rewritten (D-CMP-12). The module still answers for
+FY 2024-25 and earlier, which is why it stays.
+
 ## A return is a view of the documents
 
 **A return is a view of the documents, and a supply is placed by the tax it

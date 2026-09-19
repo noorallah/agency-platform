@@ -36,3 +36,16 @@ already holds is left exactly as it is, soft-deleted ones included. Both unique
 indexes are scoped to `is_deleted = false`, so re-inserting a deleted state
 would succeed and quietly undo a deliberate deletion -- a firm that removed a
 place it does not trade in would find it back after the next upgrade.
+
+## Retiring a place
+
+Deleting a place is a soft delete, so the `RESTRICT` foreign keys into these
+tables never fire; `_assert_geo_unused` in `territory_service.py` is the guard.
+It refuses while anything live still names the place, and the refusal names
+what: the level below, address masters, branches, warehouses, route profiles,
+**customer and vendor addresses** (of a live customer or vendor only) and, for a
+country, **tax systems, tax country mappings and tax rules**. The addresses are
+the ones that matter most: a customer or vendor save resends its stored places,
+and a retired place is refused as unknown, so retiring one an address stands on
+would leave that record impossible to save (D-CFG-12). The tax rule execution
+log is deliberately not counted -- it is history, and retention prunes it.
