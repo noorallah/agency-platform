@@ -77,6 +77,76 @@ SETTLEABLE_INVOICE_STATES = (
 )
 
 
+def credited_against(
+    session: Session, *, firm_id: UUID, invoice_ids: Sequence[UUID]
+) -> dict[UUID, Decimal]:
+    """Sum what returns and credit notes have taken off each sales invoice.
+
+    A completed sales return and an approved credit note both post Cr
+    receivable, so the ledger already says the customer owes less. Only a
+    return raised from the bill's own lines names the bill; one raised from a
+    delivery note stays a credit on the customer's account, exactly as a
+    purchase return raised from a goods receipt does on the supplier's
+    (D-BUY-6). A credit note is always raised against one invoice.
+
+    One derivation, used by Record Receipt's list and by the loyalty cap, so
+    the two cannot answer "what does this bill still owe" differently.
+
+    Args:
+        session: The firm's session.
+        firm_id: The owning firm.
+        invoice_ids: The sales invoices to ask about.
+
+    Returns:
+        The credited amount per invoice, for those with any.
+
+    """
+    if not invoice_ids:
+        return {}
+    # Imported here: both modules import settlement-adjacent models.
+    from app.credit_note.models import CreditNote, CreditNoteStatus
+    from app.sales_return.models import SalesReturn, SalesReturnLine
+
+    credited: dict[UUID, Decimal] = {}
+    returned = session.execute(
+        select(
+            SalesReturnLine.source_document_id,
+            func.coalesce(func.sum(SalesReturnLine.net_amount), 0),
+        )
+        .join(SalesReturn, SalesReturn.id == SalesReturnLine.sales_return_id)
+        .where(
+            SalesReturnLine.firm_id == firm_id,
+            SalesReturnLine.source_document_type == "SALES_INVOICE",
+            SalesReturnLine.source_document_id.in_(invoice_ids),
+            SalesReturnLine.is_deleted.is_(False),
+            # Completing is what posts Cr receivable; a draft or approved
+            # return has not moved anything yet, a cancelled one is gone.
+            SalesReturn.status.in_(("COMPLETED", "CLOSED")),
+            SalesReturn.is_deleted.is_(False),
+        )
+        .group_by(SalesReturnLine.source_document_id)
+    ).all()
+    notes = session.execute(
+        select(
+            CreditNote.sales_invoice_id,
+            func.coalesce(func.sum(CreditNote.total_amount), 0),
+        )
+        .where(
+            CreditNote.firm_id == firm_id,
+            CreditNote.sales_invoice_id.in_(invoice_ids),
+            # Approval is what posts; a draft has not, a cancelled one is gone.
+            CreditNote.status == CreditNoteStatus.APPROVED.value,
+            CreditNote.is_deleted.is_(False),
+        )
+        .group_by(CreditNote.sales_invoice_id)
+    ).all()
+    for invoice_id, total in (*returned, *notes):
+        credited[invoice_id] = credited.get(invoice_id, ZERO) + quantize_ledger(
+            Decimal(str(total))
+        )
+    return credited
+
+
 class SettlementService(TransactionalDocumentService):
     """Record a settlement, allocate it to invoices, and post it."""
 
@@ -183,6 +253,15 @@ class SettlementService(TransactionalDocumentService):
         if not is_receipt and rows:
             returned = self._returned_against(
                 firm_id=firm_id, invoice_ids=[row.id for row, _ in rows]
+            )
+        # The sales twin (D-SELL-10): a completed sales return raised from the
+        # bill's own lines, and an approved credit note -- which always names
+        # its bill -- post Cr receivable, so the bill owes that much less.
+        if is_receipt and rows:
+            returned = credited_against(
+                self._session,
+                firm_id=firm_id,
+                invoice_ids=[row.id for row, _ in rows],
             )
         records: list[OutstandingInvoiceRecord] = []
         for row, allocated_amount in rows:
@@ -555,13 +634,7 @@ class SettlementService(TransactionalDocumentService):
             The part that must come out of the advance, never negative.
 
         """
-        original = self._session.scalar(
-            select(CustomerReceivableTransaction).where(
-                CustomerReceivableTransaction.reference_type == "settlement",
-                CustomerReceivableTransaction.reference_id == row.id,
-                CustomerReceivableTransaction.is_deleted.is_(False),
-            )
-        )
+        original = self._recording_row(row)
         if original is None:
             # Nothing recorded the split, so nothing can be claimed about it.
             # Treating it as advance would risk the double count this method
@@ -769,16 +842,19 @@ class SettlementService(TransactionalDocumentService):
             SettlementDirection.RECEIPT,
             SettlementDirection.REFUND,
         ):
-            original = self._session.scalar(
-                select(CustomerReceivableTransaction).where(
-                    CustomerReceivableTransaction.reference_type == "settlement",
-                    CustomerReceivableTransaction.reference_id == row.id,
-                    CustomerReceivableTransaction.is_deleted.is_(False),
-                )
-            )
-            if original is not None:
+            # Every row the settlement wrote, newest first: the receipt's own
+            # and one `ADVANCE_APPLY` per later application of its advance
+            # (D-SELL-8). Taking "the" row with `scalar()` picked one of them
+            # at random -- undoing the receipt alone put back an advance the
+            # application had already spent, and was refused as overtaken, so
+            # a bounced cheque that had been applied could never be taken
+            # back; undoing the application alone left the balance out of
+            # step with 1100 by the whole receipt. The applications are undone
+            # first because they are later, and undoing them returns the
+            # advance the receipt's own reversal then takes away.
+            for written in self._rows_written_by(row):
                 self._customers.reverse_receivable_transaction(
-                    original.id,
+                    written.id,
                     firm_scope=firm_id,
                     actor_id=actor_id,
                     reference_number=f"{row.settlement_number}-REV",
@@ -818,6 +894,41 @@ class SettlementService(TransactionalDocumentService):
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _rows_written_by(self, row: Settlement) -> list[CustomerReceivableTransaction]:
+        """Return the receivable rows a settlement wrote, to be undone in order.
+
+        The row written when it was recorded comes last; every `ADVANCE_APPLY`
+        an allocation added since comes before it, newest first.
+        """
+        written = self._session.scalars(
+            select(CustomerReceivableTransaction)
+            .where(
+                CustomerReceivableTransaction.reference_type == "settlement",
+                CustomerReceivableTransaction.reference_id == row.id,
+                CustomerReceivableTransaction.is_deleted.is_(False),
+            )
+            .order_by(
+                CustomerReceivableTransaction.created_at.desc(),
+                CustomerReceivableTransaction.id.desc(),
+            )
+        ).all()
+        applied = CustomerReceivableTransactionType.ADVANCE_APPLY.value
+        return sorted(written, key=lambda item: item.transaction_type != applied)
+
+    def _recording_row(self, row: Settlement) -> CustomerReceivableTransaction | None:
+        """Return the receivable row written when the settlement was recorded.
+
+        Not an `ADVANCE_APPLY` a later allocation added beside it: only the
+        recording row remembers how the money split between balance and
+        advance.
+        """
+        written = self._rows_written_by(row)
+        if not written:
+            return None
+        last = written[-1]
+        applied = CustomerReceivableTransactionType.ADVANCE_APPLY.value
+        return None if last.transaction_type == applied else last
 
     def _scoped(
         self, statement: Select[tuple[Settlement]], firm_id: UUID

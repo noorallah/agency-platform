@@ -33,7 +33,7 @@ from app.customers.schemas import (
 from app.customers.services import CreditControlService
 from app.customers.services.customer_service import CustomerService
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
-from app.delivery_note.rules import require_dispatched_note
+from app.delivery_note.rules import goods_have_left_clause, require_dispatched_note
 from app.delivery_note.schemas import DeliveryNoteStatus
 from app.document_framework.models import (
     DocumentLifecycleEvent,
@@ -794,7 +794,11 @@ class SalesInvoiceService(TransactionalDocumentService):
         from app.credit_note.models import CreditNote, CreditNoteStatus
         from app.einvoice.models import EInvoiceRegistration, RegistrationStatus
         from app.loyalty.models import LoyaltyEntry, LoyaltyEntryKind
-        from app.sales_return.models import SalesReturn, SalesReturnSource
+        from app.sales_return.models import (
+            SalesReturn,
+            SalesReturnLine,
+            SalesReturnSource,
+        )
         from app.settlements.models import Settlement, SettlementAllocation
 
         blockers: list[str] = []
@@ -836,8 +840,36 @@ class SalesInvoiceService(TransactionalDocumentService):
             )
             .distinct()
         ).all()
+        # Goods this bill charged for can also come back against the note it
+        # billed, and cancelling then takes the whole bill off the customer on
+        # top of the credit that return gave (D-SELL-7).
+        billed_note_lines = select(SalesInvoiceLine.source_document_line_id).where(
+            SalesInvoiceLine.sales_invoice_id == row.id,
+            SalesInvoiceLine.source_document_type
+            == SalesInvoiceSourceType.DELIVERY_NOTE.value,
+            SalesInvoiceLine.is_deleted.is_(False),
+        )
+        returns = sorted(
+            set(returns)
+            | set(
+                self._session.scalars(
+                    select(SalesReturn.return_number)
+                    .join(
+                        SalesReturnLine,
+                        SalesReturnLine.sales_return_id == SalesReturn.id,
+                    )
+                    .where(
+                        SalesReturnLine.source_document_type == "DELIVERY_NOTE",
+                        SalesReturnLine.source_document_line_id.in_(billed_note_lines),
+                        SalesReturnLine.is_deleted.is_(False),
+                        SalesReturn.status != "CANCELLED",
+                        SalesReturn.is_deleted.is_(False),
+                    )
+                ).all()
+            )
+        )
         if returns:
-            blockers.append("sales return " + ", ".join(sorted(returns)))
+            blockers.append("sales return " + ", ".join(returns))
         spent = self._session.scalar(
             select(func.count(LoyaltyEntry.id)).where(
                 LoyaltyEntry.sales_invoice_id == row.id,
@@ -943,10 +975,23 @@ class SalesInvoiceService(TransactionalDocumentService):
         actor_id: UUID,
         reason: str | None = None,
     ) -> SalesInvoice:
-        """Close one sales invoice."""
+        """Close one approved sales invoice.
+
+        Closing says a bill is finished with, so only an approved bill -- one
+        that posted -- can be. It refused only one already closed, so a DRAFT
+        that never posted kept its quantity against the note for good, and a
+        CANCELLED one took back the quantity its cancellation had released
+        (D-SELL-12, driven on `fx_t0919psxt_s` on 2026-09-19). The twin of
+        D-BUY-12.
+        """
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status == SalesInvoiceStatus.CLOSED.value:
             raise ValidationError("This sales invoice is already closed.")
+        if row.status != SalesInvoiceStatus.APPROVED.value:
+            raise ValidationError(
+                f"Only approved sales invoices can be closed; "
+                f"{row.invoice_number} is {row.status.lower()}."
+            )
         before = row.status
         row.status = SalesInvoiceStatus.CLOSED.value
         row.close_reason = reason
@@ -2152,13 +2197,9 @@ class SalesInvoiceService(TransactionalDocumentService):
             .where(
                 DeliveryNote.firm_id == firm_scope,
                 DeliveryNote.is_deleted.is_(False),
-                DeliveryNote.status.in_(
-                    [
-                        DeliveryNoteStatus.DISPATCHED.value,
-                        DeliveryNoteStatus.COMPLETED.value,
-                        DeliveryNoteStatus.CLOSED.value,
-                    ]
-                ),
+                # The goods left, not merely the status: a note closed without
+                # dispatching was offered here (D-SELL-4).
+                goods_have_left_clause(),
                 DeliveryNote.id.in_(open_notes),
             )
             .order_by(DeliveryNote.delivery_date.desc())

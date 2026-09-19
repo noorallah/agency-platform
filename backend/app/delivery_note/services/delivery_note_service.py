@@ -40,6 +40,11 @@ from app.delivery_note.models import (
     DeliveryNoteLine,
     DeliveryNoteNote,
 )
+from app.delivery_note.rules import (
+    SHIPPED_STATES,
+    goods_have_left,
+    goods_have_left_clause,
+)
 from app.delivery_note.schemas import (
     DeliveryNoteAttachmentResponse,
     DeliveryNoteAttachmentWrite,
@@ -299,18 +304,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         )
         order = self._sales_order(data.sales_order_id, firm_id=firm_id)
         self._refuse_unless_order_open(order)
-        if order.is_on_hold:
-            # The point of a hold. A flag the engine records that changed no
-            # outcome would be a switch somebody turns on believing the goods
-            # have stopped moving, while they carry on out of the warehouse.
-            # The reason is quoted rather than run into the sentence: it is
-            # somebody's own words and usually ends with a full stop of its
-            # own, which read as "the LC.." when the sentence added another.
-            reason = (order.hold_reason or "").strip() or "no reason recorded"
-            raise ValidationError(
-                f"{order.order_number} is on hold and cannot be dispatched "
-                f'("{reason}"). Release it first.'
-            )
+        self._refuse_if_held(order)
         self._validate_scope_references(
             firm_id=firm_id,
             customer_id=order.customer_id,
@@ -435,6 +429,19 @@ class DeliveryNoteService(TransactionalDocumentService):
             raise ValidationError("Only draft delivery notes can be updated.")
         order = self._sales_order(data.sales_order_id, firm_id=firm_scope)
         self._refuse_unless_order_open(order)
+        # A held order's draft may still have its vehicle, driver or remarks
+        # put right; what it may not do is change what is to ship.
+        if order.is_on_hold:
+            asked = sorted(
+                (
+                    str(line.sales_order_line_id),
+                    self._q(line.current_delivery_quantity),
+                    self._q(line.free_quantity),
+                )
+                for line in data.lines
+            )
+            if order.id != row.sales_order_id or asked != self._to_ship(row.id):
+                self._refuse_if_held(order)
         self._delete_children(note_id)
         row.sales_order_id = order.id
         row.customer_id = order.customer_id
@@ -518,9 +525,9 @@ class DeliveryNoteService(TransactionalDocumentService):
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status != DeliveryNoteStatus.DRAFT.value:
             raise ValidationError("Only draft delivery notes can be approved.")
-        self._refuse_unless_order_open(
-            self._sales_order(row.sales_order_id, firm_id=firm_scope)
-        )
+        order = self._sales_order(row.sales_order_id, firm_id=firm_scope)
+        self._refuse_unless_order_open(order)
+        self._refuse_if_held(order)
         row.status = DeliveryNoteStatus.APPROVED.value
         row.approved_at = utc_now()
         row.updated_by = actor_id
@@ -566,9 +573,9 @@ class DeliveryNoteService(TransactionalDocumentService):
             return row
         if row.status != DeliveryNoteStatus.APPROVED.value:
             raise ValidationError("Only approved delivery notes can be dispatched.")
-        self._refuse_unless_order_open(
-            self._sales_order(row.sales_order_id, firm_id=firm_scope)
-        )
+        order = self._sales_order(row.sales_order_id, firm_id=firm_scope)
+        self._refuse_unless_order_open(order)
+        self._refuse_if_held(order)
         self._dispatch_inventory(row=row, actor_id=actor_id)
         row.status = DeliveryNoteStatus.DISPATCHED.value
         row.dispatched_at = utc_now()
@@ -613,9 +620,12 @@ class DeliveryNoteService(TransactionalDocumentService):
             )
         before = row.status
         if row.status == DeliveryNoteStatus.APPROVED.value:
-            self._refuse_unless_order_open(
-                self._sales_order(row.sales_order_id, firm_id=firm_scope)
-            )
+            # Completing an approved note dispatches it. One already on the
+            # road is only being confirmed as received, which a hold on the
+            # order cannot undo.
+            order = self._sales_order(row.sales_order_id, firm_id=firm_scope)
+            self._refuse_unless_order_open(order)
+            self._refuse_if_held(order)
             self._dispatch_inventory(row=row, actor_id=actor_id)
             row.dispatched_at = row.dispatched_at or utc_now()
         elif row.status != DeliveryNoteStatus.DISPATCHED.value:
@@ -695,12 +705,22 @@ class DeliveryNoteService(TransactionalDocumentService):
         actor_id: UUID,
         reason: str | None = None,
     ) -> DeliveryNote:
-        """Close one delivery note."""
+        """Close one delivery note whose goods have left.
+
+        Closing refused only a draft, so an APPROVED note that never dispatched
+        could be closed -- and a closed note counts as delivered for its order
+        and is offered for billing, while its reservation stayed held for good
+        (D-SELL-4, driven 2026-09-19: the order read DELIVERED with 7 of 12
+        shipped). A note that will not ship is cancelled, not closed.
+        """
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status == DeliveryNoteStatus.CLOSED.value:
             return row
-        if row.status == DeliveryNoteStatus.DRAFT.value:
-            raise ValidationError("Draft delivery notes cannot be closed.")
+        if not goods_have_left(row):
+            raise ValidationError(
+                f"Only dispatched or completed delivery notes can be closed; "
+                f"{row.delivery_note_number} is {row.status.lower()}."
+            )
         before = row.status
         row.status = DeliveryNoteStatus.CLOSED.value
         row.closed_at = utc_now()
@@ -2174,6 +2194,45 @@ class DeliveryNoteService(TransactionalDocumentService):
             raise ResourceNotFoundError("Sales order not found.")
         return row
 
+    def _to_ship(self, note_id: UUID) -> list[tuple[str, Decimal, Decimal]]:
+        """Return what a note's lines ship: order line, charged and free."""
+        return sorted(
+            (
+                str(line.sales_order_line_id),
+                self._q(line.current_delivery_quantity),
+                self._q(line.free_quantity),
+            )
+            for line in self._session.scalars(
+                select(DeliveryNoteLine).where(
+                    DeliveryNoteLine.delivery_note_id == note_id,
+                    DeliveryNoteLine.is_deleted.is_(False),
+                )
+            )
+        )
+
+    @staticmethod
+    def _refuse_if_held(order: SalesOrder) -> None:
+        """Refuse to move a note forward while its order is on hold.
+
+        The point of a hold. A flag the engine records that changed no outcome
+        would be a switch somebody turns on believing the goods have stopped
+        moving, while they carry on out of the warehouse. Only a note's create
+        asked, so a note drafted before the hold was edited, approved and
+        dispatched while the order read "on hold" (D-SELL-5, driven
+        2026-09-19).
+
+        The reason is quoted rather than run into the sentence: it is
+        somebody's own words and usually ends with a full stop of its own,
+        which read as "the LC.." when the sentence added another.
+        """
+        if not order.is_on_hold:
+            return
+        reason = (order.hold_reason or "").strip() or "no reason recorded"
+        raise ValidationError(
+            f"{order.order_number} is on hold and cannot be dispatched "
+            f'("{reason}"). Release it first.'
+        )
+
     def _resync_order_status(
         self, order: SalesOrder, *, firm_id: UUID, actor_id: UUID
     ) -> None:
@@ -2292,6 +2351,12 @@ class DeliveryNoteService(TransactionalDocumentService):
                 DeliveryNoteLine.is_deleted.is_(False),
                 DeliveryNote.is_deleted.is_(False),
                 DeliveryNote.status.in_(list(statuses)),
+                # A shipped state counts only when the goods left: a note
+                # closed before this refused it never dispatched (D-SELL-4).
+                or_(
+                    DeliveryNote.status.not_in(sorted(SHIPPED_STATES)),
+                    goods_have_left_clause(),
+                ),
             )
         )
         if exclude_delivery_note_id is not None:

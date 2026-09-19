@@ -43,6 +43,7 @@ from app.quotation.schemas import (
 from app.quotation.services import QuotationService
 from app.sales.models import territory as _sales_models  # noqa: F401
 from app.sales_order.models import SalesOrder, SalesOrderLine
+from app.sales_order.services.sales_order_service import SalesOrderService
 from app.sales_return.models import sales_return as _sales_return_models  # noqa: F401
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
 from app.uom.models import uom as _uom_models  # noqa: F401
@@ -331,6 +332,34 @@ def test_converting_builds_a_real_sales_order() -> None:
     assert line.quantity == Decimal("4.0000")
     assert line.unit_price == Decimal("100.0000")
     assert order.grand_total == Decimal("400.0000")
+
+
+def test_a_conversion_that_fails_half_way_leaves_nothing_behind() -> None:
+    """D-SELL-14: the order and the quotation's CONVERTED commit together.
+
+    `create_order` committed the order and the CONVERTED move was a second
+    commit, so a failure between them left an order beside a quotation still
+    ACCEPTED -- and convertible again, into a second order for one agreement.
+    """
+    session = _session_factory()()
+    setup = _Setup(session)
+    row = setup.accepted()
+
+    def _refuse(**_: object) -> None:
+        """Fail the way anything after the order's write could."""
+        raise RuntimeError("the lifecycle event could not be written")
+
+    setup.service._record_event = _refuse  # type: ignore[method-assign]
+    with pytest.raises(RuntimeError):
+        setup.service.convert_quotation(
+            row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+        )
+    session.rollback()
+
+    assert session.scalar(select(func.count()).select_from(SalesOrder)) == 0
+    session.refresh(row)
+    assert row.status == QuotationStatus.ACCEPTED.value
+    assert row.converted_sales_order_id is None
 
 
 def test_a_quotation_converts_once() -> None:
@@ -930,3 +959,106 @@ def test_a_promotion_reaches_a_quotation_line() -> None:
     assert row.line_discount_total == Decimal("40.0000")
     # An offer is not a claim: nothing is staged against the promotion.
     assert session.scalar(select(func.count()).select_from(PromotionRedemption)) == 0
+
+
+def _limited_offer(setup: _Setup, *, max_redemptions: int) -> Promotion:
+    """Publish a ten-percent offer that may be claimed so many times."""
+    promotion = Promotion(
+        firm_id=setup.firm.id,
+        code="TENOFF",
+        name="Ten percent off",
+        priority=10,
+        status=PromotionStatus.ACTIVE.value,
+        allow_stacking=True,
+        max_redemptions=max_redemptions,
+        version_group_id=uuid4(),
+        version_number=1,
+    )
+    setup.session.add(promotion)
+    setup.session.flush()
+    setup.session.add(
+        PromotionAction(
+            firm_id=setup.firm.id,
+            promotion_id=promotion.id,
+            sequence=1,
+            action_type=PromotionActionType.LINE_DISCOUNT_PERCENT.value,
+            parameters={"percent": "10"},
+        )
+    )
+    setup.session.commit()
+    return promotion
+
+
+def test_a_converted_order_claims_the_offer_it_was_quoted() -> None:
+    """D-SELL-9: an order from a quotation claims like one raised directly.
+
+    Each line was handed to the order with both its percentage and its
+    amount, so the order took it as priced by hand: the engine skipped it, no
+    claim was staged, nothing was counted at approval, and the order read
+    `amount` / `typed` (driven on fixture store `fx_t09196pwr_s`:
+    QT-2026-2027-000002 took BULK5's 7.5% and became SO-2026-2027-000003 with
+    no `promotion_redemptions` row). Two orders converted from quotations for
+    an offer limited to one now meet the same refusal two direct orders do.
+    """
+    session = _session_factory()()
+    setup = _Setup(session)
+    _limited_offer(setup, max_redemptions=1)
+    first = setup.accepted()
+    second = setup.accepted()
+
+    _, order = setup.service.convert_quotation(
+        first.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+    )
+    _, other = setup.service.convert_quotation(
+        second.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+    )
+
+    line = session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
+    )
+    assert line is not None
+    assert line.discount_source == "promotion"
+    assert line.discount_amount == Decimal("40.0000"), "the quoted price stands"
+    assert order.bill_discount_source == "none"
+    pending = session.scalars(
+        select(PromotionRedemption).where(
+            PromotionRedemption.document_id == order.id,
+            PromotionRedemption.is_deleted.is_(False),
+        )
+    ).all()
+    assert [row.status for row in pending] == ["PENDING"]
+
+    orders = SalesOrderService(session)
+    orders.approve_order(order.id, firm_scope=setup.firm.id, actor_id=setup.actor_id)
+    assert pending[0].status == "CLAIMED"
+    with pytest.raises(ValidationError, match="TENOFF"):
+        orders.approve_order(
+            other.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+        )
+
+
+def test_a_discount_typed_on_the_quotation_carries_over_as_typed() -> None:
+    """What somebody typed is the agreement, and says so on the order."""
+    session = _session_factory()()
+    setup = _Setup(session)
+    _limited_offer(setup, max_redemptions=5)
+    row = setup.accepted(discount_percent=Decimal("5"))
+
+    _, order = setup.service.convert_quotation(
+        row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+    )
+
+    line = session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
+    )
+    assert line is not None
+    assert line.discount_source == "percent"
+    assert line.discount_percent == Decimal("5.0000")
+    assert (
+        session.scalar(
+            select(func.count())
+            .select_from(PromotionRedemption)
+            .where(PromotionRedemption.is_deleted.is_(False))
+        )
+        == 0
+    ), "a line priced by hand takes no offer, so claims none"

@@ -21,7 +21,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.batch_serial.models import SerialNumber
@@ -48,6 +48,7 @@ from app.customers.schemas import (
 )
 from app.customers.services import CustomerService
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
+from app.delivery_note.rules import goods_have_left
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentTypeDefinition,
@@ -65,6 +66,7 @@ from app.inventory.services import InventoryService
 from app.products.models import Product
 from app.sales.services.scope_resolution import resolve_sales_scope
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
+from app.sales_invoice.schemas import SalesInvoiceStatus
 from app.sales_return.models import (
     SalesReturn,
     SalesReturnAttachment,
@@ -115,6 +117,35 @@ def _optional_uuid(value: object) -> UUID | None:
 def _decimal(value: object, default: Decimal = ZERO) -> Decimal:
     """Read a Decimal out of an untyped line spec."""
     return Decimal(str(value)) if value is not None else default
+
+
+#: The states in which a bill stands, so the goods it names were sold.
+_RETURNABLE_INVOICE_STATES = frozenset(
+    {SalesInvoiceStatus.APPROVED.value, SalesInvoiceStatus.CLOSED.value}
+)
+
+
+def _refuse_unreturnable(document: DeliveryNote | SalesInvoice) -> None:
+    """Refuse a source document whose goods never reached the customer.
+
+    Only goods that left can come back. The source was checked for existence
+    only, so a return could be raised on an approved note that never
+    dispatched -- and completing it shelved stock that had never gone out and
+    credited the customer for it -- or on a draft or cancelled bill (D-SELL-6,
+    driven 2026-09-19; WHOLE01 SR-2026-2027-000002 names a cancelled bill).
+    """
+    if isinstance(document, DeliveryNote):
+        if goods_have_left(document):
+            return
+        number, what = document.delivery_note_number, "a dispatched delivery note"
+    else:
+        if document.status in _RETURNABLE_INVOICE_STATES:
+            return
+        number, what = document.invoice_number, "an approved sales invoice"
+    raise ValidationError(
+        f"{number} is {document.status.lower()}, so nothing can be returned "
+        f"against it: only goods on {what} can come back."
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -395,8 +426,6 @@ class SalesReturnService(TransactionalDocumentService):
             exchange_rate=data.exchange_rate,
             reference_number=data.reference_number,
             remarks=data.remarks,
-            allow_over_return=data.allow_over_return,
-            over_return_percent=self._q(data.over_return_percent),
             status=SalesReturnStatus.DRAFT.value,
             additional_charges=self._q(data.additional_charges),
             round_off=self._q(data.round_off),
@@ -480,8 +509,6 @@ class SalesReturnService(TransactionalDocumentService):
         row.exchange_rate = data.exchange_rate
         row.reference_number = data.reference_number
         row.remarks = data.remarks
-        row.allow_over_return = data.allow_over_return
-        row.over_return_percent = self._q(data.over_return_percent)
         row.additional_charges = self._q(data.additional_charges)
         row.round_off = self._q(data.round_off)
         row.updated_by = actor_id
@@ -569,6 +596,22 @@ class SalesReturnService(TransactionalDocumentService):
             raise ValidationError("Cancelled/closed sales returns cannot be completed.")
         if row.status != SalesReturnStatus.APPROVED.value:
             raise ValidationError("Only approved sales returns can be completed.")
+        # Asked again where the stock arrives and the customer is credited: a
+        # return saved before its source was checked must not complete.
+        for source in self._session.scalars(
+            select(SalesReturnSource).where(
+                SalesReturnSource.sales_return_id == row.id,
+                SalesReturnSource.is_deleted.is_(False),
+            )
+        ).all():
+            document: DeliveryNote | SalesInvoice | None = (
+                self._session.get(DeliveryNote, source.source_document_id)
+                if source.source_document_type
+                == SalesReturnSourceType.DELIVERY_NOTE.value
+                else self._session.get(SalesInvoice, source.source_document_id)
+            )
+            if document is not None:
+                _refuse_unreturnable(document)
         lines = self._lines_of(row.id)
         if not lines:
             raise ValidationError("Sales return must contain at least one line.")
@@ -1047,11 +1090,23 @@ class SalesReturnService(TransactionalDocumentService):
             SalesReturnLine.sales_return_id == row.id
         ).delete(synchronize_session=False)
         totals: defaultdict[str, Decimal] = defaultdict(lambda: ZERO)
+        in_this_return: defaultdict[UUID, Decimal] = defaultdict(lambda: ZERO)
         for index, spec in enumerate(line_specs, start=1):
             source_type = self._source_type(spec["source_document_type"])
             source_line = self._source_line(
                 source_type, spec["source_document_line_id"]
             )
+            # The line must be one of the document named beside it, or a
+            # checked document could front for a line of an unchecked one.
+            owner = (
+                source_line.delivery_note_id
+                if isinstance(source_line, DeliveryNoteLine)
+                else source_line.sales_invoice_id
+            )
+            if owner != spec["source_document_id"]:
+                raise ValidationError(
+                    "A return line must be a line of the source document it names."
+                )
             requested = self._q(_decimal(spec["current_return_quantity"]))
             dispatched = self._source_quantity(source_type, source_line)
             source_uom_id = self._source_uom_id(source_line)
@@ -1082,15 +1137,34 @@ class SalesReturnService(TransactionalDocumentService):
                 source_document_line_id=source_line.id,
                 exclude_return_id=row.id,
             )
-            if (
-                not row.allow_over_return
-                and return_quantity + already_returned > dispatched
-            ):
+            # No request can lift this cap: a body flag the caller sets was
+            # all it took to credit 50 against a note for 5 (D-SELL-29).
+            if return_quantity + already_returned > dispatched:
                 raise ValidationError(
                     "Return quantity exceeds what was dispatched on the source "
                     f"document ({dispatched} sent, {already_returned} already "
                     "returned)."
                 )
+            # A bill's line and the note line it billed are the same goods, so
+            # what comes back through either route counts against what left.
+            goods = self._goods_behind(source_line)
+            if goods is not None:
+                sent = self._q(goods.current_delivery_quantity)
+                back = self._q(
+                    self._goods_already_returned(
+                        firm_id=firm_id,
+                        note_line_id=goods.id,
+                        exclude_return_id=row.id,
+                    )
+                    + in_this_return[goods.id]
+                )
+                if not row.allow_over_return and return_quantity + back > sent:
+                    raise ValidationError(
+                        "Return quantity exceeds what left on "
+                        f"{self._source_document_number(goods)} ({sent} sent, "
+                        f"{back} already returned against it or the bill for it)."
+                    )
+                in_this_return[goods.id] += return_quantity
             # The buckets are validated against the requested quantity, so they
             # are converted with it rather than re-derived: a line entered in
             # cases and returned in pieces must not have its damaged count
@@ -1360,6 +1434,7 @@ class SalesReturnService(TransactionalDocumentService):
                 )
                 if note is None:
                     raise ResourceNotFoundError("Delivery note not found.")
+                _refuse_unreturnable(note)
                 source_rows.append(
                     {
                         "source_document_type": source_type,
@@ -1382,6 +1457,7 @@ class SalesReturnService(TransactionalDocumentService):
                 )
                 if invoice is None:
                     raise ResourceNotFoundError("Sales invoice not found.")
+                _refuse_unreturnable(invoice)
                 source_rows.append(
                     {
                         "source_document_type": source_type,
@@ -1592,6 +1668,64 @@ class SalesReturnService(TransactionalDocumentService):
                 SalesReturn.status.not_in(_SPENT_STATUSES),
                 SalesReturnLine.is_deleted.is_(False),
                 SalesReturnLine.source_document_line_id == source_document_line_id,
+            )
+        )
+        if exclude_return_id is not None:
+            statement = statement.where(SalesReturn.id != exclude_return_id)
+        return self._q(self._session.scalar(statement) or ZERO)
+
+    def _goods_behind(self, source_line: SourceLine) -> DeliveryNoteLine | None:
+        """Return the note line whose goods a return line would bring back.
+
+        A bill's line billed from a note is the same goods as the note's line;
+        one billed straight from an order has no note behind it.
+        """
+        if isinstance(source_line, DeliveryNoteLine):
+            return source_line
+        if source_line.source_document_type != "DELIVERY_NOTE":
+            return None
+        return self._session.get(DeliveryNoteLine, source_line.source_document_line_id)
+
+    def _goods_already_returned(
+        self,
+        *,
+        firm_id: UUID,
+        note_line_id: UUID,
+        exclude_return_id: UUID | None = None,
+    ) -> Decimal:
+        """Sum what came back of one note line's goods, by either route.
+
+        `_already_returned_quantity` counts one source line, so the same goods
+        could come back once against the note and again against the bill that
+        billed it (D-SELL-7, driven 2026-09-19: 5 dispatched, 10 returned;
+        WHOLE01 SR-2026-2027-000004 was raised on a note line that
+        SI-2026-2027-000011 had billed, and counted nothing against the bill).
+        """
+        billed = select(SalesInvoiceLine.id).where(
+            SalesInvoiceLine.source_document_type == "DELIVERY_NOTE",
+            SalesInvoiceLine.source_document_line_id == note_line_id,
+            SalesInvoiceLine.is_deleted.is_(False),
+        )
+        statement = (
+            select(func.coalesce(func.sum(SalesReturnLine.current_return_quantity), 0))
+            .join(SalesReturn, SalesReturn.id == SalesReturnLine.sales_return_id)
+            .where(
+                SalesReturn.firm_id == firm_id,
+                SalesReturn.is_deleted.is_(False),
+                SalesReturn.status.not_in(_SPENT_STATUSES),
+                SalesReturnLine.is_deleted.is_(False),
+                or_(
+                    and_(
+                        SalesReturnLine.source_document_type
+                        == SalesReturnSourceType.DELIVERY_NOTE.value,
+                        SalesReturnLine.source_document_line_id == note_line_id,
+                    ),
+                    and_(
+                        SalesReturnLine.source_document_type
+                        == SalesReturnSourceType.SALES_INVOICE.value,
+                        SalesReturnLine.source_document_line_id.in_(billed),
+                    ),
+                ),
             )
         )
         if exclude_return_id is not None:
@@ -1856,8 +1990,6 @@ class SalesReturnService(TransactionalDocumentService):
             exchange_rate=row.exchange_rate,
             reference_number=row.reference_number,
             remarks=row.remarks,
-            allow_over_return=row.allow_over_return,
-            over_return_percent=row.over_return_percent,
             status=SalesReturnStatus(row.status),
             total_source_quantity=row.total_source_quantity,
             total_already_returned_quantity=row.total_already_returned_quantity,

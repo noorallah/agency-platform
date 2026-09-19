@@ -294,3 +294,65 @@ def test_holding_clears_any_earlier_release_stamp() -> None:
 
     assert row.released_at is None
     assert row.held_at is not None
+
+
+def _note_body(
+    books: _Books, quantity: str, remarks: str | None = None
+) -> DeliveryNoteCreate:
+    """Describe a note shipping `quantity` of the seeded order's line."""
+    return DeliveryNoteCreate(
+        sales_order_id=books.order.id,
+        delivery_date=WHEN,
+        remarks=remarks,
+        lines=[
+            DeliveryNoteLineWrite(
+                sales_order_line_id=books.line.id,
+                line_number=1,
+                current_delivery_quantity=Decimal(quantity),
+            )
+        ],
+    )
+
+
+def test_a_note_drafted_before_the_hold_cannot_be_approved() -> None:
+    """Only a note's create asked about the hold (D-SELL-5).
+
+    Driven 2026-09-19: notes drafted and approved before the hold were
+    edited, approved, dispatched and completed while the order read "on
+    hold", and seven units left the warehouse.
+    """
+    books = _Books(_session_factory()())
+    notes = DeliveryNoteService(books.session)
+    note = books.dispatch()
+    books.hold(reason="Awaiting cheque.")
+
+    with pytest.raises(ValidationError, match=r"on hold .*Awaiting cheque"):
+        notes.approve_note(note.id, firm_scope=books.firm.id, actor_id=books.actor_id)
+    books.session.rollback()
+    books.session.refresh(note)
+    assert note.status == "DRAFT"
+
+
+def test_a_held_orders_draft_can_be_tidied_but_not_resized() -> None:
+    """A remark may change while the order waits; what is to ship may not."""
+    books = _Books(_session_factory()())
+    notes = DeliveryNoteService(books.session)
+    note = books.dispatch()
+    books.hold(reason="Awaiting cheque.")
+
+    with pytest.raises(ValidationError, match="on hold"):
+        notes.update_note(
+            note.id,
+            _note_body(books, "2"),
+            firm_scope=books.firm.id,
+            actor_id=books.actor_id,
+        )
+    books.session.rollback()
+
+    row = notes.update_note(
+        note.id,
+        _note_body(books, "1", remarks="Driver changed."),
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    assert row.remarks == "Driver changed."
