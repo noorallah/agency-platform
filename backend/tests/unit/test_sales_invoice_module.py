@@ -1936,9 +1936,11 @@ def test_a_billable_line_says_whether_its_units_carry_serials() -> None:
     setup.product.track_serial = True
     setup.session.commit()
 
-    line = SalesInvoiceService(setup.session).billable_documents(
-        firm_scope=setup.firm.id
-    )[0].lines[0]
+    line = (
+        SalesInvoiceService(setup.session)
+        .billable_documents(firm_scope=setup.firm.id)[0]
+        .lines[0]
+    )
 
     assert line.track_serial is True
     assert line.warehouse_id == setup.warehouse.id
