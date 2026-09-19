@@ -28,16 +28,18 @@ import 'package:flutter_test/flutter_test.dart';
 String _accessToken(Map<String, dynamic> claims) =>
     'header.${base64Url.encode(utf8.encode(jsonEncode(claims))).replaceAll('=', '')}.sig';
 
-PermissionService _permissions() => PermissionService()
-  ..applyAccessToken(_accessToken({
-    'roles': <String>['user'],
-    'permissions': <String>[
-      'UOM_VIEW',
-      'UOM_MANAGE',
-      'PACKAGING_MANAGE',
-      'CONVERSION_RULE_MANAGE',
-    ],
-  }));
+PermissionService _permissions({bool platformAdmin = false}) =>
+    PermissionService()
+      ..applyAccessToken(_accessToken({
+        'roles': <String>['user'],
+        'permissions': <String>[
+          'UOM_VIEW',
+          'UOM_MANAGE',
+          'PACKAGING_MANAGE',
+          'CONVERSION_RULE_MANAGE',
+        ],
+        if (platformAdmin) 'platform_admin': true,
+      }));
 
 /// Records which endpoints were asked for, and answers one row each so the
 /// grid has something distinctive to show per section.
@@ -103,8 +105,9 @@ class _UomApi extends ApiClient {
 Future<void> _pump(
   WidgetTester tester,
   _UomApi api,
-  UomManagementSection section,
-) async {
+  UomManagementSection section, {
+  bool platformAdmin = false,
+}) async {
   await tester.binding.setSurfaceSize(const Size(1600, 900));
   addTearDown(() => tester.binding.setSurfaceSize(null));
   // No key, deliberately. That is how the shell builds these, and keying here
@@ -113,7 +116,7 @@ Future<void> _pump(
     home: Scaffold(
       body: UomManagementPage(
         api: api,
-        permissions: _permissions(),
+        permissions: _permissions(platformAdmin: platformAdmin),
         hasActiveFirm: true,
         section: section,
       ),
@@ -163,6 +166,35 @@ void main() {
           reason: '${section.name} did not load on arrival');
       expect(find.textContaining('Unable to load'), findsNothing);
     }
+  });
+
+  // D-CFG-9: units, groups, packaging types and industry templates carry no
+  // firm, so in a shared store one firm's edit was every firm's. The server
+  // now keeps them to a platform administrator; a firm administrator holding
+  // UOM_MANAGE and PACKAGING_MANAGE must not be offered buttons it refuses.
+  testWidgets('the shared catalogue offers no Add to a firm administrator',
+      (tester) async {
+    final _UomApi api = _UomApi();
+    for (final UomManagementSection section in <UomManagementSection>[
+      UomManagementSection.uoms,
+      UomManagementSection.uomGroups,
+      UomManagementSection.packagingTypes,
+      UomManagementSection.industryTemplates,
+    ]) {
+      await _pump(tester, api, section);
+      expect(find.text('Add'), findsNothing,
+          reason: '${section.name} offered Add to a firm administrator');
+    }
+    // A conversion rule is the firm's own, and stays its to write.
+    await _pump(tester, api, UomManagementSection.conversionRules);
+    expect(find.text('Add'), findsOneWidget);
+  });
+
+  testWidgets('a platform administrator still maintains the shared catalogue',
+      (tester) async {
+    final _UomApi api = _UomApi();
+    await _pump(tester, api, UomManagementSection.uoms, platformAdmin: true);
+    expect(find.text('Add'), findsOneWidget);
   });
 
   testWidgets('a search typed on one sub-tab does not follow to the next',

@@ -54,6 +54,26 @@ uniqueness rule on `uom_attribute_values` is *(firm, unit, attribute)*, not
 saved first claim the attribute and lock every other firm in that store out of
 setting it. Reads must pass `firm_id` to `AttributeService` for the same reason.
 
+**So the shared catalogue is the platform's to write (D-CFG-9, 2026-09-19).**
+Units, groups, packaging types and industry templates carry no firm, and their
+writes needed only `UOM_MANAGE` / `PACKAGING_MANAGE`, which every firm
+administrator holds: in `firm_shared` TESTSH1's administrator created, renamed
+and deleted a unit TESTSH2 was offered, with no audit row. Creating, changing
+and deleting them now takes the platform designation, as the geography
+masters do (`tests/unit/test_platform_only_routes.py` pins the routes). A
+unit's `PUT` is the exception, because the calling firm's own custom-field
+values on it are the firm's: it still takes `UOM_MANAGE`, and refuses a body
+that changes any of the unit's own columns to anybody without the designation.
+The desktop offers the catalogue's Add, Edit and Delete to a platform
+administrator only.
+
+What *is* a firm's -- a product's packaging levels and its conversion rules --
+must name that firm's own product. Both took the product unchecked, so a level
+carrying a barcode was hung on another firm's product (201) and the first
+firm's barcode lookup answered with that product's code and name; both now
+answer "Product not found.", and the lookup ignores any level already written
+on another firm's product.
+
 ## One product, several units
 
 **A product's units are columns on `products`.** Seven unit slots, plus

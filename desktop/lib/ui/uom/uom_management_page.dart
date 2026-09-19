@@ -95,11 +95,17 @@ class _UomManagementPageState extends State<UomManagementPage> {
     super.dispose();
   }
 
-  bool get _canManageUom => widget.permissions.hasPermission('UOM_MANAGE');
-  bool get _canManagePackaging =>
-      widget.permissions.hasPermission('PACKAGING_MANAGE');
+  /// Units, groups, packaging types and industry templates carry no firm: in
+  /// a shared store one row serves every firm there, so only a platform
+  /// administrator may write them (D-CFG-9) -- the server refuses anybody
+  /// else, and offering the buttons would only lead to that refusal.
+  bool get _canManageCatalogue => widget.permissions.isPlatformAdmin;
   bool get _canManageConversion =>
       widget.permissions.hasPermission('CONVERSION_RULE_MANAGE');
+
+  List<WorkspaceContextAction> get _catalogueActions => _canManageCatalogue
+      ? const [WorkspaceContextAction.edit, WorkspaceContextAction.delete]
+      : const [];
 
   Future<void> _load({int? requestedPage}) async {
     if (!widget.hasActiveFirm) return;
@@ -180,11 +186,8 @@ class _UomManagementPageState extends State<UomManagementPage> {
   }
 
   bool get _canCreateCurrent => switch (widget.section) {
-        UomManagementSection.uoms => _canManageUom,
-        UomManagementSection.uomGroups => _canManageUom,
-        UomManagementSection.packagingTypes => _canManagePackaging,
         UomManagementSection.conversionRules => _canManageConversion,
-        UomManagementSection.industryTemplates => _canManageUom,
+        _ => _canManageCatalogue,
       };
 
   String get _subtitle => switch (widget.section) {
@@ -232,10 +235,7 @@ class _UomManagementPageState extends State<UomManagementPage> {
           [row.code, row.name, row.symbol, row.dimension, row.status],
       onSelect: (row) => setState(() => _selectedId = row.id),
       onPageChanged: (_) {},
-      contextActions: const [
-        WorkspaceContextAction.edit,
-        WorkspaceContextAction.delete
-      ],
+      contextActions: _catalogueActions,
       onContextAction: (action, row) {
         if (action == WorkspaceContextAction.edit) {
           _openUomDialog(existing: row);
@@ -264,10 +264,7 @@ class _UomManagementPageState extends State<UomManagementPage> {
       cells: (row) => [row.code, row.name, row.status],
       onSelect: (row) => setState(() => _selectedId = row.id),
       onPageChanged: (_) {},
-      contextActions: const [
-        WorkspaceContextAction.edit,
-        WorkspaceContextAction.delete
-      ],
+      contextActions: _catalogueActions,
       onContextAction: (action, row) {
         if (action == WorkspaceContextAction.edit) {
           _openGroupDialog(existing: row);
@@ -296,10 +293,7 @@ class _UomManagementPageState extends State<UomManagementPage> {
       cells: (row) => [row.code, row.name, row.status],
       onSelect: (row) => setState(() => _selectedId = row.id),
       onPageChanged: (_) {},
-      contextActions: const [
-        WorkspaceContextAction.edit,
-        WorkspaceContextAction.delete
-      ],
+      contextActions: _catalogueActions,
       onContextAction: (action, row) {
         if (action == WorkspaceContextAction.edit) {
           _openPackagingDialog(existing: row);
@@ -376,10 +370,7 @@ class _UomManagementPageState extends State<UomManagementPage> {
       cells: (row) => [row.code, row.name, row.industryType, row.status],
       onSelect: (row) => setState(() => _selectedId = row.id),
       onPageChanged: (_) {},
-      contextActions: const [
-        WorkspaceContextAction.edit,
-        WorkspaceContextAction.delete
-      ],
+      contextActions: _catalogueActions,
       onContextAction: (action, row) {
         if (action == WorkspaceContextAction.edit) {
           _openTemplateDialog(existing: row);
