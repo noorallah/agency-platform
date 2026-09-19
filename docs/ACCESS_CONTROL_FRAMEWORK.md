@@ -528,6 +528,18 @@ That is true of *which firms exist*, and does not follow for *who works in
 mine*: an administrator of two firms putting a new hire in both is the ordinary
 case, and it was refused outright.
 
+**Which firm an identity route acts in is resolved by `optional_firm_scope`**
+(`app/common/scope.py`), the same dependency every firm-owned router composes:
+the firm must be live, and the caller must hold an active membership unless
+their designation reaches every firm. Until 2026-09-19 the router read
+`principal.firm_id` — the raw `X-Firm-ID` header, checked against nothing — so
+anybody holding a code in the **global** claim could list a firm's people,
+create users into it and set its roles by naming it, with no membership
+(D-IDN-7); and sending no header at all read as *platform-wide*. A caller
+without the platform designation who names no firm is now refused. A platform
+administrator still acts platform-wide and names the firm on the request where
+a route offers it (`firm_id` on the body or the query).
+
 `_firms_the_caller_may_staff` limits a caller to firms where they hold
 `USER_CREATE` **in that firm** — not firms they merely belong to. Two rules
 follow: a firm outside that reach is refused **by name**, never silently
