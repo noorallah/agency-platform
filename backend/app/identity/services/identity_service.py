@@ -959,7 +959,9 @@ class IdentityService:
             data: The new person's own details.
             actor_id: Who is doing the hiring.
             firm_scope: The caller's firm, or None for a platform caller.
-            allowed_firm_ids: The firms the caller may staff, or None for all.
+            allowed_firm_ids: The firms the caller may staff, or None for all;
+                every firm the clone would join, and every firm-tier role
+                copied, must be among them.
 
         Returns:
             The new user.
@@ -967,6 +969,7 @@ class IdentityService:
         """
         target = self._target_firm(firm_scope, data.firm_id)
         source = self._get_user(source_id, target)
+        self._assert_clone_within_reach(source.id, target, allowed_firm_ids)
         firm_tier = (
             self._firm_roles_held_by(source.id, allowed_firm_ids)
             if target is None
@@ -1053,6 +1056,50 @@ class IdentityService:
                 .distinct()
             )
         )
+
+    def _assert_clone_within_reach(
+        self,
+        source_id: UUID,
+        target: UUID | None,
+        allowed_firm_ids: frozenset[UUID] | None,
+    ) -> None:
+        """Hold a clone's memberships to the reach a membership write is held to.
+
+        A clone puts the new person in firms -- the named one, or every firm
+        the source works in -- and `PUT /users/{id}/firms` refuses any firm
+        outside `_firms_the_caller_may_staff`. The clone did not look, so a
+        `PLATFORM` operator, refused every direct membership write, could
+        staff any firm by copying somebody who worked there (D-IDN-6). The
+        same reach now applies, refused by firm code before the account is
+        opened, as the direct write refuses by name rather than dropping.
+
+        Raises:
+            BusinessRuleError: If a firm the clone would join is out of reach.
+
+        """
+        if allowed_firm_ids is None:
+            return
+        if target is not None:
+            joining = {target}
+        else:
+            joining = set(
+                self._session.scalars(
+                    select(UserFirm.firm_id).where(
+                        UserFirm.user_id == source_id,
+                        UserFirm.is_active.is_(True),
+                        UserFirm.is_deleted.is_(False),
+                    )
+                )
+            )
+        beyond = joining - allowed_firm_ids
+        if beyond:
+            codes = sorted(
+                self._session.scalars(select(Firm.code).where(Firm.id.in_(beyond)))
+            )
+            raise BusinessRuleError(
+                "You can only assign firms you administer. This copy would put "
+                f"the new person in: {', '.join(codes)}."
+            )
 
     def _firm_roles_held_by(
         self, user_id: UUID, allowed_firm_ids: frozenset[UUID] | None
