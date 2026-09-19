@@ -20,13 +20,20 @@ from datetime import date
 from decimal import Decimal
 from uuid import uuid4
 
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.branches.models import Branch
 from app.commission.models import CommissionMeasure, CommissionRule
+from app.commission.schemas import (
+    CommissionBasisEnum,
+    CommissionMeasureEnum,
+    CommissionRuleCreate,
+    CommissionRuleUpdate,
+)
 from app.commission.services import CommissionService
+from app.common.audit.models import AuditLog
 from app.core.database.base import Base
 from app.customers.models import Customer
 from app.firms.models import Firm
@@ -268,3 +275,81 @@ def test_one_firm_s_costs_are_invisible_to_another() -> None:
     )
 
     assert all(row.commission_amount == Decimal("0") for row in report.rows)
+
+
+def test_a_margin_rule_written_through_the_service_is_a_margin_rule() -> None:
+    """D-TER-1: `measure` reached the schema and was dropped on the floor.
+
+    `create_rule` never assigned it, so a MARGIN rule was stored and read back
+    as VALUE and paid its rate on the whole sale price. The seeder's own
+    `create_rule(measure=MARGIN)` lost it the same way, which is why only rows
+    written straight to the column ever exercised the margin path.
+    """
+    books = _Books(_session_factory()())
+    service = CommissionService(books.session)
+    row = service.create_rule(
+        CommissionRuleCreate(
+            salesman_id=books.salesman_id,
+            percentage=Decimal("10"),
+            effective_from=date(2026, 4, 1),
+            basis=CommissionBasisEnum.INVOICED,
+            measure=CommissionMeasureEnum.MARGIN,
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+    books.invoice("SI-1", total="1000", cost="600")
+
+    assert row.measure == CommissionMeasure.MARGIN.value
+    response = service.rule_response(row, {books.salesman_id: "Asha"})
+    assert response.measure is CommissionMeasureEnum.MARGIN
+    # Ten percent of the 400 margin, not of the 1,000 sale.
+    assert books.earned() == Decimal("40.00")
+    created = books.session.scalars(
+        select(AuditLog).where(AuditLog.action == "commission.rule.created")
+    ).one()
+    assert created.after_data is not None
+    assert created.after_data["measure"] == "MARGIN"
+
+
+def test_an_update_moves_the_measure_and_an_omission_leaves_it() -> None:
+    """A PUT naming `measure` changes it; one silent about it keeps it.
+
+    The update schema used to default `measure` to VALUE, so any edit that
+    did not mention it -- a rate change, a new end date -- quietly turned a
+    margin rule back into a value rule.
+    """
+    books = _Books(_session_factory()())
+    service = CommissionService(books.session)
+    row = service.create_rule(
+        CommissionRuleCreate(
+            salesman_id=books.salesman_id,
+            percentage=Decimal("10"),
+            effective_from=date(2026, 4, 1),
+            basis=CommissionBasisEnum.INVOICED,
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+    assert row.measure == CommissionMeasure.VALUE.value
+
+    service.update_rule(
+        row.id,
+        CommissionRuleUpdate(measure=CommissionMeasureEnum.MARGIN),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+    assert row.measure == CommissionMeasure.MARGIN.value
+
+    service.update_rule(
+        row.id,
+        CommissionRuleUpdate(percentage=Decimal("12")),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+    assert row.measure == CommissionMeasure.MARGIN.value
+    assert row.percentage == Decimal("12")
