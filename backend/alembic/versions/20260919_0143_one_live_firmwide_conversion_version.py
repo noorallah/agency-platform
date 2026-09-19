@@ -23,7 +23,7 @@ authoritative elsewhere. Idempotent, and firm-owned, so run it through
 ``scripts/migrate_all_stores.py``.
 
 Revision ID: 20260919_0143
-Revises: 20260919_0142
+Revises: 20260919_0141
 """
 
 from collections.abc import Sequence
@@ -33,7 +33,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20260919_0143"
-down_revision: str | None = "20260919_0142"
+down_revision: str | None = "20260919_0141"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
