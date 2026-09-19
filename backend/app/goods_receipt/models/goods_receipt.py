@@ -63,6 +63,11 @@ class GoodsReceipt(BaseEntity):
     vehicle_number: Mapped[str | None] = mapped_column(String(80))
     invoice_reference: Mapped[str | None] = mapped_column(String(120))
     remarks: Mapped[str | None] = mapped_column(Text)
+    # Retired (D-BUY-16): a receipt may never take in more than the order
+    # line still owes, and no request can say otherwise. An over-receipt
+    # tolerance, where a firm wants one, is the firm's setting and not a
+    # document's. The columns stay so no migration is needed; nothing reads or
+    # writes them.
     allow_over_receipt: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
