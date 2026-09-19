@@ -4,6 +4,11 @@ The one thing to understand before changing anything here: **206C(1H) is
 charged on consideration received, not on what was invoiced.** Every other tax
 in this system is computed while a document is priced; this one is computed
 when money arrives, and everything below follows from that.
+
+The second: **the Finance Act 2025 omitted section 206C(1H) with effect from
+1 April 2025.** A receipt dated on or after that day attracts no tax under it,
+whatever the firm's settings say; a receipt dated before it is charged exactly
+as it always was, and a collection already made is never rewritten (D-CMP-12).
 """
 
 from datetime import date
@@ -35,6 +40,12 @@ from app.tcs.schemas import (
 )
 
 HUNDRED = Decimal("100")
+
+#: The day section 206C(1H) stopped applying: omitted by the Finance Act 2025
+#: with effect from 1 April 2025. Judged on the receipt's own date, so a
+#: receipt from before it -- recorded late, or reversed -- is treated as the
+#: law then stood.
+SECTION_206C_1H_OMITTED_FROM = date(2025, 4, 1)
 
 #: What the section says, for a firm that has never opened the settings. These
 #: are the defaults on the row as well; named here so the service can answer
@@ -201,6 +212,16 @@ class TcsService:
             "without_pan": without_pan,
             "tcs_amount": ZERO,
         }
+        if on >= SECTION_206C_1H_OMITTED_FROM:
+            return TcsPreview(
+                applicable=False,
+                reason=(
+                    "Section 206C(1H) was omitted by the Finance Act 2025 from "
+                    "1 April 2025, so nothing is collected under it on a "
+                    "receipt from that date."
+                ),
+                **blank,
+            )
         if settings is None or not settings.is_enabled:
             return TcsPreview(
                 applicable=False,
