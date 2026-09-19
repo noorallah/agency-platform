@@ -238,14 +238,24 @@ class TcsService:
                 **blank,
             )
         taxable = self._taxable_part(
-            amount=amount, cumulative=cumulative, threshold=threshold
+            amount=amount,
+            cumulative=cumulative,
+            threshold=threshold,
+            already_taxed=self._already_taxed(
+                firm_id=firm_id,
+                customer_id=customer_id,
+                year_start=year_start,
+                up_to=on,
+                excluding_settlement_id=excluding_settlement_id,
+            ),
         )
         if taxable <= ZERO:
             return TcsPreview(
                 applicable=False,
                 reason=(
                     "This buyer has not yet paid more than the threshold this "
-                    "financial year."
+                    "financial year, above what standing collections have "
+                    "already charged them on."
                 ),
                 **blank,
             )
@@ -530,29 +540,87 @@ class TcsService:
 
     @staticmethod
     def _taxable_part(
-        *, amount: Decimal, cumulative: Decimal, threshold: Decimal
+        *,
+        amount: Decimal,
+        cumulative: Decimal,
+        threshold: Decimal,
+        already_taxed: Decimal = ZERO,
     ) -> Decimal:
-        """Return the part of this receipt above the threshold.
+        """Return what this receipt is charged on, once the year is squared up.
 
         The first fifty lakh a buyer pays in the year attracts nothing, so a
         receipt straddling that line is charged on the part above it and no
         more. Charging the whole receipt is the obvious mistake and it
         over-collects by the entire remaining headroom.
 
+        The charge is therefore a **running total**, not a per-receipt sum: by
+        this receipt's date the buyer owes tax on everything they have paid in
+        the year above the threshold, less what standing collections have
+        already charged them on. In the ordinary sequence that is exactly this
+        receipt's own excess. It differs only where the history behind it
+        moved -- a receipt reversed, or one back-dated in front of collections
+        already made -- and then this receipt settles the difference, because
+        a collection already made is never rewritten (D-CMP-16). An
+        over-collection likewise stands: it simply means nothing more is
+        charged until the buyer's excess catches up with it.
+
         Args:
             amount: What is being received now.
-            cumulative: What the buyer has already paid this year.
+            cumulative: What the buyer has already paid this year, by this
+                receipt's own date.
             threshold: Where charging starts.
+            already_taxed: What standing collections dated on or before this
+                receipt have already charged this buyer on, this year.
 
         Returns:
             The chargeable part, never negative.
 
         """
-        headroom = threshold - cumulative
-        if headroom <= ZERO:
-            return quantize_ledger(amount)
-        chargeable = amount - headroom
-        return quantize_ledger(chargeable) if chargeable > ZERO else ZERO
+        due = cumulative + amount - threshold - already_taxed
+        return quantize_ledger(due) if due > ZERO else ZERO
+
+    def _already_taxed(
+        self,
+        *,
+        firm_id: UUID,
+        customer_id: UUID,
+        year_start: date,
+        up_to: date,
+        excluding_settlement_id: UUID | None = None,
+    ) -> Decimal:
+        """Return what standing collections have charged this buyer this year.
+
+        Summed from the collections themselves, like every other running total
+        here, and only the ones that still stand: a reversed collection has
+        been handed back, so the money it charged on is chargeable again. Only
+        collections dated on or before this receipt count, for the same reason
+        the consideration is counted that way (D-CMP-7) -- the question is what
+        had been charged by then.
+
+        Args:
+            firm_id: The collecting firm.
+            customer_id: The buyer.
+            year_start: First day of the financial year.
+            up_to: The receipt's own date; later collections are not counted.
+            excluding_settlement_id: A receipt whose own collection to leave
+                out, so re-charging a receipt does not count itself.
+
+        Returns:
+            The taxable amount already charged, never below zero.
+
+        """
+        query = select(func.coalesce(func.sum(TcsCollection.taxable_amount), 0)).where(
+            TcsCollection.firm_id == firm_id,
+            TcsCollection.customer_id == customer_id,
+            TcsCollection.is_deleted.is_(False),
+            TcsCollection.status == TcsCollectionStatus.COLLECTED.value,
+            TcsCollection.financial_year_start == year_start,
+            TcsCollection.collected_on <= up_to,
+        )
+        if excluding_settlement_id is not None:
+            query = query.where(TcsCollection.settlement_id != excluding_settlement_id)
+        taxed = Decimal(str(self._session.scalar(query) or 0))
+        return quantize_ledger(taxed if taxed > ZERO else ZERO)
 
     def _consideration_so_far(
         self,
