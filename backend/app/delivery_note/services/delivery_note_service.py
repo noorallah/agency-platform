@@ -86,7 +86,7 @@ from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.schemas import ConversionRequest
-from app.uom.services import UomService
+from app.uom.services import UomService, assert_quantity_fits_unit
 
 ZERO = Decimal("0")
 
@@ -1962,6 +1962,15 @@ class DeliveryNoteService(TransactionalDocumentService):
         delivery_date: date,
         firm_id: UUID,
     ) -> dict[str, Decimal | int | None]:
+        # A line's quantity is refused here, where it is written, rather
+        # than when its stock moves (D-CFG-11).
+        assert_quantity_fits_unit(
+            self._session,
+            quantity=quantity,
+            uom_id=sales_uom_id or inventory_uom_id,
+            product_id=product_id,
+            firm_id=firm_id,
+        )
         if (
             sales_uom_id is None
             or inventory_uom_id is None

@@ -73,6 +73,90 @@ ROUNDING_MODES = {
 }
 
 
+def round_by_rule(quantity: Decimal, rule: ConversionRule) -> Decimal:
+    """Round a converted quantity the way its rule says.
+
+    The one rounding a conversion gets, so a document line and the stock it
+    moves cannot disagree. Stock multiplied by the factor and never rounded,
+    while the line was stored rounded, so a factor such as 1/3 at two places
+    left a line of 0.33 KG and a shelf of 0.3333 (D-CFG-11).
+    """
+    return quantize_by_rule(quantity * rule.conversion_factor, rule)
+
+
+def quantize_by_rule(converted: Decimal, rule: ConversionRule) -> Decimal:
+    """Round an already-converted quantity to the rule's precision and mode.
+
+    Separate from ``round_by_rule`` for a movement that converts at the
+    factor its document line recorded (D-CFG-1) but must still round the way
+    that line was rounded.
+    """
+    precision = Decimal("1").scaleb(-int(rule.precision_scale))
+    return converted.quantize(
+        precision, rounding=ROUNDING_MODES.get(rule.rounding_mode, ROUND_HALF_UP)
+    )
+
+
+def assert_quantity_fits_unit(
+    session: Session,
+    *,
+    quantity: Decimal,
+    uom_id: UUID | object | None,
+    product_id: UUID | None,
+    firm_id: UUID,
+) -> None:
+    """Refuse a fractional quantity where the unit or the product forbids one.
+
+    A unit's ``is_decimal_allowed`` and a product's ``allow_decimal`` were
+    recorded and read by nothing, so 1.5 BOX was accepted on every document
+    and stock movement (D-CFG-11). A quantity with no unit of its own is in
+    the product's stock unit. ``allow_fraction`` is deliberately not read:
+    it is false on every product and every profile default, so enforcing it
+    would refuse every 2.5 KG a firm records today.
+
+    Args:
+        session: The unit of work the document is being written in.
+        quantity: What was entered.
+        uom_id: The unit it was entered in, or None for the stock unit. The
+            invoice and return modules hold it in an untyped line spec, so
+            anything whose text is a UUID is accepted.
+        product_id: The product the quantity is of.
+        firm_id: The firm the product must belong to.
+
+    Raises:
+        ValidationError: A whole-number unit or product was given a fraction.
+
+    """
+    if quantity == quantity.to_integral_value():
+        return
+    shown = format(quantity.normalize(), "f")
+    product = (
+        None
+        if product_id is None
+        else session.scalar(
+            select(Product).where(
+                Product.id == product_id,
+                Product.firm_id == firm_id,
+                Product.is_deleted.is_(False),
+            )
+        )
+    )
+    if product is not None and not product.allow_decimal:
+        raise ValidationError(
+            f"{product.code} is sold and stocked in whole numbers only "
+            f"(Allow decimal is off), so a quantity of {shown} cannot be entered."
+        )
+    unit_id = None if uom_id is None else UUID(str(uom_id))
+    if unit_id is None and product is not None:
+        unit_id = product.inventory_uom_id or product.base_uom_id
+    unit = None if unit_id is None else session.get(Uom, unit_id)
+    if unit is not None and not unit.is_decimal_allowed:
+        raise ValidationError(
+            f"{unit.code} is counted in whole numbers, so {shown} {unit.code} "
+            "cannot be entered."
+        )
+
+
 class UomService:
     """Coordinate UOM masters, conversions, and product packaging hierarchy."""
 
@@ -601,10 +685,7 @@ class UomService:
             to_uom_id=request.to_uom_id,
             on_date=on_date,
         )
-        precision = Decimal("1").scaleb(-int(rule.precision_scale))
-        converted = (request.quantity * rule.conversion_factor).quantize(
-            precision, rounding=ROUNDING_MODES.get(rule.rounding_mode, ROUND_HALF_UP)
-        )
+        converted = round_by_rule(request.quantity, rule)
         return ConversionResponse(
             quantity=request.quantity,
             converted_quantity=converted,

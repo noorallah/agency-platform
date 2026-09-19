@@ -32,6 +32,21 @@ A `Uom` carries a `dimension` (`COUNT`, `WEIGHT`, `VOLUME`, `LENGTH`) and
 seeded catalogue `BOX`, `BOTTLE`, `CASE` and `CRATE` are whole-number units
 while `CAPSULE` and `BUNDLE` allow decimals.
 
+**Enforced since D-CFG-11 (2026-09-19); before that it was only recorded.**
+`assert_quantity_fits_unit` (`app/uom/services/uom_service.py`) refuses a
+fractional quantity, by name, when the unit it was entered in -- or the
+product's stock unit, for a line with none -- has `is_decimal_allowed` off, or
+the product has `allow_decimal` off. It runs on every document line where the
+quantity is written (quotation, purchase order, goods receipt, purchase
+invoice and return, sales order, delivery note, sales invoice and return) and
+on every stock movement that brings a quantity in, through
+`InventoryService._resolve_base_quantity`; releasing a reservation is exempt,
+because it only gives back what was held. A product's `allow_fraction` is
+**not** read: it is false on every product and every profile default, so
+enforcing it would refuse every 2.5 KG a firm records today, and nothing says
+how it differs from `allow_decimal`. Driven on `fx_t0919duz7_r`: 1.5 PACK was
+ordered, received and stocked before the fix.
+
 **`uoms` is not firm-owned** — the table has no `firm_id` and one row serves
 every firm sharing a store. That has a consequence for custom fields: the
 uniqueness rule on `uom_attribute_values` is *(firm, unit, attribute)*, not
@@ -235,7 +250,10 @@ version by name, saying which number is free. A retired rule holds no number.
 
 Rounding is per rule — `rounding_mode` (`HALF_UP`, `HALF_DOWN`, `HALF_EVEN`,
 `UP`, `DOWN`, `CEILING`, `FLOOR`; default `HALF_UP`) and `precision_scale`
-(default 4).
+(default 4). **The line and the stock round the same way**, through
+`round_by_rule`: stock used to multiply by the factor and never round, so a
+PACK -> KG rule of 0.3333333333 at two places left an order line of 0.33 KG
+and a shelf of 0.3333 KG (D-CFG-11).
 
 Both halves, run against the seeded WHOLE01 firm on 2026-08-12:
 

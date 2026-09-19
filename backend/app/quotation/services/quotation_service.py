@@ -79,6 +79,7 @@ from app.sales_order.services.sales_order_service import PromotionBenefits
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
+from app.uom.services import assert_quantity_fits_unit
 
 ZERO = Decimal("0")
 
@@ -1104,6 +1105,14 @@ class QuotationService(TransactionalDocumentService):
             product = products[index]
             line_discount = priced[index]
             quantity = self._q(item.quantity)
+            # Refused on the quotation, not first when it becomes an order.
+            assert_quantity_fits_unit(
+                self._session,
+                quantity=quantity,
+                uom_id=item.sales_uom_id or item.inventory_uom_id,
+                product_id=item.product_id,
+                firm_id=row.firm_id,
+            )
             gross = grosses[index]
             discount = line_discount.amount
             bill_share = shares[index]

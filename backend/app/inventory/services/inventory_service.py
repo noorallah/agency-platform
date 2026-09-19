@@ -63,6 +63,11 @@ from app.inventory.schemas import (
 )
 from app.products.models import Product
 from app.uom.models import ConversionRule
+from app.uom.services.uom_service import (
+    assert_quantity_fits_unit,
+    quantize_by_rule,
+    round_by_rule,
+)
 
 ZERO = Decimal("0")
 
@@ -2383,6 +2388,7 @@ class InventoryService:
             conversion_version=conversion_version,
             line_conversion=line_conversion,
             on_date=transaction_date,
+            enforce_whole_units=False,
         )
         inventory = self._ensure_inventory_projection(
             firm_id=firm_scope,
@@ -3846,8 +3852,19 @@ class InventoryService:
         conversion_version: int | None,
         on_date: date,
         line_conversion: LineConversion | None = None,
+        enforce_whole_units: bool = True,
     ) -> tuple[Decimal, Decimal, UUID | None, int | None]:
         entered = Decimal(str(quantity))
+        # Every movement that brings a quantity in: a release only gives back
+        # what was reserved, and refusing it would strand the reservation.
+        if enforce_whole_units:
+            assert_quantity_fits_unit(
+                self._session,
+                quantity=entered,
+                uom_id=entered_uom_id,
+                product_id=product_id,
+                firm_id=firm_scope,
+            )
         if entered_uom_id is None:
             return entered, entered, None, conversion_version
         product = self._session.scalar(
@@ -3871,6 +3888,32 @@ class InventoryService:
             # its factor, or its version number -- changes nothing already on
             # a document (D-CFG-1).
             base_quantity = entered * Decimal(str(line_conversion.factor))
+            recorded = (
+                None
+                if conversion_version is None
+                else self._session.scalars(
+                    select(ConversionRule)
+                    .where(
+                        ConversionRule.firm_id == firm_scope,
+                        ConversionRule.from_uom_id == entered_uom_id,
+                        ConversionRule.to_uom_id == target_uom_id,
+                        ConversionRule.version_number == conversion_version,
+                        or_(
+                            ConversionRule.product_id == product_id,
+                            ConversionRule.product_id.is_(None),
+                        ),
+                    )
+                    .order_by(
+                        case((ConversionRule.product_id.is_(None), 1), else_=0).asc(),
+                        ConversionRule.is_deleted.asc(),
+                    )
+                ).first()
+            )
+            if recorded is not None:
+                # Rounded the way the line was, so the shelf holds the 0.33
+                # the line says rather than 0.3333 (D-CFG-11). The factor is
+                # still the line's own; only the rule's rounding is read.
+                base_quantity = quantize_by_rule(base_quantity, recorded)
             return base_quantity, entered, entered_uom_id, conversion_version
         statement = select(ConversionRule).where(
             ConversionRule.firm_id == firm_scope,
@@ -3916,7 +3959,8 @@ class InventoryService:
             raise ValidationError(
                 "No active conversion rule is configured for the selected UOM."
             )
-        base_quantity = entered * rule.conversion_factor
+        # The rule's own rounding, which the line was stored with.
+        base_quantity = round_by_rule(entered, rule)
         return base_quantity, entered, entered_uom_id, rule.version_number
 
     def _available_quantity(
