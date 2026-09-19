@@ -845,6 +845,101 @@ def test_the_balance_sheet_balances_because_earnings_are_carried_to_equity() -> 
     assert "4000" not in listed
 
 
+def test_the_balance_sheet_carries_control_accounts_where_their_purpose_puts_them() -> (
+    None
+):
+    """D-FIN-7: the sheet listed ASSET, LIABILITY and EQUITY and skipped CONTROL.
+
+    The control-account mapping allows a CONTROL account for receivables,
+    payables, both taxes, GRNI, commission, TCS and loyalty payable. Driven on
+    a fixture firm: TCS_PAYABLE mapped to a CONTROL account 2390 and 50.00
+    posted to it left the trial balance balanced and the balance sheet at
+    assets 50.00, liabilities 0.00 -- 2390 was not on it.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    service = FinanceService(session)
+    group = service.create_account_group(
+        AccountGroupCreate(
+            code="CTL", name="Control accounts", account_type=AccountTypeEnum.CONTROL
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    def _control(code: str, name: str) -> LedgerAccount:
+        """Open one CONTROL account in the control group."""
+        return service.create_ledger_account(
+            LedgerAccountCreate(
+                account_group_id=group.id,
+                code=code,
+                name=name,
+                account_type=AccountTypeEnum.CONTROL,
+            ),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+
+    receivable = _control("1190", "Receivable control")
+    tcs = _control("2390", "TCS payable control")
+    suspense = _control("1990", "Unmapped control")
+    controls = ControlAccountService(session)
+    controls.assign(
+        firm.id,
+        ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
+        receivable.id,
+        actor_id=actor_id,
+    )
+    controls.assign(
+        firm.id, ControlAccountPurpose.TCS_PAYABLE, tcs.id, actor_id=actor_id
+    )
+    engine = JournalEntryEngine(session)
+    for reference, debit, credit, amount in (
+        ("JV-CREDIT-SALE", receivable.id, book.sales.id, "100.00"),
+        ("JV-TCS", book.cash.id, tcs.id, "30.00"),
+        ("JV-SUSPENSE", suspense.id, book.cash.id, "5.00"),
+    ):
+        entry = engine.create_entry(
+            firm_id=firm.id,
+            journal_type_id=book.journal_type.id,
+            voucher_type_id=book.voucher_type.id,
+            accounting_period_id=book.period.id,
+            journal_date=date(2026, 4, 10),
+            reference_number=reference,
+            description=reference,
+            lines=[
+                JournalLineData(ledger_account_id=debit, debit_amount=Decimal(amount)),
+                JournalLineData(
+                    ledger_account_id=credit, credit_amount=Decimal(amount)
+                ),
+            ],
+            actor_id=actor_id,
+        )
+        engine.post_entry(entry.id, firm_id=firm.id, actor_id=actor_id)
+    session.commit()
+
+    ledger = GeneralLedgerService(session)
+    assert ledger.trial_balance(
+        firm_id=firm.id, accounting_period_id=book.period.id
+    ).is_balanced
+    report = ledger.balance_sheet(firm_id=firm.id, accounting_period_id=book.period.id)
+
+    assets = {line.account_code: line.amount for line in report.assets}
+    liabilities = {line.account_code: line.amount for line in report.liabilities}
+    # The receivable is an asset by its purpose; TCS payable a liability; the
+    # unmapped one goes by its debit balance.
+    assert assets == {
+        "1000": Decimal("25.00"),
+        "1190": Decimal("100.00"),
+        "1990": Decimal("5.00"),
+    }
+    assert liabilities == {"2390": Decimal("30.00")}
+    assert report.total_equity == Decimal("100.00")
+    assert report.is_balanced
+
+
 def test_the_balance_sheet_splits_this_year_from_what_came_before() -> None:
     """Two figures, because they answer different questions.
 
