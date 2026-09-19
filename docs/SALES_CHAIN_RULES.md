@@ -66,6 +66,17 @@ A column per stage rather than a mode, because a firm grows: an enum needs a
 new value for every combination on that path. The switch governs **new**
 documents only, so turning a stage on never strands work in flight.
 
+**A draft bill ships nothing** (D-SELL-13, 2026-09-19). The note the chain
+raises for a bill is approved and left waiting; the bill's **approval**
+dispatches it, in the approval's own transaction, and costs the bill's lines
+from that dispatch. Saving the draft used to dispatch it there and then, so a
+draft cancelled a minute later left the stock out, cost of goods sold posted
+and the order DELIVERED with nothing billed. Cancelling a draft now cancels
+the waiting note it raised, which the invoice records by
+`allow_direct_sales_order` -- a record of how the bill was raised, not a
+permission. The order a bare bill raised is left APPROVED and is offered again
+to bill.
+
 **A bill that ships a serial-tracked product names its units** (D-STK-4,
 2026-09-19). Dispatch refuses a serial-tracked line that does not name one
 serial per unit leaving, and the document that issues the stock is where they

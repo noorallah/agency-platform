@@ -671,7 +671,22 @@ class DeliveryNoteService(TransactionalDocumentService):
         actor_id: UUID,
         reason: str | None = None,
     ) -> DeliveryNote:
-        """Cancel one delivery note."""
+        """Cancel one delivery note and commit it."""
+        row = self.stage_cancel(
+            note_id, firm_scope=firm_scope, actor_id=actor_id, reason=reason
+        )
+        self._session.commit()
+        return row
+
+    def stage_cancel(
+        self,
+        note_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        reason: str | None = None,
+    ) -> DeliveryNote:
+        """Cancel one delivery note without committing it."""
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status in {
             DeliveryNoteStatus.DISPATCHED.value,
@@ -702,7 +717,6 @@ class DeliveryNoteService(TransactionalDocumentService):
             actor_id=actor_id,
             firm_id=firm_scope,
         )
-        self._session.commit()
         return row
 
     def close_note(

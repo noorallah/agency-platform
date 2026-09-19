@@ -35,6 +35,7 @@ from app.customers.services.customer_service import CustomerService
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.delivery_note.rules import goods_have_left_clause, require_dispatched_note
 from app.delivery_note.schemas import DeliveryNoteStatus
+from app.delivery_note.services.delivery_note_service import DeliveryNoteService
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentTypeDefinition,
@@ -354,7 +355,9 @@ class SalesInvoiceService(TransactionalDocumentService):
             firm_id=firm_id, actor_id=actor_id
         )
         header, source_rows, line_specs = self._prepare_invoice_sources(
-            data, firm_id=firm_id
+            data,
+            firm_id=firm_id,
+            ships_on_approval=self._raised_its_own_dispatch(data, firm_id=firm_id),
         )
         branch_id = data.branch_id or header["branch_id"]
         customer_id = data.customer_id or header["customer_id"]
@@ -532,7 +535,9 @@ class SalesInvoiceService(TransactionalDocumentService):
         if row.status != SalesInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft sales invoices can be updated.")
         self._delete_children(row.id)
-        header, source_rows, line_specs = self._prepare_invoice_sources(data, firm_id)
+        header, source_rows, line_specs = self._prepare_invoice_sources(
+            data, firm_id, ships_on_approval=row.allow_direct_sales_order
+        )
         row.customer_id = data.customer_id or header["customer_id"]
         row.branch_id = data.branch_id or header["branch_id"]
         row.business_profile_id = data.business_profile_id
@@ -674,21 +679,17 @@ class SalesInvoiceService(TransactionalDocumentService):
             raise ValidationError("Only draft sales invoices can be approved.")
         # Checked again here, not only when the draft is saved: a draft saved
         # before the save refused an undispatched note would otherwise still
-        # post revenue for goods that never left (D-SELL-3).
-        for note in self._session.scalars(
-            select(DeliveryNote)
-            .join(
-                SalesInvoiceSource,
-                SalesInvoiceSource.source_document_id == DeliveryNote.id,
-            )
-            .where(
-                SalesInvoiceSource.sales_invoice_id == row.id,
-                SalesInvoiceSource.source_document_type
-                == SalesInvoiceSourceType.DELIVERY_NOTE.value,
-                SalesInvoiceSource.is_deleted.is_(False),
-            )
-        ).all():
-            require_dispatched_note(note, "billed")
+        # post revenue for goods that never left (D-SELL-3). A bill that
+        # raised its own note is the exception: its approval is the dispatch.
+        to_ship: list[DeliveryNote] = []
+        for note in self._billed_notes(row):
+            if (
+                row.allow_direct_sales_order
+                and note.status == DeliveryNoteStatus.APPROVED.value
+            ):
+                to_ship.append(note)
+            else:
+                require_dispatched_note(note, "billed")
         # Approval is what puts the amount on the customer's account, so it is
         # the last point at which a limit can still be enforced.
         #
@@ -710,6 +711,10 @@ class SalesInvoiceService(TransactionalDocumentService):
             CreditControlService(self._session).assert_within_limit(
                 customer, additional_amount=self._q(row.grand_total)
             )
+        # The goods leave now, not when the draft was saved: a draft is a
+        # proposal, and it used to ship the stock and post cost of goods sold
+        # the moment it was typed (D-SELL-13, driven 2026-09-19).
+        self._ship_on_approval(row, to_ship, firm_scope=firm_scope, actor_id=actor_id)
         before = row.status
         row.status = SalesInvoiceStatus.APPROVED.value
         row.approved_at = utc_now()
@@ -775,6 +780,105 @@ class SalesInvoiceService(TransactionalDocumentService):
             firm_id=firm_scope,
         )
         return row
+
+    def _billed_notes(self, row: SalesInvoice) -> list[DeliveryNote]:
+        """Return the delivery notes a bill names as its sources."""
+        return list(
+            self._session.scalars(
+                select(DeliveryNote)
+                .join(
+                    SalesInvoiceSource,
+                    SalesInvoiceSource.source_document_id == DeliveryNote.id,
+                )
+                .where(
+                    SalesInvoiceSource.sales_invoice_id == row.id,
+                    SalesInvoiceSource.source_document_type
+                    == SalesInvoiceSourceType.DELIVERY_NOTE.value,
+                    SalesInvoiceSource.is_deleted.is_(False),
+                )
+            ).all()
+        )
+
+    def _ship_on_approval(
+        self,
+        row: SalesInvoice,
+        notes: list[DeliveryNote],
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> None:
+        """Dispatch the notes a bill raised for itself, and cost its lines.
+
+        The lines were written while the goods were still on the shelf, so
+        nothing could say what they cost; the dispatch's own movement does
+        now, read the way every other bill reads it.
+        """
+        if not notes:
+            return
+        service = DeliveryNoteService(self._session)
+        for note in notes:
+            service.stage_dispatch(note.id, firm_scope=firm_scope, actor_id=actor_id)
+        self._session.flush()
+        shipped = {note.id for note in notes}
+        costs = self._dispatch_costs(shipped)
+        for line in self._session.scalars(
+            select(SalesInvoiceLine).where(
+                SalesInvoiceLine.sales_invoice_id == row.id,
+                SalesInvoiceLine.source_document_type
+                == SalesInvoiceSourceType.DELIVERY_NOTE.value,
+                SalesInvoiceLine.source_document_id.in_(shipped),
+                SalesInvoiceLine.is_deleted.is_(False),
+            )
+        ).all():
+            note_line = self._session.get(
+                DeliveryNoteLine, line.source_document_line_id
+            )
+            if note_line is None:  # pragma: no cover - the bill was built on it
+                continue
+            line.cost_amount = self._line_cost(
+                source_line=note_line,
+                source_type=SalesInvoiceSourceType.DELIVERY_NOTE.value,
+                invoice_quantity=self._q(line.current_invoice_quantity),
+                source_quantity=self._q(line.delivered_quantity),
+                costs=costs,
+            )
+
+    def _withdraw_unshipped_notes(
+        self, row: SalesInvoice, *, firm_scope: UUID, actor_id: UUID
+    ) -> None:
+        """Cancel the notes a cancelled draft raised for itself.
+
+        They were raised to carry this bill's goods and have not left; kept,
+        they would hold the order's quantity against a sale that is off, with
+        no screen offering them. A note another live bill also names is left
+        alone.
+        """
+        service = DeliveryNoteService(self._session)
+        for note in self._billed_notes(row):
+            if note.status != DeliveryNoteStatus.APPROVED.value:
+                continue
+            others = self._session.scalar(
+                select(func.count(SalesInvoiceSource.id))
+                .join(
+                    SalesInvoice,
+                    SalesInvoice.id == SalesInvoiceSource.sales_invoice_id,
+                )
+                .where(
+                    SalesInvoiceSource.source_document_id == note.id,
+                    SalesInvoiceSource.is_deleted.is_(False),
+                    SalesInvoice.id != row.id,
+                    SalesInvoice.status != SalesInvoiceStatus.CANCELLED.value,
+                    SalesInvoice.is_deleted.is_(False),
+                )
+            )
+            if others:
+                continue
+            service.stage_cancel(
+                note.id,
+                firm_scope=firm_scope,
+                actor_id=actor_id,
+                reason=f"Bill {row.invoice_number} was cancelled before approval.",
+            )
 
     def _assert_nothing_rests_on(self, row: SalesInvoice) -> None:
         """Refuse to cancel a bill that money, a correction or a filing rests on.
@@ -915,6 +1019,10 @@ class SalesInvoiceService(TransactionalDocumentService):
         row.status = SalesInvoiceStatus.CANCELLED.value
         row.cancel_reason = reason
         row.updated_by = actor_id
+        if before == SalesInvoiceStatus.DRAFT.value and row.allow_direct_sales_order:
+            self._withdraw_unshipped_notes(
+                row, firm_scope=firm_scope, actor_id=actor_id
+            )
         if before == SalesInvoiceStatus.APPROVED.value:
             # The invoice posted revenue, tax and a receivable when it was
             # approved. Cancelling it reduced the customer's balance and left
@@ -1828,8 +1936,19 @@ class SalesInvoiceService(TransactionalDocumentService):
             )
 
     def _prepare_invoice_sources(
-        self, data: SalesInvoiceCreate, firm_id: UUID
+        self,
+        data: SalesInvoiceCreate,
+        firm_id: UUID,
+        *,
+        ships_on_approval: bool = False,
     ) -> tuple[dict[str, UUID], list[dict[str, object]], list[dict[str, object]]]:
+        """Read the documents a bill names, and the header they agree on.
+
+        ``ships_on_approval`` is true for a bill that raises its own delivery
+        note (the firm leaves that stage to the service): the note it bills is
+        approved and waiting, and the bill's approval is what dispatches it
+        (D-SELL-13). Any other bill names only a note whose goods have left.
+        """
         if any(item.serial_ids for item in data.lines):
             # Left over only on a line billing a note already dispatched --
             # the chain moves them onto the note it raises. Taking them here
@@ -1867,7 +1986,11 @@ class SalesInvoiceService(TransactionalDocumentService):
                 )
                 if note is None:
                     raise ResourceNotFoundError("Delivery note not found.")
-                require_dispatched_note(note, "billed")
+                if not (
+                    ships_on_approval
+                    and note.status == DeliveryNoteStatus.APPROVED.value
+                ):
+                    require_dispatched_note(note, "billed")
                 source_rows.append(
                     {
                         "source_document_type": source_type,
