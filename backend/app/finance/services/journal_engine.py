@@ -21,6 +21,7 @@ from app.core.utils.dates import utc_now
 from app.finance.models import (
     DEBIT_BALANCE_ACCOUNT_TYPES,
     AccountingPeriod,
+    CostCenter,
     FinancialYear,
     GLPosting,
     JournalEntry,
@@ -31,6 +32,7 @@ from app.finance.models import (
     LedgerBalance,
     PeriodStatus,
     PostingStatus,
+    ProfitCenter,
     VoucherType,
 )
 
@@ -99,8 +101,14 @@ class JournalEntryEngine:
         source_module: str | None = None,
         source_id: UUID | None = None,
         actor_id: UUID,
+        inactive_centres_allowed: bool = False,
     ) -> JournalEntry:
-        """Create one balanced draft journal entry."""
+        """Create one balanced draft journal entry.
+
+        ``inactive_centres_allowed`` is for a reversal only: it repeats the
+        centres the original carried, and undoing an entry must not depend on
+        a centre still being in use.
+        """
         if len(lines) < 2:
             raise ValidationError(
                 "A journal entry needs at least one debit and one credit line."
@@ -145,6 +153,9 @@ class JournalEntryEngine:
             raise ValidationError("A journal entry must carry a non-zero amount.")
 
         accounts = self._load_accounts(lines, firm_id=firm_id)
+        self._check_centres(
+            lines, firm_id=firm_id, require_active=not inactive_centres_allowed
+        )
         entry = JournalEntry(
             firm_id=firm_id,
             journal_type_id=journal_type_id,
@@ -374,6 +385,7 @@ class JournalEntryEngine:
             source_module=original.source_module,
             source_id=original.source_id,
             actor_id=actor_id,
+            inactive_centres_allowed=True,
         )
         reversal.reversal_of_id = original.id
         self.post_entry(reversal.id, firm_id=firm_id, actor_id=actor_id)
@@ -732,6 +744,68 @@ class JournalEntryEngine:
                 f"Ledger accounts are inactive: {', '.join(sorted(inactive))}."
             )
         return accounts
+
+    def _check_centres(
+        self,
+        lines: list[JournalLineData],
+        *,
+        firm_id: UUID,
+        require_active: bool,
+    ) -> None:
+        """Refuse a centre that is not the firm's, is deleted, or is inactive.
+
+        D-FIN-12: only presence was checked. In the shared store another
+        firm's centre was accepted onto this firm's line; in a store of its
+        own an unknown id failed the foreign key, and that failure was
+        reported as "A journal entry with this reference number already
+        exists." -- the one message the unique key's handler knows.
+        """
+        costs = self._live_centres(
+            CostCenter,
+            {line.cost_center_id for line in lines if line.cost_center_id},
+            firm_id=firm_id,
+        )
+        profits = self._live_centres(
+            ProfitCenter,
+            {line.profit_center_id for line in lines if line.profit_center_id},
+            firm_id=firm_id,
+        )
+        for number, line in enumerate(lines, start=1):
+            for centre_id, found, label in (
+                (line.cost_center_id, costs, "cost centre"),
+                (line.profit_center_id, profits, "profit centre"),
+            ):
+                if centre_id is None:
+                    continue
+                known = found.get(centre_id)
+                if known is None:
+                    raise ValidationError(f"Unknown {label} on line {number}.")
+                code, active = known
+                if require_active and not active:
+                    raise ValidationError(
+                        f"The {label} {code} on line {number} is inactive."
+                    )
+
+    def _live_centres(
+        self,
+        model: type[CostCenter] | type[ProfitCenter],
+        wanted: set[UUID],
+        *,
+        firm_id: UUID,
+    ) -> dict[UUID, tuple[str, bool]]:
+        """Return the firm's live centres among ``wanted``: code and active."""
+        if not wanted:
+            return {}
+        return {
+            centre_id: (code, bool(active))
+            for centre_id, code, active in self._session.execute(
+                select(model.id, model.code, model.is_active).where(
+                    model.id.in_(wanted),
+                    model.firm_id == firm_id,
+                    model.is_deleted.is_(False),
+                )
+            ).all()
+        }
 
     def _validate_line_dimensions(
         self, account: LedgerAccount, data: JournalLineData

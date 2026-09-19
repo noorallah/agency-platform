@@ -1446,6 +1446,75 @@ def test_finance_api_scope_enforces_membership_and_permissions() -> None:
     assert report.data.total_debit == Decimal("40.00")
 
 
+def test_a_journal_line_takes_only_the_firms_own_live_centres() -> None:
+    """D-FIN-12: a line's centre was checked for presence only.
+
+    Driven on a fixture firm (a store of its own): an unknown cost centre id
+    was reported as "A journal entry with this reference number already
+    exists.", and an inactive one was accepted. In the shared store -- one
+    database, as here -- another firm's centre was taken onto this firm's
+    line. A reversal still repeats a centre deactivated since.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    other = _firm(session, "OTHER")
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    finance = FinanceService(session)
+    theirs = finance.create_cost_center(
+        CostCenterCreate(code="THEIRS", name="Their centre"),
+        firm_id=other.id,
+        actor_id=actor_id,
+    )
+    ours = finance.create_cost_center(
+        CostCenterCreate(code="OURS", name="Our centre"),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    session.commit()
+    engine = JournalEntryEngine(session)
+
+    def _entry(reference: str, cost_center_id: UUID) -> JournalEntry:
+        """Write one cash sale with a cost centre on its cash line."""
+        return engine.create_entry(
+            firm_id=firm.id,
+            journal_type_id=book.journal_type.id,
+            voucher_type_id=book.voucher_type.id,
+            accounting_period_id=book.period.id,
+            journal_date=date(2026, 4, 10),
+            reference_number=reference,
+            description="Cash sale",
+            lines=[
+                JournalLineData(
+                    ledger_account_id=book.cash.id,
+                    debit_amount=Decimal("10.00"),
+                    cost_center_id=cost_center_id,
+                ),
+                JournalLineData(
+                    ledger_account_id=book.sales.id, credit_amount=Decimal("10.00")
+                ),
+            ],
+            actor_id=actor_id,
+        )
+
+    for reference, centre_id in (("JV-THEIRS", theirs.id), ("JV-NONE", uuid4())):
+        with pytest.raises(ValidationError, match="Unknown cost centre on line 1"):
+            _entry(reference, centre_id)
+
+    posted = _entry("JV-OURS", ours.id)
+    engine.post_entry(posted.id, firm_id=firm.id, actor_id=actor_id)
+    ours.is_active = False
+    session.commit()
+    with pytest.raises(ValidationError, match="cost centre OURS on line 1 is inactive"):
+        _entry("JV-LATER", ours.id)
+
+    # Undoing the earlier entry does not depend on the centre still being used.
+    reversal = engine.reverse_entry(
+        posted.id, firm_id=firm.id, reference_number="JV-OURS-REV", actor_id=actor_id
+    )
+    assert reversal.lines[0].cost_center_id == ours.id
+
+
 def test_journal_line_schema_rejects_two_sided_and_empty_lines() -> None:
     """A journal line must carry exactly one of debit or credit."""
     common = {
