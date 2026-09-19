@@ -1271,3 +1271,123 @@ def test_a_condition_written_against_a_profile_id_matches_that_profile() -> None
     assert result.applied_tax_profile_id == getattr(interstate, "id")  # noqa: B009
     assert {item.code for item in result.applied_components} == {"IGST"}
     assert result.total_tax_amount == Decimal("180")
+
+
+class _RuleBook:
+    """One firm with one ACTIVE rule, ``SWITCH``, matching every sale."""
+
+    def __init__(self) -> None:
+        """Seed the firm and the rule."""
+        self.session = _session_factory()()
+        self.actor_id = uuid4()
+        self.firm = _firm(self.session)
+        self.rules = TaxRuleService(self.session)
+        self.original = self.rules.create_rule(
+            self.write(), firm_id=self.firm.id, actor_id=self.actor_id
+        )
+
+    @staticmethod
+    def write(
+        *, status: str = "ACTIVE", effective_from: date | None = None
+    ) -> TaxRuleWrite:
+        """Return the rule as a form would send it."""
+        return TaxRuleWrite(
+            code="SWITCH",
+            name="Switch",
+            priority=10,
+            status=status,
+            effective_from=effective_from,
+            conditions=[
+                {
+                    "sequence": 1,
+                    "field_key": "transaction_type",
+                    "operator": "EQUALS",
+                    "value_text": "SALES_INVOICE",
+                }
+            ],
+        )
+
+    def edit(self, rule_id: UUID, data: TaxRuleWrite) -> object:
+        """Save an edit the way the rule form does."""
+        return self.rules.update_rule(
+            rule_id, data, firm_scope=self.firm.id, actor_id=self.actor_id
+        )
+
+    def matched_on(self, when: date) -> UUID | None:
+        """Return the rule a sale on this date is decided by."""
+        return self.rules.simulate(
+            TaxRuleSimulationRequest(
+                transaction_type="SALES_INVOICE",
+                transaction_date=when,
+                invoice_value="100",
+            ),
+            firm_scope=self.firm.id,
+            actor_id=self.actor_id,
+        ).matched_rule_id
+
+    def statuses(self) -> list[tuple[int, str, date | None]]:
+        """Return every version of the rule, oldest first."""
+        return [
+            (row.version_number, row.status, row.effective_to)
+            for row in self.rules.rule_history(firm_scope=self.firm.id, code="SWITCH")
+        ]
+
+
+def test_switching_a_rule_off_takes_every_version_out_of_force() -> None:
+    """D-CMP-3: an edit to INACTIVE left version 1 ACTIVE and still deciding."""
+    book = _RuleBook()
+
+    book.edit(book.original.id, book.write(status="INACTIVE"))
+
+    assert book.statuses() == [(1, "INACTIVE", None), (2, "INACTIVE", None)]
+    assert book.matched_on(date(2026, 6, 1)) is None
+
+
+def test_an_edit_leaves_exactly_one_version_deciding() -> None:
+    """The new version decides; the one it replaced no longer matches at all."""
+    book = _RuleBook()
+
+    successor = book.edit(book.original.id, book.write())
+
+    assert book.statuses() == [(1, "INACTIVE", None), (2, "ACTIVE", None)]
+    assert book.matched_on(date(2026, 6, 1)) == successor.id
+
+
+def test_a_later_start_closes_the_old_version_the_day_before() -> None:
+    """Documents dated before the change are still decided by the old version.
+
+    Closed rather than switched off, the way a rate change closes a profile:
+    a September bill reprinted in December must still be taxed as it was.
+    """
+    book = _RuleBook()
+
+    successor = book.edit(
+        book.original.id, book.write(effective_from=date(2026, 10, 1))
+    )
+
+    assert book.statuses() == [
+        (1, "ACTIVE", date(2026, 9, 30)),
+        (2, "ACTIVE", None),
+    ]
+    assert book.matched_on(date(2026, 9, 15)) == book.original.id
+    assert book.matched_on(date(2026, 10, 15)) == successor.id
+
+
+def test_a_draft_successor_retires_nothing_until_it_is_put_in_force() -> None:
+    """Preparing a change is not making it: the live version decides meanwhile."""
+    book = _RuleBook()
+
+    draft = book.edit(book.original.id, book.write(status="DRAFT"))
+
+    assert book.statuses() == [(1, "ACTIVE", None), (2, "DRAFT", None)]
+    assert book.matched_on(date(2026, 6, 1)) == book.original.id
+
+    activated = book.edit(draft.id, book.write(status="ACTIVE"))
+
+    assert book.statuses() == [(1, "INACTIVE", None), (2, "ACTIVE", None)]
+    assert book.matched_on(date(2026, 6, 1)) == draft.id
+    # Editing a draft that has a condition used to answer 409: assigning the
+    # new list nulled the old conditions' NOT NULL rule id.
+    assert [condition.value_text for condition in activated.conditions] == [
+        "SALES_INVOICE"
+    ]
