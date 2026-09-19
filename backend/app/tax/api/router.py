@@ -1067,12 +1067,14 @@ def import_legacy_tax_mapping_csv(
 ) -> ApiResponse[list[TaxMigrationMappingResponse]]:
     """Import one legacy mapping csv."""
     reader = csv.DictReader(StringIO(payload))
-    rows: list[TaxMigrationMappingResponse] = []
-    service = TaxFrameworkService(db)
+    # Every row is read and validated before any is written, and the batch is
+    # then written as one transaction: a file refused at row n used to keep
+    # rows 1 to n-1 (D-CMP-8).
+    writes: list[TaxMigrationMappingWrite] = []
     for record in reader:
         if not (record.get("LegacyTaxCode") or "").strip():
             continue
-        mapping = service.create_migration_mapping(
+        writes.append(
             TaxMigrationMappingWrite(
                 legacy_tax_code=(record.get("LegacyTaxCode") or "").strip(),
                 legacy_tax_name=(record.get("LegacyTaxName") or "").strip(),
@@ -1087,9 +1089,11 @@ def import_legacy_tax_mapping_csv(
                 in {"1", "true", "yes"},
                 status=((record.get("Status") or "ACTIVE").strip().upper()),
                 notes=(record.get("Notes") or "").strip() or None,
-            ),
-            firm_id=scope.firm_id,
-            actor_id=scope.actor_id,
+            )
         )
-        rows.append(TaxMigrationMappingResponse.model_validate(mapping))
-    return ApiResponse(data=rows)
+    mappings = TaxFrameworkService(db).import_migration_mappings(
+        writes, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(
+        data=[TaxMigrationMappingResponse.model_validate(row) for row in mappings]
+    )
