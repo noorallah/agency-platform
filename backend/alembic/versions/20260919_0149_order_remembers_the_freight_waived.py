@@ -17,7 +17,7 @@ stores are partly built by ``create_all``. The table is firm-owned, so run
 this through ``scripts/migrate_all_stores.py``.
 
 Revision ID: 20260919_0149
-Revises: 20260919_0146
+Revises: 20260919_0148
 Create Date: 2026-09-19
 
 """
@@ -29,7 +29,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "20260919_0149"
-down_revision: str | Sequence[str] | None = "20260919_0146"
+down_revision: str | Sequence[str] | None = "20260919_0148"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
