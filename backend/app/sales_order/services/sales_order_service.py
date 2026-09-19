@@ -1012,6 +1012,7 @@ class SalesOrderService(TransactionalDocumentService):
             bill_discount_source=row.bill_discount_source,
             coupon_code=row.coupon_code,
             freight_amount=row.freight_amount,
+            freight_waived_amount=row.freight_waived_amount,
             line_discount_total=row.line_discount_total,
             subtotal=row.subtotal,
             tax_total=row.tax_total,
@@ -1637,14 +1638,17 @@ class SalesOrderService(TransactionalDocumentService):
                 for gross, line in zip(grosses, priced, strict=True)
             ],
         )
+        asked_freight = self._q(freight_amount or ZERO)
+        # Kept beside what is charged, so the order remembers what the
+        # customer was asked and an edit can price the offer again rather
+        # than inherit its waiver for ever (D-SELL-35).
+        row.freight_waived_amount = min(benefits.freight_waived(), asked_freight)
         freight = self._freight_shares(
             row,
             # What an offer waived comes off before the split, so the lines
             # carry -- and are taxed on -- what the customer is actually
             # being charged for delivery.
-            freight=max(
-                self._q(freight_amount or ZERO) - benefits.freight_waived(), ZERO
-            ),
+            freight=self._q(asked_freight - row.freight_waived_amount),
             taxables=[
                 self._q(gross - line.amount)
                 for gross, line in zip(grosses, priced, strict=True)

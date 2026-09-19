@@ -330,7 +330,12 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
       _billDiscountAmount.text = billAmount;
       _billResolvedHelper = '';
     }
-    _freightAmount.text = _positiveOrBlank(order['freight_amount']);
+    // The delivery charge that was **asked** for, not what was left of it: a
+    // free-shipping offer's share comes off again on save if the offer still
+    // applies, and is charged if it no longer does. Sending back the charged
+    // figure alone would bake a lapsed offer's waiver into the order, and the
+    // charge could never come back (D-SELL-35, the order twin of D-SELL-34).
+    _freightAmount.text = _askedFreight(order);
 
     final List<dynamic> lines =
         order['lines'] is List ? order['lines'] as List : const [];
@@ -362,6 +367,15 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   String? _blankToNull(String value) => value.isEmpty ? null : value;
 
   /// A stored figure as the box should read it: blank when it is nothing.
+  /// The delivery charge an order asked for, blank where it asked none.
+  String _askedFreight(Json order) {
+    final double charged = double.tryParse(stringValue(order['freight_amount'])) ?? 0;
+    final double waived =
+        double.tryParse(stringValue(order['freight_waived_amount'])) ?? 0;
+    if (waived <= 0) return _positiveOrBlank(order['freight_amount']);
+    return (charged + waived).toStringAsFixed(4);
+  }
+
   String _positiveOrBlank(dynamic value) {
     final String text = stringValue(value);
     return (double.tryParse(text) ?? 0) > 0 ? text : '';
