@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+from contextlib import contextmanager
 from datetime import date
 from decimal import Decimal
 from io import StringIO
@@ -52,6 +54,28 @@ class TaxRuleService:
     def __init__(self, session: Session) -> None:
         """Bind the service to one request unit of work."""
         self._session = session
+        self._staged = False
+
+    @contextmanager
+    def staged(self) -> Iterator[None]:
+        """Hold every write in the block uncommitted, and undo all on failure.
+
+        Inside, ``_commit`` only flushes, so a batch -- an import, the GST
+        template -- is one transaction the caller commits once. A batch whose
+        fifth row clashes used to keep the first four (D-CMP-8). Nested use is
+        a no-op, so a caller can wrap a block that already stages.
+        """
+        if self._staged:
+            yield
+            return
+        self._staged = True
+        try:
+            yield
+        except Exception:
+            self._session.rollback()
+            raise
+        finally:
+            self._staged = False
 
     def list_rules(
         self,
@@ -458,12 +482,14 @@ class TaxRuleService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> list[TaxRule]:
-        """Import a validated batch of tax rules."""
+        """Import a validated batch of tax rules, all or nothing."""
         created: list[TaxRule] = []
-        for payload in rules:
-            created.append(
-                self.create_rule(payload, firm_id=firm_scope, actor_id=actor_id)
-            )
+        with self.staged():
+            for payload in rules:
+                created.append(
+                    self.create_rule(payload, firm_id=firm_scope, actor_id=actor_id)
+                )
+        self._commit()
         return created
 
     def simulate(
@@ -1163,6 +1189,9 @@ class TaxRuleService:
 
     def _commit(self) -> None:
         try:
+            if self._staged:
+                self._session.flush()
+                return
             self._session.commit()
         except IntegrityError as exc:
             self._session.rollback()

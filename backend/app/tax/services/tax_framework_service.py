@@ -1,6 +1,7 @@
 """Transactional service for enterprise tax framework operations."""
 
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from datetime import date, timedelta
 from io import StringIO
 from typing import Any
@@ -53,6 +54,28 @@ class TaxFrameworkService:
     def __init__(self, session: Session) -> None:
         """Bind the service to one request unit of work."""
         self._session = session
+        self._staged = False
+
+    @contextmanager
+    def staged(self) -> Iterator[None]:
+        """Hold every write in the block uncommitted, and undo all on failure.
+
+        Inside, ``_commit`` only flushes, so a batch -- an import, the GST
+        template -- is one transaction the caller commits once. A batch whose
+        fifth row clashes used to keep the first four (D-CMP-8). Nested use is
+        a no-op, so a caller can wrap a block that already stages.
+        """
+        if self._staged:
+            yield
+            return
+        self._staged = True
+        try:
+            yield
+        except Exception:
+            self._session.rollback()
+            raise
+        finally:
+            self._staged = False
 
     def list_systems(
         self,
@@ -711,12 +734,33 @@ class TaxFrameworkService:
     def import_systems(
         self, systems: list[TaxSystemWrite], *, firm_scope: UUID, actor_id: UUID
     ) -> list[TaxSystem]:
-        """Import a validated batch of tax systems."""
+        """Import a validated batch of tax systems, all or nothing."""
         created: list[TaxSystem] = []
-        for entry in systems:
-            created.append(
-                self.create_system(entry, firm_id=firm_scope, actor_id=actor_id)
-            )
+        with self.staged():
+            for entry in systems:
+                created.append(
+                    self.create_system(entry, firm_id=firm_scope, actor_id=actor_id)
+                )
+        self._session.commit()
+        return created
+
+    def import_migration_mappings(
+        self,
+        mappings: list[TaxMigrationMappingWrite],
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> list[TaxMigrationMapping]:
+        """Import a batch of legacy mappings, all or nothing."""
+        created: list[TaxMigrationMapping] = []
+        with self.staged():
+            for entry in mappings:
+                created.append(
+                    self.create_migration_mapping(
+                        entry, firm_id=firm_scope, actor_id=actor_id
+                    )
+                )
+        self._session.commit()
         return created
 
     def bulk_delete_systems(
@@ -1772,6 +1816,9 @@ class TaxFrameworkService:
             raise ConflictError(conflict_message) from error
 
     def _commit(self) -> None:
+        if self._staged:
+            self._session.flush()
+            return
         self._session.commit()
 
 

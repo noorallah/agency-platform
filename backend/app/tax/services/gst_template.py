@@ -30,8 +30,6 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.sales.models.territory import GeoCountry
-from app.sales.schemas import GeoCountryWrite
-from app.sales.services.territory_service import SalesTerritoryService
 from app.tax.models import TaxComponent, TaxProfile, TaxSystem
 from app.tax.schemas import (
     TaxComponentWrite,
@@ -112,127 +110,136 @@ def apply_india_gst_template(
     if firm_has_tax_system(session, firm_id):
         return created
 
-    country_id = session.scalar(
-        select(GeoCountry.id).where(GeoCountry.code == "IN")
-    ) or session.scalar(select(GeoCountry.id).where(GeoCountry.name == "India"))
-    if country_id is None:
-        country_id = (
-            SalesTerritoryService(session)
-            .create_country(
-                GeoCountryWrite(
-                    code="IN",
-                    name="India",
-                    iso2="IN",
-                    iso3="IND",
-                    phone_code="91",
-                    is_active=True,
-                ),
-                actor_id=actor_id,
-            )
-            .id
-        )
-        created["countries"] += 1
-
     framework = TaxFrameworkService(session)
     rules = TaxRuleService(session)
-    framework.update_settings(
-        TaxSettingsWrite(
-            primary_label="GST",
-            component_label="Component",
-            profile_label="Tax Profile",
-            report_label="GST Report",
-            allow_mixed_historical=True,
-            additional_settings={"template": INDIA_GST, "default_country_code": "IN"},
-        ),
-        firm_scope=firm_id,
-        actor_id=actor_id,
-    )
-    system = framework.create_system(
-        TaxSystemWrite(
-            country_id=country_id,
-            business_profile_id=None,
-            code="GST",
-            name="Goods and Services Tax",
-            display_name="GST",
-            description="Indian GST, from the platform template.",
-            status=TaxStatus.ACTIVE,
-            display_order=10,
-        ),
-        firm_id=firm_id,
-        actor_id=actor_id,
-    )
-    created["systems"] += 1
+    # One transaction, committed by the caller. Every record used to commit on
+    # its own, so a template refused part-way left a half-built tax system --
+    # and the next press was a no-op, because the firm "already has a tax
+    # system" (D-CMP-8). Staged, a failure takes all of it back, the country
+    # included.
+    with framework.staged(), rules.staged():
+        country_id = session.scalar(
+            select(GeoCountry.id).where(GeoCountry.code == "IN")
+        ) or session.scalar(select(GeoCountry.id).where(GeoCountry.name == "India"))
+        if country_id is None:
+            country = GeoCountry(
+                code="IN",
+                name="India",
+                iso2="IN",
+                iso3="IND",
+                phone_code="91",
+                is_active=True,
+                created_by=actor_id,
+                updated_by=actor_id,
+            )
+            session.add(country)
+            session.flush()
+            country_id = country.id
+            created["countries"] += 1
 
-    components: dict[str, TaxComponent] = {}
-    for order, (code, name, recoverable) in enumerate(_COMPONENTS, start=1):
-        components[code] = framework.create_component(
-            TaxComponentWrite(
-                tax_system_id=system.id,
-                code=code,
-                name=name,
-                label=code,
-                short_label=code,
-                display_order=order,
-                calculation_order=order,
-                percentage=Decimal("0"),
-                included_in_price=False,
-                recoverable=recoverable,
+        framework.update_settings(
+            TaxSettingsWrite(
+                primary_label="GST",
+                component_label="Component",
+                profile_label="Tax Profile",
+                report_label="GST Report",
+                allow_mixed_historical=True,
+                additional_settings={
+                    "template": INDIA_GST,
+                    "default_country_code": "IN",
+                },
+            ),
+            firm_scope=firm_id,
+            actor_id=actor_id,
+        )
+        system = framework.create_system(
+            TaxSystemWrite(
+                country_id=country_id,
+                business_profile_id=None,
+                code="GST",
+                name="Goods and Services Tax",
+                display_name="GST",
+                description="Indian GST, from the platform template.",
                 status=TaxStatus.ACTIVE,
+                display_order=10,
             ),
             firm_id=firm_id,
             actor_id=actor_id,
         )
-        created["components"] += 1
+        created["systems"] += 1
 
-    framework.create_country_mapping(
-        TaxCountryMappingWrite(
-            country_id=country_id,
-            business_profile_id=None,
-            tax_system_id=system.id,
-            status=TaxStatus.ACTIVE,
-            is_default=True,
-            effective_from=_GST_EFFECTIVE_FROM,
-            effective_to=None,
-        ),
-        firm_id=firm_id,
-        actor_id=actor_id,
-    )
+        components: dict[str, TaxComponent] = {}
+        for order, (code, name, recoverable) in enumerate(_COMPONENTS, start=1):
+            components[code] = framework.create_component(
+                TaxComponentWrite(
+                    tax_system_id=system.id,
+                    code=code,
+                    name=name,
+                    label=code,
+                    short_label=code,
+                    display_order=order,
+                    calculation_order=order,
+                    percentage=Decimal("0"),
+                    included_in_price=False,
+                    recoverable=recoverable,
+                    status=TaxStatus.ACTIVE,
+                ),
+                firm_id=firm_id,
+                actor_id=actor_id,
+            )
+            created["components"] += 1
 
-    profiles: dict[str, TaxProfile] = {}
-    for order, (code, name, rows) in enumerate(_PROFILES, start=1):
-        profiles[code] = framework.create_profile(
-            TaxProfileWrite(
-                tax_system_id=system.id,
+        framework.create_country_mapping(
+            TaxCountryMappingWrite(
+                country_id=country_id,
                 business_profile_id=None,
-                code=code,
-                name=name,
-                label=name,
-                description=f"{name}, from the platform template.",
+                tax_system_id=system.id,
                 status=TaxStatus.ACTIVE,
-                display_order=order,
-                is_historical=False,
+                is_default=True,
                 effective_from=_GST_EFFECTIVE_FROM,
                 effective_to=None,
-                components=[
-                    TaxProfileComponentInput(
-                        tax_component_id=components[component_code].id,
-                        label=component_code,
-                        short_label=component_code,
-                        calculation_order=index,
-                        percentage=percentage,
-                        included_in_price=False,
-                        recoverable=True,
-                    )
-                    for index, (component_code, percentage) in enumerate(rows, start=1)
-                ],
             ),
             firm_id=firm_id,
             actor_id=actor_id,
         )
-        created["profiles"] += 1
 
-    created["rules"] = _create_rules(rules, firm_id, actor_id, country_id, profiles)
-    session.flush()
+        profiles: dict[str, TaxProfile] = {}
+        for order, (code, name, rows) in enumerate(_PROFILES, start=1):
+            profiles[code] = framework.create_profile(
+                TaxProfileWrite(
+                    tax_system_id=system.id,
+                    business_profile_id=None,
+                    code=code,
+                    name=name,
+                    label=name,
+                    description=f"{name}, from the platform template.",
+                    status=TaxStatus.ACTIVE,
+                    display_order=order,
+                    is_historical=False,
+                    effective_from=_GST_EFFECTIVE_FROM,
+                    effective_to=None,
+                    components=[
+                        TaxProfileComponentInput(
+                            tax_component_id=components[component_code].id,
+                            label=component_code,
+                            short_label=component_code,
+                            calculation_order=index,
+                            percentage=percentage,
+                            included_in_price=False,
+                            recoverable=True,
+                        )
+                        for index, (component_code, percentage) in enumerate(
+                            rows, start=1
+                        )
+                    ],
+                ),
+                firm_id=firm_id,
+                actor_id=actor_id,
+            )
+            created["profiles"] += 1
+
+        created["rules"] = _create_rules(rules, firm_id, actor_id, country_id, profiles)
+        session.flush()
     return created
 
 

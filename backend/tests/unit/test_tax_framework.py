@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.business.models import BusinessProfile, FirmBusinessProfile
+from app.common.audit.models.audit_log import AuditLog
 from app.core.database.base import Base
 from app.core.exceptions import ConflictError, ValidationError
 from app.core.utils.dates import utc_now
@@ -20,12 +21,15 @@ from app.products.services import ProductService
 from app.sales.models import GeoCountry
 from app.tax.models import (
     TaxComponent,
+    TaxMigrationMapping,
     TaxProfile,
+    TaxRule,
     TaxRuleExecutionLog,
     TaxSystem,
 )
 from app.tax.schemas import (
     TaxComponentWrite,
+    TaxMigrationMappingWrite,
     TaxProfileWrite,
     TaxRuleSimulationRequest,
     TaxRuleSimulationResponse,
@@ -33,7 +37,12 @@ from app.tax.schemas import (
     TaxSettingsWrite,
     TaxSystemWrite,
 )
-from app.tax.services import TaxFrameworkService, TaxRetentionService, TaxRuleService
+from app.tax.services import (
+    TaxFrameworkService,
+    TaxRetentionService,
+    TaxRuleService,
+    gst_template,
+)
 
 
 def _session_factory() -> sessionmaker[Session]:
@@ -1271,3 +1280,99 @@ def test_a_condition_written_against_a_profile_id_matches_that_profile() -> None
     assert result.applied_tax_profile_id == getattr(interstate, "id")  # noqa: B009
     assert {item.code for item in result.applied_components} == {"IGST"}
     assert result.total_tax_amount == Decimal("180")
+
+
+def test_a_rule_import_refused_part_way_writes_nothing() -> None:
+    """Stage, then commit once (D-CMP-8).
+
+    ``import_rules`` looped over a committing create, so a batch refused at
+    row two kept row one -- and answered 409 as though nothing had happened.
+    """
+    session = _session_factory()()
+    actor_id = uuid4()
+    firm = _firm(session)
+    rule = TaxRuleWrite(code="IMP_A", name="Import A", priority=900)
+
+    with pytest.raises(ConflictError):
+        TaxRuleService(session).import_rules(
+            [rule, rule.model_copy()], firm_scope=firm.id, actor_id=actor_id
+        )
+
+    assert session.scalars(select(TaxRule).where(TaxRule.code == "IMP_A")).all() == []
+    assert (
+        session.scalars(
+            select(AuditLog).where(AuditLog.action == "tax.rule.created")
+        ).all()
+        == []
+    )
+
+
+def test_a_system_import_refused_part_way_writes_nothing() -> None:
+    """The same for tax systems: all of the batch or none of it."""
+    session = _session_factory()()
+    actor_id = uuid4()
+    firm = _firm(session)
+    country = _country(session, actor_id)
+    system = TaxSystemWrite(country_id=country.id, code="IMP_SYS", name="Imported")
+
+    with pytest.raises(ConflictError):
+        TaxFrameworkService(session).import_systems(
+            [system, system.model_copy()], firm_scope=firm.id, actor_id=actor_id
+        )
+
+    assert session.scalars(select(TaxSystem)).all() == []
+
+
+def test_a_legacy_mapping_import_refused_part_way_writes_nothing() -> None:
+    """And for the legacy CSV, whose rows the router now hands over as one batch."""
+    session = _session_factory()()
+    actor_id = uuid4()
+    firm = _firm(session)
+    mapping = TaxMigrationMappingWrite(
+        legacy_tax_code="OLD_VAT", legacy_tax_name="Old VAT", status="ACTIVE"
+    )
+
+    with pytest.raises(ConflictError):
+        TaxFrameworkService(session).import_migration_mappings(
+            [mapping, mapping.model_copy()], firm_scope=firm.id, actor_id=actor_id
+        )
+
+    assert session.scalars(select(TaxMigrationMapping)).all() == []
+
+
+def test_a_template_refused_part_way_writes_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A half-applied template made the next press a no-op (D-CMP-8).
+
+    Each record committed on its own, so a failure after the profiles left a
+    tax system with no rules -- and ``firm_has_tax_system`` then said the firm
+    already had one. Staged, the failure takes all of it back and the same
+    press is the repair.
+    """
+    session = _session_factory()()
+    actor_id = uuid4()
+    firm = _firm(session)
+
+    def refuse(*_: object) -> int:
+        """Fail where the rules would be written, after everything else."""
+        raise ValidationError("The rules could not be written.")
+
+    monkeypatch.setattr(gst_template, "_create_rules", refuse)
+    with pytest.raises(ValidationError):
+        gst_template.apply_india_gst_template(
+            session, firm_id=firm.id, actor_id=actor_id
+        )
+    session.commit()
+
+    assert session.scalars(select(TaxSystem)).all() == []
+    assert session.scalars(select(TaxProfile)).all() == []
+    assert not gst_template.firm_has_tax_system(session, firm.id)
+
+    monkeypatch.undo()
+    created = gst_template.apply_india_gst_template(
+        session, firm_id=firm.id, actor_id=actor_id
+    )
+    session.commit()
+    assert created["systems"] == 1
+    assert created["rules"] == 6
