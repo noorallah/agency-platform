@@ -35,6 +35,7 @@ from app.customers.api.router import (
     delete_customer,
     get_credit_settings,
     get_customer,
+    import_customers,
     list_customers,
     restore_customer,
     update_credit_settings,
@@ -55,6 +56,7 @@ from app.customers.schemas import (
     CustomerUpdate,
 )
 from app.customers.schemas.customer import (
+    CustomerImportRequest,
     CustomerListFilters,
     CustomerReceivableTransactionCreate,
     CustomerReceivableTransactionType,
@@ -577,6 +579,132 @@ def test_a_credit_limit_moves_only_for_whoever_writes_the_credit_policy() -> Non
         None,
     )
     assert lifted.data.credit_limit == Decimal("0")
+
+
+def test_a_standing_discount_moves_only_for_whoever_sets_the_prices() -> None:
+    """The role that sells on a discount cannot hand itself one.
+
+    D-MST-2: `default_discount_percent` was an ordinary field of the customer
+    save, so the `SALES_MANAGER` refused the credit limit (D-CFG-17) set 100%
+    instead and billed two units at 100.00 for 0.00. A segment's rate already
+    takes `CUSTOMER_MANAGE_SETTINGS`; the customer's own rate now does too, on
+    the edit, the create and the import alike.
+    """
+    for seller in ("SALES_MANAGER", "CUSTOMER_SUPPORT"):
+        assert "CUSTOMER_UPDATE" in ROLE_PERMISSION_CODES[seller]
+        assert "CUSTOMER_MANAGE_SETTINGS" not in ROLE_PERMISSION_CODES[seller]
+
+    factory = _session_factory()
+    setup = factory()
+    firm = _firm(setup, "DISCDUTY")
+    user_id = uuid4()
+    setup.add(UserFirm(user_id=user_id, firm_id=firm.id, is_active=True))
+    setup.commit()
+    setup.close()
+
+    session = factory()
+    desk_codes = {
+        "CUSTOMER_CREATE",
+        "CUSTOMER_VIEW",
+        "CUSTOMER_UPDATE",
+        "CUSTOMER_IMPORT",
+    }
+    desk = _principal(user_id, desk_codes)
+    scope = _firm_scope(desk, session, firm.id)
+    controller = _principal(user_id, desk_codes | {"CUSTOMER_MANAGE_SETTINGS"})
+    controller_scope = _firm_scope(controller, session, firm.id)
+
+    # A new customer at no discount is what a form left alone sends.
+    customer_id = create_customer(_customer_data(), scope, session).data.id
+    form = _customer_data().model_dump(mode="json")
+
+    # A form resending the stored figure, in any spelling, is not a change,
+    # and nor is a save that does not mention the rate at all.
+    for same in ("0", "0.0000"):
+        update_customer(
+            customer_id,
+            CustomerUpdate.model_validate(
+                {**form, "name": "Renamed", "default_discount_percent": same}
+            ),
+            scope,
+            Response(),
+            session,
+            None,
+        )
+    without = {k: v for k, v in form.items() if k != "default_discount_percent"}
+    update_customer(
+        customer_id,
+        CustomerUpdate.model_validate({**without, "name": "Renamed again"}),
+        scope,
+        Response(),
+        session,
+        None,
+    )
+
+    for moved in ("100", "7.5", "0.0001"):
+        with pytest.raises(AuthorizationError, match="standing discount"):
+            update_customer(
+                customer_id,
+                CustomerUpdate.model_validate(
+                    {**form, "default_discount_percent": moved}
+                ),
+                scope,
+                Response(),
+                session,
+                None,
+            )
+        session.rollback()
+    stored = session.get(Customer, customer_id)
+    assert stored is not None and stored.default_discount_percent == Decimal("0")
+
+    # Creating one at 100% off, by form or by file, is the same act.
+    generous = {**form, "code": "CUST-GIFT", "gst_number": None, "pan_number": None}
+    generous["default_discount_percent"] = "100"
+    with pytest.raises(AuthorizationError, match="CUST-GIFT"):
+        create_customer(CustomerCreate.model_validate(generous), scope, session)
+    session.rollback()
+    plain = {**generous, "code": "CUST-PLAIN", "default_discount_percent": "0"}
+    with pytest.raises(AuthorizationError, match="CUST-GIFT"):
+        import_customers(
+            CustomerImportRequest.model_validate({"records": [plain, generous]}),
+            scope,
+            session,
+        )
+    session.rollback()
+    assert (
+        session.scalar(
+            select(Customer.id).where(Customer.code.in_(["CUST-GIFT", "CUST-PLAIN"]))
+        )
+        is None
+    )
+
+    # Whoever writes the segment rates writes this one, every way in.
+    set_rate = update_customer(
+        customer_id,
+        CustomerUpdate.model_validate({**form, "default_discount_percent": "7.5"}),
+        controller_scope,
+        Response(),
+        session,
+        None,
+    )
+    assert set_rate.data.default_discount_percent == Decimal("7.5")
+    created = create_customer(
+        CustomerCreate.model_validate(generous), controller_scope, session
+    )
+    assert created.data.default_discount_percent == Decimal("100")
+
+    # And once it is set, the desk can still save everything else around it.
+    kept = update_customer(
+        customer_id,
+        CustomerUpdate.model_validate(
+            {**form, "name": "Third name", "default_discount_percent": "7.5"}
+        ),
+        scope,
+        Response(),
+        session,
+        None,
+    )
+    assert kept.data.default_discount_percent == Decimal("7.5")
 
 
 def _customer_with_credit(
@@ -1248,7 +1376,10 @@ def test_a_customer_carries_a_standing_discount() -> None:
     payload.default_discount_percent = Decimal("7.5")
 
     customer = CustomerService(session).create(
-        payload, firm_id=firm.id, actor_id=uuid4()
+        payload,
+        firm_id=firm.id,
+        actor_id=uuid4(),
+        may_set_standing_discount=True,
     )
 
     assert customer.default_discount_percent == Decimal("7.5000")
@@ -1269,7 +1400,9 @@ def test_an_update_that_says_nothing_leaves_the_discount_alone() -> None:
     actor_id = uuid4()
     payload = _customer_data()
     payload.default_discount_percent = Decimal("10")
-    customer = service.create(payload, firm_id=firm.id, actor_id=actor_id)
+    customer = service.create(
+        payload, firm_id=firm.id, actor_id=actor_id, may_set_standing_discount=True
+    )
 
     updated = service.update(
         customer.id,
@@ -1292,13 +1425,16 @@ def test_an_update_can_still_clear_the_discount_by_saying_so() -> None:
     actor_id = uuid4()
     payload = _customer_data()
     payload.default_discount_percent = Decimal("10")
-    customer = service.create(payload, firm_id=firm.id, actor_id=actor_id)
+    customer = service.create(
+        payload, firm_id=firm.id, actor_id=actor_id, may_set_standing_discount=True
+    )
 
     updated = service.update(
         customer.id,
         _partial_update(customer, default_discount_percent="0"),
         firm_scope=firm.id,
         actor_id=actor_id,
+        may_change_standing_discount=True,
     )
 
     assert updated.default_discount_percent == Decimal("0.0000")
