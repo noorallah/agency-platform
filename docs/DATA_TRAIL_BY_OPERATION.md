@@ -48,8 +48,14 @@ types and states, units, packaging and conversion rules, geography, the sales
 stages, the credit policy, the loyalty scheme, the firm side of the Set up
 panel, and preferences — against a `config-firm` store built for the pass and
 driven, the fixture and selling stores, TEST01, WHOLE01 and the shared store
-(§14.19). Tax configuration is §13; identity and roles come later. The rest
-follow.
+(§14.19). Tax configuration is §13. **Identity, firms and audit followed the
+same day (§15)**: sign-in, refresh and sign-out, passwords, users,
+memberships and the switcher, roles and the two grant tiers,
+`authorization_version` and the platform narrowing, templates and clone, the
+firm registry and where a firm lives, provisioning, the audit trail and its
+merged read, and retention — pass 1's §2 to §7 re-read against the rows of
+`platform`, every store's trigger and three fixture runs, with its errors
+corrected in place (§15.13). The rest follow.
 
 ---
 
@@ -100,7 +106,7 @@ they never move — checked 2026-09-18: all 542 rows in `test_fixtures` read
 
 ### 1.3 The audit trail is per store, and one screen merges two
 
-- User, role, template and firm administration writes to **`platform.audit_logs`**, carrying `firm_id` where the action was about a firm.
+- User, role, template and firm administration writes to **`platform.audit_logs`**, carrying `firm_id` where the action was about a firm — **not always**: a membership change never carries one, and a platform administrator's user and role edits carry none, so neither reaches the firm's screen (§15.10, D-IDN-5).
 - Everything a firm does to its own data writes to **that firm's** `audit_logs` (`wholesale_hub.audit_logs`, and so on).
 - **Settings → Audit Logs** with a firm selected shows that firm's rows **merged with** the platform rows carrying its `firm_id`, in one time order. So a promotion you see in WHOLE01's screen is a `platform.audit_logs` row; querying `wholesale_hub.audit_logs` alone will not find it.
 
@@ -239,9 +245,9 @@ is `users.authorization_version` before and after.
   ```
 
 ### Clone a user — Users → Hire like this person (plan section 18)
-- **Inserts:** a new `users` row built from scratch (`force_password_change = true` always); `user_firms` copied from the source; `user_roles` copied within the caller's reach.
+- **Inserts:** a new `users` row built from scratch (`force_password_change = true` always); `user_firms` copied from the source; `user_roles` copied within the caller's reach — **for a platform caller naming no firm, every role the source holds in any tier lands in the clone's global tier** (§15.7, D-IDN-3).
 - **Not copied, deliberately:** mobile, employee code, joining date, photo, password, `password_history`, `login_history`, the source's audit rows, and never the `platform_admins` row.
-- **Audit:** `user.cloned` with `source_user_id`, plus the `user.created` / `user.firms_set` / `user.roles_set` rows the build makes.
+- **Audit:** `user.cloned` with `source_user_id`, plus the `user.created` / `user.roles_set` rows the build makes. **No `user.firms_set`** — the copied memberships have no audit row (corrected 2026-09-19, §15.7).
 
 ### Choose own primary firm — user menu → Primary firm (plan 26a.3)
 - **Updates:** `user_firms.is_primary` — the old primary cleared **and flushed** before the new one is set, because `UQ_user_firms_active_primary` is checked per statement.
@@ -309,7 +315,7 @@ Seeded by migration; `permission.created/updated/deleted` exist for the platform
   left join platform.roles r on r.id = tr.role_id
   where  t.code in ('food-night','every-night','night-desk-job');
   ```
-- **Observation, checked against the database on 2026-09-15, not yet acted on:** `user_templates` / `user_template_roles` are absent from `_PLATFORM_TABLES` in `app/core/tenancy/lifecycle.py`, so **provisioning does not prune them** from a store it builds — `SNTEST01`, provisioned through the app in section 27, carries an empty `user_templates`; `wholesale_hub`, built by the seeder, does not. Nothing reads the copy. If you see the table in a firm schema, it is empty and not the real one; `platform.user_templates` is.
+- **Observation, checked against the database on 2026-09-15, not yet acted on:** `user_templates` / `user_template_roles` are absent from `_PLATFORM_TABLES` in `app/core/tenancy/lifecycle.py`, so **provisioning does not prune them** from a store it builds — `SNTEST01`, provisioned through the app in section 27, carries a `user_templates`; `wholesale_hub`, built by the seeder, does not. Nothing reads the copy. If you see the table in a firm schema, it is not the real one; `platform.user_templates` is. **Corrected 2026-09-19:** the copies are not empty — each of the 55 firm schemas that has one holds the 11 seeded templates (§15.0, D-IDN-10).
 
 ---
 
@@ -3827,7 +3833,7 @@ settings services — `workflow_settings_service.py`, `credit_control.py`,
 `identity_service.py` (preferences), and the desktop's
 `numbering_series_editor.dart`, `print_template.dart` and
 `desktop_preferences_service.dart`. Tax configuration is §13 and is not
-repeated; identity and roles come later. `docs/MODULE_STATUS.md` files these
+repeated; identity and roles are §15. `docs/MODULE_STATUS.md` files these
 modules under "Configuration"; the rules they can break are the persistence,
 tenancy and "a flag the caller sets" ones in `CLAUDE.md`. Then checked,
 read-only, against every store on the local server that holds these tables,
@@ -4624,3 +4630,601 @@ Masters → Loyalty → **Scheme settings**. `GET` / `PUT /api/v1/loyalty/settin
   `/active-features` answer from a store with no default profile; a sales
   manager lifting a BLOCK by raising a limit. ELEC01 (`agency_electrolink`)
   was not queried for this section.
+
+---
+
+## 15. Identity, firms and audit — who may act, where a firm lives, and what the trail keeps (TC-SESS-001 to 011, TC-TIER-001 to 003, TC-TMPL-001 to 015, TC-HIRE-001 to 004, TC-USER-001 to 009, TC-RTIER-001 to 008, TC-ROLE-001 to 009, TC-LOOK-001 to 007, TC-ME-001 to 008, TC-PLAT-001 to 005, TC-GRANT-001 to 008, TC-AUDIT-001 to 006, TC-FIRM-001 to 009 and 013 to 017, TC-ISO-004)
+
+Read on 2026-09-19 off `app/identity` (`identity_service.py`, the router,
+`system_seed.py`, `retention.py`), `app/core/security/authorization.py`,
+`app/common/scope.py`, `app/common/firm_metadata.py` and the `/firm-members`
+router, `app/firms` (`firm_service.py`, the router), `app/core/tenancy`
+(`lifecycle.py`, `migrations.py`, `resolvers.py`) and `app/common/audit`
+(`audit.py`, `reader.py`, the router). Sections 2 to 7 are pass 1 — written
+off the same code on 2026-09-15 and never checked against a row; they stay
+the per-screen quick reference, this section re-reads them against the
+tables, adds what they left out, and says where they were wrong (§15.13).
+Preferences are §14.17 and the firm side of the Set up panel §14.16; neither
+is repeated. `docs/ACCESS_CONTROL_FRAMEWORK.md` and
+`docs/TENANCY_AND_STORES.md` are the references; the rules these modules can
+break are the Authorization, Tenancy and audit-trail ones in `CLAUDE.md`.
+
+Checked read-only against `platform`, every schema of `agency_platform` that
+holds an `audit_logs` table and `electrolink_ops` in `agency_electrolink`, then
+driven against the running backend (identity code unchanged since #425 of
+2026-09-17) on three fixture runs — `platform-operator` `t0919tkcy`,
+`platform-admin` `t0919wwzu`, `two-firm-user` `t0919subq` — and one probe firm,
+`IDNPROBE1`, created and deleted within a second and never provisioned. **Two
+findings are privilege escalations and were deliberately not driven**
+(D-IDN-1, D-IDN-2); they are described from the code, and TC-TIER-003 is the
+case that would show the first. A claim marked *(not seen in a live row)* was
+read off the code only.
+
+### 15.0 Before you look
+
+- **Stores.** Identity and the firm registry live in `platform` and nowhere
+  else; a firm's own store holds none of it (`_PLATFORM_TABLES` in
+  `app/core/tenancy/lifecycle.py` is what provisioning prunes). Checked: `users`,
+  `user_firms`, `roles`, `firms` and `error_reports` exist in `platform` alone.
+  **`user_templates` and `user_template_roles` are the exception** — not on
+  that list, so every migrated store keeps a copy: 55 firm schemas, each
+  holding the 11 seeded templates, and nothing reads them (D-IDN-10). The real
+  ones are `platform.user_templates`.
+
+  | What | Where | Why |
+  | --- | --- | --- |
+  | people, roles, grants, memberships, designations, tokens, sign-in history | `platform` | one person, many firms |
+  | the firm registry and where each firm lives | `platform.firms`, `platform.firm_storage_mappings` | read before any firm is resolved |
+  | the firm's business, and its own audit rows | the firm's schema (§1.1) | the trail is per store |
+  | identity and firm administration's audit rows | `platform.audit_logs`, `firm_id` set only sometimes (§15.10) | written on the platform session |
+
+- **What points at what.**
+
+  | From | Column | To |
+  | --- | --- | --- |
+  | `user_firms` | `user_id`, `firm_id`, `is_primary`, `is_active` | a membership; one active primary per user (`UQ_user_firms_active_primary`) |
+  | `user_roles` | `user_id`, `role_id`, **`firm_id`** | **NULL = the global tier** (applies in every firm the person belongs to); a firm = that firm only |
+  | `roles` | `firm_id`, `is_system` | NULL + system = seeded; NULL + custom = a platform administrator's role; a firm = that firm's own role |
+  | `role_permissions` | `role_id`, `permission_id` | the codes a role grants |
+  | `platform_admins` | `user_id`, `scope` | the designation, `PLATFORM` or `ALL_FIRMS` — no endpoint writes it |
+  | `refresh_tokens` | `user_id`, `token_hash`, `revoked_at`, `replaced_by_id` | a rotation chain |
+  | `login_history` | `user_id` (NULL for an unknown address), `attempted_email`, `outcome`, `failure_reason` | every attempt |
+  | `password_history` | `user_id`, `password_hash` | the reuse window |
+  | `firm_storage_mappings` | `firm_id`, `deployment_mode`, `database_name`, `schema_name`, `connection_profile`, `provisioned_at` | where the firm's rows are |
+  | `audit_logs` | `entity_id`, `actor_id`, `firm_id` — **no foreign keys** | whatever `entity_type` names, in whichever store |
+
+- **How a grant reaches a request.** Nothing is re-read per request except
+  the user's liveness and `authorization_version`; everything else is in the
+  access token `_issue_tokens` minted at sign-in:
+
+  | Claim | Built from |
+  | --- | --- |
+  | `platform_admin`, `platform_admin_scope` | a live `platform_admins` row |
+  | `permissions` (global) | an `ALL_FIRMS` administrator: every code; a `PLATFORM` one: the 33 operator codes; anybody else: global-tier rows of **custom or platform** roles |
+  | `firm_permissions[firm]` | per **active membership**: that firm's rows, plus global-tier rows of **seeded firm roles** — for a `PLATFORM` administrator too |
+  | `authorization_version` | `users.authorization_version`; a token carrying another number is refused |
+  | `password_change_required` | `users.force_password_change`; every permission check fails while it is set |
+
+  Global-tier **custom** roles land in `permissions` and not in
+  `firm_permissions`, although `docs/ACCESS_CONTROL_FRAMEWORK.md` Part 4 says
+  both (D-IDN-10).
+- **No ledger effect anywhere in this section**, and nothing here writes to a
+  firm's store except the Set up actions (§6, §12.1, §13.2, §14.16).
+
+### 15.1 Sign in, refresh, sign out (TC-SESS-001 to 003, 005)
+
+§2 has the columns. Confirmed:
+
+- **Sign in** inserts `login_history` per attempt and, on success, one
+  `refresh_tokens` row, updates `users.last_login_at` and clears the counters,
+  and audits `identity.login` with no firm and no data. The lockout is judged
+  **before** the password and the account's state **after** it, so a wrong
+  password never names a state (D-2-1). Outcomes across the platform:
+  1,302 `success`, 103 `failed`/`invalid_credentials`, 31 `locked`/`account_locked`
+  (refused while locked), 12 `locked`/`invalid_credentials` (the attempt that
+  locked), 6 `failed`/`account_unavailable`.
+- **Refresh** revokes the presented token with one guarded `UPDATE`
+  (`revoked_at` null and unexpired, `rowcount` must be 1), inserts the next and
+  points the old row's `replaced_by_id` at it; audit `identity.refresh`.
+  Presenting a revoked token again revokes every token the person holds,
+  bumps `authorization_version` and audits
+  `identity.refresh_token_reuse_detected` (8 rows) — which also fires for a
+  token revoked by sign-out or by an ordinary revocation, and for two refreshes
+  racing (D-IDN-10) *(not seen in a live row)*. A refresh for an inactive or
+  expired account is refused by name.
+- **Sign out** sets `revoked_at` on the one refresh token and audits
+  `identity.logout`. It does **not** bump `authorization_version`, so the access
+  token already issued stays good for its 15 minutes.
+- **Per request**, `get_current_principal` refuses a user who is deleted,
+  inactive, past `expires_at` or on another `authorization_version`. Checked:
+  no live refresh token belongs to a deleted or inactive user.
+- **Check:**
+  ```sql
+  select l.created_at, l.attempted_email, l.outcome, l.failure_reason,
+         u.failed_login_attempts, u.locked_until
+  from   platform.login_history l
+  left   join platform.users u on u.id = l.user_id
+  where  l.attempted_email like '<suffix>.%'
+  order  by l.created_at desc;
+
+  select t.created_at, t.expires_at, t.revoked_at, t.replaced_by_id is not null as rotated
+  from   platform.refresh_tokens t join platform.users u on u.id = t.user_id
+  where  u.email = '<suffix>.target@fixtures.local'
+  order  by t.created_at desc;
+  ```
+  Never select `token_hash` or `password_hash` into a note; count them.
+
+### 15.2 Passwords — change, reset, history, a forced change (TC-SESS-006, 011, TC-ME-008)
+
+- **Change own** (`POST /auth/change-password`, any signed-in user) inserts
+  the **old** hash into `password_history`, writes the new one, clears
+  `force_password_change`, revokes every token and bumps
+  `authorization_version` — the session that changed it ends too. Audit
+  `identity.password_changed`. Refused: a wrong current password; the policy
+  (12 characters, upper, lower, digit, symbol); the current or any of the last
+  five (`AGENCY_SECURITY_PASSWORD_HISTORY_COUNT`).
+- **Reset somebody else's** (`POST /users/{id}/password`) is **any** platform
+  administrator's — the route takes the designation and never looks at the
+  target. It inserts the old hash, sets the new one, sets
+  `force_password_change` as asked, clears the lock and the failed count,
+  revokes everything and bumps the version. Audit `user.password_reset`,
+  `after_data` `force_password_change`, no firm. Refused only for the caller's
+  own account. **A `PLATFORM` operator may reset an `ALL_FIRMS`
+  administrator's password — or rename, deactivate or expire them through
+  `PATCH /users/{id}` — and sign in as them** (D-IDN-2) *(not driven)*.
+- **A forced change** puts `password_change_required` on the token, and every
+  `require_permission` and `require_platform_admin` check fails until it is
+  done; only the routes that need no code — change-password, `/me`, `/me/firms`
+  and preferences — answer.
+- **Confirmed:** 16 `password_history` rows in all; 8 live users waiting on a
+  forced change; 9 `identity.password_changed` and 7 `user.password_reset`
+  rows, none carrying a firm. `USER_RESET_PASSWORD`, `USER_LOCK` and
+  `USER_UNLOCK` are seeded and read by no route — reset is the designation's,
+  unlock is `USER_UPDATE`'s (D-IDN-10).
+
+### 15.3 Users — create, edit, deactivate, delete, restore (TC-SESS-004, 005, 007 to 010, TC-USER-001 to 005, 009)
+
+§3 has the columns and the three-or-four audit rows one Save writes.
+
+- **Which firm the rows name.** `create_user` audits `user.created` with the
+  caller's firm scope — the firm for a firm administrator, **null for any
+  platform administrator**, whichever firm the new person is then put in. The
+  same holds for `user.updated` and `user.deleted`; `user.restored` and
+  `user.password_reset` never carry one. So a person a platform administrator
+  hires into TEST01 is on TEST01's Audit Logs screen only through their role
+  grants in that firm (§15.10, D-IDN-5).
+- **Edit** writes `before_data` `full_name` and `is_active` and **no
+  `after_data`**; a changed mobile, expiry or unlock is not on the trail. Every
+  edit bumps `authorization_version`, so an edited person is signed out even
+  when only their mobile moved.
+- **Deactivate** is `is_active = false` through the same edit; the next
+  request fails authentication, the next refresh is refused "This account is
+  inactive…". Checked: one live inactive user, and no live refresh token for
+  any inactive or deleted one.
+- **Delete** leaves `user_firms`, `user_roles`, `user_preferences` and the
+  tokens (all revoked) in place; **Restore** is one flag, platform only,
+  refused while a live account holds the address.
+- **Email** is unique among live accounts: service check plus
+  `UQ_users_email_active` (`WHERE is_deleted = false`), both present;
+  addresses are case-folded before either sees them.
+- **A firm administrator cannot edit or delete somebody who works elsewhere**
+  (`_assert_exclusive_firm_user`) — but only an **active** membership
+  elsewhere counts, so a person switched off in the other firm is editable and
+  deletable platform-wide from this one (D-IDN-10) *(not seen in a live row —
+  no inactive membership exists today)*.
+- **Check:**
+  ```sql
+  select u.email, u.is_active, u.expires_at, u.is_deleted, u.force_password_change,
+         u.authorization_version, u.version, u.updated_at
+  from   platform.users u
+  where  u.email like '<suffix>.%'
+  order  by u.created_at;
+
+  select a.created_at, a.action, a.firm_id,
+         a.before_data::jsonb - '_meta' as before, a.after_data::jsonb - '_meta' as after
+  from   platform.audit_logs a
+  join   platform.users u on u.id = a.entity_id
+  where  u.email = '<suffix>.target@fixtures.local'
+  order  by a.created_at;
+  ```
+- **Confirmed:** 266 users before this pass, 143 of them deleted; 286
+  `user.created` rows, 41 with a firm; 173 `user.deleted`, 1 with a firm; 28
+  `user.restored` and 28 `user.updated`, the updates each with a before and
+  none with an after.
+
+### 15.4 Memberships, the primary firm and the switcher (TC-USER-006 to 008, TC-LOOK-001 to 007, TC-ME-002 to 004, 007, TC-PLAT-003, TC-TIER-002)
+
+§3 *Set memberships* has the rows. What the tables show:
+
+- **`user.firms_set` never carries a firm** and carries no data — which firms
+  were added or removed is not recorded anywhere but in the rows' own
+  timestamps. 1,121 such rows on the platform; **0** on TEST01's merged trail,
+  although most of them staffed TEST01 (D-IDN-5).
+- **A `PLATFORM` operator cannot staff a firm.** `_firms_the_caller_may_staff`
+  reads the firms where the caller holds `USER_CREATE` in `firm_permissions`;
+  an operator's token carries the two memberships with **0 codes** each, so
+  `PUT /users/{id}/firms` answers 422 "You can only assign firms you
+  administer." and `GET /users/{id}/firms` answers an empty list for a person
+  in two firms — User-Firm Assignments is blank for them. `PUT
+  /users/{id}/firms/{firm}/roles` is refused the same way. **Hire like this
+  person** is not: with no firm named, it copies the source's memberships with
+  no reach check at all (D-IDN-6).
+- **Primary firm.** `PUT /me/primary-firm` clears the old flag, flushes, sets
+  the new one; audit `user.primary_firm_set` with the firm (2 rows). A scoped
+  administrator's membership save never moves it (TC-USER-008).
+- **The switcher** (`GET /me/firms`) is active memberships in live, active
+  firms, primary first — or every live, active firm for `ALL_FIRMS`, ranked
+  with an explicit `case` rather than by NULL order. A `PLATFORM` operator gets
+  their memberships only (TC-TIER-002).
+- **`/firm-members`** (any member, platform session) lists active,
+  undeleted memberships of undeleted users — **including a user switched off**
+  (`User.is_active` is not filtered), who is then offered as a salesman
+  (D-IDN-10). One such member exists today.
+- **Check:**
+  ```sql
+  select f.code, uf.is_primary, uf.is_active, uf.is_deleted, uf.deleted_at, uf.version, uf.updated_by
+  from   platform.user_firms uf
+  join   platform.firms f on f.id = uf.firm_id
+  join   platform.users u on u.id = uf.user_id
+  where  u.email = '<suffix>.shared@fixtures.local'
+  order  by uf.created_at;
+  ```
+- **Confirmed:** the `t0919tkcy` operator's token — `PLATFORM`, 33 global
+  codes, TEST01 and TEST02 in `firm_permissions` with nothing in either; its
+  `GET /users/{clone}/firms` answered `[]` and its re-save of the clone's two
+  existing memberships 422.
+
+### 15.5 Roles and permissions — custom roles, system roles, reserved codes (TC-ROLE-001 to 009)
+
+§4 has the rows. Confirmed and added:
+
+- **Create** inserts `roles` with `firm_id` = the caller's firm scope (null
+  for a platform caller) and `is_system` false; audit `role.created`, no data.
+  Refused: a reserved code, case-folded (`platform_admin` and the sixteen
+  seeded codes, TC-ROLE-003), and **any code any role has ever used** — the
+  check reads every role, deleted or not, in every firm, and
+  `UQ_roles_code` is a plain unique index. A deleted role's code can never be
+  reused, and the 409 tells one firm that another has a role by that name
+  (D-IDN-9).
+- **System roles** refuse edit, permission changes and delete through the
+  API ("System roles cannot be modified."). `RoleUpdate` carries only name,
+  description and `is_active`, so a code cannot be renamed into a reserved one.
+- **Permissions** (`role.permissions_set`) replace `role_permissions` in place
+  and bump every holder's version. A firm caller cannot name one of the 22
+  `PLATFORM_PERMISSION_CODES`, and `list_permissions` never offers them.
+- **The audit rows name the role and nothing else** — no code, no before, no
+  after, and `role.permissions_set` does not say which codes moved; a role of
+  a firm deleted by a platform administrator records **no firm** (D-IDN-5).
+- **TC-ROLE-008, as the owner drove it:** `t0918nhew-night-desk` — the holder's
+  `authorization_version` went 1 → 2 on `role.permissions_set` at 21:35:23 IST
+  on 2026-09-18 (firm set), and the next click signed them out.
+- **TC-ROLE-009, as the owner drove it:** deleting a held role is not refused;
+  `roles.is_deleted` true, the holder's `user_roles` row left in place, the next
+  token carries none of its codes and the sidebar is empty. Recorded in
+  `docs/DEFECTS.md` as an open decision, not a defect. Today 3 live
+  `user_roles` rows point at deleted roles (`t0916vgt6`, `t09169tk8`,
+  `t09168etd`), each holder's version moved by the delete.
+- **Check:**
+  ```sql
+  select r.code, r.firm_id, r.is_system, r.is_active, r.is_deleted, r.version,
+         (select count(*) from platform.user_roles ur where ur.role_id = r.id and not ur.is_deleted) as holders,
+         (select string_agg(p.code, ',' order by p.code) from platform.role_permissions rp
+          join platform.permissions p on p.id = rp.permission_id
+          where rp.role_id = r.id and not rp.is_deleted) as codes
+  from   platform.roles r
+  where  r.code like '<suffix>-%';
+  ```
+
+### 15.6 Grants in two tiers, `authorization_version`, and the platform narrowing (TC-RTIER-001 to 008, TC-TIER-001 to 003, TC-GRANT-001 to 008, TC-ISO-004)
+
+- **Two tiers, two writers.** `PUT /users/{id}/roles` writes the tier the
+  caller owns — global for a platform caller, their own firm for a firm
+  caller — and `_replace_global_user_roles` / `_replace_scoped_user_roles`
+  each touch only their own rows (TC-RTIER-002). `PUT
+  /users/{id}/firms/{firm}/roles` writes one named firm, needs a membership
+  there, and records `user.firm_roles_set` with that firm (166 rows, all with
+  a firm).
+- **What the global tier will take.** A firm caller is held to their firm's
+  own roles and the seeded firm roles. **A platform caller is held to
+  nothing**: the global path checks only that the ids exist, so another firm's
+  own custom role, or a template belonging to one firm applied with no firm
+  named, lands as a global row whose codes then apply in every firm the person
+  belongs to (D-IDN-3) *(no such row today: all 5 rows of firm-owned roles are
+  firm-scoped)*.
+- **`authorization_version`** moves on: own password change, a reset, a user
+  edit or delete, roles set in either tier, memberships set, a template
+  applied, a role edited, deleted or its permissions set (every holder), a
+  permission edited or deleted (every holder of every role carrying it), and
+  refresh reuse. It does **not** move on restore (the tokens died at delete),
+  primary-firm choice, a template's own edit, or a firm switched off or
+  deleted — the membership check refuses an inactive or deleted firm on every
+  request instead. Checked against the rules: no change that alters what a
+  token grants is missing a bump.
+- **The `PLATFORM` narrowing is in all three places** — `Principal.has_permission`
+  and `optional_firm_scope` exempt `ALL_FIRMS` alone, and the stuffed claim is
+  the 33 operator codes (the `t0919tkcy` token: 33). **But the operator holds
+  `ROLE_ASSIGN` and the global tier is theirs to write, their own row
+  included**: `firm_permissions` takes global-tier seeded firm roles for a
+  `PLATFORM` administrator's memberships, so an operator who gives themselves
+  `FIRM_ADMIN` holds it in every firm they are a member of on their next
+  sign-in (D-IDN-1) *(not driven)*.
+- **The identity routes take their firm from the raw header.** `_firm_scope`
+  in the identity router is `principal.firm_id` — the `X-Firm-ID` a caller
+  sent, checked against nothing. A firm administrator is still held back,
+  because their codes are in `firm_permissions` for their own firm only; but
+  anybody whose code is in the **global** claim — a global custom role, a
+  platform role such as `SYSTEM_AUDITOR` — lists, creates people in, and
+  assigns roles in any firm by naming it, with no membership (D-IDN-7) *(no
+  such holder today: 0 global custom-role rows, 0 platform-role holders)*.
+  Firm-owned routes do not have this hole: `app/common/scope.py` checks the
+  membership (TC-ISO-004).
+- **Seeded and enforced nowhere:** `FIRM_CREATE`, `FIRM_UPDATE`,
+  `FIRM_DELETE`, `FIRM_ACTIVATE`, `FIRM_DEACTIVATE`, `PERMISSION_CREATE`,
+  `PERMISSION_UPDATE`, `PERMISSION_DELETE`, `USER_RESET_PASSWORD`,
+  `USER_LOCK`, `USER_UNLOCK` — their routes take the designation, so holding
+  them grants nothing (D-IDN-10). Every code a route does enforce is seeded
+  (`test_every_enforced_permission_code_is_seeded`).
+- **TC-GRANT-001 to 008** are grants, not writes: `FIRM_ADMIN`'s
+  `role_permissions` rows for the five groups `20260906_0130` added. What each
+  screen then writes is §11.17 (credit notes), §11.18 (proforma), §13.8
+  (e-invoice), §14.15 and §11.19 (loyalty), §13.11 (TCS).
+- **Check** — who holds what, in which tier:
+  ```sql
+  select u.email, coalesce(f.code, '(every firm)') as tier, r.code as role, ur.is_deleted, ur.created_at
+  from   platform.user_roles ur
+  join   platform.users u on u.id = ur.user_id
+  join   platform.roles r on r.id = ur.role_id
+  left   join platform.firms f on f.id = ur.firm_id
+  where  u.email like '<suffix>.%'
+  order  by u.email, tier, r.code;
+
+  select u.email, pa.scope, pa.is_deleted
+  from   platform.platform_admins pa join platform.users u on u.id = pa.user_id
+  where  u.email like '<suffix>.%';
+  ```
+
+### 15.7 Hiring — templates and "Hire like this person" (TC-TMPL-001 to 015, TC-HIRE-001 to 004)
+
+§3 and §5 have the rows. Confirmed and added:
+
+- **Apply a template** is `set_user_roles` plus `user_template.applied`
+  (`template_id`, `template_code`, `role_ids`, `role_codes`); 34 rows, 24 with
+  that data (the 10 without predate it), 29 with a firm.
+- **A clone by a platform administrator widens the source's access.** With no
+  firm named, `_roles_held_by` returns every role the source holds **in any
+  tier**, and `set_user_roles` writes them all to the **global** tier; the
+  memberships are copied separately. Driven on `t0919subq`: the source holds
+  SALES_EXECUTIVE **in TEST01** and CUSTOMER_SUPPORT globally, in TEST01 and
+  TEST02; the clone (`t0919subq.clone`, 11:50:39 IST) holds **both roles
+  globally**, in both firms — a sales executive in TEST02, where the source is
+  not (D-IDN-3).
+- **A clone is three commits, not one.** `create_user` commits (11:50:39.660),
+  `set_user_roles` commits (…39.846), the memberships and `user.cloned` commit
+  (…39.943). A failure after the first leaves an account holding the address
+  with no roles or firms, and the retry is refused 409 (D-IDN-8) *(the failure
+  not seen in a live row)*.
+- **The memberships a clone copies write no audit row at all** —
+  `_copy_memberships` calls no `record_audit` — and a platform
+  administrator's clone records `user.created`, `user.roles_set` and
+  `user.cloned` with no firm, so none of the three is on TEST01's or TEST02's
+  trail (D-IDN-5). §3 said the clone also wrote `user.firms_set`; it does not.
+- **Check** — a clone beside its source:
+  ```sql
+  select u.email, coalesce(f.code, '(every firm)') as tier, r.code
+  from   platform.user_roles ur
+  join   platform.users u on u.id = ur.user_id
+  join   platform.roles r on r.id = ur.role_id
+  left   join platform.firms f on f.id = ur.firm_id
+  where  u.email in ('<suffix>.twofirm@fixtures.local', '<suffix>.clone@fixtures.local')
+    and  not ur.is_deleted
+  order  by u.email, r.code;
+  ```
+  A role that reads `(every firm)` on the clone and a firm on the source is
+  D-IDN-3.
+
+### 15.8 Firms — create, edit, delete, and where a firm lives (TC-FIRM-001 to 005, 016, 017)
+
+§6 has the columns. Every `/firms` route is `require_platform_admin()`, either
+reach; all run on the platform session.
+
+- **Create** inserts `firms` and `firm_storage_mappings` and audits
+  `firm.created` (`after_data` `code`) with the firm's own id. Refused: a live
+  firm with the code, GST or PAN (`UQ_firms_code_active` and its two
+  siblings, partial on `is_deleted = false`); an unconfigured
+  `connection_profile`; a database/schema pair **another firm's mapping**
+  names, deleted firms included. **Not refused: a pair no mapping names but
+  another store owns.** SHARED firms have no `schema_name`, and `platform` is
+  no firm's mapping, so a SCHEMA or DATABASE firm may name `firm_shared`,
+  `platform` or `public` in `agency_platform`. Provisioning such a firm
+  migrates that schema and then **drops the platform tables from it**,
+  `CASCADE` — on `platform`, the users, roles, memberships and the registry
+  itself (D-IDN-4). Driven: `IDNPROBE1`, SCHEMA, `agency_platform/firm_shared`
+  → **201** at 11:51:22 IST, `provisioned_at` null; deleted at 11:51:23, never
+  provisioned. Its mapping stays and now reserves the pair.
+- **Edit** (`PUT`, `If-Match` honoured) is a **full replacement**: every
+  field is written, so an omitted GST or PAN is cleared, an omitted
+  `is_active` is `true` (a switched-off firm comes back on) and an omitted
+  `status` is `ACTIVE` — `status` is free text read by nothing. Routing fields
+  must match the stored mapping exactly, or 422 "Firm storage routing cannot
+  be changed after creation…". Audit `firm.updated`, before and after holding
+  `name`, `code` and `is_active` only — a changed GST number or year start is
+  not on the trail (D-IDN-5, D-IDN-10).
+- **Delete** soft-deletes the firm and leaves the mapping, refused while a
+  live user holds a live membership (TC-FIRM-017). Audit `firm.deleted`.
+  **There is no restore**: nothing un-deletes a firm, and its code, GST and
+  PAN are free for a new one the moment it goes.
+- **Two firms never share a pair:** checked — no database/schema pair appears
+  in two mappings.
+- **Check:**
+  ```sql
+  select f.code, f.is_active, f.is_deleted, f.status, f.version,
+         m.deployment_mode, m.database_name, m.schema_name, m.connection_profile,
+         m.provisioned_at, m.provisioning_error
+  from   platform.firms f
+  join   platform.firm_storage_mappings m on m.firm_id = f.id
+  order  by f.is_deleted, f.code;
+
+  select m.database_name, m.schema_name, string_agg(f.code, ', ') as firms
+  from   platform.firm_storage_mappings m join platform.firms f on f.id = m.firm_id
+  where  m.schema_name is not null
+  group  by 1, 2 having count(*) > 1
+  union all
+  select database_name, schema_name, code from platform.firm_storage_mappings m
+  join   platform.firms f on f.id = m.firm_id
+  where  m.schema_name in ('platform', 'firm_shared', 'public');
+  ```
+  The second query should answer nothing but `IDNPROBE1`, deleted.
+- **Confirmed:** 42 live firms and 23 deleted before the probe; 4 SHARED
+  (MEDI01, FOOD01, TESTSH1, TESTSH2), ELEC01 DATABASE on
+  `agency_electrolink/electrolink_ops`, the rest SCHEMA in `agency_platform`;
+  66 `firm.created`, 23 `firm.deleted`, 5 `firm.updated`, every one with the
+  firm's id.
+
+### 15.9 Provisioning and readiness, the platform side (TC-FIRM-004 to 007, 013, 014)
+
+§6 has the rows, §14.16 the firm side, §12.1 Open the books, §13.2 the GST
+template.
+
+- **Provision** refuses a SHARED firm, returns at once for one already
+  provisioned, and otherwise creates the database and schema
+  (`_safe_identifier` — letters, digits, underscore — on both), migrates in
+  this process through `upgrade_store`, prunes the platform tables, and sets
+  `provisioned_at`; a failure is committed to `provisioning_error` before the
+  error is raised. Audit `firm.storage_provisioned` (database, schema,
+  profile). 57 such rows; no mapping carries an error today.
+- **An unprovisioned dedicated firm serves nothing** —
+  `FirmRegistryTenantResolver` refuses it — and `migrate-all` skips deleted
+  firms, so the `IDNPROBE1` row reaches no store.
+- **Readiness** writes nothing and reads the named firm's store through
+  `firm_store_session`; `BLOCKED` for a store not built.
+- **The trigger is in every store:** `TR_audit_logs_append_only` and its own
+  `reject_audit_log_mutation()` in each of the 58 schemas of `agency_platform`
+  that hold `audit_logs` (`platform` among them), and in `electrolink_ops`;
+  pruning leaves both alone.
+
+### 15.10 The audit trail — what writes where, and what the merged read shows (TC-AUDIT-001 to 006)
+
+§1.3 and §7 have the read.
+
+- **Where a row goes.** `record_audit` stages the row on whichever session
+  the service holds: identity and firm administration on the platform
+  session, so `platform.audit_logs`; a firm's own work in the firm's store.
+  The row commits with the change — never one without the other.
+- **Which rows carry a firm** — and so reach that firm's screen, since
+  `list_events_with` filters the platform store on `firm_id`:
+
+  | Action | `firm_id` |
+  | --- | --- |
+  | `firm.*`, `user.firm_roles_set`, `user.primary_firm_set` | always the firm |
+  | `user.created`, `user.updated`, `user.deleted`, `user.roles_set`, `role.*` | the **caller's** firm — null for every platform administrator |
+  | `user.cloned`, `user_template.created`, `user_template.applied` | the caller's firm, or the firm a platform administrator named; null when they named none |
+  | `user.firms_set`, `user.restored`, `user.password_reset`, `identity.*`, `user_preferences.*`, `permission.*` | never |
+
+  So a firm's screen shows what its own administrator did to its people and
+  what anybody did to their roles in it — and **not** who was added to or
+  removed from the firm by anybody, nor anything a platform administrator did
+  to its people or its roles (D-IDN-5).
+- **What the rows hold.** `before_data` / `after_data` carry `_meta`
+  (correlation and request ids) and, beyond it: `user.created` the email;
+  `user.updated` the old name and active flag, no after; `user.cloned` the
+  source; `user_template.applied` the template and roles; `firm.*` the code
+  (name and active flag on an edit or delete, what was built on a Set up
+  action); `user.password_reset` the forced-change flag;
+  `identity.refresh_token_reuse_detected` the replayed token's id. **Nothing
+  else carries data** — `user.firms_set`, `user.roles_set`,
+  `user.firm_roles_set`, `role.*`, `role.permissions_set` and `user.deleted`
+  name the record and not the change.
+- **Append-only** in every store (§15.9); `version` and `is_deleted` never
+  move on an audit row.
+- **The merged read** (`GET /audit-logs` with `X-Firm-ID`) takes `page ×
+  page_size` from each store, sorts on `created_at` then id, and slices; the
+  same filters reach both, exact-match (BL-31.17), and a store is never merged
+  with itself. Both need `AUDIT_LOG_VIEW`; the platform trail (no header)
+  needs the designation too, either reach; a firm's trail needs a membership,
+  or `ALL_FIRMS`.
+- **Check** — a firm's whole trail by hand, and what the platform store holds
+  about it that the screen cannot show:
+  ```sql
+  select created_at, action, entity_type, entity_id, actor_id, 'firm' as store
+  from   test_fixtures.audit_logs where firm_id = '<TEST01 id>'
+  union  all
+  select created_at, action, entity_type, entity_id, actor_id, 'platform'
+  from   platform.audit_logs where firm_id = '<TEST01 id>'
+  order  by created_at desc limit 50;
+
+  select a.created_at, a.action, a.actor_id
+  from   platform.audit_logs a
+  where  a.firm_id is null
+    and  a.entity_type = 'user'
+    and  a.entity_id in (select user_id from platform.user_firms where firm_id = '<TEST01 id>')
+  order  by a.created_at desc limit 50;
+  ```
+- **Confirmed** (the API, as `t0919wwzu` with `X-Firm-ID` TEST01, and the
+  platform store): `user.firms_set` 0 on TEST01's screen against 1,121 on the
+  platform; `user.created` 2 against 290; `user.roles_set` 9 against 884;
+  the clone's three rows on the platform trail and none on TEST01's; five of
+  the six `role.deleted` rows for TEST01's own night-desk roles — the fixture
+  clear-up of 2026-09-17 05:23 IST, run by a platform administrator — carry no
+  firm, while the one a TEST01 administrator made does.
+
+### 15.11 Retention — tokens, sign-ins and password history
+
+- **Nothing prunes until somebody runs it**: `agency-server purge-retention`
+  (`scripts/purge_retention.py`, the opt-in `retention` compose service) runs
+  `IdentityRetentionService.purge` — by default refresh tokens expired or
+  revoked more than 7 days ago, `login_history` older than 365 days,
+  `password_history` beyond the newest 10 per user (`created_at`, then id, so
+  ties are fixed).
+  It has not run here: 1,542 `refresh_tokens` since 2026-08-15, 593 live and
+  627 past the grace; 1,454 `login_history` rows.
+- **Not a defect** — opt-in by design (`CLAUDE.md`, "Nothing prunes…").
+
+### 15.12 What identity, firms and audit do not write, and is often looked for
+
+| You might expect | What actually happens |
+| --- | --- |
+| A row saying who was added to a firm, on that firm's screen | `user.firms_set` with no firm and no data, on the platform trail only (§15.4) |
+| A platform administrator's hiring on the firm's screen | Only their role grants in that firm (§15.10) |
+| Which codes a role gained, or which roles a person gained | Not recorded; the rows name the record (§15.10) |
+| A membership row for a clone's firms in the audit trail | None (§15.7) |
+| Sign-out ending the access token | It lives out its 15 minutes; only the refresh token is revoked (§15.1) |
+| A deleted role's code free again | Never, in any firm (§15.5) |
+| A firm restored | No endpoint (§15.8) |
+| A firm's user rows in its own store | None; `user_templates` is the one stray copy (§15.0) |
+| An audit row for a read, readiness or the audit screen | None |
+
+### 15.13 Checked against live rows, and not
+
+- **Confirmed by driving** (2026-09-19, 11:44–11:52 IST): the `PLATFORM`
+  operator's token and its empty staffing reach (§15.4); a platform
+  administrator's clone putting a firm-scoped role in the global tier and
+  writing three commits and no membership audit (§15.7); a SCHEMA firm naming
+  `firm_shared` accepted (§15.8); TEST01's merged trail missing every
+  membership change (§15.10). **What the drives left:** users
+  `t0919tkcy.operator`, `t0919wwzu.platform`, `t0919subq.twofirm`,
+  `t0919subq.clone` (SALES_EXECUTIVE and CUSTOMER_SUPPORT globally, in TEST01
+  and TEST02, forced to change password); deleted firm `IDNPROBE1` with its
+  mapping on `agency_platform/firm_shared`, never provisioned.
+- **Confirmed from the tables** (read only): the login outcomes, token and
+  history counts; no live token for an unusable user; the partial unique
+  indexes on email, firm code, GST, PAN and the active primary; the plain
+  `UQ_roles_code`; the audit counts per action with and without a firm and
+  data; the trigger in every store including `electrolink_ops`; no two firms on
+  one pair; the stray `user_templates` copies; TC-ROLE-008's version move and
+  TC-ROLE-009's rows.
+- **Corrections to pass 1:** §1.3 said identity rows carry `firm_id` where
+  the action was about a firm — only for the actions in §15.10's first row, or
+  when a firm's own administrator acted. §3 *Clone a user* said roles are
+  copied within the caller's reach and the build writes `user.firms_set` — a
+  platform caller's clone copies every role into the global tier (D-IDN-3) and
+  writes no membership row. §5 said a provisioned store's `user_templates` is
+  empty — it holds the 11 seeded templates.
+- **Not driven, deliberately:** a `PLATFORM` operator granting themselves
+  `FIRM_ADMIN` (D-IDN-1) and resetting an `ALL_FIRMS` administrator's password
+  (D-IDN-2) — both escalations, read off the code.
+- **Not seen in a live row:** a global-tier row of a firm-owned role
+  (D-IDN-3's second half); a global custom-role or platform-role holder
+  reaching a firm by header (D-IDN-7); a clone failing half-way (D-IDN-8); a
+  refresh-reuse revocation from a race; a person with an inactive membership
+  elsewhere edited by a firm administrator; a firm provisioned onto a schema
+  another store owns.
