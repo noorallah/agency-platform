@@ -65,6 +65,9 @@ class PurchaseInvoice(BaseEntity):
     allow_direct_purchase_order: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # Retired (D-BUY-15): a bill may never charge for more than was received,
+    # and no request can say otherwise. The columns stay so no migration is
+    # needed; nothing reads or writes them.
     allow_over_invoice: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
