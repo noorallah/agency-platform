@@ -135,7 +135,6 @@ class PurchaseReturnCreate(PurchaseReturnSchema):
     due_date: date | None = None
     reference_number: str | None = Field(default=None, max_length=120)
     remarks: str | None = None
-    allow_direct_purchase_order: bool = False
     additional_charges: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
@@ -292,7 +291,6 @@ class PurchaseReturnResponse(PurchaseReturnSchema):
     due_date: date | None
     reference_number: str | None
     remarks: str | None
-    allow_direct_purchase_order: bool
     status: PurchaseReturnStatus
     total_source_quantity: Decimal
     total_already_returned_quantity: Decimal
