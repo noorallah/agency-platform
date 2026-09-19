@@ -732,7 +732,22 @@ a firm administrator cannot reach one to clone; and a platform caller who can
 reach one gets their roles and not the `platform_admins` row.
 
 A firm caller copies only what their scope can see — the firm-scoped rows plus
-the unscoped firm roles — so another firm's roles stay invisible. The audit row
+the unscoped firm roles — so another firm's roles stay invisible.
+
+A platform caller naming no firm copies **each role into the tier it came
+from**: the source's global rows become the clone's global rows, and a role
+the source holds in one firm (where they are still an active member) is
+copied into that firm alone. Until 2026-09-19 every tier was written global,
+so a role granted for one firm applied to the clone in every firm (D-IDN-3).
+A firm-tier role in a firm the caller may not staff
+(`_firms_the_caller_may_staff`) refuses the whole clone, by firm code, before
+any account is opened.
+
+The same rule holds wherever a grant reaches every firm: the global tier of
+`set_user_roles` and a platform-wide template refuse a custom role one firm
+owns (`_assert_no_firm_owned_roles`), `apply_user_template` with no firm
+named refuses a firm's own template, and a template edit is validated against
+the firm that **owns** the template rather than the caller's scope. The audit row
 records `source_user_id`, because "a user was created" with nothing about where
 their access came from is the one question anybody reviewing it will ask.
 
