@@ -892,7 +892,12 @@ class SalesInvoiceService(TransactionalDocumentService):
         # Imported here: these modules import the invoice model, and a
         # module-level import would tie the invoice service to all four.
         from app.credit_note.models import CreditNote, CreditNoteStatus
-        from app.einvoice.models import EInvoiceRegistration, RegistrationStatus
+        from app.einvoice.models import (
+            EInvoiceRegistration,
+            EWayBill,
+            EWayBillStatus,
+            RegistrationStatus,
+        )
         from app.loyalty.models import LoyaltyEntry, LoyaltyEntryKind
         from app.sales_return.models import (
             SalesReturn,
@@ -988,6 +993,21 @@ class SalesInvoiceService(TransactionalDocumentService):
         )
         if registered:
             blockers.append("its registration with the tax authority")
+        # A bill whose registration was already withdrawn can still have its
+        # e-way bill standing -- the goods may be on the road under it -- and
+        # cancelling the invoice then leaves a live bill for a supply that no
+        # longer exists (D-CMP-5).
+        live_bills = self._session.scalars(
+            select(EWayBill.eway_bill_number).where(
+                EWayBill.sales_invoice_id == row.id,
+                EWayBill.status == EWayBillStatus.GENERATED.value,
+                EWayBill.is_deleted.is_(False),
+            )
+        ).all()
+        if live_bills:
+            blockers.append(
+                "e-way bill " + ", ".join(sorted(str(n) for n in live_bills))
+            )
         if blockers:
             raise ValidationError(
                 f"{row.invoice_number} cannot be cancelled while it has "
@@ -2175,7 +2195,14 @@ class SalesInvoiceService(TransactionalDocumentService):
                 tax_profile_id, invoice_date, firm_scope=firm_id
             )
         request = TaxRuleSimulationRequest(
-            transaction_type="SALES_INVOICE",
+            # The supply's own nature, not just the document's name: a buyer in
+            # another state is charged IGST (D-CMP-1).
+            transaction_type=self._tax.outward_transaction_type(
+                "SALES_INVOICE",
+                firm_id=firm_id,
+                branch_id=branch_id,
+                customer_id=customer_id,
+            ),
             transaction_date=invoice_date,
             business_profile_id=business_profile_id,
             tax_profile_id=tax_profile_id,
@@ -2184,7 +2211,10 @@ class SalesInvoiceService(TransactionalDocumentService):
             customer_id=customer_id,
             product_id=product_id,
             invoice_value=invoice_value,
-            additional_context={"source": "sales_invoice"},
+            additional_context={
+                "source": "sales_invoice",
+                "document_type": "SALES_INVOICE",
+            },
         )
         response = self._tax.simulate(request, firm_scope=firm_id, actor_id=actor_id)
         return _LineTax(
