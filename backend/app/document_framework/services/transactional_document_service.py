@@ -350,6 +350,10 @@ class TransactionalDocumentService:
                     configuration={"module": spec.module},
                 ),
                 actor_id,
+                # The platform's own default: its prefix is distinct by
+                # construction, and a firm's older clashing series must not
+                # stop it raising this document at all.
+                other_types_checked=False,
             )
         return document_type, numbering_rule
 

@@ -372,12 +372,35 @@ class DocumentFrameworkService:
         return list(rows), int(self._session.scalar(count) or 0)
 
     def create_numbering_rule(
-        self, firm_id: UUID, data: DocumentNumberingRuleCreate, actor_id: UUID
+        self,
+        firm_id: UUID,
+        data: DocumentNumberingRuleCreate,
+        actor_id: UUID,
+        *,
+        other_types_checked: bool = True,
     ) -> DocumentNumberingRule:
+        """Create a numbering series for a document type.
+
+        ``other_types_checked`` is False only for the default series a module
+        bootstraps on its first document: those prefixes are the platform's
+        own and distinct by construction, and a firm's older series clashing
+        with one must not stop the firm raising that document at all. The
+        hand-journal space is refused either way.
+        """
         self._assert_unique_numbering_rule(firm_id, data.document_type_id, data.code)
         self._assert_outside_the_manual_journal_namespace(
-            prefix=data.prefix, separator=data.separator
+            prefix=data.prefix,
+            separator=data.separator,
+            format_pattern=data.format_pattern,
         )
+        if other_types_checked:
+            self._assert_numbered_apart_from_other_types(
+                firm_id,
+                document_type_id=data.document_type_id,
+                prefix=data.prefix,
+                separator=data.separator,
+                format_pattern=data.format_pattern,
+            )
         self._assert_a_reset_shows_its_year(
             auto_reset=data.auto_reset,
             include_financial_year=data.include_financial_year,
@@ -454,9 +477,19 @@ class DocumentFrameworkService:
             "next_sequence": row.next_sequence,
         }
         values = data.model_dump(exclude_unset=True)
+        # Judged on what the rule will be, as the year check below is.
         self._assert_outside_the_manual_journal_namespace(
             prefix=values.get("prefix", row.prefix),
             separator=values.get("separator", row.separator),
+            format_pattern=values.get("format_pattern", row.format_pattern),
+        )
+        self._assert_numbered_apart_from_other_types(
+            firm_id,
+            document_type_id=values.get("document_type_id", row.document_type_id),
+            prefix=values.get("prefix", row.prefix),
+            separator=values.get("separator", row.separator),
+            format_pattern=values.get("format_pattern", row.format_pattern),
+            current_id=row.id,
         )
         # Judged on what the rule will be, not on what the request mentions.
         # This update is partial, so a caller turning the year off says
@@ -950,27 +983,115 @@ class DocumentFrameworkService:
             other.updated_by = actor_id
 
     @staticmethod
+    def _number_head(
+        *, prefix: str | None, separator: str | None, format_pattern: str | None
+    ) -> str:
+        """Return the fixed text every number a series issues starts with.
+
+        For a series built from its flags that is the prefix and separator.
+        A ``format_pattern`` overrides the flags, so its head is the pattern
+        up to its first placeholder that is not the prefix or separator --
+        ``{prefix}-T09193UGD-R-HO-{financial_year}-{sequence}`` with prefix
+        ``GRN`` starts ``GRN-T09193UGD-R-HO-``.
+        """
+        if format_pattern:
+            text = format_pattern.replace("{prefix}", prefix or "").replace(
+                "{separator}", separator or ""
+            )
+            cut = text.find("{")
+            return (text if cut < 0 else text[:cut]).upper()
+        if not prefix:
+            return ""
+        return f"{prefix}{separator or ''}".upper()
+
+    @classmethod
     def _assert_outside_the_manual_journal_namespace(
-        *, prefix: str | None, separator: str | None
+        cls,
+        *,
+        prefix: str | None,
+        separator: str | None,
+        format_pattern: str | None = None,
     ) -> None:
         """Refuse a document number that would start in the hand-journal space.
 
         Documents post their journals under their own numbers, and hand
         journals are kept to ``JV-`` so the two can never take each other's
         reference (D-FIN-9). A rule numbering documents ``JV-...`` would undo
-        that from the other side.
+        that from the other side -- through its prefix, or through a format
+        pattern that spells ``JV-`` itself (D-CFG-8).
         """
         # Imported here: finance is a domain this framework otherwise does
         # not depend on.
         from app.finance.services.journal_engine import MANUAL_REFERENCE_PREFIX
 
-        start = f"{prefix or ''}{separator or ''}".upper()
-        if prefix and start.startswith(MANUAL_REFERENCE_PREFIX):
+        head = cls._number_head(
+            prefix=prefix, separator=separator, format_pattern=format_pattern
+        )
+        if head.startswith(MANUAL_REFERENCE_PREFIX):
             raise ValidationError(
-                f"A numbering prefix of {prefix!r} would number documents "
-                f"{MANUAL_REFERENCE_PREFIX}..., which is reserved for journals "
+                f"This series would number documents {head}..., and "
+                f"{MANUAL_REFERENCE_PREFIX}... is reserved for journals "
                 "written by hand. Choose another prefix."
             )
+
+    def _assert_numbered_apart_from_other_types(
+        self,
+        firm_id: UUID,
+        *,
+        document_type_id: UUID,
+        prefix: str | None,
+        separator: str | None,
+        format_pattern: str | None,
+        current_id: UUID | None = None,
+    ) -> None:
+        """Refuse a series whose numbers another document type's could share.
+
+        Document numbers are posted as journal references, which are unique
+        per firm, so a receipt numbered ``GRN-...`` took a goods receipt's
+        reference and the second of the two to post was refused for good
+        (D-CFG-8, the general case of D-SELL-17). Two series of different
+        types may not start alike -- the same fixed text, or one's the start
+        of the other's. Series of the same type are that type's own business.
+
+        Raises:
+            ValidationError: Naming the series and the type it would clash with.
+
+        """
+        head = self._number_head(
+            prefix=prefix, separator=separator, format_pattern=format_pattern
+        )
+        statement = select(DocumentNumberingRule, DocumentTypeDefinition.name).join(
+            DocumentTypeDefinition,
+            DocumentTypeDefinition.id == DocumentNumberingRule.document_type_id,
+        )
+        statement = statement.where(
+            DocumentNumberingRule.firm_id == firm_id,
+            DocumentNumberingRule.document_type_id != document_type_id,
+            DocumentNumberingRule.is_deleted.is_(False),
+            DocumentTypeDefinition.is_deleted.is_(False),
+        )
+        if current_id is not None:
+            statement = statement.where(DocumentNumberingRule.id != current_id)
+        for other, type_name in self._session.execute(statement).all():
+            theirs = self._number_head(
+                prefix=other.prefix,
+                separator=other.separator,
+                format_pattern=other.format_pattern,
+            )
+            clash = (
+                theirs == head
+                if not head or not theirs
+                else head.startswith(theirs) or theirs.startswith(head)
+            )
+            if clash:
+                shown = head or "no prefix"
+                raise ValidationError(
+                    f"Numbers from this series would start {shown!r}, like the "
+                    f"{type_name} series {other.code} ({theirs or 'no prefix'}). "
+                    "Two document types may not be numbered alike: their "
+                    "numbers post as journal references, which are unique. "
+                    "Choose another prefix."
+                )
 
     @staticmethod
     def _assert_a_reset_shows_its_year(

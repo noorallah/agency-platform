@@ -397,6 +397,98 @@ def test_no_rule_numbers_documents_in_the_hand_journal_space() -> None:
             ),
             actor_id,
         )
+    # Nor through a pattern that spells it (D-CFG-8).
+    with pytest.raises(ValidationError, match="reserved for journals"):
+        service.create_numbering_rule(
+            firm_id,
+            DocumentNumberingRuleCreate(
+                document_type_id=type_id,
+                code="VOUCHER_PATTERN",
+                name="Vouchers by pattern",
+                format_pattern="JV-{financial_year}-{sequence}",
+                include_financial_year=True,
+            ),
+            actor_id,
+        )
+
+
+def test_one_document_type_s_numbers_cannot_be_issued_by_another() -> None:
+    """Two document types may not be numbered alike.
+
+    D-CFG-8: a prefix or pattern was checked for the year and for `JV-`, and
+    for nothing else. Driven on fixture store `fx_t0919snfh_r`: a receipt
+    series `{prefix}-T0919SNFH-R-HO-{financial_year}-{sequence}` with prefix
+    `GRN` was accepted and previewed `GRN-T0919SNFH-R-HO-2026-2027-000001` --
+    the goods receipt already issued under that number. Journal references
+    are unique per firm, so the second document to post was refused.
+    """
+    service, firm_id, receipt_type, actor_id = _numbering_setup()
+    goods_type = service.create_type(
+        firm_id,
+        DocumentTypeCreate(code="GOODS_RECEIPT_NOTE", name="Goods Receipt"),
+        actor_id,
+    ).id
+    service.create_numbering_rule(
+        firm_id,
+        DocumentNumberingRuleCreate(
+            document_type_id=goods_type,
+            code="GRN_DEFAULT",
+            name="Goods receipts",
+            prefix="GRN",
+            include_financial_year=True,
+        ),
+        actor_id,
+    )
+
+    def receipts(code: str, **shape: object) -> DocumentNumberingRule:
+        return service.create_numbering_rule(
+            firm_id,
+            DocumentNumberingRuleCreate.model_validate(
+                {
+                    "document_type_id": receipt_type,
+                    "code": code,
+                    "name": code,
+                    "include_financial_year": True,
+                    **shape,
+                }
+            ),
+            actor_id,
+        )
+
+    with pytest.raises(ValidationError, match="Goods Receipt series GRN_DEFAULT"):
+        receipts("SAME_PREFIX", prefix="grn")
+    with pytest.raises(ValidationError, match="numbered alike"):
+        receipts(
+            "GRN_SHAPED",
+            prefix="GRN",
+            format_pattern="{prefix}-T0919SNFH-R-HO-{financial_year}-{sequence}",
+        )
+    own = receipts("OWN", prefix="RC")
+    # A second series of the same type is that type's own business.
+    service.create_numbering_rule(
+        firm_id,
+        DocumentNumberingRuleCreate(
+            document_type_id=goods_type,
+            code="GRN_SECOND",
+            name="Goods receipts, second",
+            prefix="GRN",
+            include_financial_year=True,
+        ),
+        actor_id,
+    )
+    with pytest.raises(ValidationError, match="numbered alike"):
+        service.update_numbering_rule(
+            firm_id,
+            own.id,
+            DocumentNumberingRuleUpdate(
+                document_type_id=receipt_type,
+                code="OWN",
+                name="OWN",
+                prefix="GRN",
+                include_financial_year=True,
+            ),
+            actor_id,
+        )
 
 
 def test_a_format_pattern_is_checked_for_the_placeholder_instead() -> None:
