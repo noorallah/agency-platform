@@ -35,7 +35,6 @@ from app.customers.schemas.statement import (
     OverdueInvoice,
 )
 from app.sales_invoice.models import SalesInvoice
-from app.settlements.models import Settlement, SettlementAllocation, SettlementStatus
 
 #: The buckets a receivables ageing is read in. Open-ended at the top, because
 #: a debt older than the last boundary still has to appear somewhere.
@@ -168,9 +167,10 @@ class CustomerStatementService:
     ) -> list[CustomerAgeing]:
         """Report what is still unpaid, by how long it has been.
 
-        Outstanding is **derived from the allocations**, never read off the
-        invoice: what a bill still owes is a fact about the money received
-        against it, and this repo deliberately stores it nowhere.
+        Outstanding is **derived**, never read off the invoice: the bill less
+        what came off it -- money allocated, points spent, returns and credit
+        notes -- through ``settled_against``, the derivation Record Receipt
+        offers, so an ageing row and the receipt screen agree on every bill.
 
         Age is counted from the invoice's own due date where it has one, and
         from its date otherwise -- a bill with no terms is due when it is
@@ -181,63 +181,61 @@ class CustomerStatementService:
         Args:
             firm_scope: The owning firm.
             customer_id: Narrow to one customer.
-            as_of: The day to age against.
+            as_of: The day to age against. Bills raised, and money, points
+                and credits received, after it are left out, and the account
+                balance is the one that stood that day.
 
         Returns:
             One row per customer with anything outstanding, buckets and all.
 
         """
         today = as_of or utc_now().date()
-        cleared = (
-            select(
-                SettlementAllocation.sales_invoice_id.label("invoice_id"),
-                func.coalesce(func.sum(SettlementAllocation.amount), 0).label("paid"),
-            )
-            .join(Settlement, Settlement.id == SettlementAllocation.settlement_id)
-            .where(
-                SettlementAllocation.firm_id == firm_scope,
-                SettlementAllocation.is_deleted.is_(False),
-                SettlementAllocation.sales_invoice_id.is_not(None),
-                # A reversed settlement cleared nothing. Counting it would
-                # report a bill as paid that the firm has no money for.
-                Settlement.status != SettlementStatus.REVERSED.value,
-                Settlement.is_deleted.is_(False),
-            )
-            .group_by(SettlementAllocation.sales_invoice_id)
-            .subquery()
-        )
+        # Imported here: the settlement module imports the customer services.
+        from app.settlements.services.settlement_service import settled_against
 
-        query = (
-            select(
-                SalesInvoice.id,
-                SalesInvoice.customer_id,
-                SalesInvoice.invoice_number,
-                SalesInvoice.invoice_date,
-                SalesInvoice.due_date,
-                SalesInvoice.grand_total,
-                func.coalesce(cleared.c.paid, 0),
-            )
-            .outerjoin(cleared, cleared.c.invoice_id == SalesInvoice.id)
-            .where(
-                SalesInvoice.firm_id == firm_scope,
-                SalesInvoice.is_deleted.is_(False),
-                SalesInvoice.status.in_(_LIVE_INVOICE_STATUSES),
-            )
+        query = select(
+            SalesInvoice.id,
+            SalesInvoice.customer_id,
+            SalesInvoice.invoice_number,
+            SalesInvoice.invoice_date,
+            SalesInvoice.due_date,
+            SalesInvoice.grand_total,
+        ).where(
+            SalesInvoice.firm_id == firm_scope,
+            SalesInvoice.is_deleted.is_(False),
+            SalesInvoice.status.in_(_LIVE_INVOICE_STATUSES),
         )
+        if as_of is not None:
+            # D-FIN-10: `as_of` moved only the day count, so a bill raised
+            # after it was aged as if it had been owed on that day.
+            query = query.where(SalesInvoice.invoice_date <= as_of)
         if customer_id is not None:
             query = query.where(SalesInvoice.customer_id == customer_id)
+        raised = self._session.execute(query).all()
+        # What has come off each bill -- money allocated, points spent, returns
+        # and credit notes -- read through the same derivation Record Receipt
+        # uses, so the two can no longer age one bill at two figures. This
+        # subtracted allocations alone, which left points spent standing as
+        # owed (D-FIN-10). With `as_of`, only what had happened by that day.
+        settled = settled_against(
+            self._session,
+            firm_id=firm_scope,
+            invoice_ids=[row[0] for row in raised],
+            as_of=as_of,
+        )
 
         overdue: dict[UUID, list[OverdueInvoice]] = defaultdict(list)
         for (
-            _invoice_id,
+            invoice_id,
             owner_id,
             number,
             invoice_date,
             due_date,
             total,
-            paid,
-        ) in self._session.execute(query).all():
-            balance = quantize_ledger(Decimal(str(total)) - Decimal(str(paid)))
+        ) in raised:
+            balance = quantize_ledger(Decimal(str(total))) - settled.get(
+                invoice_id, ZERO
+            )
             if balance <= ZERO:
                 continue
             due = due_date or invoice_date
@@ -259,6 +257,30 @@ class CustomerStatementService:
                 select(Customer).where(Customer.id.in_(overdue))
             ).all()
         }
+        # The account as it stood that day, summed from the dated movements,
+        # for the same reason the bills are: today's balance beside an ageing
+        # of last month is two different days on one row.
+        account_as_of: dict[UUID, Decimal] = {}
+        if as_of is not None:
+            account_as_of = {
+                owner: quantize_ledger(Decimal(str(total)))
+                for owner, total in self._session.execute(
+                    select(
+                        CustomerReceivableTransaction.customer_id,
+                        func.coalesce(
+                            func.sum(CustomerReceivableTransaction.outstanding_delta),
+                            0,
+                        ),
+                    )
+                    .where(
+                        CustomerReceivableTransaction.firm_id == firm_scope,
+                        CustomerReceivableTransaction.customer_id.in_(overdue),
+                        CustomerReceivableTransaction.is_deleted.is_(False),
+                        CustomerReceivableTransaction.transaction_date <= as_of,
+                    )
+                    .group_by(CustomerReceivableTransaction.customer_id)
+                ).all()
+            }
         answer: list[CustomerAgeing] = []
         for owner_id, invoices in overdue.items():
             customer = names.get(owner_id)
@@ -268,8 +290,10 @@ class CustomerStatementService:
             # invoice; tax collected at source raises it without being billed.
             # The gap is named rather than left for somebody to discover by
             # subtracting two reports.
-            balance = quantize_ledger(
-                getattr(customer, "current_outstanding", ZERO) or ZERO
+            balance = (
+                quantize_ledger(getattr(customer, "current_outstanding", ZERO) or ZERO)
+                if as_of is None
+                else account_as_of.get(owner_id, ZERO)
             )
             gap = bills - balance
             answer.append(
