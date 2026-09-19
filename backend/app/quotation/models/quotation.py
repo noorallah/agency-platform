@@ -104,6 +104,12 @@ class SalesQuotation(BaseEntity):
     bill_discount_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: Where the bill discount came from: ``typed``, ``promotion`` or ``none``.
+    #: A quotation shows the offers an order would take (D-SELL-32), so the
+    #: figure above is no longer always somebody's; the conversion hands the
+    #: order only a typed one, and the editor refills only a typed one. NULL
+    #: on a quotation saved before this existed, when it could only be typed.
+    bill_discount_source: Mapped[str | None] = mapped_column(String(20))
     #: What the customer is charged for getting the goods to them.
     #:
     #: **Part of the taxable value, not an extra on the end.** Delivery charged
@@ -118,6 +124,13 @@ class SalesQuotation(BaseEntity):
     #: it, and both give the rounding residual to the largest line so the
     #: shares sum exactly to the header figure.
     freight_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: What a free-shipping offer took off the delivery charge asked for.
+    #: `freight_amount` is what is charged, as on the order; this is what the
+    #: offer waived, so the order the quotation becomes is handed the charge
+    #: that was asked and decides for itself whether an offer still waives it.
+    freight_waived_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
     line_discount_total: Mapped[Decimal] = mapped_column(
