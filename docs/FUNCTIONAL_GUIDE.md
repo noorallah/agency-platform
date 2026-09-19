@@ -462,7 +462,7 @@ rules, and until then the only thing that built a working GST setup was
 `scripts/seed_tax_sample_data.py`. **Apply GST template** on the panel
 (`POST /api/v1/firms/{id}/apply-tax-template`, `app/tax/services/gst_template.py`)
 gives it the Indian GST system, CGST/SGST/IGST/CESS, the 0, 5, 12 and 18
-percent slabs as local and interstate profiles plus exempt, the six rules,
+percent slabs as local and interstate profiles plus exempt, the nine rules,
 and the country if the store has none -- a starting point, edited afterwards
 on the tax screens, and the script now applies the same one. And **the
 business profile is set from the panel**, from the firm's own catalogue, so

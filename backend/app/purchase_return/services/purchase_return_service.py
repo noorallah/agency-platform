@@ -1807,7 +1807,14 @@ class PurchaseReturnService(TransactionalDocumentService):
                 tax_profile_id, return_date, firm_scope=firm_id
             )
         request = TaxRuleSimulationRequest(
-            transaction_type="PURCHASE_RETURN",
+            # The supply's own nature, not just the document's name: goods
+            # going back to a supplier in another state carry IGST (D-CMP-14).
+            transaction_type=self._tax.inward_transaction_type(
+                "PURCHASE_RETURN",
+                firm_id=firm_id,
+                branch_id=branch_id,
+                vendor_id=vendor_id,
+            ),
             transaction_date=return_date,
             business_profile_id=business_profile_id,
             tax_profile_id=tax_profile_id,
@@ -1816,7 +1823,10 @@ class PurchaseReturnService(TransactionalDocumentService):
             vendor_id=vendor_id,
             product_id=product_id,
             invoice_value=invoice_value,
-            additional_context={"source": "purchase_return"},
+            additional_context={
+                "source": "purchase_return",
+                "document_type": "PURCHASE_RETURN",
+            },
         )
         response = self._tax.simulate(request, firm_scope=firm_id, actor_id=actor_id)
         return self._q(response.total_tax_amount)

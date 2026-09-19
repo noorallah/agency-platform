@@ -416,7 +416,7 @@ class TestTaxTemplate:
             "systems": 1,
             "components": 4,
             "profiles": 8,
-            "rules": 6,
+            "rules": 9,
         }
         assert session.scalar(select(GeoCountry).where(GeoCountry.code == "IN"))
         assert (
@@ -442,13 +442,13 @@ class TestTaxTemplate:
             len(
                 session.scalars(select(TaxRule).where(TaxRule.firm_id == firm.id)).all()
             )
-            == 6
+            == 9
         )
 
         # Readiness now reports tax and geography done.
         readiness = service.readiness(firm, session)
         assert _step(readiness, "tax").status is ReadinessStatus.DONE
-        assert "8 profiles, 6 rules" in _step(readiness, "tax").detail
+        assert "8 profiles, 9 rules" in _step(readiness, "tax").detail
         assert _step(readiness, "geography").status is ReadinessStatus.DONE
 
     def test_is_idempotent_and_records_only_the_first(self) -> None:

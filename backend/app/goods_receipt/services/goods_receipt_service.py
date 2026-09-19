@@ -1070,6 +1070,8 @@ class GoodsReceiptService(TransactionalDocumentService):
                 actor_id=actor_id,
                 tax_profile_id=line.tax_profile_id or purchase_line.tax_profile_id,
                 product_id=purchase_line.product_id,
+                vendor_id=receipt.vendor_id,
+                branch_id=receipt.branch_id,
                 receipt_date=receipt.receipt_date,
                 taxable=line_subtotal,
             )
@@ -1626,6 +1628,8 @@ class GoodsReceiptService(TransactionalDocumentService):
         actor_id: UUID,
         tax_profile_id: UUID | None,
         product_id: UUID,
+        vendor_id: UUID | None,
+        branch_id: UUID | None,
         receipt_date: date,
         taxable: Decimal,
     ) -> Decimal:
@@ -1652,11 +1656,24 @@ class GoodsReceiptService(TransactionalDocumentService):
             )
         simulation = self._tax.simulate(
             TaxRuleSimulationRequest(
-                transaction_type="GOODS_RECEIPT",
+                # The supply's own nature, not just the document's name: a
+                # supplier in another state charges IGST (D-CMP-14).
+                transaction_type=self._tax.inward_transaction_type(
+                    "GOODS_RECEIPT",
+                    firm_id=firm_id,
+                    branch_id=branch_id,
+                    vendor_id=vendor_id,
+                ),
                 transaction_date=receipt_date,
                 tax_profile_id=tax_profile_id,
+                branch_id=branch_id,
+                vendor_id=vendor_id,
                 product_id=product_id,
                 invoice_value=self._q(taxable),
+                additional_context={
+                    "source": "goods_receipt",
+                    "document_type": "GOODS_RECEIPT",
+                },
             ),
             firm_scope=firm_id,
             actor_id=actor_id,

@@ -556,6 +556,11 @@ class SalesInvoiceService(TransactionalDocumentService):
         row.exchange_rate = data.exchange_rate
         row.payment_terms = data.payment_terms
         row.due_date = data.due_date
+        # A draft is re-priced on every save, against the buyer as they stand
+        # now, so what it prints must follow the same answer (D-CMP-15).
+        row.place_of_supply = self._place_of_supply(
+            self._session.get(Customer, row.customer_id)
+        )
         row.reference_number = data.reference_number
         row.remarks = data.remarks
         row.additional_charges = self._q(data.additional_charges)
@@ -2140,35 +2145,22 @@ class SalesInvoiceService(TransactionalDocumentService):
             return None
         return invoice_date + timedelta(days=int(customer.payment_terms_days))
 
-    @staticmethod
-    def _place_of_supply(customer: Customer | None) -> str | None:
-        """Return the state the supply is made in.
+    def _place_of_supply(self, customer: Customer | None) -> str | None:
+        """Return the state the supply is made in, as the invoice prints it.
 
         Copied onto the invoice rather than read through the customer at print
         time: it decides CGST + SGST against IGST, and a customer who moves must
         not change the tax treatment of an invoice already issued.
 
-        The state lives on the address, not on the customer -- a customer can
-        hold several. The billing address is what a tax invoice is addressed
-        to, so that one is preferred, then whichever address is flagged as the
-        default for billing, then any live address at all.
+        It is the state the tax was charged by -- the buyer's GSTIN, else the
+        billing address -- named with its code, ``Karnataka (29)``, from the
+        same resolver that picks IGST. It used to print the billing address's
+        state text, so a registered buyer whose GSTIN is in another state got
+        IGST under a place of supply naming the seller's own state (D-CMP-15).
         """
         if customer is None:
             return None
-        live = [
-            address
-            for address in (customer.addresses or [])
-            if not address.is_deleted and address.state
-        ]
-        for match in (
-            lambda address: address.address_type == "BILLING",
-            lambda address: bool(address.is_default_billing),
-            lambda address: True,
-        ):
-            for address in live:
-                if match(address):
-                    return str(address.state)
-        return None
+        return self._tax.place_of_supply(customer.id)
 
     def _resolve_tax(
         self,

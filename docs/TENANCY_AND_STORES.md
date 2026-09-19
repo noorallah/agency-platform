@@ -69,3 +69,11 @@ PostgreSQL 17 is the primary target; MySQL is supported by the connection layer 
 ## A firm's storage routing is fixed at creation
 
 **A firm's storage routing is fixed at creation.** Nothing migrates a firm's rows between stores, so `FirmService.update` rejects any change to `deployment_mode`/`schema_name`/`database_name`/`connection_profile`, and omitted tenancy fields inherit the stored mapping instead of defaulting to `SHARED`. Two firms are never allowed to share one database/schema pair — soft-deleted firms included, because their data is still there. An unknown `connection_profile` is refused at create rather than at first use: a typo would otherwise produce a firm that provisions and serves nothing, failing far from the request that caused it.
+
+**Nor may a dedicated firm name a store that is not a firm's** (D-IDN-4, 2026-09-19). The uniqueness check compares only with other firms' mappings, and nobody's mapping names `platform` while SHARED firms record no schema, so a SCHEMA or DATABASE firm could name `platform`, `firm_shared` or `public` — and provisioning migrates that schema and then **prunes** it, dropping `users`, `roles`, `firms` and the rest: on `platform`, the identity store and the registry. Three locks now, each refusing by name before anything is touched:
+
+| Where | Refuses |
+| --- | --- |
+| `_assert_storage_not_reserved` in `FirmService.create` | the schemas in `RESERVED_SCHEMA_NAMES` (`platform`, `firm_shared`, `public`, `information_schema`), any `pg_*`, and the configured platform and shared schema names, case-insensitively; for DATABASE mode also the platform and shared databases and the server's own (`RESERVED_DATABASE_NAMES`) |
+| `TenantStorageLifecycleService.provision_new_firm` | the same, for a row recorded before the create-time check existed |
+| `prune_platform_objects` | `platform`, `public`, `information_schema` and `pg_*` — **not** `firm_shared`, which is a firm store the reset script and CI prune on purpose |

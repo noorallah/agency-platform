@@ -1057,6 +1057,7 @@ def clone_user(
                 data,
                 _actor_id(principal),
                 _firm_scope(principal, caller_scope),
+                allowed_firm_ids=_firms_the_caller_may_staff(principal),
             )
         ),
         message="The new user was created with the same access.",
