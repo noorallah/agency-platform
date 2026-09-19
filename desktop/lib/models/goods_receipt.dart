@@ -212,8 +212,6 @@ class GoodsReceiptRecord {
     required this.vehicleNumber,
     required this.invoiceReference,
     required this.remarks,
-    required this.allowOverReceipt,
-    required this.overReceiptPercent,
     required this.status,
     required this.totalOrderedQuantity,
     required this.totalPreviousReceivedQuantity,
@@ -260,8 +258,6 @@ class GoodsReceiptRecord {
   final String vehicleNumber;
   final String invoiceReference;
   final String remarks;
-  final bool allowOverReceipt;
-  final String overReceiptPercent;
   final String status;
   final String totalOrderedQuantity;
   final String totalPreviousReceivedQuantity;
@@ -303,8 +299,6 @@ class GoodsReceiptRecord {
         vehicleNumber: stringValue(json['vehicle_number']),
         invoiceReference: stringValue(json['invoice_reference']),
         remarks: stringValue(json['remarks']),
-        allowOverReceipt: boolValue(json['allow_over_receipt']),
-        overReceiptPercent: stringValue(json['over_receipt_percent']),
         status: stringValue(json['status']),
         totalOrderedQuantity: stringValue(json['total_ordered_quantity']),
         totalPreviousReceivedQuantity:

@@ -94,10 +94,6 @@ class GoodsReceiptCreate(GoodsReceiptSchema):
     vehicle_number: str | None = Field(default=None, max_length=80)
     invoice_reference: str | None = Field(default=None, max_length=120)
     remarks: str | None = None
-    allow_over_receipt: bool = False
-    over_receipt_percent: Decimal = Field(
-        default=Decimal("0"), ge=0, max_digits=9, decimal_places=4
-    )
     lines: list[GoodsReceiptLineWrite] = Field(min_length=1, max_length=1000)
     attachments: list[GoodsReceiptAttachmentWrite] = Field(
         default_factory=list, max_length=500
@@ -212,8 +208,6 @@ class GoodsReceiptResponse(GoodsReceiptSchema):
     vehicle_number: str | None
     invoice_reference: str | None
     remarks: str | None
-    allow_over_receipt: bool
-    over_receipt_percent: Decimal
     status: GoodsReceiptStatus
     total_ordered_quantity: Decimal
     total_previous_received_quantity: Decimal

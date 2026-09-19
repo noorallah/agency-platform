@@ -171,8 +171,12 @@ picker filters on it (`PurchaseQuery(status: 'APPROVED')`), which is why steps
 
 1. every line still references a real purchase-order line;
 2. **received so far + this receipt ≤ ordered**, counted across *all* receipts
-   against that order. Over-receipt is refused unless the receipt sets
-   `allow_over_receipt`, and then only up to `over_receipt_percent`;
+   against that order -- completed **and closed** receipts both count, since
+   closing a receipt does not send its goods back. Over-receipt is refused for
+   every receipt; a receipt used to be able to lift the cap itself with
+   `allow_over_receipt` and widen it with `over_receipt_percent`, both on its
+   own request body (D-BUY-16). A tolerance, where a firm wants one, is the
+   firm's setting and does not exist yet;
 3. a product whose profile sets *require batch on receipt* is refused without a
    batch number, naming the product.
 
