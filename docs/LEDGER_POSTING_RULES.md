@@ -89,7 +89,9 @@ receipt straddling the line pays on the part above it; charging the whole
 receipt over-collects by the entire remaining headroom. **The running total
 is summed from the receipts**, never a counter, net of refunds and excluding
 the receipt being charged -- counting that one would make the first receipt
-over the threshold pay on itself. **The financial year is the firm's own**,
+over the threshold pay on itself -- **and only from receipts dated on or
+before the one being charged**: summing the whole year charged a back-dated
+receipt on money the buyer paid after it (D-CMP-7). **The financial year is the firm's own**,
 read off `financial_year_start`, because the threshold resets with it.
 **A seller below the turnover threshold collects nothing**, and that
 turnover is *stated* rather than derived: the preceding year may predate
