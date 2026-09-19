@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 
 from app.commission.models import CommissionPayout, CommissionPayoutStatus
 from app.commission.schemas.payout import (
+    CommissionPaymentMethodEnum,
     CommissionPayoutAccrue,
     CommissionPayoutPay,
     CommissionPayoutResponse,
@@ -37,6 +38,10 @@ from app.core.concurrency import assert_version
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO
+from app.finance.services.control_accounts import (
+    ControlAccountPurpose,
+    ControlAccountService,
+)
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.finance.services.journal_engine import quantize_money as quantize_ledger
@@ -424,15 +429,19 @@ class CommissionPayoutService:
         Returns:
             The paid payout.
 
-        The account is not checked here: `JournalEntryEngine._load_accounts`
-        already refuses an id that is not this firm's live chart, before
-        anything posts. A second check in this service would change no
-        outcome, and a guard that changes no outcome is the thing this repo's
-        review checklist exists to keep out.
+        The money leaves through the firm's **cash or bank** control account
+        and nothing else. `JournalEntryEngine._load_accounts` only asked that
+        the account was this firm's, so the credit leg could land on Trade
+        Receivables, on Sales, or on Commission Payable itself -- which marked
+        the payout PAID and moved no money (D-TER-5). Receipts and payments
+        resolve theirs from the CASH / BANK purposes; this does the same.
+
+        And not before it was accrued: a payment dated ahead of the accrual
+        leaves the payable in debit between the two dates.
 
         Raises:
-            ValidationError: If it has not been approved, or the account named
-                is not one of this firm's live ledger accounts.
+            ValidationError: If it has not been approved, the account is not
+                the firm's cash or bank, or the date precedes the accrual.
 
         """
         row = self.get_payout(payout_id, firm_id=firm_id)
@@ -442,6 +451,12 @@ class CommissionPayoutService:
                 "Only an approved payout can be paid. Approve it first, which "
                 "is what recognises the debt."
             )
+        if data.paid_on < row.accrued_on:
+            raise ValidationError(
+                "A payout cannot be paid before it was accrued "
+                f"(accrued on {row.accrued_on.isoformat()})."
+            )
+        money_account_id = self._money_account(firm_id, data)
         before = self._snapshot(row)
         entry = self._posting.post_commission_payment(
             firm_id=firm_id,
@@ -453,11 +468,11 @@ class CommissionPayoutService:
             reference=f"{self.reference_for(row)}-PAY",
             paid_on=data.paid_on,
             amount=Decimal(str(row.payable_amount)),
-            money_account_id=data.money_account_id,
+            money_account_id=money_account_id,
             actor_id=actor_id,
         )
         row.payment_journal_entry_id = entry.id
-        row.money_account_id = data.money_account_id
+        row.money_account_id = money_account_id
         row.paid_on = data.paid_on
         row.status = CommissionPayoutStatus.PAID.value
         row.updated_by = actor_id
@@ -473,6 +488,47 @@ class CommissionPayoutService:
             after_data=self._snapshot(row),
         )
         return row
+
+    def _money_account(self, firm_id: UUID, data: CommissionPayoutPay) -> UUID:
+        """Resolve the cash or bank account the payment leaves through.
+
+        A `method` is resolved through the firm's control accounts, which
+        refuse with a message naming the purpose when none is nominated. An
+        account named outright has to be one of those same two.
+
+        Args:
+            firm_id: The owning firm.
+            data: What the caller said about where the money left.
+
+        Returns:
+            The ledger account to credit.
+
+        Raises:
+            ValidationError: If the account named is neither the firm's cash
+                nor its bank account.
+
+        """
+        controls = ControlAccountService(self._session)
+        if data.method is not None:
+            purpose = (
+                ControlAccountPurpose.CASH
+                if data.method is CommissionPaymentMethodEnum.CASH
+                else ControlAccountPurpose.BANK
+            )
+            return controls.resolve(firm_id, purpose)
+        mapping = controls.mapping(firm_id)
+        allowed = {
+            mapping.get(ControlAccountPurpose.CASH.value),
+            mapping.get(ControlAccountPurpose.BANK.value),
+        } - {None}
+        if data.money_account_id not in allowed:
+            raise ValidationError(
+                "Commission is paid from the firm's cash or bank account -- the "
+                "ones nominated under its control accounts -- and that account "
+                "is neither."
+            )
+        assert data.money_account_id is not None
+        return data.money_account_id
 
     def cancel(
         self,
