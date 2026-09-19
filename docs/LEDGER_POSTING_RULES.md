@@ -104,6 +104,14 @@ The direction check is `SettlementDirection.RECEIPT`, not `"IN"` -- the
 first version compared against a string the column never holds, so it
 collected nothing anywhere and only the tests said so.
 
+**Section 206C(1H) was omitted by the Finance Act 2025 with effect from
+1 April 2025.** A receipt dated on or after that day collects nothing under
+it, whatever the settings say, and the preview says why
+(`SECTION_206C_1H_OMITTED_FROM` in `app/tcs/services/tcs_service.py`);
+receipts dated earlier are charged as the law then stood, and collections
+already made are never rewritten (D-CMP-12). The module still answers for
+FY 2024-25 and earlier, which is why it stays.
+
 ## A return is a view of the documents
 
 **A return is a view of the documents, and a supply is placed by the tax it
@@ -127,6 +135,16 @@ way out or the HSN summary and the invoice detail drift apart a paisa at a
 time. `split_components` in `app/tax/services/gst_buckets.py` is the one
 place a component code becomes a bucket, shared with `app/einvoice`, so what
 is filed and what was registered cannot disagree.
+
+**The filed tax is what the journal credited, per document.** The journal
+credits `quantize_ledger` of a document's whole tax, once; rounding CGST and
+SGST each on its own declared 36.86 + 36.86 = 73.72 on a bill whose halves
+were 36.855 and whose journal credited 73.71 -- 30 of WHOLE01's 52 live bills
+(D-CMP-4). `settle_to_ledger` (same module) rounds every bucket of every line
+to paise and puts the residual on the last bucket that carried tax (SGST
+intra-state, IGST inter-state), and both GSTR-1/3B and the e-invoice payload
+fold its answer; `intra_state_halves` does the same for a credit note, which
+stores one tax figure.
 
 **A month once due is not rewritten.** Derived on read, a return re-read a
 bill's *current* status, so cancelling an August bill in September took it

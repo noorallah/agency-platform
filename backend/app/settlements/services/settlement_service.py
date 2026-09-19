@@ -60,6 +60,7 @@ from app.settlements.schemas import (
     OutstandingInvoiceRecord,
     SettlementCreate,
 )
+from app.settlements.services.supplier_credits import credit_applied_against
 from app.tcs.services import TcsService
 from app.vendors.models import Vendor
 
@@ -340,9 +341,17 @@ class SettlementService(TransactionalDocumentService):
         # receipt or an order stays a credit on the supplier, as a sales
         # return does on the customer.
         returned: dict[UUID, Decimal] = {}
+        credited: dict[UUID, Decimal] = {}
         if not is_receipt and rows:
             returned = self._returned_against(
                 firm_id=firm_id, invoice_ids=[row.id for row, _ in rows]
+            )
+            # And supplier credit from a return raised off the goods receipt,
+            # once somebody has set it against this bill (D-FIN-19).
+            credited = credit_applied_against(
+                self._session,
+                firm_id=firm_id,
+                invoice_ids=[row.id for row, _ in rows],
             )
         records: list[OutstandingInvoiceRecord] = []
         for row, allocated_amount in rows:
@@ -351,6 +360,7 @@ class SettlementService(TransactionalDocumentService):
                 if is_receipt
                 else quantize_ledger(Decimal(allocated_amount))
                 + quantize_ledger(returned.get(row.id, ZERO))
+                + credited.get(row.id, ZERO)
             )
             total = quantize_ledger(row.grand_total)
             outstanding = total - already
@@ -488,15 +498,20 @@ class SettlementService(TransactionalDocumentService):
         money_account_id = self._money_account(
             firm_id=firm_id, method=SettlementMethod(data.method.value)
         )
-        number = (
-            data.settlement_number.strip().upper()
-            if data.settlement_number
-            else self._unused_number(
-                numbering_rule.id,
-                firm_id=firm_id,
-                settlement_date=data.settlement_date,
-                actor_id=actor_id,
-            )
+        # A taken number is stepped over rather than re-issued (D-FIN-9), and
+        # a typed one is accepted only where the series allows it (D-CFG-2).
+        number = self._issue_number(
+            numbering_rule,
+            typed=(
+                data.settlement_number.strip().upper()
+                if data.settlement_number
+                else None
+            ),
+            number_column=Settlement.settlement_number,
+            firm_id=firm_id,
+            document_date=data.settlement_date,
+            actor_id=actor_id,
+            company_code=self._company_code(firm_id),
         )
 
         # Both directions of the link are set before either row is written:
@@ -640,57 +655,6 @@ class SettlementService(TransactionalDocumentService):
             return None
         order = self._session.get(SalesOrder, row.sales_order_id)
         return None if order is None else order.order_number
-
-    #: How many already-used numbers one save will step over before giving up.
-    #: A handful is a collision; hundreds would be a misconfigured rule, and
-    #: the refusal then says so rather than spinning.
-    _MAX_NUMBER_SKIPS = 50
-
-    def _unused_number(
-        self,
-        rule_id: UUID,
-        *,
-        firm_id: UUID,
-        settlement_date: date,
-        actor_id: UUID,
-    ) -> str:
-        """Reserve the next number no journal or settlement already holds.
-
-        D-FIN-9: a journal reference is unique per firm, so a number already
-        taken -- by a hand journal typed before the manual namespace existed,
-        or by any other entry -- failed the posting, and the failure rolled
-        the reservation back with it. Every retry was issued the same number
-        and failed the same way, for good. A taken number is now stepped over
-        (the series keeps a gap, as a cancelled voucher leaves one) and the
-        next one is used.
-        """
-        for _ in range(self._MAX_NUMBER_SKIPS):
-            number = self._documents.reserve_number(
-                rule_id,
-                firm_id=firm_id,
-                financial_year_label=self._financial_year_label(
-                    settlement_date, firm_id
-                ),
-                company_code=self._company_code(firm_id),
-                document_date=settlement_date,
-                actor_id=actor_id,
-            )
-            settlement_taken = self._session.scalar(
-                select(Settlement.id)
-                .where(
-                    Settlement.firm_id == firm_id,
-                    Settlement.settlement_number == number,
-                )
-                .limit(1)
-            )
-            if settlement_taken is None and not self._journals.reference_taken(
-                number, firm_id=firm_id
-            ):
-                return number
-        raise ValidationError(
-            f"The next {self._MAX_NUMBER_SKIPS} settlement numbers are all in "
-            "use already. Check the numbering rule for this document type."
-        )
 
     def _advance_order(
         self, data: SettlementCreate, *, firm_id: UUID

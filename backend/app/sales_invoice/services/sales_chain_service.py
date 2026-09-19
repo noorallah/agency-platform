@@ -94,7 +94,7 @@ class SalesChainService:
         branch_id, warehouse_id = self._resolve_place(
             firm_id=firm_id,
             branch_id=data.branch_id or settings.default_branch_id,
-            warehouse_id=settings.default_warehouse_id,
+            configured_warehouse_id=settings.default_warehouse_id,
         )
         order = SalesOrderService(self._session).stage_order(
             SalesOrderCreate(
@@ -411,7 +411,7 @@ class SalesChainService:
         *,
         firm_id: UUID,
         branch_id: UUID | None,
-        warehouse_id: UUID | None,
+        configured_warehouse_id: UUID | None,
     ) -> tuple[UUID, UUID]:
         """Decide where a synthesised sale ships from.
 
@@ -420,6 +420,11 @@ class SalesChainService:
         warehouse, and a firm whose delivery-note stage is automatic never sees
         a field to type one into -- so failing here, by name, beats failing
         three documents later with a message about a note the user never saw.
+
+        The configured warehouse is the default *branch's*: a bill that names
+        another branch ships from that branch's own default, not from a
+        warehouse the order would then refuse as outside its branch
+        (D-CFG-14).
         """
         if branch_id is None:
             branch_id = self._session.scalar(
@@ -433,6 +438,15 @@ class SalesChainService:
             raise ValidationError(
                 "This firm has no default branch, so a bill cannot decide "
                 "where its goods ship from."
+            )
+        warehouse_id: UUID | None = None
+        if configured_warehouse_id is not None:
+            warehouse_id = self._session.scalar(
+                select(Warehouse.id).where(
+                    Warehouse.id == configured_warehouse_id,
+                    Warehouse.branch_id == branch_id,
+                    Warehouse.is_deleted.is_(False),
+                )
             )
         if warehouse_id is None:
             warehouse_id = self._session.scalar(

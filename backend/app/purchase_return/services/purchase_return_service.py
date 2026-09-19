@@ -33,12 +33,13 @@ from app.document_framework.services.transactional_document_service import (
 from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
-from app.goods_receipt.rules import require_posted_receipt
+from app.goods_receipt.rules import posted_receipt_line, require_posted_receipt
 from app.inventory.models import StockLedgerEntry
 from app.inventory.services import InventoryService
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
 from app.purchase_invoice.models import PurchaseInvoice, PurchaseInvoiceLine
+from app.purchase_invoice.schemas import PurchaseInvoiceStatus
 from app.purchase_return.models import (
     PurchaseReturn,
     PurchaseReturnAccountingEvent,
@@ -86,6 +87,18 @@ SourceLine = GoodsReceiptLine | PurchaseInvoiceLine | PurchaseOrderLine
 def _optional_uuid(value: object) -> UUID | None:
     """Read a UUID out of an untyped line spec."""
     return value if isinstance(value, UUID) else None
+
+
+def _required_uuid(value: object) -> UUID:
+    """Read a UUID the line spec must carry."""
+    return value if isinstance(value, UUID) else UUID(str(value))
+
+
+#: A supplier bill a return can be raised against: it raised a payable that
+#: still stands. CLOSED means nothing more to pay, not that nothing was bought.
+_RETURNABLE_INVOICE_STATES = frozenset(
+    {PurchaseInvoiceStatus.APPROVED.value, PurchaseInvoiceStatus.CLOSED.value}
+)
 
 
 class PurchaseReturnService(TransactionalDocumentService):
@@ -251,20 +264,15 @@ class PurchaseReturnService(TransactionalDocumentService):
                 vendor_id=vendor_id,
                 supplier_return_number=data.supplier_return_number,
             )
-        return_number = (
-            data.return_number.strip().upper()
-            if data.return_number
-            else self._documents.reserve_number(
-                numbering_rule.id,
-                firm_id=firm_id,
-                financial_year_label=self._financial_year_label(
-                    data.return_date, firm_id
-                ),
-                branch_code=self._scope_code(branch_id),
-                company_code=self._company_code(firm_id),
-                document_date=data.return_date,
-                actor_id=actor_id,
-            )
+        return_number = self._issue_number(
+            numbering_rule,
+            typed=data.return_number.strip().upper() if data.return_number else None,
+            number_column=PurchaseReturn.return_number,
+            firm_id=firm_id,
+            document_date=data.return_date,
+            actor_id=actor_id,
+            branch_code=self._scope_code(branch_id),
+            company_code=self._company_code(firm_id),
         )
         row = PurchaseReturn(
             firm_id=firm_id,
@@ -496,6 +504,9 @@ class PurchaseReturnService(TransactionalDocumentService):
             )
         if row.status != PurchaseReturnStatus.APPROVED.value:
             raise ValidationError("Only approved purchase returns can be completed.")
+        # Checked again where the stock leaves, so a return saved before the
+        # check existed cannot send back goods through a line it does not own.
+        self._refuse_foreign_lines(row, firm_id=firm_scope)
         lines = list(
             self._session.scalars(
                 select(PurchaseReturnLine).where(
@@ -672,6 +683,19 @@ class PurchaseReturnService(TransactionalDocumentService):
         row.status = PurchaseReturnStatus.CANCELLED.value
         row.cancel_reason = reason
         row.updated_by = actor_id
+        # The payables debit is reversed, so the supplier credit it gave is
+        # gone and any bill it was set against owes that part again
+        # (D-FIN-19).
+        from app.settlements.services.supplier_credits import (
+            withdraw_credit_applications,
+        )
+
+        withdraw_credit_applications(
+            self._session,
+            firm_id=firm_scope,
+            actor_id=actor_id,
+            purchase_return_id=row.id,
+        )
         self._record_event(
             firm_id=firm_scope,
             document_type=self._document_type(firm_scope),
@@ -1295,17 +1319,20 @@ class PurchaseReturnService(TransactionalDocumentService):
         for index, spec in enumerate(line_specs, start=1):
             source_type = self._source_type(spec["source_document_type"])
             source_line: SourceLine | None
+            # A line must be one of its own source's lines (D-BUY-17).
             if source_type == PurchaseReturnSourceType.GOODS_RECEIPT.value:
-                source_line = self._session.scalar(
-                    select(GoodsReceiptLine).where(
-                        GoodsReceiptLine.id == spec["source_document_line_id"]
-                    )
+                source_line = posted_receipt_line(
+                    self._session,
+                    firm_id=firm_id,
+                    receipt_id=_required_uuid(spec["source_document_id"]),
+                    line_id=_required_uuid(spec["source_document_line_id"]),
+                    verb="returned",
                 )
             elif source_type == PurchaseReturnSourceType.PURCHASE_INVOICE.value:
-                source_line = self._session.scalar(
-                    select(PurchaseInvoiceLine).where(
-                        PurchaseInvoiceLine.id == spec["source_document_line_id"]
-                    )
+                source_line = self._billed_invoice_line(
+                    firm_id=firm_id,
+                    invoice_id=_required_uuid(spec["source_document_id"]),
+                    line_id=_required_uuid(spec["source_document_line_id"]),
                 )
             else:
                 source_line = self._session.scalar(
@@ -1599,6 +1626,7 @@ class PurchaseReturnService(TransactionalDocumentService):
                 )
                 if invoice is None:
                     raise ResourceNotFoundError("Purchase invoice not found.")
+                self._refuse_unreturnable_invoice(invoice)
                 source_rows.append(
                     {
                         "source_document_type": source_type,
@@ -1635,6 +1663,79 @@ class PurchaseReturnService(TransactionalDocumentService):
             },
         )
         return header, source_rows, lines
+
+    @staticmethod
+    def _refuse_unreturnable_invoice(invoice: PurchaseInvoice) -> None:
+        """Refuse a supplier bill that does not stand.
+
+        Only an APPROVED bill -- or a CLOSED one, closing meaning nothing more
+        to pay rather than never bought -- has raised a payable a return can
+        take back. A draft or cancelled bill was accepted as a return's source
+        (D-BUY-17, the purchasing twin of D-SELL-6).
+        """
+        if invoice.status not in _RETURNABLE_INVOICE_STATES:
+            raise ValidationError(
+                f"{invoice.invoice_number} is {invoice.status.lower()}, so "
+                "nothing can be returned against it: only goods on an approved "
+                "supplier bill can go back against the bill."
+            )
+
+    def _billed_invoice_line(
+        self, *, firm_id: UUID, invoice_id: UUID, line_id: UUID
+    ) -> PurchaseInvoiceLine:
+        """Return the bill line a return names, and only if it is the bill's."""
+        invoice = self._session.scalar(
+            select(PurchaseInvoice).where(
+                PurchaseInvoice.id == invoice_id,
+                PurchaseInvoice.firm_id == firm_id,
+                PurchaseInvoice.is_deleted.is_(False),
+            )
+        )
+        if invoice is None:
+            raise ResourceNotFoundError("Purchase invoice not found.")
+        self._refuse_unreturnable_invoice(invoice)
+        line = self._session.scalar(
+            select(PurchaseInvoiceLine).where(
+                PurchaseInvoiceLine.id == line_id,
+                PurchaseInvoiceLine.purchase_invoice_id == invoice.id,
+                PurchaseInvoiceLine.firm_id == firm_id,
+                PurchaseInvoiceLine.is_deleted.is_(False),
+            )
+        )
+        if line is None:
+            raise ValidationError(
+                f"{invoice.invoice_number} has no line {line_id}, so it cannot "
+                "be returned against it: a line is returned against the "
+                "supplier bill it belongs to."
+            )
+        return line
+
+    def _refuse_foreign_lines(self, row: PurchaseReturn, *, firm_id: UUID) -> None:
+        """Refuse a saved return whose line names another document's line."""
+        for line in self._session.scalars(
+            select(PurchaseReturnLine).where(
+                PurchaseReturnLine.purchase_return_id == row.id,
+                PurchaseReturnLine.is_deleted.is_(False),
+            )
+        ):
+            if line.source_document_type == (
+                PurchaseReturnSourceType.GOODS_RECEIPT.value
+            ):
+                posted_receipt_line(
+                    self._session,
+                    firm_id=firm_id,
+                    receipt_id=line.source_document_id,
+                    line_id=line.source_document_line_id,
+                    verb="returned",
+                )
+            elif line.source_document_type == (
+                PurchaseReturnSourceType.PURCHASE_INVOICE.value
+            ):
+                self._billed_invoice_line(
+                    firm_id=firm_id,
+                    invoice_id=line.source_document_id,
+                    line_id=line.source_document_line_id,
+                )
 
     def _validate_line_sources(
         self, lines: list[dict[str, object]], source_ids: set[UUID]

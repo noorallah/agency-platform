@@ -43,7 +43,7 @@ from app.document_framework.services.transactional_document_service import (
 )
 from app.identity.models import User
 from app.inventory.models import InventoryRecord
-from app.inventory.services import InventoryService
+from app.inventory.services import InventoryService, LineConversion
 from app.pricing.services.price_list_service import PriceListResolver
 from app.products.models import Product
 from app.promotions.schemas import (
@@ -333,20 +333,15 @@ class SalesOrderService(TransactionalDocumentService):
             route_id=data.route_id,
             on_date=data.order_date,
         )
-        order_number = (
-            data.order_number
-            if data.order_number
-            else self._documents.reserve_number(
-                numbering_rule.id,
-                firm_id=firm_id,
-                financial_year_label=self._financial_year_label(
-                    data.order_date, firm_id
-                ),
-                branch_code=self._scope_code(data.branch_id),
-                company_code=self._company_code(firm_id),
-                document_date=data.order_date,
-                actor_id=actor_id,
-            )
+        order_number = self._issue_number(
+            numbering_rule,
+            typed=data.order_number,
+            number_column=SalesOrder.order_number,
+            firm_id=firm_id,
+            document_date=data.order_date,
+            actor_id=actor_id,
+            branch_code=self._scope_code(data.branch_id),
+            company_code=self._company_code(firm_id),
         )
         row = SalesOrder(
             firm_id=firm_id,
@@ -1722,7 +1717,9 @@ class SalesOrderService(TransactionalDocumentService):
             line.sales_uom_id = item.sales_uom_id
             line.inventory_uom_id = item.inventory_uom_id
             line.packaging_type_id = item.packaging_type_id
-            line.conversion_factor = self._q(conversion["factor"])
+            # Stored as the rule gave it, not at the money scale: stock moves
+            # at this factor, and 1/12 rounded to four places miscounts (D-CFG-1).
+            line.conversion_factor = Decimal(str(conversion["factor"]))
             version = conversion["version"]
             line.conversion_version = None if version is None else int(version)
             line.unit_price = self._q(item.unit_price)
@@ -1865,6 +1862,9 @@ class SalesOrderService(TransactionalDocumentService):
                     ),
                     entered_uom_id=line.sales_uom_id,
                     conversion_version=line.conversion_version,
+                    line_conversion=LineConversion(
+                        line.conversion_factor, line.inventory_uom_id
+                    ),
                     remarks=remarks,
                     batch_id=batch_id,
                 )
@@ -1938,6 +1938,9 @@ class SalesOrderService(TransactionalDocumentService):
                     ),
                     entered_uom_id=line.sales_uom_id,
                     conversion_version=line.conversion_version,
+                    line_conversion=LineConversion(
+                        line.conversion_factor, line.inventory_uom_id
+                    ),
                     remarks=f"sales_order release line {line.line_number}",
                     batch_id=batch_id,
                 )

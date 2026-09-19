@@ -19,7 +19,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -43,6 +43,9 @@ from app.sales_invoice.models import (
     SalesInvoiceLineTax,
 )
 from app.sales_invoice.services import SalesInvoiceService
+
+# Fixtures here type their document numbers; see conftest (D-CFG-2).
+pytestmark = pytest.mark.typed_document_numbers
 
 WHEN = date(2026, 4, 20)
 
@@ -517,6 +520,26 @@ def test_a_registration_page_names_each_invoice_and_customer() -> None:
     )
 
 
+def test_the_registered_tax_is_what_the_journal_credited() -> None:
+    """Rounding the sum is not rounding the parts (D-CMP-4).
+
+    CGST and SGST of 36.855 each were registered as 36.86 + 36.86 = 73.72 on
+    a bill whose journal credited ``quantize_ledger(73.71)``. The two halves
+    are rounded so they add to the ledger's figure, the odd paisa on SGST.
+    """
+    books = _Books(_session_factory()())
+    for component in books.session.scalars(select(SalesInvoiceLineTax)).all():
+        component.amount = Decimal("36.855")
+    books.session.commit()
+
+    payload = books.register().request_payload
+
+    item = payload["ItemList"][0]
+    assert (item["CgstAmt"], item["SgstAmt"]) == (36.86, 36.85)
+    assert payload["ValDtls"]["CgstVal"] == 36.86
+    assert payload["ValDtls"]["SgstVal"] == 36.85
+
+
 def _on_the_road(books: _Books) -> str:
     """Register the invoice and raise its e-way bill; return the bill's number."""
     books.register()
@@ -589,3 +612,37 @@ def test_an_invoice_under_a_live_eway_bill_cannot_be_cancelled() -> None:
         SalesInvoiceService(books.session).cancel_invoice(
             books.invoice.id, firm_scope=books.firm.id, actor_id=books.actor_id
         )
+
+
+def test_a_withdrawn_registration_is_never_registered_again() -> None:
+    """A cancelled IRN is not reused for the same document number (D-CMP-6).
+
+    Registering again reused the row: the withdrawal was overwritten --
+    REGISTERED, ``attempts`` 2, the cancellation reason still on it -- and the
+    sandbox handed back the very IRN that had been cancelled. The withdrawal
+    stays as history, and the supply is corrected by a new invoice.
+    """
+    books = _Books(_session_factory()())
+    first = books.register()
+    irn = first.irn
+    service = books.service()
+    service.cancel(
+        books.invoice.id,
+        reason="Raised against the wrong customer.",
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+
+    with pytest.raises(ConflictError, match="cannot be reused"):
+        service.register(
+            books.invoice.id, firm_scope=books.firm.id, actor_id=books.actor_id
+        )
+    books.session.rollback()
+
+    kept = service.registration_for(books.invoice.id, firm_scope=books.firm.id)
+    assert kept is not None
+    assert kept.status == RegistrationStatus.CANCELLED.value
+    assert kept.irn == irn
+    assert kept.attempts == 1
+    assert kept.cancellation_reason == "Raised against the wrong customer."

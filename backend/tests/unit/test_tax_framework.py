@@ -1,5 +1,6 @@
 """Enterprise tax framework service and API-scope tests."""
 
+from collections import Counter
 from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
@@ -27,6 +28,7 @@ from app.tax.models import (
     TaxProfile,
     TaxRule,
     TaxRuleExecutionLog,
+    TaxSettings,
     TaxSystem,
 )
 from app.tax.schemas import (
@@ -37,6 +39,7 @@ from app.tax.schemas import (
     TaxRuleSimulationResponse,
     TaxRuleWrite,
     TaxSettingsWrite,
+    TaxStatus,
     TaxSystemWrite,
 )
 from app.tax.services import (
@@ -1379,6 +1382,185 @@ def test_a_template_refused_part_way_writes_nothing(
     session.commit()
     assert created["systems"] == 1
     assert created["rules"] == 6
+
+
+def _audit_actions(session: Session) -> Counter[str]:
+    """Count every audit action written so far.
+
+    Counted rather than listed: one request's rows share ``created_at``, so
+    their order is not something to assert on.
+    """
+    return Counter(session.scalars(select(AuditLog.action)).all())
+
+
+def test_every_tax_change_leaves_an_audit_row() -> None:
+    """Deletes, restores, bulk status and settings wrote nothing (D-CMP-9).
+
+    Tax History reads the trail, so a change with no row there did not
+    happen as far as anybody reviewing the configuration can tell.
+    """
+    session = _session_factory()()
+    firm, actor_id, system, component = _rate_setup(session)
+    service = TaxFrameworkService(session)
+    profile = service.create_profile(
+        _profile_write(system, component, "GST_5", "5", date(2020, 1, 1), None),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    written = _audit_actions(session)
+
+    service.bulk_profile_status(
+        [profile.id], TaxStatus.INACTIVE, firm_scope=firm.id, actor_id=actor_id
+    )
+    service.delete_component(component.id, firm_scope=firm.id, actor_id=actor_id)
+    service.restore_component(component.id, firm_scope=firm.id, actor_id=actor_id)
+    service.bulk_delete_profiles([profile.id], firm_scope=firm.id, actor_id=actor_id)
+    service.bulk_restore_profiles([profile.id], firm_scope=firm.id, actor_id=actor_id)
+    service.update_settings(
+        TaxSettingsWrite(
+            primary_label="GST",
+            component_label="Component",
+            profile_label="Profile",
+            report_label="GST",
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+
+    assert _audit_actions(session) - written == Counter(
+        [
+            "tax.profile.status_changed",
+            "tax.component.deleted",
+            "tax.component.restored",
+            "tax.profile.deleted",
+            "tax.profile.restored",
+            "tax.settings.changed",
+        ]
+    )
+    assert "tax_settings" in {
+        row.entity_type for row in service.history(firm_scope=firm.id)
+    }
+
+
+def test_reading_the_settings_writes_nothing() -> None:
+    """A firm with no settings row is answered with defaults, unsaved."""
+    session = _session_factory()()
+    firm = _firm(session)
+
+    answer = TaxFrameworkService(session).get_settings(firm_scope=firm.id)
+    session.commit()
+
+    assert answer.primary_label == "Tax"
+    assert session.scalars(select(TaxSettings)).all() == []
+
+
+def _rule_applying(
+    session: Session, firm: Firm, actor_id: UUID, profile: TaxProfile
+) -> None:
+    """Create an ACTIVE rule whose action applies ``profile``."""
+    TaxRuleService(session).create_rule(
+        TaxRuleWrite(
+            code="SWITCH_TO_IT",
+            name="Switch to it",
+            priority=10,
+            status="ACTIVE",
+            actions=[
+                {
+                    "sequence": 1,
+                    "action_type": "APPLY_TAX_PROFILE",
+                    "target_tax_profile_id": profile.id,
+                }
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+
+def test_a_profile_an_active_rule_applies_cannot_be_deleted() -> None:
+    """The rule would fire and apply nothing -- no tax at all (D-CMP-9)."""
+    session = _session_factory()()
+    firm, actor_id, system, component = _rate_setup(session)
+    service = TaxFrameworkService(session)
+    profile = service.create_profile(
+        _profile_write(system, component, "GST_5", "5", date(2020, 1, 1), None),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    _rule_applying(session, firm, actor_id, profile)
+
+    with pytest.raises(ValidationError, match="SWITCH_TO_IT"):
+        service.delete_profile(profile.id, firm_scope=firm.id, actor_id=actor_id)
+    with pytest.raises(ValidationError, match="SWITCH_TO_IT"):
+        service.bulk_delete_profiles(
+            [profile.id], firm_scope=firm.id, actor_id=actor_id
+        )
+
+
+def test_a_profile_a_rule_tests_for_by_id_cannot_be_deleted() -> None:
+    """The GST template's interstate rules name their local profile by id."""
+    session = _session_factory()()
+    firm, actor_id, system, component = _rate_setup(session)
+    service = TaxFrameworkService(session)
+    profile = service.create_profile(
+        _profile_write(system, component, "GST_5", "5", date(2020, 1, 1), None),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    TaxRuleService(session).create_rule(
+        TaxRuleWrite(
+            code="WHEN_IT",
+            name="When it",
+            priority=10,
+            status="ACTIVE",
+            conditions=[
+                {
+                    "sequence": 1,
+                    "field_key": "tax_profile_id",
+                    "operator": "EQUALS",
+                    "value_text": str(profile.id).upper(),
+                }
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    with pytest.raises(ValidationError, match="WHEN_IT"):
+        service.delete_profile(profile.id, firm_scope=firm.id, actor_id=actor_id)
+
+
+def test_bulk_activation_and_restore_run_the_overlap_check() -> None:
+    """Two ACTIVE versions covering one day leave the rate to chance (D-CMP-9)."""
+    session = _session_factory()()
+    firm, actor_id, system, component = _rate_setup(session)
+    service = TaxFrameworkService(session)
+    service.create_profile(
+        _profile_write(system, component, "GST_5", "5", date(2020, 1, 1), None),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    draft = _profile_write(system, component, "GST_8", "8", date(2026, 1, 1), None)
+    draft.status = TaxStatus.INACTIVE
+    other = service.create_profile(draft, firm_id=firm.id, actor_id=actor_id)
+
+    with pytest.raises(ValidationError, match="overlap"):
+        service.bulk_profile_status(
+            [other.id], TaxStatus.ACTIVE, firm_scope=firm.id, actor_id=actor_id
+        )
+    session.rollback()
+
+    # An ACTIVE version deleted while its group moved on cannot come back on
+    # top of the version that replaced it.
+    replaced = session.scalar(select(TaxProfile).where(TaxProfile.code == "GST_5"))
+    assert replaced is not None
+    replaced.is_deleted = True
+    other.status = TaxStatus.ACTIVE.value
+    session.commit()
+    with pytest.raises(ValidationError, match="overlap"):
+        service.bulk_restore_profiles(
+            [replaced.id], firm_scope=firm.id, actor_id=actor_id
+        )
 
 
 class _RuleBook:

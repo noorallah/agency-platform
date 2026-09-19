@@ -42,6 +42,9 @@ from app.firms.models import Firm
 from app.products.models import Product
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 
+# Fixtures here type their document numbers; see conftest (D-CFG-2).
+pytestmark = pytest.mark.typed_document_numbers
+
 WHEN = date(2026, 4, 20)
 
 
