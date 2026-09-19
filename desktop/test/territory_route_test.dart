@@ -413,8 +413,10 @@ void main() {
     expect(profile!['route_type_id'], isNull);
   });
 
-  testWidgets('a territory that is not a route sends no profile',
+  testWidgets('a territory that is not a route sends an explicit null profile',
       (tester) async {
+    // The API reads an omitted `route_profile` as "leave the round alone"
+    // (D-TER-7), so a zone has to say null or a profile it once had stays.
     final _TerritoryApi api = _TerritoryApi(
       territory: _territoryJson(id: 't-1', code: 'RT01', name: 'North Beat'),
     );
@@ -434,7 +436,8 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.created, isNotNull);
-    expect(api.created!.containsKey('route_profile'), isFalse);
+    expect(api.created!.containsKey('route_profile'), isTrue);
+    expect(api.created!['route_profile'], isNull);
   });
 
   testWidgets('an existing route opens with its profile shown', (tester) async {
