@@ -200,6 +200,10 @@ class DefaultBranchResponse(FirmSchema):
     #: The code created, or None when that half already existed.
     branch: str | None
     warehouse: str | None
+    #: An existing branch or warehouse this call marked default, because the
+    #: firm had none and a bare bill ships from the default (D-CFG-15).
+    default_branch: str | None = None
+    default_warehouse: str | None = None
     already_present: bool
 
 

@@ -24,11 +24,16 @@ from enum import StrEnum
 from typing import cast
 from uuid import UUID
 
-from sqlalchemy import ColumnElement, func, select
+from sqlalchemy import ColumnElement, case, func, select
 from sqlalchemy.orm import Session
 
 from app.branches.models import Branch, Warehouse
-from app.branches.schemas import BranchCreate, WarehouseCreate
+from app.branches.schemas import (
+    BranchCreate,
+    BranchUpdate,
+    WarehouseCreate,
+    WarehouseUpdate,
+)
 from app.branches.services import BranchWarehouseService
 from app.business.models import BusinessProfile, FirmBusinessProfile
 from app.common.audit.services import record_audit
@@ -280,26 +285,72 @@ def store_steps(session: Session, firm_id: UUID, today: date) -> list[ReadinessS
 
     branches = _count(session, Branch, firm_id)
     warehouses = _count(session, Warehouse, firm_id)
+    counted = f"{_plural(branches, 'branch')}, {_plural(warehouses, 'warehouse')}"
+    gap = _shipping_gap(session, firm_id) if branches and warehouses else None
+    if not (branches and warehouses):
+        detail = (
+            "Stock needs a warehouse, and a warehouse needs a branch. "
+            f"{counted} so far."
+        )
+    elif gap is not None:
+        detail = (
+            f"{counted}, but {gap}, so a bill raised without an order or a "
+            "note cannot decide where its goods ship from."
+        )
+    else:
+        detail = f"{counted}."
     steps.append(
         ReadinessStep(
             key="branches",
             label="Branches and warehouses",
             status=(
                 ReadinessStatus.DONE
-                if branches and warehouses
+                if branches and warehouses and gap is None
                 else ReadinessStatus.MISSING
             ),
-            detail=(
-                f"{_plural(branches, 'branch')}, {_plural(warehouses, 'warehouse')}."
-                if branches and warehouses
-                else "Stock needs a warehouse, and a warehouse needs a branch. "
-                f"{_plural(branches, 'branch')}, "
-                f"{_plural(warehouses, 'warehouse')} so far."
-            ),
+            detail=detail,
             required=False,
         )
     )
     return steps
+
+
+def _default_branch(session: Session, firm_id: UUID) -> Branch | None:
+    """Return the firm's live default branch, if it marked one."""
+    return session.scalar(
+        select(Branch).where(
+            Branch.firm_id == firm_id,
+            Branch.is_default.is_(True),
+            Branch.is_deleted.is_(False),
+        )
+    )
+
+
+def _default_warehouse_of(session: Session, branch_id: UUID) -> UUID | None:
+    """Return the branch's live default warehouse, if it marked one."""
+    return session.scalar(
+        select(Warehouse.id).where(
+            Warehouse.branch_id == branch_id,
+            Warehouse.is_default.is_(True),
+            Warehouse.is_deleted.is_(False),
+        )
+    )
+
+
+def _shipping_gap(session: Session, firm_id: UUID) -> str | None:
+    """Say what stops a bare bill finding a place to ship from, or None.
+
+    A bill raised with the order and note stages off ships from the default
+    branch's default warehouse (``SalesChainService._resolve_place``), so a
+    firm with a branch and a warehouse but neither marked default is not
+    finished -- it merely has rows (D-CFG-15).
+    """
+    branch = _default_branch(session, firm_id)
+    if branch is None:
+        return "no branch is marked default"
+    if _default_warehouse_of(session, branch.id) is None:
+        return f"branch {branch.code} has no default warehouse"
+    return None
 
 
 def _blocked(key: str, label: str, *, required: bool) -> ReadinessStep:
@@ -526,9 +577,18 @@ class FirmReadinessService:
         gets only the warehouse, under its default branch; a firm with both
         gets nothing and is told so.
 
+        It is also the repair for a firm set up before MAIN was made the
+        default (D-CFG-15): a bill raised with the order and note stages off
+        ships from the default branch's default warehouse, so where the firm
+        has rows but no default, the oldest branch and the branch's MAIN (or
+        its oldest warehouse) are marked default -- create-if-missing, never
+        overriding a default somebody chose.
+
         Returns:
-            The branch code and warehouse code created, each None when that
-            half already existed.
+            The branch and warehouse codes created (``branch``,
+            ``warehouse``) and the existing ones marked default
+            (``default_branch``, ``default_warehouse``), each None when
+            nothing was needed.
 
         Raises:
             BusinessRuleError: If the firm's storage does not exist yet.
@@ -539,12 +599,28 @@ class FirmReadinessService:
                 "Provision the firm's storage before creating its first branch."
             )
         service = BranchWarehouseService(store)
-        created: dict[str, str | None] = {"branch": None, "warehouse": None}
+        created: dict[str, str | None] = {
+            "branch": None,
+            "warehouse": None,
+            "default_branch": None,
+            "default_warehouse": None,
+        }
         branch = store.scalar(
             select(Branch)
             .where(Branch.firm_id == firm.id, Branch.is_deleted.is_(False))
             .order_by(Branch.is_default.desc(), Branch.created_at.asc())
         )
+        if branch is not None and not branch.is_default:
+            # A firm with branches but none marked default cannot bill a bare
+            # line (D-CFG-15): the oldest becomes the default, which the
+            # branch's own screen can change afterwards.
+            branch = service.update_branch(
+                branch.id,
+                BranchUpdate(code=branch.code, name=branch.name, is_default=True),
+                firm_scope=firm.id,
+                actor_id=actor_id,
+            )
+            created["default_branch"] = branch.code
         if branch is None:
             branch = service.create_branch(
                 BranchCreate(
@@ -570,11 +646,39 @@ class FirmReadinessService:
                     code="MAIN",
                     name="Main Warehouse",
                     display_name="Main Warehouse",
+                    # A bare bill ships from the default branch's default
+                    # warehouse, so a MAIN that is not one leaves a finished
+                    # firm unable to bill without an order and a note.
+                    is_default=True,
                 ),
                 firm_id=firm.id,
                 actor_id=actor_id,
             )
             created["warehouse"] = warehouse.code
+        elif _default_warehouse_of(store, branch.id) is None:
+            # The repair half: a store set up before MAIN was made the
+            # default. MAIN wins if the branch has one, else its oldest.
+            candidate = store.scalar(
+                select(Warehouse)
+                .where(
+                    Warehouse.branch_id == branch.id,
+                    Warehouse.is_deleted.is_(False),
+                )
+                .order_by(
+                    case((Warehouse.code == "MAIN", 0), else_=1),
+                    Warehouse.created_at.asc(),
+                )
+            )
+            if candidate is not None:
+                promoted = service.update_warehouse(
+                    candidate.id,
+                    WarehouseUpdate(
+                        code=candidate.code, name=candidate.name, is_default=True
+                    ),
+                    firm_scope=firm.id,
+                    actor_id=actor_id,
+                )
+                created["default_warehouse"] = promoted.code
         store.commit()
         if any(created.values()):
             record_audit(

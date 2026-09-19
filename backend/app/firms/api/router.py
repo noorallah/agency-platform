@@ -325,21 +325,34 @@ def create_firm_default_branch(
         )
     already = not any(created.values())
     made = [
-        f"{'branch' if key == 'branch' else 'warehouse'} {value}"
-        for key, value in created.items()
-        if value
+        f"{'branch' if key == 'branch' else 'warehouse'} {created[key]}"
+        for key in ("branch", "warehouse")
+        if created[key]
     ]
+    marked = [
+        f"{'branch' if key == 'default_branch' else 'warehouse'} {created[key]}"
+        for key in ("default_branch", "default_warehouse")
+        if created[key]
+    ]
+    said: list[str] = []
+    if made:
+        said.append("Created " + " and ".join(made) + ".")
+    if marked:
+        said.append("Marked " + " and ".join(marked) + " as the default.")
     return ApiResponse(
         data=DefaultBranchResponse(
             firm_id=firm.id,
             branch=created["branch"],
             warehouse=created["warehouse"],
+            default_branch=created["default_branch"],
+            default_warehouse=created["default_warehouse"],
             already_present=already,
         ),
         message=(
-            "The firm already has a branch and a warehouse; nothing was created."
+            "The firm already has a default branch and a default warehouse; "
+            "nothing was changed."
             if already
-            else "Created " + " and ".join(made) + ". Rename them on their own screens."
+            else " ".join(said) + " Rename them on their own screens."
         ),
     )
 
