@@ -289,7 +289,6 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             due_date=data.due_date,
             reference_number=data.reference_number,
             remarks=data.remarks,
-            allow_direct_purchase_order=data.allow_direct_purchase_order,
             allow_over_invoice=data.allow_over_invoice,
             over_invoice_percent=self._q(data.over_invoice_percent),
             status=PurchaseInvoiceStatus.DRAFT.value,
@@ -389,7 +388,6 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         row.due_date = data.due_date
         row.reference_number = data.reference_number
         row.remarks = data.remarks
-        row.allow_direct_purchase_order = data.allow_direct_purchase_order
         row.allow_over_invoice = data.allow_over_invoice
         row.over_invoice_percent = self._q(data.over_invoice_percent)
         row.additional_charges = self._q(data.additional_charges)
@@ -678,7 +676,6 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             due_date=row.due_date,
             reference_number=row.reference_number,
             remarks=row.remarks,
-            allow_direct_purchase_order=row.allow_direct_purchase_order,
             allow_over_invoice=row.allow_over_invoice,
             over_invoice_percent=row.over_invoice_percent,
             status=PurchaseInvoiceStatus(row.status),
@@ -1197,6 +1194,21 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             )
             for item in lines
         }
+        # No request can skip the receipt (D-BUY-14): a body flag the caller
+        # set was all it took to bill a purchase order for ten when nothing
+        # had arrived -- 1,180 owed to the supplier, 1,000 of it booked as a
+        # price variance, and not one unit on the shelf. Checked on the lines
+        # as well as the sources, since a line names its own source type.
+        if any(
+            self._source_type(item["source_document_type"])
+            == PurchaseInvoiceSourceType.PURCHASE_ORDER.value
+            for item in (*sources, *lines)
+        ):
+            raise ValidationError(
+                "A supplier bill is raised against the goods receipt that "
+                "brought the goods in, never straight against the purchase "
+                "order. Receive the goods first."
+            )
         if not sources:
             sources = [
                 {"source_document_type": source_type, "source_document_id": source_id}
@@ -1226,30 +1238,6 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                         "source_document_date": receipt.receipt_date,
                         "vendor_id": receipt.vendor_id,
                         "branch_id": receipt.branch_id,
-                    }
-                )
-            elif source_type == PurchaseInvoiceSourceType.PURCHASE_ORDER.value:
-                if not data.allow_direct_purchase_order:
-                    raise ValidationError(
-                        "Direct purchase order invoicing is disabled."
-                    )
-                order = self._session.scalar(
-                    select(PurchaseOrder).where(
-                        PurchaseOrder.id == source_id,
-                        PurchaseOrder.firm_id == firm_id,
-                        PurchaseOrder.is_deleted.is_(False),
-                    )
-                )
-                if order is None:
-                    raise ResourceNotFoundError("Purchase order not found.")
-                source_rows.append(
-                    {
-                        "source_document_type": source_type,
-                        "source_document_id": order.id,
-                        "source_document_number": order.po_number,
-                        "source_document_date": order.purchase_date,
-                        "vendor_id": order.vendor_id,
-                        "branch_id": order.branch_id,
                     }
                 )
             else:

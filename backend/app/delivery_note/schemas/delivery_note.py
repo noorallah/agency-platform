@@ -98,10 +98,6 @@ class DeliveryNoteCreate(DeliveryNoteSchema):
     vehicle: str | None = Field(default=None, max_length=120)
     driver: str | None = Field(default=None, max_length=120)
     remarks: str | None = None
-    allow_over_delivery: bool = False
-    over_delivery_percent: Decimal = Field(
-        default=Decimal("0"), ge=0, max_digits=9, decimal_places=4
-    )
     additional_charges: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
@@ -258,8 +254,6 @@ class DeliveryNoteResponse(DeliveryNoteSchema):
     vehicle: str | None
     driver: str | None
     remarks: str | None
-    allow_over_delivery: bool
-    over_delivery_percent: Decimal
     status: DeliveryNoteStatus
     total_ordered_quantity: Decimal
     total_previously_delivered_quantity: Decimal

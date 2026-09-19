@@ -166,8 +166,12 @@ def _product(session: Session, *, firm_id: UUID) -> Product:
 class _Dispatch:
     """Everything a sales return needs to exist: goods that already went out."""
 
-    def __init__(self, session: Session) -> None:
-        """Stock a warehouse, sell four units, and dispatch them."""
+    def __init__(self, session: Session, *, ordered: Decimal = Decimal("4")) -> None:
+        """Stock a warehouse, sell four units, and dispatch them.
+
+        ``ordered`` leaves room on the order for a second note: nothing may
+        ship past the order line (D-SELL-31).
+        """
         self.session = session
         self.actor_id = uuid4()
         self.firm = _firm(session)
@@ -214,7 +218,7 @@ class _Dispatch:
                         SalesOrderLineWrite(
                             line_number=1,
                             product_id=self.product.id,
-                            quantity=Decimal("4"),
+                            quantity=ordered,
                             unit_price=PRICE,
                         )
                     ],
@@ -577,14 +581,16 @@ def test_a_draft_return_cannot_be_completed() -> None:
 
 
 def _undispatched_note(setup: _Dispatch) -> DeliveryNoteLine:
-    """Approve a second note for one more unit, and leave it in the warehouse."""
+    """Approve a second note for one more unit, and leave it in the warehouse.
+
+    The setup must have ordered at least five: a note can no longer ship past
+    its order line, which it used to by setting ``allow_over_delivery``.
+    """
     notes = DeliveryNoteService(setup.session)
     note = notes.create_note(
         DeliveryNoteCreate(
             sales_order_id=setup.note.sales_order_id,
             delivery_date=date(2026, 8, 4),
-            allow_over_delivery=True,
-            over_delivery_percent=Decimal("50"),
             lines=[
                 DeliveryNoteLineWrite(
                     sales_order_line_id=setup.note_line.sales_order_line_id,
@@ -612,7 +618,7 @@ def test_goods_that_never_left_cannot_come_back() -> None:
     posted the return journals and credited the customer for it.
     """
     session = _session_factory()()
-    setup = _Dispatch(session)
+    setup = _Dispatch(session, ordered=Decimal("5"))
     kept = _undispatched_note(setup)
     payload = setup.payload(quantity=Decimal("1"))
     payload.lines[0].source_document_id = kept.delivery_note_id
@@ -627,7 +633,7 @@ def test_goods_that_never_left_cannot_come_back() -> None:
 def test_a_dispatched_note_cannot_front_for_another_notes_line() -> None:
     """The line has to be the named document's own, or the check is bypassed."""
     session = _session_factory()()
-    setup = _Dispatch(session)
+    setup = _Dispatch(session, ordered=Decimal("5"))
     kept = _undispatched_note(setup)
     payload = setup.payload(quantity=Decimal("1"))
     payload.lines[0].source_document_line_id = kept.id

@@ -5,6 +5,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -1238,6 +1239,77 @@ def test_a_second_note_can_still_be_raised_once_the_order_has_moved() -> None:
     )
 
     assert second.status == DeliveryNoteStatus.DISPATCHED.value
+
+
+def test_a_note_cannot_ship_more_than_the_order() -> None:
+    """Delivery is capped at the order line, with no tolerance."""
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+    _stock(session, firm=firm, branch=branch, warehouse=warehouse, product=product)
+    order, order_line = _approved_order(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+        quantity=Decimal("10"),
+        actor_id=actor_id,
+    )
+    _dispatch(
+        session,
+        firm=firm,
+        order=order,
+        order_line=order_line,
+        quantity=Decimal("10"),
+        on=date(2026, 8, 4),
+        actor_id=actor_id,
+    )
+
+    with pytest.raises(ValidationError, match="exceeds allowed quantity"):
+        _dispatch(
+            session,
+            firm=firm,
+            order=order,
+            order_line=order_line,
+            quantity=Decimal("1"),
+            on=date(2026, 8, 5),
+            actor_id=actor_id,
+        )
+
+
+def test_a_note_cannot_lift_its_own_cap() -> None:
+    """D-SELL-31: the request body used to carry a switch for the cap.
+
+    Driven 2026-09-19 on ``fx_t0919q38d_s``: a third note for 30 against an
+    order for 12 already shipped in full, with ``allow_over_delivery`` true and
+    ``over_delivery_percent`` 500 -- approved and dispatched, 42 out of the
+    warehouse against 12 ordered. The write schema no longer takes either
+    field; a tolerance, if a firm wants one, is the firm's to set.
+    """
+    body = DeliveryNoteCreate(
+        sales_order_id=uuid4(),
+        delivery_date=date(2026, 8, 4),
+        lines=[
+            DeliveryNoteLineWrite(
+                sales_order_line_id=uuid4(),
+                line_number=1,
+                current_delivery_quantity=Decimal("30"),
+            )
+        ],
+    ).model_dump(mode="json")
+
+    for field, value in (
+        ("allow_over_delivery", True),
+        ("over_delivery_percent", 500),
+    ):
+        with pytest.raises(PydanticValidationError, match=field):
+            DeliveryNoteCreate.model_validate({**body, field: value})
 
 
 def test_an_undispatched_note_leaves_the_order_where_it_is() -> None:

@@ -27,6 +27,7 @@ from app.finance.models import (
 from app.finance.services.control_accounts import ControlAccountPurpose
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
+from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.identity.models import identity as _identity_models  # noqa: F401
 from app.inventory.models import (
     InventoryRecord,
@@ -178,8 +179,55 @@ def _purchase_order(
     return row
 
 
-def test_purchase_return_direct_po_return_creates_lifecycle_setup() -> None:
-    """Returning against a purchase order builds the document type too."""
+def _received(
+    session: Session, po_line: PurchaseOrderLine
+) -> tuple[GoodsReceipt, GoodsReceiptLine]:
+    """Record the whole order line as received, on a completed receipt.
+
+    Built as rows rather than through the receipt service so no stock or
+    journal moves: these cases are about the return, and what they assert of
+    the stock and the ledger is the return's own movement. A return is
+    raised against a receipt or a bill, never the order (D-BUY-14).
+    """
+    order = session.get(PurchaseOrder, po_line.purchase_order_id)
+    assert order is not None
+    receipt = GoodsReceipt(
+        firm_id=order.firm_id,
+        purchase_order_id=order.id,
+        purchase_order_number=order.po_number,
+        vendor_id=order.vendor_id,
+        branch_id=order.branch_id,
+        warehouse_id=order.warehouse_id,
+        grn_number="GRN-2026-000001",
+        receipt_date=date(2026, 8, 2),
+        status="COMPLETED",
+    )
+    session.add(receipt)
+    session.flush()
+    line = GoodsReceiptLine(
+        goods_receipt_id=receipt.id,
+        firm_id=order.firm_id,
+        line_number=1,
+        purchase_order_line_id=po_line.id,
+        purchase_order_line_number=po_line.line_number,
+        product_id=po_line.product_id,
+        ordered_quantity=po_line.ordered_quantity,
+        current_receipt_quantity=po_line.ordered_quantity,
+        accepted_quantity=po_line.ordered_quantity,
+        unit_price=po_line.unit_price,
+        warehouse_id=order.warehouse_id,
+    )
+    session.add(line)
+    session.commit()
+    return receipt, line
+
+
+def test_purchase_return_creates_lifecycle_setup() -> None:
+    """Returning against a goods receipt builds the document type too.
+
+    This used to return against the purchase order directly, a path that no
+    longer exists (D-BUY-14).
+    """
     session_factory = _session_factory()
     session = session_factory()
     firm = _firm(session)
@@ -199,6 +247,7 @@ def test_purchase_return_direct_po_return_creates_lifecycle_setup() -> None:
         )
     )
     assert po_line is not None
+    receipt, receipt_line = _received(session, po_line)
 
     service = PurchaseReturnService(session)
     row = service.create_return(
@@ -207,18 +256,17 @@ def test_purchase_return_direct_po_return_creates_lifecycle_setup() -> None:
             supplier_return_date=date(2026, 8, 2),
             return_date=date(2026, 8, 2),
             warehouse_id=warehouse.id,
-            allow_direct_purchase_order=True,
             source_documents=[
                 {
-                    "source_document_type": PurchaseReturnSourceType.PURCHASE_ORDER,
-                    "source_document_id": purchase_order.id,
+                    "source_document_type": PurchaseReturnSourceType.GOODS_RECEIPT,
+                    "source_document_id": receipt.id,
                 }
             ],
             lines=[
                 PurchaseReturnLineWrite(
-                    source_document_type=PurchaseReturnSourceType.PURCHASE_ORDER,
-                    source_document_id=purchase_order.id,
-                    source_document_line_id=po_line.id,
+                    source_document_type=PurchaseReturnSourceType.GOODS_RECEIPT,
+                    source_document_id=receipt.id,
+                    source_document_line_id=receipt_line.id,
                     line_number=1,
                     current_return_quantity=Decimal("4"),
                     unit_price=Decimal("100"),
@@ -289,6 +337,7 @@ def _approved_return(
         )
     )
     assert po_line is not None
+    receipt, receipt_line = _received(session, po_line)
 
     service = PurchaseReturnService(session)
     row = service.create_return(
@@ -297,18 +346,17 @@ def _approved_return(
             supplier_return_date=date(2026, 8, 2),
             return_date=date(2026, 8, 2),
             warehouse_id=warehouse.id,
-            allow_direct_purchase_order=True,
             source_documents=[
                 {
-                    "source_document_type": PurchaseReturnSourceType.PURCHASE_ORDER,
-                    "source_document_id": purchase_order.id,
+                    "source_document_type": PurchaseReturnSourceType.GOODS_RECEIPT,
+                    "source_document_id": receipt.id,
                 }
             ],
             lines=[
                 PurchaseReturnLineWrite(
-                    source_document_type=PurchaseReturnSourceType.PURCHASE_ORDER,
-                    source_document_id=purchase_order.id,
-                    source_document_line_id=po_line.id,
+                    source_document_type=PurchaseReturnSourceType.GOODS_RECEIPT,
+                    source_document_id=receipt.id,
+                    source_document_line_id=receipt_line.id,
                     line_number=1,
                     current_return_quantity=Decimal("4"),
                     unit_price=Decimal("100"),
@@ -634,16 +682,15 @@ def _return_against(
             supplier_return_date=date(2026, 8, 3),
             return_date=date(2026, 8, 3),
             warehouse_id=row.warehouse_id,
-            allow_direct_purchase_order=True,
             source_documents=[
                 {
-                    "source_document_type": PurchaseReturnSourceType.PURCHASE_ORDER,
+                    "source_document_type": PurchaseReturnSourceType.GOODS_RECEIPT,
                     "source_document_id": line.source_document_id,
                 }
             ],
             lines=[
                 PurchaseReturnLineWrite(
-                    source_document_type=PurchaseReturnSourceType.PURCHASE_ORDER,
+                    source_document_type=PurchaseReturnSourceType.GOODS_RECEIPT,
                     source_document_id=line.source_document_id,
                     source_document_line_id=line.source_document_line_id,
                     line_number=1,
@@ -918,10 +965,11 @@ def test_a_return_with_no_price_goes_back_at_the_source_lines_price(
         select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
     )
     assert po_line is not None
+    receipt, receipt_line = _received(session, po_line)
     line: dict[str, object] = {
-        "source_document_type": PurchaseReturnSourceType.PURCHASE_ORDER,
-        "source_document_id": order.id,
-        "source_document_line_id": po_line.id,
+        "source_document_type": PurchaseReturnSourceType.GOODS_RECEIPT,
+        "source_document_id": receipt.id,
+        "source_document_line_id": receipt_line.id,
         "line_number": 1,
         "current_return_quantity": Decimal("4"),
         "warehouse_id": warehouse.id,
@@ -935,11 +983,10 @@ def test_a_return_with_no_price_goes_back_at_the_source_lines_price(
             supplier_return_date=date(2026, 8, 2),
             return_date=date(2026, 8, 2),
             warehouse_id=warehouse.id,
-            allow_direct_purchase_order=True,
             source_documents=[
                 {
-                    "source_document_type": PurchaseReturnSourceType.PURCHASE_ORDER,
-                    "source_document_id": order.id,
+                    "source_document_type": PurchaseReturnSourceType.GOODS_RECEIPT,
+                    "source_document_id": receipt.id,
                 }
             ],
             lines=[PurchaseReturnLineWrite.model_validate(line)],
@@ -969,3 +1016,74 @@ def test_only_a_completed_return_can_be_closed() -> None:
     service, approved, _ = _approved_return(session, firm_id=firm.id)
     with pytest.raises(ValidationError, match="Only completed purchase returns"):
         service.close_return(approved.id, firm_scope=firm.id, actor_id=uuid4())
+
+
+def test_a_return_cannot_skip_the_receipt() -> None:
+    """D-BUY-14: the request body used to carry a switch past the receipt.
+
+    Driven 2026-09-19 on TEST01 (fixture ``po-approved``, suffix t0919d4tq):
+    four returned against PO-TEST01-HO-2026-2027-000011, on which nothing had
+    arrived, with ``allow_direct_purchase_order`` true -- approved and
+    completed, the shelf at -4 and the supplier debited 472. The field is
+    gone, and a return naming the order -- as its source or on a line -- is
+    refused whatever the body says.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    vendor = _vendor(session, firm_id=firm.id)
+    order = _purchase_order(
+        session,
+        firm_id=firm.id,
+        vendor_id=vendor.id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+    )
+    po_line = session.scalar(
+        select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+    )
+    assert po_line is not None
+    receipt, _ = _received(session, po_line)
+
+    def _return(source_id: UUID) -> dict[str, object]:
+        source_type = (
+            PurchaseReturnSourceType.GOODS_RECEIPT
+            if source_id == receipt.id
+            else PurchaseReturnSourceType.PURCHASE_ORDER
+        )
+        return PurchaseReturnCreate(
+            return_date=date(2026, 8, 2),
+            warehouse_id=warehouse.id,
+            source_documents=[
+                {"source_document_type": source_type, "source_document_id": source_id}
+            ],
+            lines=[
+                PurchaseReturnLineWrite(
+                    source_document_type=PurchaseReturnSourceType.PURCHASE_ORDER,
+                    source_document_id=source_id,
+                    source_document_line_id=po_line.id,
+                    line_number=1,
+                    current_return_quantity=Decimal("4"),
+                    warehouse_id=warehouse.id,
+                )
+            ],
+        ).model_dump(mode="json")
+
+    straight = _return(order.id)
+    with pytest.raises(PydanticValidationError, match="allow_direct_purchase_order"):
+        PurchaseReturnCreate.model_validate(
+            {**straight, "allow_direct_purchase_order": True}
+        )
+
+    service = PurchaseReturnService(session)
+    # Straight against the order, and a line naming the order behind a
+    # receipt's back: both refused before anything is looked up.
+    for body in (straight, _return(receipt.id)):
+        with pytest.raises(ValidationError, match="never straight against"):
+            service.create_return(
+                PurchaseReturnCreate.model_validate(body),
+                firm_id=firm.id,
+                actor_id=uuid4(),
+            )
+    assert session.scalar(select(PurchaseReturn.id)) is None

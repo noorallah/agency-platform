@@ -629,17 +629,17 @@ class QuotationService(TransactionalDocumentService):
                 # The deal carries over as the deal, not as each line's share
                 # of it. The order re-splits it across whatever lines it ends
                 # up with, which keeps the two documents' arithmetic the same
-                # rather than merely similar. A quotation's bill discount is
-                # only ever typed, so none is none: handing the order a zero
-                # read as "refuse every offer on the bill" (D-SELL-9).
-                bill_discount_amount=(
-                    row.bill_discount_amount
-                    if row.bill_discount_amount > ZERO
-                    else None
-                ),
+                # rather than merely similar. Only a **typed** bill discount
+                # is handed over: an offer's is the order's to find again on
+                # its own date and claim (D-SELL-9, D-SELL-32), and handing
+                # it a zero read as "refuse every offer on the bill".
+                bill_discount_amount=self._typed_bill_discount(row),
                 # Freight carries over the same way, and is re-split by the
-                # order across whatever lines it ends up with.
-                freight_amount=row.freight_amount,
+                # order across whatever lines it ends up with. The charge that
+                # was **asked**, not what was left after an offer waived it:
+                # the order asks the offers again, and handing it the waived
+                # figure would keep the waiver after the offer had gone.
+                freight_amount=self._q(row.freight_amount + row.freight_waived_amount),
                 lines=[
                     SalesOrderLineWrite(
                         line_number=line.line_number,
@@ -657,6 +657,11 @@ class QuotationService(TransactionalDocumentService):
                         remarks=line.remarks,
                     )
                     for line in lines
+                    # A line of nothing charged is a gift an offer added: the
+                    # write schema refuses a quantity of zero, so nobody typed
+                    # it. The order's own offers add it again if it is still
+                    # given, and claim it (D-SELL-32).
+                    if line.quantity > ZERO
                 ],
             ),
             firm_id=firm_scope,
@@ -676,6 +681,20 @@ class QuotationService(TransactionalDocumentService):
         )
         self._session.commit()
         return converted, order
+
+    @staticmethod
+    def _typed_bill_discount(row: SalesQuotation) -> Decimal | None:
+        """Return the bill discount a converted order is handed, if any.
+
+        Only one somebody typed. A quotation saved before the source was
+        recorded (NULL) could only have had a typed one, so its figure stands
+        as it always did.
+        """
+        if row.bill_discount_amount <= ZERO:
+            return None
+        if row.bill_discount_source in (None, "typed"):
+            return row.bill_discount_amount
+        return None
 
     @staticmethod
     def _typed_discount(line: SalesQuotationLine) -> dict[str, Decimal | None]:
@@ -795,6 +814,8 @@ class QuotationService(TransactionalDocumentService):
         lines: list[QuotationLineWrite],
         grosses: list[Decimal],
         customer_group_id: UUID | None,
+        bill_priced: bool = False,
+        freight_amount: Decimal | None = None,
     ) -> PromotionBenefits:
         """Ask the firm's promotions what this offer would earn.
 
@@ -802,6 +823,11 @@ class QuotationService(TransactionalDocumentService):
         order does -- with one difference: **nothing is staged**. A quotation
         is an offer, not a claim; the order it becomes stages its own pending
         redemption when it is priced and claims it when it is approved.
+
+        Told about the bill and the delivery charge the way the order tells
+        it, so an offer on the whole bill, a gift and free shipping reach the
+        quotation too. Only the line discounts used to, and a quotation read
+        higher than the order it became (D-SELL-32, 2026-09-19).
         """
         outcome = PromotionService(self._session).evaluate(
             PromotionEvaluationRequest(
@@ -812,6 +838,8 @@ class QuotationService(TransactionalDocumentService):
                 branch_id=row.branch_id,
                 territory_id=row.territory_id,
                 salesman_id=row.salesman_id,
+                caller_priced_bill=bill_priced,
+                freight_amount=self._q(freight_amount or ZERO),
                 lines=[
                     PromotionLineRequest(
                         line_number=index + 1,
@@ -829,6 +857,49 @@ class QuotationService(TransactionalDocumentService):
             firm_scope=row.firm_id,
         )
         return PromotionBenefits(outcome)
+
+    @staticmethod
+    def _gift_lines(
+        benefits: PromotionBenefits, *, lines: list[QuotationLineWrite]
+    ) -> list[QuotationLineWrite]:
+        """Turn what the engine gave away into lines the quotation shows.
+
+        The sales order's rule, so the offer and the order read alike: goods
+        supplied free and nothing charged, an explicit zero rate so no
+        standing discount reaches a line worth nothing, and a gift the caller
+        already typed is not doubled. Built without validation because the
+        write schema refuses a quantity of zero -- which is also what lets
+        the conversion tell these lines from typed ones and leave them to the
+        order's own offers.
+        """
+        gifts = benefits.gifts()
+        if not gifts:
+            return []
+        typed = {item.product_id for item in lines}
+        next_number = max((item.line_number for item in lines), default=0) + 1
+        added: list[QuotationLineWrite] = []
+        for gift in gifts:
+            if gift.product_id in typed:
+                continue
+            added.append(
+                QuotationLineWrite.model_construct(
+                    line_number=next_number + len(added),
+                    product_id=gift.product_id,
+                    description=f"Free with {gift.promotion_code}",
+                    quantity=ZERO,
+                    free_quantity=gift.quantity,
+                    unit_price=ZERO,
+                    discount_percent=ZERO,
+                    discount_amount=None,
+                    sales_uom_id=None,
+                    inventory_uom_id=None,
+                    packaging_type_id=None,
+                    tax_profile_id=None,
+                    warehouse_id=None,
+                    remarks=None,
+                )
+            )
+        return added
 
     def _freight_shares(
         self,
@@ -966,9 +1037,29 @@ class QuotationService(TransactionalDocumentService):
         # quoted rate over as agreed, no offer ever reached such an order
         # (plan item 9.4, 2026-09-13).
         group_id, group_discount = self._customer_group(row.customer_id)
+        bill_typed = bill_amount is not None or bill_percent is not None
         benefits = self._promotions(
-            row, lines=lines, grosses=grosses, customer_group_id=group_id
+            row,
+            lines=lines,
+            grosses=grosses,
+            customer_group_id=group_id,
+            bill_priced=bill_typed,
+            freight_amount=freight_amount,
         )
+        # A gift is a line, appended after the engine has answered and before
+        # anything is priced, exactly as the order does it.
+        gifts = self._gift_lines(benefits, lines=lines)
+        for gift in gifts:
+            product = self._session.scalar(
+                select(Product).where(
+                    Product.id == gift.product_id, Product.is_deleted.is_(False)
+                )
+            )
+            if product is None:
+                raise ValidationError("Product not found for a promotion's gift.")
+            products.append(product)
+            grosses.append(ZERO)
+        lines = list(lines) + gifts
         priced: list[LineDiscount] = [
             resolve_line_discount(
                 gross=grosses[index],
@@ -981,18 +1072,29 @@ class QuotationService(TransactionalDocumentService):
             )
             for index, item in enumerate(lines)
         ]
+        row.bill_discount_source = (
+            "typed"
+            if bill_typed
+            else ("promotion" if benefits.bill_discount() is not None else "none")
+        )
         shares = self._bill_discount_shares(
             row,
             percent=bill_percent,
-            amount=bill_amount,
+            # Typed wins; an offer's applies only where nothing was typed --
+            # the precedence every line follows, and the order's.
+            amount=bill_amount if bill_typed else benefits.bill_discount(),
             taxables=[
                 self._q(gross - line.amount)
                 for gross, line in zip(grosses, priced, strict=True)
             ],
         )
+        asked_freight = self._q(freight_amount or ZERO)
+        row.freight_waived_amount = min(benefits.freight_waived(), asked_freight)
         freight = self._freight_shares(
             row,
-            freight=freight_amount,
+            # What an offer waived comes off before the split, so the lines
+            # carry -- and are taxed on -- what the customer would be charged.
+            freight=self._q(asked_freight - row.freight_waived_amount),
             taxables=[
                 self._q(gross - line.amount)
                 for gross, line in zip(grosses, priced, strict=True)
@@ -1035,7 +1137,11 @@ class QuotationService(TransactionalDocumentService):
             line.product_id = item.product_id
             line.description = item.description or product.name
             line.quantity = quantity
-            line.free_quantity = self._q(item.free_quantity)
+            # An offer's free goods apply where the line asked for none, as on
+            # the order.
+            line.free_quantity = self._q(item.free_quantity) or self._q(
+                benefits.free_quantity(index)
+            )
             line.sales_uom_id = item.sales_uom_id
             line.inventory_uom_id = item.inventory_uom_id
             line.packaging_type_id = item.packaging_type_id
@@ -1302,7 +1408,9 @@ class QuotationService(TransactionalDocumentService):
             customer_discount_percent=row.customer_discount_percent,
             bill_discount_percent=row.bill_discount_percent,
             bill_discount_amount=row.bill_discount_amount,
+            bill_discount_source=row.bill_discount_source,
             freight_amount=row.freight_amount,
+            freight_waived_amount=row.freight_waived_amount,
             line_discount_total=row.line_discount_total,
             subtotal=row.subtotal,
             tax_total=row.tax_total,

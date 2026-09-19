@@ -43,6 +43,7 @@ from app.quotation.schemas import (
 from app.quotation.services import QuotationService
 from app.sales.models import territory as _sales_models  # noqa: F401
 from app.sales_order.models import SalesOrder, SalesOrderLine
+from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services.sales_order_service import SalesOrderService
 from app.sales_return.models import sales_return as _sales_return_models  # noqa: F401
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
@@ -1062,3 +1063,165 @@ def test_a_discount_typed_on_the_quotation_carries_over_as_typed() -> None:
         )
         == 0
     ), "a line priced by hand takes no offer, so claims none"
+
+
+def _offers_on_the_bill(setup: _Setup) -> Product:
+    """Publish an offer on the bill, free shipping and a gift; return the gift.
+
+    The three benefits a quotation used to leave out while the order it
+    became took all three (D-SELL-32).
+    """
+    gift = Product(
+        firm_id=setup.firm.id,
+        code="MUG-001",
+        name="Mug MUG-001",
+        product_type="STOCK_ITEM",
+        status="ACTIVE",
+    )
+    setup.session.add(gift)
+    setup.session.flush()
+    for priority, code, action_type, parameters in (
+        (10, "BILL20", PromotionActionType.BILL_DISCOUNT_AMOUNT, {"amount": "20"}),
+        (20, "FREESHIP", PromotionActionType.FREE_SHIPPING, {}),
+        (
+            30,
+            "MUG",
+            PromotionActionType.FREE_PRODUCT,
+            {"free_product_id": str(gift.id), "free_quantity": "1"},
+        ),
+    ):
+        promotion = Promotion(
+            firm_id=setup.firm.id,
+            code=code,
+            name=code.title(),
+            priority=priority,
+            status=PromotionStatus.ACTIVE.value,
+            allow_stacking=True,
+            version_group_id=uuid4(),
+            version_number=1,
+        )
+        setup.session.add(promotion)
+        setup.session.flush()
+        setup.session.add(
+            PromotionAction(
+                firm_id=setup.firm.id,
+                promotion_id=promotion.id,
+                sequence=1,
+                action_type=action_type.value,
+                parameters=parameters,
+            )
+        )
+    setup.session.commit()
+    return gift
+
+
+def test_a_quotation_shows_the_offers_an_order_would_take() -> None:
+    """D-SELL-32: the bill discount, free shipping and a gift reach the quote.
+
+    Driven 2026-09-19 on ``fx_t0919q38d_s``: 60 detergent at 84 with 150
+    freight quoted 5,678.16 as QT-2026-2027-000001, while the same order
+    raised directly read 5,265.16 -- BIGORDER's 200 off the bill, FREESHIP's
+    150 and three MUGGIFT mugs were the order's alone. The quotation now
+    prices through the same offers and claims none of them.
+    """
+    session = _session_factory()()
+    setup = _Setup(session)
+    gift = _offers_on_the_bill(setup)
+    payload = setup.payload()
+    payload.freight_amount = Decimal("50")
+
+    quote = setup.service.create_quotation(
+        payload, firm_id=setup.firm.id, actor_id=setup.actor_id
+    )
+    order = SalesOrderService(session).create_order(
+        SalesOrderCreate(
+            customer_id=setup.customer.id,
+            branch_id=setup.branch.id,
+            warehouse_id=setup.warehouse.id,
+            order_date=quote.quotation_date,
+            freight_amount=Decimal("50"),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=setup.product.id,
+                    quantity=Decimal("4"),
+                    unit_price=PRICE,
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+
+    assert quote.bill_discount_amount == Decimal("20.0000")
+    assert quote.bill_discount_source == "promotion"
+    assert quote.freight_amount == Decimal("0.0000")
+    assert quote.freight_waived_amount == Decimal("50.0000")
+    lines = session.scalars(
+        select(SalesQuotationLine)
+        .where(SalesQuotationLine.sales_quotation_id == quote.id)
+        .order_by(SalesQuotationLine.line_number)
+    ).all()
+    assert [(line.product_id, line.quantity, line.free_quantity) for line in lines] == [
+        (setup.product.id, Decimal("4.0000"), Decimal("0.0000")),
+        (gift.id, Decimal("0.0000"), Decimal("1.0000")),
+    ]
+    assert quote.grand_total == order.grand_total == Decimal("380.0000")
+    # An offer is not a claim: only the order staged anything.
+    assert (
+        session.scalar(
+            select(func.count())
+            .select_from(PromotionRedemption)
+            .where(PromotionRedemption.document_id == quote.id)
+        )
+        == 0
+    )
+
+
+def test_a_converted_order_finds_the_quoted_offers_again() -> None:
+    """The order is handed what was typed, and asks the offers itself.
+
+    The bill discount, the waived delivery and the gift are the offers', so
+    the order re-derives them on its own date and stages their claims, as
+    D-SELL-9 settled for line discounts -- rather than inheriting them as
+    typed, which would keep them after an offer had run out.
+    """
+    session = _session_factory()()
+    setup = _Setup(session)
+    gift = _offers_on_the_bill(setup)
+    payload = setup.payload()
+    payload.freight_amount = Decimal("50")
+    quote = setup.service.create_quotation(
+        payload, firm_id=setup.firm.id, actor_id=setup.actor_id
+    )
+    setup.service.send_quotation(
+        quote.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+    )
+    setup.service.accept_quotation(
+        quote.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+    )
+
+    _, order = setup.service.convert_quotation(
+        quote.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+    )
+
+    assert order.bill_discount_source == "promotion"
+    assert order.bill_discount_amount == Decimal("20.0000")
+    assert order.freight_amount == Decimal("0.0000")
+    lines = session.scalars(
+        select(SalesOrderLine)
+        .where(SalesOrderLine.sales_order_id == order.id)
+        .order_by(SalesOrderLine.line_number)
+    ).all()
+    assert [(line.product_id, line.free_quantity) for line in lines] == [
+        (setup.product.id, Decimal("0.0000")),
+        (gift.id, Decimal("1.0000")),
+    ], "the gift is the order's own, once"
+    assert order.grand_total == quote.grand_total
+    staged = session.scalars(
+        select(PromotionRedemption).where(
+            PromotionRedemption.document_id == order.id,
+            PromotionRedemption.is_deleted.is_(False),
+        )
+    ).all()
+    assert sorted(row.status for row in staged) == ["PENDING"] * 3
