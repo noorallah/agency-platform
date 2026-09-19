@@ -46,6 +46,9 @@ from app.loyalty.schemas import LoyaltySettingsWrite
 from app.loyalty.services import LoyaltyService
 from app.sales_invoice.models import SalesInvoice
 
+# Fixtures here type their document numbers; see conftest (D-CFG-2).
+pytestmark = pytest.mark.typed_document_numbers
+
 WHEN = date(2026, 6, 10)
 
 
@@ -942,3 +945,80 @@ def test_goodwill_points_are_the_scheme_s_to_give_not_the_sales_desk_s() -> None
     assert "LOYALTY_MANAGE" in manager
     assert "LOYALTY_MANAGE_SETTINGS" not in manager
     assert "LOYALTY_MANAGE_SETTINGS" in ROLE_PERMISSION_CODES["FIRM_ADMIN"]
+
+
+def _earned_on(books: _Books, number: str, on: date) -> SalesInvoice:
+    """Raise a bill dated ``on`` and credit the customer for it."""
+    bill = books.invoice(number, total="1000")
+    bill.invoice_date = on
+    books.session.commit()
+    books.earn(bill)
+    return bill
+
+
+def test_points_keep_the_value_they_were_earned_at() -> None:
+    """A change of rate prices the points earned after it, and no others.
+
+    D-CFG-3: earning booked points at the rate then, and a redemption or an
+    adjustment valued them at the rate now. Raised from 1.00 to 2.00, twenty
+    points earned at 1.00 were spent for 40.00 against the 20.00 ever
+    credited, and `Loyalty Payable` went below zero; driven on fixture store
+    `fx_t0919snfh_r`, 100 goodwill points given at 1.00 were taken back at
+    2.00, leaving 2600 at -100.00 with nothing held.
+    """
+    books = _Books(_session_factory()())
+    service = LoyaltyService(books.session)
+    _earned_on(books, "SI-1", date(2026, 6, 1))  # 20 points at 1.00
+    books.enable(amount_per_point=Decimal("2"))
+    _earned_on(books, "SI-2", date(2026, 6, 2))  # 20 points at 2.00
+    assert _payable(books) == Decimal("60.00")
+    held = service.balance(books.customer.id, firm_scope=books.firm.id)
+    assert held.amount == Decimal("60.00"), "each batch at its own value"
+
+    bill = books.invoice("SI-3", total="500")
+    spent = service.redeem(
+        firm_scope=books.firm.id,
+        invoice_id=bill.id,
+        points=Decimal("30"),
+        actor_id=books.actor_id,
+    )
+    # Oldest first: the twenty at 1.00, then ten of the twenty at 2.00.
+    assert spent.amount == Decimal("40.00")
+    assert _payable(books) == Decimal("20.00")
+
+    taken = service.adjust(
+        firm_scope=books.firm.id,
+        customer_id=books.customer.id,
+        points=Decimal("-10"),
+        reason="Credited in error.",
+        actor_id=books.actor_id,
+    )
+    assert taken.amount == Decimal("20.00")
+    assert books.points() == Decimal("0.0000")
+    assert _payable(books) == Decimal("0.00"), "nothing held, nothing owed"
+
+
+def test_a_lower_rate_leaves_nothing_behind_in_the_liability() -> None:
+    """Points earned at 1.00 and spent after a cut to 0.50 release 1.00 each."""
+    books = _Books(_session_factory()())
+    service = LoyaltyService(books.session)
+    _earned_on(books, "SI-1", date(2026, 6, 1))  # 20 points at 1.00
+    given = service.adjust(
+        firm_scope=books.firm.id,
+        customer_id=books.customer.id,
+        points=Decimal("10"),
+        reason="Goodwill.",
+        actor_id=books.actor_id,
+    )
+    assert given.amount == Decimal("10.00")
+    books.enable(amount_per_point=Decimal("0.5"))
+
+    service.redeem(
+        firm_scope=books.firm.id,
+        invoice_id=books.invoice("SI-2", total="500").id,
+        points=Decimal("30"),
+        actor_id=books.actor_id,
+    )
+
+    assert books.points() == Decimal("0.0000")
+    assert _payable(books) == Decimal("0.00")

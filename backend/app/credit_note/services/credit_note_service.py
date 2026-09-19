@@ -182,20 +182,19 @@ class CreditNoteService(TransactionalDocumentService):
             firm_id=firm_id, actor_id=actor_id
         )
         invoice = self._billable_invoice(data.sales_invoice_id, firm_id=firm_id)
-        number = (
-            data.credit_note_number.strip().upper()
-            if data.credit_note_number
-            else self._documents.reserve_number(
-                numbering_rule.id,
-                firm_id=firm_id,
-                financial_year_label=self._financial_year_label(
-                    data.credit_note_date, firm_id
-                ),
-                branch_code=self._scope_code(invoice.branch_id),
-                company_code=self._company_code(firm_id),
-                document_date=data.credit_note_date,
-                actor_id=actor_id,
-            )
+        number = self._issue_number(
+            numbering_rule,
+            typed=(
+                data.credit_note_number.strip().upper()
+                if data.credit_note_number
+                else None
+            ),
+            number_column=CreditNote.credit_note_number,
+            firm_id=firm_id,
+            document_date=data.credit_note_date,
+            actor_id=actor_id,
+            branch_code=self._scope_code(invoice.branch_id),
+            company_code=self._company_code(firm_id),
         )
         row = CreditNote(
             firm_id=firm_id,

@@ -186,6 +186,21 @@ void main() {
     );
   });
 
+  testWidgets('a withdrawn registration is not offered again', (tester) async {
+    // A cancelled IRN is never reissued for the same document number, and
+    // the server refuses it (D-CMP-6); "Try again" is for a refusal only.
+    final _EInvoiceApi api = _EInvoiceApi(registrations: <Json>[
+      <String, dynamic>{
+        ..._sandboxRegistration(),
+        'status': 'CANCELLED',
+        'cancellation_reason': 'Wrong customer',
+      },
+    ]);
+    await _pump(tester, api);
+
+    expect(find.widgetWithText(TextButton, 'Try again'), findsNothing);
+  });
+
   testWidgets('an e-way bill by road will not send without a vehicle',
       (tester) async {
     final _EInvoiceApi api =

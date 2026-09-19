@@ -14,7 +14,7 @@ the supply was still taxed as whatever it said at the time.
 from dataclasses import dataclass
 from decimal import Decimal
 
-from app.core.utils.money import ZERO, quantize_money
+from app.core.utils.money import ZERO, quantize_ledger, quantize_money
 
 CGST = "CGST"
 SGST = "SGST"
@@ -118,3 +118,80 @@ def split_components(components: list[TaxComponent]) -> GstBuckets:
         if CESS not in code:
             rate += Decimal(str(component.percentage))
     return GstBuckets(cgst=cgst, sgst=sgst, igst=igst, cess=cess, rate=rate)
+
+
+def settle_to_ledger(lines: list[GstBuckets]) -> list[GstBuckets]:
+    """Round one document's tax to paise so it adds to what the ledger credited.
+
+    A document is priced at four decimals and the journal credits output tax
+    **once, as the rounded sum** -- ``quantize_ledger`` of the document's tax.
+    Rounding each bucket on its own instead declares 36.86 + 36.86 = 73.72 on
+    a bill whose halves are 36.855 and whose journal credited 73.71 (D-CMP-4):
+    rounding the sum is not rounding the parts.
+
+    So every bucket of every line is rounded half up to paise, and whatever
+    that leaves between their sum and the rounded document total -- never more
+    than a paisa or two -- is put on the **last** bucket that carries tax: the
+    last line's SGST on an intra-state bill, its IGST on an inter-state one,
+    cess only where nothing else was charged.
+
+    Args:
+        lines: The document's lines, split into buckets at four decimals.
+
+    Returns:
+        The same lines at two decimals, adding up to the ledger's figure.
+
+    """
+    target = quantize_ledger(
+        sum((line.cgst + line.sgst + line.igst + line.cess for line in lines), ZERO)
+    )
+    rounded = [
+        GstBuckets(
+            cgst=quantize_ledger(line.cgst),
+            sgst=quantize_ledger(line.sgst),
+            igst=quantize_ledger(line.igst),
+            cess=quantize_ledger(line.cess),
+            rate=line.rate,
+        )
+        for line in lines
+    ]
+    residual = target - sum(
+        (line.cgst + line.sgst + line.igst + line.cess for line in rounded), ZERO
+    )
+    if residual == ZERO:
+        return rounded
+    for index in range(len(rounded) - 1, -1, -1):
+        line = rounded[index]
+        for bucket in ("igst", "sgst", "cgst", "cess"):
+            # Judged on what was charged, not on what rounding left: a
+            # quarter paisa rounds to nothing and still carried the tax.
+            if getattr(lines[index], bucket) != ZERO:
+                values = {
+                    "cgst": line.cgst,
+                    "sgst": line.sgst,
+                    "igst": line.igst,
+                    "cess": line.cess,
+                }
+                values[bucket] += residual
+                rounded[index] = GstBuckets(rate=line.rate, **values)
+                return rounded
+    return rounded
+
+
+def intra_state_halves(tax: Decimal) -> tuple[Decimal, Decimal]:
+    """Split a tax charged within one state into CGST and SGST at paise.
+
+    For a document that stores one tax figure rather than its components, such
+    as a credit note. The halves add to the rounded whole -- what the journal
+    credited -- with the odd paisa on SGST.
+
+    Args:
+        tax: The tax the document charged, at any scale.
+
+    Returns:
+        CGST and SGST, at two decimals, adding to ``quantize_ledger(tax)``.
+
+    """
+    whole = quantize_ledger(tax)
+    central = quantize_ledger(Decimal(str(tax)) / 2)
+    return central, whole - central

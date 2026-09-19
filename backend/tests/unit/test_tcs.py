@@ -37,7 +37,9 @@ from app.tcs.schemas import TcsSettingsWrite
 from app.tcs.services import TcsService
 from app.vendors.models import Vendor
 
-WHEN = date(2026, 6, 10)
+#: Inside FY 2024-25: section 206C(1H) was omitted from 1 April 2025, so the
+#: collection cases are set in the last year it applied.
+WHEN = date(2024, 6, 10)
 #: Nine days before ``WHEN``, in the same financial year.
 EARLIER = WHEN - timedelta(days=9)
 #: Fifty lakh, the figure the section names.
@@ -67,14 +69,14 @@ class _Books:
             code="TCS",
             country="IN",
             currency_code="INR",
-            financial_year_start=date(2026, 4, 1),
+            financial_year_start=date(2024, 4, 1),
         )
         session.add(self.firm)
         session.commit()
         seed_finance_setup(
             session,
             firm_id=self.firm.id,
-            year_starts_on=date(2026, 4, 1),
+            year_starts_on=date(2024, 4, 1),
             actor_id=self.actor_id,
         )
         self.customer = Customer(
@@ -311,14 +313,14 @@ def test_the_threshold_resets_with_the_financial_year() -> None:
     seed_finance_setup(
         books.session,
         firm_id=books.firm.id,
-        year_starts_on=date(2027, 4, 1),
+        year_starts_on=date(2023, 4, 1),
         actor_id=books.actor_id,
     )
-    books.receipt("6000000", on=date(2027, 3, 20))
+    books.receipt("6000000", on=date(2024, 3, 20))
 
     # The firm's year starts on 1 April, so a March receipt belongs to the
     # year ending and this one starts the count again.
-    row = books.collection(books.receipt("400000", on=date(2027, 4, 5)))
+    row = books.collection(books.receipt("400000", on=date(2024, 4, 5)))
 
     assert row is None
 
@@ -437,7 +439,7 @@ def test_a_collection_records_why_the_number_is_what_it_is() -> None:
     assert row.cumulative_before == Decimal("4800000.00")
     assert row.taxable_amount == Decimal("200000.00")
     assert row.rate_percent == Decimal("0.100")
-    assert row.financial_year_start == date(2026, 4, 1)
+    assert row.financial_year_start == date(2024, 4, 1)
 
 
 def test_a_receipt_that_clears_invoices_is_still_charged_on_all_of_it() -> None:
@@ -562,3 +564,43 @@ def test_a_receipt_on_the_same_day_counts_one_recorded_before_it() -> None:
 
     assert row is not None
     assert row.cumulative_before == Decimal("4800000.00")
+
+
+def test_nothing_is_collected_under_206c_1h_from_1_april_2025() -> None:
+    """The Finance Act 2025 omitted the section from that day (D-CMP-12).
+
+    A firm with the section switched on went on collecting in FY 2026-27 a tax
+    that is no longer levied. The last day it applied still charges; the
+    first day it did not charges nothing, whatever the settings say, and what
+    was collected before stays as it was.
+    """
+    books = _Books(_session_factory()())
+    seed_finance_setup(
+        books.session,
+        firm_id=books.firm.id,
+        year_starts_on=date(2025, 4, 1),
+        actor_id=books.actor_id,
+    )
+    books.receipt("6000000", on=date(2025, 3, 30))
+    last_day = books.collection(books.receipt("100000", on=date(2025, 3, 31)))
+    assert last_day is not None
+    assert last_day.tcs_amount == Decimal("100.00")
+
+    # A new year and a buyer well past any threshold: still nothing.
+    books.receipt("6000000", on=date(2025, 4, 1))
+    after = books.receipt("100000", on=date(2025, 6, 10))
+
+    assert books.collection(after) is None
+    preview = TcsService(books.session).preview(
+        firm_id=books.firm.id,
+        customer_id=books.customer.id,
+        amount=Decimal("100000"),
+        on=date(2026, 9, 19),
+    )
+    assert not preview.applicable
+    assert "omitted" in preview.reason
+    assert preview.tcs_amount == Decimal("0")
+    # The collection made while the section stood is untouched.
+    books.session.refresh(last_day)
+    assert last_day.status == TcsCollectionStatus.COLLECTED.value
+    assert last_day.tcs_amount == Decimal("100.00")

@@ -49,6 +49,9 @@ from app.sales_return.models import sales_return as _sales_return_models  # noqa
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
 from app.uom.models import uom as _uom_models  # noqa: F401
 
+# Fixtures here type their document numbers; see conftest (D-CFG-2).
+pytestmark = pytest.mark.typed_document_numbers
+
 PRICE = Decimal("100")
 
 
