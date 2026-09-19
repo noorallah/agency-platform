@@ -9,7 +9,7 @@ from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.common.audit.services import record_audit
+from app.common.audit.services import record_audit, record_change, row_state
 from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import (
     ConflictError,
@@ -471,11 +471,7 @@ class DocumentFrameworkService:
         self._assert_unique_numbering_rule(
             firm_id, data.document_type_id, data.code, current_id=row.id
         )
-        before = {
-            "code": row.code,
-            "name": row.name,
-            "next_sequence": row.next_sequence,
-        }
+        before = row_state(row)
         values = data.model_dump(exclude_unset=True)
         # Judged on what the rule will be, as the year check below is.
         self._assert_outside_the_manual_journal_namespace(
@@ -506,14 +502,16 @@ class DocumentFrameworkService:
             setattr(row, field, value)
         row.updated_by = actor_id
         self._keep_one_default(row, firm_id=firm_id, actor_id=actor_id)
-        record_audit(
+        # The prefix, the pattern and the yearly restart are what the next
+        # number is built from, so the row carries each field that moved.
+        record_change(
             self._session,
             action="document_numbering_rule.updated",
             entity_type="document_numbering_rule",
-            entity_id=row.id,
+            row=row,
             actor_id=actor_id,
+            before=before,
             firm_id=firm_id,
-            before_data=before,
         )
         return row
 

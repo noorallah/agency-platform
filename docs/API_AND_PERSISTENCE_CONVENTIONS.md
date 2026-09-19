@@ -95,6 +95,12 @@ on `model_fields_set`, and `opening_balance` is read out of the dumped values
 with the row as its fallback -- reading it off the model made an omission
 mean zero, which the balance-reset guard then acted on.
 
+## An audit row says what changed, on the trail of the firm that changed it
+
+`record_change` (`app/common/audit/services/changes.py`) audits a create, an update or a soft delete of one row: the whole row on a create, the whole row on the before side of a delete, and on an update **only the fields that moved** -- and no row at all when none did. Take `row_state(row)` before the write and pass it as `before`. A row that names the record and not the change is a row nobody can use: a conversion factor moved 1 → 2 with both sides empty, the print template's bank account changed with only the document type recorded, and 521 empty `user_preferences.updated` rows from screens that changed nothing (D-CFG-13).
+
+`get_db` and `firm_store_session` mark the session with the firm whose store they opened (`Session.info[STORE_FIRM_SESSION_KEY]`), and `record_audit` uses it when a write names no firm. A firm's trail filters on `firm_id`, so a row left null in a firm's own store -- the business-framework catalogue and geography, which carry no firm column -- was on no screen. The platform store carries no mark, so platform rows are unchanged. In `firm_shared` the catalogue is one set for every firm there, and the row lands on the trail of the firm that made the change, not of every firm it touches.
+
 ## Bulk endpoints are a second implementation
 
 **Bulk endpoints are a second implementation.** The six branch/warehouse bulk operations wrote no audit rows and skipped the delete guards their single-row twins enforced, so review both paths. The same module's two import endpoints looped over `create_branch`/`create_warehouse`, which commit, so a batch whose fifth row clashed returned 409 with the first four already written — and the corrected file then failed on those four as duplicates, making the import impossible to complete. Imports stage and commit once (`import_branches`/`import_warehouses`, the shape `CustomerService.import_customers` always had); the desktop dialog says so, because the user's first question after a failure is whether half of it went in. Exclusivity flags (`is_default`) are demoted in the service and backed by a partial unique index (`UQ_branches_default_active`, `UQ_warehouses_default_active`, `20260809_0056`); demotion must flush before the promoted row is written.

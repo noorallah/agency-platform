@@ -32,7 +32,7 @@ from app.business.schemas import (
     CategoryAttributeRuleUpdate,
     FirmBusinessProfileAssign,
 )
-from app.common.audit.services import record_audit
+from app.common.audit.services import record_audit, record_change, row_state
 from app.common.firm_metadata import FirmMetadataReader
 from app.core.concurrency import assert_version
 from app.core.exceptions import (
@@ -93,13 +93,12 @@ class BusinessProfileFrameworkService:
         )
         self._session.add(profile)
         self._session.flush()
-        record_audit(
+        record_change(
             self._session,
             action="business_profile.created",
             entity_type="business_profile",
-            entity_id=profile.id,
+            row=profile,
             actor_id=actor_id,
-            after_data={"code": profile.code},
         )
         self._session.commit()
         return profile
@@ -135,17 +134,17 @@ class BusinessProfileFrameworkService:
         # write that False over a profile that *is* the default.
         if values.get("is_default", profile.is_default):
             self._unset_default_profiles(except_id=profile.id)
-        before: dict[str, object] = {"code": profile.code, "status": profile.status}
+        before = row_state(profile)
         for field, value in values.items():
             setattr(profile, field, value)
         profile.updated_by = actor_id
-        record_audit(
+        record_change(
             self._session,
             action="business_profile.updated",
             entity_type="business_profile",
-            entity_id=profile.id,
+            row=profile,
             actor_id=actor_id,
-            before_data=before,
+            before=before,
         )
         self._session.commit()
         return profile
@@ -161,16 +160,18 @@ class BusinessProfileFrameworkService:
         )
         if has_assignment is not None:
             raise ConflictError("Assigned business profiles cannot be deleted.")
+        before = row_state(profile)
         profile.is_deleted = True
         profile.deleted_at = utc_now()
         profile.deleted_by = actor_id
         profile.updated_by = actor_id
-        record_audit(
+        record_change(
             self._session,
             action="business_profile.deleted",
             entity_type="business_profile",
-            entity_id=profile.id,
+            row=profile,
             actor_id=actor_id,
+            before=before,
         )
         self._session.commit()
 
@@ -196,11 +197,11 @@ class BusinessProfileFrameworkService:
         )
         self._session.add(feature)
         self._session.flush()
-        record_audit(
+        record_change(
             self._session,
             action="business_feature.created",
             entity_type="business_feature",
-            entity_id=feature.id,
+            row=feature,
             actor_id=actor_id,
         )
         self._session.commit()
@@ -226,15 +227,17 @@ class BusinessProfileFrameworkService:
         feature = self.get_feature(feature_id)
         assert_version(feature.version, expected_version)
         self._assert_unique(BusinessFeature, data.code, current_id=feature.id)
+        before = row_state(feature)
         for field, value in data.model_dump(exclude_unset=True).items():
             setattr(feature, field, value)
         feature.updated_by = actor_id
-        record_audit(
+        record_change(
             self._session,
             action="business_feature.updated",
             entity_type="business_feature",
-            entity_id=feature.id,
+            row=feature,
             actor_id=actor_id,
+            before=before,
         )
         self._session.commit()
         return feature
@@ -283,16 +286,18 @@ class BusinessProfileFrameworkService:
         """Soft delete a feature no profile still enables."""
         feature = self.get_feature(feature_id)
         self._assert_feature_unused(feature.id)
+        before = row_state(feature)
         feature.is_deleted = True
         feature.deleted_at = utc_now()
         feature.deleted_by = actor_id
         feature.updated_by = actor_id
-        record_audit(
+        record_change(
             self._session,
             action="business_feature.deleted",
             entity_type="business_feature",
-            entity_id=feature.id,
+            row=feature,
             actor_id=actor_id,
+            before=before,
         )
         self._session.commit()
 
@@ -318,11 +323,11 @@ class BusinessProfileFrameworkService:
         )
         self._session.add(module)
         self._session.flush()
-        record_audit(
+        record_change(
             self._session,
             action="business_module.created",
             entity_type="business_module",
-            entity_id=module.id,
+            row=module,
             actor_id=actor_id,
         )
         self._session.commit()
@@ -348,15 +353,17 @@ class BusinessProfileFrameworkService:
         module = self.get_module(module_id)
         assert_version(module.version, expected_version)
         self._assert_unique(BusinessModule, data.code, current_id=module.id)
+        before = row_state(module)
         for field, value in data.model_dump(exclude_unset=True).items():
             setattr(module, field, value)
         module.updated_by = actor_id
-        record_audit(
+        record_change(
             self._session,
             action="business_module.updated",
             entity_type="business_module",
-            entity_id=module.id,
+            row=module,
             actor_id=actor_id,
+            before=before,
         )
         self._session.commit()
         return module
@@ -365,16 +372,18 @@ class BusinessProfileFrameworkService:
         """Soft delete a module no profile still enables."""
         module = self.get_module(module_id)
         self._assert_module_unused(module.id)
+        before = row_state(module)
         module.is_deleted = True
         module.deleted_at = utc_now()
         module.deleted_by = actor_id
         module.updated_by = actor_id
-        record_audit(
+        record_change(
             self._session,
             action="business_module.deleted",
             entity_type="business_module",
-            entity_id=module.id,
+            row=module,
             actor_id=actor_id,
+            before=before,
         )
         self._session.commit()
 
@@ -423,11 +432,11 @@ class BusinessProfileFrameworkService:
         )
         self._session.add(row)
         self._session.flush()
-        record_audit(
+        record_change(
             self._session,
             action="attribute_definition.created",
             entity_type="attribute_definition",
-            entity_id=row.id,
+            row=row,
             actor_id=actor_id,
         )
         self._session.commit()
@@ -456,31 +465,35 @@ class BusinessProfileFrameworkService:
         self._assert_unique(AttributeDefinition, data.code, current_id=row.id)
         if data.applicable_business_profile_id is not None:
             self.get_profile(data.applicable_business_profile_id)
+        before = row_state(row)
         for field, value in data.model_dump(exclude_unset=True).items():
             setattr(row, field, value)
         row.updated_by = actor_id
-        record_audit(
+        record_change(
             self._session,
             action="attribute_definition.updated",
             entity_type="attribute_definition",
-            entity_id=row.id,
+            row=row,
             actor_id=actor_id,
+            before=before,
         )
         self._session.commit()
         return row
 
     def delete_attribute(self, attribute_id: UUID, actor_id: UUID) -> None:
         row = self.get_attribute(attribute_id)
+        before = row_state(row)
         row.is_deleted = True
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
         row.updated_by = actor_id
-        record_audit(
+        record_change(
             self._session,
             action="attribute_definition.deleted",
             entity_type="attribute_definition",
-            entity_id=row.id,
+            row=row,
             actor_id=actor_id,
+            before=before,
         )
         self._session.commit()
 
@@ -580,11 +593,11 @@ class BusinessProfileFrameworkService:
         )
         self._session.add(row)
         self._session.flush()
-        record_audit(
+        record_change(
             self._session,
             action="category_attribute_rule.created",
             entity_type="category_attribute_rule",
-            entity_id=row.id,
+            row=row,
             actor_id=actor_id,
         )
         self._session.commit()
@@ -602,31 +615,35 @@ class BusinessProfileFrameworkService:
         if data.business_profile_id is not None:
             self.get_profile(data.business_profile_id)
         self.get_attribute(data.attribute_definition_id)
+        before = row_state(row)
         for field, value in data.model_dump(exclude_unset=True).items():
             setattr(row, field, value)
         row.updated_by = actor_id
-        record_audit(
+        record_change(
             self._session,
             action="category_attribute_rule.updated",
             entity_type="category_attribute_rule",
-            entity_id=row.id,
+            row=row,
             actor_id=actor_id,
+            before=before,
         )
         self._session.commit()
         return row
 
     def delete_category_rule(self, rule_id: UUID, actor_id: UUID) -> None:
         row = self.get_category_rule(rule_id)
+        before = row_state(row)
         row.is_deleted = True
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
         row.updated_by = actor_id
-        record_audit(
+        record_change(
             self._session,
             action="category_attribute_rule.deleted",
             entity_type="category_attribute_rule",
-            entity_id=row.id,
+            row=row,
             actor_id=actor_id,
+            before=before,
         )
         self._session.commit()
 
@@ -669,21 +686,31 @@ class BusinessProfileFrameworkService:
             )
             self._session.add(row)
             action = "firm_business_profile.created"
+            before: dict[str, object] | None = None
         else:
+            before = row_state(row)
+            # The row is updated in place, so `effective_from` is the only
+            # thing saying since when the firm has been on this profile. It
+            # moves when the profile does; a re-save of the same profile, or a
+            # change of notes, leaves it where it was.
+            if row.business_profile_id != data.business_profile_id:
+                row.effective_from = effective_from or utc_now()
             row.business_profile_id = data.business_profile_id
             row.is_active = data.is_active
             row.notes = data.notes
             row.updated_by = actor_id
             action = "firm_business_profile.updated"
         self._session.flush()
-        record_audit(
+        # The previous profile is kept nowhere else, so the before side is the
+        # only history of what the firm was on (D-CFG-13).
+        record_change(
             self._session,
             action=action,
             entity_type="firm_business_profile",
-            entity_id=row.id,
+            row=row,
             actor_id=actor_id,
+            before=before,
             firm_id=firm_id,
-            after_data={"business_profile_id": str(row.business_profile_id)},
         )
         self._session.commit()
         return row
@@ -713,6 +740,7 @@ class BusinessProfileFrameworkService:
             )
         }
         requested = set(feature_ids)
+        enabled_before = {key for key, row in existing.items() if row.is_enabled}
         for feature_id, row in existing.items():
             row.is_enabled = feature_id in requested
             row.updated_by = actor_id
@@ -726,11 +754,11 @@ class BusinessProfileFrameworkService:
                     updated_by=actor_id,
                 )
             )
-        record_audit(
-            self._session,
-            action="business_profile.features.updated",
-            entity_type="business_profile",
-            entity_id=profile.id,
+        self._audit_enabled_set(
+            "features",
+            profile,
+            before=enabled_before,
+            after=requested,
             actor_id=actor_id,
         )
         self._session.commit()
@@ -750,6 +778,7 @@ class BusinessProfileFrameworkService:
             )
         }
         requested = set(module_ids)
+        enabled_before = {key for key, row in existing.items() if row.is_enabled}
         for module_id, row in existing.items():
             row.is_enabled = module_id in requested
             row.is_visible = module_id in requested
@@ -766,14 +795,61 @@ class BusinessProfileFrameworkService:
                     updated_by=actor_id,
                 )
             )
-        record_audit(
-            self._session,
-            action="business_profile.modules.updated",
-            entity_type="business_profile",
-            entity_id=profile.id,
+        self._audit_enabled_set(
+            "modules",
+            profile,
+            before=enabled_before,
+            after=requested,
             actor_id=actor_id,
         )
         self._session.commit()
+
+    def _audit_enabled_set(
+        self,
+        kind: str,
+        profile: BusinessProfile,
+        *,
+        before: set[UUID],
+        after: set[UUID],
+        actor_id: UUID,
+    ) -> None:
+        """Record which features or modules a profile enables, by code.
+
+        Only a change is recorded: the row names what was switched on and off
+        and the whole set on each side, and a re-save of the same set writes
+        nothing. It used to carry no data at all, so the trail could not say
+        which feature had been switched.
+        """
+        if before == after:
+            return
+        model: type[BusinessFeature] | type[BusinessModule] = (
+            BusinessFeature if kind == "features" else BusinessModule
+        )
+        codes: dict[UUID, str] = {
+            row_id: code
+            for row_id, code in self._session.execute(
+                select(model.id, model.code).where(model.id.in_(before | after))
+            ).all()
+        }
+
+        def named(ids: set[UUID]) -> list[str]:
+            """Return the codes of ``ids``, sorted."""
+            return sorted(str(codes.get(item, item)) for item in ids)
+
+        record_audit(
+            self._session,
+            action=f"business_profile.{kind}.updated",
+            entity_type="business_profile",
+            entity_id=profile.id,
+            actor_id=actor_id,
+            before_data={"profile": profile.code, kind: named(before)},
+            after_data={
+                "profile": profile.code,
+                kind: named(after),
+                "enabled": named(after - before),
+                "disabled": named(before - after),
+            },
+        )
 
     def profile_configuration(self, profile_id: UUID) -> tuple[list[UUID], list[UUID]]:
         self.get_profile(profile_id)

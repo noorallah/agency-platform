@@ -8,6 +8,7 @@ from uuid import UUID
 from fastapi import Request
 from sqlalchemy.orm import Session
 
+from app.core.context import STORE_FIRM_SESSION_KEY
 from app.core.database.engine import DatabaseManager
 from app.core.tenancy import FirmRegistryTenantResolver, MultiTenantDatabaseProvider
 
@@ -39,6 +40,7 @@ def get_db(request: Request) -> Generator[Session]:
     manager = provider.manager_for(tenant)
     schema = provider.schema_for(tenant)
     with manager.sessions(schema=schema).session() as session:
+        session.info[STORE_FIRM_SESSION_KEY] = tenant.firm_id
         yield session
 
 
@@ -70,6 +72,7 @@ def firm_store_session(request: Request, firm_id: UUID) -> Generator[Session]:
     manager = provider.manager_for(tenant)
     schema = provider.schema_for(tenant)
     with manager.sessions(schema=schema).session() as session:
+        session.info[STORE_FIRM_SESSION_KEY] = tenant.firm_id
         yield session
 
 

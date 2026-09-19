@@ -23,8 +23,9 @@ from sqlalchemy.orm import Session
 from app.business.gating import resolve_profile_id
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.business.services import AttributeInput, AttributeService
-from app.common.audit.services import record_audit
+from app.common.audit.services import record_audit, record_change, row_state
 from app.core.concurrency import assert_version
+from app.core.database.entity import BaseEntity
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.products.models import Product
@@ -191,6 +192,7 @@ class UomService:
         )
         self._session.add(row)
         self._flush_or_conflict("UOM code already exists.")
+        self._audit("uom.unit.created", "uom", row, actor_id)
         if firm_id is not None and data.attributes:
             self._store_attributes(row, data.attributes, firm_id, actor_id)
         self._session.commit()
@@ -241,6 +243,7 @@ class UomService:
         """Change a unit in the catalogue."""
         row = self.get_uom(uom_id)
         assert_version(row.version, expected_version)
+        before = row_state(row)
         payload = data.model_dump(exclude_unset=True, exclude={"attributes"})
         if firm_id is not None and data.attributes is not None:
             self._store_attributes(row, data.attributes, firm_id, actor_id)
@@ -252,6 +255,7 @@ class UomService:
             setattr(row, field, value)
         row.updated_by = actor_id
         self._flush_or_conflict("UOM update conflicts with existing data.")
+        self._audit("uom.unit.updated", "uom", row, actor_id, before)
         self._session.commit()
         return row
 
@@ -263,6 +267,7 @@ class UomService:
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
         row.updated_by = actor_id
+        self._audit("uom.unit.deleted", "uom", row, actor_id)
         self._session.commit()
 
     def get_uom(self, uom_id: UUID) -> Uom:
@@ -363,6 +368,7 @@ class UomService:
         )
         self._session.add(row)
         self._flush_or_conflict("UOM group code already exists.")
+        self._audit("uom.group.created", "uom_group", row, actor_id)
         self._session.commit()
         return row
 
@@ -383,6 +389,7 @@ class UomService:
         if row is None:
             raise ResourceNotFoundError("UOM group not found.")
         assert_version(row.version, expected_version)
+        before = row_state(row)
         payload = data.model_dump(exclude_unset=True)
         for field, value in payload.items():
             if isinstance(value, str):
@@ -392,6 +399,7 @@ class UomService:
             setattr(row, field, value)
         row.updated_by = actor_id
         self._flush_or_conflict("UOM group update conflicts with existing data.")
+        self._audit("uom.group.updated", "uom_group", row, actor_id, before)
         self._session.commit()
         return row
 
@@ -417,6 +425,7 @@ class UomService:
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
         row.updated_by = actor_id
+        self._audit("uom.group.deleted", "uom_group", row, actor_id)
         self._session.commit()
 
     def list_packaging_types(self) -> list[PackagingType]:
@@ -443,6 +452,7 @@ class UomService:
         )
         self._session.add(row)
         self._flush_or_conflict("Packaging type code already exists.")
+        self._audit("uom.packaging_type.created", "packaging_type", row, actor_id)
         self._session.commit()
         return row
 
@@ -464,6 +474,7 @@ class UomService:
         if row is None:
             raise ResourceNotFoundError("Packaging type not found.")
         assert_version(row.version, expected_version)
+        before = row_state(row)
         payload = data.model_dump(exclude_unset=True)
         for field, value in payload.items():
             if isinstance(value, str):
@@ -473,6 +484,9 @@ class UomService:
             setattr(row, field, value)
         row.updated_by = actor_id
         self._flush_or_conflict("Packaging type update conflicts with existing data.")
+        self._audit(
+            "uom.packaging_type.updated", "packaging_type", row, actor_id, before
+        )
         self._session.commit()
         return row
 
@@ -502,6 +516,7 @@ class UomService:
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
         row.updated_by = actor_id
+        self._audit("uom.packaging_type.deleted", "packaging_type", row, actor_id)
         self._session.commit()
 
     def list_conversion_rules(
@@ -623,6 +638,7 @@ class UomService:
         if row is None:
             raise ResourceNotFoundError("Conversion rule not found.")
         assert_version(row.version, expected_version)
+        before = row_state(row)
         payload = data.model_dump(exclude_unset=True)
         if "rounding_mode" in payload and payload["rounding_mode"] is not None:
             payload["rounding_mode"] = self._rounding_mode(payload["rounding_mode"])
@@ -632,12 +648,13 @@ class UomService:
             setattr(row, field, value)
         row.updated_by = actor_id
         self._flush_or_conflict("Conversion rule update conflicts with existing data.")
-        record_audit(
+        record_change(
             self._session,
             action="uom.conversion.updated",
             entity_type="uom_conversion_rule",
-            entity_id=row.id,
+            row=row,
             actor_id=actor_id,
+            before=before,
             firm_id=firm_scope,
         )
         self._session.commit()
@@ -949,6 +966,9 @@ class UomService:
         )
         self._session.add(row)
         self._flush_or_conflict("Packaging level conflicts with existing data.")
+        self._audit(
+            "uom.packaging_level.created", "product_packaging_level", row, actor_id
+        )
         self._session.commit()
         return row
 
@@ -974,6 +994,7 @@ class UomService:
         if row is None:
             raise ResourceNotFoundError("Packaging level not found.")
         assert_version(row.version, expected_version)
+        before = row_state(row)
         payload = data.model_dump(exclude_unset=True)
         for field, value in payload.items():
             if isinstance(value, str):
@@ -983,6 +1004,13 @@ class UomService:
             setattr(row, field, value)
         row.updated_by = actor_id
         self._flush_or_conflict("Packaging level update conflicts with existing data.")
+        self._audit(
+            "uom.packaging_level.updated",
+            "product_packaging_level",
+            row,
+            actor_id,
+            before,
+        )
         self._session.commit()
         return row
 
@@ -1009,6 +1037,9 @@ class UomService:
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
         row.updated_by = actor_id
+        self._audit(
+            "uom.packaging_level.deleted", "product_packaging_level", row, actor_id
+        )
         self._session.commit()
 
     def list_industry_templates(
@@ -1186,6 +1217,29 @@ class UomService:
                 "No active conversion rule is configured for this UOM pair."
             )
         return exact
+
+    def _audit(
+        self,
+        action: str,
+        entity_type: str,
+        row: BaseEntity,
+        actor_id: UUID,
+        before: dict[str, object] | None = None,
+    ) -> None:
+        """Record a unit, group, packaging type or level write, with the change.
+
+        None of these wrote an audit row, so a unit renamed, recoded or made
+        whole-number under every firm's products left no trace (D-CFG-13).
+        The firm is the one whose store the request opened (``record_audit``).
+        """
+        record_change(
+            self._session,
+            action=action,
+            entity_type=entity_type,
+            row=row,
+            actor_id=actor_id,
+            before=before,
+        )
 
     def _flush_or_conflict(self, message: str) -> None:
         try:

@@ -12,7 +12,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.common.audit.services import record_audit
+from app.common.audit.services import changed_fields, record_audit, row_state
 from app.core.config.settings import Settings
 from app.core.enums import PlatformAdminScope, TokenType
 from app.core.exceptions import (
@@ -413,23 +413,50 @@ class IdentityService:
                 raise BusinessRuleError(
                     "Default firm must be an active firm membership for this user."
                 )
+        self._apply_preferences(
+            preferences, changes, user_id=user_id, action="user_preferences.updated"
+        )
+        return preferences
+
+    def _apply_preferences(
+        self,
+        preferences: UserPreferences,
+        changes: dict[str, object],
+        *,
+        user_id: UUID,
+        action: str,
+    ) -> None:
+        """Write the preference fields that differ, and audit only those.
+
+        The desktop saves preferences on every screen change, so most saves
+        change nothing; each used to write an audit row with no before, no
+        after and no firm -- 521 of them on one server (D-CFG-13). A save
+        that changes nothing now writes nothing, and one that does names
+        each field it moved.
+        """
+        before = row_state(preferences)
         for field, value in changes.items():
-            setattr(preferences, field, value)
+            if getattr(preferences, field) != value:
+                setattr(preferences, field, value)
+        before_data, after_data = changed_fields(before, row_state(preferences))
+        if not after_data:
+            return
         preferences.updated_by = user_id
         record_audit(
             self._session,
-            action="user_preferences.updated",
+            action=action,
             entity_type="user_preferences",
             entity_id=preferences.id,
             actor_id=user_id,
+            before_data=before_data,
+            after_data=after_data,
         )
         self._session.commit()
-        return preferences
 
     def reset_user_preferences(self, user_id: UUID) -> UserPreferences:
         """Replace preferences with the current version's defaults."""
         preferences = self.get_user_preferences(user_id)
-        for field, value in {
+        defaults: dict[str, object] = {
             "preferences_version": 1,
             "preferred_theme": "light",
             "preferred_theme_mode": "system",
@@ -445,17 +472,10 @@ class IdentityService:
             "rows_per_page": 20,
             "notification_preferences": {},
             "dashboard_layout": {},
-        }.items():
-            setattr(preferences, field, value)
-        preferences.updated_by = user_id
-        record_audit(
-            self._session,
-            action="user_preferences.reset",
-            entity_type="user_preferences",
-            entity_id=preferences.id,
-            actor_id=user_id,
+        }
+        self._apply_preferences(
+            preferences, defaults, user_id=user_id, action="user_preferences.reset"
         )
-        self._session.commit()
         return preferences
 
     def create_user(
