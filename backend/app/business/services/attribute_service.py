@@ -30,6 +30,7 @@ from app.business.models import (
     CategoryAttributeRule,
     FirmBusinessProfile,
 )
+from app.common.audit.services import audit_value, changed_fields, record_audit
 from app.core.exceptions import ValidationError
 from app.core.utils.dates import utc_now
 
@@ -141,6 +142,7 @@ class AttributeService:
         category_code: str | None = None,
     ) -> None:
         """Validate and store the complete attribute set for one record."""
+        stored_before = self._audit_state(model, owner_id, firm_id=firm_id)
         entity_type = model.ENTITY_TYPE.value
         definitions = {
             row.id: row
@@ -226,6 +228,53 @@ class AttributeService:
             row.deleted_at = utc_now()
             row.deleted_by = actor_id
             row.updated_by = actor_id
+        self._audit_values(
+            model, owner_id, stored_before, firm_id=firm_id, actor_id=actor_id
+        )
+
+    def _audit_state(
+        self, model: type[AttributeValueBase], owner_id: UUID, *, firm_id: UUID
+    ) -> dict[str, object]:
+        """Return the record's stored custom fields, by definition code."""
+        return {
+            item.definition.code: audit_value(item.value)
+            for item in self.values_for(model, owner_id, firm_id=firm_id)
+        }
+
+    def _audit_values(
+        self,
+        model: type[AttributeValueBase],
+        owner_id: UUID,
+        stored_before: dict[str, object],
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> None:
+        """Record which custom fields of one record changed, and from what.
+
+        A value row is overwritten in place, so without this the previous
+        value of a customer's, vendor's or product's custom field was kept
+        nowhere and the record's own audit row does not carry it (D-CFG-13).
+        Flushed first because a request session does not autoflush, and the
+        read below must see what was just written. Nothing changed, no row.
+        """
+        self._session.flush()
+        before, after = changed_fields(
+            stored_before, self._audit_state(model, owner_id, firm_id=firm_id)
+        )
+        if not before and not after:
+            return
+        owner_type = model.ENTITY_TYPE.value.lower()
+        record_audit(
+            self._session,
+            action=f"{owner_type}.attributes.updated",
+            entity_type=owner_type,
+            entity_id=owner_id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            before_data=before,
+            after_data=after,
+        )
 
     def values_for(
         self,

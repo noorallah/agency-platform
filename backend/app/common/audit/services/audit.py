@@ -5,7 +5,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.common.audit.models import AuditLog
-from app.core.context import get_request_context
+from app.core.context import STORE_FIRM_SESSION_KEY, get_request_context
 
 
 def record_audit(
@@ -20,7 +20,16 @@ def record_audit(
     after_data: dict[str, object] | None = None,
     application_version: str | None = None,
 ) -> None:
-    """Stage one immutable audit event in the current transaction."""
+    """Stage one immutable audit event in the current transaction.
+
+    A write that names no firm is attributed to the firm whose store the
+    session was opened on, when there is one. A firm's trail filters on
+    ``firm_id``, so a row left null in a firm's own store -- the business
+    framework catalogue, geography -- was on no screen at all (D-CFG-13). The
+    platform store carries no such key, so platform rows are unchanged.
+    """
+    if firm_id is None:
+        firm_id = session.info.get(STORE_FIRM_SESSION_KEY)
     context = get_request_context()
     before_payload = _with_context_metadata(before_data, context)
     after_payload = _with_context_metadata(after_data, context)
