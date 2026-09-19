@@ -126,6 +126,17 @@ time. `split_components` in `app/tax/services/gst_buckets.py` is the one
 place a component code becomes a bucket, shared with `app/einvoice`, so what
 is filed and what was registered cannot disagree.
 
+**A month once due is not rewritten.** Derived on read, a return re-read a
+bill's *current* status, so cancelling an August bill in September took it
+out of August's GSTR-1 -- a return already due on 11 September -- and no
+month showed the reversal (D-CMP-11). Nothing records that a return was
+filed, so its due date stands in for it: a bill cancelled **after** the 11th
+of the month following its date stays in its own month, and the
+cancellation is declared in the month it happened (the date of the
+receivable credit the cancellation posted) as a credit for the whole bill --
+CDNR for a registered buyer, off B2CS otherwise, and deducted in 3B. One
+cancelled before the due date simply drops out, as before.
+
 ## A credit note's receivable is rounded the way its journal rounded it
 
 **A credit note's receivable is rounded the way its journal rounded it.**

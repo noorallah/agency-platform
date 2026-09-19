@@ -48,7 +48,7 @@ from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ValidationError
 from app.core.utils.money import ZERO, quantize_ledger, quantize_money
 from app.credit_note.models import CreditNote, CreditNoteLine, CreditNoteStatus
-from app.customers.models import Customer
+from app.customers.models import Customer, CustomerReceivableTransaction
 from app.products.models import Product
 from app.sales_invoice.models import (
     SalesInvoice,
@@ -85,6 +85,25 @@ B2CL_THRESHOLD = Decimal("250000")
 #: What the invoice statuses mean for a return. A draft is not a supply and a
 #: cancelled one has been undone, so neither is declared.
 _LIVE_INVOICE_STATUSES = ("APPROVED", "CLOSED")
+
+
+def gstr1_due_date(invoice_date: date) -> date:
+    """Return when an invoice's GSTR-1 was due: the 11th of the next month.
+
+    Nothing in this system records that a return was filed, so the due date
+    stands in for it: once it has passed, the month is taken as filed, and a
+    later cancellation cannot rewrite it (D-CMP-11).
+
+    Args:
+        invoice_date: The invoice's own date.
+
+    Returns:
+        The 11th of the month after the invoice's month.
+
+    """
+    if invoice_date.month == 12:
+        return date(invoice_date.year + 1, 1, 11)
+    return date(invoice_date.year, invoice_date.month + 1, 11)
 
 
 @dataclass(slots=True)
@@ -204,6 +223,15 @@ class GstReturnService:
         credits = self._credit_notes(
             firm_scope=firm_scope, from_date=from_date, to_date=to_date
         )
+        for invoice, customer, lines, cancelled_on in self._late_cancellations(
+            firm_scope=firm_scope, from_date=from_date, to_date=to_date
+        ):
+            # A bill cancelled after its month's return was due stays in that
+            # month, and its cancellation is declared here, in the month it
+            # happened, the way a credit note is (D-CMP-11).
+            self._fold_cancellation(
+                credits, invoice, customer, lines, cancelled_on, seller_state
+            )
         for credited in credits.unregistered:
             # Subtracted from the row it belongs to, and creating that row if
             # the period holds a credit and no supply at the same rate -- a
@@ -296,6 +324,13 @@ class GstReturnService:
         credits = self._credit_notes(
             firm_scope=firm_scope, from_date=from_date, to_date=to_date
         )
+        seller_state = seller_gstin[:2]
+        for invoice, customer, lines, cancelled_on in self._late_cancellations(
+            firm_scope=firm_scope, from_date=from_date, to_date=to_date
+        ):
+            self._fold_cancellation(
+                credits, invoice, customer, lines, cancelled_on, seller_state
+            )
         # Both halves: 3B is a summary of what is payable, and an unregistered
         # buyer's credit reduces it exactly as a registered one does. Reading
         # only CDNR here is what left the two returns disagreeing.
@@ -340,20 +375,171 @@ class GstReturnService:
             list[tuple[Decimal, GstBuckets, Product | None, Decimal]],
         ]
     ]:
-        """Return each live invoice in the period with its priced lines."""
-        invoices = list(
+        """Return each invoice the period declares, with its priced lines.
+
+        The live ones, and one cancelled only **after** the period's return
+        was due: that month was filed with the bill in it, and the
+        cancellation belongs to the month it happened in (D-CMP-11). One
+        cancelled before the due date is dropped, as it always was.
+        """
+        in_period = list(
             self._session.scalars(
                 select(SalesInvoice)
                 .where(
                     SalesInvoice.firm_id == firm_scope,
                     SalesInvoice.is_deleted.is_(False),
-                    SalesInvoice.status.in_(_LIVE_INVOICE_STATUSES),
+                    SalesInvoice.status.in_((*_LIVE_INVOICE_STATUSES, "CANCELLED")),
                     SalesInvoice.invoice_date >= from_date,
                     SalesInvoice.invoice_date <= to_date,
                 )
                 .order_by(SalesInvoice.invoice_date.asc())
             ).all()
         )
+        cancelled_on = self._cancellation_dates(
+            [row.id for row in in_period if row.status == "CANCELLED"]
+        )
+        return self._priced(
+            [
+                row
+                for row in in_period
+                if row.status != "CANCELLED"
+                or self._cancelled_after_filing(row, cancelled_on.get(row.id))
+            ]
+        )
+
+    @staticmethod
+    def _cancelled_after_filing(invoice: SalesInvoice, on: date | None) -> bool:
+        """Say whether a bill was cancelled after its month's return was due."""
+        return on is not None and on > gstr1_due_date(invoice.invoice_date)
+
+    def _cancellation_dates(self, invoice_ids: list[UUID]) -> dict[UUID, date]:
+        """Return the day each cancelled invoice was cancelled.
+
+        Read off the receivable movement the cancellation posted -- dated the
+        day its journal was reversed -- because the invoice itself carries no
+        cancellation date. A bill cancelled while still a draft posted none,
+        and was never declared anyway.
+        """
+        if not invoice_ids:
+            return {}
+        answer: dict[UUID, date] = {}
+        for reference_id, on in self._session.execute(
+            select(
+                CustomerReceivableTransaction.reference_id,
+                CustomerReceivableTransaction.transaction_date,
+            ).where(
+                CustomerReceivableTransaction.reference_type == "SALES_INVOICE",
+                CustomerReceivableTransaction.reference_id.in_(invoice_ids),
+                CustomerReceivableTransaction.transaction_type == "CREDIT_NOTE",
+                CustomerReceivableTransaction.is_deleted.is_(False),
+            )
+        ).all():
+            if reference_id is not None and (
+                reference_id not in answer or on > answer[reference_id]
+            ):
+                answer[reference_id] = on
+        return answer
+
+    def _late_cancellations(
+        self, *, firm_scope: UUID, from_date: date, to_date: date
+    ) -> list[
+        tuple[
+            SalesInvoice,
+            Customer,
+            list[tuple[Decimal, GstBuckets, Product | None, Decimal]],
+            date,
+        ]
+    ]:
+        """Return the bills cancelled in the period after their month was filed."""
+        cancelled_in_period = {
+            reference_id: on
+            for reference_id, on in self._session.execute(
+                select(
+                    CustomerReceivableTransaction.reference_id,
+                    CustomerReceivableTransaction.transaction_date,
+                ).where(
+                    CustomerReceivableTransaction.firm_id == firm_scope,
+                    CustomerReceivableTransaction.reference_type == "SALES_INVOICE",
+                    CustomerReceivableTransaction.transaction_type == "CREDIT_NOTE",
+                    CustomerReceivableTransaction.is_deleted.is_(False),
+                    CustomerReceivableTransaction.transaction_date >= from_date,
+                    CustomerReceivableTransaction.transaction_date <= to_date,
+                )
+            ).all()
+            if reference_id is not None
+        }
+        if not cancelled_in_period:
+            return []
+        invoices = [
+            row
+            for row in self._session.scalars(
+                select(SalesInvoice)
+                .where(
+                    SalesInvoice.firm_id == firm_scope,
+                    SalesInvoice.is_deleted.is_(False),
+                    SalesInvoice.status == "CANCELLED",
+                    SalesInvoice.id.in_(list(cancelled_in_period)),
+                )
+                .order_by(SalesInvoice.invoice_date.asc())
+            ).all()
+            if self._cancelled_after_filing(row, cancelled_in_period[row.id])
+        ]
+        return [
+            (invoice, customer, lines, cancelled_in_period[invoice.id])
+            for invoice, customer, lines in self._priced(invoices)
+        ]
+
+    def _fold_cancellation(
+        self,
+        credits: _CreditNotes,
+        invoice: SalesInvoice,
+        customer: Customer,
+        lines: list[tuple[Decimal, GstBuckets, Product | None, Decimal]],
+        cancelled_on: date,
+        seller_state: str,
+    ) -> None:
+        """Declare a late cancellation the way a credit note for the whole bill is.
+
+        A registered buyer's goes in CDNR against the bill it cancels; an
+        unregistered buyer's comes off B2CS, rate by rate.
+        """
+        rates: dict[Decimal, _RateRow] = {}
+        for taxable, buckets, _product, _quantity in lines:
+            rates.setdefault(buckets.rate, _RateRow(rate=buckets.rate)).add(
+                taxable, buckets
+            )
+        gstin = (getattr(customer, "gst_number", None) or "").strip().upper()
+        if not gstin:
+            credits.unregistered.extend(rates.values())
+            return
+        total = GstBuckets()
+        for row in rates.values():
+            total = total.plus(row.buckets)
+        credits.registered.append(
+            {
+                "gstin": gstin,
+                "name": getattr(customer, "name", ""),
+                "note_number": invoice.invoice_number,
+                "note_date": cancelled_on.isoformat(),
+                "document_type": "CANCELLED_INVOICE",
+                "against_invoice": invoice.invoice_number,
+                "reason": invoice.cancel_reason,
+                "rate": float(max(rates, default=ZERO)),
+                "taxable_value": _filed(
+                    sum((row.taxable for row in rates.values()), ZERO)
+                ),
+                **self._bucket_fields(total),
+            }
+        )
+
+    def _priced(self, invoices: list[SalesInvoice]) -> list[
+        tuple[
+            SalesInvoice,
+            Customer,
+            list[tuple[Decimal, GstBuckets, Product | None, Decimal]],
+        ]
+    ]:
+        """Return each invoice with its lines, priced into GST buckets."""
         if not invoices:
             return []
         lines = list(

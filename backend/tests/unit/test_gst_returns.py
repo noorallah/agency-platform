@@ -26,7 +26,7 @@ from app.branches.models import Branch
 from app.core.database.base import Base
 from app.core.exceptions import ValidationError
 from app.credit_note.models import CreditNote, CreditNoteLine
-from app.customers.models import Customer
+from app.customers.models import Customer, CustomerReceivableTransaction
 from app.firms.models import Firm
 from app.gst_returns.services import GstReturnService
 from app.products.models import Product
@@ -559,3 +559,95 @@ def test_freight_and_a_line_charge_are_both_declared() -> None:
 
     invoice = books.gstr1()["b2b"][0]["invoices"][0]
     assert invoice["taxable_value"] == 1150.0
+
+
+MAY = (date(2026, 5, 1), date(2026, 5, 31))
+
+
+def _cancel(books: _Books, invoice: SalesInvoice, *, on: date) -> None:
+    """Cancel a bill the way the invoice service does: a receivable credit, dated."""
+    invoice.status = "CANCELLED"
+    books.session.add(
+        CustomerReceivableTransaction(
+            firm_id=books.firm.id,
+            customer_id=invoice.customer_id,
+            transaction_type="CREDIT_NOTE",
+            transaction_date=on,
+            amount=invoice.grand_total,
+            outstanding_delta=-invoice.grand_total,
+            advance_delta=Decimal("0"),
+            outstanding_after=Decimal("0"),
+            advance_after=Decimal("0"),
+            reference_type="SALES_INVOICE",
+            reference_id=invoice.id,
+            reference_number=invoice.invoice_number,
+        )
+    )
+    books.session.commit()
+
+
+def _returns_for(books: _Books, period: tuple[date, date]) -> tuple[dict, dict]:
+    """Return GSTR-1 and GSTR-3B for one period."""
+    service = GstReturnService(books.session)
+    return (
+        service.gstr1(firm_scope=books.firm.id, from_date=period[0], to_date=period[1]),
+        service.gstr3b(
+            firm_scope=books.firm.id, from_date=period[0], to_date=period[1]
+        ),
+    )
+
+
+def test_a_month_already_due_stands_when_a_bill_in_it_is_cancelled() -> None:
+    """April's return was due on 11 May; a cancellation on 20 May is May's.
+
+    Both returns were re-derived from today's status, so cancelling a bill
+    rewrote a month already filed, and no later month showed the reversal
+    (D-CMP-11). The bill stays in April and May declares its cancellation.
+    """
+    books = _Books(_session_factory()())
+    invoice = books.invoice("SI-1", gross="1000", tax="180")
+    _cancel(books, invoice, on=date(2026, 5, 20))
+
+    april, april_summary = _returns_for(books, APRIL)
+    may, may_summary = _returns_for(books, MAY)
+
+    assert [doc["invoice_number"] for doc in april["b2b"][0]["invoices"]] == ["SI-1"]
+    assert april_summary["outward_taxable_supplies"]["taxable_value"] == 1000.0
+    assert may["b2b"] == []
+    assert [(row["note_number"], row["document_type"]) for row in may["cdnr"]] == [
+        ("SI-1", "CANCELLED_INVOICE")
+    ]
+    assert may["cdnr"][0]["note_date"] == "2026-05-20"
+    assert may_summary["outward_taxable_supplies"]["taxable_value"] == -1000.0
+    assert may_summary["credit_notes_deducted"] == {
+        "taxable_value": 1000.0,
+        "tax": 180.0,
+    }
+
+
+def test_a_bill_cancelled_before_its_return_is_due_is_simply_not_declared() -> None:
+    """Cancelled on 5 May, April is not yet filed: it drops out, nothing in May."""
+    books = _Books(_session_factory()())
+    invoice = books.invoice("SI-1")
+    _cancel(books, invoice, on=date(2026, 5, 5))
+
+    april, _ = _returns_for(books, APRIL)
+    may, may_summary = _returns_for(books, MAY)
+
+    assert april["b2b"] == []
+    assert may["cdnr"] == []
+    assert may_summary["credit_notes_deducted"]["taxable_value"] == 0.0
+
+
+def test_an_unregistered_buyer_s_late_cancellation_comes_off_the_summary() -> None:
+    """Netted off B2CS in the month of cancellation, as a credit note is."""
+    books = _Books(_session_factory()())
+    invoice = books.invoice("SI-1", customer=books.walk_in, gross="300", tax="54")
+    _cancel(books, invoice, on=date(2026, 5, 20))
+
+    april, _ = _returns_for(books, APRIL)
+    may, _ = _returns_for(books, MAY)
+
+    assert april["b2cs"][0]["taxable_value"] == 300.0
+    assert may["b2cs"][0]["taxable_value"] == -300.0
+    assert may["b2cs"][0]["central_tax"] == -27.0
