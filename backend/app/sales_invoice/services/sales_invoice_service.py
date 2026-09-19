@@ -892,7 +892,12 @@ class SalesInvoiceService(TransactionalDocumentService):
         # Imported here: these modules import the invoice model, and a
         # module-level import would tie the invoice service to all four.
         from app.credit_note.models import CreditNote, CreditNoteStatus
-        from app.einvoice.models import EInvoiceRegistration, RegistrationStatus
+        from app.einvoice.models import (
+            EInvoiceRegistration,
+            EWayBill,
+            EWayBillStatus,
+            RegistrationStatus,
+        )
         from app.loyalty.models import LoyaltyEntry, LoyaltyEntryKind
         from app.sales_return.models import (
             SalesReturn,
@@ -988,6 +993,21 @@ class SalesInvoiceService(TransactionalDocumentService):
         )
         if registered:
             blockers.append("its registration with the tax authority")
+        # A bill whose registration was already withdrawn can still have its
+        # e-way bill standing -- the goods may be on the road under it -- and
+        # cancelling the invoice then leaves a live bill for a supply that no
+        # longer exists (D-CMP-5).
+        live_bills = self._session.scalars(
+            select(EWayBill.eway_bill_number).where(
+                EWayBill.sales_invoice_id == row.id,
+                EWayBill.status == EWayBillStatus.GENERATED.value,
+                EWayBill.is_deleted.is_(False),
+            )
+        ).all()
+        if live_bills:
+            blockers.append(
+                "e-way bill " + ", ".join(sorted(str(n) for n in live_bills))
+            )
         if blockers:
             raise ValidationError(
                 f"{row.invoice_number} cannot be cancelled while it has "
