@@ -809,7 +809,16 @@ class QuotationService(TransactionalDocumentService):
         customer = self._session.get(Customer, customer_id)
         if customer is None or customer.customer_group_id is None:
             return None, None
-        group = self._session.get(CustomerGroup, customer.customer_group_id)
+        # The customer's own firm's live segment, and nothing else: read by id
+        # alone, another firm's segment in the shared store -- or one retired
+        # since -- went on pricing this firm's documents (D-MST-3).
+        group = self._session.scalar(
+            select(CustomerGroup).where(
+                CustomerGroup.id == customer.customer_group_id,
+                CustomerGroup.firm_id == customer.firm_id,
+                CustomerGroup.is_deleted.is_(False),
+            )
+        )
         if group is None or not group.is_active:
             return None, None
         rate = self._q(group.default_discount_percent)

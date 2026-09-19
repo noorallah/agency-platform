@@ -347,11 +347,34 @@ class SalesTargetService:
         firm_id: UUID,
         excluding: UUID | None = None,
     ) -> None:
-        """Refuse a second target for the same scope and period."""
+        """Refuse a second target for the same scope and basis over any of the days.
+
+        Overlap, not a shared start date: two targets over the same days on
+        the same basis count the same sales twice, and `_targets_met` then
+        adds both amounts up and pays the bonus on the total. A quarterly
+        target from the 1st used to be refused because the monthly one
+        started that day, while one from the 2nd -- overlapping it entirely
+        -- was accepted (D-TER-2). A target on the *other* basis is free to
+        overlap: what was invoiced and what was collected are different
+        numbers, and a firm may set both.
+
+        Args:
+            data: The target about to be written.
+            firm_id: The owning firm.
+            excluding: The row being updated, which may of course overlap
+                itself.
+
+        Raises:
+            ConflictError: If a live target of the same scope and basis
+                already covers any of those days.
+
+        """
         statement = select(SalesTarget).where(
             SalesTarget.firm_id == firm_id,
-            SalesTarget.period_start == data.period_start,
             SalesTarget.is_deleted.is_(False),
+            SalesTarget.basis == data.basis.value,
+            SalesTarget.period_start <= data.period_end,
+            SalesTarget.period_end >= data.period_start,
             (
                 SalesTarget.salesman_id.is_(None)
                 if data.salesman_id is None
@@ -365,8 +388,11 @@ class SalesTargetService:
         )
         if excluding is not None:
             statement = statement.where(SalesTarget.id != excluding)
-        if self._session.scalar(statement) is not None:
+        clash = self._session.scalar(statement)
+        if clash is not None:
             raise ConflictError(
-                "A target for this scope and period already exists. Two would "
-                "leave no answer to whether it was met."
+                "A target for this scope on the same basis already covers "
+                f"part of that period ({clash.period_start.isoformat()} to "
+                f"{clash.period_end.isoformat()}). Two would count the same "
+                "sales twice."
             )
