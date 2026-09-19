@@ -12,6 +12,7 @@ from app.business.gating import assert_feature_fields
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit
+from app.common.open_documents import describe_documents, find_open_documents
 from app.core.database.entity import BaseEntity
 from app.core.exceptions import (
     ConflictError,
@@ -256,6 +257,21 @@ class VendorService:
                 f"owes the firm {held:,.2f} of supplier credit from returns "
                 f"({returns}) not yet set against a bill"
             )
+        # The documents still in flight (D-MST-4). The guard stopped at bills,
+        # so a supplier went while a purchase order was open or goods had been
+        # received and not billed -- goods-received-not-invoiced then held
+        # what the firm owed for them, and the bill that clears it could no
+        # longer be raised, because every purchase service loads the vendor
+        # with ``is_deleted`` false. A draft bill is already named above.
+        in_flight = [
+            group
+            for group in find_open_documents(
+                self._session, vendor.firm_id, vendor_id=vendor.id
+            )
+            if group.label != "draft purchase invoice"
+        ]
+        if in_flight:
+            reasons.append(f"is on {describe_documents(in_flight)}")
         if reasons:
             raise ValidationError(
                 f"{vendor.code} cannot be deleted: it {', '.join(reasons)}. "
