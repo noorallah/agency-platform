@@ -119,7 +119,6 @@ class PurchaseInvoiceCreate(PurchaseInvoiceSchema):
     due_date: date | None = None
     reference_number: str | None = Field(default=None, max_length=120)
     remarks: str | None = None
-    allow_direct_purchase_order: bool = False
     allow_over_invoice: bool = False
     over_invoice_percent: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=9, decimal_places=4
@@ -268,7 +267,6 @@ class PurchaseInvoiceResponse(PurchaseInvoiceSchema):
     due_date: date | None
     reference_number: str | None
     remarks: str | None
-    allow_direct_purchase_order: bool
     allow_over_invoice: bool
     over_invoice_percent: Decimal
     status: PurchaseInvoiceStatus

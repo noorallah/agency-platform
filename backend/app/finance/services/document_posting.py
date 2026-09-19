@@ -32,6 +32,7 @@ from app.finance.services.control_accounts import (
     ControlAccountService,
 )
 from app.finance.services.journal_engine import (
+    COVERING_PERIOD_ORDER,
     JournalEntryEngine,
     JournalLineData,
 )
@@ -219,13 +220,17 @@ class DocumentPostingService:
                 "This firm has no voucher type configured, so documents cannot post."
             )
         period_id = self._session.scalar(
-            select(AccountingPeriod.id).where(
+            select(AccountingPeriod.id)
+            .where(
                 AccountingPeriod.firm_id == firm_id,
                 AccountingPeriod.starts_on <= on,
                 AccountingPeriod.ends_on >= on,
                 AccountingPeriod.status == PeriodStatus.OPEN.value,
                 AccountingPeriod.is_deleted.is_(False),
             )
+            # Deterministic where more than one covers the date (D-FIN-6).
+            .order_by(*COVERING_PERIOD_ORDER)
+            .limit(1)
         )
         if period_id is None:
             raise ValidationError(

@@ -5,6 +5,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -14,9 +15,11 @@ from app.branches.models import Branch, Warehouse
 from app.business.models import framework as _business_models  # noqa: F401
 from app.common.audit.models import AuditLog
 from app.core.database.base import Base
+from app.core.exceptions import ValidationError
 from app.customers.models import customer as _customer_models  # noqa: F401
 from app.document_framework.models import DocumentTypeDefinition
 from app.firms.models import Firm
+from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.identity.models import identity as _identity_models  # noqa: F401
 from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.products.models import Product
@@ -153,11 +156,54 @@ def _purchase_order(
     return row
 
 
-def test_purchase_invoice_direct_po_invoice_creates_lifecycle_setup() -> None:
-    """Invoicing a purchase order directly still builds the document type.
+def _received(
+    session: Session, po_line: PurchaseOrderLine
+) -> tuple[GoodsReceipt, GoodsReceiptLine]:
+    """Record the whole order line as received, on a completed receipt.
 
-    The type, its states and its numbering are created on first use, so
-    the path that skips a goods receipt has to build them too.
+    Built as rows rather than through the receipt service so no stock or
+    journal moves: these cases are about the bill, and a bill is raised
+    against a receipt (D-BUY-14).
+    """
+    order = session.get(PurchaseOrder, po_line.purchase_order_id)
+    assert order is not None
+    receipt = GoodsReceipt(
+        firm_id=order.firm_id,
+        purchase_order_id=order.id,
+        purchase_order_number=order.po_number,
+        vendor_id=order.vendor_id,
+        branch_id=order.branch_id,
+        warehouse_id=order.warehouse_id,
+        grn_number="GRN-2026-000001",
+        receipt_date=date(2026, 8, 2),
+        status="COMPLETED",
+    )
+    session.add(receipt)
+    session.flush()
+    line = GoodsReceiptLine(
+        goods_receipt_id=receipt.id,
+        firm_id=order.firm_id,
+        line_number=1,
+        purchase_order_line_id=po_line.id,
+        purchase_order_line_number=po_line.line_number,
+        product_id=po_line.product_id,
+        ordered_quantity=po_line.ordered_quantity,
+        current_receipt_quantity=po_line.ordered_quantity,
+        accepted_quantity=po_line.ordered_quantity,
+        unit_price=po_line.unit_price,
+        warehouse_id=order.warehouse_id,
+    )
+    session.add(line)
+    session.commit()
+    return receipt, line
+
+
+def test_purchase_invoice_creates_lifecycle_setup() -> None:
+    """Billing a goods receipt builds the document type on first use.
+
+    The type, its states and its numbering are created the first time a
+    bill is raised. This used to bill the purchase order directly, a path
+    that no longer exists (D-BUY-14).
     """
     session_factory = _session_factory()
     session = session_factory()
@@ -178,6 +224,7 @@ def test_purchase_invoice_direct_po_invoice_creates_lifecycle_setup() -> None:
         )
     )
     assert po_line is not None
+    receipt, receipt_line = _received(session, po_line)
 
     service = PurchaseInvoiceService(session)
     row = service.create_invoice(
@@ -185,18 +232,17 @@ def test_purchase_invoice_direct_po_invoice_creates_lifecycle_setup() -> None:
             supplier_invoice_number="SUP-1001",
             supplier_invoice_date=date(2026, 8, 2),
             invoice_date=date(2026, 8, 2),
-            allow_direct_purchase_order=True,
             source_documents=[
                 {
-                    "source_document_type": PurchaseInvoiceSourceType.PURCHASE_ORDER,
-                    "source_document_id": purchase_order.id,
+                    "source_document_type": PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                    "source_document_id": receipt.id,
                 }
             ],
             lines=[
                 PurchaseInvoiceLineWrite(
-                    source_document_type=PurchaseInvoiceSourceType.PURCHASE_ORDER,
-                    source_document_id=purchase_order.id,
-                    source_document_line_id=po_line.id,
+                    source_document_type=PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                    source_document_id=receipt.id,
+                    source_document_line_id=receipt_line.id,
                     line_number=1,
                     current_invoice_quantity=Decimal("4"),
                     unit_price=Decimal("100"),
@@ -261,12 +307,13 @@ def test_an_invoice_line_with_no_price_bills_at_the_source_lines_price() -> None
         select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
     )
     assert po_line is not None
+    receipt, receipt_line = _received(session, po_line)
 
     def _bill(number: str, price: Decimal | None) -> PurchaseInvoiceLine:
         line: dict[str, object] = {
-            "source_document_type": PurchaseInvoiceSourceType.PURCHASE_ORDER,
-            "source_document_id": order.id,
-            "source_document_line_id": po_line.id,
+            "source_document_type": PurchaseInvoiceSourceType.GOODS_RECEIPT,
+            "source_document_id": receipt.id,
+            "source_document_line_id": receipt_line.id,
             "line_number": 1,
             "current_invoice_quantity": Decimal("2"),
         }
@@ -277,13 +324,12 @@ def test_an_invoice_line_with_no_price_bills_at_the_source_lines_price() -> None
                 supplier_invoice_number=number,
                 supplier_invoice_date=date(2026, 8, 2),
                 invoice_date=date(2026, 8, 2),
-                allow_direct_purchase_order=True,
                 source_documents=[
                     {
                         "source_document_type": (
-                            PurchaseInvoiceSourceType.PURCHASE_ORDER
+                            PurchaseInvoiceSourceType.GOODS_RECEIPT
                         ),
-                        "source_document_id": order.id,
+                        "source_document_id": receipt.id,
                     }
                 ],
                 lines=[PurchaseInvoiceLineWrite.model_validate(line)],
@@ -309,8 +355,6 @@ def test_only_an_approved_bill_can_be_closed() -> None:
     Driven on TEST01 on 2026-09-18: PI-2026-2027-000008 went from DRAFT to
     CLOSED, reading as finished business though it never posted.
     """
-    from app.core.exceptions import ValidationError
-
     session = _session_factory()()
     firm = _firm(session)
     branch = _branch(session, firm_id=firm.id)
@@ -327,6 +371,7 @@ def test_only_an_approved_bill_can_be_closed() -> None:
         select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
     )
     assert po_line is not None
+    receipt, receipt_line = _received(session, po_line)
     service = PurchaseInvoiceService(session)
 
     def _draft(number: str) -> PurchaseInvoice:
@@ -335,20 +380,19 @@ def test_only_an_approved_bill_can_be_closed() -> None:
                 supplier_invoice_number=number,
                 supplier_invoice_date=date(2026, 8, 2),
                 invoice_date=date(2026, 8, 2),
-                allow_direct_purchase_order=True,
                 source_documents=[
                     {
                         "source_document_type": (
-                            PurchaseInvoiceSourceType.PURCHASE_ORDER
+                            PurchaseInvoiceSourceType.GOODS_RECEIPT
                         ),
-                        "source_document_id": order.id,
+                        "source_document_id": receipt.id,
                     }
                 ],
                 lines=[
                     PurchaseInvoiceLineWrite(
-                        source_document_type=PurchaseInvoiceSourceType.PURCHASE_ORDER,
-                        source_document_id=order.id,
-                        source_document_line_id=po_line.id,
+                        source_document_type=PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                        source_document_id=receipt.id,
+                        source_document_line_id=receipt_line.id,
                         line_number=1,
                         current_invoice_quantity=Decimal("1"),
                     )
@@ -366,3 +410,76 @@ def test_only_an_approved_bill_can_be_closed() -> None:
     service.cancel_invoice(cancelled.id, firm_scope=firm.id, actor_id=uuid4())
     with pytest.raises(ValidationError, match="Only approved purchase invoices"):
         service.close_invoice(cancelled.id, firm_scope=firm.id, actor_id=uuid4())
+
+
+def test_a_bill_cannot_skip_the_receipt() -> None:
+    """D-BUY-14: the request body used to carry a switch past the receipt.
+
+    Driven 2026-09-19 on TEST01 (fixture ``po-approved``, suffix t0919d4tq):
+    PO-TEST01-HO-2026-2027-000011 for ten, nothing received, billed with
+    ``allow_direct_purchase_order`` true and approved -- 1,180 owed to the
+    supplier, 1,000 of it booked as a price variance, nothing on the shelf.
+    The field is gone, and a bill naming the order -- as its source or on a
+    line -- is refused whatever the body says.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    vendor = _vendor(session, firm_id=firm.id)
+    order = _purchase_order(
+        session,
+        firm_id=firm.id,
+        vendor_id=vendor.id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+    )
+    po_line = session.scalar(
+        select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+    )
+    assert po_line is not None
+    receipt, _ = _received(session, po_line)
+
+    def _bill(
+        source_id: UUID, line_type: PurchaseInvoiceSourceType
+    ) -> dict[str, object]:
+        source_type = (
+            PurchaseInvoiceSourceType.GOODS_RECEIPT
+            if source_id == receipt.id
+            else PurchaseInvoiceSourceType.PURCHASE_ORDER
+        )
+        return PurchaseInvoiceCreate(
+            supplier_invoice_number="SUP-DIRECT",
+            supplier_invoice_date=date(2026, 8, 2),
+            invoice_date=date(2026, 8, 2),
+            source_documents=[
+                {"source_document_type": source_type, "source_document_id": source_id}
+            ],
+            lines=[
+                PurchaseInvoiceLineWrite(
+                    source_document_type=line_type,
+                    source_document_id=source_id,
+                    source_document_line_id=po_line.id,
+                    line_number=1,
+                    current_invoice_quantity=Decimal("10"),
+                )
+            ],
+        ).model_dump(mode="json")
+
+    straight = _bill(order.id, PurchaseInvoiceSourceType.PURCHASE_ORDER)
+    with pytest.raises(PydanticValidationError, match="allow_direct_purchase_order"):
+        PurchaseInvoiceCreate.model_validate(
+            {**straight, "allow_direct_purchase_order": True}
+        )
+
+    service = PurchaseInvoiceService(session)
+    # Straight against the order, and a line naming the order behind a
+    # receipt's back: both refused before anything is looked up.
+    for body in (straight, _bill(receipt.id, PurchaseInvoiceSourceType.PURCHASE_ORDER)):
+        with pytest.raises(ValidationError, match="never straight against"):
+            service.create_invoice(
+                PurchaseInvoiceCreate.model_validate(body),
+                firm_id=firm.id,
+                actor_id=uuid4(),
+            )
+    assert session.scalar(select(PurchaseInvoice.id)) is None

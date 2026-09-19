@@ -268,8 +268,13 @@ class QuotationResponse(QuotationSchema):
     #: What was taken off the whole document, and the rate it represents.
     bill_discount_percent: Decimal
     bill_discount_amount: Decimal
+    #: ``typed``, ``promotion`` or ``none``; None on a quotation saved before
+    #: offers reached the bill, when the figure could only have been typed.
+    bill_discount_source: str | None = None
     #: What was charged for delivery, split across the lines and taxed there.
     freight_amount: Decimal = Decimal("0")
+    #: What a free-shipping offer took off the delivery charge asked for.
+    freight_waived_amount: Decimal = Decimal("0")
     line_discount_total: Decimal
     subtotal: Decimal
     tax_total: Decimal
