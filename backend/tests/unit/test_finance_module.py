@@ -55,6 +55,7 @@ from app.finance.schemas import (
     JournalEntryReverse,
     JournalTypeCreate,
     LedgerAccountCreate,
+    LedgerAccountUpdate,
     PeriodStatusEnum,
     VoucherTypeCreate,
 )
@@ -1617,6 +1618,63 @@ def test_a_locked_year_takes_no_postings_and_its_periods_stay_as_they_are() -> N
             firm_id=firm.id,
             actor_id=actor_id,
         )
+
+
+def test_a_mapped_account_stays_active_and_an_inactive_one_is_not_mapped() -> None:
+    """D-FIN-8: a control account could be switched off, or mapped while off.
+
+    Driven on a fixture firm: 1100, the firm's Accounts receivable, was
+    deactivated through PATCH /ledger-accounts and LOYALTY_PAYABLE was mapped
+    to an inactive account -- both accepted. Every document of the purpose is
+    then refused at approval with "Ledger accounts are inactive".
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    service = FinanceService(session)
+    controls = ControlAccountService(session)
+    controls.assign(
+        firm.id, ControlAccountPurpose.CASH, book.cash.id, actor_id=actor_id
+    )
+    session.commit()
+
+    with pytest.raises(
+        ValidationError, match="1000 Cash is the firm's Cash account.*cannot be"
+    ):
+        service.update_ledger_account(
+            book.cash.id,
+            LedgerAccountUpdate(is_active=False),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+    session.rollback()
+    assert book.cash.is_active is True
+
+    till = service.create_ledger_account(
+        LedgerAccountCreate(
+            account_group_id=book.asset_group.id,
+            code="1010",
+            name="Old till",
+            account_type=AccountTypeEnum.ASSET,
+            is_active=False,
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    session.commit()
+    with pytest.raises(ValidationError, match="1010 Old till is inactive.*Bank"):
+        controls.assign(firm.id, ControlAccountPurpose.BANK, till.id, actor_id=actor_id)
+    session.rollback()
+
+    # An account nothing is mapped to deactivates as before.
+    service.update_ledger_account(
+        book.sales.id,
+        LedgerAccountUpdate(is_active=False),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    assert book.sales.is_active is False
 
 
 def test_control_accounts_map_posting_purposes_to_nominated_accounts() -> None:
