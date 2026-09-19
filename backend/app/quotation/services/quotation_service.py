@@ -1172,7 +1172,14 @@ class QuotationService(TransactionalDocumentService):
             )
         response = self._tax.simulate(
             TaxRuleSimulationRequest(
-                transaction_type="SALES_QUOTATION",
+                # The supply's own nature, not just the document's name: a buyer in
+                # another state is charged IGST (D-CMP-1).
+                transaction_type=self._tax.outward_transaction_type(
+                    "SALES_QUOTATION",
+                    firm_id=firm_id,
+                    branch_id=branch_id,
+                    customer_id=customer_id,
+                ),
                 transaction_date=quotation_date,
                 business_profile_id=business_profile_id,
                 tax_profile_id=tax_profile_id,
@@ -1181,7 +1188,10 @@ class QuotationService(TransactionalDocumentService):
                 customer_id=customer_id,
                 product_id=product_id,
                 invoice_value=invoice_value,
-                additional_context={"source": "quotation"},
+                additional_context={
+                    "source": "quotation",
+                    "document_type": "SALES_QUOTATION",
+                },
             ),
             firm_scope=firm_id,
             actor_id=actor_id,
