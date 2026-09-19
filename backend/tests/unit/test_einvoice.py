@@ -19,7 +19,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -42,6 +42,7 @@ from app.sales_invoice.models import (
     SalesInvoiceLine,
     SalesInvoiceLineTax,
 )
+from app.sales_invoice.services import SalesInvoiceService
 
 WHEN = date(2026, 4, 20)
 
@@ -514,3 +515,97 @@ def test_a_registration_page_names_each_invoice_and_customer() -> None:
         )
         == {}
     )
+
+
+def test_the_registered_tax_is_what_the_journal_credited() -> None:
+    """Rounding the sum is not rounding the parts (D-CMP-4).
+
+    CGST and SGST of 36.855 each were registered as 36.86 + 36.86 = 73.72 on
+    a bill whose journal credited ``quantize_ledger(73.71)``. The two halves
+    are rounded so they add to the ledger's figure, the odd paisa on SGST.
+    """
+    books = _Books(_session_factory()())
+    for component in books.session.scalars(select(SalesInvoiceLineTax)).all():
+        component.amount = Decimal("36.855")
+    books.session.commit()
+
+    payload = books.register().request_payload
+
+    item = payload["ItemList"][0]
+    assert (item["CgstAmt"], item["SgstAmt"]) == (36.86, 36.85)
+    assert payload["ValDtls"]["CgstVal"] == 36.86
+    assert payload["ValDtls"]["SgstVal"] == 36.85
+
+
+def _on_the_road(books: _Books) -> str:
+    """Register the invoice and raise its e-way bill; return the bill's number."""
+    books.register()
+    bill = books.service().generate_eway_bill(
+        books.invoice.id,
+        distance_km=Decimal("120"),
+        transport_mode="ROAD",
+        transporter_id=None,
+        transporter_name=None,
+        vehicle_number="MH12AB1234",
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+    assert bill.eway_bill_number is not None
+    return bill.eway_bill_number
+
+
+def test_a_registration_under_a_live_eway_bill_cannot_be_withdrawn() -> None:
+    """The authority refuses to cancel an IRN whose e-way bill stands (D-CMP-5).
+
+    Withdrawing it left the bill live, quoting an IRN that no longer existed,
+    while the goods could still be on the road under it.
+    """
+    books = _Books(_session_factory()())
+    number = _on_the_road(books)
+    service = books.service()
+
+    with pytest.raises(ValidationError, match=number):
+        service.cancel(
+            books.invoice.id,
+            reason="Raised against the wrong customer.",
+            firm_scope=books.firm.id,
+            actor_id=books.actor_id,
+        )
+
+    # Withdrawing the bill first is the way through.
+    service.cancel_eway_bill(
+        books.invoice.id,
+        reason="Consignment not sent.",
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    row = service.cancel(
+        books.invoice.id,
+        reason="Raised against the wrong customer.",
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    assert row.status == RegistrationStatus.CANCELLED.value
+
+
+def test_an_invoice_under_a_live_eway_bill_cannot_be_cancelled() -> None:
+    """Even with its registration already gone, the bill on the road holds it.
+
+    A store can hold exactly this -- a registration withdrawn before the
+    refusal above existed, its e-way bill still GENERATED -- and cancelling
+    the invoice then left a live bill for a supply that no longer existed.
+    """
+    books = _Books(_session_factory()())
+    number = _on_the_road(books)
+    registration = books.service().registration_for(
+        books.invoice.id, firm_scope=books.firm.id
+    )
+    assert registration is not None
+    registration.status = RegistrationStatus.CANCELLED.value
+    books.session.commit()
+
+    with pytest.raises(ValidationError, match=f"e-way bill {number}"):
+        SalesInvoiceService(books.session).cancel_invoice(
+            books.invoice.id, firm_scope=books.firm.id, actor_id=books.actor_id
+        )

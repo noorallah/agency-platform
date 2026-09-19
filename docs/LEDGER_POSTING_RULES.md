@@ -89,7 +89,9 @@ receipt straddling the line pays on the part above it; charging the whole
 receipt over-collects by the entire remaining headroom. **The running total
 is summed from the receipts**, never a counter, net of refunds and excluding
 the receipt being charged -- counting that one would make the first receipt
-over the threshold pay on itself. **The financial year is the firm's own**,
+over the threshold pay on itself -- **and only from receipts dated on or
+before the one being charged**: summing the whole year charged a back-dated
+receipt on money the buyer paid after it (D-CMP-7). **The financial year is the firm's own**,
 read off `financial_year_start`, because the threshold resets with it.
 **A seller below the turnover threshold collects nothing**, and that
 turnover is *stated* rather than derived: the preceding year may predate
@@ -125,6 +127,27 @@ way out or the HSN summary and the invoice detail drift apart a paisa at a
 time. `split_components` in `app/tax/services/gst_buckets.py` is the one
 place a component code becomes a bucket, shared with `app/einvoice`, so what
 is filed and what was registered cannot disagree.
+
+**The filed tax is what the journal credited, per document.** The journal
+credits `quantize_ledger` of a document's whole tax, once; rounding CGST and
+SGST each on its own declared 36.86 + 36.86 = 73.72 on a bill whose halves
+were 36.855 and whose journal credited 73.71 -- 30 of WHOLE01's 52 live bills
+(D-CMP-4). `settle_to_ledger` (same module) rounds every bucket of every line
+to paise and puts the residual on the last bucket that carried tax (SGST
+intra-state, IGST inter-state), and both GSTR-1/3B and the e-invoice payload
+fold its answer; `intra_state_halves` does the same for a credit note, which
+stores one tax figure.
+
+**A month once due is not rewritten.** Derived on read, a return re-read a
+bill's *current* status, so cancelling an August bill in September took it
+out of August's GSTR-1 -- a return already due on 11 September -- and no
+month showed the reversal (D-CMP-11). Nothing records that a return was
+filed, so its due date stands in for it: a bill cancelled **after** the 11th
+of the month following its date stays in its own month, and the
+cancellation is declared in the month it happened (the date of the
+receivable credit the cancellation posted) as a credit for the whole bill --
+CDNR for a registered buyer, off B2CS otherwise, and deducted in 3B. One
+cancelled before the due date simply drops out, as before.
 
 ## A credit note's receivable is rounded the way its journal rounded it
 

@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from io import StringIO
 from typing import Any
@@ -44,6 +44,7 @@ from app.tax.schemas import (
     TaxRuleWrite,
     TaxStatus,
 )
+from app.tax.services.place_of_supply import SupplyPlaceResolver
 
 
 class TaxRuleService:
@@ -52,6 +53,31 @@ class TaxRuleService:
     def __init__(self, session: Session) -> None:
         """Bind the service to one request unit of work."""
         self._session = session
+        self._supply: SupplyPlaceResolver | None = None
+
+    def outward_transaction_type(
+        self,
+        document_type: str,
+        *,
+        firm_id: UUID,
+        branch_id: UUID | None,
+        customer_id: UUID | None,
+    ) -> str:
+        """Return the type an outward document's line is priced as.
+
+        ``SALES_INTERSTATE`` when the buyer's state differs from the
+        supplier's, so the firm's interstate rules charge IGST; the document's
+        own type otherwise. Every outward module asks here rather than naming
+        its type itself -- see ``app/tax/services/place_of_supply.py``.
+        """
+        if self._supply is None:
+            self._supply = SupplyPlaceResolver(self._session)
+        return self._supply.outward_transaction_type(
+            document_type,
+            firm_id=firm_id,
+            branch_id=branch_id,
+            customer_id=customer_id,
+        )
 
     def list_rules(
         self,
@@ -304,6 +330,13 @@ class TaxRuleService:
             row.updated_by = actor_id
             self._replace_conditions(row, data.conditions, actor_id=actor_id)
             self._replace_actions(row, data.actions, actor_id=actor_id)
+            # A draft successor leaves the version it replaces deciding until
+            # it is itself put into force -- which is now, if this edit takes
+            # it out of DRAFT.
+            if row.status != TaxStatus.DRAFT.value and row.supersedes_rule_id:
+                superseded = self._session.get(TaxRule, row.supersedes_rule_id)
+                if superseded is not None and superseded.firm_id == firm_scope:
+                    self._retire(superseded, successor=row, actor_id=actor_id)
             self._flush_conflicts("Tax rule code already exists for this version.")
             record_audit(
                 self._session,
@@ -356,6 +389,19 @@ class TaxRuleService:
             actor_id=actor_id,
         )
         self._session.add(version)
+        before = {
+            "supersedes_rule_id": str(row.id),
+            "superseded_status": row.status,
+            "superseded_effective_to": (
+                row.effective_to.isoformat() if row.effective_to else None
+            ),
+        }
+        # Superseded in the same transaction the successor is written in, so
+        # there is never a moment with two versions of one rule in force
+        # (D-CMP-3). A draft successor is not yet in force, so it retires
+        # nothing until it is activated.
+        if version.status != TaxStatus.DRAFT.value:
+            self._retire(row, successor=version, actor_id=actor_id)
         self._flush_conflicts("Tax rule code already exists for this version.")
         record_audit(
             self._session,
@@ -364,12 +410,48 @@ class TaxRuleService:
             entity_id=version.id,
             actor_id=actor_id,
             firm_id=firm_scope,
-            before_data={"supersedes_rule_id": str(row.id)},
-            after_data={"code": version.code, "version_number": version.version_number},
+            before_data=before,
+            after_data={
+                "code": version.code,
+                "version_number": version.version_number,
+                "status": version.status,
+                "superseded_status": row.status,
+                "superseded_effective_to": (
+                    row.effective_to.isoformat() if row.effective_to else None
+                ),
+            },
         )
         self._commit()
         self._session.refresh(version)
         return version
+
+    @staticmethod
+    def _retire(old: TaxRule, *, successor: TaxRule, actor_id: UUID) -> None:
+        """Take a superseded version out of force, so one version decides.
+
+        ``simulate`` evaluates every ACTIVE row, so a version left ACTIVE
+        beside its successor went on matching -- an edit to INACTIVE changed
+        nothing, and a narrowed condition or a later start left the old one
+        deciding (D-CMP-3).
+
+        Where the successor starts **later** than the old version, the old one
+        still governs documents dated before that start, so it stays ACTIVE and
+        is closed the day before -- the way a profile's rate change closes the
+        previous rate without a gap. Otherwise nothing is left for it to
+        decide, and it is made INACTIVE.
+        """
+        if old.status != TaxStatus.ACTIVE.value:
+            return
+        starts = successor.effective_from
+        if starts is not None and (
+            old.effective_from is None or starts > old.effective_from
+        ):
+            day_before = starts - timedelta(days=1)
+            if old.effective_to is None or old.effective_to > day_before:
+                old.effective_to = day_before
+        else:
+            old.status = TaxStatus.INACTIVE.value
+        old.updated_by = actor_id
 
     def delete_rule(self, rule_id: UUID, *, firm_scope: UUID, actor_id: UUID) -> None:
         """Soft delete one rule."""
@@ -719,18 +801,24 @@ class TaxRuleService:
     def _replace_conditions(
         self, row: TaxRule, items: list[TaxRuleConditionWrite], *, actor_id: UUID
     ) -> None:
-        for existing in row.conditions:
+        # Appended, never assigned: assigning a new list de-associates the old
+        # rows, which nulls their NOT NULL ``tax_rule_id`` -- so every edit of
+        # a draft rule that had a condition answered 409. They are
+        # soft-deleted and stay attached; the collection is filtered on read.
+        for existing in list(row.conditions):
             self._soft_delete(existing, actor_id=actor_id)
-        row.conditions = self._build_conditions(
-            items, firm_id=row.firm_id, actor_id=actor_id
+        row.conditions.extend(
+            self._build_conditions(items, firm_id=row.firm_id, actor_id=actor_id)
         )
 
     def _replace_actions(
         self, row: TaxRule, items: list[TaxRuleActionWrite], *, actor_id: UUID
     ) -> None:
-        for existing in row.actions:
+        for existing in list(row.actions):
             self._soft_delete(existing, actor_id=actor_id)
-        row.actions = self._build_actions(items, firm_id=row.firm_id, actor_id=actor_id)
+        row.actions.extend(
+            self._build_actions(items, firm_id=row.firm_id, actor_id=actor_id)
+        )
 
     def _validate_rule_references(
         self, data: TaxRuleWrite, *, firm_scope: UUID

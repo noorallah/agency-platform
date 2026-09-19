@@ -341,6 +341,19 @@ cost released, and a share already spent settled another bill, which the
 cancellation does not undo. `unspent_batches` attributes a reversal to its
 batch as it does an expiry, rather than pooling it with spends.
 
+**A point keeps the value it was credited at.** Every credit -- points
+earned on a bill and points given by hand -- is a batch carrying its own
+value per point (`amount / points`, stored when it was credited).
+Redeeming, taking points back, a lapse and a cancellation all release the
+batches they use up, oldest first, each at that batch's own value, and the
+balance a customer is shown is worth the same. A change to
+`amount_per_point` prices only points credited after it (D-CFG-3,
+2026-09-19: a redemption and an adjustment valued points at the rate of
+the day, so raising the rate debited `Loyalty Payable` more than was ever
+credited and lowering it left a residue there for good). Goodwill given
+before goodwill was booked at all (D-SELL-19) carries no value and is still
+spent at the rate of the day.
+
 ## Freight is the bill discount's mirror image, and it has to reach the line
 
 **Freight is the bill discount's mirror image, and it has to reach the

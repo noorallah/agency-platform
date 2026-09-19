@@ -254,6 +254,25 @@ first two; the **split** changes, and the split is what the GST return needs.
   `tax_profile_id`.** A profile id identifies one *version*, so a condition
   written against an id stops matching the moment a rate change creates a new
   version. The group code is stable across versions.
+- **An edit to an ACTIVE rule supersedes it, in the same transaction.** The
+  edit writes version *n*+1 and `_retire` takes version *n* out of force: made
+  INACTIVE, or -- when the new version starts later -- left ACTIVE and closed
+  the day before, so documents dated before the change are still decided by
+  it. A DRAFT successor retires nothing until it is itself activated. Until
+  2026-09-19 the old version stayed ACTIVE beside the new one and went on
+  matching, so switching a rule off changed nothing (D-CMP-3).
+- **An outward document never names its own transaction type.** It asks
+  `TaxRuleService.outward_transaction_type`, which answers `SALES_INTERSTATE`
+  when the buyer's state differs from the supplier's and the document's own
+  type (`SALES_INVOICE`, `SALES_ORDER`, ...) otherwise -- the own type goes on
+  as `additional_context.document_type`. The states are GST state codes: the
+  firm's GSTIN (or a GST-registered branch's own state), and the buyer's GSTIN
+  or, for an unregistered buyer, the billing address; an address abroad is
+  inter-state (IGST Act s.7(5)(a)); an unknown side is never guessed.
+  `app/tax/services/place_of_supply.py` is the one place this is decided.
+  Until 2026-09-19 every module sent its own name, so nothing ever sent
+  `SALES_INTERSTATE` and every sale to another state was charged CGST + SGST
+  (D-CMP-1). The purchase side has no interstate rule to send to yet.
 - **`country_id` and `business_profile_id` are derived, not sent.** No document
   supplies either. A country-scoped rule never fired on an invoice, and a
   profile-scoped one fired on five document types but not on goods receipts or

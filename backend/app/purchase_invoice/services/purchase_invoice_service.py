@@ -294,8 +294,6 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             due_date=data.due_date,
             reference_number=data.reference_number,
             remarks=data.remarks,
-            allow_over_invoice=data.allow_over_invoice,
-            over_invoice_percent=self._q(data.over_invoice_percent),
             status=PurchaseInvoiceStatus.DRAFT.value,
             additional_charges=self._q(data.additional_charges),
             round_off=self._q(data.round_off),
@@ -393,8 +391,6 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         row.due_date = data.due_date
         row.reference_number = data.reference_number
         row.remarks = data.remarks
-        row.allow_over_invoice = data.allow_over_invoice
-        row.over_invoice_percent = self._q(data.over_invoice_percent)
         row.additional_charges = self._q(data.additional_charges)
         row.round_off = self._q(data.round_off)
         row.updated_by = actor_id
@@ -684,8 +680,6 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             due_date=row.due_date,
             reference_number=row.reference_number,
             remarks=row.remarks,
-            allow_over_invoice=row.allow_over_invoice,
-            over_invoice_percent=row.over_invoice_percent,
             status=PurchaseInvoiceStatus(row.status),
             total_source_quantity=row.total_source_quantity,
             total_already_invoiced_quantity=row.total_already_invoiced_quantity,
@@ -1008,10 +1002,10 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 firm_id=firm_id,
                 source_document_line_id=source_line.id,
             )
-            if (
-                not row.allow_over_invoice
-                and invoice_quantity + already_invoiced > source_quantity
-            ):
+            # No request can lift this cap: a body flag the caller set switched
+            # it off entirely, and 60 was billed against a receipt of 6
+            # (D-BUY-15).
+            if invoice_quantity + already_invoiced > source_quantity:
                 raise ValidationError(
                     "Invoice quantity exceeds the available source quantity."
                 )

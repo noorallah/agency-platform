@@ -2,6 +2,7 @@
 
 from datetime import date, timedelta
 from decimal import Decimal
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
@@ -14,6 +15,7 @@ from app.core.database.base import Base
 from app.core.exceptions import ConflictError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_money
+from app.customers.models import Customer, CustomerAddress
 from app.firms.models import Firm
 from app.products.schemas import ProductCreate
 from app.products.services import ProductService
@@ -34,6 +36,7 @@ from app.tax.schemas import (
     TaxSystemWrite,
 )
 from app.tax.services import TaxFrameworkService, TaxRetentionService, TaxRuleService
+from app.tax.services.place_of_supply import gst_state_code
 
 
 def _session_factory() -> sessionmaker[Session]:
@@ -1271,3 +1274,249 @@ def test_a_condition_written_against_a_profile_id_matches_that_profile() -> None
     assert result.applied_tax_profile_id == getattr(interstate, "id")  # noqa: B009
     assert {item.code for item in result.applied_components} == {"IGST"}
     assert result.total_tax_amount == Decimal("180")
+
+
+class _RuleBook:
+    """One firm with one ACTIVE rule, ``SWITCH``, matching every sale."""
+
+    def __init__(self) -> None:
+        """Seed the firm and the rule."""
+        self.session = _session_factory()()
+        self.actor_id = uuid4()
+        self.firm = _firm(self.session)
+        self.rules = TaxRuleService(self.session)
+        self.original = self.rules.create_rule(
+            self.write(), firm_id=self.firm.id, actor_id=self.actor_id
+        )
+
+    @staticmethod
+    def write(
+        *, status: str = "ACTIVE", effective_from: date | None = None
+    ) -> TaxRuleWrite:
+        """Return the rule as a form would send it."""
+        return TaxRuleWrite(
+            code="SWITCH",
+            name="Switch",
+            priority=10,
+            status=status,
+            effective_from=effective_from,
+            conditions=[
+                {
+                    "sequence": 1,
+                    "field_key": "transaction_type",
+                    "operator": "EQUALS",
+                    "value_text": "SALES_INVOICE",
+                }
+            ],
+        )
+
+    def edit(self, rule_id: UUID, data: TaxRuleWrite) -> object:
+        """Save an edit the way the rule form does."""
+        return self.rules.update_rule(
+            rule_id, data, firm_scope=self.firm.id, actor_id=self.actor_id
+        )
+
+    def matched_on(self, when: date) -> UUID | None:
+        """Return the rule a sale on this date is decided by."""
+        return self.rules.simulate(
+            TaxRuleSimulationRequest(
+                transaction_type="SALES_INVOICE",
+                transaction_date=when,
+                invoice_value="100",
+            ),
+            firm_scope=self.firm.id,
+            actor_id=self.actor_id,
+        ).matched_rule_id
+
+    def statuses(self) -> list[tuple[int, str, date | None]]:
+        """Return every version of the rule, oldest first."""
+        return [
+            (row.version_number, row.status, row.effective_to)
+            for row in self.rules.rule_history(firm_scope=self.firm.id, code="SWITCH")
+        ]
+
+
+def test_switching_a_rule_off_takes_every_version_out_of_force() -> None:
+    """D-CMP-3: an edit to INACTIVE left version 1 ACTIVE and still deciding."""
+    book = _RuleBook()
+
+    book.edit(book.original.id, book.write(status="INACTIVE"))
+
+    assert book.statuses() == [(1, "INACTIVE", None), (2, "INACTIVE", None)]
+    assert book.matched_on(date(2026, 6, 1)) is None
+
+
+def test_an_edit_leaves_exactly_one_version_deciding() -> None:
+    """The new version decides; the one it replaced no longer matches at all."""
+    book = _RuleBook()
+
+    successor = book.edit(book.original.id, book.write())
+
+    assert book.statuses() == [(1, "INACTIVE", None), (2, "ACTIVE", None)]
+    assert book.matched_on(date(2026, 6, 1)) == successor.id
+
+
+def test_a_later_start_closes_the_old_version_the_day_before() -> None:
+    """Documents dated before the change are still decided by the old version.
+
+    Closed rather than switched off, the way a rate change closes a profile:
+    a September bill reprinted in December must still be taxed as it was.
+    """
+    book = _RuleBook()
+
+    successor = book.edit(
+        book.original.id, book.write(effective_from=date(2026, 10, 1))
+    )
+
+    assert book.statuses() == [
+        (1, "ACTIVE", date(2026, 9, 30)),
+        (2, "ACTIVE", None),
+    ]
+    assert book.matched_on(date(2026, 9, 15)) == book.original.id
+    assert book.matched_on(date(2026, 10, 15)) == successor.id
+
+
+def test_a_draft_successor_retires_nothing_until_it_is_put_in_force() -> None:
+    """Preparing a change is not making it: the live version decides meanwhile."""
+    book = _RuleBook()
+
+    draft = book.edit(book.original.id, book.write(status="DRAFT"))
+
+    assert book.statuses() == [(1, "ACTIVE", None), (2, "DRAFT", None)]
+    assert book.matched_on(date(2026, 6, 1)) == book.original.id
+
+    activated = book.edit(draft.id, book.write(status="ACTIVE"))
+
+    assert book.statuses() == [(1, "INACTIVE", None), (2, "ACTIVE", None)]
+    assert book.matched_on(date(2026, 6, 1)) == draft.id
+    # Editing a draft that has a condition used to answer 409: assigning the
+    # new list nulled the old conditions' NOT NULL rule id.
+    assert [condition.value_text for condition in activated.conditions] == [
+        "SALES_INVOICE"
+    ]
+
+
+@pytest.mark.parametrize(
+    ("written", "code"),
+    [
+        ("33AABCU9603R1ZM", "33"),
+        ("29", "29"),
+        ("KA", "29"),
+        ("tn", "33"),
+        ("Tamil Nadu", "33"),
+        ("  jammu &  kashmir ", "01"),
+        ("Atlantis", None),
+        ("", None),
+        (None, None),
+    ],
+)
+def test_a_state_is_read_as_its_gst_code_however_it_is_written(
+    written: str | None, code: str | None
+) -> None:
+    """A GSTIN, a code, an abbreviation and a name all name the same state."""
+    assert gst_state_code(written) == code
+
+
+def _supplier_and_buyer(
+    session: Session,
+    *,
+    firm_gstin: str | None,
+    buyer_gstin: str | None = None,
+    address: tuple[str, str] | None = None,
+) -> tuple[Firm, Customer]:
+    """Make a firm and one buyer, the buyer optionally with a billing address."""
+    firm = _firm(session)
+    firm.gst_number = firm_gstin
+    buyer = Customer(
+        firm_id=firm.id,
+        code="B1",
+        customer_type="BUSINESS",
+        name="Buyer",
+        display_name="Buyer",
+        currency_code="INR",
+        status="ACTIVE",
+        gst_number=buyer_gstin,
+    )
+    session.add(buyer)
+    session.flush()
+    if address is not None:
+        state, country = address
+        session.add(
+            CustomerAddress(
+                customer_id=buyer.id,
+                address_type="BILLING",
+                address_line1="1 Main Road",
+                city="Somewhere",
+                state=state,
+                country=country,
+                postal_code="000000",
+            )
+        )
+    session.commit()
+    session.refresh(buyer)
+    return firm, buyer
+
+
+@pytest.mark.parametrize(
+    ("firm_gstin", "buyer_gstin", "address", "priced_as"),
+    [
+        # The buyer's GSTIN names another state.
+        ("33AABCU9603R1ZM", "29AAACR5055K1Z5", None, "SALES_INTERSTATE"),
+        # The GSTIN wins over an address in the seller's own state.
+        (
+            "33AABCU9603R1ZM",
+            "29AAACR5055K1Z5",
+            ("Tamil Nadu", "IN"),
+            "SALES_INTERSTATE",
+        ),
+        # Unregistered: the billing address decides.
+        ("33AABCU9603R1ZM", None, ("Kerala", "IN"), "SALES_INTERSTATE"),
+        ("33AABCU9603R1ZM", None, ("Tamil Nadu", "IN"), "SALES_INVOICE"),
+        # A buyer abroad is an inter-state supply (IGST Act s.7(5)(a)).
+        ("33AABCU9603R1ZM", None, ("Dubai", "AE"), "SALES_INTERSTATE"),
+        # Either side unknown: nothing is guessed.
+        ("33AABCU9603R1ZM", None, None, "SALES_INVOICE"),
+        (None, "29AAACR5055K1Z5", None, "SALES_INVOICE"),
+    ],
+)
+def test_an_outward_supply_is_priced_by_where_it_is_made(
+    firm_gstin: str | None,
+    buyer_gstin: str | None,
+    address: tuple[str, str] | None,
+    priced_as: str,
+) -> None:
+    """D-CMP-1: the border, not the document's name, decides IGST."""
+    session = _session_factory()()
+    firm, buyer = _supplier_and_buyer(
+        session, firm_gstin=firm_gstin, buyer_gstin=buyer_gstin, address=address
+    )
+
+    assert (
+        TaxRuleService(session).outward_transaction_type(
+            "SALES_INVOICE", firm_id=firm.id, branch_id=None, customer_id=buyer.id
+        )
+        == priced_as
+    )
+
+
+def test_every_outward_document_asks_where_its_supply_is_made() -> None:
+    """No outward module may name its own type to the engine again.
+
+    Five modules each wrote ``transaction_type="SALES_..."`` into the request,
+    which is how none of them ever sent ``SALES_INTERSTATE`` (D-CMP-1).
+    """
+    root = Path(__file__).resolve().parents[2] / "app"
+    offenders: list[str] = []
+    for module in (
+        "sales_invoice",
+        "sales_order",
+        "quotation",
+        "delivery_note",
+        "sales_return",
+    ):
+        for path in (root / module / "services").glob("*.py"):
+            source = path.read_text(encoding="utf-8")
+            for chunk in source.split("TaxRuleSimulationRequest(")[1:]:
+                if "outward_transaction_type(" not in chunk[:400]:
+                    offenders.append(f"{module}/{path.name}")
+    assert offenders == []
