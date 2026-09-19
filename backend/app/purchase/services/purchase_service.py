@@ -1245,6 +1245,7 @@ class PurchaseService(TransactionalDocumentService):
                 actor_id=actor_id,
                 tax_profile_id=tax_profile_id,
                 vendor_id=order.vendor_id,
+                branch_id=order.branch_id,
                 product_id=product.id,
                 purchase_date=order.purchase_date,
                 taxable=taxable,
@@ -1566,6 +1567,7 @@ class PurchaseService(TransactionalDocumentService):
         actor_id: UUID,
         tax_profile_id: UUID | None,
         vendor_id: UUID,
+        branch_id: UUID | None,
         product_id: UUID,
         purchase_date: date,
         taxable: Decimal,
@@ -1576,12 +1578,24 @@ class PurchaseService(TransactionalDocumentService):
         self._assert_tax_profile_available(tax_profile_id, firm_id=firm_id)
         simulation = self._tax.simulate(
             TaxRuleSimulationRequest(
-                transaction_type="PURCHASE",
+                # The supply's own nature, not just the document's name: a
+                # supplier in another state charges IGST (D-CMP-14).
+                transaction_type=self._tax.inward_transaction_type(
+                    "PURCHASE",
+                    firm_id=firm_id,
+                    branch_id=branch_id,
+                    vendor_id=vendor_id,
+                ),
                 transaction_date=purchase_date,
                 tax_profile_id=tax_profile_id,
+                branch_id=branch_id,
                 vendor_id=vendor_id,
                 product_id=product_id,
                 invoice_value=self._q(taxable),
+                additional_context={
+                    "source": "purchase_order",
+                    "document_type": "PURCHASE",
+                },
             ),
             firm_scope=firm_id,
             actor_id=actor_id,
