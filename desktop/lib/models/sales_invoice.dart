@@ -61,6 +61,8 @@ class BillableLine {
     this.productId = '',
     this.discountPercent = '0',
     this.freeQuantity = '0',
+    this.trackSerial = false,
+    this.warehouseId = '',
   });
 
   final String sourceDocumentLineId;
@@ -81,6 +83,13 @@ class BillableLine {
   final String discountPercent;
   final String freeQuantity;
 
+  /// Whether each unit of the product carries its own serial number. A bill
+  /// that dispatches its own goods names the units on the line (D-STK-15).
+  final bool trackSerial;
+
+  /// Where the source line ships from, when it says.
+  final String warehouseId;
+
   String get label {
     final String name =
         description.isEmpty ? 'Line $lineNumber' : description;
@@ -92,6 +101,8 @@ class BillableLine {
         lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
         productId: stringValue(json['product_id']),
         description: stringValue(json['description']),
+        trackSerial: json['track_serial'] == true,
+        warehouseId: stringValue(json['warehouse_id']),
         sourceQuantity: stringValue(json['source_quantity']),
         alreadyInvoicedQuantity:
             stringValue(json['already_invoiced_quantity']),

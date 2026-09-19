@@ -65,6 +65,9 @@ class PurchaseReturn(BaseEntity):
     due_date: Mapped[date | None] = mapped_column(Date)
     reference_number: Mapped[str | None] = mapped_column(String(120))
     remarks: Mapped[str | None] = mapped_column(Text)
+    # Retired (D-BUY-14): a return is raised against a goods receipt or a
+    # supplier bill, and no request can say otherwise. The column stays so no
+    # migration is needed; nothing reads or writes it.
     allow_direct_purchase_order: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )

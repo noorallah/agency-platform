@@ -55,6 +55,7 @@ from app.finance.schemas import (
     JournalEntryReverse,
     JournalTypeCreate,
     LedgerAccountCreate,
+    LedgerAccountUpdate,
     PeriodStatusEnum,
     VoucherTypeCreate,
 )
@@ -912,6 +913,101 @@ def test_the_balance_sheet_balances_because_earnings_are_carried_to_equity() -> 
     assert "4000" not in listed
 
 
+def test_the_balance_sheet_carries_control_accounts_where_their_purpose_puts_them() -> (
+    None
+):
+    """D-FIN-7: the sheet listed ASSET, LIABILITY and EQUITY and skipped CONTROL.
+
+    The control-account mapping allows a CONTROL account for receivables,
+    payables, both taxes, GRNI, commission, TCS and loyalty payable. Driven on
+    a fixture firm: TCS_PAYABLE mapped to a CONTROL account 2390 and 50.00
+    posted to it left the trial balance balanced and the balance sheet at
+    assets 50.00, liabilities 0.00 -- 2390 was not on it.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    service = FinanceService(session)
+    group = service.create_account_group(
+        AccountGroupCreate(
+            code="CTL", name="Control accounts", account_type=AccountTypeEnum.CONTROL
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+
+    def _control(code: str, name: str) -> LedgerAccount:
+        """Open one CONTROL account in the control group."""
+        return service.create_ledger_account(
+            LedgerAccountCreate(
+                account_group_id=group.id,
+                code=code,
+                name=name,
+                account_type=AccountTypeEnum.CONTROL,
+            ),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+
+    receivable = _control("1190", "Receivable control")
+    tcs = _control("2390", "TCS payable control")
+    suspense = _control("1990", "Unmapped control")
+    controls = ControlAccountService(session)
+    controls.assign(
+        firm.id,
+        ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
+        receivable.id,
+        actor_id=actor_id,
+    )
+    controls.assign(
+        firm.id, ControlAccountPurpose.TCS_PAYABLE, tcs.id, actor_id=actor_id
+    )
+    engine = JournalEntryEngine(session)
+    for reference, debit, credit, amount in (
+        ("JV-CREDIT-SALE", receivable.id, book.sales.id, "100.00"),
+        ("JV-TCS", book.cash.id, tcs.id, "30.00"),
+        ("JV-SUSPENSE", suspense.id, book.cash.id, "5.00"),
+    ):
+        entry = engine.create_entry(
+            firm_id=firm.id,
+            journal_type_id=book.journal_type.id,
+            voucher_type_id=book.voucher_type.id,
+            accounting_period_id=book.period.id,
+            journal_date=date(2026, 4, 10),
+            reference_number=reference,
+            description=reference,
+            lines=[
+                JournalLineData(ledger_account_id=debit, debit_amount=Decimal(amount)),
+                JournalLineData(
+                    ledger_account_id=credit, credit_amount=Decimal(amount)
+                ),
+            ],
+            actor_id=actor_id,
+        )
+        engine.post_entry(entry.id, firm_id=firm.id, actor_id=actor_id)
+    session.commit()
+
+    ledger = GeneralLedgerService(session)
+    assert ledger.trial_balance(
+        firm_id=firm.id, accounting_period_id=book.period.id
+    ).is_balanced
+    report = ledger.balance_sheet(firm_id=firm.id, accounting_period_id=book.period.id)
+
+    assets = {line.account_code: line.amount for line in report.assets}
+    liabilities = {line.account_code: line.amount for line in report.liabilities}
+    # The receivable is an asset by its purpose; TCS payable a liability; the
+    # unmapped one goes by its debit balance.
+    assert assets == {
+        "1000": Decimal("25.00"),
+        "1190": Decimal("100.00"),
+        "1990": Decimal("5.00"),
+    }
+    assert liabilities == {"2390": Decimal("30.00")}
+    assert report.total_equity == Decimal("100.00")
+    assert report.is_balanced
+
+
 def test_the_balance_sheet_splits_this_year_from_what_came_before() -> None:
     """Two figures, because they answer different questions.
 
@@ -1446,60 +1542,28 @@ def test_finance_api_scope_enforces_membership_and_permissions() -> None:
     assert report.data.total_debit == Decimal("40.00")
 
 
-def test_a_hand_journal_leaves_the_sub_ledger_accounts_to_their_documents() -> None:
-    """D-FIN-11: hand journals posted to receivables, stock and GRNI.
+def test_a_hand_journal_cannot_take_a_documents_reference() -> None:
+    """D-FIN-9: a hand entry typed with a document's number took it for good.
 
-    Driven on a fixture firm: hand journals debiting 1100 (Accounts
-    receivable), 1200 (Inventory) and 2300 (GRNI) were created and POSTED,
-    each moving an account with no customer, stock or receipt behind it.
-    Those accounts, and any CONTROL account, are posted only by their
-    documents; tax, cash, income and expense stay open to a hand journal.
+    Driven on a fixture firm: a hand journal referenced RC-2026-2027-000002
+    was accepted, and the next receipt then failed on that number. Hand
+    journals now live in their own namespace, JV-, for writing and for
+    reversing; a taken reference is refused without rolling back the session.
     """
     session = _session_factory()()
     firm = _firm(session)
     user_id = uuid4()
     book = _Book(session, firm.id, user_id)
-    finance = FinanceService(session)
-
-    def _account(code: str, name: str, group_id: UUID, kind: AccountTypeEnum) -> UUID:
-        """Open one more account."""
-        return finance.create_ledger_account(
-            LedgerAccountCreate(
-                account_group_id=group_id, code=code, name=name, account_type=kind
-            ),
-            firm_id=firm.id,
-            actor_id=user_id,
-        ).id
-
-    receivable = _account(
-        "1100", "Trade receivables", book.asset_group.id, AccountTypeEnum.ASSET
-    )
-    input_tax = _account(
-        "1300", "Input GST", book.asset_group.id, AccountTypeEnum.ASSET
-    )
-    control_group = finance.create_account_group(
-        AccountGroupCreate(
-            code="CTL", name="Control", account_type=AccountTypeEnum.CONTROL
-        ),
-        firm_id=firm.id,
-        actor_id=user_id,
-    )
-    suspense = _account("1990", "Suspense", control_group.id, AccountTypeEnum.CONTROL)
-    controls = ControlAccountService(session)
-    controls.assign(
-        firm.id, ControlAccountPurpose.ACCOUNTS_RECEIVABLE, receivable, actor_id=user_id
-    )
-    controls.assign(
-        firm.id, ControlAccountPurpose.INPUT_TAX, input_tax, actor_id=user_id
-    )
     session.add(UserFirm(user_id=user_id, firm_id=firm.id, is_active=True))
     session.commit()
     scope = _firm_scope(
-        _principal(user_id, {"JOURNAL_CREATE", "JOURNAL_POST"}), session, firm.id
+        _principal(user_id, {"JOURNAL_CREATE", "JOURNAL_POST", "JOURNAL_REVERSE"}),
+        session,
+        firm.id,
     )
 
-    def _payload(reference: str, debit: UUID) -> JournalEntryCreate:
-        """Build one hand entry debiting the given account."""
+    def _payload(reference: str) -> JournalEntryCreate:
+        """Build one hand entry under the given reference."""
         return JournalEntryCreate(
             journal_type_id=book.journal_type.id,
             voucher_type_id=book.voucher_type.id,
@@ -1508,44 +1572,36 @@ def test_a_hand_journal_leaves_the_sub_ledger_accounts_to_their_documents() -> N
             reference_number=reference,
             description="By hand",
             lines=[
-                {"ledger_account_id": debit, "debit_amount": "7.00"},
-                {"ledger_account_id": book.sales.id, "credit_amount": "7.00"},
+                {"ledger_account_id": book.cash.id, "debit_amount": "40.00"},
+                {"ledger_account_id": book.sales.id, "credit_amount": "40.00"},
             ],
         )
 
-    with pytest.raises(
-        ValidationError, match=r"1100 Trade receivables \(Accounts receivable\)"
-    ):
-        create_journal_entry(_payload("JV-AR", receivable), scope, session)
-    with pytest.raises(ValidationError, match=r"1990 Suspense \(a control account\)"):
-        create_journal_entry(_payload("JV-CTL", suspense), scope, session)
-    # Tax and cash are what hand journals are for.
-    for reference, debit in (("JV-TAX", input_tax), ("JV-CASH", book.cash.id)):
-        created = create_journal_entry(_payload(reference, debit), scope, session)
-        assert post_journal_entry(created.data.id, scope, session).data.status == (
-            JournalStatus.POSTED.value
-        )
+    for reference in ("RC-2026-2027-000002", "SI-2026-2027-000004", "ADJ-1"):
+        with pytest.raises(ValidationError, match="referenced JV-"):
+            create_journal_entry(_payload(reference), scope, session)
+    created = create_journal_entry(_payload("JV-0001"), scope, session)
+    post_journal_entry(created.data.id, scope, session)
 
-    # A hand draft written before the rule is asked again when it is posted.
-    draft = JournalEntryEngine(session).create_entry(
-        firm_id=firm.id,
-        journal_type_id=book.journal_type.id,
-        voucher_type_id=book.voucher_type.id,
-        accounting_period_id=book.period.id,
-        journal_date=date(2026, 4, 12),
-        reference_number="JV-OLD",
-        description="Written before the rule",
-        lines=[
-            JournalLineData(ledger_account_id=receivable, debit_amount=Decimal("7")),
-            JournalLineData(
-                ledger_account_id=book.sales.id, credit_amount=Decimal("7")
-            ),
-        ],
-        actor_id=user_id,
+    # Reversing by hand is writing by hand, so the same namespace holds.
+    with pytest.raises(ValidationError, match="referenced JV-"):
+        reverse_journal_entry(
+            created.data.id,
+            JournalEntryReverse(reference_number="SI-2026-2027-000005"),
+            scope,
+            session,
+        )
+    session.rollback()
+
+    # A reference already taken is refused by name, and the request's other
+    # work is not rolled back with it.
+    kept = FinanceService(session).create_cost_center(
+        CostCenterCreate(code="KEEP", name="Kept"), firm_id=firm.id, actor_id=user_id
     )
-    session.commit()
-    with pytest.raises(ValidationError, match="Accounts receivable"):
-        post_journal_entry(draft.id, scope, session)
+    with pytest.raises(ConflictError, match="reference JV-0001 already exists"):
+        create_journal_entry(_payload("JV-0001"), scope, session)
+    assert kept in session
+    assert session.get(CostCenter, kept.id) is not None
 
 
 def test_journal_line_schema_rejects_two_sided_and_empty_lines() -> None:
@@ -1719,6 +1775,63 @@ def test_a_locked_year_takes_no_postings_and_its_periods_stay_as_they_are() -> N
             firm_id=firm.id,
             actor_id=actor_id,
         )
+
+
+def test_a_mapped_account_stays_active_and_an_inactive_one_is_not_mapped() -> None:
+    """D-FIN-8: a control account could be switched off, or mapped while off.
+
+    Driven on a fixture firm: 1100, the firm's Accounts receivable, was
+    deactivated through PATCH /ledger-accounts and LOYALTY_PAYABLE was mapped
+    to an inactive account -- both accepted. Every document of the purpose is
+    then refused at approval with "Ledger accounts are inactive".
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    service = FinanceService(session)
+    controls = ControlAccountService(session)
+    controls.assign(
+        firm.id, ControlAccountPurpose.CASH, book.cash.id, actor_id=actor_id
+    )
+    session.commit()
+
+    with pytest.raises(
+        ValidationError, match="1000 Cash is the firm's Cash account.*cannot be"
+    ):
+        service.update_ledger_account(
+            book.cash.id,
+            LedgerAccountUpdate(is_active=False),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+    session.rollback()
+    assert book.cash.is_active is True
+
+    till = service.create_ledger_account(
+        LedgerAccountCreate(
+            account_group_id=book.asset_group.id,
+            code="1010",
+            name="Old till",
+            account_type=AccountTypeEnum.ASSET,
+            is_active=False,
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    session.commit()
+    with pytest.raises(ValidationError, match="1010 Old till is inactive.*Bank"):
+        controls.assign(firm.id, ControlAccountPurpose.BANK, till.id, actor_id=actor_id)
+    session.rollback()
+
+    # An account nothing is mapped to deactivates as before.
+    service.update_ledger_account(
+        book.sales.id,
+        LedgerAccountUpdate(is_active=False),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    assert book.sales.is_active is False
 
 
 def test_control_accounts_map_posting_purposes_to_nominated_accounts() -> None:
@@ -2551,3 +2664,244 @@ def test_a_reversal_cannot_be_asked_for_before_its_original() -> None:
             journal_date=date(2026, 4, 15),
             actor_id=actor_id,
         )
+
+
+def test_periods_do_not_overlap_and_keep_the_dates_their_journals_carry() -> None:
+    """D-FIN-6: periods and years were re-dated with no regard to each other.
+
+    Driven on a fixture firm: a period FINFIX-OVL (15-25 September) was
+    created on top of P06, P06 was re-dated to end on the 10th while it held
+    posted journals, and the year was moved to start on 1 May past its April
+    period -- all accepted.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    service = FinanceService(session)
+    may = service.create_accounting_period(
+        AccountingPeriodCreate(
+            financial_year_id=book.year.id,
+            period_number=2,
+            code="P2",
+            name="May 2026",
+            starts_on=date(2026, 5, 1),
+            ends_on=date(2026, 5, 31),
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    session.commit()
+
+    with pytest.raises(ValidationError, match="overlaps P1"):
+        service.create_accounting_period(
+            AccountingPeriodCreate(
+                financial_year_id=book.year.id,
+                period_number=3,
+                code="P3",
+                name="Mid April",
+                starts_on=date(2026, 4, 15),
+                ends_on=date(2026, 4, 25),
+            ),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+    session.rollback()
+
+    # A period with a journal in it keeps its dates.
+    engine = JournalEntryEngine(session)
+    entry = engine.create_entry(
+        firm_id=firm.id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 20),
+        reference_number="JV-HELD",
+        description="Cash sale",
+        lines=_sale_lines(book, "10.00"),
+        actor_id=actor_id,
+    )
+    engine.post_entry(entry.id, firm_id=firm.id, actor_id=actor_id)
+    session.commit()
+    with pytest.raises(ValidationError, match="P1 holds 1 journal entry"):
+        service.update_accounting_period(
+            book.period.id,
+            AccountingPeriodUpdate(ends_on=date(2026, 4, 10)),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+    session.rollback()
+
+    # One without journals moves, but not out of its year or onto another.
+    with pytest.raises(ValidationError, match="overlaps P1"):
+        service.update_accounting_period(
+            may.id,
+            AccountingPeriodUpdate(starts_on=date(2026, 4, 25)),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+    session.rollback()
+    with pytest.raises(ValidationError, match="inside its financial year"):
+        service.update_accounting_period(
+            may.id,
+            AccountingPeriodUpdate(ends_on=date(2027, 5, 31)),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+    session.rollback()
+    moved = service.update_accounting_period(
+        may.id,
+        AccountingPeriodUpdate(ends_on=date(2026, 5, 30)),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    assert moved.ends_on == date(2026, 5, 30)
+
+    # And a year cannot be moved out from under its periods.
+    with pytest.raises(ValidationError, match="its period P1 would fall outside"):
+        service.update_financial_year(
+            book.year.id,
+            FinancialYearUpdate(starts_on=date(2026, 5, 1)),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+
+
+def test_posting_picks_one_period_the_same_way_every_time() -> None:
+    """D-FIN-6: two open periods covering a date were picked by an unordered query.
+
+    New periods can no longer overlap, but a store made before that rule may
+    hold some. The most specific one -- the latest start -- is the answer, for
+    documents and for reversals alike.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    # Written straight to the table, as an older store would already hold it.
+    narrow = AccountingPeriod(
+        firm_id=firm.id,
+        financial_year_id=book.year.id,
+        period_number=9,
+        code="P1B",
+        name="Mid April",
+        starts_on=date(2026, 4, 10),
+        ends_on=date(2026, 4, 20),
+        status=PeriodStatus.OPEN.value,
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    session.add(narrow)
+    session.commit()
+
+    context = DocumentPostingService(session).context_for(firm.id, date(2026, 4, 15))
+    assert context.accounting_period_id == narrow.id
+    covering = JournalEntryEngine(session)._open_period_covering(
+        date(2026, 4, 15), firm_id=firm.id
+    )
+    assert covering is not None and covering.id == narrow.id
+    # Outside the narrow one, the month is still the answer.
+    context = DocumentPostingService(session).context_for(firm.id, date(2026, 4, 25))
+    assert context.accounting_period_id == book.period.id
+
+
+def test_a_hand_journal_leaves_the_sub_ledger_accounts_to_their_documents() -> None:
+    """D-FIN-11: hand journals posted to receivables, stock and GRNI.
+
+    Driven on a fixture firm: hand journals debiting 1100 (Accounts
+    receivable), 1200 (Inventory) and 2300 (GRNI) were created and POSTED,
+    each moving an account with no customer, stock or receipt behind it.
+    Those accounts, and any CONTROL account, are posted only by their
+    documents; tax, cash, income and expense stay open to a hand journal.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    user_id = uuid4()
+    book = _Book(session, firm.id, user_id)
+    finance = FinanceService(session)
+
+    def _account(code: str, name: str, group_id: UUID, kind: AccountTypeEnum) -> UUID:
+        """Open one more account."""
+        return finance.create_ledger_account(
+            LedgerAccountCreate(
+                account_group_id=group_id, code=code, name=name, account_type=kind
+            ),
+            firm_id=firm.id,
+            actor_id=user_id,
+        ).id
+
+    receivable = _account(
+        "1100", "Trade receivables", book.asset_group.id, AccountTypeEnum.ASSET
+    )
+    input_tax = _account(
+        "1300", "Input GST", book.asset_group.id, AccountTypeEnum.ASSET
+    )
+    control_group = finance.create_account_group(
+        AccountGroupCreate(
+            code="CTL", name="Control", account_type=AccountTypeEnum.CONTROL
+        ),
+        firm_id=firm.id,
+        actor_id=user_id,
+    )
+    suspense = _account("1990", "Suspense", control_group.id, AccountTypeEnum.CONTROL)
+    controls = ControlAccountService(session)
+    controls.assign(
+        firm.id, ControlAccountPurpose.ACCOUNTS_RECEIVABLE, receivable, actor_id=user_id
+    )
+    controls.assign(
+        firm.id, ControlAccountPurpose.INPUT_TAX, input_tax, actor_id=user_id
+    )
+    session.add(UserFirm(user_id=user_id, firm_id=firm.id, is_active=True))
+    session.commit()
+    scope = _firm_scope(
+        _principal(user_id, {"JOURNAL_CREATE", "JOURNAL_POST"}), session, firm.id
+    )
+
+    def _payload(reference: str, debit: UUID) -> JournalEntryCreate:
+        """Build one hand entry debiting the given account."""
+        return JournalEntryCreate(
+            journal_type_id=book.journal_type.id,
+            voucher_type_id=book.voucher_type.id,
+            accounting_period_id=book.period.id,
+            journal_date=date(2026, 4, 12),
+            reference_number=reference,
+            description="By hand",
+            lines=[
+                {"ledger_account_id": debit, "debit_amount": "7.00"},
+                {"ledger_account_id": book.sales.id, "credit_amount": "7.00"},
+            ],
+        )
+
+    with pytest.raises(
+        ValidationError, match=r"1100 Trade receivables \(Accounts receivable\)"
+    ):
+        create_journal_entry(_payload("JV-AR", receivable), scope, session)
+    with pytest.raises(ValidationError, match=r"1990 Suspense \(a control account\)"):
+        create_journal_entry(_payload("JV-CTL", suspense), scope, session)
+    # Tax and cash are what hand journals are for.
+    for reference, debit in (("JV-TAX", input_tax), ("JV-CASH", book.cash.id)):
+        created = create_journal_entry(_payload(reference, debit), scope, session)
+        assert post_journal_entry(created.data.id, scope, session).data.status == (
+            JournalStatus.POSTED.value
+        )
+
+    # A hand draft written before the rule is asked again when it is posted.
+    draft = JournalEntryEngine(session).create_entry(
+        firm_id=firm.id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 12),
+        reference_number="JV-OLD",
+        description="Written before the rule",
+        lines=[
+            JournalLineData(ledger_account_id=receivable, debit_amount=Decimal("7")),
+            JournalLineData(
+                ledger_account_id=book.sales.id, credit_amount=Decimal("7")
+            ),
+        ],
+        actor_id=user_id,
+    )
+    session.commit()
+    with pytest.raises(ValidationError, match="Accounts receivable"):
+        post_journal_entry(draft.id, scope, session)

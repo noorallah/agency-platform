@@ -84,6 +84,7 @@ class Quotation {
     required this.deliveryTerms,
     required this.status,
     this.billDiscountPercent = '0',
+    this.billDiscountSource = '',
     required this.subtotal,
     required this.taxTotal,
     required this.grandTotal,
@@ -119,6 +120,10 @@ class Quotation {
   final String status;
   /// What was taken off the whole offer, as a rate. Zero means none.
   final String billDiscountPercent;
+
+  /// Where that came from: `typed`, `promotion` or `none`. Empty on an offer
+  /// saved before the server recorded it, when it could only have been typed.
+  final String billDiscountSource;
 
   final String subtotal;
   final String taxTotal;
@@ -165,6 +170,7 @@ class Quotation {
             stringValue(json['bill_discount_percent']).isEmpty
                 ? '0'
                 : stringValue(json['bill_discount_percent']),
+        billDiscountSource: stringValue(json['bill_discount_source']),
         subtotal: stringValue(json['subtotal']),
         taxTotal: stringValue(json['tax_total']),
         grandTotal: stringValue(json['grand_total']),

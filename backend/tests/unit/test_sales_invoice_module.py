@@ -14,6 +14,7 @@ from typing import get_args
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -1813,6 +1814,44 @@ def test_a_bill_cannot_invent_free_goods() -> None:
         setup.bill(free_quantity=Decimal("5"))
 
 
+def test_a_bill_cannot_charge_for_more_than_left() -> None:
+    """Billing is capped at what the note dispatched, with no tolerance."""
+    setup = _Billing(_session_factory()())
+
+    with pytest.raises(ValidationError, match="exceeds the available source"):
+        setup.bill(quantity=Decimal("5"))
+
+
+def test_a_bill_cannot_lift_its_own_cap() -> None:
+    """D-SELL-30: the request body used to carry a switch for the cap.
+
+    Driven 2026-09-19 on ``fx_t0919q38d_s``: 50 billed against a note for 5
+    with ``allow_over_invoice`` true and ``over_invoice_percent`` 1000, then
+    approved -- 4,832.10 charged for goods that never left. The write schema
+    no longer takes either field.
+    """
+    setup = _Billing(_session_factory()())
+    note, note_line = setup.dispatch()
+    body = SalesInvoiceCreate(
+        customer_id=setup.customer.id,
+        branch_id=setup.branch.id,
+        invoice_date=date(2026, 8, 5),
+        lines=[
+            SalesInvoiceLineWrite(
+                source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                source_document_id=note.id,
+                source_document_line_id=note_line.id,
+                line_number=1,
+                current_invoice_quantity=Decimal("50"),
+            )
+        ],
+    ).model_dump(mode="json")
+
+    for field, value in (("allow_over_invoice", True), ("over_invoice_percent", 1000)):
+        with pytest.raises(PydanticValidationError, match=field):
+            SalesInvoiceCreate.model_validate({**body, field: value})
+
+
 def test_a_bill_can_decline_to_pass_on_free_goods() -> None:
     """An explicit zero refuses the inheritance, as everywhere else here."""
     setup = _Billing(_session_factory()())
@@ -1975,6 +2014,27 @@ def test_a_dispatched_note_is_offered_with_what_is_left_to_bill() -> None:
     assert line.unit_price == Decimal("100.0000")
     # Named, so a picker is not a list of UUIDs.
     assert billable[0].customer_name
+
+
+def test_a_billable_line_says_whether_its_units_carry_serials() -> None:
+    """D-STK-15: the bill editor has to know which lines name their units.
+
+    A bill that dispatches its own goods must name a serial-tracked line's
+    units, and the editor offers the units on the shelf the line ships from.
+    """
+    setup = _Billing(_session_factory()())
+    _dispatched_note(setup)
+    setup.product.track_serial = True
+    setup.session.commit()
+
+    line = (
+        SalesInvoiceService(setup.session)
+        .billable_documents(firm_scope=setup.firm.id)[0]
+        .lines[0]
+    )
+
+    assert line.track_serial is True
+    assert line.warehouse_id == setup.warehouse.id
 
 
 def test_a_partly_billed_note_offers_only_the_rest() -> None:

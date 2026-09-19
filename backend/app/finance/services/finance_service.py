@@ -6,9 +6,10 @@ posting lives in :mod:`app.finance.services.journal_engine` and reporting in
 """
 
 from collections.abc import Sequence
+from datetime import date
 from uuid import UUID
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -21,6 +22,7 @@ from app.finance.models import (
     AccountingPeriod,
     CostCenter,
     FinancialYear,
+    JournalEntry,
     JournalType,
     LedgerAccount,
     PeriodStatus,
@@ -42,6 +44,10 @@ from app.finance.schemas import (
     ProfitCenterCreate,
     ProfitCenterUpdate,
     VoucherTypeCreate,
+)
+from app.finance.services.control_accounts import (
+    PURPOSE_LABELS,
+    ControlAccountService,
 )
 
 
@@ -138,6 +144,28 @@ class FinanceService:
                 ends_on=ends_on,
                 exclude_id=year.id,
             )
+            # A year moved without its periods left them outside it (D-FIN-6).
+            # The periods are what journals are posted into, so they are moved
+            # first, and the year can then only be re-dated around them.
+            stranded = self._session.scalars(
+                self._active(select(AccountingPeriod), AccountingPeriod, firm_id)
+                .where(
+                    AccountingPeriod.financial_year_id == year.id,
+                    or_(
+                        AccountingPeriod.starts_on < starts_on,
+                        AccountingPeriod.ends_on > ends_on,
+                    ),
+                )
+                .order_by(AccountingPeriod.starts_on.asc())
+            ).all()
+            if stranded:
+                raise ValidationError(
+                    f"Financial year {year.code} cannot run {starts_on} to "
+                    f"{ends_on}: its period"
+                    f"{'' if len(stranded) == 1 else 's'} "
+                    f"{', '.join(period.code for period in stranded)} would fall "
+                    "outside it."
+                )
         year.starts_on = starts_on
         year.ends_on = ends_on
         if data.name is not None:
@@ -233,6 +261,9 @@ class FinanceService:
             raise ValidationError(
                 "The accounting period must fall inside its financial year."
             )
+        self._reject_overlapping_period(
+            firm_id=firm_id, starts_on=data.starts_on, ends_on=data.ends_on
+        )
         period = AccountingPeriod(
             firm_id=firm_id,
             financial_year_id=year.id,
@@ -314,12 +345,16 @@ class FinanceService:
             period.name = data.name
         if data.description is not None:
             period.description = data.description
-        if data.starts_on is not None:
-            period.starts_on = data.starts_on
-        if data.ends_on is not None:
-            period.ends_on = data.ends_on
-        if period.ends_on <= period.starts_on:
+        starts_on = data.starts_on or period.starts_on
+        ends_on = data.ends_on or period.ends_on
+        if ends_on <= starts_on:
             raise ValidationError("Accounting period must end after it starts.")
+        if (starts_on, ends_on) != (period.starts_on, period.ends_on):
+            self._assert_period_can_move(
+                period, starts_on=starts_on, ends_on=ends_on, firm_id=firm_id
+            )
+            period.starts_on = starts_on
+            period.ends_on = ends_on
         if data.status is not None:
             period.status = data.status.value
         period.updated_by = actor_id
@@ -546,6 +581,21 @@ class FinanceService:
             account.requires_cost_center = data.requires_cost_center
         if data.requires_profit_center is not None:
             account.requires_profit_center = data.requires_profit_center
+        if data.is_active is False and account.is_active:
+            # D-FIN-8: a mapped account switched off refused every document of
+            # its purpose at approval ("Ledger accounts are inactive: 1100").
+            # The mapping is re-pointed first, then the account can go.
+            mapped = ControlAccountService(self._session).purposes_of(
+                firm_id, account.id
+            )
+            if mapped:
+                raise ValidationError(
+                    f"{account.code} {account.name} is the firm's "
+                    f"{', '.join(PURPOSE_LABELS[purpose] for purpose in mapped)} "
+                    "account, so it cannot be deactivated. Map "
+                    f"{'that purpose' if len(mapped) == 1 else 'those purposes'} "
+                    "to another account first."
+                )
         if data.is_active is not None:
             account.is_active = data.is_active
         account.updated_by = actor_id
@@ -807,6 +857,76 @@ class FinanceService:
             raise ValidationError(
                 "The financial year overlaps an existing financial year."
             )
+
+    def _reject_overlapping_period(
+        self,
+        *,
+        firm_id: UUID,
+        starts_on: date,
+        ends_on: date,
+        exclude_id: UUID | None = None,
+    ) -> None:
+        """Reject a period that shares any day with another of the firm's.
+
+        Two periods covering one date left posting to pick between them with
+        an unordered query (D-FIN-6), so which month a document landed in
+        depended on the database's mood. A day belongs to one period.
+        """
+        statement = self._active(
+            select(AccountingPeriod), AccountingPeriod, firm_id
+        ).where(
+            AccountingPeriod.starts_on <= ends_on,
+            AccountingPeriod.ends_on >= starts_on,
+        )
+        if exclude_id is not None:
+            statement = statement.where(AccountingPeriod.id != exclude_id)
+        clash = self._session.scalar(
+            statement.order_by(AccountingPeriod.starts_on.asc()).limit(1)
+        )
+        if clash is not None:
+            raise ValidationError(
+                f"The accounting period {starts_on} to {ends_on} overlaps "
+                f"{clash.code} ({clash.starts_on} to {clash.ends_on})."
+            )
+
+    def _assert_period_can_move(
+        self,
+        period: AccountingPeriod,
+        *,
+        starts_on: date,
+        ends_on: date,
+        firm_id: UUID,
+    ) -> None:
+        """Refuse a re-dating that would strand journals or clash (D-FIN-6).
+
+        The update checked only that the end followed the start, so a period
+        could leave its year, overlap its neighbour, or stop covering the
+        journals posted into it -- whose dates then belonged to no period that
+        claimed them. A period with journals keeps its dates; one without must
+        stay inside its year and clear of every other period.
+        """
+        journals = self._session.scalar(
+            select(func.count())
+            .select_from(JournalEntry)
+            .where(
+                JournalEntry.accounting_period_id == period.id,
+                JournalEntry.is_deleted.is_(False),
+            )
+        )
+        if journals:
+            raise ValidationError(
+                f"Accounting period {period.code} holds {journals} journal "
+                f"entr{'y' if journals == 1 else 'ies'}, so its dates cannot "
+                "change."
+            )
+        year = self.get_financial_year(period.financial_year_id, firm_id=firm_id)
+        if starts_on < year.starts_on or ends_on > year.ends_on:
+            raise ValidationError(
+                "The accounting period must fall inside its financial year."
+            )
+        self._reject_overlapping_period(
+            firm_id=firm_id, starts_on=starts_on, ends_on=ends_on, exclude_id=period.id
+        )
 
     def _active[ModelT](
         self, statement: Select[tuple[ModelT]], model: type[ModelT], firm_id: UUID

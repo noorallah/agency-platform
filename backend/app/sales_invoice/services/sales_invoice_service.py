@@ -450,8 +450,6 @@ class SalesInvoiceService(TransactionalDocumentService):
             allow_direct_sales_order=self._raised_its_own_dispatch(
                 data, firm_id=firm_id
             ),
-            allow_over_invoice=data.allow_over_invoice,
-            over_invoice_percent=self._q(data.over_invoice_percent),
             status=SalesInvoiceStatus.DRAFT.value,
             additional_charges=self._q(data.additional_charges),
             round_off=self._q(data.round_off),
@@ -566,8 +564,6 @@ class SalesInvoiceService(TransactionalDocumentService):
         row.due_date = data.due_date
         row.reference_number = data.reference_number
         row.remarks = data.remarks
-        row.allow_over_invoice = data.allow_over_invoice
-        row.over_invoice_percent = self._q(data.over_invoice_percent)
         row.additional_charges = self._q(data.additional_charges)
         row.round_off = self._q(data.round_off)
         row.updated_by = actor_id
@@ -1239,8 +1235,6 @@ class SalesInvoiceService(TransactionalDocumentService):
             reference_number=row.reference_number,
             remarks=row.remarks,
             allow_direct_sales_order=row.allow_direct_sales_order,
-            allow_over_invoice=row.allow_over_invoice,
-            over_invoice_percent=row.over_invoice_percent,
             status=SalesInvoiceStatus(row.status),
             total_source_quantity=row.total_source_quantity,
             total_already_invoiced_quantity=row.total_already_invoiced_quantity,
@@ -1635,17 +1629,9 @@ class SalesInvoiceService(TransactionalDocumentService):
                 firm_id=firm_id,
                 source_document_line_id=source_line.id,
             )
-            allowed_quantity = source_quantity
-            if row.allow_over_invoice:
-                allowed_quantity = self._q(
-                    source_quantity
-                    + (
-                        source_quantity
-                        * self._q(row.over_invoice_percent)
-                        / Decimal("100")
-                    )
-                )
-            if invoice_quantity + already_invoiced > allowed_quantity:
+            # No request can lift this cap: a body flag the caller set was all
+            # it took to bill 50 against a note for 5 (D-SELL-30).
+            if invoice_quantity + already_invoiced > source_quantity:
                 raise ValidationError(
                     "Invoice quantity exceeds the available source quantity."
                 )
@@ -2367,6 +2353,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                         discount_percent=self._q(item.discount_percent),
                         discount_amount=self._q(item.discount_amount),
                         free_quantity=self._q(item.free_quantity),
+                        warehouse_id=item.warehouse_id,
                     )
                     for item in lines
                 )
@@ -2506,6 +2493,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                         discount_percent=self._q(item.discount_percent),
                         discount_amount=self._q(item.discount_amount),
                         free_quantity=self._q(item.free_quantity),
+                        warehouse_id=item.warehouse_id or order.warehouse_id,
                     )
                     for item in lines
                 )
@@ -2540,6 +2528,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         discount_percent: Decimal,
         discount_amount: Decimal,
         free_quantity: Decimal,
+        warehouse_id: UUID | None = None,
     ) -> BillableLine | None:
         """Return one line's remaining quantity, or None if it is fully billed.
 
@@ -2576,7 +2565,16 @@ class SalesInvoiceService(TransactionalDocumentService):
             discount_percent=discount_percent,
             discount_amount=discount_amount,
             free_quantity=free_quantity,
+            track_serial=self._tracks_serial(product_id),
+            warehouse_id=warehouse_id,
         )
+
+    def _tracks_serial(self, product_id: UUID | None) -> bool:
+        """Say whether a product's units each carry a serial number."""
+        if product_id is None:
+            return False
+        product = self._session.get(Product, product_id)
+        return bool(product is not None and product.track_serial)
 
     def _customer_name(self, customer_id: UUID | None) -> str:
         """Name the customer so a picker is not a list of UUIDs."""

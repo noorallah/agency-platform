@@ -58,6 +58,7 @@ from app.finance.services.control_accounts import (
     ControlAccountService,
     ControlAccountView,
 )
+from app.finance.services.journal_engine import assert_manual_reference
 
 router = APIRouter(
     prefix="/api/v1/finance",
@@ -540,10 +541,14 @@ def create_journal_entry(
 ) -> ApiResponse[JournalEntryResponse]:
     """Create one balanced draft journal entry, written by hand.
 
+    Its reference must sit in the manual namespace (JV-...): anything else
+    belongs to a document, which could then never post (D-FIN-9).
+
     A hand line may not land on an account a sub-ledger keeps -- receivables,
     payables, stock, GRNI, commission or loyalty payable, or any CONTROL
     account -- which only its documents post to (D-FIN-11).
     """
+    assert_manual_reference(payload.reference_number)
     ControlAccountService(db).assert_open_to_hand_journals(
         scope.firm_id, (line.ledger_account_id for line in payload.lines)
     )

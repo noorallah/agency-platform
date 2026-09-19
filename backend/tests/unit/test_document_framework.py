@@ -341,6 +341,53 @@ def test_a_rule_that_resets_yearly_must_show_the_year() -> None:
         )
 
 
+def test_no_rule_numbers_documents_in_the_hand_journal_space() -> None:
+    """D-FIN-9, from the documents' side: JV- belongs to hand journals.
+
+    Hand journals are kept to JV- so they can never take a document's journal
+    reference; a rule numbering documents JV-... would undo that from the
+    other side.
+    """
+    service, firm_id, type_id, actor_id = _numbering_setup()
+
+    with pytest.raises(ValidationError, match="reserved for journals"):
+        service.create_numbering_rule(
+            firm_id,
+            DocumentNumberingRuleCreate(
+                document_type_id=type_id,
+                code="VOUCHER",
+                name="Vouchers",
+                prefix="jv",
+                include_financial_year=True,
+            ),
+            actor_id,
+        )
+    rule = service.create_numbering_rule(
+        firm_id,
+        DocumentNumberingRuleCreate(
+            document_type_id=type_id,
+            code="RECEIPT",
+            name="Receipts",
+            prefix="RC",
+            include_financial_year=True,
+        ),
+        actor_id,
+    )
+    with pytest.raises(ValidationError, match="reserved for journals"):
+        service.update_numbering_rule(
+            firm_id,
+            rule.id,
+            DocumentNumberingRuleUpdate(
+                document_type_id=type_id,
+                code="RECEIPT",
+                name="Receipts",
+                prefix="JV",
+                include_financial_year=True,
+            ),
+            actor_id,
+        )
+
+
 def test_a_format_pattern_is_checked_for_the_placeholder_instead() -> None:
     """A pattern overrides the flags, so the flags cannot answer for it."""
     service, firm_id, type_id, actor_id = _numbering_setup()

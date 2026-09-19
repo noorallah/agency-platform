@@ -345,8 +345,6 @@ class DeliveryNoteService(TransactionalDocumentService):
             vehicle=data.vehicle,
             driver=data.driver,
             remarks=data.remarks,
-            allow_over_delivery=data.allow_over_delivery,
-            over_delivery_percent=self._q(data.over_delivery_percent),
             status=DeliveryNoteStatus.DRAFT.value,
             additional_charges=self._q(data.additional_charges),
             round_off=self._q(data.round_off),
@@ -456,8 +454,6 @@ class DeliveryNoteService(TransactionalDocumentService):
         row.vehicle = data.vehicle
         row.driver = data.driver
         row.remarks = data.remarks
-        row.allow_over_delivery = data.allow_over_delivery
-        row.over_delivery_percent = self._q(data.over_delivery_percent)
         row.additional_charges = self._q(data.additional_charges)
         row.round_off = self._q(data.round_off)
         row.updated_by = actor_id
@@ -823,8 +819,6 @@ class DeliveryNoteService(TransactionalDocumentService):
             vehicle=row.vehicle,
             driver=row.driver,
             remarks=row.remarks,
-            allow_over_delivery=row.allow_over_delivery,
-            over_delivery_percent=row.over_delivery_percent,
             status=DeliveryNoteStatus(row.status),
             total_ordered_quantity=row.total_ordered_quantity,
             total_previously_delivered_quantity=row.total_previously_delivered_quantity,
@@ -1343,17 +1337,11 @@ class DeliveryNoteService(TransactionalDocumentService):
                     DeliveryNoteStatus.CLOSED.value,
                 },
             )
-            allowed_qty = ordered_qty
-            if row.allow_over_delivery:
-                allowed_qty = self._q(
-                    ordered_qty
-                    + (
-                        ordered_qty
-                        * self._q(row.over_delivery_percent)
-                        / Decimal("100")
-                    )
-                )
-            if previous_delivered + delivered_qty > allowed_qty:
+            # No request can lift this cap: a body flag the caller set was all
+            # it took to ship 30 more against an order for 12 already shipped
+            # in full (D-SELL-31). A tolerance, if a firm wants one, is the
+            # firm's setting to make, not the note's.
+            if previous_delivered + delivered_qty > ordered_qty:
                 raise ValidationError(
                     "Delivery quantity exceeds allowed quantity for the order line."
                 )
@@ -1726,7 +1714,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             release_qty = self._q(
                 min(source_line.reserved_quantity, line.delivered_quantity)
             )
-            if not row.allow_over_delivery and release_qty < line.delivered_quantity:
+            if release_qty < line.delivered_quantity:
                 raise ValidationError(
                     "Reservation is insufficient for dispatch quantity."
                 )

@@ -252,6 +252,14 @@ class ControlAccountService:
         )
         if account is None:
             raise ValidationError("Ledger account not found for this firm.")
+        if not account.is_active:
+            # The docstring promised this and nothing checked it (D-FIN-8):
+            # every document of the purpose would then be refused at approval
+            # with "Ledger accounts are inactive".
+            raise ValidationError(
+                f"{account.code} {account.name} is inactive, so it cannot be "
+                f"mapped to {PURPOSE_LABELS[purpose]}. Reactivate it first."
+            )
         expected = EXPECTED_TYPE[purpose]
         if account.account_type not in expected:
             raise ValidationError(
@@ -275,6 +283,25 @@ class ControlAccountService:
         row.updated_by = actor_id
         self._session.flush()
         return row
+
+    def purposes_of(
+        self, firm_id: UUID, ledger_account_id: UUID
+    ) -> list[ControlAccountPurpose]:
+        """Return every purpose the firm has mapped to one account."""
+        known = {purpose.value: purpose for purpose in ControlAccountPurpose}
+        return [
+            known[value]
+            for value in self._session.scalars(
+                select(FirmControlAccount.purpose)
+                .where(
+                    FirmControlAccount.firm_id == firm_id,
+                    FirmControlAccount.ledger_account_id == ledger_account_id,
+                    FirmControlAccount.is_deleted.is_(False),
+                )
+                .order_by(FirmControlAccount.purpose.asc())
+            ).all()
+            if value in known
+        ]
 
     def posted_lines(self, firm_id: UUID, ledger_account_id: UUID) -> int:
         """Count the POSTED journal lines on one of the firm's accounts."""

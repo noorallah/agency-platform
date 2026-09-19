@@ -153,14 +153,24 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
       _remarks.text = existing.remarks;
       _validUntil = DateTime.tryParse(existing.validUntil) ?? _validUntil;
       // Blank rather than '0' where there was none, so the box reads as empty
-      // and the payload omits it.
-      _billDiscount.text = (double.tryParse(existing.billDiscountPercent) ?? 0) > 0
+      // and the payload omits it. Only a figure somebody typed comes back:
+      // an offer's, sent again as typed, would switch the offer off and keep
+      // its discount after the offer had gone (D-SELL-32, as the order
+      // editor learned in plan item 10.7).
+      final bool billTyped = existing.billDiscountSource.isEmpty ||
+          existing.billDiscountSource == 'typed';
+      _billDiscount.text = billTyped &&
+              (double.tryParse(existing.billDiscountPercent) ?? 0) > 0
           ? existing.billDiscountPercent
           : '';
       // Every line, in the order the document holds them. Taking only the
       // first is what made a revision quietly delete the rest of the offer:
       // the update replaces the whole collection with what is sent.
       for (final QuotationLine line in existing.lines) {
+        // A line of nothing charged is a gift an offer added; nobody can type
+        // one. Left for the server to add again if the offer still gives it,
+        // rather than sent back as a line the quantity box would refuse.
+        if ((double.tryParse(line.quantity) ?? 0) <= 0) continue;
         // A rate somebody typed is what was agreed and is kept. A rate the
         // server resolved is priced afresh: the arrangement it came from
         // depends on the quantity and the day, and re-sending it as typed
