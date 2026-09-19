@@ -55,7 +55,10 @@ from app.inventory.models import StockLedgerEntry
 from app.loyalty.services import LoyaltyService
 from app.products.models import Product
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
-from app.sales.services.scope_resolution import resolve_sales_scope
+from app.sales.services.scope_resolution import (
+    resolve_sales_scope,
+    validate_named_route,
+)
 from app.sales_invoice.models import (
     SalesInvoice,
     SalesInvoiceAccountingEvent,
@@ -396,6 +399,13 @@ class SalesInvoiceService(TransactionalDocumentService):
             route_id=route_id,
             on_date=data.invoice_date,
         )
+        self._assert_named_route_fits(
+            data.route_id,
+            firm_id=firm_id,
+            customer_id=customer_id,
+            territory_id=territory_id,
+            on_date=data.invoice_date,
+        )
         self._validate_customer_invoice_number(
             firm_id=firm_id,
             customer_id=customer_id,
@@ -539,6 +549,13 @@ class SalesInvoiceService(TransactionalDocumentService):
             salesman_id=data.salesman_id or header.get("salesman_id"),
             territory_id=data.territory_id or header.get("territory_id"),
             route_id=data.route_id or header.get("route_id"),
+            on_date=data.invoice_date,
+        )
+        self._assert_named_route_fits(
+            data.route_id,
+            firm_id=firm_id,
+            customer_id=row.customer_id,
+            territory_id=territory_id,
             on_date=data.invoice_date,
         )
         row.salesman_id = salesman_id
@@ -2917,6 +2934,34 @@ class SalesInvoiceService(TransactionalDocumentService):
         """
         return self._q(
             quantity * unit_price - discount_amount + charges_amount + freight_amount
+        )
+
+    def _assert_named_route_fits(
+        self,
+        route_id: UUID | None,
+        *,
+        firm_id: UUID,
+        customer_id: UUID,
+        territory_id: UUID | None,
+        on_date: date,
+    ) -> None:
+        """Check a route the **caller** named, and only that one.
+
+        A route inherited from the order or the note is left as it came:
+        the bill is a continuation of that document, and re-judging its
+        round on the bill's date would refuse an invoice for a sale made
+        while the round was still running. What somebody typed on the bill
+        itself is judged on the bill's date (D-TER-9).
+        """
+        if route_id is None:
+            return
+        validate_named_route(
+            self._session,
+            firm_id=firm_id,
+            customer_id=customer_id,
+            territory_id=territory_id,
+            route_id=route_id,
+            on_date=on_date,
         )
 
     def _fill_missing_scope(

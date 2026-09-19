@@ -34,7 +34,11 @@ from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.inventory.schemas import InventoryAdjustmentCreate
 from app.inventory.services import InventoryService
 from app.products.models import Product
-from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
+from app.sales.models import (
+    SalesTerritoryNode,
+    TerritoryCustomerAssignment,
+    TerritoryRouteProfile,
+)
 from app.sales.models import territory as _sales_models  # noqa: F401
 from app.sales_invoice.services import SalesInvoiceService
 from app.sales_order.models import SalesOrder, SalesOrderLine
@@ -762,6 +766,12 @@ def test_delivery_by_route_labels_the_route_without_crashing() -> None:
     # A route profile carries no firm of its own; it belongs to its territory.
     profile = TerritoryRouteProfile(territory_id=territory.id)
     session.add(profile)
+    # A named route has to be one the customer is on (D-TER-9).
+    session.add(
+        TerritoryCustomerAssignment(
+            territory_id=territory.id, customer_id=customer.id, is_primary=True
+        )
+    )
     session.commit()
 
     InventoryService(session).create_adjustment(
