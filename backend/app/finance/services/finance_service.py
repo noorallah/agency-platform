@@ -43,6 +43,10 @@ from app.finance.schemas import (
     ProfitCenterUpdate,
     VoucherTypeCreate,
 )
+from app.finance.services.control_accounts import (
+    PURPOSE_LABELS,
+    ControlAccountService,
+)
 
 
 class FinanceService:
@@ -546,6 +550,21 @@ class FinanceService:
             account.requires_cost_center = data.requires_cost_center
         if data.requires_profit_center is not None:
             account.requires_profit_center = data.requires_profit_center
+        if data.is_active is False and account.is_active:
+            # D-FIN-8: a mapped account switched off refused every document of
+            # its purpose at approval ("Ledger accounts are inactive: 1100").
+            # The mapping is re-pointed first, then the account can go.
+            mapped = ControlAccountService(self._session).purposes_of(
+                firm_id, account.id
+            )
+            if mapped:
+                raise ValidationError(
+                    f"{account.code} {account.name} is the firm's "
+                    f"{', '.join(PURPOSE_LABELS[purpose] for purpose in mapped)} "
+                    "account, so it cannot be deactivated. Map "
+                    f"{'that purpose' if len(mapped) == 1 else 'those purposes'} "
+                    "to another account first."
+                )
         if data.is_active is not None:
             account.is_active = data.is_active
         account.updated_by = actor_id
