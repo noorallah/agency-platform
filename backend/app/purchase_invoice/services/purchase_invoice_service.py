@@ -34,7 +34,7 @@ from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
-from app.goods_receipt.rules import require_posted_receipt
+from app.goods_receipt.rules import posted_receipt_line, require_posted_receipt
 from app.inventory.models import StockLedgerEntry
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
@@ -84,6 +84,11 @@ SourceLine = GoodsReceiptLine | PurchaseOrderLine
 def _optional_uuid(value: object) -> UUID | None:
     """Read a UUID out of an untyped line spec."""
     return value if isinstance(value, UUID) else None
+
+
+def _required_uuid(value: object) -> UUID:
+    """Read a UUID the line spec must carry."""
+    return value if isinstance(value, UUID) else UUID(str(value))
 
 
 class PurchaseInvoiceService(TransactionalDocumentService):
@@ -448,6 +453,9 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status != PurchaseInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft purchase invoices can be approved.")
+        # Checked again where the payable is raised, so a draft saved before
+        # the check existed cannot post against a line it does not own.
+        self._refuse_foreign_lines(row, firm_id=firm_scope)
         before = row.status
         row.status = PurchaseInvoiceStatus.APPROVED.value
         row.approved_at = utc_now()
@@ -957,10 +965,13 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             source_type = self._source_type(spec["source_document_type"])
             source_line: SourceLine | None
             if source_type == PurchaseInvoiceSourceType.GOODS_RECEIPT.value:
-                source_line = self._session.scalar(
-                    select(GoodsReceiptLine).where(
-                        GoodsReceiptLine.id == spec["source_document_line_id"]
-                    )
+                # The line must be one of the receipt's own (D-BUY-17).
+                source_line = posted_receipt_line(
+                    self._session,
+                    firm_id=firm_id,
+                    receipt_id=_required_uuid(spec["source_document_id"]),
+                    line_id=_required_uuid(spec["source_document_line_id"]),
+                    verb="billed",
                 )
             else:
                 source_line = self._session.scalar(
@@ -1268,6 +1279,26 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             },
         )
         return header, source_rows, lines
+
+    def _refuse_foreign_lines(self, row: PurchaseInvoice, *, firm_id: UUID) -> None:
+        """Refuse a saved bill whose line bills another receipt's line."""
+        for line in self._session.scalars(
+            select(PurchaseInvoiceLine).where(
+                PurchaseInvoiceLine.purchase_invoice_id == row.id,
+                PurchaseInvoiceLine.is_deleted.is_(False),
+            )
+        ):
+            if (
+                line.source_document_type
+                == PurchaseInvoiceSourceType.GOODS_RECEIPT.value
+            ):
+                posted_receipt_line(
+                    self._session,
+                    firm_id=firm_id,
+                    receipt_id=line.source_document_id,
+                    line_id=line.source_document_line_id,
+                    verb="billed",
+                )
 
     def _validate_line_sources(
         self, lines: list[dict[str, object]], source_ids: set[UUID]
