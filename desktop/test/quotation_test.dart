@@ -37,6 +37,9 @@ Quotation _quote({
   String validUntil = '2026-09-13',
   String orderNumber = '',
   String declineReason = '',
+  String billDiscountPercent = '0',
+  String billDiscountSource = '',
+  bool withGift = false,
 }) =>
     Quotation.fromJson({
       'id': 'q-1',
@@ -50,6 +53,8 @@ Quotation _quote({
       'payment_terms': '30 days',
       'delivery_terms': 'Ex works',
       'status': status,
+      'bill_discount_percent': billDiscountPercent,
+      'bill_discount_source': billDiscountSource,
       'subtotal': '1125.0000',
       'tax_total': '202.5000',
       'grand_total': '1327.5000',
@@ -89,7 +94,25 @@ Quotation _quote({
           'tax_amount': '14.4000',
           'net_amount': '94.4000',
           'remarks': '',
-        }
+        },
+        // What an offer gives away: nothing charged, goods free. Nobody can
+        // type one -- the server refuses a quantity of zero.
+        if (withGift)
+          {
+            'id': 'l-3',
+            'line_number': 3,
+            'product_id': 'p-gift',
+            'description': 'Free with MUGGIFT',
+            'quantity': '0.0000',
+            'free_quantity': '1.0000',
+            'unit_price': '0.0000',
+            'discount_percent': '0.0000',
+            'discount_source': 'percent',
+            'discount_amount': '0.0000',
+            'tax_amount': '0.0000',
+            'net_amount': '0.0000',
+            'remarks': '',
+          },
       ],
     });
 
@@ -172,9 +195,18 @@ class _QuoteApi extends ApiClient {
             'status': 'ACTIVE',
             'selling_price': '40.00',
             'mrp': '45.00',
-          })
+          }),
+          // What an offer gives away; on the list like any product.
+          Product.fromJson({
+            'id': 'p-gift',
+            'code': 'MUG',
+            'name': 'Gift Mug',
+            'status': 'ACTIVE',
+            'selling_price': '50.00',
+            'mrp': '55.00',
+          }),
         ],
-        total: 2,
+        total: 3,
       );
 
   @override
@@ -646,6 +678,61 @@ void main() {
       expect((lines[1] as Map)['product_id'], 'p-2');
     });
 
+
+    testWidgets('a revision leaves an offer on the bill to be priced again',
+        (tester) async {
+      // D-SELL-32: a quotation now shows an offer's bill discount. Sent back
+      // as typed it would switch the offer off and keep its discount after
+      // the offer had gone -- the order editor's plan item 10.7.
+      final _QuoteApi api = _QuoteApi(rows: [
+        _quote(billDiscountPercent: '4.2900', billDiscountSource: 'promotion'),
+      ]);
+      await _pump(tester, api);
+      await _select(tester);
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Revise'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save revision'));
+      await tester.pumpAndSettle();
+
+      expect(api.revised!.containsKey('bill_discount_percent'), isFalse);
+    });
+
+    testWidgets('a revision leaves an offer\'s gift to the offer',
+        (tester) async {
+      // A gift line charges nothing and nobody can type one; carried into
+      // the editor it is a quantity of zero the form refuses, so the offer
+      // could never be revised at all.
+      final _QuoteApi api = _QuoteApi(rows: [_quote(withGift: true)]);
+      await _pump(tester, api);
+      await _select(tester);
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Revise'));
+      await tester.pumpAndSettle();
+
+      expect(find.widgetWithText(TextFormField, 'Quantity'), findsNWidgets(2));
+      await tester.tap(find.widgetWithText(FilledButton, 'Save revision'));
+      await tester.pumpAndSettle();
+
+      final List<dynamic> lines = api.revised!['lines'] as List<dynamic>;
+      expect(
+        [for (final dynamic line in lines) (line as Map)['product_id']],
+        ['p-1', 'p-2'],
+      );
+    });
+
+    testWidgets('a revision keeps a discount on the offer somebody typed',
+        (tester) async {
+      final _QuoteApi api = _QuoteApi(rows: [
+        _quote(billDiscountPercent: '5.0000', billDiscountSource: 'typed'),
+      ]);
+      await _pump(tester, api);
+      await _select(tester);
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Revise'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save revision'));
+      await tester.pumpAndSettle();
+
+      expect(api.revised!['bill_discount_percent'], '5.0000');
+    });
 
     testWidgets('a new line says nothing about a discount, and says so',
         (tester) async {
