@@ -213,13 +213,13 @@ able to switch the control off.**
 
 | Role | Cannot | Because |
 | --- | --- | --- |
-| `SALES_MANAGER` | `CUSTOMER_MANAGE_SETTINGS` | The credit policy limits their own sales |
+| `SALES_MANAGER` | `CUSTOMER_MANAGE_SETTINGS` | The credit policy limits their own sales -- and so does a customer's **credit limit**, which moves only with this code: the ordinary customer save refuses a changed limit by name without it, and resending the stored figure is not a change (D-CFG-17) |
 | `SALES_MANAGER` | `SALES_MANAGE_SETTINGS` | Turning the delivery-note stage off means dispatch is confirmed by the sale itself rather than by whoever watches the goods leave |
 | `SALES_MANAGER` | `PROMOTION_MANAGE` | A discount the firm gives away is a control over the role measured on what it sells |
 | `SALES_MANAGER` | `SALES_TARGET_MANAGE` | The number they are measured on is the firm's decision |
 | `SALES_MANAGER` | `COMMISSION_MANAGE`, `COMMISSION_PAY` | Whoever states a debt must not move the cash — and would otherwise pay their own team, and on a rule with no salesman, themselves |
 | `SALES_MANAGER` | `CREDIT_NOTE_APPROVE` | Drafting is bookkeeping; approving **reverses tax already declared to the authority** |
-| `SALES_MANAGER` | `LOYALTY_MANAGE_SETTINGS` | The conversion rate decides what every customer's credit is worth |
+| `SALES_MANAGER` | `LOYALTY_MANAGE_SETTINGS` | The conversion rate decides what every customer's credit is worth; and a goodwill adjustment (`POST /loyalty/adjust`) takes this code too, because points given are redeemed against a bill like any others -- a receivable write-off by the role denied approving a credit note (D-CFG-17). `LOYALTY_MANAGE` still spends credit and sweeps lapsed points |
 | `SALES_MANAGER` | `TCS_MANAGE` | The policy decides what every buyer is charged on every receipt |
 | `SALES_MANAGER` | `EINVOICE_MANAGE` | Reading a registration is running a sales desk; filing with the authority is not |
 | `FIRM_MANAGER` | `user` / `role` / `permission` | Operating the firm and deciding who may operate it are different jobs |

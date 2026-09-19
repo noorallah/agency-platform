@@ -57,10 +57,13 @@ from app.inventory.schemas import (
     WriteOffReason,
 )
 from app.inventory.services import InventoryService
-from app.inventory.services.inventory_service import _Movement
+from app.inventory.services.inventory_service import LineConversion, _Movement
 from app.products.models import Product
 from app.sales.models import territory as _geo_models  # noqa: F401
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
+from app.uom.models import ConversionRule, Uom
+from app.uom.schemas import ConversionRequest
+from app.uom.services import UomService
 from app.vendors.models import vendor as _vendor_models  # noqa: F401
 
 
@@ -1978,3 +1981,127 @@ def test_a_stock_row_cannot_take_another_products_batch() -> None:
                 actor_id=uuid4(),
                 batch_id=batch_id,
             )
+
+
+def _pack_to_kg(
+    session: Session, firm: Firm, product: Product, *, pack_is_whole: bool
+) -> tuple[Uom, Uom]:
+    """Stock the product in KG, buy it in PACKs of a third of a KG, two places."""
+    kg = Uom(code="KG", name="Kilogram", dimension="WEIGHT", status="ACTIVE")
+    pack = Uom(
+        code="PACK",
+        name="Pack",
+        dimension="COUNT",
+        status="ACTIVE",
+        is_decimal_allowed=not pack_is_whole,
+    )
+    session.add_all([kg, pack])
+    session.flush()
+    product.base_uom_id = kg.id
+    product.inventory_uom_id = kg.id
+    session.add(
+        ConversionRule(
+            firm_id=firm.id,
+            product_id=product.id,
+            from_uom_id=pack.id,
+            to_uom_id=kg.id,
+            conversion_factor=Decimal("0.3333333333"),
+            rounding_mode="HALF_UP",
+            precision_scale=2,
+            effective_from=date(2026, 4, 1),
+            version_number=1,
+        )
+    )
+    session.commit()
+    return kg, pack
+
+
+def test_stock_is_converted_with_the_rounding_the_line_was() -> None:
+    """D-CFG-11: the line was rounded by its rule and the stock was not.
+
+    Driven on ``fx_t0919duz7_r``: a PACK -> KG rule of 0.3333333333 at two
+    places; the order line for 1 PACK read 0.33 KG and the receipt put 0.3333
+    KG on the shelf.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "RND")
+    profile = _profile(session, firm.id)
+    _branch, _warehouse, product = _branch_warehouse_product(session, firm, profile)
+    kg, pack = _pack_to_kg(session, firm, product, pack_is_whole=False)
+
+    base, entered, unit, version = InventoryService(session)._resolve_base_quantity(
+        firm_scope=firm.id,
+        product_id=product.id,
+        quantity=Decimal("1"),
+        entered_uom_id=pack.id,
+        conversion_version=1,
+        on_date=date(2026, 8, 1),
+    )
+    line = UomService(session).convert_quantity(
+        ConversionRequest(
+            product_id=product.id,
+            from_uom_id=pack.id,
+            to_uom_id=kg.id,
+            quantity=Decimal("1"),
+            conversion_date=date(2026, 8, 1),
+        ),
+        firm_scope=firm.id,
+    )
+
+    assert base == Decimal("0.33")
+    assert base == line.converted_quantity
+    assert (entered, unit, version) == (Decimal("1"), pack.id, 1)
+
+    # A movement carrying its line's own factor (D-CFG-1) is rounded the way
+    # that line was too, or the snapshot path would put 0.3333 back.
+    snapshot, *_rest = InventoryService(session)._resolve_base_quantity(
+        firm_scope=firm.id,
+        product_id=product.id,
+        quantity=Decimal("1"),
+        entered_uom_id=pack.id,
+        conversion_version=1,
+        on_date=date(2026, 8, 1),
+        line_conversion=LineConversion(factor=Decimal("0.3333333333"), to_uom_id=kg.id),
+    )
+    assert snapshot == Decimal("0.33")
+
+
+def test_a_stock_movement_refuses_a_fraction_of_a_whole_unit() -> None:
+    """Every movement bringing a quantity in; a release gives back what was held."""
+    session = _session_factory()()
+    firm = _firm(session, "WHL")
+    profile = _profile(session, firm.id)
+    _branch, _warehouse, product = _branch_warehouse_product(session, firm, profile)
+    _kg, pack = _pack_to_kg(session, firm, product, pack_is_whole=True)
+    service = InventoryService(session)
+
+    with pytest.raises(ValidationError, match=r"PACK is counted in whole numbers"):
+        service._resolve_base_quantity(
+            firm_scope=firm.id,
+            product_id=product.id,
+            quantity=Decimal("1.5"),
+            entered_uom_id=pack.id,
+            conversion_version=1,
+            on_date=date(2026, 8, 1),
+        )
+
+    released, *_rest = service._resolve_base_quantity(
+        firm_scope=firm.id,
+        product_id=product.id,
+        quantity=Decimal("1.5"),
+        entered_uom_id=pack.id,
+        conversion_version=1,
+        on_date=date(2026, 8, 1),
+        enforce_whole_units=False,
+    )
+    assert released == Decimal("0.50")
+    # A fraction of the stock unit itself is still a fraction of a KG.
+    in_kg, *_rest = service._resolve_base_quantity(
+        firm_scope=firm.id,
+        product_id=product.id,
+        quantity=Decimal("1.5"),
+        entered_uom_id=None,
+        conversion_version=None,
+        on_date=date(2026, 8, 1),
+    )
+    assert in_kg == Decimal("1.5")

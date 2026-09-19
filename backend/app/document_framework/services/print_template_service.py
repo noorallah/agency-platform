@@ -7,7 +7,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.common.audit.services import record_audit
+from app.common.audit.services import record_change, row_state
 from app.document_framework.models import DocumentPrintTemplate
 from app.document_framework.schemas import (
     DocumentPrintTemplateResponse,
@@ -66,20 +66,25 @@ class DocumentPrintTemplateService:
             )
             self._session.add(row)
             action = "document_print_template.created"
+            before: dict[str, object] | None = None
         else:
+            before = row_state(row)
             for field, value in values.items():
                 setattr(row, field, value)
             row.updated_by = actor_id
             action = "document_print_template.updated"
         self._session.flush()
-        record_audit(
+        # Every field that moved, before and after: `bank_details` is the
+        # account customers pay into, and a trail that only said "updated"
+        # could not show it had been changed (D-CFG-13).
+        record_change(
             self._session,
             action=action,
             entity_type="document_print_template",
-            entity_id=row.id,
+            row=row,
             actor_id=actor_id,
+            before=before,
             firm_id=firm_scope,
-            after_data={"document_type": code},
         )
         return self._response(row)
 

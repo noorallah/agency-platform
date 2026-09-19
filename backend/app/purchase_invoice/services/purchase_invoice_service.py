@@ -70,7 +70,7 @@ from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.schemas import ConversionRequest
-from app.uom.services import UomService
+from app.uom.services import UomService, assert_quantity_fits_unit
 from app.vendors.models import Vendor
 
 ZERO = Decimal("0")
@@ -985,6 +985,13 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             source_quantity = self._source_quantity(spec, source_line)
             source_uom_id = self._source_uom_id(source_line)
             invoice_uom_id = spec.get("invoice_uom_id")
+            assert_quantity_fits_unit(
+                self._session,
+                quantity=requested_quantity,
+                uom_id=invoice_uom_id or source_uom_id,
+                product_id=self._product_id(source_line),
+                firm_id=firm_id,
+            )
             conversion_factor = self._q(
                 Decimal(str(spec.get("conversion_factor", Decimal("1"))))
             )

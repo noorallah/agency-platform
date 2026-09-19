@@ -73,6 +73,7 @@ from app.search.services import SearchService
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
 from app.tax.schemas import TaxComponentWrite, TaxProfileWrite, TaxSystemWrite
 from app.tax.services import TaxFrameworkService
+from app.uom.models import Uom
 from app.uom.models import uom as _uom_models  # noqa: F401
 from app.uom.schemas import ConversionRuleCreate, UomCreate
 from app.uom.services import UomService
@@ -1476,8 +1477,17 @@ def test_an_order_with_receipts_against_it_cannot_be_deleted() -> None:
 
 def _submittable_order(
     session: Session,
+    *,
+    ordered_quantity: str = "2",
+    free_quantity: str = "1",
+    box_is_whole: bool = False,
+    allow_decimal: bool = True,
 ) -> tuple[PurchaseService, PurchaseOrder, UUID, UUID]:
-    """Build a draft purchase order ready to be submitted."""
+    """Build a draft purchase order ready to be submitted.
+
+    Ordered in BOX (ten pieces each), stocked in PIECE; ``box_is_whole`` makes
+    BOX a whole-number unit and ``allow_decimal`` is the product's own switch.
+    """
     actor_id = uuid4()
     firm = _firm(session, "PO-FLOW")
     profile = _business_profile(session, actor_id)
@@ -1514,6 +1524,9 @@ def _submittable_order(
         inventory_uom_id=inventory_uom_id,
         purchase_uom_id=purchase_uom_id,
     )
+    session.get(Uom, purchase_uom_id).is_decimal_allowed = not box_is_whole
+    product.allow_decimal = allow_decimal
+    session.commit()
     service = PurchaseService(session)
     order = service.create_order(
         _purchase_data(
@@ -1526,11 +1539,60 @@ def _submittable_order(
             tax_profile_id=tax_profile_id,
             storage_node_id=storage.id,
             status="DRAFT",
+            ordered_quantity=ordered_quantity,
+            free_quantity=free_quantity,
         ),
         firm_id=firm.id,
         actor_id=actor_id,
     )
     return service, order, firm.id, actor_id
+
+
+def test_a_whole_number_unit_refuses_a_fraction_on_the_line() -> None:
+    """D-CFG-11: ``is_decimal_allowed`` was recorded and read by nothing.
+
+    Driven on ``fx_t0919duz7_r``: a purchase order for 1.5 PACK -- a unit the
+    catalogue counts in whole numbers -- was accepted, received and stocked.
+    """
+    session = _session_factory()()
+    with pytest.raises(ValidationError, match=r"BOX is counted in whole numbers"):
+        _submittable_order(
+            session, ordered_quantity="1.5", free_quantity="0", box_is_whole=True
+        )
+    # What the request's unit of work does with a refusal.
+    session.rollback()
+    assert session.scalar(select(PurchaseOrder)) is None
+
+
+def test_a_whole_number_product_refuses_a_fraction_on_the_line() -> None:
+    """A product with Allow decimal off is whole-number in any unit."""
+    session = _session_factory()()
+    with pytest.raises(ValidationError, match=r"Allow decimal is off"):
+        _submittable_order(
+            session, ordered_quantity="1.5", free_quantity="0", allow_decimal=False
+        )
+
+
+def test_a_fraction_of_a_unit_that_allows_one_is_accepted() -> None:
+    """Whole numbers everywhere, and fractions where both unit and product agree."""
+    session = _session_factory()()
+    _service, order, _firm_id, _actor_id = _submittable_order(
+        session, ordered_quantity="1.5", free_quantity="0"
+    )
+    other = _session_factory()()
+    _service, whole, _firm_id, _actor_id = _submittable_order(
+        other, ordered_quantity="3", free_quantity="0", box_is_whole=True
+    )
+    for unit_of_work, row, quantity in (
+        (session, order, Decimal("1.5")),
+        (other, whole, Decimal("3")),
+    ):
+        line = unit_of_work.scalar(
+            select(PurchaseOrderLine).where(
+                PurchaseOrderLine.purchase_order_id == row.id
+            )
+        )
+        assert line.ordered_quantity == quantity
 
 
 def test_a_purchase_order_is_submitted_before_it_is_approved() -> None:

@@ -1309,7 +1309,10 @@ Four smaller rules:
   zero would mean they expire the day they are earned.
 
 `LOYALTY_MANAGE_SETTINGS` is not granted to `SALES_MANAGER`: deciding what a
-point is worth is the firm's, on the same reasoning as the credit policy.
+point is worth is the firm's, on the same reasoning as the credit policy. A
+goodwill adjustment takes the same code (D-CFG-17): points given by hand are
+spent against a bill like any others, so giving them is writing off what the
+customer owes, and that is not the sales desk's to do.
 
 The demo runs a scheme in every store — two points per hundred, worth a rupee
 each, a floor of fifty and a two-year life — and spends some of it on one bill

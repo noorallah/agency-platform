@@ -432,6 +432,11 @@ class SalesWorkflowSettingsWrite(SalesOrderSchema):
     Every stage is sent on every write. There is no partial form of this: the
     three switches are read together to decide what a document must synthesise,
     and a caller that omitted one would be asking for a chain nobody described.
+
+    The two defaults are different: an omitted one is left as it is and an
+    explicit null clears it, so a client that never showed them cannot wipe
+    them (D-CFG-14). Whatever is sent must be a live, active branch and
+    warehouse of this firm, the warehouse inside the branch.
     """
 
     quotation_stage: bool

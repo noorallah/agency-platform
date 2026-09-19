@@ -120,10 +120,17 @@ def redeem(
 @router.post("/adjust", response_model=ApiResponse[LoyaltyEntryResponse])
 def adjust(
     payload: LoyaltyAdjust,
-    scope: LoyaltyManageScope,
+    scope: LoyaltySettingsScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[LoyaltyEntryResponse]:
-    """Correct a balance by hand, saying why. Posts nothing."""
+    """Correct a balance by hand, saying why; the liability follows the count.
+
+    Takes the scheme's own code, `LOYALTY_MANAGE_SETTINGS`, not the one that
+    spends credit. Goodwill points become money the moment they are redeemed
+    against a bill, so granting them is writing off a receivable -- and
+    `SALES_MANAGER`, which holds `LOYALTY_MANAGE` to spend a customer's credit,
+    is the role denied approving a credit note (D-CFG-17).
+    """
     service = LoyaltyService(db)
     row = service.adjust(
         firm_scope=scope.firm_id,

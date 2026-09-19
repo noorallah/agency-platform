@@ -16,7 +16,7 @@ from sqlalchemy.orm import InstrumentedAttribute, Session
 from app.branches.models import Branch, Warehouse
 from app.business.gating import resolve_profile_id
 from app.business.models import BusinessProfile
-from app.common.audit.services import record_audit
+from app.common.audit.services import record_audit, record_change, row_state
 from app.common.firm_metadata import FirmMetadataReader, platform_reader
 from app.core.concurrency import assert_version
 from app.core.database.entity import BaseEntity
@@ -394,6 +394,7 @@ class SalesTerritoryService:
             updated_by=actor_id,
         )
         self._session.add(row)
+        self._audit_geo("country", "created", row, actor_id)
         self._commit()
         return GeoCountryResponse(
             id=row.id,
@@ -434,6 +435,7 @@ class SalesTerritoryService:
             updated_by=actor_id,
         )
         self._session.add(row)
+        self._audit_geo("state", "created", row, actor_id)
         self._commit()
         return GeoStateResponse(
             id=row.id,
@@ -474,6 +476,7 @@ class SalesTerritoryService:
             updated_by=actor_id,
         )
         self._session.add(row)
+        self._audit_geo("district", "created", row, actor_id)
         self._commit()
         return GeoDistrictResponse(
             id=row.id,
@@ -510,6 +513,7 @@ class SalesTerritoryService:
             updated_by=actor_id,
         )
         self._session.add(row)
+        self._audit_geo("city", "created", row, actor_id)
         self._commit()
         return GeoCityResponse(
             id=row.id,
@@ -550,6 +554,7 @@ class SalesTerritoryService:
             updated_by=actor_id,
         )
         self._session.add(row)
+        self._audit_geo("postal_code", "created", row, actor_id)
         self._commit()
         return GeoPostalCodeResponse(
             id=row.id,
@@ -587,6 +592,7 @@ class SalesTerritoryService:
             updated_by=actor_id,
         )
         self._session.add(row)
+        self._audit_geo("locality", "created", row, actor_id)
         self._commit()
         return GeoLocalityResponse(
             id=row.id,
@@ -620,6 +626,7 @@ class SalesTerritoryService:
         """Rename a country, or retire it by clearing its active flag."""
         row = self._geo_row(GeoCountry, country_id, "Country")
         assert_version(row.version, expected_version)
+        before = row_state(row)
         self._assert_geo_code_free(GeoCountry, payload.code, current_id=row.id)
         row.code = payload.code
         row.name = payload.name
@@ -628,7 +635,7 @@ class SalesTerritoryService:
         row.phone_code = payload.phone_code
         row.is_active = payload.is_active
         row.updated_by = actor_id
-        self._audit_geo("country", "updated", row.id, actor_id, row.name)
+        self._audit_geo("country", "updated", row, actor_id, before)
         self._commit()
         return self._country_response(row)
 
@@ -647,7 +654,7 @@ class SalesTerritoryService:
             field="country_id",
         )
         self._retire_geo(row, actor_id)
-        self._audit_geo("country", "deleted", row.id, actor_id, row.name)
+        self._audit_geo("country", "deleted", row, actor_id)
         self._commit()
 
     def update_state(
@@ -661,6 +668,7 @@ class SalesTerritoryService:
         """Replace one state's editable fields."""
         row = self._geo_row(GeoState, state_id, "State")
         assert_version(row.version, expected_version)
+        before = row_state(row)
         self._geo_row(GeoCountry, payload.country_id, "Country")
         self._assert_geo_code_free(GeoState, payload.code, current_id=row.id)
         row.country_id = payload.country_id
@@ -668,7 +676,7 @@ class SalesTerritoryService:
         row.name = payload.name
         row.is_active = payload.is_active
         row.updated_by = actor_id
-        self._audit_geo("state", "updated", row.id, actor_id, row.name)
+        self._audit_geo("state", "updated", row, actor_id, before)
         self._commit()
         return GeoStateResponse(
             id=row.id,
@@ -694,7 +702,7 @@ class SalesTerritoryService:
             field="state_id",
         )
         self._retire_geo(row, actor_id)
-        self._audit_geo("state", "deleted", row.id, actor_id, row.name)
+        self._audit_geo("state", "deleted", row, actor_id)
         self._commit()
 
     def update_district(
@@ -708,6 +716,7 @@ class SalesTerritoryService:
         """Replace one district's editable fields."""
         row = self._geo_row(GeoDistrict, district_id, "District")
         assert_version(row.version, expected_version)
+        before = row_state(row)
         self._geo_row(GeoState, payload.state_id, "State")
         self._assert_geo_code_free(GeoDistrict, payload.code, current_id=row.id)
         row.state_id = payload.state_id
@@ -715,7 +724,7 @@ class SalesTerritoryService:
         row.name = payload.name
         row.is_active = payload.is_active
         row.updated_by = actor_id
-        self._audit_geo("district", "updated", row.id, actor_id, row.name)
+        self._audit_geo("district", "updated", row, actor_id, before)
         self._commit()
         return GeoDistrictResponse(
             id=row.id,
@@ -741,7 +750,7 @@ class SalesTerritoryService:
             field="district_id",
         )
         self._retire_geo(row, actor_id)
-        self._audit_geo("district", "deleted", row.id, actor_id, row.name)
+        self._audit_geo("district", "deleted", row, actor_id)
         self._commit()
 
     def update_city(
@@ -755,6 +764,7 @@ class SalesTerritoryService:
         """Replace one city's editable fields."""
         row = self._geo_row(GeoCity, city_id, "City")
         assert_version(row.version, expected_version)
+        before = row_state(row)
         self._geo_row(GeoDistrict, payload.district_id, "District")
         self._assert_geo_code_free(GeoCity, payload.code, current_id=row.id)
         row.district_id = payload.district_id
@@ -762,7 +772,7 @@ class SalesTerritoryService:
         row.name = payload.name
         row.is_active = payload.is_active
         row.updated_by = actor_id
-        self._audit_geo("city", "updated", row.id, actor_id, row.name)
+        self._audit_geo("city", "updated", row, actor_id, before)
         self._commit()
         return GeoCityResponse(
             id=row.id,
@@ -789,7 +799,7 @@ class SalesTerritoryService:
             field="city_id",
         )
         self._retire_geo(row, actor_id)
-        self._audit_geo("city", "deleted", row.id, actor_id, row.name)
+        self._audit_geo("city", "deleted", row, actor_id)
         self._commit()
 
     def update_postal_code(
@@ -803,12 +813,13 @@ class SalesTerritoryService:
         """Replace one postal code's editable fields."""
         row = self._geo_row(GeoPostalCode, postal_code_id, "Postal code")
         assert_version(row.version, expected_version)
+        before = row_state(row)
         self._geo_row(GeoCity, payload.city_id, "City")
         row.city_id = payload.city_id
         row.postal_code = payload.postal_code
         row.is_active = payload.is_active
         row.updated_by = actor_id
-        self._audit_geo("postal_code", "updated", row.id, actor_id, row.postal_code)
+        self._audit_geo("postal_code", "updated", row, actor_id, before)
         self._commit()
         return GeoPostalCodeResponse(
             id=row.id,
@@ -834,7 +845,7 @@ class SalesTerritoryService:
             field="postal_code_id",
         )
         self._retire_geo(row, actor_id)
-        self._audit_geo("postal_code", "deleted", row.id, actor_id, row.postal_code)
+        self._audit_geo("postal_code", "deleted", row, actor_id)
         self._commit()
 
     def update_locality(
@@ -848,12 +859,13 @@ class SalesTerritoryService:
         """Replace one locality's editable fields."""
         row = self._geo_row(GeoLocality, locality_id, "Locality")
         assert_version(row.version, expected_version)
+        before = row_state(row)
         self._geo_row(GeoPostalCode, payload.postal_code_id, "Postal code")
         row.postal_code_id = payload.postal_code_id
         row.name = payload.name.strip()
         row.is_active = payload.is_active
         row.updated_by = actor_id
-        self._audit_geo("locality", "updated", row.id, actor_id, row.name)
+        self._audit_geo("locality", "updated", row, actor_id, before)
         self._commit()
         return GeoLocalityResponse(
             id=row.id,
@@ -878,7 +890,7 @@ class SalesTerritoryService:
             field="locality_id",
         )
         self._retire_geo(row, actor_id)
-        self._audit_geo("locality", "deleted", row.id, actor_id, row.name)
+        self._audit_geo("locality", "deleted", row, actor_id)
         self._commit()
 
     @staticmethod
@@ -1007,21 +1019,41 @@ class SalesTerritoryService:
         row.updated_by = actor_id
 
     def _audit_geo(
-        self, kind: str, action: str, row_id: UUID, actor_id: UUID, name: str
+        self,
+        kind: str,
+        action: str,
+        row: BaseEntity,
+        actor_id: UUID,
+        before: dict[str, object] | None = None,
     ) -> None:
-        """Record a geography change.
+        """Record a geography change: what the row was and what it became.
 
-        Geography is reference data every firm reads, so a change to it is
-        exactly the sort of thing somebody has to be able to trace later.
-        Creating one of these wrote no audit row at all.
+        Geography is reference data every firm in the store reads, so a change
+        to it is exactly the sort of thing somebody has to be able to trace
+        later. Creating one of these wrote no audit row at all, and the rows
+        that were written named the place and not the change (D-CFG-13). The
+        firm is the one whose store the request opened, via ``record_audit``,
+        so the row is on that firm's trail.
+
+        A create is flushed here so the new row has its id; a clash is the
+        same conflict the commit would have raised. A retirement is recorded
+        with the whole place on the before side (see ``record_change``).
         """
-        record_audit(
+        if action == "created":
+            try:
+                self._session.flush()
+            except IntegrityError as error:
+                self._session.rollback()
+                raise ConflictError(
+                    "The operation violates uniqueness constraints."
+                ) from error
+        record_change(
             self._session,
             action=f"sales_territory.geo.{kind}.{action}",
             entity_type=f"geo_{kind}",
-            entity_id=row_id,
+            row=row,
             actor_id=actor_id,
-            after_data={"name": name},
+            before=before,
         )
 
     def upsert_addresses(

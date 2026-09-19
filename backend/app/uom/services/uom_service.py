@@ -23,8 +23,9 @@ from sqlalchemy.orm import Session
 from app.business.gating import resolve_profile_id
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.business.services import AttributeInput, AttributeService
-from app.common.audit.services import record_audit
+from app.common.audit.services import record_audit, record_change, row_state
 from app.core.concurrency import assert_version
+from app.core.database.entity import BaseEntity
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.products.models import Product
@@ -73,6 +74,90 @@ ROUNDING_MODES = {
 }
 
 
+def round_by_rule(quantity: Decimal, rule: ConversionRule) -> Decimal:
+    """Round a converted quantity the way its rule says.
+
+    The one rounding a conversion gets, so a document line and the stock it
+    moves cannot disagree. Stock multiplied by the factor and never rounded,
+    while the line was stored rounded, so a factor such as 1/3 at two places
+    left a line of 0.33 KG and a shelf of 0.3333 (D-CFG-11).
+    """
+    return quantize_by_rule(quantity * rule.conversion_factor, rule)
+
+
+def quantize_by_rule(converted: Decimal, rule: ConversionRule) -> Decimal:
+    """Round an already-converted quantity to the rule's precision and mode.
+
+    Separate from ``round_by_rule`` for a movement that converts at the
+    factor its document line recorded (D-CFG-1) but must still round the way
+    that line was rounded.
+    """
+    precision = Decimal("1").scaleb(-int(rule.precision_scale))
+    return converted.quantize(
+        precision, rounding=ROUNDING_MODES.get(rule.rounding_mode, ROUND_HALF_UP)
+    )
+
+
+def assert_quantity_fits_unit(
+    session: Session,
+    *,
+    quantity: Decimal,
+    uom_id: UUID | object | None,
+    product_id: UUID | None,
+    firm_id: UUID,
+) -> None:
+    """Refuse a fractional quantity where the unit or the product forbids one.
+
+    A unit's ``is_decimal_allowed`` and a product's ``allow_decimal`` were
+    recorded and read by nothing, so 1.5 BOX was accepted on every document
+    and stock movement (D-CFG-11). A quantity with no unit of its own is in
+    the product's stock unit. ``allow_fraction`` is deliberately not read:
+    it is false on every product and every profile default, so enforcing it
+    would refuse every 2.5 KG a firm records today.
+
+    Args:
+        session: The unit of work the document is being written in.
+        quantity: What was entered.
+        uom_id: The unit it was entered in, or None for the stock unit. The
+            invoice and return modules hold it in an untyped line spec, so
+            anything whose text is a UUID is accepted.
+        product_id: The product the quantity is of.
+        firm_id: The firm the product must belong to.
+
+    Raises:
+        ValidationError: A whole-number unit or product was given a fraction.
+
+    """
+    if quantity == quantity.to_integral_value():
+        return
+    shown = format(quantity.normalize(), "f")
+    product = (
+        None
+        if product_id is None
+        else session.scalar(
+            select(Product).where(
+                Product.id == product_id,
+                Product.firm_id == firm_id,
+                Product.is_deleted.is_(False),
+            )
+        )
+    )
+    if product is not None and not product.allow_decimal:
+        raise ValidationError(
+            f"{product.code} is sold and stocked in whole numbers only "
+            f"(Allow decimal is off), so a quantity of {shown} cannot be entered."
+        )
+    unit_id = None if uom_id is None else UUID(str(uom_id))
+    if unit_id is None and product is not None:
+        unit_id = product.inventory_uom_id or product.base_uom_id
+    unit = None if unit_id is None else session.get(Uom, unit_id)
+    if unit is not None and not unit.is_decimal_allowed:
+        raise ValidationError(
+            f"{unit.code} is counted in whole numbers, so {shown} {unit.code} "
+            "cannot be entered."
+        )
+
+
 class UomService:
     """Coordinate UOM masters, conversions, and product packaging hierarchy."""
 
@@ -107,6 +192,7 @@ class UomService:
         )
         self._session.add(row)
         self._flush_or_conflict("UOM code already exists.")
+        self._audit("uom.unit.created", "uom", row, actor_id)
         if firm_id is not None and data.attributes:
             self._store_attributes(row, data.attributes, firm_id, actor_id)
         self._session.commit()
@@ -157,6 +243,7 @@ class UomService:
         """Change a unit in the catalogue."""
         row = self.get_uom(uom_id)
         assert_version(row.version, expected_version)
+        before = row_state(row)
         payload = data.model_dump(exclude_unset=True, exclude={"attributes"})
         if firm_id is not None and data.attributes is not None:
             self._store_attributes(row, data.attributes, firm_id, actor_id)
@@ -168,6 +255,7 @@ class UomService:
             setattr(row, field, value)
         row.updated_by = actor_id
         self._flush_or_conflict("UOM update conflicts with existing data.")
+        self._audit("uom.unit.updated", "uom", row, actor_id, before)
         self._session.commit()
         return row
 
@@ -179,6 +267,7 @@ class UomService:
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
         row.updated_by = actor_id
+        self._audit("uom.unit.deleted", "uom", row, actor_id)
         self._session.commit()
 
     def get_uom(self, uom_id: UUID) -> Uom:
@@ -279,6 +368,7 @@ class UomService:
         )
         self._session.add(row)
         self._flush_or_conflict("UOM group code already exists.")
+        self._audit("uom.group.created", "uom_group", row, actor_id)
         self._session.commit()
         return row
 
@@ -299,6 +389,7 @@ class UomService:
         if row is None:
             raise ResourceNotFoundError("UOM group not found.")
         assert_version(row.version, expected_version)
+        before = row_state(row)
         payload = data.model_dump(exclude_unset=True)
         for field, value in payload.items():
             if isinstance(value, str):
@@ -308,6 +399,7 @@ class UomService:
             setattr(row, field, value)
         row.updated_by = actor_id
         self._flush_or_conflict("UOM group update conflicts with existing data.")
+        self._audit("uom.group.updated", "uom_group", row, actor_id, before)
         self._session.commit()
         return row
 
@@ -333,6 +425,7 @@ class UomService:
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
         row.updated_by = actor_id
+        self._audit("uom.group.deleted", "uom_group", row, actor_id)
         self._session.commit()
 
     def list_packaging_types(self) -> list[PackagingType]:
@@ -359,6 +452,7 @@ class UomService:
         )
         self._session.add(row)
         self._flush_or_conflict("Packaging type code already exists.")
+        self._audit("uom.packaging_type.created", "packaging_type", row, actor_id)
         self._session.commit()
         return row
 
@@ -380,6 +474,7 @@ class UomService:
         if row is None:
             raise ResourceNotFoundError("Packaging type not found.")
         assert_version(row.version, expected_version)
+        before = row_state(row)
         payload = data.model_dump(exclude_unset=True)
         for field, value in payload.items():
             if isinstance(value, str):
@@ -389,6 +484,9 @@ class UomService:
             setattr(row, field, value)
         row.updated_by = actor_id
         self._flush_or_conflict("Packaging type update conflicts with existing data.")
+        self._audit(
+            "uom.packaging_type.updated", "packaging_type", row, actor_id, before
+        )
         self._session.commit()
         return row
 
@@ -418,6 +516,7 @@ class UomService:
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
         row.updated_by = actor_id
+        self._audit("uom.packaging_type.deleted", "packaging_type", row, actor_id)
         self._session.commit()
 
     def list_conversion_rules(
@@ -541,6 +640,7 @@ class UomService:
         if row is None:
             raise ResourceNotFoundError("Conversion rule not found.")
         assert_version(row.version, expected_version)
+        before = row_state(row)
         payload = data.model_dump(exclude_unset=True)
         if "rounding_mode" in payload and payload["rounding_mode"] is not None:
             payload["rounding_mode"] = self._rounding_mode(payload["rounding_mode"])
@@ -550,12 +650,13 @@ class UomService:
             setattr(row, field, value)
         row.updated_by = actor_id
         self._flush_or_conflict("Conversion rule update conflicts with existing data.")
-        record_audit(
+        record_change(
             self._session,
             action="uom.conversion.updated",
             entity_type="uom_conversion_rule",
-            entity_id=row.id,
+            row=row,
             actor_id=actor_id,
+            before=before,
             firm_id=firm_scope,
         )
         self._session.commit()
@@ -603,10 +704,7 @@ class UomService:
             to_uom_id=request.to_uom_id,
             on_date=on_date,
         )
-        precision = Decimal("1").scaleb(-int(rule.precision_scale))
-        converted = (request.quantity * rule.conversion_factor).quantize(
-            precision, rounding=ROUNDING_MODES.get(rule.rounding_mode, ROUND_HALF_UP)
-        )
+        converted = round_by_rule(request.quantity, rule)
         return ConversionResponse(
             quantity=request.quantity,
             converted_quantity=converted,
@@ -892,6 +990,9 @@ class UomService:
         )
         self._session.add(row)
         self._flush_or_conflict("Packaging level conflicts with existing data.")
+        self._audit(
+            "uom.packaging_level.created", "product_packaging_level", row, actor_id
+        )
         self._session.commit()
         return row
 
@@ -917,6 +1018,7 @@ class UomService:
         if row is None:
             raise ResourceNotFoundError("Packaging level not found.")
         assert_version(row.version, expected_version)
+        before = row_state(row)
         payload = data.model_dump(exclude_unset=True)
         for field, value in payload.items():
             if isinstance(value, str):
@@ -926,6 +1028,13 @@ class UomService:
             setattr(row, field, value)
         row.updated_by = actor_id
         self._flush_or_conflict("Packaging level update conflicts with existing data.")
+        self._audit(
+            "uom.packaging_level.updated",
+            "product_packaging_level",
+            row,
+            actor_id,
+            before,
+        )
         self._session.commit()
         return row
 
@@ -952,6 +1061,9 @@ class UomService:
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
         row.updated_by = actor_id
+        self._audit(
+            "uom.packaging_level.deleted", "product_packaging_level", row, actor_id
+        )
         self._session.commit()
 
     def list_industry_templates(
@@ -1149,6 +1261,29 @@ class UomService:
         )
         if found is None:
             raise ResourceNotFoundError("Product not found.")
+
+    def _audit(
+        self,
+        action: str,
+        entity_type: str,
+        row: BaseEntity,
+        actor_id: UUID,
+        before: dict[str, object] | None = None,
+    ) -> None:
+        """Record a unit, group, packaging type or level write, with the change.
+
+        None of these wrote an audit row, so a unit renamed, recoded or made
+        whole-number under every firm's products left no trace (D-CFG-13).
+        The firm is the one whose store the request opened (``record_audit``).
+        """
+        record_change(
+            self._session,
+            action=action,
+            entity_type=entity_type,
+            row=row,
+            actor_id=actor_id,
+            before=before,
+        )
 
     def _flush_or_conflict(self, message: str) -> None:
         try:

@@ -36,3 +36,11 @@ def reset_request_context(token: Token[RequestContext | None]) -> None:
 def get_request_context() -> RequestContext | None:
     """Return the active request context, if execution is request-scoped."""
     return _request_context.get()
+
+
+#: The key under ``Session.info`` naming the firm whose store a session was
+#: opened on. `get_db` and `firm_store_session` set it; `record_audit` reads it
+#: so a write that names no firm still lands on that firm's trail, which
+#: filters on `firm_id`. Kept here rather than beside `get_db` so the audit
+#: service can read it without importing the tenancy machinery.
+STORE_FIRM_SESSION_KEY = "store_firm_id"
