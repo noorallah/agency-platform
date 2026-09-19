@@ -457,6 +457,12 @@ def update_customer(
         data,
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
+        # The limit is a credit control, so moving it takes the code that
+        # writes the credit policy rather than the one that edits a phone
+        # number (D-CFG-17).
+        may_change_credit_limit=scope.principal.has_permission(
+            "CUSTOMER_MANAGE_SETTINGS"
+        ),
     )
     set_etag(response, customer)
     return ApiResponse(data=_response(customer, db))

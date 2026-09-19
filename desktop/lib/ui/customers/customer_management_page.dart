@@ -218,6 +218,9 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
         // a loader like the others; the dialog stays a form.
         loadGroups: () =>
             widget.api.customerGroups(pageSize: 100).then((page) => page.items),
+        // The server refuses a moved limit without it; the form says so first.
+        mayChangeCreditLimit:
+            widget.permissions.hasPermission('CUSTOMER_MANAGE_SETTINGS'),
       ),
     );
     if (saved == null || !mounted) return;
@@ -683,6 +686,7 @@ class CustomerWorkspaceDialog extends StatefulWidget {
     this.loadRoutes,
     this.loadAttributes,
     this.loadGroups,
+    this.mayChangeCreditLimit = true,
   });
 
   final CustomerDialogMode mode;
@@ -705,6 +709,13 @@ class CustomerWorkspaceDialog extends StatefulWidget {
   /// The firm's customer groups, for the Group dropdown. Null means the
   /// caller supplies none and the dropdown is omitted.
   final Future<List<CustomerGroup>> Function()? loadGroups;
+
+  /// Whether the user holds `CUSTOMER_MANAGE_SETTINGS`. A credit limit is a
+  /// credit control, so moving an existing customer's limit takes the code
+  /// that writes the credit policy (D-CFG-17); without it the field is shown
+  /// and not editable. A new customer's limit stays editable: it can only
+  /// tighten one that otherwise starts with none.
+  final bool mayChangeCreditLimit;
 
   @override
   State<CustomerWorkspaceDialog> createState() =>
@@ -1126,7 +1137,15 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
           if (_error != null) _errorBanner(),
           _responsiveFields([
             _groupDropdown(),
-            _number('credit_limit', 'Credit limit', nonNegative: true),
+            _number(
+              'credit_limit',
+              'Credit limit',
+              nonNegative: true,
+              locked: widget.mode == CustomerDialogMode.edit &&
+                  !widget.mayChangeCreditLimit,
+              lockedHelper: 'Changing a credit limit needs the manage '
+                  'customer settings permission.',
+            ),
             _number(
               'default_discount_percent',
               'Default discount %',
@@ -1495,11 +1514,17 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     bool nonNegative = false,
     num? maximum,
     bool blankIsZero = false,
+    bool locked = false,
+    String? lockedHelper,
   }) =>
       TextFormField(
         controller: _fields[key],
-        readOnly: _readOnly,
-        decoration: InputDecoration(labelText: label),
+        readOnly: _readOnly || locked,
+        decoration: InputDecoration(
+          labelText: label,
+          helperText: locked && !_readOnly ? lockedHelper : null,
+          helperMaxLines: 2,
+        ),
         validator: (value) {
           // An emptied discount box reads as "none" and nothing else, so it
           // is accepted and sent as zero. A blank credit limit is genuinely

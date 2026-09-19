@@ -23,6 +23,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 import pytest
+from fastapi.routing import APIRoute
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -38,6 +39,8 @@ from app.finance.services.control_accounts import (
 )
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
+from app.identity.system_seed import ROLE_PERMISSION_CODES
+from app.loyalty.api.router import router as loyalty_router
 from app.loyalty.models import LoyaltyEntry, LoyaltyEntryKind
 from app.loyalty.schemas import LoyaltySettingsWrite
 from app.loyalty.services import LoyaltyService
@@ -903,3 +906,39 @@ def test_a_reversed_batch_is_not_left_for_the_sweep() -> None:
     )
     assert [remaining for _, remaining in left] == [Decimal("30")]
     assert books.points() == Decimal("30.0000")
+
+
+def _route_codes(suffix: str) -> set[str]:
+    """Return the permission codes the loyalty route ending in `suffix` enforces."""
+    route = next(
+        item
+        for item in loyalty_router.routes
+        if isinstance(item, APIRoute) and item.path.endswith(suffix)
+    )
+    assert isinstance(route, APIRoute)
+    codes: set[str] = set()
+    pending = list(route.dependant.dependencies)
+    while pending:
+        dependency = pending.pop()
+        code = getattr(dependency.call, "permission_code", None)
+        if code:
+            codes.add(code)
+        pending.extend(dependency.dependencies)
+    return codes
+
+
+def test_goodwill_points_are_the_scheme_s_to_give_not_the_sales_desk_s() -> None:
+    """D-CFG-17: an adjustment needs the code `SALES_MANAGER` does not hold.
+
+    Goodwill points are redeemed against a bill like any others, so granting
+    them is a write-off of what the customer owes. `SALES_MANAGER` held
+    `LOYALTY_MANAGE` and could give unlimited points -- a receivable write-off
+    by the role denied approving a credit note. Spending credit stays with
+    `LOYALTY_MANAGE`; giving it takes `LOYALTY_MANAGE_SETTINGS`.
+    """
+    assert _route_codes("/adjust") == {"LOYALTY_MANAGE_SETTINGS"}
+    assert _route_codes("/redeem") == {"LOYALTY_MANAGE"}
+    manager = ROLE_PERMISSION_CODES["SALES_MANAGER"]
+    assert "LOYALTY_MANAGE" in manager
+    assert "LOYALTY_MANAGE_SETTINGS" not in manager
+    assert "LOYALTY_MANAGE_SETTINGS" in ROLE_PERMISSION_CODES["FIRM_ADMIN"]

@@ -65,6 +65,7 @@ from app.finance.models import JournalEntry, JournalLine, LedgerAccount
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
 from app.identity.models import UserFirm
+from app.identity.system_seed import ROLE_PERMISSION_CODES
 
 
 def _firm_scope(
@@ -498,6 +499,84 @@ def test_a_reader_is_told_the_version_it_must_send_back() -> None:
     result = update_customer(customer_id, again, scope, accepted, session, fresh)
     assert result.data.name == "Renamed Twice"
     assert parse_if_match(accepted.headers["ETag"]) == fresh + 1
+
+
+def test_a_credit_limit_moves_only_for_whoever_writes_the_credit_policy() -> None:
+    """The role a credit block constrains cannot lift it through the save.
+
+    D-CFG-17: `SALES_MANAGER` is denied `CUSTOMER_MANAGE_SETTINGS` so it cannot
+    switch the block off, but holds `CUSTOMER_UPDATE`, and `credit_limit` was
+    an ordinary field of the customer save -- raising it, or setting it to zero
+    ("no limit"), lifted a BLOCK for that customer just as surely.
+    """
+    manager_codes = ROLE_PERMISSION_CODES["SALES_MANAGER"]
+    assert "CUSTOMER_UPDATE" in manager_codes
+    assert "CUSTOMER_MANAGE_SETTINGS" not in manager_codes
+    assert "CUSTOMER_MANAGE_SETTINGS" in ROLE_PERMISSION_CODES["FIRM_ADMIN"]
+
+    factory = _session_factory()
+    setup = factory()
+    firm = _firm(setup, "LIMIT")
+    user_id = uuid4()
+    setup.add(UserFirm(user_id=user_id, firm_id=firm.id, is_active=True))
+    setup.commit()
+    setup.close()
+
+    session = factory()
+    desk = _principal(user_id, {"CUSTOMER_CREATE", "CUSTOMER_VIEW", "CUSTOMER_UPDATE"})
+    scope = _firm_scope(desk, session, firm.id)
+    customer_id = create_customer(_customer_data(), scope, session).data.id
+    form = _customer_data().model_dump(mode="json")
+
+    # A form resending the stored figure, in any spelling, is not a change.
+    for same in ("25000.00", "25000"):
+        update_customer(
+            customer_id,
+            CustomerUpdate.model_validate(
+                {**form, "name": "Renamed", "credit_limit": same}
+            ),
+            scope,
+            Response(),
+            session,
+            None,
+        )
+    # Nor is a save that does not mention the limit at all.
+    without_limit = {key: value for key, value in form.items() if key != "credit_limit"}
+    update_customer(
+        customer_id,
+        CustomerUpdate.model_validate({**without_limit, "name": "Renamed again"}),
+        scope,
+        Response(),
+        session,
+        None,
+    )
+
+    for moved in ("0", "50000.00", "100.00"):
+        with pytest.raises(AuthorizationError, match="CUSTOMER_MANAGE_SETTINGS"):
+            update_customer(
+                customer_id,
+                CustomerUpdate.model_validate({**form, "credit_limit": moved}),
+                scope,
+                Response(),
+                session,
+                None,
+            )
+        session.rollback()
+    stored = session.get(Customer, customer_id)
+    assert stored is not None and stored.credit_limit == Decimal("25000.00")
+
+    controller = _principal(
+        user_id, {"CUSTOMER_VIEW", "CUSTOMER_UPDATE", "CUSTOMER_MANAGE_SETTINGS"}
+    )
+    lifted = update_customer(
+        customer_id,
+        CustomerUpdate.model_validate({**form, "credit_limit": "0"}),
+        _firm_scope(controller, session, firm.id),
+        Response(),
+        session,
+        None,
+    )
+    assert lifted.data.credit_limit == Decimal("0")
 
 
 def _customer_with_credit(
