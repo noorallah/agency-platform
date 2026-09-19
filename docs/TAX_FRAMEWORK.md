@@ -302,6 +302,15 @@ first two; the **split** changes, and the split is what the GST return needs.
   `included_in_price` and tax under `REVERSE_CHARGE` are reported in
   `inclusive_tax_amount` and `reverse_charge_tax_amount` and must **not** be
   added to a document total.
+- **The place of supply a sales invoice prints is the one its tax was charged
+  by.** `TaxRuleService.place_of_supply` asks the same resolver as
+  `outward_transaction_type` -- the buyer's GSTIN, else the billing address --
+  and names it with its code, `Karnataka (29)` (CGST Rules r.46(n)). A draft
+  takes it again on every save; an issued invoice keeps what it was issued
+  with. Until 2026-09-19 the invoice copied the billing address's state text,
+  so a buyer registered in another state was charged IGST under a place of
+  supply naming the seller's own state (D-CMP-15). Where no code can be told,
+  the address text is still printed.
 - **Never read the server clock.** Effective windows are judged against the
   document's date. `utc_now().date()` is the only acceptable fallback;
   `tests/unit/test_time_conventions.py` fails the build on `date.today()`.

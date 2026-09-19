@@ -163,6 +163,26 @@ _CODES_BY_NAME: dict[str, str] = {
 }
 
 
+#: The name a tax invoice prints for each code: the first spelling
+#: ``_CODES_BY_NAME`` gives it, title-cased the way CBIC's list writes it, and
+#: "Other Countries" for 96 as the portal names it.
+_NAMES_BY_CODE: dict[str, str] = {
+    FOREIGN_STATE_CODE: "Other Countries",
+    **{
+        code: " ".join(
+            word if word == "and" else word.capitalize() for word in name.split()
+        )
+        for name, code in reversed(list(_CODES_BY_NAME.items()))
+    },
+}
+
+
+def place_of_supply_label(code: str) -> str:
+    """Return how a tax invoice names a place of supply: ``Karnataka (29)``."""
+    name = _NAMES_BY_CODE.get(code)
+    return f"{name} ({code})" if name else code
+
+
 def gst_state_code(value: str | None) -> str | None:
     """Return the GST state code a state is named by, however it is written.
 
@@ -363,6 +383,27 @@ class SupplyPlaceResolver:
             if keyed is not None:
                 return keyed
         return gst_state_code(address.state)
+
+    def place_of_supply(self, customer_id: UUID | None) -> str | None:
+        """Return the place of supply a tax invoice to this buyer prints.
+
+        The state the tax is charged by -- ``buyer_state``, so a registered
+        buyer's GSTIN outranks its address exactly as it does for the tax --
+        named with its code, ``Karnataka (29)``, as Rule 46(n) of the CGST
+        Rules asks for an inter-state supply (D-CMP-15). Where no code can be
+        told, the address's own state text is kept, which is what was printed
+        before; nothing is guessed.
+        """
+        code = self.buyer_state(customer_id)
+        if code is not None:
+            return place_of_supply_label(code)
+        customer = (
+            self._session.get(Customer, customer_id)
+            if customer_id is not None
+            else None
+        )
+        address = self._addressed_to(customer) if customer is not None else None
+        return str(address.state) if address is not None and address.state else None
 
     @staticmethod
     def _addressed_to(customer: Customer) -> CustomerAddress | None:
