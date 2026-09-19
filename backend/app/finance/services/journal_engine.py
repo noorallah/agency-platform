@@ -21,6 +21,7 @@ from app.core.utils.dates import utc_now
 from app.finance.models import (
     DEBIT_BALANCE_ACCOUNT_TYPES,
     AccountingPeriod,
+    FinancialYear,
     GLPosting,
     JournalEntry,
     JournalLine,
@@ -35,6 +36,26 @@ from app.finance.models import (
 
 ZERO = Decimal("0")
 MONEY = Decimal("0.01")
+
+#: What each posting module is called in a refusal, by ``source_module``. A
+#: module missing here is still refused -- by its own name with the
+#: underscores taken out -- so this is wording, not the rule.
+SOURCE_DOCUMENT_NAMES = {
+    "sales_invoice": "sales invoice",
+    "sales_return": "sales return",
+    "credit_note": "credit note",
+    "delivery_note": "delivery note",
+    "goods_receipt": "goods receipt",
+    "purchase_invoice": "purchase invoice",
+    "purchase_return": "purchase return",
+    "settlements": "receipt, payment or refund",
+    "customers": "customer's opening balance or credit note",
+    "inventory": "stock adjustment or transfer",
+    "physical_count": "physical count",
+    "commission": "commission payout",
+    "tcs": "TCS collection",
+    "loyalty": "loyalty entry",
+}
 
 
 def quantize_money(value: Decimal | None) -> Decimal:
@@ -218,6 +239,51 @@ class JournalEntryEngine:
             after_data={"status": entry.status},
         )
         return entry
+
+    def reverse_by_hand(
+        self,
+        journal_entry_id: UUID,
+        *,
+        firm_id: UUID,
+        reference_number: str,
+        accounting_period_id: UUID | None = None,
+        journal_date: date | None = None,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Reverse a hand-made journal from the journal screen (D-FIN-2).
+
+        Only a journal somebody keyed in can be undone here. One a document
+        posted belongs to that document: reversing it by hand left the
+        invoice, receipt or return APPROVED/POSTED with its receivable and its
+        stock while the ledger said it never happened, and the document's own
+        cancel then found the hand mirror -- same source, POSTED -- and either
+        reversed it back or collided with the ``-REV`` reference it had taken.
+        The document's cancel or return is what takes its journal off, with
+        everything else it moved; it calls :meth:`reverse_entry` directly.
+
+        Raises:
+            ValidationError: If the entry was posted by a document.
+
+        """
+        original = self.get_entry(journal_entry_id, firm_id=firm_id)
+        if original.source_module is not None:
+            owner = SOURCE_DOCUMENT_NAMES.get(
+                original.source_module, original.source_module.replace("_", " ")
+            )
+            raise ValidationError(
+                f"{original.reference_number} was posted by a {owner} and can "
+                f"only be undone with it. Cancel or return the {owner} instead; "
+                "that reverses this journal together with everything else the "
+                "document moved."
+            )
+        return self.reverse_entry(
+            journal_entry_id,
+            firm_id=firm_id,
+            reference_number=reference_number,
+            accounting_period_id=accounting_period_id,
+            journal_date=journal_date,
+            actor_id=actor_id,
+        )
 
     def reverse_entry(
         self,
@@ -594,6 +660,20 @@ class JournalEntryEngine:
             raise ValidationError(
                 f"Accounting period {period.code} is {period.status.lower()} "
                 f"and cannot accept postings."
+            )
+        # An open period inside a locked year is still closed to postings: the
+        # lock is the year-end close, and it was read only by the year's own
+        # edit and delete, so documents went on posting into it (D-FIN-3).
+        locked_year = self._session.scalar(
+            select(FinancialYear.code).where(
+                FinancialYear.id == period.financial_year_id,
+                FinancialYear.is_locked.is_(True),
+            )
+        )
+        if locked_year is not None:
+            raise ValidationError(
+                f"Accounting period {period.code} belongs to financial year "
+                f"{locked_year}, which is locked, and cannot accept postings."
             )
         return period
 

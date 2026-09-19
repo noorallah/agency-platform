@@ -1,6 +1,7 @@
 """Transactional application service for vendor management."""
 
 from collections.abc import Mapping
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -163,8 +164,9 @@ class VendorService:
     def delete(
         self, vendor_id: UUID, *, firm_scope: UUID | None, actor_id: UUID
     ) -> None:
-        """Soft delete a vendor."""
+        """Soft delete a vendor whose account is settled."""
         vendor = self.get(vendor_id, firm_scope=firm_scope)
+        self._assert_account_is_square(vendor)
         before = self._audit_snapshot(vendor)
         vendor.is_deleted = True
         vendor.deleted_at = utc_now()
@@ -180,6 +182,68 @@ class VendorService:
             before_data=before,
         )
         self._session.commit()
+
+    def _assert_account_is_square(self, vendor: Vendor) -> None:
+        """Refuse to delete a supplier the firm still owes or has paid ahead.
+
+        The vendor twin of D-FIN-1. A supplier has no balance column -- what
+        the firm owes is its approved bills less what was paid against them --
+        so the check asks the same derivation the payment screen does, plus
+        any bill still in draft and any payment not yet applied to a bill.
+        Deleting past any of those left the payable control account carrying
+        money owed to, or by, nobody on the vendor list.
+        """
+        # Imported here: the settlement and invoice modules import vendors.
+        from app.purchase_invoice.models import PurchaseInvoice
+        from app.settlements.models import Settlement, SettlementStatus
+        from app.settlements.services import PaymentService
+
+        reasons: list[str] = []
+        open_bills = PaymentService(self._session).outstanding_invoices(
+            firm_id=vendor.firm_id, party_id=vendor.id
+        )
+        owed = sum((record.outstanding_amount for record in open_bills), Decimal(0))
+        if owed:
+            reasons.append(f"is owed {owed:,.2f}")
+        numbers = [record.invoice_number for record in open_bills]
+        numbers += list(
+            self._session.scalars(
+                select(PurchaseInvoice.invoice_number)
+                .where(
+                    PurchaseInvoice.firm_id == vendor.firm_id,
+                    PurchaseInvoice.vendor_id == vendor.id,
+                    PurchaseInvoice.is_deleted.is_(False),
+                    PurchaseInvoice.status == "DRAFT",
+                )
+                .order_by(PurchaseInvoice.created_at.asc())
+            ).all()
+        )
+        if numbers:
+            shown = ", ".join(numbers[:5])
+            more = len(numbers) - 5
+            reasons.append(
+                f"has {len(numbers)} open bill{'' if len(numbers) == 1 else 's'} "
+                f"({shown}{f' and {more} more' if more > 0 else ''})"
+            )
+        unapplied = self._session.scalar(
+            select(func.coalesce(func.sum(Settlement.unallocated_amount), 0)).where(
+                Settlement.firm_id == vendor.firm_id,
+                Settlement.vendor_id == vendor.id,
+                Settlement.status == SettlementStatus.POSTED.value,
+                Settlement.is_deleted.is_(False),
+            )
+        )
+        if unapplied:
+            reasons.append(
+                f"holds {Decimal(str(unapplied)):,.2f} paid in advance and "
+                "not yet applied to a bill"
+            )
+        if reasons:
+            raise ValidationError(
+                f"{vendor.code} cannot be deleted: it {', '.join(reasons)}. "
+                "Settle or cancel what is open first, or set the vendor "
+                "inactive to stop buying from them."
+            )
 
     def restore(
         self, vendor_id: UUID, *, firm_scope: UUID | None, actor_id: UUID
@@ -268,6 +332,9 @@ class VendorService:
             vendor = self.get(vendor_id, firm_scope=firm_scope)
             if vendor.is_deleted:
                 continue
+            # The single-row rule, applied before anything is committed, so a
+            # batch whose fifth vendor still owes leaves the first four alone.
+            self._assert_account_is_square(vendor)
             vendor.is_deleted = True
             vendor.deleted_at = utc_now()
             vendor.deleted_by = actor_id

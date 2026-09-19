@@ -155,6 +155,15 @@ void main() {
         expect(gate.allows(action, 'CLOSED'), isFalse);
       }
     });
+
+    test('an order that has shipped is closed, not cancelled', () {
+      // D-SELL-11: cancel_order refuses once a note or a bill stands
+      // against the order; close is the way to end what is left of it.
+      for (final String status in <String>['PARTIALLY_DELIVERED', 'DELIVERED']) {
+        expect(gate.allows(DocumentLifecycleAction.cancel, status), isFalse);
+        expect(gate.allows(DocumentLifecycleAction.close, status), isTrue);
+      }
+    });
   });
 
   group('sales invoice', () {

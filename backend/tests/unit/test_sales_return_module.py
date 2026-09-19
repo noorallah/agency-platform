@@ -47,7 +47,7 @@ from app.inventory.schemas import InventoryAdjustmentCreate
 from app.inventory.services import InventoryService
 from app.products.models import Product
 from app.sales.models import territory as _sales_models  # noqa: F401
-from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
+from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine, SalesInvoiceLineTax
 from app.sales_invoice.schemas import (
     SalesInvoiceCreate,
     SalesInvoiceLineWrite,
@@ -57,7 +57,7 @@ from app.sales_invoice.services import SalesInvoiceService
 from app.sales_order.models import SalesOrderLine
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
-from app.sales_return.models import SalesReturn, SalesReturnLine
+from app.sales_return.models import SalesReturn, SalesReturnLine, SalesReturnLineTax
 from app.sales_return.schemas import (
     SalesReturnCreate,
     SalesReturnImportRequest,
@@ -1164,3 +1164,95 @@ def test_a_bill_whose_goods_came_back_through_the_note_cannot_be_cancelled() -> 
             actor_id=setup.actor_id,
             reason="Raised in error.",
         )
+
+
+def _charge_gst(setup: _Dispatch) -> SalesInvoiceLine:
+    """Record that the bill charged 18% GST on its line, as CGST and SGST.
+
+    The unit suite configures no tax rules, so the rules would charge nothing
+    today: whatever a return reverses can only have come off the bill.
+    """
+    line = setup.session.scalar(
+        select(SalesInvoiceLine).where(
+            SalesInvoiceLine.sales_invoice_id == setup.invoice.id
+        )
+    )
+    assert line is not None
+    line.tax_amount = Decimal("72")  # 18% of 4 x 100
+    for sequence, code in enumerate(("CGST", "SGST"), start=1):
+        setup.session.add(
+            SalesInvoiceLineTax(
+                sales_invoice_line_id=line.id,
+                firm_id=setup.firm.id,
+                sequence=sequence,
+                component_code=code,
+                component_label=f"{code} 9%",
+                percentage=Decimal("9"),
+                base_amount=Decimal("400"),
+                amount=Decimal("36"),
+            )
+        )
+    setup.session.commit()
+    return line
+
+
+def _components(session: Session, row: SalesReturn) -> list[tuple[str, Decimal]]:
+    """Return what each component of a return reversed, in order."""
+    return [
+        (tax.component_code, tax.amount)
+        for tax in session.scalars(
+            select(SalesReturnLineTax)
+            .join(
+                SalesReturnLine,
+                SalesReturnLine.id == SalesReturnLineTax.sales_return_line_id,
+            )
+            .where(SalesReturnLine.sales_return_id == row.id)
+            .order_by(SalesReturnLineTax.sequence)
+        ).all()
+    ]
+
+
+def test_a_return_reverses_the_tax_the_bill_charged() -> None:
+    """D-SELL-21: the tax was worked out again through today's rules.
+
+    Driven 2026-09-19 on a fixture: a rule cutting GST 18% to 12% after the
+    sale made a return of goods billed at 18% reverse 12% -- a different tax
+    from the one collected. The bill charged CGST 36 + SGST 36 on four; two
+    coming back take half of each, whatever the rules say now.
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    _charge_gst(setup)
+
+    row = SalesReturnService(session).create_return(
+        setup.payload(quantity=Decimal("2")),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+
+    assert row.tax_total == Decimal("36.0000")
+    assert _components(session, row) == [
+        ("CGST", Decimal("18.0000")),
+        ("SGST", Decimal("18.0000")),
+    ]
+
+
+def test_a_return_raised_on_the_bill_reverses_its_tax_too() -> None:
+    """The same goods named through the bill's own line."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    charged = _charge_gst(setup)
+    payload = setup.payload(quantity=Decimal("1"))
+    payload.lines[0].source_document_type = SalesReturnSourceType.SALES_INVOICE
+    payload.lines[0].source_document_id = setup.invoice.id
+    payload.lines[0].source_document_line_id = charged.id
+
+    row = SalesReturnService(session).create_return(
+        payload, firm_id=setup.firm.id, actor_id=setup.actor_id
+    )
+
+    assert row.tax_total == Decimal("18.0000")
+    assert _components(session, row) == [
+        ("CGST", Decimal("9.0000")),
+        ("SGST", Decimal("9.0000")),
+    ]

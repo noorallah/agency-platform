@@ -116,14 +116,30 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
     List<BranchRecord> branches = const [];
     List<WarehouseRecord> warehouses = const [];
     try {
+      // Every customer and product, not the newest 20 and 100: an older
+      // customer could not be quoted from here at all (D-SELL-18).
       final List<dynamic> results = await Future.wait<dynamic>([
-        widget.api.customers(page: 1),
-        widget.api.products(page: 1, pageSize: 100),
+        fetchAllPages<Customer>(
+          (int page) => widget.api.customers(
+            page: page,
+            pageSize: maxApiPageSize,
+            sortBy: 'name',
+            descending: false,
+          ),
+        ),
+        fetchAllPages<Product>(
+          (int page) => widget.api.products(
+            page: page,
+            pageSize: maxApiPageSize,
+            sortBy: 'name',
+            descending: false,
+          ),
+        ),
         widget.api.branches(page: 1, pageSize: 100),
         widget.api.warehouses(page: 1, pageSize: 100),
       ]);
-      customers = (results[0] as PagedResult<Customer>).items;
-      products = (results[1] as PagedResult<Product>).items;
+      customers = results[0] as List<Customer>;
+      products = results[1] as List<Product>;
       branches = (results[2] as PagedResult<BranchRecord>).items;
       warehouses = (results[3] as PagedResult<WarehouseRecord>).items;
     } on ApiException catch (exception) {

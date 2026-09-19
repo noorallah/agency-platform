@@ -303,20 +303,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             firm_id=firm_id, actor_id=actor_id
         )
         order = self._sales_order(data.sales_order_id, firm_id=firm_id)
-        # A sales order's status, compared against the sales order's own enum.
-        # This read `DeliveryNoteStatus` members, which agreed only because
-        # both enums spell APPROVED and CLOSED the same -- and would have
-        # refused the second delivery against a part-delivered order the
-        # moment that status started being written.
-        if order.status not in {
-            SalesOrderStatus.APPROVED.value,
-            SalesOrderStatus.PARTIALLY_DELIVERED.value,
-            SalesOrderStatus.DELIVERED.value,
-            SalesOrderStatus.CLOSED.value,
-        }:
-            raise ValidationError(
-                "Delivery notes can be created only from approved sales orders."
-            )
+        self._refuse_unless_order_open(order)
         self._refuse_if_held(order)
         self._validate_scope_references(
             firm_id=firm_id,
@@ -441,6 +428,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         if row.status != DeliveryNoteStatus.DRAFT.value:
             raise ValidationError("Only draft delivery notes can be updated.")
         order = self._sales_order(data.sales_order_id, firm_id=firm_scope)
+        self._refuse_unless_order_open(order)
         # A held order's draft may still have its vehicle, driver or remarks
         # put right; what it may not do is change what is to ship.
         if order.is_on_hold:
@@ -537,7 +525,9 @@ class DeliveryNoteService(TransactionalDocumentService):
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status != DeliveryNoteStatus.DRAFT.value:
             raise ValidationError("Only draft delivery notes can be approved.")
-        self._refuse_if_held(self._sales_order(row.sales_order_id, firm_id=firm_scope))
+        order = self._sales_order(row.sales_order_id, firm_id=firm_scope)
+        self._refuse_unless_order_open(order)
+        self._refuse_if_held(order)
         row.status = DeliveryNoteStatus.APPROVED.value
         row.approved_at = utc_now()
         row.updated_by = actor_id
@@ -583,7 +573,9 @@ class DeliveryNoteService(TransactionalDocumentService):
             return row
         if row.status != DeliveryNoteStatus.APPROVED.value:
             raise ValidationError("Only approved delivery notes can be dispatched.")
-        self._refuse_if_held(self._sales_order(row.sales_order_id, firm_id=firm_scope))
+        order = self._sales_order(row.sales_order_id, firm_id=firm_scope)
+        self._refuse_unless_order_open(order)
+        self._refuse_if_held(order)
         self._dispatch_inventory(row=row, actor_id=actor_id)
         row.status = DeliveryNoteStatus.DISPATCHED.value
         row.dispatched_at = utc_now()
@@ -631,9 +623,9 @@ class DeliveryNoteService(TransactionalDocumentService):
             # Completing an approved note dispatches it. One already on the
             # road is only being confirmed as received, which a hold on the
             # order cannot undo.
-            self._refuse_if_held(
-                self._sales_order(row.sales_order_id, firm_id=firm_scope)
-            )
+            order = self._sales_order(row.sales_order_id, firm_id=firm_scope)
+            self._refuse_unless_order_open(order)
+            self._refuse_if_held(order)
             self._dispatch_inventory(row=row, actor_id=actor_id)
             row.dispatched_at = row.dispatched_at or utc_now()
         elif row.status != DeliveryNoteStatus.DISPATCHED.value:
@@ -2178,6 +2170,30 @@ class DeliveryNoteService(TransactionalDocumentService):
                 actor_id=actor_id,
             ),
             actor_id=actor_id,
+        )
+
+    @staticmethod
+    def _refuse_unless_order_open(order: SalesOrder) -> None:
+        """Refuse to raise or move a note forward on an order that is not open.
+
+        A sales order's status, compared against the sales order's own enum.
+        This once read `DeliveryNoteStatus` members, which agreed only because
+        both enums spell APPROVED and CLOSED the same. CLOSED was accepted as
+        well, so goods could still be raised and shipped against an order that
+        had been closed -- and whose reservations closing had released
+        (D-SELL-11). Closing is how a firm says "nothing more on this order";
+        only create was ever asked, so a note drafted or approved before the
+        close still went out. Every step that moves a note forward asks now.
+        """
+        if order.status in {
+            SalesOrderStatus.APPROVED.value,
+            SalesOrderStatus.PARTIALLY_DELIVERED.value,
+            SalesOrderStatus.DELIVERED.value,
+        }:
+            return
+        raise ValidationError(
+            "Delivery notes can be raised only against an approved sales order; "
+            f"{order.order_number} is {order.status}."
         )
 
     def _sales_order(self, sales_order_id: UUID, *, firm_id: UUID) -> SalesOrder:

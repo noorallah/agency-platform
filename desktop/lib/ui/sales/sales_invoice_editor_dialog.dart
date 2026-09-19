@@ -123,15 +123,27 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       final bool direct = stages.billsDirectly && widget.invoiceId == null;
       final List<BillableDocument> rows =
           direct ? const [] : await widget.api.billableDocuments();
+      // Every customer and product, not the first hundred by name: a counter
+      // sale to a customer past it could not be billed (D-SELL-18).
       final List<Customer> customers = direct
-          ? (await widget.api.customers(pageSize: 100, sortBy: 'name',
-                  descending: false))
-              .items
+          ? await fetchAllPages<Customer>(
+              (int page) => widget.api.customers(
+                page: page,
+                pageSize: maxApiPageSize,
+                sortBy: 'name',
+                descending: false,
+              ),
+            )
           : const [];
       final List<Product> products = direct
-          ? (await widget.api.products(pageSize: 100, sortBy: 'name',
-                  descending: false))
-              .items
+          ? await fetchAllPages<Product>(
+              (int page) => widget.api.products(
+                page: page,
+                pageSize: maxApiPageSize,
+                sortBy: 'name',
+                descending: false,
+              ),
+            )
           : const [];
       final String? id = widget.invoiceId;
       final Json? existing =
