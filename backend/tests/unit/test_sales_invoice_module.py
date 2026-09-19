@@ -778,6 +778,58 @@ def test_cancelling_an_approved_invoice_takes_its_journal_back() -> None:
     assert len(reversals) == 1, "one mirror entry, named after the invoice"
 
 
+def test_a_bill_cancelled_before_utc_catches_up_is_not_undone_the_day_before(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-FIN-5: a reversal took UTC's "today", which can be the day before.
+
+    Documents carry the user's local date, which runs ahead of UTC until 05:30
+    in India. Live, SI-2026-2027-000001 and -000002 on two fixture firms were
+    dated 2026-09-19, cancelled at 20:34 and 20:45 UTC on the 18th, and
+    reversed and credited on the 18th -- the day before they were raised. The
+    journal and the statement row now both carry the bill's own day.
+    """
+    from datetime import UTC, datetime
+
+    from app.customers.models import CustomerReceivableTransaction
+    from app.finance.services import journal_engine
+    from app.sales_invoice.services import sales_invoice_service
+
+    def _utc_evening_before() -> datetime:
+        """Return 20:34 UTC on the 4th -- already the 5th in India."""
+        return datetime(2026, 8, 4, 20, 34, tzinfo=UTC)
+
+    monkeypatch.setattr(journal_engine, "utc_now", _utc_evening_before)
+    monkeypatch.setattr(sales_invoice_service, "utc_now", _utc_evening_before)
+    session = _session_factory()()
+    firm = _firm(session)
+    service, invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=uuid4()
+    )
+    service.approve_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+
+    service.cancel_invoice(
+        invoice_id, firm_scope=firm.id, actor_id=uuid4(), reason="raised twice"
+    )
+
+    reversal = session.scalar(
+        select(JournalEntry).where(
+            JournalEntry.source_module == "sales_invoice",
+            JournalEntry.reversal_of_id.is_not(None),
+        )
+    )
+    assert reversal is not None
+    assert reversal.journal_date == date(2026, 8, 5)
+    credited = session.scalar(
+        select(CustomerReceivableTransaction.transaction_date).where(
+            CustomerReceivableTransaction.reference_id == invoice_id,
+            CustomerReceivableTransaction.transaction_type == "CREDIT_NOTE",
+        )
+    )
+    assert credited == date(2026, 8, 5)
+
+
 def _loyal_firm_with_a_bill(
     session: Session,
 ) -> tuple[Firm, SalesInvoiceService, UUID]:

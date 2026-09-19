@@ -326,7 +326,18 @@ class JournalEntryEngine:
             # take the first day of the *original's* period -- a receipt from
             # the 16th cancelled on the 20th reversed on the 1st, which is
             # neither date and sorts the reversal before what it undoes.
-            target_date = journal_date or utc_now().date()
+            #
+            # D-FIN-5: never before the original, though. Documents carry the
+            # user's local date, which runs ahead of UTC until 05:30 in India,
+            # so a bill raised and cancelled in those hours reversed on the
+            # day before it was raised -- on the 1st, in the previous period.
+            if journal_date is not None and journal_date < original.journal_date:
+                raise ValidationError(
+                    f"A reversal cannot be dated {journal_date.isoformat()}, "
+                    f"before {original.reference_number} itself "
+                    f"({original.journal_date.isoformat()})."
+                )
+            target_date = journal_date or max(utc_now().date(), original.journal_date)
             open_period = self._open_period_covering(target_date, firm_id=firm_id)
             if open_period is None:
                 # Nothing is open on that day -- typically a new year not yet

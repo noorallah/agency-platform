@@ -2370,6 +2370,9 @@ def test_reversing_a_returned_goods_cost_uses_what_the_movement_removed() -> Non
         (date(2026, 4, 20), date(2026, 4, 20)),
         # No open period covers the cancel day: the original's own day.
         (date(2030, 1, 15), date(2026, 4, 16)),
+        # D-FIN-5: UTC still reads the day before the document's local date,
+        # so the reversal takes the original's day rather than predate it.
+        (date(2026, 4, 15), date(2026, 4, 16)),
     ],
 )
 def test_a_reversal_is_dated_the_day_it_happens(
@@ -2412,3 +2415,37 @@ def test_a_reversal_is_dated_the_day_it_happens(
 
     assert reversal.journal_date == expected
     assert reversal.accounting_period_id == book.period.id
+
+
+def test_a_reversal_cannot_be_asked_for_before_its_original() -> None:
+    """D-FIN-5, asked for by hand: a date before the original is refused.
+
+    The default is never before the original; a date somebody types is not
+    quietly moved, it is refused with both dates named.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    engine = JournalEntryEngine(session)
+    entry = engine.create_entry(
+        firm_id=firm.id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 16),
+        reference_number="JV-EARLY",
+        description="Cash sale",
+        lines=_sale_lines(book, "80.00"),
+        actor_id=actor_id,
+    )
+    engine.post_entry(entry.id, firm_id=firm.id, actor_id=actor_id)
+
+    with pytest.raises(ValidationError, match="before JV-EARLY itself"):
+        engine.reverse_entry(
+            entry.id,
+            firm_id=firm.id,
+            reference_number="JV-EARLY-R",
+            journal_date=date(2026, 4, 15),
+            actor_id=actor_id,
+        )

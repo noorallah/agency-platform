@@ -1030,7 +1030,9 @@ class SalesInvoiceService(TransactionalDocumentService):
             # overstated by the whole invoice from that moment on. Reversing
             # the entry mirrors what it raised, which is right in a way that
             # booking the lot as a sales return would not be.
-            self._reverse_invoice_posting(row, firm_scope=firm_scope, actor_id=actor_id)
+            reversed_on = self._reverse_invoice_posting(
+                row, firm_scope=firm_scope, actor_id=actor_id
+            )
             # The points the bill earned go with it, and their accrual with
             # them; kept, they could be spent from a sale that never happened
             # (D-SELL-2, 2026-09-19).
@@ -1041,7 +1043,11 @@ class SalesInvoiceService(TransactionalDocumentService):
                 row.customer_id,
                 CustomerReceivableTransactionCreate(
                     transaction_type=CustomerReceivableTransactionType.CREDIT_NOTE,
-                    transaction_date=utc_now().date(),
+                    # The reversal's own date, so the statement and 1100 agree;
+                    # and never before the bill (D-FIN-5), which a UTC "today"
+                    # was until 05:30 in India.
+                    transaction_date=reversed_on
+                    or max(utc_now().date(), row.invoice_date),
                     amount=_receivable_amount(row.grand_total),
                     reference_type="SALES_INVOICE",
                     reference_id=row.id,
@@ -3010,12 +3016,17 @@ class SalesInvoiceService(TransactionalDocumentService):
         *,
         firm_scope: UUID,
         actor_id: UUID,
-    ) -> None:
+    ) -> date | None:
         """Cancel the journal an approved invoice wrote, if it wrote one.
 
         Found by `scripts/verify_sample_data.py`, which compares what customers
         owe against the receivable control account: cancelling an approved
         invoice moved the first and not the second.
+
+        Returns:
+            The date the reversal was posted on, so the customer's statement
+            row can carry the same one; None when nothing had posted.
+
         """
         entry_id = self._session.scalar(
             select(JournalEntry.id).where(
@@ -3032,13 +3043,14 @@ class SalesInvoiceService(TransactionalDocumentService):
         if entry_id is None:
             # Nothing posted, so there is nothing to take back -- a firm that
             # approved invoices before posting existed is in this state.
-            return
-        JournalEntryEngine(self._session).reverse_entry(
+            return None
+        reversal = JournalEntryEngine(self._session).reverse_entry(
             entry_id,
             firm_id=firm_scope,
             reference_number=f"{row.invoice_number}-REV",
             actor_id=actor_id,
         )
+        return reversal.journal_date
 
     def _record_event(
         self,
