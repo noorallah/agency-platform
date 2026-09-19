@@ -754,6 +754,15 @@ to the person rather than to the job. That is the whole reason it is not
 starts with `force_password_change` — a password somebody else chose is not a
 password.
 
+**It is one transaction.** `clone_user` used to call `create_user` (which
+commits), then `set_user_roles` (which commits), then copy the memberships --
+three commits, so a failure after the first left an account holding the
+address with no roles and no firms, and the retry was refused 409 on the
+email (D-IDN-8, 2026-09-19). The account, the roles, the memberships and the
+audit row are now staged (`_stage_create_user`, `_stage_set_user_roles`) and
+committed once; `apply_user_template` composes the same staged writer, so the
+grant and the row saying which job it was commit together.
+
 The platform designation is never copied, and there are two locks on it:
 `_get_user` excludes platform administrators from firm-scoped administration, so
 a firm administrator cannot reach one to clone; and a platform caller who can

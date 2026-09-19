@@ -505,6 +505,21 @@ class IdentityService:
         self, data: UserCreate, actor_id: UUID, firm_scope: UUID | None = None
     ) -> User:
         """Provision a user with a policy-compliant initial password."""
+        user = self._stage_create_user(data, actor_id, firm_scope)
+        self._session.commit()
+        return user
+
+    def _stage_create_user(
+        self, data: UserCreate, actor_id: UUID, firm_scope: UUID | None = None
+    ) -> User:
+        """Write the account and its audit row without committing.
+
+        The internal half of `create_user`. `clone_user` composes this with
+        `_stage_set_user_roles` and commits once: a chain of committing
+        services is not a transaction, and a failure part-way used to leave an
+        account holding the address with no roles and no firms, whose retry
+        was then refused 409 (D-IDN-8).
+        """
         email = validate_email(data.email)
         # Only live accounts hold an address; soft-deleted users release theirs so
         # a leaver can be re-onboarded. This mirrors UQ_users_email_active and is
@@ -550,7 +565,6 @@ class IdentityService:
             firm_id=firm_scope,
             after_data=self._user_state(user),
         )
-        self._session.commit()
         return user
 
     def update_user(
@@ -1010,7 +1024,9 @@ class IdentityService:
             if target is None
             else {}
         )
-        clone = self.create_user(
+        # Staged, then committed once at the end: the account, its roles and
+        # its memberships are one hiring decision (D-IDN-8).
+        clone = self._stage_create_user(
             UserCreate(
                 email=data.email,
                 full_name=data.full_name,
@@ -1025,7 +1041,7 @@ class IdentityService:
         )
         role_ids = self._roles_held_by(source.id, target)
         if role_ids:
-            self.set_user_roles(clone.id, role_ids, actor_id, target)
+            self._stage_set_user_roles(clone.id, role_ids, actor_id, target)
         for firm_id, firm_role_ids in firm_tier.items():
             self._replace_scoped_user_roles(clone.id, firm_role_ids, actor_id, firm_id)
         # A platform caller is not creating inside any firm, so the clone would
@@ -1434,8 +1450,9 @@ class IdentityService:
         ]
         # Through the ordinary path, so the firm-scope check that refuses a
         # platform or cross-firm role applies here too and there is one
-        # implementation of it rather than two.
-        self.set_user_roles(user_id, role_ids, actor_id, target)
+        # implementation of it rather than two. Staged, so the grant and the
+        # row saying which job it was commit together (D-IDN-8).
+        self._stage_set_user_roles(user_id, role_ids, actor_id, target)
         # The firm it was applied in; applied to the global tier it concerns
         # every firm the person works in.
         self._audit_for_firms(
@@ -1893,6 +1910,22 @@ class IdentityService:
         firm_scope: UUID | None = None,
     ) -> None:
         """Replace a user's role assignment set."""
+        self._stage_set_user_roles(user_id, role_ids, actor_id, firm_scope)
+        self._session.commit()
+
+    def _stage_set_user_roles(
+        self,
+        user_id: UUID,
+        role_ids: list[UUID],
+        actor_id: UUID,
+        firm_scope: UUID | None = None,
+    ) -> None:
+        """Replace a user's role set without committing (see `_stage_create_user`).
+
+        The no-self-grant check lives here rather than on the wrapper, so it
+        holds for every composed caller too -- applying a job template to
+        yourself is the same decision as granting yourself the roles (D-IDN-1).
+        """
         self._assert_not_own_access(user_id, actor_id)
         user = self._get_user(user_id, firm_scope)
         self._ensure_identifiers(Role, role_ids)
@@ -1948,7 +1981,6 @@ class IdentityService:
                 before_data={"tier": tier, "role_codes": before_codes},
                 after_data={"tier": tier, "role_codes": after_codes},
             )
-        self._session.commit()
 
     def set_user_firms(
         self,
