@@ -17,7 +17,7 @@ from types import SimpleNamespace
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -33,6 +33,7 @@ from app.finance.models import (
     AccountingPeriod,
     FirmControlAccount,
     GLPosting,
+    JournalEntry,
     LedgerAccount,
 )
 from app.finance.services.control_accounts import (
@@ -748,6 +749,63 @@ def test_recording_a_receipt_the_old_way_is_refused() -> None:
 
     assert "/api/v1/receipts" in str(error.value)
     assert "only moves the customer balance" in str(error.value)
+
+
+@pytest.mark.parametrize(
+    ("transaction_type", "destination"),
+    [
+        (CustomerReceivableTransactionType.INVOICE, "/api/v1/sales-invoices"),
+        (CustomerReceivableTransactionType.TCS, "/api/v1/receipts"),
+        (CustomerReceivableTransactionType.LOYALTY, "/api/v1/loyalty/redeem"),
+        (
+            CustomerReceivableTransactionType.ADVANCE_APPLY,
+            "/api/v1/receipts/{receipt_id}/allocate",
+        ),
+        (CustomerReceivableTransactionType.REFUND, "/api/v1/refunds"),
+    ],
+)
+def test_the_receivable_endpoint_refuses_what_another_module_records(
+    transaction_type: CustomerReceivableTransactionType, destination: str
+) -> None:
+    """D-FIN-4: five more types moved a customer's balance with no journal.
+
+    Driven on a fixture firm: an INVOICE of 25.00, a TCS of 1.00, a LOYALTY of
+    5.00 and a REFUND of 10.00 each moved the customer's balance and left the
+    journal count where it was. Each has a module that records it together
+    with its journal, and the refusal names it.
+    """
+    from app.customers.api.router import post_customer_receivable_transaction
+
+    books = _Books(_session_factory()())
+    books.owe_us("300.00")
+    _receipt(books, "500.00")
+    books.session.commit()
+    books.session.refresh(books.customer)
+    outstanding = books.customer.current_outstanding
+    advance = books.customer.unapplied_advance_balance
+    journals = books.session.scalar(select(func.count()).select_from(JournalEntry))
+    scope = SimpleNamespace(firm_id=books.firm.id, actor_id=books.actor_id)
+
+    with pytest.raises(ValidationError) as error:
+        post_customer_receivable_transaction(
+            books.customer.id,
+            CustomerReceivableTransactionCreate(
+                transaction_type=transaction_type,
+                amount=Decimal("10.00"),
+                transaction_date=WHEN,
+            ),
+            scope,  # type: ignore[arg-type]
+            db=books.session,
+        )
+    books.session.rollback()
+
+    assert destination in str(error.value)
+    books.session.refresh(books.customer)
+    assert books.customer.current_outstanding == outstanding
+    assert books.customer.unapplied_advance_balance == advance
+    assert (
+        books.session.scalar(select(func.count()).select_from(JournalEntry)) == journals
+    )
 
 
 def test_a_credit_note_still_goes_through_the_receivable_endpoint() -> None:
