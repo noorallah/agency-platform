@@ -61,7 +61,7 @@ from app.customers.schemas.customer import (
 )
 from app.customers.services import CreditControlService, CustomerService
 from app.customers.services.credit_control import DEFAULT_SETTINGS
-from app.finance.models import JournalEntry
+from app.finance.models import JournalEntry, JournalLine, LedgerAccount
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
 from app.identity.models import UserFirm
@@ -153,6 +153,11 @@ def _customer_data(code: str = "CUST-001") -> CustomerCreate:
     )
 
 
+def _settled_customer_data(code: str = "CUST-001") -> CustomerCreate:
+    """Return a customer who owes nothing, so the delete guard lets it go."""
+    return _customer_data(code).model_copy(update={"opening_balance": Decimal("0.00")})
+
+
 def _principal(user_id: UUID, permissions: set[str]) -> Principal:
     return Principal(
         subject=user_id,
@@ -200,7 +205,7 @@ def test_customer_service_enforces_firm_uniqueness_scope_and_audit() -> None:
     service = CustomerService(session)
 
     customer = service.create(
-        _customer_data(), firm_id=first_firm.id, actor_id=actor_id
+        _settled_customer_data(), firm_id=first_firm.id, actor_id=actor_id
     )
     assert customer.display_name == "Acme Customer"
     assert customer.addresses[0].city == "Chennai"
@@ -220,6 +225,7 @@ def test_customer_service_enforces_firm_uniqueness_scope_and_audit() -> None:
         {
             **_customer_data().model_dump(mode="json"),
             "name": "Acme Customer Updated",
+            "opening_balance": "0.00",
             "gst_number": "GST-UPDATED",
             "pan_number": "PAN-UPDATED",
         }
@@ -255,7 +261,9 @@ def test_customer_search_filters_summary_and_soft_delete() -> None:
     firm = _firm(session, "SEARCH")
     actor_id = uuid4()
     service = CustomerService(session)
-    customer = service.create(_customer_data(), firm_id=firm.id, actor_id=actor_id)
+    customer = service.create(
+        _settled_customer_data(), firm_id=firm.id, actor_id=actor_id
+    )
 
     rows, total = service.list_customers(
         firm_scope=firm.id,
@@ -403,7 +411,7 @@ def test_customer_api_enforces_membership_permissions_and_restore() -> None:
     principal = _principal(user_id, permissions)
     session = factory()
     scope = _firm_scope(principal, session, firm.id)
-    created = create_customer(_customer_data(), scope, session)
+    created = create_customer(_settled_customer_data(), scope, session)
     customer_id = created.data.id
 
     listed = list_customers(
@@ -878,50 +886,115 @@ def test_a_firm_with_no_chart_of_accounts_says_so() -> None:
     assert without.code == "CUST-BARE"
 
 
-def test_deleting_a_customer_takes_its_opening_balance_with_it() -> None:
-    """Found by driving the API: two probe customers left 50,000 in the ledger.
+def _receivable_net(session: Session, firm_id: UUID) -> Decimal:
+    """Return what the ledger says customers owe: the receivable's net debit."""
+    rows = session.execute(
+        select(JournalLine.debit_amount, JournalLine.credit_amount)
+        .join(LedgerAccount, LedgerAccount.id == JournalLine.ledger_account_id)
+        .join(JournalEntry, JournalEntry.id == JournalLine.journal_entry_id)
+        .where(
+            LedgerAccount.firm_id == firm_id,
+            LedgerAccount.code == "1100",
+            JournalEntry.status.in_(("POSTED", "REVERSED")),
+        )
+    ).all()
+    return sum((Decimal(debit) - Decimal(credit) for debit, credit in rows), Decimal(0))
 
-    The balance leaves the customer's account on delete, so an entry left
-    standing puts the receivable control account above what anybody is
-    recorded as owing -- the same drift, in the other direction.
+
+def test_a_customer_who_owes_money_cannot_be_deleted() -> None:
+    """D-FIN-1: deleting a customer who owed took the balance off one book only.
+
+    TEST01's receivable account held 1,960.00 for five deleted customers that
+    no report of the customer ledger could see. The rule every ledger package
+    keeps is that an account with a balance is settled before it goes; one the
+    firm has stopped trading with is set inactive instead.
     """
-    session_factory = _session_factory()
-    session = session_factory()
+    session = _session_factory()()
     firm = _firm(session, "OB-FIRM3")
     service = CustomerService(session)
     actor_id = uuid4()
-    customer = service.create(
+    owing = service.create(
         _customer_data("CUST-OB3").model_copy(
             update={"opening_balance": Decimal("25000.00")}
         ),
         firm_id=firm.id,
         actor_id=actor_id,
     )
-    posted = session.scalar(
-        select(CustomerReceivableTransaction.journal_entry_id).where(
-            CustomerReceivableTransaction.customer_id == customer.id
-        )
+    in_credit = service.create(
+        _customer_data("CUST-ADV").model_copy(
+            update={"gst_number": "GST-ADV", "pan_number": "PAN-ADV"}
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
     )
-    assert posted is not None
+    before = _receivable_net(session, firm.id)
+    assert before == Decimal("24850.00")
 
-    service.delete(customer.id, firm_scope=firm.id, actor_id=actor_id)
+    with pytest.raises(
+        ValidationError, match="CUST-OB3 cannot be deleted: it owes 25,000.00"
+    ):
+        service.delete(owing.id, firm_scope=firm.id, actor_id=actor_id)
+    session.rollback()
+    with pytest.raises(ValidationError, match="holds an advance of 150.00"):
+        service.delete(in_credit.id, firm_scope=firm.id, actor_id=actor_id)
+    session.rollback()
 
-    references = sorted(
-        row
-        for row in session.scalars(
+    # Nothing moved: both are still listed, and the ledger still agrees.
+    assert session.get(Customer, owing.id).is_deleted is False  # type: ignore[union-attr]
+    assert session.get(Customer, in_credit.id).is_deleted is False  # type: ignore[union-attr]
+    assert _receivable_net(session, firm.id) == before
+    assert sorted(
+        session.scalars(
             select(JournalEntry.reference_number).where(JournalEntry.firm_id == firm.id)
         ).all()
+    ) == ["CUST-ADV-OB", "CUST-OB3-OB"]
+
+    # A settled account goes, and takes nothing out of the ledger with it.
+    square = service.create(
+        _settled_customer_data("CUST-SQ").model_copy(
+            update={"gst_number": "GST-SQ", "pan_number": "PAN-SQ"}
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
     )
-    assert references == ["CUST-OB3-OB", "CUST-OB3-OB-REV"]
-    # Both legs still exist, and they cancel: the ledger records that the
-    # balance was claimed and then withdrawn, rather than pretending neither.
-    entries = list(
-        session.scalars(
-            select(JournalEntry).where(JournalEntry.firm_id == firm.id)
-        ).all()
+    service.delete(square.id, firm_scope=firm.id, actor_id=actor_id)
+    assert square.is_deleted is True
+    assert _receivable_net(session, firm.id) == before
+
+
+def test_restoring_a_customer_whose_delete_reversed_its_balance_reposts_it() -> None:
+    """The other half of D-FIN-1: restore brought the balance back, not the journal.
+
+    A customer deleted before the guard existed had its opening-balance journal
+    mirrored on the way out while the balance stayed on the account, so
+    restoring it left the receivable account short by exactly that balance.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "OB-FIRM4")
+    service = CustomerService(session)
+    actor_id = uuid4()
+    customer = service.create(
+        _customer_data("CUST-OB4").model_copy(
+            update={"opening_balance": Decimal("25000.00")}
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
     )
-    assert sum(entry.total_debit for entry in entries) == Decimal("50000.00")
-    assert sum(entry.total_credit for entry in entries) == Decimal("50000.00")
+    # What a delete did before the guard: mirror the journal, keep the balance.
+    service._reverse_opening_balance_postings(customer, actor_id=actor_id)
+    customer.is_deleted = True
+    session.commit()
+    assert _receivable_net(session, firm.id) == Decimal("0.00")
+
+    service.restore(customer.id, firm_scope=firm.id, actor_id=actor_id)
+
+    assert customer.current_outstanding == Decimal("25000.00")
+    assert _receivable_net(session, firm.id) == Decimal("25000.00")
+    # A second delete-and-restore round trip posts nothing more.
+    customer.is_deleted = True
+    session.commit()
+    service.restore(customer.id, firm_scope=firm.id, actor_id=actor_id)
+    assert _receivable_net(session, firm.id) == Decimal("25000.00")
 
 
 def _request_like_session_factory() -> sessionmaker[Session]:

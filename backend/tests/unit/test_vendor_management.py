@@ -1,6 +1,7 @@
 """Vendor validation, service, tenancy, and API tests."""
 
 from datetime import date
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
@@ -16,11 +17,17 @@ from app.common.scope import (
 )
 from app.core.database.base import Base
 from app.core.enums import TokenType
-from app.core.exceptions import AuthorizationError, ConflictError, ResourceNotFoundError
+from app.core.exceptions import (
+    AuthorizationError,
+    ConflictError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.core.security.authorization import Principal, require_permission
 from app.core.security.jwt import TokenClaims
 from app.firms.models import Firm
 from app.identity.models import UserFirm
+from app.purchase_invoice.models import PurchaseInvoice
 from app.vendors.api.router import create_vendor, list_vendors
 from app.vendors.schemas import (
     VendorCategoryWrite,
@@ -354,3 +361,65 @@ def test_a_master_belongs_to_its_firm_alone() -> None:
     rows, total = service.list_categories(firm_id=mine.id)
     assert total == 1
     assert rows[0].firm_id == mine.id
+
+
+def test_a_vendor_with_an_open_bill_cannot_be_deleted() -> None:
+    """The vendor twin of D-FIN-1: a supplier still owed could be deleted.
+
+    The payable control account then carried money owed to nobody on the
+    vendor list. An approved bill still owing, or one still in draft, has to be
+    settled or cancelled first -- and the bulk delete asks the same question
+    before it commits anything.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "VOWED")
+    actor_id = uuid4()
+    service = VendorService(session)
+    owed = service.create(
+        _vendor_data("VEN-OW", "GSTIN-OW"), firm_id=firm.id, actor_id=actor_id
+    )
+    drafted = service.create(
+        _vendor_data("VEN-DR", "GSTIN-DR"), firm_id=firm.id, actor_id=actor_id
+    )
+    square = service.create(
+        _vendor_data("VEN-SQ", "GSTIN-SQ"), firm_id=firm.id, actor_id=actor_id
+    )
+    for vendor, number, status, total in (
+        (owed, "PI-1", "APPROVED", Decimal("1180.00")),
+        (drafted, "PI-2", "DRAFT", Decimal("590.00")),
+    ):
+        session.add(
+            PurchaseInvoice(
+                firm_id=firm.id,
+                vendor_id=vendor.id,
+                branch_id=uuid4(),
+                invoice_number=number,
+                invoice_date=date(2026, 9, 1),
+                supplier_invoice_number=f"S-{number}",
+                supplier_invoice_date=date(2026, 9, 1),
+                status=status,
+                grand_total=total,
+            )
+        )
+    session.commit()
+
+    with pytest.raises(
+        ValidationError, match=r"VEN-OW cannot be deleted: it is owed 1,180.00"
+    ):
+        service.delete(owed.id, firm_scope=firm.id, actor_id=actor_id)
+    session.rollback()
+    with pytest.raises(ValidationError, match=r"has 1 open bill \(PI-2\)"):
+        service.delete(drafted.id, firm_scope=firm.id, actor_id=actor_id)
+    session.rollback()
+    with pytest.raises(ValidationError, match="VEN-OW cannot be deleted"):
+        service.bulk_delete(
+            ids=[square.id, owed.id], firm_scope=firm.id, actor_id=actor_id
+        )
+    session.rollback()
+    # The batch left even its settled first row alone.
+    assert square.is_deleted is False
+    assert owed.is_deleted is False
+    assert drafted.is_deleted is False
+
+    service.delete(square.id, firm_scope=firm.id, actor_id=actor_id)
+    assert square.is_deleted is True
