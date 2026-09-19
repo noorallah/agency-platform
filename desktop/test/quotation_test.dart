@@ -39,6 +39,8 @@ Quotation _quote({
   String declineReason = '',
   String billDiscountPercent = '0',
   String billDiscountSource = '',
+  String freightAmount = '0.0000',
+  String freightWaivedAmount = '0.0000',
   bool withGift = false,
 }) =>
     Quotation.fromJson({
@@ -55,6 +57,8 @@ Quotation _quote({
       'status': status,
       'bill_discount_percent': billDiscountPercent,
       'bill_discount_source': billDiscountSource,
+      'freight_amount': freightAmount,
+      'freight_waived_amount': freightWaivedAmount,
       'subtotal': '1125.0000',
       'tax_total': '202.5000',
       'grand_total': '1327.5000',
@@ -732,6 +736,64 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(api.revised!['bill_discount_percent'], '5.0000');
+    });
+
+    testWidgets('a revision keeps the delivery charge the offer asked',
+        (tester) async {
+      // D-SELL-34: the box was never filled from the stored quotation, so a
+      // revision sent no freight and the update -- which replaces the whole
+      // document -- quietly took the delivery charge off the quote.
+      final _QuoteApi api = _QuoteApi(rows: [
+        _quote(freightAmount: '150.0000'),
+      ]);
+      await _pump(tester, api);
+      await _select(tester);
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Revise'));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester
+            .widget<TextFormField>(
+                find.widgetWithText(TextFormField, 'Delivery charge'))
+            .controller!
+            .text,
+        '150.0000',
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Save revision'));
+      await tester.pumpAndSettle();
+
+      expect(api.revised!['freight_amount'], '150.0000');
+    });
+
+    testWidgets('a revision asks again for freight an offer waived',
+        (tester) async {
+      // What was charged is what was left after free shipping (#503). The
+      // charge asked is sent again, so the offer waives it again if it still
+      // applies and it is charged if the revision no longer qualifies.
+      final _QuoteApi api = _QuoteApi(rows: [
+        _quote(freightAmount: '0.0000', freightWaivedAmount: '150.0000'),
+      ]);
+      await _pump(tester, api);
+      await _select(tester);
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Revise'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save revision'));
+      await tester.pumpAndSettle();
+
+      expect(api.revised!['freight_amount'], '150.0000');
+    });
+
+    testWidgets('a revision of an offer with no delivery charge sends none',
+        (tester) async {
+      final _QuoteApi api = _QuoteApi(rows: [_quote()]);
+      await _pump(tester, api);
+      await _select(tester);
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Revise'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save revision'));
+      await tester.pumpAndSettle();
+
+      expect(api.revised!.containsKey('freight_amount'), isFalse);
     });
 
     testWidgets('a new line says nothing about a discount, and says so',

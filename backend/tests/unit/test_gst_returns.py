@@ -37,6 +37,7 @@ from app.sales_invoice.models import (
     SalesInvoiceLineTax,
 )
 from app.sales_return.models import SalesReturn, SalesReturnLine, SalesReturnLineTax
+from app.tax.services.gst_buckets import GstBuckets, settle_to_ledger
 
 APRIL = (date(2026, 4, 1), date(2026, 4, 30))
 SELLER = "29AABCU9603R1ZM"
@@ -835,6 +836,68 @@ def test_the_document_series_counts_what_was_cancelled() -> None:
     ]
 
 
+def test_the_declared_tax_is_what_the_journal_credited() -> None:
+    """Rounding the sum is not rounding the parts (D-CMP-4).
+
+    A bill of 409.50 at 18% carries 73.71 of tax, halved as 36.855 + 36.855.
+    The journal credits 2200 with ``quantize_ledger(73.71)``; rounding each
+    half on its own declared 36.86 + 36.86 = 73.72, a paisa the firm never
+    charged. The odd paisa goes on the last component, SGST.
+    """
+    books = _Books(_session_factory()())
+    books.invoice("SI-1", gross="409.50", tax="73.71")
+    books.invoice("SI-2", customer=books.walk_in, gross="409.50", tax="73.71")
+
+    one = books.gstr1()
+    summary = books.gstr3b()["outward_taxable_supplies"]
+
+    document = one["b2b"][0]["invoices"][0]
+    assert (document["central_tax"], document["state_tax"]) == (36.86, 36.85)
+    assert (one["b2cs"][0]["central_tax"], one["b2cs"][0]["state_tax"]) == (
+        36.86,
+        36.85,
+    )
+    assert (one["hsn"][0]["central_tax"], one["hsn"][0]["state_tax"]) == (
+        73.72,
+        73.70,
+    )
+    # Two bills, each credited 73.71 by its own journal.
+    assert (summary["central_tax"], summary["state_tax"]) == (73.72, 73.70)
+
+
+def test_a_credit_note_is_halved_at_what_its_journal_credited() -> None:
+    """A note of 18.01 is declared 9.01 + 9.00, not 9.01 + 9.01."""
+    books = _Books(_session_factory()())
+    invoice = books.invoice("SI-1")
+    books.credit("CN-1", invoice, taxable="100.05", tax="18.01")
+
+    row = books.gstr1()["cdnr"][0]
+
+    assert (row["central_tax"], row["state_tax"]) == (9.01, 9.0)
+
+
+@pytest.mark.parametrize(
+    ("halves", "filed"),
+    [
+        # Exactly representable: nothing to settle.
+        (("90", "90"), ("90.00", "90.00")),
+        # Two half paise: the sum is 73.71, so one half gives a paisa back.
+        (("36.855", "36.855"), ("36.86", "36.85")),
+        # Two quarter paise: 0.005 in all rounds up to 0.01.
+        (("0.0025", "0.0025"), ("0.00", "0.01")),
+    ],
+)
+def test_a_document_s_buckets_settle_to_the_rounded_sum(
+    halves: tuple[str, str], filed: tuple[str, str]
+) -> None:
+    """The buckets add to ``quantize_ledger`` of their sum, every time."""
+    settled = settle_to_ledger(
+        [GstBuckets(cgst=Decimal(halves[0]), sgst=Decimal(halves[1]))]
+    )[0]
+
+    assert (settled.cgst, settled.sgst) == (Decimal(filed[0]), Decimal(filed[1]))
+
+
 MAY = (date(2026, 5, 1), date(2026, 5, 31))
 
 
@@ -945,3 +1008,20 @@ def test_a_bill_cancelled_after_its_month_was_due_counts_as_issued_there() -> No
     assert docs[0]["total_number"] == 3
     assert docs[0]["cancelled"] == 1
     assert docs[0]["net_issued"] == 2
+
+
+def test_a_sales_return_is_declared_at_what_its_journal_reversed() -> None:
+    """A return's halves are settled to paise like a bill's (D-CMP-4, D-CMP-2).
+
+    Returning 409.50 at 18% reverses 73.71 of output tax; each 36.855 half
+    rounded alone would declare 73.72 given back.
+    """
+    books = _Books(_session_factory()())
+    invoice = books.invoice("SI-1", gross="1000", tax="180")
+    books.returned("SR-1", invoice, taxable="409.50", tax="73.71")
+
+    row = books.gstr1()["cdnr"][0]
+
+    assert row["note_number"] == "SR-1"
+    assert (row["central_tax"], row["state_tax"]) == (36.86, 36.85)
+    assert books.gstr3b()["credit_notes_deducted"]["tax"] == 73.71

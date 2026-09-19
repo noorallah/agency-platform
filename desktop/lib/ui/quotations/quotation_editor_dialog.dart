@@ -163,6 +163,12 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
               (double.tryParse(existing.billDiscountPercent) ?? 0) > 0
           ? existing.billDiscountPercent
           : '';
+      // The delivery charge that was asked for, not what was left of it: a
+      // free-shipping offer's share comes off again on save if the offer
+      // still applies, and is charged if it no longer does. Never filling the
+      // box at all is what made a revision drop the quote's freight, because
+      // the update replaces the whole document with what is sent (D-SELL-34).
+      _freight.text = _askedFreight(existing);
       // Every line, in the order the document holds them. Taking only the
       // first is what made a revision quietly delete the rest of the offer:
       // the update replaces the whole collection with what is sent.
@@ -194,6 +200,15 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
       }
     }
     if (_lines.isEmpty) _lines.add(_newLine());
+  }
+
+  /// The delivery charge a quotation asked for, blank where it asked none.
+  static String _askedFreight(Quotation quote) {
+    final double charged = double.tryParse(quote.freightAmount) ?? 0;
+    final double waived = double.tryParse(quote.freightWaivedAmount) ?? 0;
+    if (waived <= 0) return charged > 0 ? quote.freightAmount : '';
+    if (charged <= 0) return quote.freightWaivedAmount;
+    return (charged + waived).toStringAsFixed(4);
   }
 
   /// What a product sells for, as the price box should read.
