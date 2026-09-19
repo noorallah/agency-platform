@@ -216,10 +216,6 @@ class SalesInvoiceCreate(SalesInvoiceSchema):
     due_date: date | None = None
     reference_number: str | None = Field(default=None, max_length=120)
     remarks: str | None = None
-    allow_over_invoice: bool = False
-    over_invoice_percent: Decimal = Field(
-        default=Decimal("0"), ge=0, max_digits=9, decimal_places=4
-    )
     additional_charges: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
@@ -429,8 +425,6 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     reference_number: str | None
     remarks: str | None
     allow_direct_sales_order: bool
-    allow_over_invoice: bool
-    over_invoice_percent: Decimal
     status: SalesInvoiceStatus
     total_source_quantity: Decimal
     total_already_invoiced_quantity: Decimal

@@ -75,6 +75,9 @@ class SalesInvoice(BaseEntity):
     allow_direct_sales_order: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # Retired (D-SELL-30): a bill may never charge for more than was
+    # delivered or ordered, and no request can say otherwise. The columns
+    # stay so no migration is needed; nothing reads or writes them.
     allow_over_invoice: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
