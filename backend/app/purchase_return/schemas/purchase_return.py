@@ -136,10 +136,6 @@ class PurchaseReturnCreate(PurchaseReturnSchema):
     reference_number: str | None = Field(default=None, max_length=120)
     remarks: str | None = None
     allow_direct_purchase_order: bool = False
-    allow_over_return: bool = False
-    over_return_percent: Decimal = Field(
-        default=Decimal("0"), ge=0, max_digits=9, decimal_places=4
-    )
     additional_charges: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
@@ -297,8 +293,6 @@ class PurchaseReturnResponse(PurchaseReturnSchema):
     reference_number: str | None
     remarks: str | None
     allow_direct_purchase_order: bool
-    allow_over_return: bool
-    over_return_percent: Decimal
     status: PurchaseReturnStatus
     total_source_quantity: Decimal
     total_already_returned_quantity: Decimal

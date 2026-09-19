@@ -68,6 +68,9 @@ class PurchaseReturn(BaseEntity):
     allow_direct_purchase_order: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
+    # Retired (D-SELL-29): a return may never send back more than came in,
+    # and no request can say otherwise. The columns stay so no migration is
+    # needed; nothing reads or writes them.
     allow_over_return: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )
