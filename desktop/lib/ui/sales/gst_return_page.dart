@@ -273,6 +273,7 @@ class _GstReturnPageState extends State<GstReturnPage> {
     final List<dynamic> b2b = data['b2b'] as List<dynamic>? ?? const [];
     final List<dynamic> b2cs = data['b2cs'] as List<dynamic>? ?? const [];
     final List<dynamic> cdnr = data['cdnr'] as List<dynamic>? ?? const [];
+    final List<dynamic> cdnur = data['cdnur'] as List<dynamic>? ?? const [];
     final List<dynamic> hsn = data['hsn'] as List<dynamic>? ?? const [];
     final List<dynamic> unplaced =
         data['unplaced_invoices'] as List<dynamic>? ?? const [];
@@ -335,6 +336,22 @@ class _GstReturnPageState extends State<GstReturnPage> {
           ],
           headers: const ['Note', 'Against', 'Taxable', 'CGST', 'SGST'],
         ),
+        // Credits to an unregistered buyer against a B2CL bill: declared note
+        // by note, because the bill was (Table 9B).
+        if (cdnur.isNotEmpty)
+          _Section(
+            title: 'CDNUR — credits against large inter-state B2C bills',
+            rows: [
+              for (final dynamic row in cdnur)
+                ([
+                  stringValue((row as Map)['note_number']),
+                  stringValue(row['against_invoice']),
+                  _money(row['taxable_value']),
+                  _money(row['integrated_tax']),
+                ]),
+            ],
+            headers: const ['Note', 'Against', 'Taxable', 'IGST'],
+          ),
         _Section(
           title: 'HSN summary',
           rows: [

@@ -13,7 +13,7 @@ The cases that decide whether either can be trusted:
   can reconcile.
 """
 
-from datetime import date
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from uuid import uuid4
 
@@ -277,6 +277,74 @@ def test_what_a_bill_still_owes_comes_off_the_allocations() -> None:
     assert ageing[0].invoices[0].invoice_number == "SI-1"
 
 
+def test_the_ageing_ages_what_record_receipt_says_is_owed() -> None:
+    """D-FIN-10: points spent on a bill were aged as still owed.
+
+    Driven on a fixture firm: SI-2026-2027-000001 (483.21) with 100.00 of
+    points spent on it -- Record Receipt offered 383.21, the ageing aged
+    483.21. Both now read one derivation, ``settled_against``.
+    """
+    from app.loyalty.models import LoyaltyEntry, LoyaltyEntryKind
+    from app.settlements.services import ReceiptService
+
+    books = _Books(_session_factory()())
+    invoice = books.invoice("SI-1", "1000")
+    books.settle(invoice, "300")
+    books.session.add(
+        LoyaltyEntry(
+            firm_id=books.firm.id,
+            customer_id=books.customer.id,
+            kind=LoyaltyEntryKind.REDEEMED.value,
+            points=Decimal("-100"),
+            amount=Decimal("100"),
+            sales_invoice_id=invoice.id,
+            earned_on=date(2026, 4, 25),
+        )
+    )
+    books.session.commit()
+
+    offered = ReceiptService(books.session).outstanding_invoices(
+        firm_id=books.firm.id, party_id=books.customer.id
+    )
+    aged = books.ageing()
+
+    assert [row.outstanding_amount for row in offered] == [Decimal("600.00")]
+    assert aged[0].invoices[0].outstanding == Decimal("600.00")
+    assert aged[0].total_outstanding == Decimal("600.00")
+
+
+def test_as_of_ages_what_was_owed_on_that_day() -> None:
+    """D-FIN-10: `as_of` moved only the day count.
+
+    Driven on a fixture firm: an ageing as of 2026-01-01 still listed a bill
+    raised on 2026-09-19. A bill raised after the day, and money that arrived
+    after it, are now left out; money reversed after it still stood.
+    """
+    books = _Books(_session_factory()())
+    early = books.invoice("SI-1", "1000", on=date(2026, 4, 10))
+    books.invoice("SI-2", "500", on=date(2026, 5, 15))
+    books.settle(early, "300", number="RC-1")
+    late = books.settle(early, "200", number="RC-2")
+    late.settlement_date = date(2026, 5, 20)
+    # Reversed in June: on the first of May it had not been reversed yet.
+    undone = books.settle(early, "100", number="RC-3", status="REVERSED")
+    undone.reversed_at = datetime(2026, 6, 10, 12, tzinfo=UTC)
+    books.session.commit()
+
+    on_may_first = books.ageing(as_of=date(2026, 5, 1))
+    assert [
+        (row.invoice_number, row.outstanding) for row in on_may_first[0].invoices
+    ] == [("SI-1", Decimal("600.00"))]
+    in_june = books.ageing(as_of=date(2026, 6, 1))
+    assert sorted(
+        (row.invoice_number, row.outstanding) for row in in_june[0].invoices
+    ) == [("SI-1", Decimal("400.00")), ("SI-2", Decimal("500.00"))]
+    after_the_reversal = books.ageing(as_of=date(2026, 6, 30))
+    assert sorted(
+        (row.invoice_number, row.outstanding) for row in after_the_reversal[0].invoices
+    ) == [("SI-1", Decimal("500.00")), ("SI-2", Decimal("500.00"))]
+
+
 def test_a_reversed_settlement_cleared_nothing() -> None:
     """Counting it would report a bill as paid the firm has no money for."""
     books = _Books(_session_factory()())
@@ -372,6 +440,10 @@ def test_the_ageing_row_reconciles_with_the_account() -> None:
     books = _Books(_session_factory()())
     books.invoice("SI-1", "1000")
     # The account carries the bill less a credit nobody has set against it.
+    # Written as movements, because an ageing as of a day reads the account
+    # as it stood that day (D-FIN-10), and the column is only today's.
+    books.movement("INVOICE", "1000", date(2026, 4, 10))
+    books.movement("CREDIT_NOTE", "-300", date(2026, 4, 15))
     books.customer.current_outstanding = Decimal("700.00")
     books.session.commit()
 
@@ -392,6 +464,8 @@ def test_a_charge_that_no_bill_carries_is_named_too() -> None:
     """Tax collected at source raises the account without being invoiced."""
     books = _Books(_session_factory()())
     books.invoice("SI-1", "1000")
+    books.movement("INVOICE", "1000", date(2026, 4, 10))
+    books.movement("TCS", "100", date(2026, 4, 20))
     books.customer.current_outstanding = Decimal("1100.00")
     books.session.commit()
 

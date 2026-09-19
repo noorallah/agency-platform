@@ -35,7 +35,21 @@ reversal, the journals each document posts, cost and profit centres, control
 accounts, how ledger balances roll forward, the three statements, customer
 statements and ageing, opening balances, the ledger side of money in and out,
 and what `verify_sample_data.py` checks — against the `ready-firm` and
-selling stores, TEST01 and WHOLE01 (§12.16). The rest follow.
+selling stores, TEST01 and WHOLE01 (§12.16). **Compliance followed the same
+day (§13)**: tax configuration, the GST template, tax rules and their
+versions, the engine and what every priced line writes, the tax a line gets,
+GSTR-1 and GSTR-3B, e-invoice registration and withdrawal, e-way bills, and
+TCS from settings to reversal — against the `compliance-firm` stores, one
+built for the pass and driven, the selling stores, WHOLE01, the shared store
+and ELEC01 (§13.13). **Configuration followed the same day (§14)**: business
+profiles, features and what a firm resolves to, custom-field definitions,
+rules and values, numbering series and what issuing a number writes, document
+types and states, units, packaging and conversion rules, geography, the sales
+stages, the credit policy, the loyalty scheme, the firm side of the Set up
+panel, and preferences — against a `config-firm` store built for the pass and
+driven, the fixture and selling stores, TEST01, WHOLE01 and the shared store
+(§14.19). Tax configuration is §13; identity and roles come later. The rest
+follow.
 
 ---
 
@@ -340,7 +354,7 @@ All routes under `/api/v1/firms` are platform-only. The registry rows are in `pl
 
 ### Assign a business profile — Set up → Business profile, or Profile Assignment (plan 27.18–27.20, 27.23g)
 - **Store:** the **named firm's** store (the platform endpoint opens it with `firm_store_session`). **Inserts / updates:** `firm_business_profiles` (`firm_id, business_profile_id, is_active, effective_from`).
-- **Audit:** no `*.assigned` action appears in the code's action list for this write — verify on screen rather than in `audit_logs`. If you find a row, tell me and I will correct this line.
+- **Audit:** `firm_business_profile.created` the first time, `firm_business_profile.updated` after — in the **firm's own** trail, not the platform's, with `firm_id` set and `after_data` = `business_profile_id` only. Corrected on 2026-09-19 (this line used to say no row was written); §14.2 has the detail.
 - **Check:** `select business_profile_id, is_active, effective_from from wholesale_hub.firm_business_profiles where is_deleted = false;`
 - **Trap this closed:** until 2026-08 the write went into the **caller's** store while reporting success; MEDI01 and FOOD01 hid it by sharing `firm_shared`.
 
@@ -3146,3 +3160,1467 @@ registry (SELECT only) and exits non-zero if any check fails:
   delete; a refund; a receivable row posted through
   `/customers/{id}/receivables/transactions`; an account deactivated while
   mapped. ELEC01 (`agency_electrolink`) was not queried.
+
+---
+
+## 13. Compliance — tax engine, GST returns, e-invoices and TCS (TC-COMP-001 to 007, TC-CONF-005)
+
+Read on 2026-09-19 off `app/tax` — `tax_framework_service.py` (systems,
+components, profiles, country and migration mappings, settings, the profile
+versions), `tax_rule_service.py` (rules, their versions, `simulate`, the
+execution log), `gst_template.py`, `gst_buckets.py`, `retention.py` and the
+router — off `app/gst_returns/services/gstr_service.py`, off
+`app/einvoice` (`einvoice_service.py`, `payload.py`, `portal.py`) and off
+`app/tcs/services/tcs_service.py`, with the parts of `sales_invoice_service.py`
+and `settlement_service.py` that call them. `docs/MODULE_STATUS.md` files
+nothing else under compliance; the "Ledger and tax filing" rules of
+`docs/LEDGER_POSTING_RULES.md` these modules implement are the TCS, return,
+sandbox and rounding ones. Then checked, read-only, against every store that
+holds these tables — the `compliance-firm` stores of 2026-09-16
+(`fx_t0916irn8_g`, `fx_t09167ru4_g`), one built for this pass
+(`fx_t0919l8ca_g`), the selling stores, TEST01, WHOLE01, the shared store and
+ELEC01 — and the defects were driven on `fx_t0919l8ca_g` against the running
+backend. §13.13 says which claims a live row confirmed and which it could not.
+A claim marked *(not seen in a live row)* was read off the code only.
+
+### 13.0 Before you look
+
+- **Stores.**
+
+  | Case | Fixture | Schema |
+  | --- | --- | --- |
+  | TC-COMP-001 to 006 | `compliance-firm` | **`fx_<suffix>_g`** — firm `<SUFFIX>-G`, "Compliance <suffix>", GSTIN `33FXGST<4 digits>A1Z5` |
+  | TC-COMP-007 | `selling-paid` | `fx_<suffix>_s` — §11.14 has the receipt side |
+  | TC-CONF-005 | `firm-admin` | `test_fixtures` |
+
+  The fixture's **Tables** line prints the schema. Find your rows by its
+  codes: customers `<SUFFIX>-B2B` (GSTIN `33FXBUY…`) and `<SUFFIX>-B2C`
+  (none), product `<SUFFIX>-P` at HSN 340220, invoices A, B and C as
+  `SI-2026-2027-000001` to `000003`. For WHOLE01 put `wholesale_hub`; for
+  MEDI01 or FOOD01 put `firm_shared` and filter on `firm_id`; ELEC01 is
+  `electrolink_ops` in `agency_electrolink`.
+- **All compliance audit rows go to the firm's own trail.** The only
+  platform row is `firm.tax_template_applied` (§6, §13.2); no `tax.*`,
+  `einvoice.*`, `eway_bill.*` or `tcs.*` row exists in `platform.audit_logs`
+  (checked 2026-09-19: zero).
+- **Four kinds of table, and one kind that does not exist.**
+
+  | Tables | Written by | Holds |
+  | --- | --- | --- |
+  | `tax_systems`, `tax_components`, `tax_profiles`, `tax_profile_components`, `tax_profile_attribute_values`, `tax_country_mappings`, `tax_migration_mappings`, `tax_settings` | Tax Configuration, the GST template | what can be charged |
+  | `tax_rules`, `tax_rule_conditions`, `tax_rule_actions` | Tax Configuration → Rules, the GST template | which profile a transaction gets |
+  | `tax_rule_execution_logs` | **every priced document line**, and the Rule Simulator | the engine's input, trace and answer, one row per line |
+  | `einvoice_registrations`, `eway_bills`, `tcs_settings`, `tcs_collections` | E-Invoice, TCS, and Record Receipt | what was registered, raised and collected |
+
+  **There is no GST return table.** GSTR-1 and GSTR-3B are computed on every
+  read from `sales_invoices`, `sales_invoice_lines`, `sales_invoice_line_taxes`,
+  `credit_notes` and `credit_note_lines` (§13.6). Nothing records what was
+  filed, or when.
+- **The tax a line was charged lives on the line**, not in the engine's
+  log: `sales_invoice_line_taxes` (and `sales_return_line_taxes`,
+  `credit_note_lines.tax_rate_percent`, and each module's own) —
+  `component_code`, `percentage`, `base_amount`, `amount` at four decimals.
+  The return and the e-invoice both read those rows, through
+  `split_components`, which buckets a code by whether it **contains**
+  `CGST`, `SGST`, `IGST` or `CESS` and ignores anything else.
+- **One click, all its audit rows** — the §9.0 request-id query works
+  unchanged with the store's schema and the action you took
+  (`einvoice.registered`, `eway_bill.cancelled`, `tcs.settings_changed`).
+- **What points at what.**
+
+  | From | Column | To |
+  | --- | --- | --- |
+  | `tax_profiles` | `tax_system_id`; `group_code` — **the name products use**, stable across versions | `tax_systems`; `products.tax_profile_group_code` (no foreign key) |
+  | `tax_profile_components` | `tax_profile_id`, `tax_component_id` | `tax_profiles`, `tax_components` |
+  | `tax_rules` | `version_group_id` (one per rule, all versions), `supersedes_rule_id` on a version | `tax_rules` |
+  | `tax_rule_conditions`, `tax_rule_actions` | `tax_rule_id`; an action's `target_tax_profile_id` / `target_tax_component_id` | `tax_rules`; `tax_profiles`, `tax_components` |
+  | `tax_rule_conditions` | `value_text` holding a **profile id as text** for the template's rules | `tax_profiles` (no foreign key) |
+  | `tax_rule_execution_logs` | `matched_rule_id`, `tax_profile_id`, `applied_tax_profile_id` — **not** the document or line it priced | `tax_rules`, `tax_profiles` |
+  | `sales_invoice_line_taxes` | `sales_invoice_line_id`, `tax_component_id` | the line; the component |
+  | `einvoice_registrations`, `eway_bills` | `sales_invoice_id` (unique per firm, one row each for ever) | `sales_invoices` |
+  | `tcs_collections` | `settlement_id` (unique), `customer_id`, `journal_entry_id`, `reversal_journal_entry_id`, `receivable_transaction_id` (no foreign key) | `settlements`, `customers`, `journal_entries`, `customer_receivable_transactions` |
+
+- **Where the compliance rows are, 2026-09-19.** `fx_t0916irn8_g` is a
+  `compliance-firm` run of 2026-09-16 (A and B registered, C not);
+  `fx_t09167ru4_g` another, built before the fixture's product carried a tax
+  profile, so its three invoices charge **no tax at all** and two are
+  registered — plus an e-way bill raised and withdrawn on B (TC-COMP-006).
+  Both firms have since been soft-deleted by a clear and their schemas stay.
+  `fx_t0919l8ca_g` was built for this pass and then used to drive the
+  defects in §13.13, so it is no longer a clean `compliance-firm`. WHOLE01
+  holds 13 registrations, 7 e-way bills (one withdrawn), 39 TCS collections
+  (three reversed) and 15,956 execution logs; the shared store 31, 15, 70 and
+  25,722; ELEC01 17, 8, 39 and 16,769. Every registration and every e-way bill
+  in every store is `SANDBOX` and every reference begins `SBX`.
+
+### 13.1 Tax configuration — systems, components, profiles, mappings, settings
+
+Administration → Configuration → Tax Configuration, all under
+`/api/v1/tax-framework`, permissions `TAX_VIEW`, `TAX_CREATE`, `TAX_UPDATE`,
+`TAX_DELETE`, `TAX_RESTORE`, `TAX_IMPORT`, `TAX_EXPORT`,
+`TAX_MANAGE_SETTINGS`. **Each call commits on its own.**
+
+- **Create and edit** insert or update one row and write an audit row:
+
+  | Endpoint | Table | Audit |
+  | --- | --- | --- |
+  | `POST` / `PUT /systems` | `tax_systems` | `tax.system.created` / `.updated` |
+  | `POST` / `PUT /components` | `tax_components` | `tax.component.created` / `.updated` |
+  | `POST` / `PUT /profiles` | `tax_profiles` + `tax_profile_components` (+ `tax_profile_attribute_values`) | `tax.profile.created` / `.updated`, `after_data` = `code` only |
+  | `POST /setup`, `PUT /setup/{id}` | a system, its components and profiles in one request | `tax.setup.created` / `.updated` |
+  | `POST /country-mappings` | `tax_country_mappings` | `tax.country_mapping.created` |
+  | `POST /migration-mappings`, `POST /legacy/import-csv` | `tax_migration_mappings` | `tax.migration_mapping.created`, no data |
+
+- **Written with no audit row** (D-CMP-9): delete and restore of a system,
+  component or profile (`is_deleted`, `deleted_at`, `version` +1); every
+  `bulk-delete`, `bulk-restore` and `profiles/bulk-status`; edit and delete
+  of a country or migration mapping; `PUT /settings` (`tax_settings`, labels
+  and `additional_settings`). The **Tax History** screen
+  (`GET /tax-framework/history`) reads only audit rows, so it cannot show
+  any of them. `GET /settings` **inserts** the firm's `tax_settings` row and
+  commits when there is none.
+- **A rate change** is two writes: `PUT /profiles/{id}` ending the old
+  version (`effective_to`, `tax.profile.updated`) and `POST /profiles` with
+  the same `group_code` and a later `effective_from` (`tax.profile.created`).
+  `TaxFrameworkService.supersede_profile`, which does both in one step, is
+  called by nothing. A document picks the version in force on **its own
+  date** (`resolve_active_profile`, latest `effective_from` first, NULLs
+  last — explicit, so PostgreSQL and SQLite agree). Two ACTIVE versions of
+  one group may not overlap — checked on create and update, **not** on
+  `bulk-status` or restore.
+- **Refused, nothing written:** deleting a system that still has live
+  components or profiles; deleting a profile whose `group_code` a live
+  product uses. **Not refused:** deleting a profile a rule's action targets
+  (the interstate profiles have no products), or a component a profile
+  still carries (D-CMP-9).
+- **Check:**
+  ```sql
+  select p.code, p.group_code, p.status, p.effective_from, p.effective_to,
+         p.is_historical, p.is_deleted, p.version,
+         string_agg(c.code || ' ' || pc.percentage, ', ' order by pc.calculation_order) as components
+  from   fx_<suffix>_g.tax_profiles p
+  left join fx_<suffix>_g.tax_profile_components pc on pc.tax_profile_id = p.id
+  left join fx_<suffix>_g.tax_components c on c.id = pc.tax_component_id
+  group  by p.id
+  order  by p.display_order, p.effective_from;
+
+  select created_at, action, entity_type, entity_id
+  from   fx_<suffix>_g.audit_logs
+  where  entity_type like 'tax_%' and action <> 'tax.rule.simulated'
+  order  by created_at desc;
+  ```
+- **Confirmed** in `fx_t0919l8ca_g`: `GST_0` set INACTIVE and back through
+  `bulk-status`, `CESS` deleted and restored — `tax_profiles.version` and
+  `tax_components.version` both read 3, and no audit row was written between
+  06:26:49 and 06:26:59 IST.
+
+### 13.2 The GST template — what a finished firm starts with
+
+Firms → Set up → **Apply GST template**
+(`POST /api/v1/firms/{id}/apply-tax-template`, platform-only). §6 has the
+platform half.
+
+- **Inserts** (firm's store), only when the firm has **no** live tax system:
+  `tax_settings` updated (primary label "GST", `additional_settings.template`
+  `IN_GST`); `tax_systems` 1 (`GST`); `tax_components` 4 — CGST, SGST, IGST,
+  CESS (CESS not recoverable); `tax_country_mappings` 1 (India, default, from
+  2017-07-01); `tax_profiles` 8 — `GST_0` (IGST 0), `GST_5_LOCAL`,
+  `GST_12_LOCAL`, `GST_18_LOCAL` (CGST + SGST at half the rate each), their
+  `_INTERSTATE` twins (IGST), `EXEMPT` (no components) — 10
+  `tax_profile_components`; `tax_rules` 6 with 9 conditions and 7 actions;
+  `geo_countries` India if the store has no country.
+- **The six rules:**
+
+  | Code | Priority | When | Does |
+  | --- | --- | --- | --- |
+  | `EXPORT_ZERO` | 1 | `transaction_type` = `EXPORT` | apply `GST_0`, zero-rated |
+  | `INTERSTATE_GST_5` / `_12` / `_18` | 10 / 11 / 12 | `transaction_type` = `SALES_INTERSTATE` **and** `tax_profile_id` = that slab's LOCAL profile id | apply the INTERSTATE twin |
+  | `EXEMPT_PROFILE` | 20 | `tax_profile_id` = `EXEMPT`'s id | exempt |
+  | `PURCHASE_INPUT_CREDIT` | 30 | `transaction_type` = `PURCHASE` | input credit allowed |
+
+  **No document sends `SALES_INTERSTATE`, `EXPORT` or `PURCHASE`** — the
+  modules send `SALES_INVOICE`, `PURCHASE_INVOICE`, `GOODS_RECEIPT` and their
+  siblings — so on a real document only `EXEMPT_PROFILE` can ever match
+  (D-CMP-1, D-CMP-13). The interstate rules name the LOCAL profile **by id**,
+  so they would stop matching after a rate change supersedes it.
+- **Audit, firm trail — 20 rows:** `tax.system.created`,
+  `tax.component.created` ×4, `tax.country_mapping.created`,
+  `tax.profile.created` ×8, `tax.rule.created` ×6. The settings change has
+  none. **Audit, platform:** `firm.tax_template_applied`, `after_data`
+  `template` `IN_GST` and the counts.
+- **Not one transaction** — each record commits as it is made, so a failure
+  half-way leaves a tax system that makes the next press answer "already has
+  one" (D-CMP-8) *(not seen in a live row)*.
+- **Check** (fresh store: `1, 4, 8, 10, 1, 1, 6, 9, 7`):
+  ```sql
+  select (select count(*) from fx_<suffix>_g.tax_systems)            as systems,
+         (select count(*) from fx_<suffix>_g.tax_components)         as components,
+         (select count(*) from fx_<suffix>_g.tax_profiles)           as profiles,
+         (select count(*) from fx_<suffix>_g.tax_profile_components) as profile_components,
+         (select count(*) from fx_<suffix>_g.tax_country_mappings)   as country_mappings,
+         (select count(*) from fx_<suffix>_g.tax_settings)           as settings,
+         (select count(*) from fx_<suffix>_g.tax_rules)              as rules,
+         (select count(*) from fx_<suffix>_g.tax_rule_conditions)    as conditions,
+         (select count(*) from fx_<suffix>_g.tax_rule_actions)       as actions;
+  ```
+- **Confirmed** in `fx_t0919l8ca_g`: those counts plus what the probes of
+  §13.3 added (two rules, two conditions, one action), the 20 firm audit
+  rows at 06:22:06–06:22:08 IST and the platform row at 06:22:06.
+
+### 13.3 Tax rules — create, edit, delete, restore, import
+
+Tax Configuration → Rules. `POST` / `PUT` / `DELETE /tax-framework/rules`,
+`POST /rules/{id}/restore`, `POST /rules/import`; permissions
+`TAX_RULE_CREATE`, `TAX_RULE_UPDATE`, `TAX_RULE_DELETE`, `TAX_RULE_RESTORE`,
+`TAX_IMPORT`.
+
+- **Create** inserts `tax_rules` (`version_group_id` new, `version_number`
+  1, `status` as sent — DRAFT by default), its `tax_rule_conditions` and
+  `tax_rule_actions`. Audit `tax.rule.created` (`code`, `version_number`).
+  Refused: a code already used at that version ("Tax rule code already
+  exists for this version.") or a profile or component that is not the
+  firm's.
+- **Edit a DRAFT** updates the row in place; the old conditions and actions
+  are **soft-deleted** and new ones inserted. Audit `tax.rule.updated`
+  (`code`, `priority`, `status`, `version_number` both sides). The status in
+  the body is written — a draft is activated by editing it.
+- **Edit an ACTIVE (or INACTIVE, ARCHIVED) rule** inserts a **new version**:
+  a second `tax_rules` row with the same `code` and `version_group_id`,
+  `version_number` +1, `supersedes_rule_id` = the old row, and whatever
+  status the body carried. **The old row is not touched** — it stays ACTIVE
+  and keeps being evaluated (§13.4). Audit `tax.rule.versioned`,
+  `before_data.supersedes_rule_id`. Editing a rule to INACTIVE therefore
+  leaves it in force (D-CMP-3).
+- **Delete** soft-deletes the one row named (`tax.rule.deleted`); its other
+  versions stand. **Restore** clears it (`tax.rule.restored`).
+- **Import** is `create` in a loop, each committing: a batch refused at row
+  *n* keeps rows 1 to *n*−1 and answers 409 (D-CMP-8).
+- **Check:**
+  ```sql
+  select r.code, r.version_number, r.status, r.priority, r.effective_from, r.effective_to,
+         r.supersedes_rule_id is not null as supersedes, r.is_deleted,
+         (select string_agg(c.field_key || ' ' || c.operator || ' ' || coalesce(c.value_text, ''), ' and ')
+          from fx_<suffix>_g.tax_rule_conditions c where c.tax_rule_id = r.id and c.is_deleted = false) as conditions,
+         (select string_agg(a.action_type, ', ') from fx_<suffix>_g.tax_rule_actions a
+          where a.tax_rule_id = r.id and a.is_deleted = false) as actions
+  from   fx_<suffix>_g.tax_rules r
+  order  by r.priority, r.code, r.version_number desc;
+  ```
+  Any `code` with two rows both ACTIVE and not deleted is D-CMP-3.
+- **Confirmed** in `fx_t0919l8ca_g`: `INTERSTATE_GST_18` edited to INACTIVE
+  at 06:26:41 IST — version 2 INACTIVE, version 1 still ACTIVE, one
+  `tax.rule.versioned`; an import of two rules both coded `CMPIMP_A`
+  answered 409 and left the first, DRAFT, with its `tax.rule.created`. No
+  rule in any other store has a second version.
+
+### 13.4 Simulate — the engine, and the Rule Simulator (TC-CONF-005)
+
+Tax Configuration → **Rule Simulator** is `POST /tax-framework/simulate`
+(`TAX_SIMULATE`). **The same function prices every document line** in nine
+modules (§11.0), so what it writes rides along with every priced save.
+
+- **How it decides:** every live ACTIVE rule of the firm, ordered
+  `priority`, `code`, `version_number` desc, `created_at` — all columns
+  NOT NULL, so the order is the same on both databases. The first rule whose
+  scope, effective window (against the **document's** date) and every
+  condition match wins, **and evaluation stops**: the trace lists the rules
+  up to the winner and none after. Its actions apply in `sequence`; with no
+  match the profile in context is used as configured. `total_tax_amount` is
+  the additive components only; included-in-price and reverse-charge tax are
+  reported beside it.
+- **Inserts** one `tax_rule_execution_logs` row — `execution_mode`
+  **always `SIMULATION`**, the document's lines included (D-CMP-13);
+  `transaction_type`, `country_id`, `business_profile_id`, `tax_profile_id`,
+  `matched_rule_id`, `applied_tax_profile_id`, and three JSON documents:
+  `input_payload`, `evaluation_trace.decisions`, `result_payload`. **Audit:**
+  `tax.rule.simulated` (`matched_rule_id`, empty when none, and
+  `transaction_type`).
+- **Commit:** the endpoint commits; the service never does — a document
+  line's log and audit row are part of that document's own transaction and
+  vanish with it if the save fails *(not seen in a live row)*.
+- **Nothing links a log to its document.** The log carries no document id
+  or line id; find a document's logs by time and `transaction_type`.
+- **Retention:** nothing prunes the log until the retention service is run
+  (`scripts/purge_retention.py`, default 365 days). The oldest log in WHOLE01
+  and the shared store is from 2026-08-15.
+- **Check:**
+  ```sql
+  select l.created_at, l.transaction_type, l.execution_mode, r.code as matched_rule,
+         p.code as applied_profile,
+         jsonb_array_length((l.evaluation_trace::jsonb)->'decisions') as rules_tried,
+         (l.result_payload::jsonb)->>'total_tax_amount' as total_tax
+  from   fx_<suffix>_g.tax_rule_execution_logs l
+  left join fx_<suffix>_g.tax_rules r    on r.id = l.matched_rule_id
+  left join fx_<suffix>_g.tax_profiles p on p.id = l.applied_tax_profile_id
+  order  by l.created_at desc;
+  ```
+- **Confirmed** in `fx_t0919l8ca_g`: 14 logs — twelve from the fixture's and
+  this pass's orders, notes and invoices (3 per sale, `SALES_ORDER`,
+  `DELIVERY_NOTE`, `SALES_INVOICE`, each trying all six rules and matching
+  none), one `SALES_RETURN`, and one simulator run of `SALES_INTERSTATE`
+  that matched `INTERSTATE_GST_18` version 1 after four rules and answered
+  IGST 180 — the TC-CONF-005 figure, reached through the version D-CMP-3
+  should have retired.
+
+### 13.5 The tax a document line gets — and where it is stored
+
+- **Every sale is taxed as a sale within the state.** `SalesInvoiceService`
+  asks the engine with `transaction_type` `SALES_INVOICE` whoever the buyer
+  is, and the invoice's `place_of_supply` (the state name from the
+  customer's address, copied at create) is read by nothing but the print.
+  So a buyer registered in another state is charged **CGST + SGST**, the
+  e-invoice then refuses the bill, and GSTR-1 files it under the buyer's
+  state with central and state tax (D-CMP-1). **No line in any store on the
+  server carries IGST.**
+- **Stored per component** in `sales_invoice_line_taxes` at four decimals
+  (18% on 409.50 is CGST 36.855 + SGST 36.855); the line's `tax_amount` and
+  the invoice's `tax_total` are their sum. The **ledger** credits 2200 with
+  that sum rounded once (73.71); **GSTR-1 and the e-invoice** round CGST and
+  SGST separately (36.86 + 36.86 = 73.72). So a return and the books differ
+  by a paisa on any bill whose halves end in a half-paisa (D-CMP-4).
+- **Check** — the components, and what the ledger credited, per bill:
+  ```sql
+  select i.invoice_number, i.status, i.tax_total, t.component_code, t.percentage, t.amount,
+         (select sum(jl.credit_amount) from fx_<suffix>_g.journal_entries e
+          join fx_<suffix>_g.journal_lines jl on jl.journal_entry_id = e.id
+          join fx_<suffix>_g.ledger_accounts a on a.id = jl.ledger_account_id
+          where e.source_module = 'sales_invoice' and e.source_id = i.id
+            and e.reversal_of_id is null and a.code = '2200') as credited_2200
+  from   fx_<suffix>_g.sales_invoices i
+  join   fx_<suffix>_g.sales_invoice_lines l      on l.sales_invoice_id = i.id and l.is_deleted = false
+  join   fx_<suffix>_g.sales_invoice_line_taxes t on t.sales_invoice_line_id = l.id and t.is_deleted = false
+  order  by i.invoice_number, l.line_number, t.sequence;
+  ```
+- **Confirmed:** `fx_t0919l8ca_g` SI-2026-2027-000004, to a buyer with
+  GSTIN `29FXKAR0529C1Z1`, carries CGST 18.00 + SGST 18.00; the half-paisa
+  split on 30 of WHOLE01's 52 live bills, 43 of the shared store's 90 and
+  every `selling-paid` store's SI-2026-2027-000001.
+
+### 13.6 GSTR-1 — reads only (TC-COMP-001, 002)
+
+Sales → **GST Returns** → GSTR-1 is `GET /api/v1/gst-returns/gstr1?from_date=&to_date=`,
+permission **`SALES_VIEW`**. **It writes nothing** — no row, no audit, no
+log — and refuses a firm with no GSTIN ("This firm has no GST number, so it
+has no return to file.").
+
+- **Reads** invoices with `status` APPROVED or CLOSED and `invoice_date` in
+  the period (drafts and cancelled bills are not supplies), their lines and
+  `sales_invoice_line_taxes`, the customers' `gst_number`, the products'
+  `hsn_sac`, and **credit notes** with `status` APPROVED and
+  `credit_note_date` in the period. **Sales returns are not read** — a
+  completed return reverses output tax in the ledger and appears in no
+  section and in no deduction (D-CMP-2).
+- **Sections:**
+
+  | Section | What goes in | Place of supply |
+  | --- | --- | --- |
+  | `b2b` | every bill to a customer with a GSTIN, invoice by invoice, grouped by GSTIN | the buyer's GSTIN's first two digits |
+  | `b2cl` | bills to an unregistered buyer charged IGST with `grand_total` above **2,50,000** (D-CMP-10) | — |
+  | `b2cs` | every other unregistered bill, summed by place and rate, less unregistered buyers' credit notes | **read off the tax**: the seller's state when CGST/SGST was charged; blank when IGST was |
+  | `cdnr` | credit notes to registered buyers, note by note, the note's one tax figure split by the tax its invoice charged | — |
+  | `hsn` | every line by HSN and rate — a product with no HSN under a blank code, not dropped | — |
+  | `docs` | the invoice series: first number, last number, **count of live bills** — cancelled ones are left out, not counted (D-CMP-10) | — |
+  | `unplaced_invoices` | unregistered bills charged IGST, named rather than filed with a blank place | — |
+
+- **Taxable value** is gross − line discount − bill discount + line charges
+  + freight, per line; `additional_charges` and `round_off` on the header are
+  outside it. Each figure is rounded to two decimals once, on the way out.
+- **Derived on every read:** cancelling a bill takes it out of **its own
+  month**, however long ago that month was filed (D-CMP-11).
+- **Check** — what the B2B and B2CS sections are built from:
+  ```sql
+  select i.invoice_number, i.invoice_date, i.status, c.code, c.gst_number,
+         left(coalesce(c.gst_number, ''), 2) as buyer_state, i.grand_total,
+         sum(t.amount) filter (where t.component_code like '%CGST%') as cgst,
+         sum(t.amount) filter (where t.component_code like '%SGST%') as sgst,
+         sum(t.amount) filter (where t.component_code like '%IGST%') as igst
+  from   fx_<suffix>_g.sales_invoices i
+  join   fx_<suffix>_g.customers c on c.id = i.customer_id
+  join   fx_<suffix>_g.sales_invoice_lines l on l.sales_invoice_id = i.id and l.is_deleted = false
+  left join fx_<suffix>_g.sales_invoice_line_taxes t on t.sales_invoice_line_id = l.id and t.is_deleted = false
+  where  i.is_deleted = false
+    and  i.invoice_date between date_trunc('month', current_date)::date and current_date
+  group  by i.id, c.id
+  order  by i.invoice_number;
+  ```
+  The rows with `status` APPROVED or CLOSED are the ones filed.
+- **Confirmed** in `fx_t0919l8ca_g` before the probes: B2B A 1,000.00 /
+  90.00 / 90.00 and B 500.00 / 45.00 / 45.00 under `33FXBUY0529B1Z3`, place
+  33; B2CS one row, place 33, 18%, 300.00 / 27.00 / 27.00; HSN 340220
+  quantity 18, 1,800.00; CDNR empty; `docs` `SI-2026-2027-000001` to
+  `000003`, count 3. After B was cancelled and a return booked against C: B2B
+  lost B, the Karnataka bill appeared under place 29 with CGST 18.00 and
+  SGST 18.00, B2CS still read 300.00 / 27.00 / 27.00, and `docs` read
+  `000001` to `000004`, count 3.
+
+### 13.7 GSTR-3B — reads only (TC-COMP-003)
+
+`GET /api/v1/gst-returns/gstr3b?from_date=&to_date=`, `SALES_VIEW`. Writes
+nothing.
+
+- **3.1(a)** is summed from the same invoice lines GSTR-1 reads — **not**
+  parsed out of GSTR-1 — less every credit note of the period, registered
+  and unregistered. Nil-rated and exempt lines are inside 3.1(a) at 0%;
+  there is no 3.1(b) or 3.1(c) (D-CMP-10). Credit notes' cess is not
+  deducted. **Sales returns are not deducted** (D-CMP-2).
+- **The inward half** reads "Not derived: the purchase side files this." —
+  no input credit is computed anywhere.
+- **Check** — 3.1(a)'s tax against what the ledger holds as output tax for
+  the same days (they should agree, less rounding):
+  ```sql
+  select sum(p.credit_amount - p.debit_amount) as output_tax_2200
+  from   fx_<suffix>_g.gl_postings p
+  join   fx_<suffix>_g.ledger_accounts a on a.id = p.ledger_account_id
+  where  a.code = '2200'
+    and  p.posting_date::date between date_trunc('month', current_date)::date and current_date;
+  ```
+- **Confirmed** in `fx_t0919l8ca_g`: 3.1(a) 1,800.00 / 162.00 / 162.00
+  before the probes, equal to GSTR-1's sum (TC-COMP-003); after them
+  1,500.00 / 135.00 / 135.00 = 270.00 of tax with nothing deducted, while
+  2200 holds **252.00** — the 18.00 of SR-2026-2027-000001.
+
+### 13.8 Register an invoice with the portal (TC-COMP-004, 005)
+
+Sales → **E-Invoice** → Register an invoice is
+`POST /api/v1/einvoice/invoices/{id}/register`, permission
+`EINVOICE_MANAGE`; the grid is `GET /einvoice/registrations`
+(`EINVOICE_VIEW`).
+
+- **Refused locally, nothing written** — not even an audit row — when the
+  payload cannot be valid, the reasons joined: "This invoice cannot be
+  registered yet: the firm has no GST number; the customer has no GST number;
+  the invoice is not approved; the invoice has no lines; <product> has no HSN
+  or SAC code." Also refused: a bill whose tax contradicts the two GSTINs'
+  states — "This is an inter-state supply but the invoice charged CGST and
+  SGST. Correct the tax before registering it." (every interstate bill,
+  D-CMP-1) and the intra-state twin; and a bill already REGISTERED ("…is
+  already registered as SBX…. Cancel that registration before raising
+  another.", 409).
+- **Inserts** one `einvoice_registrations` row: `firm_id`,
+  `sales_invoice_id`, **`mode` SANDBOX** (NOT NULL, no default in the
+  database), `status` REGISTERED, `irn` `SBX` + a 61-character hash of the
+  payload, `acknowledgement_number` `SBX` + 12, `acknowledged_at` (UTC now),
+  `signed_qr_code` `SANDBOX.…`, `signed_invoice`, `attempts` 1,
+  `request_payload` — exactly what was sent (the seller's and buyer's GSTIN,
+  state, `ItemList` with HSN, quantity, amounts, `GstRt` and the four tax
+  buckets, and `ValDtls`). A portal refusal lands on the same row as
+  `status` FAILED with `error_code` / `error_message`.
+- **Audit:** `einvoice.registered` (or `einvoice.refused`), `after_data` =
+  `sales_invoice_id`, `mode`, `status`, `irn`, `acknowledgement_number`,
+  `attempts`, `error_code`, `error_message`.
+- **What it stops:** a REGISTERED row blocks cancelling the invoice — "SI-…
+  cannot be cancelled while it has … its registration with the tax
+  authority. Reverse or cancel those first." (TC-COMP-002).
+- **Not written:** nothing on `sales_invoices`; no journal; no lifecycle
+  event. `LIVE` is never written — `portal_for("LIVE")` raises "Live
+  registration needs this firm's GSP credentials…" and nothing is sent.
+- **Check:**
+  ```sql
+  select i.invoice_number, i.status as invoice_status, c.gst_number,
+         r.mode, r.status, r.irn, r.acknowledgement_number, r.acknowledged_at,
+         r.attempts, r.error_code, r.error_message, r.cancelled_at, r.cancellation_reason, r.version
+  from   fx_<suffix>_g.einvoice_registrations r
+  join   fx_<suffix>_g.sales_invoices i on i.id = r.sales_invoice_id
+  join   fx_<suffix>_g.customers c      on c.id = i.customer_id
+  order  by i.invoice_number;
+  ```
+- **Confirmed** in `fx_t0919l8ca_g`, `fx_t0916irn8_g` and `fx_t09167ru4_g`:
+  A and B registered by the fixture, one audit row each, `mode` SANDBOX and
+  `SBX` references; C (no GSTIN) never registered; the Karnataka bill's
+  refusal wrote nothing. In `fx_t09167ru4_g` the two registered bills carry
+  **no tax at all** and were accepted at `GstRt` 0. No row in any store is
+  LIVE or FAILED.
+
+### 13.9 Withdraw a registration, and register again
+
+E-Invoice → the row's **Withdraw** action is
+`POST /api/v1/einvoice/invoices/{id}/cancel` with `{"reason": …}`,
+`EINVOICE_MANAGE`. A row that is not REGISTERED — a withdrawn one included —
+offers **Register** again, and **Register an invoice** lists it too.
+
+- **Refused:** no REGISTERED row ("This invoice has no live
+  registration."); an empty reason; more than 24 hours after
+  `acknowledged_at`, judged in UTC ("A registration can only be withdrawn
+  within 24 hours. Raise a credit note instead…").
+- **Updates** the row: `status` CANCELLED, `cancelled_at`,
+  `cancellation_reason` (up to 200), `version` +1. **Audit:**
+  `einvoice.cancelled` (the same snapshot as §13.8).
+- **Does not look at the e-way bill.** A registration is withdrawn while
+  its e-way bill is GENERATED, and the invoice can then be cancelled with
+  the bill still live (D-CMP-5).
+- **Register again** reuses the **same row**: `status` REGISTERED,
+  `attempts` +1, a new `acknowledged_at` — and the sandbox, hashing the same
+  payload, mints the **same IRN** as the one withdrawn. `cancelled_at` and
+  `cancellation_reason` are left on the REGISTERED row, and the withdrawn
+  registration survives only in the audit trail (D-CMP-6).
+- **Confirmed** in `fx_t0919l8ca_g`: A withdrawn at 06:26:34 and registered
+  again — `attempts` 2, IRN `SBX85d3a853…` unchanged, `cancellation_reason`
+  "cmp probe" on a REGISTERED row; B withdrawn at 06:26:06 with its e-way
+  bill GENERATED, then cancelled as an invoice at 06:26:07.
+
+### 13.10 E-way bill — raise and withdraw (TC-COMP-006)
+
+Select a row → **Raise bill** is `POST /api/v1/einvoice/invoices/{id}/eway-bill`
+(`distance_km` > 0, `transport_mode` ROAD / RAIL / AIR / SHIP,
+`transporter_id`, `transporter_name`, `vehicle_number`); **Cancel bill** is
+`POST …/eway-bill/cancel` with a reason. `EINVOICE_MANAGE`.
+
+- **Refused, nothing written:** the invoice not REGISTERED ("Register the
+  invoice before raising its e-way bill: the bill quotes the IRN…", 422 —
+  TC-COMP-006 step 3); a GENERATED bill already standing (409); an unknown
+  mode; ROAD with no vehicle ("Goods moving by road need a vehicle number on
+  the e-way bill."). The invoice's own status is not checked.
+- **Inserts** one `eway_bills` row (or rewrites the invoice's withdrawn one):
+  `mode` = the registration's, `status` GENERATED, `eway_bill_number` `SBX` +
+  up to 12 digits, `valid_until` = today (UTC) + one day per 200 km,
+  `distance_km`, `transport_mode`, `transporter_id`, `transporter_name`,
+  `vehicle_number` (upper-cased), `request_payload` (`Irn`, `TransDistance`,
+  `TransMode`, `TransId`, `TransName`, `VehNo`). **Audit:**
+  `eway_bill.generated` (`eway_bill_number`, `status`, `mode`).
+- **Withdraw** updates `status` CANCELLED, `cancelled_at`,
+  `cancellation_reason`, `version` +1; audit `eway_bill.cancelled` (`status`,
+  `reason`). No time window is checked. The screen offers **Raise bill**
+  only while the invoice has no bill row at all, so a withdrawn bill is
+  raised again only through the API, which rewrites the same row.
+- **Check:**
+  ```sql
+  select i.invoice_number, i.status as invoice_status, r.status as registration,
+         e.mode, e.status, e.eway_bill_number, e.valid_until, e.distance_km,
+         e.transport_mode, e.vehicle_number, e.cancelled_at, e.cancellation_reason, e.version
+  from   fx_<suffix>_g.eway_bills e
+  join   fx_<suffix>_g.sales_invoices i on i.id = e.sales_invoice_id
+  left join fx_<suffix>_g.einvoice_registrations r on r.sales_invoice_id = i.id;
+  ```
+  An `invoice_status` CANCELLED beside a GENERATED bill is D-CMP-5.
+- **Confirmed:** `fx_t09167ru4_g` B's bill `SBX621387159885`, 120 km by
+  road, `TN01AB1234`, valid until 2026-09-16, withdrawn "probe" — two audit
+  rows (TC-COMP-006 as walked); WHOLE01 one withdrawn bill on
+  SI-2026-2027-000003 and six standing; `fx_t0919l8ca_g`
+  `SBX359194143134` GENERATED on the **cancelled** SI-2026-2027-000002.
+
+### 13.11 TCS — settings, preview, a collection, its reversal (TC-COMP-007)
+
+Sales → **TCS**. `GET` / `PUT /api/v1/tcs/settings` (`TCS_VIEW` /
+`TCS_MANAGE` — not granted to `SALES_MANAGER`), `GET /tcs/preview`,
+`GET /tcs/collections`. **No endpoint collects**; a receipt does. Whether
+section 206C(1H) is still levied at all is D-CMP-12.
+
+- **Settings** — one `tcs_settings` row per firm, inserted on the first
+  save: `section_code` `206C_1H`, `is_enabled` (false by default),
+  `threshold_amount` (5,000,000), `rate_percent` (0.1),
+  `rate_without_pan_percent` (1), `preceding_year_turnover` (0),
+  `seller_turnover_threshold` (100,000,000). An omitted field is left alone.
+  **Audit:** `tcs.settings_changed`, both sides all six figures. A firm with
+  no row collects nothing and the screen shows these defaults.
+- **Preview** reads only: the buyer's receipts **in the whole financial
+  year** (from the firm's `financial_year_start`) less refunds, reversed ones
+  excluded — including receipts dated **after** the date asked about
+  (D-CMP-7) — and answers why nothing is due where nothing is.
+- **Collected when Record Receipt posts** (§11.14 has the receipt itself),
+  only if the firm is enabled, its stated turnover is above its threshold,
+  and the part of this receipt above the buyer's threshold is positive:
+  - `tcs_collections`: `customer_id`, `settlement_id`, `financial_year_start`,
+    `collected_on` = the receipt's date, `consideration_amount` = the whole
+    receipt, `cumulative_before`, `taxable_amount` = the part above the
+    threshold, `rate_percent` (the without-PAN rate when `customers.pan_number`
+    is blank, `without_pan` true), `tcs_amount` = taxable × rate rounded to
+    the paisa, `status` COLLECTED, `journal_entry_id`,
+    `receivable_transaction_id`;
+  - journal `TCS-<receipt number>` (`source_module` `tcs`), **Dr 1100 / Cr
+    2500 TCS Payable** — never 2200;
+  - receivable row `TCS` for the amount, remarks "Tax collected at source
+    under 206C(1H)." — the buyer now owes the tax;
+  - **audit** `tcs.collected` (the figures), beside the receipt's own rows
+    and two `finance.journal_entry.*` and a
+    `customer.receivable_transaction_posted`.
+- **Reversed when the receipt is reversed** (§11.15): `status` REVERSED,
+  `reversal_journal_entry_id` = `TCS-…-REV` (Dr 2500 / Cr 1100), the TCS
+  receivable row reversed by its stored deltas; **audit** `tcs.reversed`.
+  The row stays, and later receipts' `cumulative_before` is not recomputed.
+- **Check:**
+  ```sql
+  select s.settlement_number, s.settlement_date, s.status as receipt_status,
+         c.code, c.pan_number, t.consideration_amount, t.cumulative_before,
+         t.taxable_amount, t.rate_percent, t.without_pan, t.tcs_amount, t.status,
+         j.reference_number, rj.reference_number as reversal
+  from   fx_<suffix>_s.tcs_collections t
+  join   fx_<suffix>_s.settlements s on s.id = t.settlement_id
+  join   fx_<suffix>_s.customers c   on c.id = t.customer_id
+  left join fx_<suffix>_s.journal_entries j  on j.id = t.journal_entry_id
+  left join fx_<suffix>_s.journal_entries rj on rj.id = t.reversal_journal_entry_id
+  order  by s.settlement_date, s.settlement_number;
+
+  select (select sum(tcs_amount) from fx_<suffix>_s.tcs_collections where status = 'COLLECTED') as collected,
+         (select sum(p.credit_amount - p.debit_amount) from fx_<suffix>_s.gl_postings p
+          join fx_<suffix>_s.ledger_accounts a on a.id = p.ledger_account_id where a.code = '2500') as payable_2500;
+  ```
+  The two figures of the second query should agree.
+- **Confirmed:** the `selling-paid` rows of §11.14 (2.42 and 3.42 at 1%, no
+  PAN); WHOLE01's 39 collections, three REVERSED with their `-REV`
+  journals, and 2500 at 648.24 = the 648.24 still collected;
+  `fx_t0919l8ca_g` RC-2026-2027-000002 (1,500.00 today, 5.00 on the 500.00
+  above a 1,000 threshold) and RC-2026-2027-000003 (100.00 dated
+  2026-09-01, `cumulative_before` 1,500.00 — the later receipt — charged
+  1.00, D-CMP-7). The shared store's RC-2025-2026-000014 (2026-02-12) counts
+  RC-2025-2026-000013 (2026-02-21) the same way.
+
+### 13.12 What compliance does not write, and is often looked for
+
+| You might expect | What actually happens |
+| --- | --- |
+| A stored GSTR-1 or 3B, or a record of what was filed | Nothing; both are recomputed on every read (§13.6) |
+| A sales return in GSTR-1 or 3B | Not read (D-CMP-2) |
+| IGST on a bill to another state | CGST + SGST; nothing sends `SALES_INTERSTATE` (D-CMP-1) |
+| A link from an execution log to its document | None; logs carry no document or line id (§13.4) |
+| `execution_mode` other than SIMULATION | Never written (§13.4) |
+| An audit row for a tax record deleted, restored or re-statused | None (D-CMP-9) |
+| A second row for a re-registered invoice | The one row is rewritten (D-CMP-6) |
+| A LIVE registration | Never; `portal_for("LIVE")` raises |
+| A TCS collection written by the TCS screen | None; only a receipt writes one (§13.11) |
+| TCS in 2200 Output Tax | 2500 TCS Payable |
+| A GST return permission | Returns are gated on `SALES_VIEW` |
+| A registration or e-way bill row on the platform | Firm store only |
+
+### 13.13 Checked against live rows, and not
+
+- **Confirmed in `fx_t0919l8ca_g`** (built 2026-09-19 00:51 UTC, then
+  driven): the template's counts and 20 audit rows; the fixture's GSTR-1
+  and 3B exactly as TC-COMP-001 and 003 expect; A and B registered, C not;
+  every probe named in §13.1, 13.3, 13.4, 13.6–13.11. **What the probes
+  left:** a customer `T0919L8CA-KA` with a Karnataka GSTIN and bill
+  SI-2026-2027-000004 (CGST/SGST); B cancelled with its registration
+  withdrawn and its e-way bill GENERATED; A registered twice;
+  `INTERSTATE_GST_18` version 2 INACTIVE beside version 1 ACTIVE; a DRAFT
+  rule `CMPIMP_A`; TCS switched on at a 1,000 threshold with two collections
+  from `T0919L8CA-B2C`; SR-2026-2027-000001 completed against C.
+- **Confirmed in `fx_t0916irn8_g` and `fx_t09167ru4_g`:** the fixture's
+  registrations and TC-COMP-006's withdrawn bill; zero-tax bills registered.
+- **Confirmed on WHOLE01, the shared store and ELEC01 (read only):** every
+  registration and bill SANDBOX with `SBX` references; `mode` NOT NULL with
+  no default in every store checked; 2500 agreeing with collections in
+  WHOLE01; the half-paisa gap between GSTR-1's components and 2200;
+  9 completed returns in WHOLE01 (2,853.09 of tax) and 14 in the shared store
+  (2,341.44) reversing output tax that no return deducts; WHOLE01's
+  SI-2026-2027-000008, dated 2026-08-12 and cancelled 2026-09-13, now
+  missing from August; no IGST line and no interstate buyer anywhere.
+- **Across every store:** no rule with two ACTIVE versions other than the
+  probe's, no `execution_mode` but SIMULATION, no FAILED or LIVE
+  registration.
+- **Not seen in a live row:** a portal refusal (FAILED); a withdrawal refused
+  after 24 hours; a B2CL bill; a registered buyer's credit note in CDNR in a
+  compliance store; an unplaced invoice; a profile superseded by a rate
+  change; a rule deleted or restored; an export; a TCS row under a
+  preceding-year turnover below the threshold; the GST template failing
+  half-way.
+
+---
+
+## 14. Configuration — how one firm differs from the next (TC-CONF-001 to 004 and 006, TC-FIELD-001 to 014, TC-FIRM-010 to 012, TC-CUST-003, TC-GRANT-005)
+
+Read on 2026-09-19 off `app/business` (`framework_service.py`, `gating.py`,
+`attribute_service.py` and the router), `app/document_framework`
+(`document_framework_service.py`, `transactional_document_service.py`,
+`print_template_service.py` and the router), `app/uom` (`uom_service.py` and
+the router), the geography half of `app/sales` (`territory_service.py`), the
+settings services — `workflow_settings_service.py`, `credit_control.py`,
+`loyalty_service.py` — `app/firms/services/readiness.py` (the firm side),
+`identity_service.py` (preferences), and the desktop's
+`numbering_series_editor.dart`, `print_template.dart` and
+`desktop_preferences_service.dart`. Tax configuration is §13 and is not
+repeated; identity and roles come later. `docs/MODULE_STATUS.md` files these
+modules under "Configuration"; the rules they can break are the persistence,
+tenancy and "a flag the caller sets" ones in `CLAUDE.md`. Then checked,
+read-only, against every store on the local server that holds these tables,
+and driven on a `config-firm` store built for the pass (`fx_t09193ugd_r`)
+against the running backend. §14.19 says which claims a live row confirmed
+and which it could not; a claim marked *(not seen in a live row)* was read off
+the code only.
+
+**The running backend was the build of 2026-09-19 before #500 (D-FIN-9)** and
+it stopped at about 07:08 IST, before the pass had finished driving; it was not
+restarted. Where #500 changes what a receipt does, the text says so.
+
+### 14.0 Before you look
+
+- **Stores.**
+
+  | Case | Fixture | Schema |
+  | --- | --- | --- |
+  | TC-CONF-001 to 003 | `firm-admin`, `sales-executive` | `test_fixtures` — the numbering series are TEST01's own |
+  | TC-CONF-004, 006 | `config-firm` | **`fx_<suffix>_r`** — firm `<SUFFIX>-R`, "Ready <suffix>" |
+  | TC-FIELD-001 to 012 | `ready-firm` | `fx_<suffix>_r` |
+  | TC-FIELD-013, 014 | `shared-pair` | **`firm_shared`** — filter on `firm_id` |
+  | TC-FIRM-010, 012 | `unfinished-firm` | `fx_<suffix>_f` |
+  | TC-CUST-003, TC-GRANT-005 | `customer-master`, `loyalty-viewer` | `test_fixtures` |
+
+  The fixture's **Tables** line prints the schema. For WHOLE01 put
+  `wholesale_hub`; for MEDI01, FOOD01, TESTSH1 or TESTSH2 put `firm_shared`.
+- **Three kinds of configuration table, and only one carries a firm.**
+
+  | Tables | `firm_id`? | So in `firm_shared` |
+  | --- | --- | --- |
+  | `business_profiles`, `business_features`, `business_modules`, `profile_features`, `profile_modules`, `attribute_definitions`, `category_attribute_rules`, `uoms`, `uom_groups`, `uom_group_units`, `packaging_types`, `uom_industry_templates`, `geo_countries` … `geo_localities` | **no** | one set for MEDI01, FOOD01, TESTSH1 and TESTSH2 together — an edit made "in" one of them is made in all four |
+  | `firm_business_profiles`, `*_attribute_values`, `document_*`, `uom_conversion_rules`, `product_packaging_levels`, `business_profile_uom_defaults` (a firm's own row), `sales_workflow_settings`, `credit_control_settings`, `loyalty_settings`, `sales_hierarchy_configs` | yes | per firm |
+  | `user_preferences` | per **user** | `platform` only |
+
+  A dedicated store has its own copy of every catalogue, so "the WHOLESALE
+  profile" is a different row, possibly with different features, in each
+  store: WHOLE01's enables `SERIAL_NUMBER`, the fixture stores' does not.
+- **Where the audit rows go, and one kind nobody can read.** Every write
+  here audits into the store the request's session opened — the firm's own —
+  except preferences (`platform`). But the business-framework catalogue
+  (`attribute_definition.*`, `category_attribute_rule.*`, `business_profile.*`,
+  `business_feature.*`, `business_module.*`) and geography
+  (`sales_territory.geo.*`) record **`firm_id` null**, and Settings → Audit
+  Logs filters a firm's trail on `firm_id`, so those rows are on no screen
+  (D-CFG-13). Query them by action with no firm filter:
+  ```sql
+  select created_at, action, entity_type, entity_id, firm_id,
+         before_data::jsonb - '_meta' as before, after_data::jsonb - '_meta' as after
+  from   fx_<suffix>_r.audit_logs
+  where  action ~ '^(business_|attribute_definition|category_attribute|firm_business_profile|document_|uom\.|sales_territory\.geo)'
+     or  entity_type in ('SalesWorkflowSettings', 'CreditControlSettings', 'loyalty_settings')
+  order  by created_at desc;
+  ```
+- **No ledger effect anywhere in this section.** Configuration writes no
+  journal. What it changes is how later documents post — the numbers they
+  carry (§14.7), the stock a conversion moves (§14.11), what a loyalty point
+  is worth when spent (§14.15) — and those effects land on the documents'
+  own journals.
+- **What points at what.**
+
+  | From | Column | To |
+  | --- | --- | --- |
+  | `firm_business_profiles` | `firm_id` (no foreign key — `firms` is platform), `business_profile_id` | `business_profiles` |
+  | `profile_features`, `profile_modules` | `business_profile_id`, `feature_id` / `module_id` | the catalogue |
+  | `attribute_definitions` | `applicable_business_profile_id` (NULL = every profile), `applicable_category` (NULL = every category) | `business_profiles` |
+  | `category_attribute_rules` | `category_code` (text, not an id), `attribute_definition_id`, `business_profile_id` | — |
+  | `<entity>_attribute_values` | `firm_id`, `attribute_definition_id`, the owner (`product_id`, `customer_id`, `vendor_id`, `branch_id`, `warehouse_id`, `uom_id`, `tax_profile_id`) | the definition and the record |
+  | `document_numbering_rules` | `document_type_id` | `document_type_definitions` |
+  | `document_number_sequences` | `numbering_rule_id`, `scope_signature` (year, branch and company, joined by bars) | the rule — **the counter documents actually use** |
+  | `document_lifecycle_events` | `document_type_id`, `source_document_id` (no foreign key), `source_module_code` | the document |
+  | `uom_conversion_rules` | `product_id` (NULL = firm-wide), `from_uom_id`, `to_uom_id`, `version_number` | `products`, `uoms` |
+  | document lines | `conversion_version` (a **number**, not an id) | the rule with that version — re-read when stock moves (§14.11) |
+  | `sales_workflow_settings` | `default_branch_id`, `default_warehouse_id` | `branches`, `warehouses` — unchecked (D-CFG-14) |
+
+### 14.1 Business profiles, features and modules — the catalogue (TC-CONF-004)
+
+Administration → Configuration → Business Profiles → **Profiles**, **Feature
+Flags**, **Modules**. All under `/api/v1/business-framework`, **platform
+administrator only**, written into the store the caller's `X-Firm-ID` opens.
+Each call commits on its own.
+
+- **Create / edit / delete** a profile, feature or module inserts, updates or
+  soft-deletes one row of `business_profiles`, `business_features` or
+  `business_modules`. Edits are partial (`exclude_unset`) and carry the row's
+  `version` as an `ETag`. Audit `business_profile.created` / `.updated` /
+  `.deleted` (a profile's `before_data` = `code` and `status`; `after_data` on
+  create = `code`), and `business_feature.*` / `business_module.*` with **no
+  data at all**.
+- **Refused, nothing written:** a code already used; deleting a profile a
+  live firm is assigned; deleting a feature or module a profile still
+  enables; enabling a feature whose `is_implemented` is false — "These
+  features are not implemented yet and cannot be enabled: IMEI." (the six:
+  `IMEI`, `KITCHEN_MANAGEMENT`, `PRESCRIPTION_REQUIRED`, `PROJECT_MANAGEMENT`,
+  `RECIPE_MANAGEMENT`, `SERVICE_CONTRACTS`). `is_implemented` is not on the
+  write schema, so it cannot be switched through the API.
+- **Which features a profile enables** — Profiles → edit → Enabled features,
+  `PUT /profiles/{id}/features` with the whole list of ids. Existing
+  `profile_features` rows are set `is_enabled` true or false in place; ids not
+  yet mapped get a new row. `PUT /profiles/{id}/modules` does the same to
+  `profile_modules`, `is_enabled` and `is_visible` together. Audit
+  `business_profile.features.updated` / `.modules.updated`, **no data** — the
+  trail cannot say which feature was switched (D-CFG-13).
+- **Setting a profile's `is_default`** clears it on every other profile in
+  the store first. Clearing it on the default leaves the store with none
+  (D-CFG-19).
+- **Check** — what each profile enables, the explicit rows and the
+  catalogue's `default_enabled` for the rest:
+  ```sql
+  select p.code as profile, f.code as feature, f.is_implemented, f.default_enabled,
+         pf.is_enabled as mapped, coalesce(pf.is_enabled, f.default_enabled) as resolves_to
+  from   fx_<suffix>_r.business_profiles p
+  cross  join fx_<suffix>_r.business_features f
+  left   join fx_<suffix>_r.profile_features pf
+         on pf.business_profile_id = p.id and pf.feature_id = f.id and pf.is_deleted = false
+  where  p.code = 'WHOLESALE' and f.is_deleted = false and f.is_active = true
+  order  by f.code;
+  ```
+- **Confirmed** in `fx_t09193ugd_r`: WHOLESALE's features re-saved unchanged at
+  07:04:29 IST — one `business_profile.features.updated`, `firm_id` null,
+  both sides empty. Every store carries 12 profiles with `GENERIC` the
+  default, except WHOLE01, whose default is `WHOLESALE`.
+
+### 14.2 Assign a profile to a firm (TC-FIRM-010, TC-FIRM-012)
+
+Set up → Business profile, or Business Profiles → **Profile Assignment**.
+`PUT /business-framework/firms/{id}/profile-assignment`, platform only, opened
+on **the named firm's** store (`firm_store_session`), whatever firm the
+caller has selected.
+
+- **Inserts** `firm_business_profiles` the first time (`business_profile_id`,
+  `is_active`, `effective_from` = now, `notes`) and **updates the same row in
+  place** after: `business_profile_id`, `is_active`, `notes`. `effective_from`
+  never moves, and the previous profile is not kept anywhere — the row says
+  "RETAIL since the day it was first WHOLESALE" (D-CFG-13).
+- **`notes` and `is_active` are written whether sent or not**; the Set up
+  panel sends no notes, so choosing a profile there clears any the Profile
+  Assignment screen had written (D-CFG-21).
+- **Audit, firm trail:** `firm_business_profile.created` / `.updated`,
+  `firm_id` set, `after_data` = `business_profile_id` only, never a
+  `before_data`. **Nothing on the platform trail** — §6's "no row" was wrong,
+  and is corrected there.
+- **What it changes at once** — nothing stored; everything read. The gate
+  and every form resolve the new profile on the next request: fields scoped
+  to the old one stop being offered and keep their values (TC-FIELD-005),
+  features the new one lacks are refused on the next write that fills them.
+- **Profile Assignment's grid** (`GET /firm-profile-assignments`) opens every
+  firm's store in turn and names a store it cannot read rather than blanking
+  the row.
+- **Check** (the firm's own store — MEDI01 and FOOD01 both read `firm_shared`):
+  ```sql
+  select a.firm_id, p.code, a.is_active, a.effective_from, a.notes, a.version, a.updated_at
+  from   fx_<suffix>_f.firm_business_profiles a
+  join   fx_<suffix>_f.business_profiles p on p.id = a.business_profile_id
+  where  a.is_deleted = false;
+  ```
+- **Confirmed:** one `firm_business_profile.created` in each of 48 fixture
+  stores; `pt0916ppotc` flipped WHOLESALE ↔ RETAIL six times in four minutes
+  with `effective_from` still the first assignment and six `.updated` rows
+  with no before side; TEST01 five `.updated` rows.
+
+### 14.3 What a firm resolves to — the gate, `/active-features`, `/active-modules` (reads)
+
+- **Writes nothing.** Three places answer "which profile is this firm on",
+  and they do not share one implementation:
+
+  | Where | Used by | No assignment and no default profile |
+  | --- | --- | --- |
+  | `resolve_profile` (`gating.py`) | `require_feature`, `assert_feature_fields`, tax, UOM, products, territory | nothing enforced |
+  | `_resolved_profile_id` (`framework_service.py`) | `/active-features`, `/active-modules` — what the desktop renders | **any ACTIVE profile**, whichever the database returns first |
+  | `_profile_id` (`attribute_service.py`) | the custom fields a form offers and a save demands | no profile-scoped field applies |
+
+  Every store has a default today, so the three agree on the ground (D-CFG-19).
+- **The gate is write-only and field-level.** `require_feature` stops a
+  POST/PUT/DELETE on `batch-serial` endpoints (`BATCH_TRACKING`,
+  `SERIAL_NUMBER`); `assert_feature_fields` refuses a write that *fills* a
+  field of a feature the profile lacks (`EXPIRY_TRACKING`, `WARRANTY`,
+  `BARCODE`, `DRUG_LICENSE`, `ATTACHMENTS`, `VEHICLE_TRACKING`, …) — "This
+  firm's business profile does not enable WARRANTY, so warranty_end, warranty_start cannot
+  be set." **`require_module` is applied to no route**, so a module's
+  endpoints answer whatever the profile says; the desktop hiding the module
+  is the only effect (`docs/BUSINESS_PROFILE_FRAMEWORK.md`, "Status").
+- **`/active-features?firm_id=` reads the named firm's assignment in the
+  caller's store**, not the named firm's. Asked from `fx_t09193ugd_r` for
+  WHOLE01 it answered `ATTACHMENTS`, `BARCODE` — GENERIC, the fixture store's
+  default — where WHOLE01's own store answers six features. The desktop never
+  sends `firm_id` (D-CFG-19).
+
+### 14.4 Custom fields — definitions and category rules (TC-FIELD-001 to 006, 011, 014)
+
+Business Profiles → **Dynamic Attributes** and **Mandatory Attributes**.
+`/business-framework/attribute-definitions` and
+`/business-framework/category-attribute-rules`, platform only; one commit per
+call; the rows land in the store `X-Firm-ID` opens, which in `firm_shared` is
+all four firms' catalogue at once (TC-FIELD-014).
+
+- **A definition** inserts one `attribute_definitions` row: `code`, `name`,
+  `entity_type` (PRODUCT, CUSTOMER, VENDOR, BRANCH, WAREHOUSE, UOM,
+  TAX_PROFILE), `data_type` (TEXT, NUMBER, DATE, BOOLEAN), `mandatory`,
+  `validation_rule` (`allowed_values` for a TEXT list), `applicable_category`,
+  `applicable_business_profile_id`, `is_active`. Edits are partial; delete is
+  a soft delete with **no check for values** already stored. Audit
+  `attribute_definition.created` / `.updated` / `.deleted`, `firm_id` null,
+  **no data** (D-CFG-13).
+- **A rule** inserts `category_attribute_rules`: `category_code` (the code as
+  text), `attribute_definition_id`, `business_profile_id` (NULL = every
+  profile), `is_mandatory`. Audit `category_attribute_rule.*`, the same empty
+  shape.
+- **Two ways a field becomes required, enforced differently.** The
+  definition's `mandatory` refuses a missing field *and* an empty one
+  ("Attribute CFG_LICENCE is required and cannot be empty."). A category
+  rule's `is_mandatory` refuses only a *missing* one — the same field sent
+  blank is stored as a row with every value column null (D-CFG-5). The
+  desktop form refuses the blank; the API does not.
+- **Changing a definition strands, it does not migrate:** a new `data_type`
+  leaves the old value in the old typed column (TC-FIELD-006); a narrower
+  profile or category takes values out of every read while they stay in the
+  table; `docs/BACKLOG.md` §16 is the proposal.
+- **Check:**
+  ```sql
+  select d.code, d.entity_type, d.data_type, d.mandatory, d.applicable_category,
+         p.code as profile, d.is_active, d.is_deleted, d.version,
+         (select string_agg(r.category_code || case when r.is_mandatory then ' (required)' else '' end, ', ')
+          from fx_<suffix>_r.category_attribute_rules r
+          where r.attribute_definition_id = d.id and r.is_deleted = false) as rules
+  from   fx_<suffix>_r.attribute_definitions d
+  left   join fx_<suffix>_r.business_profiles p on p.id = d.applicable_business_profile_id
+  order  by d.entity_type, d.code;
+  ```
+- **Confirmed** in `fx_t09193ugd_r`: `CFG_COLD_ID` (PRODUCT, TEXT, not
+  mandatory) with a required rule on `FXCHL`, and `CFG_LICENCE` (CUSTOMER,
+  mandatory) — three audit rows at 07:03 IST, `firm_id` null, empty. Live
+  catalogue sizes: 13 definitions and 7 rules in a fresh fixture store; 6 and
+  3 in WHOLE01; 6 and 8 in `firm_shared`.
+
+### 14.5 Custom-field values on a record (TC-FIELD-007 to 010, 013)
+
+The **Custom fields** tab of a customer, vendor, branch or warehouse, the
+product's **Attributes** tab, and `attributes` on the API write schemas of
+all seven owners (UOMs and tax profiles are API-only).
+
+- **Read first:** `GET /business-framework/attribute-definitions/applicable?entity_type=`
+  — membership in the firm is the whole gate — answers `definitions` (what
+  this firm's profile gets) and `mandatory_ids`.
+- **A save carrying `attributes` replaces the record's whole set** in its
+  value table (`product_attribute_values`, `customer_attribute_values`,
+  `vendor_attribute_values`, `branch_attribute_values`,
+  `warehouse_attribute_values`, `uom_attribute_values`,
+  `tax_profile_attribute_values`): one row per definition, the value in
+  exactly one of `value_text`, `value_number`, `value_date`, `value_boolean`,
+  **never JSON**. A value that changed is **overwritten in place**
+  (`version` +1); a definition no longer sent is **soft-deleted**; a new one
+  is inserted with the calling firm's `firm_id`. **A save without
+  `attributes` leaves them alone**; an empty list clears them.
+- **Refused, nothing written:** a definition that does not apply ("One or
+  more attributes do not apply to this record."); a required one missing
+  ("Required attributes are missing.", ids in
+  `details.missing_attribute_definition_ids`); a value of the wrong type or
+  off the list ("Attribute STORAGE_TEMPERATURE must be one of: Ambient,
+  Chilled, Frozen."). A value the record already holds is accepted even when
+  its definition was deactivated, narrowed or had that choice withdrawn.
+- **Audit:** none of its own. The owner's `customer.updated`,
+  `product.created`, … carries no attributes, so **a changed licence number
+  is on no trail** — the value row's `updated_at` and `updated_by` are the
+  only record, and the old value is gone (D-CFG-13).
+- **A unit is shared, its values are not:** in `firm_shared` a UOM is one row
+  for every firm, and its values are keyed by `firm_id`, so TESTSH1's note on
+  `BAG` is invisible to TESTSH2 (TC-FIELD-013).
+- **Lists read them one record at a time.** Customers, vendors, products,
+  warehouses and units build each row's `attributes` with its own query;
+  `values_for_many` exists and nothing calls it (D-CFG-20).
+- **Check:**
+  ```sql
+  select c.code, d.code as field, v.value_text, v.value_number, v.value_date, v.value_boolean,
+         v.is_deleted, v.version, v.updated_at
+  from   fx_<suffix>_r.customer_attribute_values v
+  join   fx_<suffix>_r.customers c             on c.id = v.customer_id
+  join   fx_<suffix>_r.attribute_definitions d on d.id = v.attribute_definition_id
+  order  by c.code, d.code;
+  ```
+  Put `product_attribute_values` / `products` / `product_id` for a product.
+- **Confirmed** in `fx_t09193ugd_r`: product `CFGCH1` saved in category
+  `FXCHL` with `CFG_COLD_ID` sent as `""` — one value row, every column null;
+  `CFGCH0` without it refused; a customer with `CFG_LICENCE` blank refused.
+
+### 14.6 Numbering series — create, edit, retire, preview (TC-CONF-001 to 003)
+
+Administration → Configuration → **Numbering Series**.
+`/api/v1/document-framework/numbering-rules`: list and preview need only
+membership; create, edit and **Retire** need `SETTINGS_UPDATE` (held by
+`FIRM_ADMIN` alone). Each call commits.
+
+- **Create** inserts `document_numbering_rules`: `document_type_id`, `code`,
+  `name`, `prefix`, `suffix`, `separator`, `include_financial_year`,
+  `include_branch_code`, `include_company_code`, `auto_reset` (restart each
+  financial year), `manual_allowed`, `sequence_padding`, `next_sequence`
+  (the desktop's "Start numbering at"), `format_pattern`, `is_default`,
+  `is_active`. Audit `document_numbering_rule.created` (`code`,
+  `document_type_id`). **No counter row yet** — that is written by the first
+  document (§14.7).
+- **Refused, nothing written:** a code the type already has; a yearly restart
+  whose number does not show the year — "This rule restarts its numbering
+  every financial year, so the number has to include the year …"
+  (TC-CONF-002), judged on the rule as it will be; a prefix starting `JV-`,
+  reserved for hand journals since #500.
+- **Not refused:** a prefix or pattern that issues another type's numbers —
+  a receipt series patterned `GRN-<firm>-HO-{financial_year}-{sequence}`
+  previewed `GRN-T09193UGD-R-HO-2026-2027-000001`, the number a goods receipt
+  already had, and every receipt was then refused "A journal entry with this
+  reference number already exists." (D-CFG-8; since #500 a receipt steps
+  over the taken number, every other document is still refused).
+- **Edit** (`PUT`) is partial. `before_data` = `code`, `name`,
+  `next_sequence`; **`after_data` is empty**, so the trail cannot say that
+  the prefix or the restart changed (D-CFG-13). The desktop omits
+  `next_sequence` for an existing series, but the API accepts it — and
+  `last_scope_signature` and `document_type_id` — and the counter ignores
+  it: `next_sequence` set to 3 on a series at 51 read 3 on the rule, the
+  preview still said `…000051`, the next receipt took `…000051` and the rule
+  went back to 52 (D-CFG-18).
+- **"Use this series by default" and "Active" are stored and never read.**
+  The series a document uses is the first live rule of its type the database
+  returns (§14.7, D-CFG-6).
+- **Turning the yearly restart off and on again restarts the series at
+  000001.** Off, the counter continues under a year-less key and the yearly
+  one is retired; on again, the yearly key finds nothing live and starts at 1
+  — a number already issued — so every document of that type is refused
+  "The request conflicts with existing data. Please retry.", and a retry is
+  issued the same number (D-CFG-7).
+- **Retire** soft-deletes the rule (audit `document_numbering_rule.deleted`,
+  no data); its counters stay. The desktop warns that the firm "will not be
+  able to raise one" without another series, and that is true in a sharper
+  way than it says: the next document creates a fresh default series at 1 in
+  the same request, collides, and rolls both back (D-CFG-7). The way out is
+  **New series** with "Start numbering at" past the last number issued.
+- **Preview** (`GET /numbering-rules/{id}/preview`) writes nothing and
+  answers the next number from the live counter — the same both times
+  (TC-CONF-003).
+- **Check:**
+  ```sql
+  select t.code as type, r.code, r.prefix, r.format_pattern, r.auto_reset, r.include_financial_year,
+         r.is_default, r.is_active, r.is_deleted, r.next_sequence as rule_says,
+         s.scope_signature, s.next_sequence as counter_says, s.is_deleted as counter_retired
+  from   test_fixtures.document_numbering_rules r
+  join   test_fixtures.document_type_definitions t on t.id = r.document_type_id
+  left   join test_fixtures.document_number_sequences s on s.numbering_rule_id = r.id
+  order  by t.code, r.created_at, s.created_at;
+  ```
+  More than one live rule for a type is D-CFG-6; `rule_says` ≠ `counter_says`
+  is a rule edited under its counter.
+- **Confirmed** in `fx_t09193ugd_r` (RECEIPT and PURCHASE_ORDER):
+  - `CFG_SECOND` (`RX`, not default, inactive) beside `RECEIPT_DEFAULT`: four
+    receipts `RC-2026-2027-000002` to `000005`; then `CFG_SECOND` default and
+    active, `RECEIPT_DEFAULT` neither — the next receipt was still
+    `RC-2026-2027-000006`, from the inactive series;
+  - `RECEIPT_DEFAULT` restart off → `RC-2026-2027-000007`, on → 409 twice;
+    `PURCHASE_ORDER_DEFAULT` the same: `PO-T09193UGD-R-HO-2026-2027-000002`,
+    then 409 twice. Its counters read `||` (live, 8) and `2026-2027||`
+    (retired, 7);
+  - both defaults retired → 409 on the next receipt and purchase order;
+    `CFG_RECOVER` created at 50 → `RC-2026-2027-000050`;
+  - no store other than WHOLE01 (three retired `PHYSICAL_COUNT` probes of
+    2026-09-04) holds a second, retired, inactive or non-default rule.
+
+### 14.7 Issuing a number — what every document create writes
+
+Not a screen of its own: every numbered document (§9 to §12) goes through
+`_ensure_document_setup` and `reserve_number` on its create.
+
+- **The first document of its kind in a firm** inserts
+  `document_type_definitions` (`code` e.g. `RECEIPT`, `configuration.module`),
+  its `document_state_definitions` (one per state the module declares), and a
+  `<TYPE>_DEFAULT` numbering rule — `include_financial_year` true,
+  `auto_reset` true, the module's prefix, branch and company codes only where
+  the module prints them. Audits `document_type.created`,
+  `document_state.created` ×n, `document_numbering_rule.created`, in the
+  document's own request.
+- **Which rule:** the first live rule of the type, **with no ordering and no
+  regard to `is_default` or `is_active`** (D-CFG-6). In practice the oldest
+  wins while PostgreSQL keeps it in place.
+- **Reserving** locks the rule, finds or creates the counter for the scope
+  signature — `year|branch|company`, each part kept only when the rule counts
+  on it — and moves `document_number_sequences.next_sequence` +1, then copies
+  it to `document_numbering_rules.next_sequence` and
+  `last_scope_signature`. A counter under an older key shape is carried over
+  and retired, once.
+- **A typed number bypasses all of it.** Every create takes one
+  (`order_number`, `po_number`, `grn_number`, `invoice_number`,
+  `delivery_note_number`, `return_number`, `credit_note_number`,
+  `settlement_number`) and uses it as sent: `manual_allowed` — "Allow a
+  number to be typed in", off by default — is read by no module. A number
+  typed **ahead of the counter** is issued again by the series when it gets
+  there, and that document is refused for good (D-CFG-2).
+- **A failed create rolls its reservation back**, so the counter does not
+  move and the retry is issued the same number. Since #500 a receipt or
+  payment steps over up to 50 numbers a journal or settlement already holds;
+  no other document does.
+- **Lifecycle events** — `document_lifecycle_events`, one per create, edit
+  and transition, `source_module_code` the module's type code — are written
+  by the modules and carry no audit row of their own. The type and state rows
+  are **not read** by any module: `allows_edit`, `is_terminal`,
+  `allows_print`, `transition_rules` and the type's `is_active` change
+  nothing (D-CFG-18).
+- **Check** — one document's number, the counter that issued it, and its
+  timeline:
+  ```sql
+  select po_number, created_at from fx_<suffix>_r.purchase_orders order by created_at;
+
+  select e.occurred_at, e.action, e.from_state, e.to_state, e.document_number, e.source_module_code
+  from   fx_<suffix>_r.document_lifecycle_events e
+  where  e.document_number = 'PO-<SUFFIX>-R-HO-2026-2027-000001'
+  order  by e.occurred_at;
+  ```
+- **Confirmed** in `fx_t09193ugd_r`: `CFG_PO_SERIES` created at 10 with
+  `manual_allowed` false; `PO-T09193UGD-R-HO-2026-2027-000011` typed and
+  accepted; the next order `…000010`; the two after it refused "Purchase
+  order number already exists in this firm." Receipts the same on the
+  running build: `RC-2026-2027-000062` typed, `…000061` issued, then 409
+  "A journal entry with this reference number already exists." twice.
+
+### 14.8 Document types, states and the timeline — platform administration
+
+`/api/v1/document-framework/document-types`, `/document-states` and
+`POST /documents/{id}/events` — platform administrator only.
+
+- Create, edit (partial) and soft-delete one row each; audit
+  `document_type.created` / `.updated` / `.deleted`, `document_state.*`
+  (`before_data` code, name, sort order; no `after_data`). A hand-written
+  timeline event inserts `document_lifecycle_events` with no audit row.
+- **Deleting a type the modules use** makes the next document of it create a
+  new type, new states and a new default series at 1 — the collision of
+  §14.6 *(not seen in a live row)*.
+- **Check:**
+  ```sql
+  select t.code, t.is_active, t.is_deleted, count(s.id) as states
+  from   wholesale_hub.document_type_definitions t
+  left   join wholesale_hub.document_state_definitions s on s.document_type_id = t.id and s.is_deleted = false
+  group  by t.id order by t.code;
+  ```
+
+### 14.9 Print templates
+
+§11.13 has the fields. One `document_print_templates` row per firm and
+`document_type` (the path segment, upper-cased and **not checked** against
+the document types), inserted on the first save and **replaced whole** after
+— every field is written, sent or not. The desktop's Print settings omits
+`header_note`, so each desktop save clears one written through the API
+(D-CFG-18). Audit `document_print_template.created` / `.updated`, `after_data`
+= `document_type` only: a change to **`bank_details`** — the account a
+customer pays into — leaves no before or after (D-CFG-13). `SETTINGS_UPDATE`.
+WHOLE01 holds the one live row.
+
+### 14.10 Units, groups, packaging types, packaging levels, barcodes
+
+Administration → Configuration → **UOM & Packaging**.
+`/api/v1/uom-framework`: `UOM_MANAGE` for units, groups and industry
+templates, `PACKAGING_MANAGE` for packaging types and levels,
+`CONVERSION_RULE_MANAGE` for rules and default units (§14.11) — all held by
+`FIRM_ADMIN` and `FIRM_MANAGER`. `UOM_IMPORT` and `UOM_EXPORT` are seeded and
+enforced nowhere. One commit per call.
+
+- **Units** — `POST` / `PUT` / `DELETE /uoms`: one `uoms` row (`code`,
+  `name`, `dimension`, `is_decimal_allowed`, `status`, …), **no `firm_id`**.
+  Edit is partial; delete is refused while a conversion rule, group, packaging
+  level, a product's seven unit slots or a profile default names the unit —
+  not while only a document line does (D-CFG-21). **No audit row** for any of
+  them.
+- **Groups** (`uom_groups`; `uom_group_units` has no endpoint), **packaging
+  types** (`packaging_types`) and **industry templates**
+  (`uom_industry_templates`, which nothing reads) — the same shape, shared,
+  unaudited. In `firm_shared` any firm's administrator edits them for all
+  four firms (D-CFG-9).
+- **Whole-number units are not enforced.** `is_decimal_allowed` on a unit and
+  a product's `allow_fraction` / `allow_decimal` are stored and read by no
+  document: 1.5 BOX is accepted (D-CFG-11).
+- **Packaging levels** — `POST` / `PUT` / `DELETE
+  /products/{product_id}/packaging-levels`: one `product_packaging_levels`
+  row with the caller's `firm_id` and the product **from the path, not
+  checked** against the firm (D-CFG-9). No audit row.
+- **Barcode lookup** (`GET /barcode-lookup?code=`) reads only: the firm's
+  levels' `barcode`, `gtin`, `ean`, `upc`, `qr_code`, then products'
+  `barcode`; two matches are refused by name.
+- **Check** (units are the store's; levels are the firm's):
+  ```sql
+  select code, name, dimension, is_decimal_allowed, status, is_deleted, version, updated_by
+  from   firm_shared.uoms order by code;
+
+  select l.firm_id, p.code as product, p.firm_id as product_firm, l.level_name,
+         l.conversion_to_base_factor, l.barcode, l.created_by
+  from   firm_shared.product_packaging_levels l
+  join   firm_shared.products p on p.id = l.product_id
+  where  l.is_deleted = false;
+  ```
+  `firm_id` ≠ `product_firm` is D-CFG-9.
+- **Confirmed:** 19 units in `firm_shared` and WHOLE01, 36 in TEST01 and the
+  fixture stores (migration 0021 added 17, with near-duplicates such as
+  KILOGRAM/KG); no unit deleted or inactive anywhere; five packaging levels
+  written through the API and not one audit row for a unit, group, type or
+  level in any store; no level on another firm's product.
+
+### 14.11 Conversion rules and default units (TC-CONF-006)
+
+UOM & Packaging → **Conversion Rules**, and Business Profiles → **Default
+units**.
+
+- **Create** inserts `uom_conversion_rules` (`firm_id`, `product_id` or NULL
+  for firm-wide, `from_uom_id`, `to_uom_id`, `conversion_factor`,
+  `rounding_mode`, `precision_scale`, `effective_from` / `effective_to`,
+  `version_number`, `status`). Audit `uom.conversion.created`, **no data**.
+  Two rules for one product, pair and version are refused by the unique key;
+  two **firm-wide** ones are not — the key includes the nullable
+  `product_id`, and PostgreSQL treats NULLs as distinct (D-CFG-10).
+- **Which rule a line gets:** ACTIVE, live, in force on the document's date,
+  the product's own before the firm-wide one — ranked explicitly, not by NULL
+  order — then the highest `version_number`. The line stores the factor and
+  the **version number** it used.
+- **Edit changes the version in place.** `PUT` accepts the factor, the pair,
+  the product, the dates and the version number of a published rule and keeps
+  its `version_number`. When stock later moves for a document drafted under
+  it, the inventory service re-reads the rule **by that version number** and
+  multiplies by the factor it has now — so the receipt line says one thing and
+  the stock another (D-CFG-1). Audit `uom.conversion.updated`, **no data**;
+  delete is a soft delete, audit `uom.conversion.deleted` with `before_data`
+  `status` and `version` (the version *number*).
+- **Default units** — `PUT /profiles/{id}/defaults?apply_to=FIRM|PROFILE`:
+  one `business_profile_uom_defaults` row, the firm's own (`firm_id` set,
+  `CONVERSION_RULE_MANAGE`) or the profile's (`firm_id` NULL,
+  `PLATFORM_SETTINGS` too). The profile-wide row reaches only firms in **the
+  caller's store**, though the endpoint's docstring and
+  `docs/UOM_FRAMEWORK.md` say every firm on the profile (D-CFG-21). Audit
+  `uom.profile_default.created` / `.updated`, no data. They reach a product
+  only by pre-filling its form.
+- **Check:**
+  ```sql
+  select p.code as product, fu.code as from_uom, tu.code as to_uom, r.conversion_factor,
+         r.version_number, r.status, r.effective_from, r.effective_to, r.is_deleted, r.version, r.updated_at
+  from   fx_<suffix>_r.uom_conversion_rules r
+  left   join fx_<suffix>_r.products p on p.id = r.product_id
+  join   fx_<suffix>_r.uoms fu on fu.id = r.from_uom_id
+  join   fx_<suffix>_r.uoms tu on tu.id = r.to_uom_id
+  order  by fu.code, tu.code, r.product_id nulls last, r.version_number desc;
+
+  select l.current_receipt_quantity, l.conversion_factor, l.conversion_version,
+         t.quantity as stock_moved, t.entered_quantity
+  from   fx_<suffix>_r.goods_receipt_lines l
+  join   fx_<suffix>_r.goods_receipts g on g.id = l.goods_receipt_id
+  join   fx_<suffix>_r.inventory_transactions t
+         on t.reference_number = g.grn_number and t.transaction_type = 'GOODS_RECEIPT';
+  ```
+  `stock_moved` ≠ `current_receipt_quantity` × `conversion_factor` is D-CFG-1.
+- **Confirmed** in `fx_t09193ugd_r`: `<SUFFIX>-DET`'s own PACK→KG rule at
+  factor 1; a receipt drafted for 10 PACK (line factor 1, version 1), the rule
+  edited to 2, the receipt completed — `inventory_transactions.quantity`
+  **20**, `product_valuations` 20 at 2,000.00, journal Dr 1200 / Cr 2300
+  **2,000.00** against an order worth 1,000.00; the line still reads factor 1;
+  two `uom.conversion.updated` rows with nothing in them. WHOLE01 holds two
+  firm-wide PACK→KG rules at version 1, one of them deleted.
+
+### 14.12 Geography — countries to localities
+
+Masters → Geography; `/api/v1/sales-territories/geo/countries`, `/states`,
+`/districts`, `/cities`, `/postal-codes`, `/localities`. Reads need
+`TERRITORY_VIEW`; **every write is platform-only** and lands in the store
+`X-Firm-ID` opens. `docs/GEOGRAPHY_MASTERS.md` is the reference.
+
+- **Create** inserts one `geo_*` row (no `firm_id` — one per store) and
+  writes **no audit row**. **Edit** replaces the row from the write schema
+  (an omitted `is_active` reactivates it; omitted codes clear); **delete** is
+  a soft delete, refused while a child level, an address master, a branch, a
+  warehouse or a route profile names the place — **not** a customer's or
+  vendor's address, and not a tax row (D-CFG-12). Audits
+  `sales_territory.geo.<kind>.updated` / `.deleted`, `after_data` = `name`,
+  no before, **`firm_id` null** — on no screen (D-CFG-13).
+- Migration `20260917_0137` seeds the 36 Indian states in every store; the GST
+  template adds India to a store with no country (§13.2).
+- **Check:**
+  ```sql
+  select 'country' as level, code, name, is_active, is_deleted from wholesale_hub.geo_countries
+  union all select 'state', code, name, is_active, is_deleted from wholesale_hub.geo_states
+  union all select 'city', code, name, is_active, is_deleted from wholesale_hub.geo_cities
+  order  by 1, 2;
+
+  select count(*) as customers_on_a_retired_state
+  from   wholesale_hub.customer_addresses a
+  join   wholesale_hub.geo_states s on s.id = a.state_id
+  where  s.is_deleted and not a.is_deleted;
+  ```
+- **Confirmed:** countries/states/districts/cities/postcodes/localities —
+  `firm_shared` 1/36/2/1/0/0, TEST01 1/38/2/2/0/0 (six places created through
+  the API, no audit row), WHOLE01 3/37/1/1/1/1 with two countries and a state
+  retired and six geo audit rows, all `firm_id` null; no customer, vendor or
+  tax row on a retired place in any store.
+
+### 14.13 Sales stages — `sales_workflow_settings` (TC-FIN-009)
+
+Sales → Sales Orders → **Stages**. `GET` / `PUT
+/api/v1/sales-orders/workflow-settings`; the read needs `SALES_VIEW`, the
+write `SALES_MANAGE_SETTINGS` (`FIRM_ADMIN`, `FIRM_MANAGER`; not
+`SALES_MANAGER`). §11.20 has what the stages do to a sale.
+
+- **One row per firm**, inserted on the first save and **replaced whole**
+  after: `quotation_stage`, `sales_order_stage`, `delivery_note_stage`,
+  `default_branch_id`, `default_warehouse_id`. A firm with no row types every
+  stage; the read does not insert one. Audit **`CREATE`** / **`UPDATE`**,
+  `entity_type` `SalesWorkflowSettings`, all five on both sides (D-SELL-24).
+- **An omitted default is written as null**, so a client that sends only the
+  three switches clears both defaults; the desktop dialog, if its read
+  fails, saves the whole chain with no defaults (D-CFG-14).
+- **The defaults are not checked** — another firm's branch in `firm_shared`,
+  a deleted one, a warehouse outside the branch — and deleting a branch or
+  warehouse never looks here (D-CFG-14). `quotation_stage` is read by no
+  backend code; only the desktop hides the module.
+- **A draft bill made while the delivery-note stage is off treats any
+  approved, undispatched note of the order as its own** — it dispatches it on
+  approval and cancels it if the draft is cancelled (D-CFG-16) *(not seen in
+  a live row)*.
+- **Check:** §11.20's query, and:
+  ```sql
+  select w.*, b.code as branch, b.firm_id = w.firm_id as branch_is_the_firms, b.is_deleted as branch_deleted,
+         wh.code as warehouse, wh.branch_id = w.default_branch_id as warehouse_in_branch
+  from   wholesale_hub.sales_workflow_settings w
+  left   join wholesale_hub.branches b    on b.id = w.default_branch_id
+  left   join wholesale_hub.warehouses wh on wh.id = w.default_warehouse_id;
+  ```
+- **Confirmed:** seven rows in 51 stores (MEDI01, FOOD01, WHOLE01 and four
+  fixture stores); none in TEST01. WHOLE01's `UPDATE` of 2026-09-02 22:52:33
+  IST turned every stage back on **and cleared both defaults** that the one
+  before it had set. Only `fx_t09197ev9_e` carries a default today (MAIN,
+  with no branch).
+
+### 14.14 Credit policy — `credit_control_settings` (TC-CUST-003, TC-FIN-008)
+
+Customers → **Settings**. `GET` / `PUT /api/v1/customers/credit-settings`;
+the read needs `CUSTOMER_VIEW` (so the dialog opens read-only for a seller),
+the write `CUSTOMER_MANAGE_SETTINGS` (`ACCOUNTANT`, `FIRM_ADMIN`,
+`FIRM_MANAGER`).
+
+- **One row per firm**, full replace, every field required: `enforcement`
+  (`OFF`, `WARN`, `BLOCK`), `warn_at_percent`, `block_at_percent` (warn ≤
+  block). No row = WARN at 80, never block; the read does not insert. Audit
+  `CREATE` / `UPDATE`, `entity_type` `CreditControlSettings`, the three
+  figures both sides. §11.6 has what it does at approval.
+- **The limit itself is on the customer**, and `CUSTOMER_UPDATE` —
+  `SALES_MANAGER` holds it — edits it: raising a customer's limit, or setting
+  it to 0 ("no limit"), lifts a BLOCK for that customer through the ordinary
+  customer save (D-CFG-17).
+- **Check:**
+  ```sql
+  select enforcement, warn_at_percent, block_at_percent, version, updated_at
+  from   fx_<suffix>_s.credit_control_settings;
+  ```
+- **Confirmed:** six rows — BLOCK in MEDI01 and three `policy-firm` stores,
+  WARN in FOOD01 and WHOLE01; ten audit rows. In the three BLOCK fixture
+  stores a customer's limit moved 0 → 1,000 through `customer.updated`.
+
+### 14.15 Loyalty scheme — `loyalty_settings` (TC-GRANT-005, TC-INCENT-005)
+
+Masters → Loyalty → **Scheme settings**. `GET` / `PUT /api/v1/loyalty/settings`;
+`LOYALTY_VIEW` / `LOYALTY_MANAGE_SETTINGS` (`FIRM_ADMIN`, `FIRM_MANAGER`).
+
+- **One row per firm**, partial update: `is_enabled`, `points_per_amount`
+  (per 100 billed), `amount_per_point`, `minimum_redemption_points`,
+  `expiry_months`. No row = off; the read does not insert. Audit
+  `loyalty.settings_changed`, the five figures both sides (none before on
+  the first save).
+- **What a change reaches.** `points_per_amount` and `expiry_months` reach
+  only bills approved after it — an earned batch stores its points, its cost
+  and its expiry. **`amount_per_point` reaches every point already held**:
+  earning posts points × the rate then (Dr 5700 / Cr 2600), a lapse or a
+  cancelled bill releases the batch's stored cost, but a redemption or an
+  adjustment values points at the rate **now**. Raise the rate and 2600 is
+  debited more than was ever credited; lower it and a residue never clears
+  (D-CFG-3) *(not seen in a live row — no store has changed its rate)*.
+- **Check:**
+  ```sql
+  select is_enabled, points_per_amount, amount_per_point, minimum_redemption_points, expiry_months, version, updated_at
+  from   fx_<suffix>_s.loyalty_settings;
+
+  select created_at, before_data->>'amount_per_point' as was, after_data->>'amount_per_point' as now
+  from   fx_<suffix>_s.audit_logs
+  where  action = 'loyalty.settings_changed'
+  order  by created_at;
+  ```
+- **Confirmed:** 22 rows, every one 2 points per 100, 1.00 a point, minimum
+  50, 24 months; 68 `loyalty.settings_changed` rows, 46 of them in
+  `firm_shared` and WHOLE01 changing nothing — every seeder run re-saves the
+  scheme.
+
+### 14.16 Set up panel, the firm side — the default branch and readiness (TC-FIRM-011, 013)
+
+§6 has the platform side and §12.1 Open the books.
+
+- **Create head office and main warehouse**
+  (`POST /firms/{id}/create-default-branch`, platform only) inserts, in the
+  firm's store, `branches` `HO` (`is_default` **true**) and `warehouses`
+  `MAIN` (`is_default` **false**), each only if the firm has none. Audits
+  `branch.created` (`code`, `status`) and `warehouse.created` (`code`,
+  `branch_id`) in the firm's trail, and `firm.default_branch_created` on the
+  platform. Three commits.
+- **MAIN is not a default warehouse**, so a firm finished from the panel
+  that turns both the order and note stages off is refused every bare bill —
+  "This branch has no default warehouse, so a bill cannot decide where its
+  goods ship from." — while readiness reads the step as done (D-CFG-15).
+- **Readiness** (`GET /firms/{id}/readiness`) writes nothing. Its profile step
+  counts an assignment whether or not `is_active`; its people step counts
+  active memberships of users who are themselves deleted (D-CFG-21).
+- **Check:**
+  ```sql
+  select b.code as branch, b.is_default as branch_default, w.code as warehouse, w.is_default as warehouse_default
+  from   fx_<suffix>_r.branches b
+  left   join fx_<suffix>_r.warehouses w on w.branch_id = b.id and w.is_deleted = false
+  where  b.is_deleted = false;
+  ```
+- **Confirmed:** `MAIN` with `is_default` false and no default warehouse in its
+  branch in 49 stores — every fixture store, TEST01, TEST02, LEARN01,
+  SNTEST01 and `pt0916ppotc`; 49 `firm.default_branch_created` rows on the
+  platform.
+
+### 14.17 Preferences — the server's and the desktop's
+
+§3 has the columns.
+
+- **Server:** `platform.user_preferences`, one row per user. **`GET
+  /me/preferences` inserts it** on first read, with no audit row; `PATCH` is
+  partial and writes `user_preferences.updated` with no before, no after and
+  no `firm_id` — every screen change (`default_landing_page`), firm switch
+  (`default_firm_id`) and appearance change (D-CFG-21). `POST
+  /me/preferences/reset` writes `user_preferences.reset`, also empty.
+- **Desktop:** `%APPDATA%\.agency_platform\desktop_preferences.json` on
+  Windows (`AppStorage` elsewhere), per operating-system account, not per
+  user: remembered and recent usernames, server URL and recent servers, the
+  cached palette, mode and contrast, window state, last workspace, sidebar
+  and grid density, `workspace_state` (global search, inventory and the
+  inventory import wizard), and `server_preferences` — a cache that sign-in
+  **replaces whole** from the server. Nothing in it reaches a table.
+- **Check:**
+  ```sql
+  select action, count(*), count(firm_id) as with_firm,
+         count(*) filter (where jsonb_typeof(after_data::jsonb) = 'object'
+                          and (after_data::jsonb - '_meta') <> '{}'::jsonb) as with_after
+  from   platform.audit_logs
+  where  entity_type = 'user_preferences'
+  group  by action;
+  ```
+- **Confirmed:** 14 preference rows, the busiest at `version` 334; 521
+  `user_preferences.updated` rows, none with a before, an after or a firm.
+
+### 14.18 What configuration does not write, and is often looked for
+
+| You might expect | What actually happens |
+| --- | --- |
+| A catalogue change on the firm's Audit Logs screen | Written with `firm_id` null into the firm's store; on no screen (§14.0) |
+| The old value of a changed custom field, bank detail, conversion factor or series setting | Overwritten; the audit row names the record and not the change (D-CFG-13) |
+| The profile a firm ran on last month | Overwritten in place; `effective_from` still the first day (§14.2) |
+| The default series deciding the number | The first live series the database returns (§14.7) |
+| "Allow a number to be typed in" stopping a typed number | Read by nothing (§14.7) |
+| A counter row when a series is created | Written by the first document (§14.6) |
+| A module switched off refusing its endpoints | `require_module` is on no route (§14.3) |
+| An audit row for a unit, group, packaging type, packaging level, geography place created | None (§14.10, §14.12) |
+| A journal from any configuration change | None; its effects reach the next documents' journals (§14.0) |
+| A lifecycle state stopping an edit or a print | State rows are read by nothing (§14.7) |
+| A settings row when a firm has none | Defaults answered, nothing inserted — except preferences and the sales hierarchy, whose reads insert (§14.17) |
+
+### 14.19 Checked against live rows, and not
+
+- **Confirmed in `fx_t09193ugd_r`** (`config-firm`, built 2026-09-19 06:57
+  IST, then driven until 07:08): the RECEIPT series chosen with its default
+  and active flags off and another series' on; the restart toggled on
+  RECEIPT and PURCHASE_ORDER and every document refused after; both defaults
+  retired and refused; the recovery at 50; `next_sequence` written through
+  the API and ignored; a receipt series shaped like goods receipts refused by
+  the journal; a typed purchase order number and a typed receipt number
+  blocking the series; the conversion factor edited under a draft receipt —
+  20 KG and 2,000.00 for a line of 10 at factor 1; 50 received against an
+  order for 10 and 80 billed against 50 (D-CFG-4); a category-mandatory field
+  saved blank; the catalogue audit rows with `firm_id` null; WHOLE01's
+  features answered as GENERIC's from another store. **What the probes left:**
+  retired series `RECEIPT_DEFAULT`, `CFG_SECOND`, `CFG_RECOVER`,
+  `CFG_GRN_LOOKALIKE` and `PURCHASE_ORDER_DEFAULT`; `CFG_RECOVER2` (receipts,
+  blocked at `…000062`) and `CFG_PO_SERIES` (orders, blocked at `…000011`);
+  stock of `<SUFFIX>-DET` at 70 KG; `PI-CFG-OVER-1` approved for 9,440.00.
+- **Confirmed across every store on the server (read only):** 12 profiles and
+  a default in each; one assignment per fixture firm; seven stage rows, six
+  credit policies, 22 loyalty schemes, none with a changed rate; no second
+  live numbering series for a type outside the probe store; `MAIN` never a
+  default warehouse where the panel made it; geography and catalogue audit
+  rows `firm_id` null in WHOLE01 (20 catalogue, 6 geography) and
+  `firm_shared` (10 catalogue).
+- **Not seen in a live row:** a loyalty rate change and a redemption after
+  it (the backend stopped before it could be driven); a bare bill refused for
+  want of a default warehouse; a draft bill adopting a hand-raised note; a
+  document type deleted; a retired geography place under a customer; a unit
+  deleted while a draft uses it; two live firm-wide conversion rules at one
+  version; a packaging level on another firm's product; an
+  `/active-features` answer from a store with no default profile; a sales
+  manager lifting a BLOCK by raising a limit. ELEC01 (`agency_electrolink`)
+  was not queried for this section.

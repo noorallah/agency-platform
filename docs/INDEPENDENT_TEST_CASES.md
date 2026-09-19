@@ -388,6 +388,7 @@ that an edit changes what it names and nothing else.
   - Step 1: **Credit policy** — "When a customer reaches their limit" **Warn**, warn at 80, block at 100 (TEST01 has no policy row, so the default applies), editable.
   - Step 2: the dialog **opens read-only**, with "Changing the policy needs the manage customer settings permission." *(The plan said the action is not offered to a salesperson; it is offered on `CUSTOMER_VIEW` on purpose — someone the policy warns should see the rule behind the warning.)*
   - Step 3: **403**.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §14.14 in `test_fixtures` — both reads write nothing (TEST01 has no `credit_control_settings` row, so the defaults answer), and the refused PUT writes nothing either. A permitted save writes one row and an audit `CREATE` (`entity_type` `CreditControlSettings`). The seller cannot change the policy, but a sales manager can lift a BLOCK for one customer by raising their limit (D-CFG-17).
 - **Leaves:** unchanged.
 
 ### TC-CUST-004 — A credit limit warns and does not block
@@ -540,6 +541,7 @@ name.
   - Step 2: a locked row with a padlock, `Next number: N`, and the reason ("The counter belongs to the server, which advances it under a lock..."); no box to type in. After the rename the next number is unchanged.
   - Step 3: a **Start numbering at** box instead, helper "Usually 1...".
   - Step 4: the list loads, and **none** of the three buttons is offered.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §14.6 in `test_fixtures` — the rename updates `document_numbering_rules.name` and `version` and writes `document_numbering_rule.updated` (`before_data` code, name and next number; nothing after); the counter the next invoice uses is `document_number_sequences.next_sequence`, which the rename does not touch. The editor's "Use this series by default" and "Active" switches are stored and read by nothing (D-CFG-6).
 - **Leaves:** a renamed sales invoice series in TEST01.
 
 ### TC-CONF-002 — A yearly restart without the year is refused
@@ -552,6 +554,7 @@ name.
 - **Expect**
   - Step 1: a warning under the switches says the first document of April would repeat one from March; the save is refused with the server's sentence — "This rule restarts its numbering every financial year, so the number has to include the year -- without it the first document of each new year repeats a number the firm has already issued. …" — and nothing is created.
   - Step 2: created.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §14.6 in `test_fixtures` — step 1 writes nothing; step 2 inserts one `document_numbering_rules` row (`auto_reset` and `include_financial_year` true, `next_sequence` as typed) and `document_numbering_rule.created`, and **no** counter row until a document uses it. With two live SALES_INVOICE series, which one the next bill takes is not decided by the default switch (D-CFG-6) — retire this one when the case is done.
 - **Leaves:** a second sales invoice series in TEST01 (not the default).
 
 ### TC-CONF-003 — Previewing the next number issues nothing
@@ -560,7 +563,7 @@ name.
 - **Fixture:** `firm-admin`
 - **Steps:** as the fixture's **Firm admin**, select **SALES_INVOICE_DEFAULT** → **Preview next**, twice.
 - **Expect:** a number matching the pattern — `SI-2026-2027-00000N` — equal to the locked `Next number` and the **same both times**. A preview issues nothing.
-- **Data (HTTP):** `GET /api/v1/document-framework/numbering-rules/{id}/preview`, twice → the same string.
+- **Data (HTTP):** `GET /api/v1/document-framework/numbering-rules/{id}/preview`, twice → the same string. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §14.6 in `test_fixtures` — the preview writes nothing: `document_number_sequences.next_sequence` for the rule's current scope reads the same before and after, and there is no audit row.
 - **Leaves:** unchanged.
 
 ### TC-CONF-004 — A roadmap feature cannot be switched on
@@ -573,7 +576,7 @@ name.
 - **Expect**
   - Step 1: refused in the summary at the top of the form, which scrolls into view: "These features are not implemented yet and cannot be enabled: IMEI." The dialog stays open and **nothing** is written — not the features, and not the profile's other fields (until 2026-09-12 they were — BACKLOG §31.6). The six roadmap features: `IMEI`, `KITCHEN_MANAGEMENT`, `PRESCRIPTION_REQUIRED`, `PROJECT_MANAGEMENT`, `RECIPE_MANAGEMENT`, `SERVICE_CONTRACTS`.
   - Step 2: saves. The **Feature Flags** leaf beside it is the catalogue, not where a profile's features are chosen.
-- **Data (HTTP):** `PUT /api/v1/business-framework/profiles/{WHOLESALE id}/features` with the current ids plus IMEI's → **422**, the same sentence.
+- **Data (HTTP):** `PUT /api/v1/business-framework/profiles/{WHOLESALE id}/features` with the current ids plus IMEI's → **422**, the same sentence. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §14.1 in `fx_<suffix>_r` — step 1 writes nothing; step 2 sets `profile_features.is_enabled` true on BARCODE's row (or inserts it) and writes `business_profile.features.updated` with `firm_id` null and no data, so it is on no Audit Logs screen and does not say which feature moved (D-CFG-13).
 - **Leaves:** the fixture store's WHOLESALE profile, with BARCODE on.
 
 ### TC-CONF-005 — The tax simulator: CGST and SGST within a state, IGST across
@@ -582,7 +585,7 @@ name.
 - **Fixture:** `firm-admin`
 - **Steps:** as the fixture's **Firm admin**, Administration → Configuration → Tax Configuration → **Rule Simulator**. Transaction type `SALES_INVOICE`, tax profile `GST_18_LOCAL`, invoice value `1000` → Run Simulation. Then transaction type `SALES_INTERSTATE` → Run.
 - **Expect:** local — no rule matched, CGST 9% = 90 and SGST 9% = 90, total **180**. Interstate — matched rule **`INTERSTATE_GST_18`**, one component IGST 18% = 180, total **180**, and the trace shows the rule matched. (TEST01's rules come from the GST template, the same six the demo firms carry.)
-- **Data (HTTP):** `POST /api/v1/tax-framework/simulate` with the same values → `total_tax_amount` 180 both times; `matched_rule_id` null, then INTERSTATE_GST_18's id.
+- **Data (HTTP):** `POST /api/v1/tax-framework/simulate` with the same values → `total_tax_amount` 180 both times; `matched_rule_id` null, then INTERSTATE_GST_18's id. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §13.4 in `test_fixtures` — each run writes one `tax_rule_execution_logs` row (`execution_mode` SIMULATION, the trace in `evaluation_trace`: all six rules tried for the local run, four for the interstate one, which stops at the match) and an audit `tax.rule.simulated`. No document ever sends `SALES_INTERSTATE`, so a real bill to another state is charged CGST and SGST (D-CMP-1), and if INTERSTATE_GST_18 has been edited the match may be an old version (D-CMP-3).
 - **Leaves:** unchanged.
 
 ### TC-CONF-006 — A product's own conversion outranks the firm-wide one
@@ -595,7 +598,7 @@ name.
 - **Expect**
   - Step 1: the firm-wide rule appears beside the product's own.
   - Step 2: the line shows **Base Qty 10**, not 20 — the product's factor of 1 outranks the firm-wide 2. (Ranked explicitly rather than by NULL sort, which PostgreSQL and SQLite order oppositely.)
-- **Data (HTTP):** the order's line carries `conversion_factor` 1 and `base_quantity` 10. *(Driven with two firm-wide PACK→KG rules at 2 in place: still 10.)*
+- **Data (HTTP):** the order's line carries `conversion_factor` 1 and `base_quantity` 10. *(Driven with two firm-wide PACK→KG rules at 2 in place: still 10.)* Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §14.11 in `fx_<suffix>_r` — step 1 inserts a `uom_conversion_rules` row with `product_id` null and writes `uom.conversion.created` with no data; the line stores the factor and the rule's `version_number`. Do not edit either rule while a receipt of this order is in draft: completing it re-reads the rule and moves stock at the new factor (D-CFG-1).
 - **Leaves:** a firm-wide rule and a draft order in the fixture's store.
 
 ---
@@ -1243,7 +1246,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 - **Fixture:** `compliance-firm`
 - **Steps:** as the fixture's **Firm admin**, Sales → **GST Returns** → this month (the From/To boxes are chosen, not typed) → **GSTR-1**.
 - **Expect:** "Filing as <the firm's GSTIN>". **B2B**: Invoice A — taxable 1,000.00, CGST 90.00, SGST 90.00 — and Invoice B — 500.00, 45.00, 45.00 — under the buyer's GSTIN. **B2CS**: one row, Place **33**, 18%, taxable 300.00, CGST 27.00, SGST 27.00 — never a blank place. **CDNR**: nothing. **HSN**: 340220, quantity 18, taxable 1,800.00. **Invoices without a place of supply**: "Nothing in this section." The status bar: "Derived from the documents on every read, never stored."
-- **Data (HTTP):** `GET /api/v1/gst-returns/gstr1?from_date=<first>&to_date=<last>`.
+- **Data (HTTP):** `GET /api/v1/gst-returns/gstr1?from_date=<first>&to_date=<last>`. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §13.6 in `fx_<suffix>_g` — the return is not stored and the read writes nothing, not even an audit row; its query lists the approved bills, their buyers' GSTINs and the CGST/SGST rows it is built from. A sales return would not show here (D-CMP-2).
 - **Leaves:** unchanged.
 
 ### TC-COMP-002 — What rests on a bill stops it being cancelled; a return follows what is left
@@ -1256,6 +1259,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 - **Expect**
   - Step 1: refused, naming what rests on it: "SI-… cannot be cancelled while it has money applied from RC-…; its registration with the tax authority. Reverse or cancel those first."
   - Step 2: C cancels. The **B2CS row is gone** and HSN falls to quantity 15, taxable 1,500.00. *(The plan's second refusal — by a sales return — is TC-SELL-015's return in reverse; this fixture has none.)*
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §13.8 and §13.6 — the refusal writes nothing and A's `einvoice_registrations` row stays REGISTERED; C's cancel is the §11.12 cancellation (receivable `CREDIT_NOTE`, the journal reversed, `sales_invoice.cancelled`) and the return drops it because it reads `status`, not because anything was written to it. `docs` then counts 2 bills with no cancelled column (D-CMP-10).
 - **Leaves:** Invoice C cancelled.
 
 ### TC-COMP-003 — GSTR-3B agrees with GSTR-1
@@ -1264,6 +1268,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 - **Fixture:** `compliance-firm`
 - **Steps:** GST Returns → **GSTR-3B**, same month. Add GSTR-1's B2B, B2CS and CDNR taxable values by hand.
 - **Expect:** **3.1(a)** taxable **1,800.00**, CGST 162.00, SGST 162.00 — equal to GSTR-1's sum; credit notes deducted 0; the inward side reads "Not derived: the purchase side files this." 3B is aggregated from the documents, not parsed out of GSTR-1.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §13.7 — nothing stored; its query sums 2200 for the same days, which should read 324.00 (162.00 + 162.00). After a sales return the two part (D-CMP-2), and on bills whose halves end in half a paisa they differ by 0.01 a bill (D-CMP-4).
 - **Leaves:** unchanged.
 
 ### TC-COMP-004 — The e-invoice screen says it is a rehearsal
@@ -1272,6 +1277,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 - **Fixture:** `compliance-firm`
 - **Steps:** Sales → **E-Invoice**.
 - **Expect:** a banner, "References marked sandbox are a rehearsal: nothing was filed with the tax authority..."; columns Invoice, Customer, Reference, E-way bill; **two** rows (A and B), each Reference an `SBX…` value (hover for `SBX… (sandbox — nothing filed)`), E-way bill —. If anything reads LIVE, stop.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §13.8 — two `einvoice_registrations` rows, `mode` SANDBOX, `status` REGISTERED, `irn` and `acknowledgement_number` beginning `SBX`, `attempts` 1, the payload in `request_payload`, one `einvoice.registered` audit row each; no `eway_bills` row yet.
 - **Leaves:** unchanged.
 
 ### TC-COMP-005 — An invoice to a buyer with no GSTIN is refused locally
@@ -1280,6 +1286,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 - **Fixture:** `compliance-firm`
 - **Steps:** E-Invoice → **Register an invoice** → **Invoice C** (items read `SI-… — Walk-in Buyer <suffix> — 354.00`) → Register.
 - **Expect:** refused **locally**, in an error toast: "This invoice cannot be registered yet: the customer has no GST number." No row added, no portal code.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §13.8 — the refusal writes nothing: no `einvoice_registrations` row for C and no audit row, not even `einvoice.refused` (that one is written only when the portal itself refuses).
 - **Leaves:** unchanged.
 
 ### TC-COMP-006 — Raising and withdrawing an e-way bill
@@ -1294,6 +1301,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
   - Step 1: blank vehicle refused before sending: "Goods moving by road need a vehicle number on the bill."; then "E-way bill raised." and the cell fills with `SBX…`.
   - Step 2: "E-way bill withdrawn."
   - Step 3: **422**, "Register the invoice before raising its e-way bill: the bill quotes the IRN, and one without it cannot be matched to a supply." The screen does not offer it.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §13.10 — the refused blank-vehicle attempt writes nothing; the raise inserts one `eway_bills` row (`mode` SANDBOX, `status` GENERATED, `eway_bill_number` `SBX…`, `valid_until` today in UTC + 1 day for 120 km, `vehicle_number` TN01AB1234) and audit `eway_bill.generated`; the withdrawal sets CANCELLED, `cancelled_at`, `cancellation_reason`, `version` 2 and writes `eway_bill.cancelled`. Step 3 writes nothing. Withdrawing B's **registration** while its bill is GENERATED is not refused (D-CMP-5).
 - **Leaves:** a withdrawn e-way bill on B.
 
 ### TC-COMP-007 — TCS: the register, the settings, and a journal of its own
@@ -1305,7 +1313,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
   - The banner reads "Collecting under section 206C(1H) • (the threshold, 0) per buyer per year, then 0.100% (1.000% without a PAN)"; the register lists the two receipts from Vijaya — **2.42** and **3.42**, rate **1.000%** (no PAN), **COLLECTED**.
   - Settings: **Collect under section 206C(1H)** on; preceding year turnover 150,000,000; threshold 0; rate 0.1; without a PAN 1.0.
   - Journal: `TCS-RC-…` entries separate from the receipts' own; View reads **Dr 1100 Trade Receivables / Cr 2500 TCS Payable** — 2500, not Output Tax.
-- **Data (HTTP):** `GET /api/v1/tcs/collections` → `tcs_amount`, `rate_percent`, `without_pan: true`.
+- **Data (HTTP):** `GET /api/v1/tcs/collections` → `tcs_amount`, `rate_percent`, `without_pan: true`. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §13.11 in `fx_<suffix>_s` — one `tcs_collections` row per receipt (`cumulative_before` 0 then 241.60, `status` COLLECTED), each with its `TCS-RC-…` journal and a receivable row `TCS`; closing Settings without saving writes nothing (a save would write `tcs.settings_changed`). The second query there should show the collections and 2500 agreeing at 5.84. A back-dated receipt counts later ones in `cumulative_before` (D-CMP-7).
 - **Leaves:** unchanged.
 
 ---
@@ -2209,6 +2217,7 @@ only matters for accounts you already had open.
 - **Expect**
   - Step 1: it **opens**, read-only, saying "Changing the scheme needs the manage loyalty settings permission." Offered rather than hidden on purpose: whoever is asked why a balance is what it is should reach the rule behind it.
   - Step 2: **403**. Whoever a scheme constrains must not rewrite what it is worth.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §14.15 in `test_fixtures` — the read and the refused PUT write nothing. A permitted save writes `loyalty.settings_changed` with the five figures on both sides; changing `amount_per_point` re-prices points already held (D-CFG-3).
 - **Leaves:** a sales manager.
 
 ### TC-GRANT-006 — TCS settings open, and TCS is off
@@ -3077,6 +3086,7 @@ dedicated one leaves its schema behind. Provisioning runs the migrations, so
 - **Expect**
   - Assign is dead until a profile is chosen. The dropdown lists the **firm's own** catalogue (`GET /api/v1/business-framework/firms/{id}/profiles`), which is why this works with no firm open.
   - "Business profile set to Wholesale." The row re-reads "Assigned: WHOLESALE." and the picker is gone.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §14.2 in `fx_<suffix>_f` — one `firm_business_profiles` row (WHOLESALE, `is_active` true, `effective_from` now) and `firm_business_profile.created` in the **firm's** trail, `after_data` the profile id only; nothing on the platform trail.
 - **Leaves:** the firm on the Wholesale profile.
 
 ### TC-FIRM-011 — Head office and main warehouse, once
@@ -3104,7 +3114,7 @@ dedicated one leaves its schema behind. Provisioning runs the migrations, so
 - **Expect**
   - Step 2: a grid of **every** firm, not only TEST01 — the screen names the firm in the URL rather than reading `X-Firm-ID`.
   - Step 3: saved against the fixture's firm, not TEST01; re-opening shows Retail. The **Business profile** dropdown is populated — empty, or "The database is temporarily unavailable", means no firm is open.
-- **Data**
+- **Data** — `docs/DATA_TRAIL_BY_OPERATION.md` §14.2: the row is updated in place (`effective_from` unchanged, `notes` cleared unless sent) and `firm_business_profile.updated` has no before side, so the trail cannot say the firm was WHOLESALE (D-CFG-13).
   ```sql
   select p.code from fx_<suffix>_f.firm_business_profiles a
   join   fx_<suffix>_f.business_profiles p on p.id = a.business_profile_id
@@ -3229,6 +3239,7 @@ other case that saves a customer or a product.
   - Steps 2–3: both save.
   - Step 4: `definitions` includes **SHELF_NOTE** and **not** PHARMA_NOTE. Scoping is what stops one industry's field appearing everywhere.
   - Step 5: an **Attributes** tab with a **Shelf note** box. Since 2026-09-16 the rule is not what puts it there — a definition that simply applies is offered on the product form as it is on every other master (D-27-1); the rule decides whether the box is *required*.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §14.4 in `fx_<suffix>_r` — two `attribute_definitions` rows (`applicable_business_profile_id` null, then PHARMACY's id) and one `category_attribute_rules` row. Their audit rows (`attribute_definition.created` ×2, `category_attribute_rule.created`) carry `firm_id` null and no data, so Settings → Audit Logs does not show them — query by action (D-CFG-13). Step 4 writes nothing.
 - **Leaves:** two definitions and one optional rule in the fixture firm.
 
 ### TC-FIELD-002 — A mandatory definition reaches every category
@@ -3243,6 +3254,7 @@ other case that saves a customer or a product.
   - Step 2: **422**, "Required attributes are missing.", naming BIN_CODE's id in `missing_attribute_definition_ids`. The flag on the definition applies to **every** category it reaches — blunt, and the one with a history.
   - Step 3: saves.
   - On the desktop the form now offers a **Bin code** box, required, so step 3's product can be typed rather than posted: fixed 2026-09-16, see defect **D-27-2**.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §14.4 and §14.5 — the definition carries `mandatory` true; step 2 writes nothing; step 3 writes one `products` row and one `product_attribute_values` row, `value_text` `A-1`. A definition that is itself mandatory also refuses a blank value.
 - **Leaves:** a mandatory definition and one product in the fixture firm. Any later product in this firm needs a bin code.
 
 ### TC-FIELD-003 — A rule makes a field mandatory for one category only
@@ -3257,7 +3269,7 @@ other case that saves a customer or a product.
 - **Expect**
   - Step 3: the Attributes tab shows **Cold chain id** as required; empty is refused on the form ("Required business attributes are missing."); filled, it saves.
   - Step 4: saves — no Attributes tab, nothing asked. Other categories are untouched.
-- **Data**
+- **Data** — `docs/DATA_TRAIL_BY_OPERATION.md` §14.4: a field a rule makes mandatory is refused when missing but **accepted when sent blank** through the API, stored with every value column null (D-CFG-5).
   ```sql
   select r.category_code, d.code, r.is_mandatory
   from   fx_<suffix>_r.category_attribute_rules r
@@ -3279,6 +3291,7 @@ other case that saves a customer or a product.
   - Step 2: accepted — not an error.
   - Step 3: **saves**. The server intersects the rules with what applies to this firm, and a Pharmacy field does not.
   - Step 4: `required_attribute_definition_ids` does **not** list RX_CLASS, and neither does the optional list — the metadata and the save now answer the same question. Fixed 2026-09-16; see defect **D-27-3**.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §14.4 — the rule row is written although it can never apply here; `RX0` saves with no `product_attribute_values` row.
 - **Leaves:** a definition, a rule and one product in the fixture firm. Retire the rule to make FXAMB usable on the desktop again.
 
 ### TC-FIELD-005 — Changing the firm's profile hides a field and keeps its value
@@ -3293,7 +3306,7 @@ other case that saves a customer or a product.
 - **Expect**
   - Step 3: the **Attributes tab is gone** and nothing warned you. The value is still stored (below). This is `docs/BACKLOG.md` §16.
   - Step 4: the field and its value `A` are back. Nothing was lost; it stopped being *read*.
-- **Data**
+- **Data** — `docs/DATA_TRAIL_BY_OPERATION.md` §14.2 and §14.5: each profile change updates the one `firm_business_profiles` row in place and touches no value row.
   ```sql
   select d.code, v.value_text from fx_<suffix>_r.product_attribute_values v
   join   fx_<suffix>_r.attribute_definitions d on d.id = v.attribute_definition_id
@@ -3311,7 +3324,7 @@ other case that saves a customer or a product.
   1. As the fixture's **Platform admin** in the fixture's firm, create `LOT_NOTE`, TEXT, `PRODUCT`, profile blank, and an optional rule for it on `FXAMB`. Create product `LN1` in Fixture Ambient with Lot note `abc`.
   2. Edit `LOT_NOTE` and change its data type to **NUMBER**. Save.
 - **Expect:** accepted, **with no warning**. The stored value stays where it was: `value_text = 'abc'`, `value_number` empty, beside a definition that now says NUMBER. Record this as expected-but-wrong — it is §16's first lifecycle guard. *(Driven: `GET /api/v1/products/{id}` still returns the row with `value_text: "abc"`. What the product form shows for it was not checked.)*
-- **Data:** the query from TC-FIELD-005 with `p.code = 'LN1'`, plus `value_number`.
+- **Data:** the query from TC-FIELD-005 with `p.code = 'LN1'`, plus `value_number`. `docs/DATA_TRAIL_BY_OPERATION.md` §14.4 — the edit writes `attribute_definition.updated` with `firm_id` null and no data, so nothing records that the type changed.
 - **Leaves:** a definition now NUMBER, with a text value stranded.
 
 ### TC-FIELD-007 — A customer carries a custom field, and an edit leaves it alone
@@ -3327,7 +3340,7 @@ other case that saves a customer or a product.
   - Step 2: a **Custom fields** tab with one box, **Drug licence no**.
   - Step 3: the value is there. **(HTTP)** `GET /api/v1/customers/{id}`: `attributes` carries one row with `value_text: "DL-4471"`.
   - Step 4: the licence is still there. A form sends `attributes` only once it has read the definitions, and an update that omits them leaves them alone.
-- **Data**
+- **Data** — `docs/DATA_TRAIL_BY_OPERATION.md` §14.5: one `customer_attribute_values` row; step 4's save carries no `attributes` and leaves the row's `version` and `updated_at` as they were. Neither save's `customer.*` audit row mentions the licence (D-CFG-13).
   ```sql
   select v.value_text, v.updated_at from fx_<suffix>_r.customer_attribute_values v
   join   fx_<suffix>_r.customers c on c.id = v.customer_id where c.code = 'DLC';
@@ -3345,6 +3358,7 @@ other case that saves a customer or a product.
 - **Expect**
   - Step 2: refused on the form, **"Drug licence no is required."** Nothing sent.
   - Step 3: **422**, "Required attributes are missing."
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §14.5 — both refusals write nothing, not even an audit row.
 - **Leaves:** a mandatory customer definition in the fixture firm. Every later customer there needs a licence.
 
 ### TC-FIELD-009 — A vendor field belongs to vendors only
@@ -3360,6 +3374,7 @@ other case that saves a customer or a product.
   - Step 2: one numeric box, Supplier tier; `2` after reopening.
   - Step 3: not offered.
   - Step 4: **422**, "One or more attributes do not apply to this record."
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §14.5 — one `vendor_attribute_values` row with `value_number` 2; step 4 writes nothing.
 - **Leaves:** a vendor definition and a vendor in the fixture firm.
 
 ### TC-FIELD-010 — Branches and warehouses carry their own fields
@@ -3370,7 +3385,7 @@ other case that saves a customer or a product.
   1. As the fixture's **Platform admin** in the fixture's firm, Dynamic Attributes → New: entity type `BRANCH`, `FSSAI_LICENCE`, TEXT. And another: entity type `WAREHOUSE`, `DOCK_COUNT`, NUMBER.
   2. As the fixture's **Firm admin**: Masters → Branches → Edit `HO`; Masters → Warehouses → Edit `MAIN`.
 - **Expect:** a **Custom fields** heading at the foot of each dialog with **its own** box only — FSSAI licence on the branch, Dock count on the warehouse. Type a value, Save, reopen: it is there. The branch is **still the default** — saving the dialog does not clear what it does not show.
-- **Data:** `fx_<suffix>_r.branch_attribute_values`, `fx_<suffix>_r.warehouse_attribute_values`.
+- **Data:** `fx_<suffix>_r.branch_attribute_values`, `fx_<suffix>_r.warehouse_attribute_values`. `docs/DATA_TRAIL_BY_OPERATION.md` §14.5 — one row each, the value in `value_text` and `value_number`; the owner's `branch.updated` / `warehouse.updated` does not carry it.
 - **Leaves:** two definitions and two values in the fixture firm.
 
 ### TC-FIELD-011 — A field with fixed choices
@@ -3390,6 +3405,7 @@ other case that saves a customer or a product.
   - Step 4: **422**, "Attribute STORAGE_TEMPERATURE must be one of: Ambient, Chilled, Frozen."
   - Step 5: Frozen still shows, selectable, and **the save goes through with it unchanged**. Choosing something else off the list is still refused with "must be one of: Ambient, Chilled". Fixed 2026-09-16; see defect **D-27-4**.
   - Step 6: **422**, "Only a TEXT attribute can carry allowed values."
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §14.4 and §14.5 — the list is `attribute_definitions.validation_rule` → `allowed_values`; the product's value is `value_text` `Frozen`; steps 4 and 6 write nothing; step 5's saves leave the value row as it was.
 - **Leaves:** a definition, a rule and a product in the fixture firm.
 
 ### TC-FIELD-012 — Reading a firm's fields needs the firm, and nothing else
@@ -3404,6 +3420,7 @@ other case that saves a customer or a product.
   1. **200**: `entity_type`, `definitions` (what this firm's profile allows) and `mandatory_ids`. Membership is the whole gate — the forms of anybody who can open a customer need it.
   2. **403**, "Select a firm to read its custom fields."
   3. **403**. Reading the fields a form offers is not writing the catalogue.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §14.5 — reads only; the refused POST writes nothing.
 - **Leaves:** nothing.
 
 ### TC-FIELD-013 — A unit is shared by the store; its custom-field values are per firm
@@ -3420,7 +3437,7 @@ other case that saves a customer or a product.
   - Step 2: **200**; the unit's `attributes` carries "TESTSH1 note". The update is partial — nothing else about the unit changes.
   - Step 3: the **same unit**, with `attributes` **empty**. The unit is one row; the values are per firm.
   - No desktop form shows UOM custom fields yet.
-- **Data**
+- **Data** — `docs/DATA_TRAIL_BY_OPERATION.md` §14.5 and §14.10: the `uoms` row is shared and untouched; the value row is TESTSH1's own.
   ```sql
   select firm_id, uom_id, value_text from firm_shared.uom_attribute_values
   where  value_text = 'TESTSH1 note';
@@ -3438,6 +3455,7 @@ other case that saves a customer or a product.
   2. Switch into **TESTSH2** → Dynamic Attributes.
   3. Delete it.
 - **Expect:** step 2 — **it is there.** `attribute_definitions` carries no `firm_id`, so every firm in `firm_shared` — TESTSH1, TESTSH2, MEDI01 and FOOD01 — edits one set. A firm in its own schema, like `ready-firm`'s, does not have this. It is the reason `docs/BACKLOG.md` §16 exists.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §14.0 and §14.4 — one `firm_shared.attribute_definitions` row with no `firm_id`; its create and delete audit rows carry `firm_id` null, so neither firm's Audit Logs shows them.
 - **Leaves:** nothing, once deleted.
 
 ### Known defects found while writing these cases

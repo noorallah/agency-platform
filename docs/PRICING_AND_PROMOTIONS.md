@@ -126,6 +126,22 @@ or amount, a bill discount -- carries over as typed; everything the pricing
 rule derived is derived again by the order on its own date, which is what
 stages the pending claim that approval counts under the lock.
 
+**A quotation shows every offer an order would take, and claims none.** It
+asked the engine for line discounts only, so an offer on the whole bill, a
+free gift and free shipping reached the order and never the quotation, which
+read higher than the order it became -- 5,678.16 against 5,265.16 for the
+same 60 units (D-SELL-32, 2026-09-19). It is now priced through the same
+evaluation as the order, bill, gift and delivery included, and still stages
+nothing. What the offers gave is recorded as theirs so the conversion can
+leave it to the order: `sales_quotations.bill_discount_source` (only a
+`typed` one is handed over, as the order's editor refills only a typed one),
+`freight_waived_amount` (the order is handed the charge that was *asked*, and
+waives it again only if an offer still does), and a gift line is the one line
+with a quantity of zero, which the write schema refuses from anybody else, so
+the conversion drops it and the order's offers add it back. One gap stays: a
+`FREE_QUANTITY` offer's free goods on a line are indistinguishable from typed
+ones, on the quotation as on the order, so they carry over as the line's.
+
 ## `customer_type` is a legal classification, not a commercial one
 
 **`customer_type` is a legal classification, not a commercial one.** It holds

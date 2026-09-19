@@ -44,6 +44,7 @@ from app.tax.schemas import (
     TaxRuleWrite,
     TaxStatus,
 )
+from app.tax.services.place_of_supply import SupplyPlaceResolver
 
 
 class TaxRuleService:
@@ -52,6 +53,31 @@ class TaxRuleService:
     def __init__(self, session: Session) -> None:
         """Bind the service to one request unit of work."""
         self._session = session
+        self._supply: SupplyPlaceResolver | None = None
+
+    def outward_transaction_type(
+        self,
+        document_type: str,
+        *,
+        firm_id: UUID,
+        branch_id: UUID | None,
+        customer_id: UUID | None,
+    ) -> str:
+        """Return the type an outward document's line is priced as.
+
+        ``SALES_INTERSTATE`` when the buyer's state differs from the
+        supplier's, so the firm's interstate rules charge IGST; the document's
+        own type otherwise. Every outward module asks here rather than naming
+        its type itself -- see ``app/tax/services/place_of_supply.py``.
+        """
+        if self._supply is None:
+            self._supply = SupplyPlaceResolver(self._session)
+        return self._supply.outward_transaction_type(
+            document_type,
+            firm_id=firm_id,
+            branch_id=branch_id,
+            customer_id=customer_id,
+        )
 
     def list_rules(
         self,
