@@ -781,3 +781,75 @@ def test_orders_on_one_date_list_newest_first() -> None:
     )
     assert total == 3
     assert [row.id for row in rows] == [third.id, second.id, first.id]
+
+
+def test_an_order_remembers_the_delivery_charge_an_offer_waived() -> None:
+    """D-SELL-35: what was asked is kept beside what was charged.
+
+    The order stored only the post-waiver charge, so an editor reopening it
+    could send nothing but that back: the charge the customer was asked for
+    was lost, and an order that no longer qualified for the offer could never
+    ask for it again. The quotation had the same defect (D-SELL-34).
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    promotion = Promotion(
+        firm_id=firm.id,
+        code="FREESHIP",
+        name="Free shipping",
+        priority=100,
+        status="ACTIVE",
+        allow_stacking=True,
+        version_group_id=uuid4(),
+        version_number=1,
+    )
+    session.add(promotion)
+    session.flush()
+    session.add(
+        PromotionAction(
+            firm_id=firm.id,
+            promotion_id=promotion.id,
+            sequence=1,
+            action_type="FREE_SHIPPING",
+            parameters={},
+        )
+    )
+    session.commit()
+    service = SalesOrderService(session)
+    payload = SalesOrderCreate(
+        customer_id=customer.id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+        order_date=date(2026, 8, 3),
+        freight_amount=Decimal("150"),
+        lines=[
+            SalesOrderLineWrite(
+                line_number=1,
+                product_id=product.id,
+                quantity=Decimal("2"),
+                unit_price=Decimal("100"),
+            )
+        ],
+    )
+
+    row = service.create_order(payload, firm_id=firm.id, actor_id=uuid4())
+    session.commit()
+
+    assert row.freight_amount == Decimal("0.0000")
+    assert row.freight_waived_amount == Decimal("150.0000")
+    # Published, because what the editor refills is the two together.
+    assert service.order_response(row).freight_waived_amount == Decimal("150.0000")
+
+    # The offer is withdrawn, and the same edit -- the charge that was asked,
+    # sent again -- charges for delivery once more.
+    promotion.status = "INACTIVE"
+    session.commit()
+    edited = service.update_order(row.id, payload, firm_scope=firm.id, actor_id=uuid4())
+    session.commit()
+
+    assert edited.freight_amount == Decimal("150.0000")
+    assert edited.freight_waived_amount == Decimal("0.0000")
