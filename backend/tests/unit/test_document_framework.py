@@ -27,6 +27,11 @@ from app.document_framework.schemas import (
     DocumentTypeCreate,
 )
 from app.document_framework.services import DocumentFrameworkService
+from app.document_framework.services.transactional_document_service import (
+    DocumentStateSpec,
+    DocumentTypeSpec,
+    TransactionalDocumentService,
+)
 from app.firms.models import Firm
 
 importlib.import_module("app.document_framework.models.document_framework")
@@ -506,6 +511,131 @@ def test_a_partial_update_is_judged_on_what_the_rule_will_be() -> None:
         ),
         actor_id,
     )
+
+
+class _NumberedDocuments(TransactionalDocumentService):
+    """A document module reduced to the part that picks its series."""
+
+    DOCUMENT = DocumentTypeSpec(
+        code="NUMBERED_DOC",
+        name="Numbered Document",
+        description="A document that only needs a number.",
+        category="TEST",
+        module="numbered",
+        prefix="ND",
+        states=(DocumentStateSpec(code="DRAFT", name="Draft", sort_order=1),),
+    )
+
+    def series(self, firm_id: UUID, actor_id: UUID) -> DocumentNumberingRule:
+        """Return the series the next document would be numbered from."""
+        return self._ensure_document_setup(firm_id=firm_id, actor_id=actor_id)[1]
+
+    def issue(self, firm_id: UUID, actor_id: UUID) -> str:
+        """Issue the next number, as a module's create does."""
+        return self._documents.reserve_number(
+            self.series(firm_id, actor_id).id,
+            firm_id=firm_id,
+            document_date=date(2026, 8, 1),
+            actor_id=actor_id,
+        )
+
+
+def _second_series(
+    service: DocumentFrameworkService,
+    firm_id: UUID,
+    type_id: UUID,
+    actor_id: UUID,
+    **over: object,
+) -> DocumentNumberingRule:
+    """Add a second series to the type, NX-, by default the new default."""
+    payload: dict[str, object] = {
+        "document_type_id": type_id,
+        "code": "SECOND",
+        "name": "Second series",
+        "prefix": "NX",
+        "include_financial_year": True,
+        "is_default": True,
+    }
+    payload.update(over)
+    return service.create_numbering_rule(
+        firm_id, DocumentNumberingRuleCreate.model_validate(payload), actor_id
+    )
+
+
+def _switch(
+    service: DocumentFrameworkService,
+    firm_id: UUID,
+    rule: DocumentNumberingRule,
+    actor_id: UUID,
+    **flags: bool,
+) -> DocumentNumberingRule:
+    """Save a series with its default and active switches changed."""
+    return service.update_numbering_rule(
+        firm_id,
+        rule.id,
+        DocumentNumberingRuleUpdate.model_validate(
+            {
+                "document_type_id": rule.document_type_id,
+                "code": rule.code,
+                "name": rule.name,
+                **flags,
+            }
+        ),
+        actor_id,
+    )
+
+
+def test_the_active_default_series_numbers_the_document() -> None:
+    """The default and active switches decide the series, and nothing else.
+
+    D-CFG-6: the series was whichever live rule the database returned first,
+    with no ordering and no look at `is_default` or `is_active`. Driven on
+    fixture store `fx_t0919snfh_r`: a second receipt series made default and
+    active, the old one neither, and the next receipt was still
+    `RC-2026-2027-000002`, from the series switched off.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    documents = _NumberedDocuments(session)
+    first = documents.series(firm.id, actor_id)
+    assert documents.issue(firm.id, actor_id).startswith("ND-")
+
+    service = DocumentFrameworkService(session)
+    second = _second_series(service, firm.id, first.document_type_id, actor_id)
+    session.flush()
+    assert first.is_default is False, "one default per document type"
+    assert documents.series(firm.id, actor_id).id == second.id
+    assert documents.issue(firm.id, actor_id).startswith("NX-")
+
+    # The old series made the default again takes the documents back.
+    _switch(service, firm.id, first, actor_id, is_default=True)
+    session.flush()
+    assert second.is_default is False
+    assert documents.issue(firm.id, actor_id).startswith("ND-")
+
+    # Switched off, it is passed over even as the only one ever used.
+    _switch(service, firm.id, first, actor_id, is_default=False, is_active=False)
+    assert documents.issue(firm.id, actor_id).startswith("NX-")
+
+
+def test_an_inactive_series_is_never_used() -> None:
+    """A type whose every series is switched off is refused a number by name."""
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    documents = _NumberedDocuments(session)
+    only = documents.series(firm.id, actor_id)
+    session.commit()
+    service = DocumentFrameworkService(session)
+
+    with pytest.raises(ValidationError, match="cannot be the default"):
+        _switch(service, firm.id, only, actor_id, is_default=True, is_active=False)
+    session.rollback()
+
+    _switch(service, firm.id, only, actor_id, is_default=False, is_active=False)
+    with pytest.raises(ValidationError, match="is switched off"):
+        documents.issue(firm.id, actor_id)
 
 
 def _endpoints(routes: object) -> "Iterator[object]":
