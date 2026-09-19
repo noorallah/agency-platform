@@ -168,6 +168,36 @@ def test_a_proforma_states_what_the_order_will_be_charged() -> None:
     assert row.bill_discount_amount == Decimal("50.0000")
 
 
+def test_freight_and_the_order_s_charges_reach_the_total() -> None:
+    """D-SELL-16: a proforma asked for less than the order would bill.
+
+    Driven 2026-09-19 on ``fx_t0919x8yq_s``: SO-2026-2027-000002 with 50 of
+    freight, 25 of other charges and 0.40 round-off totalled 375.81; its
+    proforma said 300.41 -- no freight in the taxable value while the tax
+    copied from the order included the freight's tax, and no charges.
+    """
+    books = _Books(_session_factory()())
+    line = books.session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == books.order.id)
+    )
+    assert line is not None
+    line.freight_amount = Decimal("40")
+    line.tax_amount = Decimal("160.20")  # 18% of 890
+    books.order.additional_charges = Decimal("25")
+    books.order.round_off = Decimal("-0.20")
+    books.session.commit()
+
+    row = books.raise_proforma()
+
+    # 850 taxable plus the line's 40 of freight; the order's 24.80 on top.
+    assert row.subtotal == Decimal("890.0000")
+    assert row.tax_total == Decimal("160.2000")
+    assert row.grand_total == Decimal("1075.0000")
+    response = ProformaService(books.session).proforma_response(row)
+    assert response.other_charges == Decimal("24.8000")
+    assert response.lines[0].net_amount == Decimal("1050.2000")
+
+
 def test_it_posts_nothing_at_all() -> None:
     """No journal, no receivable, no stock.
 

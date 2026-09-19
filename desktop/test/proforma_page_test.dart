@@ -161,6 +161,29 @@ void main() {
     expect(find.textContaining('+1.00 free'), findsOneWidget);
   });
 
+  testWidgets('the order\'s other charges are stated above the total',
+      (tester) async {
+    // D-SELL-16: the total now carries the order's header charges and
+    // round-off, so the document says what they came to.
+    final Json row = _proforma()
+      ..['other_charges'] = '24.80'
+      ..['grand_total'] = '1027.80';
+    await _pump(tester, _ProformaApi(rows: <Json>[row]));
+    await tester.tap(find.textContaining('PI-2026-2027-000001'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Other charges'), findsOneWidget);
+    expect(find.text('24.80'), findsOneWidget);
+  });
+
+  testWidgets('no charges, no line for them', (tester) async {
+    await _pump(tester, _ProformaApi(rows: <Json>[_proforma()]));
+    await tester.tap(find.textContaining('PI-2026-2027-000001'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Other charges'), findsNothing);
+  });
+
   testWidgets('an issued proforma cannot be issued again', (tester) async {
     await _pump(tester, _ProformaApi(rows: <Json>[_proforma(status: 'ISSUED')]));
     await tester.tap(find.textContaining('PI-2026-2027-000001'));
