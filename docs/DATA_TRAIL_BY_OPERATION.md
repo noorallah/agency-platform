@@ -55,7 +55,14 @@ memberships and the switcher, roles and the two grant tiers,
 firm registry and where a firm lives, provisioning, the audit trail and its
 merged read, and retention — pass 1's §2 to §7 re-read against the rows of
 `platform`, every store's trigger and three fixture runs, with its errors
-corrected in place (§15.13). The rest follow.
+corrected in place (§15.13). **Masters closed the same day (§16)**: customers,
+their segments, the standing discount and the credit limit, vendors and their
+six child collections, categories and types, products, their categories,
+prices, units and tracking flags, branches, warehouses and storage areas, and
+what every delete, bulk action, import and export writes — read off the four
+master services and checked against every store on the server, then driven on
+six fixture runs (§16.21). What a document does to a master is §9 to §14 and is
+not repeated there. The rest follow.
 
 ---
 
@@ -5228,3 +5235,814 @@ template.
   refresh-reuse revocation from a race; a person with an inactive membership
   elsewhere edited by a firm administrator; a firm provisioned onto a schema
   another store owns.
+
+---
+
+## 16. Masters — customers, vendors, products, branches and warehouses (TC-CUST-001 to 006, TC-MAST-001 to 008, TC-CONC-001 to 003, TC-ISO-001, TC-ISO-002)
+
+Read on 2026-09-19 off `app/customers` (`customer_service.py`,
+`customer_group_service.py`, the repository and the router), `app/vendors`
+(`vendor_service.py`, the router), `app/products` (`product_service.py`, the
+router), `app/branches` (`branch_warehouse_service.py`, the router) and what
+they call — `AttributeService`, `DocumentPostingService`, the delete guards in
+`app/settlements` and the pricing rule in `app/core/utils/pricing.py`. The 99
+routes these four modules publish are counted in `docs/MODULE_STATUS.md`.
+
+**Earlier sections carry the master data a document touches, and are not
+repeated here**: what a purchase writes against a vendor is §9, stock against a
+product and a warehouse §10, a sale against a customer §11 (the credit limit at
+approval is §11.6), a customer's opening balance and what deleting one does to
+the ledger §12.11, statements and ageing §12.10, the tax profile a product
+names §13.5, and custom fields, units, packaging, barcodes and geography §14.4,
+§14.5, §14.10 to §14.12. This section is the master records themselves: created,
+edited, deleted, restored, imported, exported, grouped and categorised.
+
+Checked read-only against every store on the local server that holds a
+`customers` table (59 schemas in `agency_platform` plus `electrolink_ops` in
+`agency_electrolink`), and driven against the running backend on six fixture
+runs of this pass — `stock-ready` `t0919p81v`, `product-master` `t09199zi5`,
+`customer-master` `t09193238`, `loyalty-viewer` `t09191qg3`, `shared-pair`
+`t0919r8y3` and `po-received` `t091964t5`. **Nothing was written to the demo
+firms** (WHOLE01, MEDI01, FOOD01, ELEC01); they were read only. §16.21 says
+which claims a live row confirmed and which it could not; a claim marked *(not
+seen in a live row)* was read off the code only.
+
+### 16.0 Before you look
+
+- **Stores.** Every table in this section is firm-owned, so it lives in the
+  firm's own store and carries `firm_id`. For a fixture firm put the schema the
+  fixture's **Tables** line prints; for TEST01 `test_fixtures`, TEST02
+  `test_fixtures_2`, WHOLE01 `wholesale_hub`, MEDI01, FOOD01, TESTSH1 and
+  TESTSH2 `firm_shared` (filter on `firm_id`), ELEC01 `electrolink_ops` in the
+  `agency_electrolink` database.
+
+  | Case | Fixture | Schema |
+  | --- | --- | --- |
+  | TC-CUST-001 to 004, 006, TC-CONC-001, TC-CONC-003 | `customer-master` | `test_fixtures` |
+  | TC-CUST-005 | `invoiced-part-paid` | `test_fixtures` |
+  | TC-MAST-001, 002 | `vendor-master` | `test_fixtures` |
+  | TC-MAST-003, 008 | `product-master` | `test_fixtures` |
+  | TC-MAST-004 to 007 | `branch-master` | **`test_fixtures_2`** — the branches and warehouses are TEST02's |
+  | TC-ISO-001 | `shared-isolation-pair` | `firm_shared`, two firms in one table |
+  | TC-ISO-002 | `isolation-pair` | `test_fixtures` and `test_fixtures_2` |
+
+- **Four shapes of master table.**
+
+  | Tables | Rows per |
+  | --- | --- |
+  | `customers`, `vendors`, `products`, `branches`, `warehouses` | the record itself, `firm_id` on every row |
+  | `customer_addresses`, `customer_contacts`, `vendor_contacts`, `vendor_addresses`, `vendor_bank_accounts`, `vendor_tax_details`, `vendor_attachments`, `vendor_notes`, `product_media`, `warehouse_storage_nodes` | child rows, keyed to the parent and **replaced as a whole** by an edit that sends the collection |
+  | `customer_groups`, `vendor_categories`, `vendor_types`, `product_categories`, `branch_types`, `warehouse_types` | the firm's own small masters |
+  | `customer_attribute_values`, `vendor_attribute_values`, `product_attribute_values`, `branch_attribute_values`, `warehouse_attribute_values` | custom fields, typed columns, §14.5 |
+
+  `customer_receivable_transactions` and `credit_control_settings` are
+  §12.11 and §14.14. `vendors.business_attributes` is a **JSON blob on the
+  vendor row** beside the typed custom fields — written by the API and by the
+  demo seeder, read by nothing (D-MST-11).
+- **The audit rows are the firm's own, and every one carries its firm.**
+  Unlike the configuration catalogue (§14.0, D-CFG-13), every master write
+  audits into the firm's store with `firm_id` set:
+  `customer.created` / `.updated` / `.deleted` / `.restored`,
+  `customer_group.created` / `.updated` / `.deleted`,
+  `vendor.created` / `.updated` / `.deleted` / `.restored`,
+  `product.created` / `.updated` / `.deleted` / `.restored` / `.duplicated`,
+  `product.category.deleted`, `branch.*`, `warehouse.*` and
+  `warehouse.storage_node.created`. **Nine master writes record nothing at
+  all** — the four category and type screens, a vendor duplicate, a product
+  category created or edited, and a storage node edited or deleted
+  (D-MST-11). Query them:
+  ```sql
+  select created_at, action, entity_type, entity_id,
+         before_data::jsonb - '_meta' as before, after_data::jsonb - '_meta' as after
+  from   test_fixtures.audit_logs
+  where  action ~ '^(customer|customer_group|vendor|product|branch|warehouse)'
+  order  by created_at desc;
+  ```
+- **One master write reaches the ledger, and one delete used to.** A
+  customer's opening balance posts `<code>-OB` (§12.11); nothing else here
+  posts a journal. Deleting a customer no longer reverses anything (D-FIN-1),
+  and deleting a vendor, product, branch or warehouse never did — which is why
+  the guards in §16.3, §16.10, §16.14, §16.16 and §16.17 are the only thing between a delete
+  and a balance nobody owns.
+- **What points at what.**
+
+  | From | Column | To |
+  | --- | --- | --- |
+  | `customers` | `customer_group_id` (FK, `ondelete="RESTRICT"`) | `customer_groups` — the only foreign key on a customer; `firm_id` has none, because `firms` is platform (§1.1) |
+  | `vendors` | `category_id`, `type_id`, `business_profile_id` | `vendor_categories`, `vendor_types`, `business_profiles` |
+  | `products` | `category_id`, `sub_category_id` | `product_categories` |
+  | `products` | `base_uom_id`, `inventory_uom_id`, `purchase_uom_id`, `sales_uom_id`, `default_receiving_uom_id`, `default_dispatch_uom_id`, `minimum_sales_uom_id` | `uoms` (§14.10) |
+  | `products` | `tax_profile_group_code` (**text, not an id**) | `tax_profiles.group_code` (§13.5) |
+  | `branches` | `branch_type_id`, `business_profile_id`, `branch_manager_id` | `branch_types`, `business_profiles`, a **user** — which lives in `platform`, so the column is a bare id with no key |
+  | `warehouses` | `branch_id`, `warehouse_type_id`, `warehouse_manager_id` | `branches`, `warehouse_types`, a user |
+  | `warehouse_storage_nodes` | `warehouse_id`, `parent_id`, `path` | the warehouse and the node above; `path` is the codes joined by slashes |
+  | `inventories`, and every document line | `product_id`, `warehouse_id`, `storage_node_id` | the masters — **with no foreign key from a document line**, which is what makes the delete guards the whole protection |
+- **Every code is unique per firm and is never released.** `UQ_customers_firm_code`,
+  `UQ_customers_firm_gst_number`, `UQ_customers_firm_pan_number`,
+  `UQ_vendors_firm_code`, `UQ_vendors_firm_gstin`, `UQ_products_firm_code`,
+  `UQ_branches_firm_code`, `UQ_warehouses_firm_code` and the six master-table
+  keys are **plain** unique indexes covering deleted rows too — unlike
+  `users.email` and `firms.code`, which are partial on `is_deleted` (§15.0).
+  Only `UQ_products_firm_barcode_active`, `UQ_branches_default_active` and
+  `UQ_warehouses_default_active` are partial. So a deleted customer's code can
+  never be used again, and where the service's own check filters `is_deleted`
+  the refusal arrives from the database as a bare 409 (D-MST-11).
+- **Concurrency.** All four record endpoints publish the row's `version` as an
+  `ETag` and as a field on the body, and take `If-Match`
+  (`set_etag` / `assert_version` in each router); a save that changes nothing
+  does not move it (TC-CONC-003). The small masters mostly do not: only
+  customer segments carry a version and a precondition.
+
+### 16.1 Create a customer — Masters → Customers → New (TC-CUST-002, TC-ISO-001, TC-ISO-002)
+
+`POST /api/v1/customers`, `CUSTOMER_CREATE`, membership in `X-Firm-ID`. One
+commit.
+
+- **Inserts** one `customers` row (code, type, name, `display_name` =
+  the name when none is sent, GST and PAN, contact details, `credit_limit`,
+  `default_discount_percent`, `payment_terms_days`, `currency_code`, `status`,
+  `customer_group_id`, `opening_balance`), one `customer_addresses` row per
+  address and one `customer_contacts` row per contact, and one
+  `customer_attribute_values` row per custom field sent (§14.5).
+  `current_outstanding` and `unapplied_advance_balance` are derived from the
+  opening balance, positive into the balance and negative into the advance.
+- **The address's free text is derived from the place ids it names**
+  (`_apply_place`): country takes `iso2`, the rest their name, and a rung that
+  does not belong under the one above is refused — "That address names places
+  that do not belong together." A row that sends no ids keeps its typed text,
+  which is how a firm with no geography masters still records an address
+  (§14.12).
+- **A non-zero opening balance posts** (§12.11): journal `<code>-OB`,
+  Dr 1100 / Cr 3000, plus one `customer_receivable_transactions`
+  `OPENING_BALANCE` row. With no chart of accounts or no period open today the
+  **whole create is refused** — "<code> cannot open with a balance: …".
+- **Refused, nothing written:** a code, GSTIN or PAN another customer in the
+  firm holds, **deleted ones included** — "Customer code, GST number, or PAN
+  number already exists in this firm."; two default billing or shipping
+  addresses, or two primary contacts; a custom field that does not apply or a
+  required one missing (§14.5).
+- **Not checked:** the segment. `customer_group_id` is written straight
+  through, so another firm's segment in the shared store, or one deleted a
+  second earlier, is accepted — and the discount it carries is then applied to
+  that customer's orders (D-MST-3).
+- **Check:**
+  ```sql
+  select c.code, c.name, c.status, c.credit_limit, c.default_discount_percent,
+         c.payment_terms_days, c.opening_balance, c.current_outstanding,
+         g.code as segment, g.firm_id = c.firm_id as segment_is_ours, g.is_deleted as segment_gone,
+         (select count(*) from test_fixtures.customer_addresses a
+          where a.customer_id = c.id and a.is_deleted = false) as addresses,
+         (select count(*) from test_fixtures.customer_contacts t
+          where t.customer_id = c.id and t.is_deleted = false) as contacts
+  from   test_fixtures.customers c
+  left   join test_fixtures.customer_groups g on g.id = c.customer_group_id
+  where  c.code like '<SUFFIX>%';
+  ```
+- **Confirmed** in `test_fixtures`: `T09193238-CM` with one address, one
+  contact, a 50,000 limit, 30 days and 7.5% standing; `T09193238-GRP` created
+  into a segment deleted moments before; in `firm_shared`, `T0919R8Y3-X1`
+  (TESTSH1) created into TESTSH2's segment.
+
+### 16.2 Edit a customer — Masters → Customers → Edit (TC-CUST-001, TC-CONC-001, TC-CONC-003)
+
+`PUT /api/v1/customers/{id}`, `CUSTOMER_UPDATE`, `If-Match` optional. One
+commit.
+
+- **Partial, and correct about it.** `_customer_values(..., partial=True)`
+  dumps only what the caller sent, so **absent leaves the column alone and an
+  explicit `null` still clears**. The two child collections are guarded on
+  `model_fields_set`, so an omitted `addresses` or `contacts` is left exactly
+  as it is and an empty list clears it; `attributes` the same (§14.5). The
+  display name is only recomputed when `name` or `display_name` was sent.
+  **Four fields are required by the schema whatever else is sent** — `code`,
+  `customer_type`, `name` and `currency_code` — so the smallest honest edit
+  carries five.
+- **Addresses and contacts are reconciled by id**: a row whose id is sent is
+  updated in place, one with no id is inserted, and one the payload leaves out
+  is **soft-deleted**. An id the customer does not own is refused — "A customer
+  address no longer exists."
+- **The opening balance may only move while the account has never traded** —
+  "Opening balance cannot be changed after receivable activity exists."; where
+  it may, the old OB journal is reversed (`<ref>-REV`), the old
+  `OPENING_BALANCE` row is physically deleted and the new figure is posted
+  (§12.11).
+- **The credit limit takes `CUSTOMER_MANAGE_SETTINGS`** (D-CFG-17): a save
+  that moves it from somebody without the code is refused 403 — "Changing a
+  customer's credit limit needs the manage customer settings permission
+  (CUSTOMER_MANAGE_SETTINGS)." — while one that resends the stored figure goes
+  through. **The standing discount takes nothing but `CUSTOMER_UPDATE`**, so
+  the role the limit was taken from sets `default_discount_percent` to 100 and
+  sells at nothing (D-MST-2).
+- **`status` is writable here** — ACTIVE, INACTIVE or ON_HOLD — and no sales
+  document reads it (§16.4, D-MST-6).
+- **Audit:** one `customer.updated` with a before and an after side, each a
+  fixed snapshot: firm, code, name, status, limit, opening balance, the two
+  balances, the live address and contact counts, `is_deleted`. **A changed
+  phone number, segment, standing discount or address is on no trail** — the
+  snapshot does not carry them.
+- **Check:** §16.1's query, plus the version and the trail:
+  ```sql
+  select created_at, action,
+         before_data::jsonb - '_meta' as before, after_data::jsonb - '_meta' as after
+  from   test_fixtures.audit_logs
+  where  entity_type = 'customer' and entity_id = '<customer id>'
+  order  by created_at;
+  ```
+- **Confirmed:** a PUT naming only the four required fields and the phone left
+  the address, contact, limit, terms, standing discount and segment as they
+  were, `version` 1 → 2 (TC-CUST-001, driven over HTTP); a `SALES_MANAGER`'s
+  attempt to move a limit answered 403 and their 100% standing discount
+  answered 200.
+
+### 16.3 Delete and restore a customer — Masters → Customers → Delete (§12.11)
+
+`DELETE /api/v1/customers/{id}` (`CUSTOMER_DELETE`) and
+`POST /api/v1/customers/{id}/restore` (`CUSTOMER_RESTORE`).
+
+- **Soft delete**: `is_deleted`, `deleted_at`, `deleted_by`, audit
+  `customer.deleted` with the snapshot as `before_data`. Nothing else moves —
+  the addresses, contacts, custom fields, receivable rows and journals all stay
+  where they are, which is what makes a restore whole.
+- **The guard is `_assert_account_is_square`** (D-FIN-1): what the customer
+  owes, any advance they hold, and any APPROVED, CLOSED or DRAFT **sales
+  invoice** stop the delete, by name — "<code> cannot be deleted: it owes …,
+  has 2 open invoices (…). Settle, refund or cancel what is open first, or set
+  the customer inactive to stop trading with them."
+- **It stops at invoices.** A quotation, a sales order — approved, holding a
+  reservation on stock — a delivery note, a proforma or a loyalty balance all
+  go unlooked-at, so the customer goes and the documents stay (D-MST-4). The
+  note the order needs is then refused, because every sales service loads the
+  customer with `Customer.is_deleted.is_(False)`.
+- **Restore** clears the three columns, re-posts an opening-balance journal a
+  pre-D-FIN-1 delete had reversed, and audits `customer.restored`. There is no
+  code check on the way back in, and there needs none: the code was never
+  released (§16.0).
+- **Check:**
+  ```sql
+  select c.code, c.is_deleted, c.deleted_at, c.current_outstanding,
+         (select count(*) from test_fixtures.sales_orders o
+          where o.customer_id = c.id and o.is_deleted = false
+            and o.status in ('DRAFT', 'APPROVED', 'PARTIALLY_DELIVERED')) as open_orders,
+         (select count(*) from test_fixtures.sales_invoices i
+          where i.customer_id = c.id and i.is_deleted = false) as invoices
+  from   test_fixtures.customers c
+  where  c.is_deleted;
+  ```
+- **Confirmed:** `T09193238-CM` deleted 204 while SO-2026-2027-000012 stood
+  APPROVED with one unit reserved, and `T09191QG3-SM` deleted 204 with a draft
+  order; TEST01's five customers deleted on 2026-09-16 still carry 1,960.00
+  (§12.11), which is the pre-fix shape.
+
+### 16.4 A customer who is not to be traded with — `status`
+
+- **Writes** nothing but `customers.status` (§16.2), audited inside
+  `customer.updated`'s snapshot.
+- **Read by:** the list filter and the summary counts (`GET /api/v1/customers?status=`,
+  `/customers/summary`), the territory service's ACTIVE/not-ACTIVE split, and
+  nothing else. **No sales document checks it**, so an INACTIVE or ON_HOLD
+  customer is quoted, ordered, delivered and billed exactly as an active one
+  (D-MST-6) — while the purchase side does check its counterparty
+  (`_active_product` and the vendor check in
+  `backend/app/purchase/services/purchase_service.py`).
+- **Confirmed:** with `T09193238-CM` INACTIVE, SO-2026-2027-000012 was created
+  and approved.
+
+### 16.5 Segments — Customers → Groups (TC-CUST-006)
+
+`/api/v1/customers/groups`; list and read need `CUSTOMER_VIEW`, write
+`CUSTOMER_MANAGE_SETTINGS`. One commit each.
+
+- **Create / edit / delete** writes one `customer_groups` row: `code`, `name`,
+  `description`, `default_discount_percent`, `is_active`. Audit
+  `customer_group.created` / `.updated` / `.deleted`; the update's two sides
+  carry the name and the rate, which makes this the one master edit whose trail
+  says what changed.
+- **Delete is refused while anybody is in it** — "1 customer(s) are still in
+  Wholesaler <suffix>. Move them first, …" — counting **live** customers only,
+  so a deleted customer comes back into a segment that has gone. The row is
+  soft-deleted without `deleted_at` or `deleted_by`.
+- **The code is gone for good.** `_assert_free` looks only at live rows while
+  `UQ_customer_groups_firm_code` covers every row, so re-using a retired code
+  is refused by the database as "The request conflicts with existing data.
+  Please retry." (D-MST-11).
+- **What the rate does:** it is the last tier of the shared discount rule
+  (§11.1) — below a typed amount, a percentage, a promotion, a price list and
+  the customer's own standing rate. A sales order and a quotation resolve it
+  through `_customer_group`, which reads the segment **by id, checking only
+  `is_active`** — not the firm, not `is_deleted` (D-MST-3).
+- **Check:**
+  ```sql
+  select g.code, g.name, g.default_discount_percent, g.is_active, g.is_deleted,
+         count(c.id) filter (where c.is_deleted = false) as live_members
+  from   test_fixtures.customer_groups g
+  left   join test_fixtures.customers c on c.customer_group_id = g.id
+  group  by g.id order by g.code;
+  ```
+- **Confirmed:** `T09193238-RET` (1.75%) and `-WHL` (3.25%) with their members;
+  `T09193238-OLD` deleted and its code then refused 409; TESTSH2's
+  `T0919R8Y3-TWO` at 50% pricing TESTSH1's order SO-2026-2027-000001 down to
+  50.00 with `discount_source` `customer_group`.
+
+### 16.6 Customer import and export — Customers → Import / Export
+
+- **Import** — `POST /api/v1/customers/import`, `CUSTOMER_IMPORT`, JSON only
+  (the desktop parses the file). Up to 1,000 records **staged and committed
+  once**: every record goes through the same `_stage_create` a single create
+  uses, so the audit rows, the uniqueness checks and the opening-balance
+  postings are the same, and a batch whose fifth row clashes writes nothing.
+- **Export** — `GET /api/v1/customers/export`, `CUSTOMER_EXPORT`, reads in
+  pages of 1,000 and writes code, name, type, GST, PAN, email, phone and
+  status through `csv.writer`, so a comma in a name is quoted. It writes
+  nothing.
+- **Confirmed:** no live import in a fixture store; the atomicity is the same
+  shape as branches' (TC-MAST-006) *(not seen in a live row for customers)*.
+
+### 16.7 Create and edit a vendor — Masters → Vendors (TC-MAST-001)
+
+`POST` / `PUT /api/v1/vendors[/{id}]`, `VENDOR_CREATE` / `VENDOR_UPDATE`,
+`If-Match` optional. One commit.
+
+- **Inserts** one `vendors` row and the six child collections —
+  `vendor_contacts`, `vendor_addresses`, `vendor_bank_accounts`,
+  `vendor_tax_details`, `vendor_attachments`, `vendor_notes` — plus
+  `vendor_attribute_values` for the custom fields. Audit `vendor.created` with
+  the code, name, status and the four child counts.
+- **`None` is not `[]` here.** Each collection is `list[...] | None` with no
+  default, so an update that omits one leaves it alone and one that sends `[]`
+  clears it; the header fields are dumped with `exclude_unset` for the same
+  reason. **The one exception is `display_name`**, recomputed from `name` on
+  every update, so a vendor whose display name differs loses it to any save
+  that sends a name (D-MST-11).
+- **A drug licence is gated on the field, not the vendor**: every
+  `tax[].drug_license` sent is checked against the firm's `DRUG_LICENSE`
+  feature (§14.3), and refused by name for a profile that does not enable it.
+- **Refused, nothing written:** a code or GSTIN the firm already holds,
+  deleted vendors included — "Vendor code or GSTIN already exists in this
+  firm."; two primaries in one collection.
+- **Not checked:** `category_id`, `type_id` and `business_profile_id` are
+  written straight through, so another firm's category in the shared store is
+  accepted (D-MST-3); the address's geography ids are stored without the
+  parent-and-child check a customer address gets (§16.1).
+- **Bank details are the firm's money, and nothing guards them.**
+  `VENDOR_MANAGE_BANK_DETAILS` and `VENDOR_VIEW_FINANCIAL_DETAILS` are seeded
+  and enforced on no route — the scope is declared in
+  `backend/app/vendors/api/router.py` and never used — so the account number a
+  payment is sent to is edited with `VENDOR_UPDATE` and read with
+  `VENDOR_VIEW`, which the seeded `VIEWER` role holds (D-MST-10).
+- **Check:**
+  ```sql
+  select v.code, v.name, v.display_name, v.status, v.gstin,
+         c.code as category, c.firm_id = v.firm_id as category_is_ours,
+         (select count(*) from test_fixtures.vendor_bank_accounts b
+          where b.vendor_id = v.id and b.is_deleted = false) as banks,
+         (select count(*) from test_fixtures.vendor_tax_details t
+          where t.vendor_id = v.id and t.is_deleted = false) as tax_rows,
+         v.business_attributes
+  from   test_fixtures.vendors v
+  left   join test_fixtures.vendor_categories c on c.id = v.category_id
+  where  v.code like '<SUFFIX>%';
+  ```
+- **Confirmed:** TC-MAST-001's PUT with only code, name and phone left all six
+  collections (driven); in `firm_shared`, `T0919R8Y3-V1` (TESTSH1) created in
+  TESTSH2's category; six of the seven vendors in `firm_shared` carry a
+  `business_attributes` blob nothing reads.
+
+### 16.8 Vendor categories and types — Masters → Vendor Categories / Types (TC-MAST-002)
+
+`/api/v1/vendors/categories` and `/api/v1/vendors/types`,
+`VENDOR_MANAGE_CATEGORIES`. Declared above `/{vendor_id}` on purpose (§1 of
+`docs/API_AND_PERSISTENCE_CONVENTIONS.md`).
+
+- **Create / edit / delete** writes one `vendor_categories` or `vendor_types`
+  row — `code`, `name`, `description`, `is_active`. **No audit row is written
+  for any of the six operations**, and an edit reads the row *including*
+  deleted ones and clears `is_deleted`, so a `PUT` on a retired category
+  silently brings it back (D-MST-11).
+- **Delete is refused while a live vendor names it** — "This category is used
+  by 3 vendor(s) and cannot be deleted. Move them to another category first." —
+  because `ondelete="RESTRICT"` guards nothing on a soft-deleted table.
+- **No `ETag` and no `If-Match`**: two people editing one category is
+  last-write-wins.
+- **Check:**
+  ```sql
+  select c.code, c.name, c.is_active, c.is_deleted,
+         count(v.id) filter (where v.is_deleted = false) as live_vendors
+  from   test_fixtures.vendor_categories c
+  left   join test_fixtures.vendors v on v.category_id = c.id
+  group  by c.id order by c.code;
+  ```
+- **Confirmed:** no `vendor_category.*` or `vendor_type.*` action exists in any
+  store's `audit_logs`.
+
+### 16.9 Vendor bulk actions and duplicate — the Vendors toolbar
+
+Five bulk endpoints (`/bulk-delete`, `/bulk-restore`, `/bulk-status`,
+`/bulk-category`, `/bulk-profile`) and `POST /{id}/duplicate`.
+
+- **The bulk endpoints audit each row** the way the single-row twin does —
+  `vendor.deleted`, `.restored`, `.updated` with the code and the new status —
+  and `bulk-delete` applies `_assert_account_is_square` per vendor **before
+  anything is committed**, so a batch whose fifth vendor still owes leaves the
+  first four alone. They commit once, at the end.
+- **But they are still a second implementation**: `bulk-category` writes
+  `category_id` with no check at all (another firm's category, a deleted one,
+  or an id that exists nowhere — refused only if the database's foreign key
+  catches it), and `bulk-profile` the same for `business_profile_id`. An id in
+  the list that is already deleted answers 404 for the whole batch rather than
+  being skipped.
+- **Duplicate** copies the header and the contacts under `<code>-COPY`, clears
+  the GSTIN, and **writes no audit row at all**; a second duplicate of the same
+  vendor is refused 409, because the suffix does not count up the way the
+  product's does.
+- **Confirmed:** no `-COPY` vendor exists in any store *(not seen in a live
+  row)*.
+
+### 16.10 Delete and restore a vendor — Masters → Vendors → Delete
+
+- **Soft delete with `_assert_account_is_square`** (the D-FIN-1 twin): what
+  the firm owes on approved bills less what it has paid, any DRAFT purchase
+  invoice, any posted payment not yet applied, and any supplier credit from a
+  return not yet set against a bill (D-FIN-19) each refuse the delete by name.
+- **It stops at bills.** A purchase order and a **completed goods receipt that
+  has not been billed** are not looked at, so a supplier can be deleted while
+  GRNI (2300) holds what the firm owes for goods it has taken in, and the bill
+  that would clear it can no longer be raised from any screen (D-MST-4).
+- **Restore** clears the flags and audits `vendor.restored`.
+- **Check:**
+  ```sql
+  select v.code, v.is_deleted,
+         (select coalesce(sum(l.credit_amount - l.debit_amount), 0)
+          from test_fixtures.goods_receipts g
+          join test_fixtures.journal_entries je on je.reference_number = g.grn_number
+          join test_fixtures.journal_lines l on l.journal_entry_id = je.id
+          join test_fixtures.ledger_accounts a on a.id = l.ledger_account_id and a.code = '2300'
+          where g.vendor_id = v.id and g.status = 'COMPLETED') as grni_raised
+  from   test_fixtures.vendors v where v.is_deleted;
+  ```
+- **Confirmed:** `T091964T5-V` deleted 204 with GRN-TEST01-HO-2026-2027-000027
+  and -000028 completed and unbilled, GRNI holding 400.00 + 600.00; the
+  Payments screen's outstanding list then answers `[]` for it.
+
+### 16.11 Create a product — Masters → Products → New (TC-MAST-003)
+
+`POST /api/v1/products`, `PRODUCT_CREATE`. One commit.
+
+- **Inserts** one `products` row — code, barcode, QR, names, `product_type`,
+  category and sub-category, the seven UOM slots (§14.10), `hsn_sac`,
+  `tax_profile_group_code`, the three prices, the eleven tracking and
+  permission flags, `status` — plus one `product_media` row per media entry and
+  one `product_attribute_values` row per custom field (§14.5, TC-FIELD-007).
+  Audit `product.created` carrying the code alone.
+- **What is checked:** the code, unique among **live** products; the barcode,
+  unique among live products; the category and the sub-category, which must
+  belong to the firm, be live, and the sub-category must sit under the
+  category; `tax_profile_group_code`, which must match a live ACTIVE tax
+  profile of the firm (§13.1); every UOM id, which must exist and be live;
+  and the three feature-gated fields — `barcode`, `qr_code`, `track_warranty`
+  — against the firm's profile (§14.3).
+- **What is not:** `selling_price` against `purchase_price` (only MRP is, and
+  only against the selling price), and nothing ties the UOM slots to a
+  conversion rule, so a sales unit with no path to the base unit is accepted
+  and fails later on a document line (§14.11).
+- **Cost price is a permission, on the way out only.** `purchase_price` is
+  blanked in every response for a caller without `PRODUCT_VIEW_COST_PRICE`
+  (`_response` in `backend/app/products/api/router.py`) — and is writable by
+  anyone with `PRODUCT_UPDATE`, which is how the desktop's own edit dialog
+  clears it (§16.12, D-MST-5).
+- **Check:**
+  ```sql
+  select p.code, p.name, p.status, p.product_type, c.code as category,
+         p.tax_profile_group_code, bu.code as base_unit, pu.code as purchase_unit,
+         p.purchase_price, p.selling_price, p.mrp, p.barcode,
+         p.track_batch, p.track_serial, p.track_expiry, p.version
+  from   test_fixtures.products p
+  left   join test_fixtures.product_categories c on c.id = p.category_id
+  left   join test_fixtures.uoms bu on bu.id = p.base_uom_id
+  left   join test_fixtures.uoms pu on pu.id = p.purchase_uom_id
+  where  p.code like '<SUFFIX>%';
+  ```
+- **Confirmed:** `T09199ZI5-PM` with category `T09199ZI5-PC`, group
+  `GST_18_LOCAL`, PIECE in three slots and BOX to buy in (TC-MAST-003).
+
+### 16.12 Edit a product — Masters → Products → Edit (TC-CONC-002)
+
+`PUT /api/v1/products/{id}`, `PRODUCT_UPDATE`, `If-Match` optional.
+
+- **The write model is dumped whole** (`_product_values`, with no
+  `exclude_unset`), so **every field the caller omits is written back at its
+  schema default** — null for the category, the tax group, all seven units and
+  the three prices, false for every tracking flag. `attributes` and `media` are
+  not guarded on `model_fields_set` either, so an omitted `attributes` clears
+  the custom fields and an omitted `media` soft-deletes every image. This is the
+  shape the vendor and branch modules were fixed out of on 2026-09-16 and the
+  product was not (D-MST-5).
+- **The desktop sends every field**, which is why the screen looks right — and
+  is exactly how the cost price goes: a caller without
+  `PRODUCT_VIEW_COST_PRICE` is served `purchase_price: null`, the form shows an
+  empty box, and the save sends that null back.
+- **Nothing is refused because of stock.** The base and inventory units, the
+  batch, lot, serial and expiry flags and `allow_negative_stock` can all change
+  while the product has stock on hand, reservations and a valuation: the
+  quantity in `inventories` is not converted and not re-checked, so 50 pieces
+  read as 50 boxes the moment the base unit moves, and stock received without
+  serials becomes unissuable the moment `require_serial_on_issue` goes on
+  (D-MST-7, and D-STK-4 for what a serial pick then demands).
+- **Audit:** `product.updated`, `before_data` the code and the category id,
+  `after_data` the code and the status — so a price, a tax group, a unit or a
+  tracking flag changes with nothing in the trail to say it did.
+- **Check:** §16.11's query before and after, plus
+  ```sql
+  select i.current_quantity, i.reserved_quantity, w.code as warehouse,
+         p.base_uom_id, v.quantity_on_hand, v.average_cost, v.total_value
+  from   test_fixtures.inventories i
+  join   test_fixtures.products p on p.id = i.product_id
+  join   test_fixtures.warehouses w on w.id = i.warehouse_id
+  left   join test_fixtures.product_valuations v on v.product_id = p.id
+  where  p.code = '<SUFFIX>-P' and i.is_deleted = false;
+  ```
+- **Confirmed:** a PUT naming code, name and type left `T09199ZI5-PM` with no
+  category, no tax group, no units and no selling price (100.00 before);
+  `T09193238-P` moved from PIECE to BOX and gained `track_serial` with 50 on
+  hand and one reserved.
+
+### 16.13 Product categories — Masters → Products → Categories
+
+`/api/v1/products/categories`, all three writes on `PRODUCT_UPDATE`.
+
+- **Create / edit** writes one `product_categories` row with `parent_id`,
+  `level` and `path` (the codes joined by slashes) derived from the parent, and
+  **no audit row**. Only the delete writes one — `product.category.deleted`.
+- **A category may be moved under its own child.** `update_category` checks
+  nothing about the ancestry (the storage-node editor does), so the pair ends up
+  in a cycle: the parent's path becomes `PC/PCC/PC` at level 2 while the child
+  still reads `PC/PCC` at level 1, and **descendants are never repathed** on any
+  move (D-MST-11).
+- **Delete is refused while a live product names it** — "Categories used by
+  products cannot be deleted." — but the check reads `category_id` only, so a
+  category used as a **sub-category**, or one with live children, goes. The
+  category-scoped custom-field rules key on the category's **code as text**
+  (§14.4), so they are left pointing at a code nothing holds.
+- **Check:**
+  ```sql
+  select c.code, c.name, c.level, c.path, c.is_active, c.is_deleted,
+         par.code as parent,
+         (select count(*) from test_fixtures.products p
+          where p.category_id = c.id and p.is_deleted = false) as products,
+         (select count(*) from test_fixtures.products p
+          where p.sub_category_id = c.id and p.is_deleted = false) as as_sub
+  from   test_fixtures.product_categories c
+  left   join test_fixtures.product_categories par on par.id = c.parent_id
+  order  by c.path;
+  ```
+- **Confirmed:** `T09199ZI5-PC` moved under its own child `T09199ZI5-PCC` and
+  answered 200 with `path` `T09199ZI5-PC/T09199ZI5-PCC/T09199ZI5-PC` (put back
+  by hand afterwards); no `product.category.created` or `.updated` action
+  exists in any store.
+
+### 16.14 Delete, restore, duplicate and the bulk actions — the Products toolbar
+
+- **Delete** (`DELETE /api/v1/products/{id}`, `PRODUCT_DELETE`) sets the three
+  soft-delete columns and audits `product.deleted` with the code. **There is no
+  guard of any kind** — not stock on hand, not a reservation, not a batch, not
+  an open order or an unbilled receipt (D-MST-1). The stock rows stay exactly
+  as they are and the valuation with them, while
+  `GET /api/v1/inventory/summary/by-product` filters deleted products out and
+  every movement is refused — "Product does not belong to the active firm." —
+  so the quantity can be neither seen nor moved until somebody restores the
+  product.
+- **Restore** clears the flags and audits `product.restored` (with no data),
+  which is also the repair for the above.
+- **Duplicate** (`POST /{id}/duplicate`, `PRODUCT_CREATE`) re-validates
+  everything through `create_product` under `<code>-COPY`, `-COPY-1`, … and
+  copies the attributes and media; it commits twice — once inside the create
+  and once for the `product.duplicated` audit row.
+- **Bulk delete and restore** audit each row like the single-row twin, commit
+  once, and skip a row already in the target state — but **bulk delete carries
+  no guard either**, and a hundred products leave in one request.
+- **Check:**
+  ```sql
+  select p.code, p.deleted_at, w.code as warehouse, i.current_quantity, i.reserved_quantity,
+         v.total_value
+  from   test_fixtures.products p
+  join   test_fixtures.inventories i on i.product_id = p.id and i.is_deleted = false
+  join   test_fixtures.warehouses w on w.id = i.warehouse_id
+  left   join test_fixtures.product_valuations v on v.product_id = p.id
+  where  p.is_deleted and (i.current_quantity <> 0 or i.reserved_quantity <> 0)
+  order  by p.deleted_at;
+  ```
+- **Confirmed:** `T0919P81V-P` deleted holding 45 in MAIN and 5 in a bin, with
+  the adjustment that would write it off refused; **TEST01 already holds 13
+  deleted products carrying 432 units and 27,160.00 of valuation**, deleted on
+  2026-09-16, one of them with 2 units still reserved.
+
+### 16.15 Product import, export and barcodes (TC-MAST-008)
+
+- **Import** — `POST /api/v1/products/import`, `PRODUCT_IMPORT`, a multipart
+  form: `format=json` with a `payload`, or `csv` / `xlsx` with a `file`. All
+  three end in `import_products_json`, which **loops over `create_product`, and
+  that commits per row** — so a file whose second row clashes answers 409 with
+  the first row written and the retry then refused as a duplicate. Customers,
+  vendors, branches and warehouses all stage and commit once; the product is the
+  one that does not (D-MST-9).
+- The CSV and XLSX readers take seven columns (Code, Name, Type, Brand, HSN,
+  SellingPrice, Status) and fill **nothing else** — no category, no units, no
+  tax group, no cost — so an imported product is a shell that a later edit must
+  finish.
+- **Export** — `GET /api/v1/products/export?format=csv|xlsx`,
+  `PRODUCT_EXPORT`, the same seven columns, cost deliberately left out. The CSV
+  is built by joining the values with commas rather than through `csv.writer`,
+  so a product name containing a comma shifts every column after it
+  (D-MST-11); the XLSX is written with `openpyxl` and is safe.
+- **A barcode on the product row** is one thing and a **packaging level's**
+  barcode another: the lookup TC-MAST-008 drives is `GET
+  /api/v1/uom-framework/barcode-lookup` over `product_packaging_levels`
+  (§14.10), and `products.barcode` is the loose single code, unique among live
+  products by `UQ_products_firm_barcode_active`.
+- **Confirmed:** a two-record JSON import whose second row reused
+  `T09199ZI5-PM` answered 409 "Product code already exists in this firm." and
+  left `T09199ZI5-IMP1` written.
+
+### 16.16 Branches — Masters → Branches (TC-MAST-004)
+
+`/api/v1/branches`, `BRANCH_CREATE` / `BRANCH_UPDATE` / `BRANCH_DELETE` /
+`BRANCH_RESTORE`. One commit each.
+
+- **Create** inserts one `branches` row (code, names, type, manager, the
+  address and its six place ids, timezone, currency, `gst_registration`, PAN,
+  licence, `working_hours` JSON, `is_default`, `status`) and its
+  `branch_attribute_values`; audit `branch.created` with the code and status.
+- **The default flag is maintained.** A branch saved as the default demotes
+  every other live branch of the firm first, flushed before the promotion is
+  written because `UQ_branches_default_active` is checked per statement. The
+  demotion of the other rows **writes no audit row of its own**.
+- **Update is partial** (`exclude_unset`), so a rename keeps the address, the
+  city, the GST registration and the default flag — the defect TC-MAST-004
+  exists for — and `is_default` is read with the row as its fallback
+  (`values.get("is_default", row.is_default)`). `display_name` is the exception
+  again: sending a name resets it.
+- **Delete** is refused while the branch has a live warehouse — "This branch
+  still has warehouses. Remove or reassign them first." — and while
+  `sales_workflow_settings` names it as the default bills ship from (D-CFG-14).
+  Nothing else is checked: documents carry `branch_id` with no foreign key, so
+  a branch with open orders or receipts goes.
+- **Check:**
+  ```sql
+  select b.code, b.name, b.display_name, b.is_default, b.status, b.is_deleted,
+         b.address_line1, b.gst_registration, b.pan,
+         (select count(*) from test_fixtures_2.warehouses w
+          where w.branch_id = b.id and w.is_deleted = false) as warehouses
+  from   test_fixtures_2.branches b order by b.code;
+  ```
+- **Confirmed:** TEST02 holds HO and the `branch-master` fixture's
+  `<SUFFIX>-BR`, which is the default — a default branch created later demotes
+  the one before it; 58 `branch.created` rows across 56 stores, every one with
+  its firm.
+
+### 16.17 Warehouses — Masters → Warehouses (TC-MAST-005)
+
+`/api/v1/warehouses`, the `WAREHOUSE_*` codes.
+
+- **Create** resolves the branch **by id or by code** (`_resolve_branch`, so an
+  import file can name `branch_code`), refuses a code no branch in the firm
+  holds by name, demotes the branch's other default warehouse, inserts the row
+  and its `warehouse_attribute_values`, and audits `warehouse.created` with the
+  code and the branch.
+- **Update is partial**, keeps the branch when neither `branch_id` nor
+  `branch_code` is sent, and keeps the capacity and the nine capability flags
+  a rename does not mention (TC-MAST-005).
+- **Delete is refused while the warehouse holds stock** — "This warehouse still
+  holds stock. Move or write it off first." — judged on `inventories` rows with
+  a non-zero current **or reserved** quantity, and while
+  `sales_workflow_settings` names it (D-CFG-15). A warehouse with open
+  documents but no stock goes; the documents then fail at the movement, because
+  `_validate_references` in the inventory service refuses a deleted warehouse.
+- **Check:**
+  ```sql
+  select w.code, w.name, w.is_default, w.status, w.capacity, w.capacity_unit,
+         w.temperature_controlled, w.cold_storage, w.has_receiving_area,
+         b.code as branch,
+         coalesce(sum(i.current_quantity), 0) as on_hand
+  from   test_fixtures_2.warehouses w
+  join   test_fixtures_2.branches b on b.id = w.branch_id
+  left   join test_fixtures_2.inventories i on i.warehouse_id = w.id and i.is_deleted = false
+  group  by w.id, b.code order by w.code;
+  ```
+- **Confirmed:** 65 `warehouse.created` rows in 56 stores; TEST01's MAIN
+  carries the stock every fixture works on and cannot be deleted.
+
+### 16.18 Storage areas — Warehouses → Storage areas
+
+`/api/v1/warehouses/storage-nodes` and
+`GET /api/v1/warehouses/{id}/storage-nodes`, `STORAGE_AREA_MANAGE`.
+
+- **Create** inserts one `warehouse_storage_nodes` row — `node_type`
+  (STORAGE_AREA, RACK, SHELF, BIN, RECEIVING_AREA), code, name, `path`,
+  `sort_order`, `is_active` — under a parent that must belong to the same
+  warehouse. Audit `warehouse.storage_node.created`. The code is unique per
+  warehouse and the name unique per parent.
+- **Update** repaths every descendant, refuses a node as its own parent, and
+  refuses a parent below itself — "Circular storage hierarchy is not allowed."
+  — which is the check the product category is missing (§16.13). It writes **no
+  audit row**.
+- **Delete** refuses a node with live children and **nothing else**. Stock is
+  held per node (`inventories.storage_node_id`, the grain a physical count
+  works at since D-STK-13), so a bin holding stock is deleted with no refusal,
+  and the stock in it can then not be moved — "Storage node does not belong to
+  the selected warehouse." (D-MST-8). It writes no audit row either.
+- **Check:**
+  ```sql
+  select n.code, n.node_type, n.path, n.is_active, n.is_deleted,
+         w.code as warehouse, coalesce(sum(i.current_quantity), 0) as on_hand
+  from   test_fixtures.warehouse_storage_nodes n
+  join   test_fixtures.warehouses w on w.id = n.warehouse_id
+  left   join test_fixtures.inventories i on i.storage_node_id = n.id and i.is_deleted = false
+  group  by n.id, w.code order by w.code, n.path;
+  ```
+- **Confirmed:** `T0919P81V-BIN` deleted while holding 5, and the transfer back
+  out refused. Storage areas are barely used: six live nodes in `firm_shared`,
+  three in WHOLE01 and one in TEST01 (beside the deleted bin), against 93 and
+  45 `warehouse.storage_node.created` audit rows — the seeders have built and
+  cleared them many times over.
+
+### 16.19 Branch and warehouse types, and the two imports and exports (TC-MAST-006, TC-MAST-007)
+
+- **Types** — `/api/v1/branch-types` and `/api/v1/warehouse-types`,
+  `BRANCH_UPDATE` / `WAREHOUSE_UPDATE`. One row each, **no audit row**, an edit
+  un-deletes a retired row, and **no check that anything still names the type**
+  on delete — the vendor module's `_assert_master_unused` has no twin here
+  (D-MST-11).
+- **Import** — `POST /api/v1/branches/import` and `/warehouses/import`,
+  `BRANCH_WAREHOUSE_IMPORT`, JSON records the desktop builds from the CSV.
+  Both **stage the whole batch and commit once**, so a file whose fifth row
+  reuses a code writes nothing and can be corrected and re-imported
+  (TC-MAST-006). The warehouse file names its branch by `branch_code`.
+- **Export** — `GET /api/v1/branches/export` and `/warehouses/export`,
+  `BRANCH_WAREHOUSE_EXPORT`, written through `csv.writer` in **exactly the
+  columns the importer reads** (`BRANCH_EXPORT_COLUMNS`,
+  `WAREHOUSE_EXPORT_COLUMNS`, held to the desktop's reader by
+  `tests/unit/test_import_samples_match_the_server.py`), so an export can be
+  edited and imported back (TC-MAST-007). Both write nothing.
+- **Confirmed:** TC-MAST-006's clash file answered 409 and left none of its
+  four clean rows behind, as the case records; the staging was re-read in the
+  code here and not driven again.
+
+### 16.20 What masters do not write, and is often looked for
+
+| You might expect | What actually happens |
+| --- | --- |
+| A deleted code free for a new record | Never: every master key is a plain unique index covering deleted rows (§16.0) |
+| The old value of a changed price, limit, discount, unit or address | Overwritten; the audit row names the record and, except for a segment's rate, not the change (§16.2, §16.12) |
+| An audit row for a category, a type, a product category or a storage-node edit | None at all (§16.0) |
+| A journal from a master change | Only a customer's opening balance (§12.11); nothing else here posts |
+| A deleted customer's or vendor's documents cancelled | Nothing is touched; the documents stand and refuse to move (§16.3, §16.10) |
+| A deleted product's stock cleared or written off | It stays, invisible to the stock summary and unmovable (§16.14) |
+| An inactive customer refused a sale | Nothing reads the status on the sales side (§16.4) |
+| A vendor's bank account behind its own permission | `VENDOR_MANAGE_BANK_DETAILS` is enforced on no route (§16.7) |
+| A price or tax-group change behind `PRODUCT_PRICING_MANAGE` / `PRODUCT_TAX_MANAGE` | Both are seeded and enforced nowhere; `PRODUCT_UPDATE` carries them (§16.12) |
+| A customer's or vendor's custom fields on the record's own audit row | They are their own table and their own timestamps (§14.5) |
+| A branch or warehouse manager resolved to a person | `branch_manager_id` is a bare id: `users` lives in `platform` (§16.0) |
+
+### 16.21 Checked against live rows, and not
+
+- **Confirmed by driving** (2026-09-19, 15:44–15:53 IST, six fixture runs):
+  a product deleted while holding stock and the stock then unmovable
+  (`stock-ready` `t0919p81v`); a storage bin deleted holding 5; a product PUT
+  naming three fields clearing its category, tax group, units and price, and a
+  product category moved under its own child (`product-master` `t09199zi5`);
+  a `SALES_MANAGER` refused a credit-limit change and allowed a 100% standing
+  discount, an order for the INACTIVE customer approved, a customer created
+  into a segment deleted a second earlier, and a retired segment code refused
+  with the bare 409 (`customer-master` `t09193238` with `loyalty-viewer`
+  `t09191qg3`); another firm's segment, vendor category and branch type
+  accepted in `firm_shared` and TESTSH2's 50% priced on to TESTSH1's order
+  (`shared-pair` `t0919r8y3`); a vendor deleted with 1,000.00 of GRNI
+  outstanding (`po-received` `t091964t5`); a customer deleted while an approved
+  order held a reservation; a product import whose second row clashed leaving
+  the first written. **What the drives left:** in `test_fixtures`, deleted
+  product `T0919P81V-P` (45 in MAIN, 5 in a deleted bin), deleted customers
+  `T09193238-CM` and `T09191QG3-SM` with their orders SO-2026-2027-000012
+  (APPROVED, 1 reserved) and -000011 (DRAFT, total 0.00), deleted vendor
+  `T091964T5-V`, product `T09199ZI5-PM` stripped to its name, product
+  `T09199ZI5-IMP1`, product `T09193238-P` on BOX with serial tracking on,
+  retired segment `T09193238-OLD` and customer `T09193238-GRP` inside it; in
+  `firm_shared`, TESTSH1's `T0919R8Y3-X1`, `-V1`, `-B1`, `-W1`, `-XP` and its
+  order SO-2026-2027-000001, and TESTSH2's `T0919R8Y3-TWO`, `-VC2`, `-BT2`.
+- **Confirmed from the tables** (read only, 59 schemas plus `electrolink_ops`):
+  every master audit action written anywhere, and that **every one of them
+  carries its firm** and a data side (one `product.restored` row is empty on
+  both, and it is the only one); no
+  `vendor_category.*`, `vendor_type.*`, `branch_type.*`, `warehouse_type.*`,
+  `product.category.created`/`.updated`, `warehouse.storage_node.updated` or
+  `.deleted` action exists anywhere; the unique indexes on all eleven master
+  tables, and the three that are partial; no firm-id foreign key in any firm
+  schema; TEST01's 13 deleted products with 432 units and 27,160.00; TEST01's
+  five customers deleted owing 1,960.00 (§12.11); six of seven `firm_shared`
+  vendors carrying a `business_attributes` blob; no cross-firm segment or
+  category in any store before this pass, and none in a dedicated store
+  afterwards.
+- **Not seen in a live row:** a customer or vendor import (both are atomic by
+  the same code the branch import is); a vendor duplicate, and the 409 a second
+  one gives; a bulk category or profile assignment naming another firm's id; a
+  product barcode reused after a delete; a restore refused by the default
+  partial index; a branch or warehouse type deleted while a record names it; an
+  XLSX product import; a `working_hours` value anything reads.
