@@ -25,6 +25,7 @@ from app.commission.models import (
 )
 from app.commission.schemas import (
     CommissionBasisEnum,
+    CommissionMeasureEnum,
     CommissionRateTypeEnum,
     CommissionReport,
     CommissionRuleCreate,
@@ -223,6 +224,7 @@ class CommissionService:
             max_commission_amount=data.max_commission_amount,
             product_id=data.product_id,
             product_category_id=data.product_category_id,
+            measure=data.measure.value,
             rate_type=data.rate_type.value,
             per_unit_amount=data.per_unit_amount,
             minimum_amount=data.minimum_amount,
@@ -299,6 +301,8 @@ class CommissionService:
             row.product_id = values["product_id"]
         if "product_category_id" in values:
             row.product_category_id = values["product_category_id"]
+        if values.get("measure") is not None:
+            row.measure = CommissionMeasureEnum(values["measure"]).value
         if values.get("rate_type") is not None:
             row.rate_type = CommissionRateTypeEnum(values["rate_type"]).value
         if values.get("per_unit_amount") is not None:
@@ -689,6 +693,7 @@ class CommissionService:
             "product_category_id": (
                 str(row.product_category_id) if row.product_category_id else None
             ),
+            "measure": row.measure,
             "rate_type": row.rate_type,
             "per_unit_amount": str(row.per_unit_amount),
             "minimum_amount": (
@@ -766,6 +771,7 @@ class CommissionService:
             product_category_name=self._goods_names().get(
                 row.product_category_id or _NOBODY, ""
             ),
+            measure=CommissionMeasureEnum(row.measure),
             rate_type=CommissionRateTypeEnum(row.rate_type),
             per_unit_amount=row.per_unit_amount,
             minimum_amount=row.minimum_amount,
@@ -1110,6 +1116,14 @@ class CommissionService:
         almost impossible to earn, and requiring only one would make it
         almost impossible to miss.
 
+        Together **per basis**, though. What was invoiced and what was
+        collected are different numbers, and a person may hold a target on
+        each; adding a collected target to an invoiced one compares nothing
+        to nothing. Each basis is summed on its own and the person is met
+        only when every basis they were set a number on is met. Two targets
+        on one basis never overlap -- `SalesTargetService` refuses that at
+        the write -- so a sum within a basis never counts a sale twice.
+
         Each target is still measured over its own period and on its own
         basis -- that is `SalesTargetService`'s rule and this does not
         second-guess it; it only adds the two columns up.
@@ -1126,8 +1140,8 @@ class CommissionService:
             True or False per salesman who had a target in the window.
 
         """
-        targeted: dict[UUID | None, Decimal] = {}
-        achieved: dict[UUID | None, Decimal] = {}
+        targeted: dict[tuple[UUID, str], Decimal] = {}
+        achieved: dict[tuple[UUID, str], Decimal] = {}
         for row in SalesTargetService(self._session).achievement(
             firm_scope=firm_id, from_date=from_date, to_date=to_date
         ):
@@ -1135,16 +1149,14 @@ class CommissionService:
             # in particular, so it cannot decide anybody's bonus.
             if row.salesman_id is None:
                 continue
-            targeted[row.salesman_id] = (
-                targeted.get(row.salesman_id, ZERO) + row.target_amount
-            )
-            achieved[row.salesman_id] = (
-                achieved.get(row.salesman_id, ZERO) + row.achieved_amount
-            )
-        return {
-            owner: achieved.get(owner, ZERO) >= total
-            for owner, total in targeted.items()
-        }
+            key = (row.salesman_id, row.basis)
+            targeted[key] = targeted.get(key, ZERO) + row.target_amount
+            achieved[key] = achieved.get(key, ZERO) + row.achieved_amount
+        answer: dict[UUID | None, bool] = {}
+        for (owner, basis), total in targeted.items():
+            made = achieved.get((owner, basis), ZERO) >= total
+            answer[owner] = answer.get(owner, True) and made
+        return answer
 
     @staticmethod
     def _margin_of(line: "_BilledLine", portion: Decimal) -> Decimal | None:

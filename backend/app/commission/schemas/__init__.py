@@ -167,9 +167,9 @@ class CommissionRuleUpdate(CommissionSchema):
     product_id: UUID | None = None
     product_category_id: UUID | None = None
     #: VALUE pays on the money; MARGIN pays on the money less what the goods
-    #: cost. A line whose cost is unknown contributes nothing to a MARGIN
-    #: rule rather than being treated as costing zero.
-    measure: CommissionMeasureEnum = CommissionMeasureEnum.VALUE
+    #: cost. Optional like every other field here: a default of VALUE would
+    #: read an omission as an instruction to stop paying on margin.
+    measure: CommissionMeasureEnum | None = None
     rate_type: CommissionRateTypeEnum | None = None
     per_unit_amount: Decimal | None = Field(
         default=None, ge=0, max_digits=18, decimal_places=4
@@ -211,7 +211,7 @@ class CommissionRuleResponse(CommissionSchema):
     #: VALUE pays on the money; MARGIN pays on the money less what the goods
     #: cost. A line whose cost is unknown contributes nothing to a MARGIN
     #: rule rather than being treated as costing zero.
-    measure: CommissionMeasureEnum = CommissionMeasureEnum.VALUE
+    measure: CommissionMeasureEnum
     rate_type: CommissionRateTypeEnum
     per_unit_amount: Decimal
     minimum_amount: Decimal | None

@@ -9,9 +9,15 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.business.gating import assert_feature_fields
+from app.business.models import BusinessProfile
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit
+from app.common.master_references import (
+    MasterReferences,
+    assert_master_reference,
+    assert_master_references,
+)
 from app.common.open_documents import describe_documents, find_open_documents
 from app.core.database.entity import BaseEntity
 from app.core.exceptions import (
@@ -48,6 +54,15 @@ from app.vendors.schemas import (
     VendorTypeWrite,
     VendorUpdate,
 )
+
+#: The masters a vendor names by id. A category or a type must be a live row
+#: of the vendor's own firm; a business profile has no firm and is shared by
+#: every firm in the store, so it only has to be live (D-MST-3).
+_VENDOR_REFERENCES: MasterReferences = {
+    "category_id": (VendorCategory, "Vendor category"),
+    "type_id": (VendorType, "Vendor type"),
+    "business_profile_id": (BusinessProfile, "Business profile"),
+}
 
 
 class VendorService:
@@ -143,7 +158,15 @@ class VendorService:
         self._assert_unique(vendor.firm_id, data, excluding_id=vendor.id)
         self._assert_drug_license_allowed(vendor.firm_id, data)
         before = self._audit_snapshot(vendor)
-        for field, value in self._vendor_values(data, partial=True).items():
+        values = self._vendor_values(data, partial=True)
+        assert_master_references(
+            self._session,
+            values,
+            _VENDOR_REFERENCES,
+            firm_id=vendor.firm_id,
+            current=vendor,
+        )
+        for field, value in values.items():
             setattr(vendor, field, value)
         vendor.display_name = data.display_name or data.name
         vendor.updated_by = actor_id
@@ -457,6 +480,15 @@ class VendorService:
             vendor = self.get(vendor_id, firm_scope=firm_scope)
             if vendor.category_id == category_id:
                 continue
+            # Judged against each vendor's own firm, and before the commit, so
+            # a category that is not theirs moves none of them (D-MST-3).
+            assert_master_reference(
+                self._session,
+                VendorCategory,
+                category_id,
+                firm_id=vendor.firm_id,
+                label="Vendor category",
+            )
             vendor.category_id = category_id
             vendor.updated_by = actor_id
             self._audit_bulk(vendor, action="vendor.updated", actor_id=actor_id)
@@ -479,6 +511,13 @@ class VendorService:
             vendor = self.get(vendor_id, firm_scope=firm_scope)
             if vendor.business_profile_id == business_profile_id:
                 continue
+            assert_master_reference(
+                self._session,
+                BusinessProfile,
+                business_profile_id,
+                firm_id=vendor.firm_id,
+                label="Business profile",
+            )
             vendor.business_profile_id = business_profile_id
             vendor.updated_by = actor_id
             self._audit_bulk(vendor, action="vendor.updated", actor_id=actor_id)
@@ -709,9 +748,13 @@ class VendorService:
         """Stage create."""
         self._assert_unique(firm_id, data)
         self._assert_drug_license_allowed(firm_id, data)
+        values = self._vendor_values(data)
+        assert_master_references(
+            self._session, values, _VENDOR_REFERENCES, firm_id=firm_id
+        )
         vendor = Vendor(
             firm_id=firm_id,
-            **self._vendor_values(data),
+            **values,
             created_by=actor_id,
             updated_by=actor_id,
         )

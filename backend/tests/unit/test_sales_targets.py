@@ -136,13 +136,14 @@ def _target(
     amount: str,
     salesman_id: UUID | None = None,
     basis: SalesTargetBasis = SalesTargetBasis.INVOICED,
+    period: tuple[date, date] = APRIL,
 ) -> None:
-    """Set one target over April."""
+    """Set one target, over April unless told otherwise."""
     service.create_target(
         SalesTargetWrite(
             salesman_id=salesman_id,
-            period_start=APRIL[0],
-            period_end=APRIL[1],
+            period_start=period[0],
+            period_end=period[1],
             period_type=SalesTargetPeriod.MONTHLY,
             basis=basis,
             target_amount=Decimal(amount),
@@ -375,3 +376,72 @@ def test_one_firm_s_targets_never_read_another_firm_s_sales() -> None:
     )
 
     assert answer.achieved_amount == Decimal("0.00")
+
+
+def test_a_target_overlapping_another_on_the_same_basis_is_refused() -> None:
+    """D-TER-2: the guard compared start dates, so one from the 2nd slipped in.
+
+    Two targets over the same days on the same basis count the same sales
+    twice, and the bonus is then judged on the total. Any overlap is refused
+    -- a later start, an earlier start that runs into April, a period that
+    swallows it whole.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    service = SalesTargetService(session)
+    _target(service, firm_id=firm.id, amount="10000")
+
+    with pytest.raises(ConflictError):
+        _target(
+            service,
+            firm_id=firm.id,
+            amount="1000",
+            period=(date(2026, 4, 2), date(2026, 6, 30)),
+        )
+    with pytest.raises(ConflictError):
+        _target(
+            service,
+            firm_id=firm.id,
+            amount="1000",
+            period=(date(2026, 3, 1), date(2026, 4, 1)),
+        )
+    with pytest.raises(ConflictError):
+        _target(
+            service,
+            firm_id=firm.id,
+            amount="1000",
+            period=(date(2026, 1, 1), date(2026, 12, 31)),
+        )
+    # The day after it ends is free, and so is the other basis over the
+    # same days: what was invoiced and what was collected are different
+    # numbers.
+    _target(
+        service,
+        firm_id=firm.id,
+        amount="1000",
+        period=(date(2026, 5, 1), date(2026, 5, 31)),
+    )
+    _target(service, firm_id=firm.id, amount="1000", basis=SalesTargetBasis.COLLECTED)
+    assert len(service.list_targets(firm_scope=firm.id, page=1, page_size=10)[0]) == 3
+
+
+def test_an_edit_may_overlap_the_target_it_is_editing() -> None:
+    """A row is not in conflict with itself."""
+    session = _session_factory()()
+    firm = _firm(session)
+    service = SalesTargetService(session)
+    _target(service, firm_id=firm.id, amount="10000")
+    [row] = service.list_targets(firm_scope=firm.id, page=1, page_size=10)[0]
+
+    service.update_target(
+        row.id,
+        SalesTargetWrite(
+            period_start=date(2026, 4, 1),
+            period_end=date(2026, 6, 30),
+            target_amount=Decimal("30000"),
+        ),
+        firm_scope=firm.id,
+        actor_id=uuid4(),
+    )
+
+    assert row.period_end == date(2026, 6, 30)
