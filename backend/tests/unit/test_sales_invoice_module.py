@@ -14,6 +14,7 @@ from typing import get_args
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -776,6 +777,58 @@ def test_cancelling_an_approved_invoice_takes_its_journal_back() -> None:
         )
     ).all()
     assert len(reversals) == 1, "one mirror entry, named after the invoice"
+
+
+def test_a_bill_cancelled_before_utc_catches_up_is_not_undone_the_day_before(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """D-FIN-5: a reversal took UTC's "today", which can be the day before.
+
+    Documents carry the user's local date, which runs ahead of UTC until 05:30
+    in India. Live, SI-2026-2027-000001 and -000002 on two fixture firms were
+    dated 2026-09-19, cancelled at 20:34 and 20:45 UTC on the 18th, and
+    reversed and credited on the 18th -- the day before they were raised. The
+    journal and the statement row now both carry the bill's own day.
+    """
+    from datetime import UTC, datetime
+
+    from app.customers.models import CustomerReceivableTransaction
+    from app.finance.services import journal_engine
+    from app.sales_invoice.services import sales_invoice_service
+
+    def _utc_evening_before() -> datetime:
+        """Return 20:34 UTC on the 4th -- already the 5th in India."""
+        return datetime(2026, 8, 4, 20, 34, tzinfo=UTC)
+
+    monkeypatch.setattr(journal_engine, "utc_now", _utc_evening_before)
+    monkeypatch.setattr(sales_invoice_service, "utc_now", _utc_evening_before)
+    session = _session_factory()()
+    firm = _firm(session)
+    service, invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=uuid4()
+    )
+    service.approve_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+
+    service.cancel_invoice(
+        invoice_id, firm_scope=firm.id, actor_id=uuid4(), reason="raised twice"
+    )
+
+    reversal = session.scalar(
+        select(JournalEntry).where(
+            JournalEntry.source_module == "sales_invoice",
+            JournalEntry.reversal_of_id.is_not(None),
+        )
+    )
+    assert reversal is not None
+    assert reversal.journal_date == date(2026, 8, 5)
+    credited = session.scalar(
+        select(CustomerReceivableTransaction.transaction_date).where(
+            CustomerReceivableTransaction.reference_id == invoice_id,
+            CustomerReceivableTransaction.transaction_type == "CREDIT_NOTE",
+        )
+    )
+    assert credited == date(2026, 8, 5)
 
 
 def _loyal_firm_with_a_bill(
@@ -1761,6 +1814,44 @@ def test_a_bill_cannot_invent_free_goods() -> None:
         setup.bill(free_quantity=Decimal("5"))
 
 
+def test_a_bill_cannot_charge_for_more_than_left() -> None:
+    """Billing is capped at what the note dispatched, with no tolerance."""
+    setup = _Billing(_session_factory()())
+
+    with pytest.raises(ValidationError, match="exceeds the available source"):
+        setup.bill(quantity=Decimal("5"))
+
+
+def test_a_bill_cannot_lift_its_own_cap() -> None:
+    """D-SELL-30: the request body used to carry a switch for the cap.
+
+    Driven 2026-09-19 on ``fx_t0919q38d_s``: 50 billed against a note for 5
+    with ``allow_over_invoice`` true and ``over_invoice_percent`` 1000, then
+    approved -- 4,832.10 charged for goods that never left. The write schema
+    no longer takes either field.
+    """
+    setup = _Billing(_session_factory()())
+    note, note_line = setup.dispatch()
+    body = SalesInvoiceCreate(
+        customer_id=setup.customer.id,
+        branch_id=setup.branch.id,
+        invoice_date=date(2026, 8, 5),
+        lines=[
+            SalesInvoiceLineWrite(
+                source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                source_document_id=note.id,
+                source_document_line_id=note_line.id,
+                line_number=1,
+                current_invoice_quantity=Decimal("50"),
+            )
+        ],
+    ).model_dump(mode="json")
+
+    for field, value in (("allow_over_invoice", True), ("over_invoice_percent", 1000)):
+        with pytest.raises(PydanticValidationError, match=field):
+            SalesInvoiceCreate.model_validate({**body, field: value})
+
+
 def test_a_bill_can_decline_to_pass_on_free_goods() -> None:
     """An explicit zero refuses the inheritance, as everywhere else here."""
     setup = _Billing(_session_factory()())
@@ -1923,6 +2014,27 @@ def test_a_dispatched_note_is_offered_with_what_is_left_to_bill() -> None:
     assert line.unit_price == Decimal("100.0000")
     # Named, so a picker is not a list of UUIDs.
     assert billable[0].customer_name
+
+
+def test_a_billable_line_says_whether_its_units_carry_serials() -> None:
+    """D-STK-15: the bill editor has to know which lines name their units.
+
+    A bill that dispatches its own goods must name a serial-tracked line's
+    units, and the editor offers the units on the shelf the line ships from.
+    """
+    setup = _Billing(_session_factory()())
+    _dispatched_note(setup)
+    setup.product.track_serial = True
+    setup.session.commit()
+
+    line = (
+        SalesInvoiceService(setup.session)
+        .billable_documents(firm_scope=setup.firm.id)[0]
+        .lines[0]
+    )
+
+    assert line.track_serial is True
+    assert line.warehouse_id == setup.warehouse.id
 
 
 def test_a_partly_billed_note_offers_only_the_rest() -> None:

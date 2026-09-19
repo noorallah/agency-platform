@@ -73,6 +73,9 @@ class DeliveryNote(BaseEntity):
     vehicle: Mapped[str | None] = mapped_column(String(120))
     driver: Mapped[str | None] = mapped_column(String(120))
     remarks: Mapped[str | None] = mapped_column(Text)
+    # Retired (D-SELL-31): a note may never ship more than the order line,
+    # and no request can say otherwise. The columns stay so no migration is
+    # needed; nothing reads or writes them.
     allow_over_delivery: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="false"
     )

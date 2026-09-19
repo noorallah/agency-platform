@@ -37,6 +37,16 @@ from app.finance.models import (
 ZERO = Decimal("0")
 MONEY = Decimal("0.01")
 
+#: Which open period a date posts into when more than one covers it (D-FIN-6).
+#: New periods can no longer overlap, but stores created before that rule may
+#: hold some, and an unordered ``scalar()`` let the database pick. The most
+#: specific one wins -- the latest start, then the earliest end -- and the code
+#: settles a tie. Every column is NOT NULL, so no NULL ordering can decide it.
+COVERING_PERIOD_ORDER = (
+    AccountingPeriod.starts_on.desc(),
+    AccountingPeriod.ends_on.asc(),
+    AccountingPeriod.code.asc(),
+)
 #: What each posting module is called in a refusal, by ``source_module``. A
 #: module missing here is still refused -- by its own name with the
 #: underscores taken out -- so this is wording, not the rule.
@@ -56,6 +66,27 @@ SOURCE_DOCUMENT_NAMES = {
     "tcs": "TCS collection",
     "loyalty": "loyalty entry",
 }
+
+#: The namespace every hand-written journal's reference lives in (D-FIN-9).
+#: References are unique per firm across every journal, and documents post
+#: under their own numbers -- SI-, RC-, GRN-, LOY-, COMM-, a customer's -OB
+#: and so on. A hand entry typed "SI-2026-2027-000004" took that invoice's
+#: reference for good, and its approval then failed every time. Rather than a
+#: list of every shape a document reference can take, which rots, hand
+#: entries keep to "JV-" (journal voucher), and no numbering rule may use it.
+MANUAL_REFERENCE_PREFIX = "JV-"
+
+
+def assert_manual_reference(reference_number: str) -> None:
+    """Refuse a hand journal reference outside the manual namespace."""
+    if not reference_number.strip().upper().startswith(MANUAL_REFERENCE_PREFIX):
+        raise ValidationError(
+            f"A journal written by hand is referenced "
+            f"{MANUAL_REFERENCE_PREFIX}<something> -- for example "
+            f"{MANUAL_REFERENCE_PREFIX}{reference_number.strip() or '0001'}. "
+            "Other references belong to the documents that post them, and one "
+            "taken by hand would stop that document from ever posting."
+        )
 
 
 def quantize_money(value: Decimal | None) -> Decimal:
@@ -145,6 +176,15 @@ class JournalEntryEngine:
             raise ValidationError("A journal entry must carry a non-zero amount.")
 
         accounts = self._load_accounts(lines, firm_id=firm_id)
+        # Asked before the insert rather than learnt from the unique key
+        # (D-FIN-9): the IntegrityError path below has to roll the session
+        # back, which threw away everything else the request had done -- a
+        # receipt's reserved number included, so every retry was handed the
+        # same number and failed the same way.
+        if self.reference_taken(reference_number, firm_id=firm_id):
+            raise ConflictError(
+                f"A journal entry with reference {reference_number} already " "exists."
+            )
         entry = JournalEntry(
             firm_id=firm_id,
             journal_type_id=journal_type_id,
@@ -240,6 +280,23 @@ class JournalEntryEngine:
         )
         return entry
 
+    def reference_taken(self, reference_number: str, *, firm_id: UUID) -> bool:
+        """Say whether any journal of the firm already carries a reference.
+
+        Deleted rows count: the unique key does not exclude them.
+        """
+        return (
+            self._session.scalar(
+                select(JournalEntry.id)
+                .where(
+                    JournalEntry.firm_id == firm_id,
+                    JournalEntry.reference_number == reference_number,
+                )
+                .limit(1)
+            )
+            is not None
+        )
+
     def reverse_by_hand(
         self,
         journal_entry_id: UUID,
@@ -276,6 +333,7 @@ class JournalEntryEngine:
                 "that reverses this journal together with everything else the "
                 "document moved."
             )
+        assert_manual_reference(reference_number)
         return self.reverse_entry(
             journal_entry_id,
             firm_id=firm_id,
@@ -326,7 +384,18 @@ class JournalEntryEngine:
             # take the first day of the *original's* period -- a receipt from
             # the 16th cancelled on the 20th reversed on the 1st, which is
             # neither date and sorts the reversal before what it undoes.
-            target_date = journal_date or utc_now().date()
+            #
+            # D-FIN-5: never before the original, though. Documents carry the
+            # user's local date, which runs ahead of UTC until 05:30 in India,
+            # so a bill raised and cancelled in those hours reversed on the
+            # day before it was raised -- on the 1st, in the previous period.
+            if journal_date is not None and journal_date < original.journal_date:
+                raise ValidationError(
+                    f"A reversal cannot be dated {journal_date.isoformat()}, "
+                    f"before {original.reference_number} itself "
+                    f"({original.journal_date.isoformat()})."
+                )
+            target_date = journal_date or max(utc_now().date(), original.journal_date)
             open_period = self._open_period_covering(target_date, firm_id=firm_id)
             if open_period is None:
                 # Nothing is open on that day -- typically a new year not yet
@@ -634,13 +703,16 @@ class JournalEntryEngine:
     ) -> AccountingPeriod | None:
         """Return the open period that covers a date, if there is one."""
         return self._session.scalar(
-            select(AccountingPeriod).where(
+            select(AccountingPeriod)
+            .where(
                 AccountingPeriod.firm_id == firm_id,
                 AccountingPeriod.starts_on <= on,
                 AccountingPeriod.ends_on >= on,
                 AccountingPeriod.status == PeriodStatus.OPEN.value,
                 AccountingPeriod.is_deleted.is_(False),
             )
+            .order_by(*COVERING_PERIOD_ORDER)
+            .limit(1)
         )
 
     def _require_open_period(

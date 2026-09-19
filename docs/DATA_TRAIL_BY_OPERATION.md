@@ -35,7 +35,13 @@ reversal, the journals each document posts, cost and profit centres, control
 accounts, how ledger balances roll forward, the three statements, customer
 statements and ageing, opening balances, the ledger side of money in and out,
 and what `verify_sample_data.py` checks — against the `ready-firm` and
-selling stores, TEST01 and WHOLE01 (§12.16). The rest follow.
+selling stores, TEST01 and WHOLE01 (§12.16). **Compliance followed the same
+day (§13)**: tax configuration, the GST template, tax rules and their
+versions, the engine and what every priced line writes, the tax a line gets,
+GSTR-1 and GSTR-3B, e-invoice registration and withdrawal, e-way bills, and
+TCS from settings to reversal — against the `compliance-firm` stores, one
+built for the pass and driven, the selling stores, WHOLE01, the shared store
+and ELEC01 (§13.13). The rest follow.
 
 ---
 
@@ -3146,3 +3152,655 @@ registry (SELECT only) and exits non-zero if any check fails:
   delete; a refund; a receivable row posted through
   `/customers/{id}/receivables/transactions`; an account deactivated while
   mapped. ELEC01 (`agency_electrolink`) was not queried.
+
+---
+
+## 13. Compliance — tax engine, GST returns, e-invoices and TCS (TC-COMP-001 to 007, TC-CONF-005)
+
+Read on 2026-09-19 off `app/tax` — `tax_framework_service.py` (systems,
+components, profiles, country and migration mappings, settings, the profile
+versions), `tax_rule_service.py` (rules, their versions, `simulate`, the
+execution log), `gst_template.py`, `gst_buckets.py`, `retention.py` and the
+router — off `app/gst_returns/services/gstr_service.py`, off
+`app/einvoice` (`einvoice_service.py`, `payload.py`, `portal.py`) and off
+`app/tcs/services/tcs_service.py`, with the parts of `sales_invoice_service.py`
+and `settlement_service.py` that call them. `docs/MODULE_STATUS.md` files
+nothing else under compliance; the "Ledger and tax filing" rules of
+`docs/LEDGER_POSTING_RULES.md` these modules implement are the TCS, return,
+sandbox and rounding ones. Then checked, read-only, against every store that
+holds these tables — the `compliance-firm` stores of 2026-09-16
+(`fx_t0916irn8_g`, `fx_t09167ru4_g`), one built for this pass
+(`fx_t0919l8ca_g`), the selling stores, TEST01, WHOLE01, the shared store and
+ELEC01 — and the defects were driven on `fx_t0919l8ca_g` against the running
+backend. §13.13 says which claims a live row confirmed and which it could not.
+A claim marked *(not seen in a live row)* was read off the code only.
+
+### 13.0 Before you look
+
+- **Stores.**
+
+  | Case | Fixture | Schema |
+  | --- | --- | --- |
+  | TC-COMP-001 to 006 | `compliance-firm` | **`fx_<suffix>_g`** — firm `<SUFFIX>-G`, "Compliance <suffix>", GSTIN `33FXGST<4 digits>A1Z5` |
+  | TC-COMP-007 | `selling-paid` | `fx_<suffix>_s` — §11.14 has the receipt side |
+  | TC-CONF-005 | `firm-admin` | `test_fixtures` |
+
+  The fixture's **Tables** line prints the schema. Find your rows by its
+  codes: customers `<SUFFIX>-B2B` (GSTIN `33FXBUY…`) and `<SUFFIX>-B2C`
+  (none), product `<SUFFIX>-P` at HSN 340220, invoices A, B and C as
+  `SI-2026-2027-000001` to `000003`. For WHOLE01 put `wholesale_hub`; for
+  MEDI01 or FOOD01 put `firm_shared` and filter on `firm_id`; ELEC01 is
+  `electrolink_ops` in `agency_electrolink`.
+- **All compliance audit rows go to the firm's own trail.** The only
+  platform row is `firm.tax_template_applied` (§6, §13.2); no `tax.*`,
+  `einvoice.*`, `eway_bill.*` or `tcs.*` row exists in `platform.audit_logs`
+  (checked 2026-09-19: zero).
+- **Four kinds of table, and one kind that does not exist.**
+
+  | Tables | Written by | Holds |
+  | --- | --- | --- |
+  | `tax_systems`, `tax_components`, `tax_profiles`, `tax_profile_components`, `tax_profile_attribute_values`, `tax_country_mappings`, `tax_migration_mappings`, `tax_settings` | Tax Configuration, the GST template | what can be charged |
+  | `tax_rules`, `tax_rule_conditions`, `tax_rule_actions` | Tax Configuration → Rules, the GST template | which profile a transaction gets |
+  | `tax_rule_execution_logs` | **every priced document line**, and the Rule Simulator | the engine's input, trace and answer, one row per line |
+  | `einvoice_registrations`, `eway_bills`, `tcs_settings`, `tcs_collections` | E-Invoice, TCS, and Record Receipt | what was registered, raised and collected |
+
+  **There is no GST return table.** GSTR-1 and GSTR-3B are computed on every
+  read from `sales_invoices`, `sales_invoice_lines`, `sales_invoice_line_taxes`,
+  `credit_notes` and `credit_note_lines` (§13.6). Nothing records what was
+  filed, or when.
+- **The tax a line was charged lives on the line**, not in the engine's
+  log: `sales_invoice_line_taxes` (and `sales_return_line_taxes`,
+  `credit_note_lines.tax_rate_percent`, and each module's own) —
+  `component_code`, `percentage`, `base_amount`, `amount` at four decimals.
+  The return and the e-invoice both read those rows, through
+  `split_components`, which buckets a code by whether it **contains**
+  `CGST`, `SGST`, `IGST` or `CESS` and ignores anything else.
+- **One click, all its audit rows** — the §9.0 request-id query works
+  unchanged with the store's schema and the action you took
+  (`einvoice.registered`, `eway_bill.cancelled`, `tcs.settings_changed`).
+- **What points at what.**
+
+  | From | Column | To |
+  | --- | --- | --- |
+  | `tax_profiles` | `tax_system_id`; `group_code` — **the name products use**, stable across versions | `tax_systems`; `products.tax_profile_group_code` (no foreign key) |
+  | `tax_profile_components` | `tax_profile_id`, `tax_component_id` | `tax_profiles`, `tax_components` |
+  | `tax_rules` | `version_group_id` (one per rule, all versions), `supersedes_rule_id` on a version | `tax_rules` |
+  | `tax_rule_conditions`, `tax_rule_actions` | `tax_rule_id`; an action's `target_tax_profile_id` / `target_tax_component_id` | `tax_rules`; `tax_profiles`, `tax_components` |
+  | `tax_rule_conditions` | `value_text` holding a **profile id as text** for the template's rules | `tax_profiles` (no foreign key) |
+  | `tax_rule_execution_logs` | `matched_rule_id`, `tax_profile_id`, `applied_tax_profile_id` — **not** the document or line it priced | `tax_rules`, `tax_profiles` |
+  | `sales_invoice_line_taxes` | `sales_invoice_line_id`, `tax_component_id` | the line; the component |
+  | `einvoice_registrations`, `eway_bills` | `sales_invoice_id` (unique per firm, one row each for ever) | `sales_invoices` |
+  | `tcs_collections` | `settlement_id` (unique), `customer_id`, `journal_entry_id`, `reversal_journal_entry_id`, `receivable_transaction_id` (no foreign key) | `settlements`, `customers`, `journal_entries`, `customer_receivable_transactions` |
+
+- **Where the compliance rows are, 2026-09-19.** `fx_t0916irn8_g` is a
+  `compliance-firm` run of 2026-09-16 (A and B registered, C not);
+  `fx_t09167ru4_g` another, built before the fixture's product carried a tax
+  profile, so its three invoices charge **no tax at all** and two are
+  registered — plus an e-way bill raised and withdrawn on B (TC-COMP-006).
+  Both firms have since been soft-deleted by a clear and their schemas stay.
+  `fx_t0919l8ca_g` was built for this pass and then used to drive the
+  defects in §13.13, so it is no longer a clean `compliance-firm`. WHOLE01
+  holds 13 registrations, 7 e-way bills (one withdrawn), 39 TCS collections
+  (three reversed) and 15,956 execution logs; the shared store 31, 15, 70 and
+  25,722; ELEC01 17, 8, 39 and 16,769. Every registration and every e-way bill
+  in every store is `SANDBOX` and every reference begins `SBX`.
+
+### 13.1 Tax configuration — systems, components, profiles, mappings, settings
+
+Administration → Configuration → Tax Configuration, all under
+`/api/v1/tax-framework`, permissions `TAX_VIEW`, `TAX_CREATE`, `TAX_UPDATE`,
+`TAX_DELETE`, `TAX_RESTORE`, `TAX_IMPORT`, `TAX_EXPORT`,
+`TAX_MANAGE_SETTINGS`. **Each call commits on its own.**
+
+- **Create and edit** insert or update one row and write an audit row:
+
+  | Endpoint | Table | Audit |
+  | --- | --- | --- |
+  | `POST` / `PUT /systems` | `tax_systems` | `tax.system.created` / `.updated` |
+  | `POST` / `PUT /components` | `tax_components` | `tax.component.created` / `.updated` |
+  | `POST` / `PUT /profiles` | `tax_profiles` + `tax_profile_components` (+ `tax_profile_attribute_values`) | `tax.profile.created` / `.updated`, `after_data` = `code` only |
+  | `POST /setup`, `PUT /setup/{id}` | a system, its components and profiles in one request | `tax.setup.created` / `.updated` |
+  | `POST /country-mappings` | `tax_country_mappings` | `tax.country_mapping.created` |
+  | `POST /migration-mappings`, `POST /legacy/import-csv` | `tax_migration_mappings` | `tax.migration_mapping.created`, no data |
+
+- **Written with no audit row** (D-CMP-9): delete and restore of a system,
+  component or profile (`is_deleted`, `deleted_at`, `version` +1); every
+  `bulk-delete`, `bulk-restore` and `profiles/bulk-status`; edit and delete
+  of a country or migration mapping; `PUT /settings` (`tax_settings`, labels
+  and `additional_settings`). The **Tax History** screen
+  (`GET /tax-framework/history`) reads only audit rows, so it cannot show
+  any of them. `GET /settings` **inserts** the firm's `tax_settings` row and
+  commits when there is none.
+- **A rate change** is two writes: `PUT /profiles/{id}` ending the old
+  version (`effective_to`, `tax.profile.updated`) and `POST /profiles` with
+  the same `group_code` and a later `effective_from` (`tax.profile.created`).
+  `TaxFrameworkService.supersede_profile`, which does both in one step, is
+  called by nothing. A document picks the version in force on **its own
+  date** (`resolve_active_profile`, latest `effective_from` first, NULLs
+  last — explicit, so PostgreSQL and SQLite agree). Two ACTIVE versions of
+  one group may not overlap — checked on create and update, **not** on
+  `bulk-status` or restore.
+- **Refused, nothing written:** deleting a system that still has live
+  components or profiles; deleting a profile whose `group_code` a live
+  product uses. **Not refused:** deleting a profile a rule's action targets
+  (the interstate profiles have no products), or a component a profile
+  still carries (D-CMP-9).
+- **Check:**
+  ```sql
+  select p.code, p.group_code, p.status, p.effective_from, p.effective_to,
+         p.is_historical, p.is_deleted, p.version,
+         string_agg(c.code || ' ' || pc.percentage, ', ' order by pc.calculation_order) as components
+  from   fx_<suffix>_g.tax_profiles p
+  left join fx_<suffix>_g.tax_profile_components pc on pc.tax_profile_id = p.id
+  left join fx_<suffix>_g.tax_components c on c.id = pc.tax_component_id
+  group  by p.id
+  order  by p.display_order, p.effective_from;
+
+  select created_at, action, entity_type, entity_id
+  from   fx_<suffix>_g.audit_logs
+  where  entity_type like 'tax_%' and action <> 'tax.rule.simulated'
+  order  by created_at desc;
+  ```
+- **Confirmed** in `fx_t0919l8ca_g`: `GST_0` set INACTIVE and back through
+  `bulk-status`, `CESS` deleted and restored — `tax_profiles.version` and
+  `tax_components.version` both read 3, and no audit row was written between
+  06:26:49 and 06:26:59 IST.
+
+### 13.2 The GST template — what a finished firm starts with
+
+Firms → Set up → **Apply GST template**
+(`POST /api/v1/firms/{id}/apply-tax-template`, platform-only). §6 has the
+platform half.
+
+- **Inserts** (firm's store), only when the firm has **no** live tax system:
+  `tax_settings` updated (primary label "GST", `additional_settings.template`
+  `IN_GST`); `tax_systems` 1 (`GST`); `tax_components` 4 — CGST, SGST, IGST,
+  CESS (CESS not recoverable); `tax_country_mappings` 1 (India, default, from
+  2017-07-01); `tax_profiles` 8 — `GST_0` (IGST 0), `GST_5_LOCAL`,
+  `GST_12_LOCAL`, `GST_18_LOCAL` (CGST + SGST at half the rate each), their
+  `_INTERSTATE` twins (IGST), `EXEMPT` (no components) — 10
+  `tax_profile_components`; `tax_rules` 6 with 9 conditions and 7 actions;
+  `geo_countries` India if the store has no country.
+- **The six rules:**
+
+  | Code | Priority | When | Does |
+  | --- | --- | --- | --- |
+  | `EXPORT_ZERO` | 1 | `transaction_type` = `EXPORT` | apply `GST_0`, zero-rated |
+  | `INTERSTATE_GST_5` / `_12` / `_18` | 10 / 11 / 12 | `transaction_type` = `SALES_INTERSTATE` **and** `tax_profile_id` = that slab's LOCAL profile id | apply the INTERSTATE twin |
+  | `EXEMPT_PROFILE` | 20 | `tax_profile_id` = `EXEMPT`'s id | exempt |
+  | `PURCHASE_INPUT_CREDIT` | 30 | `transaction_type` = `PURCHASE` | input credit allowed |
+
+  **No document sends `SALES_INTERSTATE`, `EXPORT` or `PURCHASE`** — the
+  modules send `SALES_INVOICE`, `PURCHASE_INVOICE`, `GOODS_RECEIPT` and their
+  siblings — so on a real document only `EXEMPT_PROFILE` can ever match
+  (D-CMP-1, D-CMP-13). The interstate rules name the LOCAL profile **by id**,
+  so they would stop matching after a rate change supersedes it.
+- **Audit, firm trail — 20 rows:** `tax.system.created`,
+  `tax.component.created` ×4, `tax.country_mapping.created`,
+  `tax.profile.created` ×8, `tax.rule.created` ×6. The settings change has
+  none. **Audit, platform:** `firm.tax_template_applied`, `after_data`
+  `template` `IN_GST` and the counts.
+- **Not one transaction** — each record commits as it is made, so a failure
+  half-way leaves a tax system that makes the next press answer "already has
+  one" (D-CMP-8) *(not seen in a live row)*.
+- **Check** (fresh store: `1, 4, 8, 10, 1, 1, 6, 9, 7`):
+  ```sql
+  select (select count(*) from fx_<suffix>_g.tax_systems)            as systems,
+         (select count(*) from fx_<suffix>_g.tax_components)         as components,
+         (select count(*) from fx_<suffix>_g.tax_profiles)           as profiles,
+         (select count(*) from fx_<suffix>_g.tax_profile_components) as profile_components,
+         (select count(*) from fx_<suffix>_g.tax_country_mappings)   as country_mappings,
+         (select count(*) from fx_<suffix>_g.tax_settings)           as settings,
+         (select count(*) from fx_<suffix>_g.tax_rules)              as rules,
+         (select count(*) from fx_<suffix>_g.tax_rule_conditions)    as conditions,
+         (select count(*) from fx_<suffix>_g.tax_rule_actions)       as actions;
+  ```
+- **Confirmed** in `fx_t0919l8ca_g`: those counts plus what the probes of
+  §13.3 added (two rules, two conditions, one action), the 20 firm audit
+  rows at 06:22:06–06:22:08 IST and the platform row at 06:22:06.
+
+### 13.3 Tax rules — create, edit, delete, restore, import
+
+Tax Configuration → Rules. `POST` / `PUT` / `DELETE /tax-framework/rules`,
+`POST /rules/{id}/restore`, `POST /rules/import`; permissions
+`TAX_RULE_CREATE`, `TAX_RULE_UPDATE`, `TAX_RULE_DELETE`, `TAX_RULE_RESTORE`,
+`TAX_IMPORT`.
+
+- **Create** inserts `tax_rules` (`version_group_id` new, `version_number`
+  1, `status` as sent — DRAFT by default), its `tax_rule_conditions` and
+  `tax_rule_actions`. Audit `tax.rule.created` (`code`, `version_number`).
+  Refused: a code already used at that version ("Tax rule code already
+  exists for this version.") or a profile or component that is not the
+  firm's.
+- **Edit a DRAFT** updates the row in place; the old conditions and actions
+  are **soft-deleted** and new ones inserted. Audit `tax.rule.updated`
+  (`code`, `priority`, `status`, `version_number` both sides). The status in
+  the body is written — a draft is activated by editing it.
+- **Edit an ACTIVE (or INACTIVE, ARCHIVED) rule** inserts a **new version**:
+  a second `tax_rules` row with the same `code` and `version_group_id`,
+  `version_number` +1, `supersedes_rule_id` = the old row, and whatever
+  status the body carried. **The old row is not touched** — it stays ACTIVE
+  and keeps being evaluated (§13.4). Audit `tax.rule.versioned`,
+  `before_data.supersedes_rule_id`. Editing a rule to INACTIVE therefore
+  leaves it in force (D-CMP-3).
+- **Delete** soft-deletes the one row named (`tax.rule.deleted`); its other
+  versions stand. **Restore** clears it (`tax.rule.restored`).
+- **Import** is `create` in a loop, each committing: a batch refused at row
+  *n* keeps rows 1 to *n*−1 and answers 409 (D-CMP-8).
+- **Check:**
+  ```sql
+  select r.code, r.version_number, r.status, r.priority, r.effective_from, r.effective_to,
+         r.supersedes_rule_id is not null as supersedes, r.is_deleted,
+         (select string_agg(c.field_key || ' ' || c.operator || ' ' || coalesce(c.value_text, ''), ' and ')
+          from fx_<suffix>_g.tax_rule_conditions c where c.tax_rule_id = r.id and c.is_deleted = false) as conditions,
+         (select string_agg(a.action_type, ', ') from fx_<suffix>_g.tax_rule_actions a
+          where a.tax_rule_id = r.id and a.is_deleted = false) as actions
+  from   fx_<suffix>_g.tax_rules r
+  order  by r.priority, r.code, r.version_number desc;
+  ```
+  Any `code` with two rows both ACTIVE and not deleted is D-CMP-3.
+- **Confirmed** in `fx_t0919l8ca_g`: `INTERSTATE_GST_18` edited to INACTIVE
+  at 06:26:41 IST — version 2 INACTIVE, version 1 still ACTIVE, one
+  `tax.rule.versioned`; an import of two rules both coded `CMPIMP_A`
+  answered 409 and left the first, DRAFT, with its `tax.rule.created`. No
+  rule in any other store has a second version.
+
+### 13.4 Simulate — the engine, and the Rule Simulator (TC-CONF-005)
+
+Tax Configuration → **Rule Simulator** is `POST /tax-framework/simulate`
+(`TAX_SIMULATE`). **The same function prices every document line** in nine
+modules (§11.0), so what it writes rides along with every priced save.
+
+- **How it decides:** every live ACTIVE rule of the firm, ordered
+  `priority`, `code`, `version_number` desc, `created_at` — all columns
+  NOT NULL, so the order is the same on both databases. The first rule whose
+  scope, effective window (against the **document's** date) and every
+  condition match wins, **and evaluation stops**: the trace lists the rules
+  up to the winner and none after. Its actions apply in `sequence`; with no
+  match the profile in context is used as configured. `total_tax_amount` is
+  the additive components only; included-in-price and reverse-charge tax are
+  reported beside it.
+- **Inserts** one `tax_rule_execution_logs` row — `execution_mode`
+  **always `SIMULATION`**, the document's lines included (D-CMP-13);
+  `transaction_type`, `country_id`, `business_profile_id`, `tax_profile_id`,
+  `matched_rule_id`, `applied_tax_profile_id`, and three JSON documents:
+  `input_payload`, `evaluation_trace.decisions`, `result_payload`. **Audit:**
+  `tax.rule.simulated` (`matched_rule_id`, empty when none, and
+  `transaction_type`).
+- **Commit:** the endpoint commits; the service never does — a document
+  line's log and audit row are part of that document's own transaction and
+  vanish with it if the save fails *(not seen in a live row)*.
+- **Nothing links a log to its document.** The log carries no document id
+  or line id; find a document's logs by time and `transaction_type`.
+- **Retention:** nothing prunes the log until the retention service is run
+  (`scripts/purge_retention.py`, default 365 days). The oldest log in WHOLE01
+  and the shared store is from 2026-08-15.
+- **Check:**
+  ```sql
+  select l.created_at, l.transaction_type, l.execution_mode, r.code as matched_rule,
+         p.code as applied_profile,
+         jsonb_array_length((l.evaluation_trace::jsonb)->'decisions') as rules_tried,
+         (l.result_payload::jsonb)->>'total_tax_amount' as total_tax
+  from   fx_<suffix>_g.tax_rule_execution_logs l
+  left join fx_<suffix>_g.tax_rules r    on r.id = l.matched_rule_id
+  left join fx_<suffix>_g.tax_profiles p on p.id = l.applied_tax_profile_id
+  order  by l.created_at desc;
+  ```
+- **Confirmed** in `fx_t0919l8ca_g`: 14 logs — twelve from the fixture's and
+  this pass's orders, notes and invoices (3 per sale, `SALES_ORDER`,
+  `DELIVERY_NOTE`, `SALES_INVOICE`, each trying all six rules and matching
+  none), one `SALES_RETURN`, and one simulator run of `SALES_INTERSTATE`
+  that matched `INTERSTATE_GST_18` version 1 after four rules and answered
+  IGST 180 — the TC-CONF-005 figure, reached through the version D-CMP-3
+  should have retired.
+
+### 13.5 The tax a document line gets — and where it is stored
+
+- **Every sale is taxed as a sale within the state.** `SalesInvoiceService`
+  asks the engine with `transaction_type` `SALES_INVOICE` whoever the buyer
+  is, and the invoice's `place_of_supply` (the state name from the
+  customer's address, copied at create) is read by nothing but the print.
+  So a buyer registered in another state is charged **CGST + SGST**, the
+  e-invoice then refuses the bill, and GSTR-1 files it under the buyer's
+  state with central and state tax (D-CMP-1). **No line in any store on the
+  server carries IGST.**
+- **Stored per component** in `sales_invoice_line_taxes` at four decimals
+  (18% on 409.50 is CGST 36.855 + SGST 36.855); the line's `tax_amount` and
+  the invoice's `tax_total` are their sum. The **ledger** credits 2200 with
+  that sum rounded once (73.71); **GSTR-1 and the e-invoice** round CGST and
+  SGST separately (36.86 + 36.86 = 73.72). So a return and the books differ
+  by a paisa on any bill whose halves end in a half-paisa (D-CMP-4).
+- **Check** — the components, and what the ledger credited, per bill:
+  ```sql
+  select i.invoice_number, i.status, i.tax_total, t.component_code, t.percentage, t.amount,
+         (select sum(jl.credit_amount) from fx_<suffix>_g.journal_entries e
+          join fx_<suffix>_g.journal_lines jl on jl.journal_entry_id = e.id
+          join fx_<suffix>_g.ledger_accounts a on a.id = jl.ledger_account_id
+          where e.source_module = 'sales_invoice' and e.source_id = i.id
+            and e.reversal_of_id is null and a.code = '2200') as credited_2200
+  from   fx_<suffix>_g.sales_invoices i
+  join   fx_<suffix>_g.sales_invoice_lines l      on l.sales_invoice_id = i.id and l.is_deleted = false
+  join   fx_<suffix>_g.sales_invoice_line_taxes t on t.sales_invoice_line_id = l.id and t.is_deleted = false
+  order  by i.invoice_number, l.line_number, t.sequence;
+  ```
+- **Confirmed:** `fx_t0919l8ca_g` SI-2026-2027-000004, to a buyer with
+  GSTIN `29FXKAR0529C1Z1`, carries CGST 18.00 + SGST 18.00; the half-paisa
+  split on 30 of WHOLE01's 52 live bills, 43 of the shared store's 90 and
+  every `selling-paid` store's SI-2026-2027-000001.
+
+### 13.6 GSTR-1 — reads only (TC-COMP-001, 002)
+
+Sales → **GST Returns** → GSTR-1 is `GET /api/v1/gst-returns/gstr1?from_date=&to_date=`,
+permission **`SALES_VIEW`**. **It writes nothing** — no row, no audit, no
+log — and refuses a firm with no GSTIN ("This firm has no GST number, so it
+has no return to file.").
+
+- **Reads** invoices with `status` APPROVED or CLOSED and `invoice_date` in
+  the period (drafts and cancelled bills are not supplies), their lines and
+  `sales_invoice_line_taxes`, the customers' `gst_number`, the products'
+  `hsn_sac`, and **credit notes** with `status` APPROVED and
+  `credit_note_date` in the period. **Sales returns are not read** — a
+  completed return reverses output tax in the ledger and appears in no
+  section and in no deduction (D-CMP-2).
+- **Sections:**
+
+  | Section | What goes in | Place of supply |
+  | --- | --- | --- |
+  | `b2b` | every bill to a customer with a GSTIN, invoice by invoice, grouped by GSTIN | the buyer's GSTIN's first two digits |
+  | `b2cl` | bills to an unregistered buyer charged IGST with `grand_total` above **2,50,000** (D-CMP-10) | — |
+  | `b2cs` | every other unregistered bill, summed by place and rate, less unregistered buyers' credit notes | **read off the tax**: the seller's state when CGST/SGST was charged; blank when IGST was |
+  | `cdnr` | credit notes to registered buyers, note by note, the note's one tax figure split by the tax its invoice charged | — |
+  | `hsn` | every line by HSN and rate — a product with no HSN under a blank code, not dropped | — |
+  | `docs` | the invoice series: first number, last number, **count of live bills** — cancelled ones are left out, not counted (D-CMP-10) | — |
+  | `unplaced_invoices` | unregistered bills charged IGST, named rather than filed with a blank place | — |
+
+- **Taxable value** is gross − line discount − bill discount + line charges
+  + freight, per line; `additional_charges` and `round_off` on the header are
+  outside it. Each figure is rounded to two decimals once, on the way out.
+- **Derived on every read:** cancelling a bill takes it out of **its own
+  month**, however long ago that month was filed (D-CMP-11).
+- **Check** — what the B2B and B2CS sections are built from:
+  ```sql
+  select i.invoice_number, i.invoice_date, i.status, c.code, c.gst_number,
+         left(coalesce(c.gst_number, ''), 2) as buyer_state, i.grand_total,
+         sum(t.amount) filter (where t.component_code like '%CGST%') as cgst,
+         sum(t.amount) filter (where t.component_code like '%SGST%') as sgst,
+         sum(t.amount) filter (where t.component_code like '%IGST%') as igst
+  from   fx_<suffix>_g.sales_invoices i
+  join   fx_<suffix>_g.customers c on c.id = i.customer_id
+  join   fx_<suffix>_g.sales_invoice_lines l on l.sales_invoice_id = i.id and l.is_deleted = false
+  left join fx_<suffix>_g.sales_invoice_line_taxes t on t.sales_invoice_line_id = l.id and t.is_deleted = false
+  where  i.is_deleted = false
+    and  i.invoice_date between date_trunc('month', current_date)::date and current_date
+  group  by i.id, c.id
+  order  by i.invoice_number;
+  ```
+  The rows with `status` APPROVED or CLOSED are the ones filed.
+- **Confirmed** in `fx_t0919l8ca_g` before the probes: B2B A 1,000.00 /
+  90.00 / 90.00 and B 500.00 / 45.00 / 45.00 under `33FXBUY0529B1Z3`, place
+  33; B2CS one row, place 33, 18%, 300.00 / 27.00 / 27.00; HSN 340220
+  quantity 18, 1,800.00; CDNR empty; `docs` `SI-2026-2027-000001` to
+  `000003`, count 3. After B was cancelled and a return booked against C: B2B
+  lost B, the Karnataka bill appeared under place 29 with CGST 18.00 and
+  SGST 18.00, B2CS still read 300.00 / 27.00 / 27.00, and `docs` read
+  `000001` to `000004`, count 3.
+
+### 13.7 GSTR-3B — reads only (TC-COMP-003)
+
+`GET /api/v1/gst-returns/gstr3b?from_date=&to_date=`, `SALES_VIEW`. Writes
+nothing.
+
+- **3.1(a)** is summed from the same invoice lines GSTR-1 reads — **not**
+  parsed out of GSTR-1 — less every credit note of the period, registered
+  and unregistered. Nil-rated and exempt lines are inside 3.1(a) at 0%;
+  there is no 3.1(b) or 3.1(c) (D-CMP-10). Credit notes' cess is not
+  deducted. **Sales returns are not deducted** (D-CMP-2).
+- **The inward half** reads "Not derived: the purchase side files this." —
+  no input credit is computed anywhere.
+- **Check** — 3.1(a)'s tax against what the ledger holds as output tax for
+  the same days (they should agree, less rounding):
+  ```sql
+  select sum(p.credit_amount - p.debit_amount) as output_tax_2200
+  from   fx_<suffix>_g.gl_postings p
+  join   fx_<suffix>_g.ledger_accounts a on a.id = p.ledger_account_id
+  where  a.code = '2200'
+    and  p.posting_date::date between date_trunc('month', current_date)::date and current_date;
+  ```
+- **Confirmed** in `fx_t0919l8ca_g`: 3.1(a) 1,800.00 / 162.00 / 162.00
+  before the probes, equal to GSTR-1's sum (TC-COMP-003); after them
+  1,500.00 / 135.00 / 135.00 = 270.00 of tax with nothing deducted, while
+  2200 holds **252.00** — the 18.00 of SR-2026-2027-000001.
+
+### 13.8 Register an invoice with the portal (TC-COMP-004, 005)
+
+Sales → **E-Invoice** → Register an invoice is
+`POST /api/v1/einvoice/invoices/{id}/register`, permission
+`EINVOICE_MANAGE`; the grid is `GET /einvoice/registrations`
+(`EINVOICE_VIEW`).
+
+- **Refused locally, nothing written** — not even an audit row — when the
+  payload cannot be valid, the reasons joined: "This invoice cannot be
+  registered yet: the firm has no GST number; the customer has no GST number;
+  the invoice is not approved; the invoice has no lines; <product> has no HSN
+  or SAC code." Also refused: a bill whose tax contradicts the two GSTINs'
+  states — "This is an inter-state supply but the invoice charged CGST and
+  SGST. Correct the tax before registering it." (every interstate bill,
+  D-CMP-1) and the intra-state twin; and a bill already REGISTERED ("…is
+  already registered as SBX…. Cancel that registration before raising
+  another.", 409).
+- **Inserts** one `einvoice_registrations` row: `firm_id`,
+  `sales_invoice_id`, **`mode` SANDBOX** (NOT NULL, no default in the
+  database), `status` REGISTERED, `irn` `SBX` + a 61-character hash of the
+  payload, `acknowledgement_number` `SBX` + 12, `acknowledged_at` (UTC now),
+  `signed_qr_code` `SANDBOX.…`, `signed_invoice`, `attempts` 1,
+  `request_payload` — exactly what was sent (the seller's and buyer's GSTIN,
+  state, `ItemList` with HSN, quantity, amounts, `GstRt` and the four tax
+  buckets, and `ValDtls`). A portal refusal lands on the same row as
+  `status` FAILED with `error_code` / `error_message`.
+- **Audit:** `einvoice.registered` (or `einvoice.refused`), `after_data` =
+  `sales_invoice_id`, `mode`, `status`, `irn`, `acknowledgement_number`,
+  `attempts`, `error_code`, `error_message`.
+- **What it stops:** a REGISTERED row blocks cancelling the invoice — "SI-…
+  cannot be cancelled while it has … its registration with the tax
+  authority. Reverse or cancel those first." (TC-COMP-002).
+- **Not written:** nothing on `sales_invoices`; no journal; no lifecycle
+  event. `LIVE` is never written — `portal_for("LIVE")` raises "Live
+  registration needs this firm's GSP credentials…" and nothing is sent.
+- **Check:**
+  ```sql
+  select i.invoice_number, i.status as invoice_status, c.gst_number,
+         r.mode, r.status, r.irn, r.acknowledgement_number, r.acknowledged_at,
+         r.attempts, r.error_code, r.error_message, r.cancelled_at, r.cancellation_reason, r.version
+  from   fx_<suffix>_g.einvoice_registrations r
+  join   fx_<suffix>_g.sales_invoices i on i.id = r.sales_invoice_id
+  join   fx_<suffix>_g.customers c      on c.id = i.customer_id
+  order  by i.invoice_number;
+  ```
+- **Confirmed** in `fx_t0919l8ca_g`, `fx_t0916irn8_g` and `fx_t09167ru4_g`:
+  A and B registered by the fixture, one audit row each, `mode` SANDBOX and
+  `SBX` references; C (no GSTIN) never registered; the Karnataka bill's
+  refusal wrote nothing. In `fx_t09167ru4_g` the two registered bills carry
+  **no tax at all** and were accepted at `GstRt` 0. No row in any store is
+  LIVE or FAILED.
+
+### 13.9 Withdraw a registration, and register again
+
+E-Invoice → the row's **Withdraw** action is
+`POST /api/v1/einvoice/invoices/{id}/cancel` with `{"reason": …}`,
+`EINVOICE_MANAGE`. A row that is not REGISTERED — a withdrawn one included —
+offers **Register** again, and **Register an invoice** lists it too.
+
+- **Refused:** no REGISTERED row ("This invoice has no live
+  registration."); an empty reason; more than 24 hours after
+  `acknowledged_at`, judged in UTC ("A registration can only be withdrawn
+  within 24 hours. Raise a credit note instead…").
+- **Updates** the row: `status` CANCELLED, `cancelled_at`,
+  `cancellation_reason` (up to 200), `version` +1. **Audit:**
+  `einvoice.cancelled` (the same snapshot as §13.8).
+- **Does not look at the e-way bill.** A registration is withdrawn while
+  its e-way bill is GENERATED, and the invoice can then be cancelled with
+  the bill still live (D-CMP-5).
+- **Register again** reuses the **same row**: `status` REGISTERED,
+  `attempts` +1, a new `acknowledged_at` — and the sandbox, hashing the same
+  payload, mints the **same IRN** as the one withdrawn. `cancelled_at` and
+  `cancellation_reason` are left on the REGISTERED row, and the withdrawn
+  registration survives only in the audit trail (D-CMP-6).
+- **Confirmed** in `fx_t0919l8ca_g`: A withdrawn at 06:26:34 and registered
+  again — `attempts` 2, IRN `SBX85d3a853…` unchanged, `cancellation_reason`
+  "cmp probe" on a REGISTERED row; B withdrawn at 06:26:06 with its e-way
+  bill GENERATED, then cancelled as an invoice at 06:26:07.
+
+### 13.10 E-way bill — raise and withdraw (TC-COMP-006)
+
+Select a row → **Raise bill** is `POST /api/v1/einvoice/invoices/{id}/eway-bill`
+(`distance_km` > 0, `transport_mode` ROAD / RAIL / AIR / SHIP,
+`transporter_id`, `transporter_name`, `vehicle_number`); **Cancel bill** is
+`POST …/eway-bill/cancel` with a reason. `EINVOICE_MANAGE`.
+
+- **Refused, nothing written:** the invoice not REGISTERED ("Register the
+  invoice before raising its e-way bill: the bill quotes the IRN…", 422 —
+  TC-COMP-006 step 3); a GENERATED bill already standing (409); an unknown
+  mode; ROAD with no vehicle ("Goods moving by road need a vehicle number on
+  the e-way bill."). The invoice's own status is not checked.
+- **Inserts** one `eway_bills` row (or rewrites the invoice's withdrawn one):
+  `mode` = the registration's, `status` GENERATED, `eway_bill_number` `SBX` +
+  up to 12 digits, `valid_until` = today (UTC) + one day per 200 km,
+  `distance_km`, `transport_mode`, `transporter_id`, `transporter_name`,
+  `vehicle_number` (upper-cased), `request_payload` (`Irn`, `TransDistance`,
+  `TransMode`, `TransId`, `TransName`, `VehNo`). **Audit:**
+  `eway_bill.generated` (`eway_bill_number`, `status`, `mode`).
+- **Withdraw** updates `status` CANCELLED, `cancelled_at`,
+  `cancellation_reason`, `version` +1; audit `eway_bill.cancelled` (`status`,
+  `reason`). No time window is checked. The screen offers **Raise bill**
+  only while the invoice has no bill row at all, so a withdrawn bill is
+  raised again only through the API, which rewrites the same row.
+- **Check:**
+  ```sql
+  select i.invoice_number, i.status as invoice_status, r.status as registration,
+         e.mode, e.status, e.eway_bill_number, e.valid_until, e.distance_km,
+         e.transport_mode, e.vehicle_number, e.cancelled_at, e.cancellation_reason, e.version
+  from   fx_<suffix>_g.eway_bills e
+  join   fx_<suffix>_g.sales_invoices i on i.id = e.sales_invoice_id
+  left join fx_<suffix>_g.einvoice_registrations r on r.sales_invoice_id = i.id;
+  ```
+  An `invoice_status` CANCELLED beside a GENERATED bill is D-CMP-5.
+- **Confirmed:** `fx_t09167ru4_g` B's bill `SBX621387159885`, 120 km by
+  road, `TN01AB1234`, valid until 2026-09-16, withdrawn "probe" — two audit
+  rows (TC-COMP-006 as walked); WHOLE01 one withdrawn bill on
+  SI-2026-2027-000003 and six standing; `fx_t0919l8ca_g`
+  `SBX359194143134` GENERATED on the **cancelled** SI-2026-2027-000002.
+
+### 13.11 TCS — settings, preview, a collection, its reversal (TC-COMP-007)
+
+Sales → **TCS**. `GET` / `PUT /api/v1/tcs/settings` (`TCS_VIEW` /
+`TCS_MANAGE` — not granted to `SALES_MANAGER`), `GET /tcs/preview`,
+`GET /tcs/collections`. **No endpoint collects**; a receipt does. Whether
+section 206C(1H) is still levied at all is D-CMP-12.
+
+- **Settings** — one `tcs_settings` row per firm, inserted on the first
+  save: `section_code` `206C_1H`, `is_enabled` (false by default),
+  `threshold_amount` (5,000,000), `rate_percent` (0.1),
+  `rate_without_pan_percent` (1), `preceding_year_turnover` (0),
+  `seller_turnover_threshold` (100,000,000). An omitted field is left alone.
+  **Audit:** `tcs.settings_changed`, both sides all six figures. A firm with
+  no row collects nothing and the screen shows these defaults.
+- **Preview** reads only: the buyer's receipts **in the whole financial
+  year** (from the firm's `financial_year_start`) less refunds, reversed ones
+  excluded — including receipts dated **after** the date asked about
+  (D-CMP-7) — and answers why nothing is due where nothing is.
+- **Collected when Record Receipt posts** (§11.14 has the receipt itself),
+  only if the firm is enabled, its stated turnover is above its threshold,
+  and the part of this receipt above the buyer's threshold is positive:
+  - `tcs_collections`: `customer_id`, `settlement_id`, `financial_year_start`,
+    `collected_on` = the receipt's date, `consideration_amount` = the whole
+    receipt, `cumulative_before`, `taxable_amount` = the part above the
+    threshold, `rate_percent` (the without-PAN rate when `customers.pan_number`
+    is blank, `without_pan` true), `tcs_amount` = taxable × rate rounded to
+    the paisa, `status` COLLECTED, `journal_entry_id`,
+    `receivable_transaction_id`;
+  - journal `TCS-<receipt number>` (`source_module` `tcs`), **Dr 1100 / Cr
+    2500 TCS Payable** — never 2200;
+  - receivable row `TCS` for the amount, remarks "Tax collected at source
+    under 206C(1H)." — the buyer now owes the tax;
+  - **audit** `tcs.collected` (the figures), beside the receipt's own rows
+    and two `finance.journal_entry.*` and a
+    `customer.receivable_transaction_posted`.
+- **Reversed when the receipt is reversed** (§11.15): `status` REVERSED,
+  `reversal_journal_entry_id` = `TCS-…-REV` (Dr 2500 / Cr 1100), the TCS
+  receivable row reversed by its stored deltas; **audit** `tcs.reversed`.
+  The row stays, and later receipts' `cumulative_before` is not recomputed.
+- **Check:**
+  ```sql
+  select s.settlement_number, s.settlement_date, s.status as receipt_status,
+         c.code, c.pan_number, t.consideration_amount, t.cumulative_before,
+         t.taxable_amount, t.rate_percent, t.without_pan, t.tcs_amount, t.status,
+         j.reference_number, rj.reference_number as reversal
+  from   fx_<suffix>_s.tcs_collections t
+  join   fx_<suffix>_s.settlements s on s.id = t.settlement_id
+  join   fx_<suffix>_s.customers c   on c.id = t.customer_id
+  left join fx_<suffix>_s.journal_entries j  on j.id = t.journal_entry_id
+  left join fx_<suffix>_s.journal_entries rj on rj.id = t.reversal_journal_entry_id
+  order  by s.settlement_date, s.settlement_number;
+
+  select (select sum(tcs_amount) from fx_<suffix>_s.tcs_collections where status = 'COLLECTED') as collected,
+         (select sum(p.credit_amount - p.debit_amount) from fx_<suffix>_s.gl_postings p
+          join fx_<suffix>_s.ledger_accounts a on a.id = p.ledger_account_id where a.code = '2500') as payable_2500;
+  ```
+  The two figures of the second query should agree.
+- **Confirmed:** the `selling-paid` rows of §11.14 (2.42 and 3.42 at 1%, no
+  PAN); WHOLE01's 39 collections, three REVERSED with their `-REV`
+  journals, and 2500 at 648.24 = the 648.24 still collected;
+  `fx_t0919l8ca_g` RC-2026-2027-000002 (1,500.00 today, 5.00 on the 500.00
+  above a 1,000 threshold) and RC-2026-2027-000003 (100.00 dated
+  2026-09-01, `cumulative_before` 1,500.00 — the later receipt — charged
+  1.00, D-CMP-7). The shared store's RC-2025-2026-000014 (2026-02-12) counts
+  RC-2025-2026-000013 (2026-02-21) the same way.
+
+### 13.12 What compliance does not write, and is often looked for
+
+| You might expect | What actually happens |
+| --- | --- |
+| A stored GSTR-1 or 3B, or a record of what was filed | Nothing; both are recomputed on every read (§13.6) |
+| A sales return in GSTR-1 or 3B | Not read (D-CMP-2) |
+| IGST on a bill to another state | CGST + SGST; nothing sends `SALES_INTERSTATE` (D-CMP-1) |
+| A link from an execution log to its document | None; logs carry no document or line id (§13.4) |
+| `execution_mode` other than SIMULATION | Never written (§13.4) |
+| An audit row for a tax record deleted, restored or re-statused | None (D-CMP-9) |
+| A second row for a re-registered invoice | The one row is rewritten (D-CMP-6) |
+| A LIVE registration | Never; `portal_for("LIVE")` raises |
+| A TCS collection written by the TCS screen | None; only a receipt writes one (§13.11) |
+| TCS in 2200 Output Tax | 2500 TCS Payable |
+| A GST return permission | Returns are gated on `SALES_VIEW` |
+| A registration or e-way bill row on the platform | Firm store only |
+
+### 13.13 Checked against live rows, and not
+
+- **Confirmed in `fx_t0919l8ca_g`** (built 2026-09-19 00:51 UTC, then
+  driven): the template's counts and 20 audit rows; the fixture's GSTR-1
+  and 3B exactly as TC-COMP-001 and 003 expect; A and B registered, C not;
+  every probe named in §13.1, 13.3, 13.4, 13.6–13.11. **What the probes
+  left:** a customer `T0919L8CA-KA` with a Karnataka GSTIN and bill
+  SI-2026-2027-000004 (CGST/SGST); B cancelled with its registration
+  withdrawn and its e-way bill GENERATED; A registered twice;
+  `INTERSTATE_GST_18` version 2 INACTIVE beside version 1 ACTIVE; a DRAFT
+  rule `CMPIMP_A`; TCS switched on at a 1,000 threshold with two collections
+  from `T0919L8CA-B2C`; SR-2026-2027-000001 completed against C.
+- **Confirmed in `fx_t0916irn8_g` and `fx_t09167ru4_g`:** the fixture's
+  registrations and TC-COMP-006's withdrawn bill; zero-tax bills registered.
+- **Confirmed on WHOLE01, the shared store and ELEC01 (read only):** every
+  registration and bill SANDBOX with `SBX` references; `mode` NOT NULL with
+  no default in every store checked; 2500 agreeing with collections in
+  WHOLE01; the half-paisa gap between GSTR-1's components and 2200;
+  9 completed returns in WHOLE01 (2,853.09 of tax) and 14 in the shared store
+  (2,341.44) reversing output tax that no return deducts; WHOLE01's
+  SI-2026-2027-000008, dated 2026-08-12 and cancelled 2026-09-13, now
+  missing from August; no IGST line and no interstate buyer anywhere.
+- **Across every store:** no rule with two ACTIVE versions other than the
+  probe's, no `execution_mode` but SIMULATION, no FAILED or LIVE
+  registration.
+- **Not seen in a live row:** a portal refusal (FAILED); a withdrawal refused
+  after 24 hours; a B2CL bill; a registered buyer's credit note in CDNR in a
+  compliance store; an unplaced invoice; a profile superseded by a rate
+  change; a rule deleted or restored; an export; a TCS row under a
+  preceding-year turnover below the threshold; the GST template failing
+  half-way.

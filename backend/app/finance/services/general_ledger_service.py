@@ -18,6 +18,7 @@ from app.finance.models import (
     PROFIT_LOSS_ACCOUNT_TYPES,
     AccountingPeriod,
     AccountType,
+    FirmControlAccount,
     GLPosting,
     JournalEntry,
     JournalLine,
@@ -36,6 +37,7 @@ from app.finance.schemas import (
     TrialBalanceLine,
     TrialBalanceReport,
 )
+from app.finance.services.control_accounts import EXPECTED_TYPE
 
 # Two decimal places, because this constant is what an untouched figure is
 # reported as. `Decimal("0")` serialises as `"0"` next to a stored `"0.00"`,
@@ -235,6 +237,7 @@ class GeneralLedgerService:
             AccountType.EQUITY: [],
         }
         earnings = ZERO
+        control_sides = self._control_account_sides(firm_id)
         for balance, account in rows:
             if account.account_type in PROFIT_LOSS_ACCOUNT_TYPES:
                 # Income carries a credit balance and expense a debit, both
@@ -246,12 +249,31 @@ class GeneralLedgerService:
                     else balance.closing_balance
                 )
                 continue
-            section = sections.get(account.account_type)
+            amount = balance.closing_balance
+            section_type = account.account_type
+            if account.account_type == AccountType.CONTROL:
+                # D-FIN-7: CONTROL is not a section of a balance sheet, and the
+                # sheet used to leave these out -- while the control-account
+                # mapping allows one for receivables, payables, both taxes,
+                # GRNI, commission, TCS and loyalty payable. A firm that mapped
+                # as allowed got a sheet that could never balance. It goes
+                # where its purpose puts it; one mapped to nothing goes by the
+                # side its balance lies on, so no balance leaves the sheet.
+                #
+                # The ledger keeps CONTROL credit-normal (it is not a debit
+                # type), so an asset reads the stored figure negated.
+                section_type = control_sides.get(account.id) or (
+                    AccountType.ASSET
+                    if balance.closing_balance < ZERO
+                    else AccountType.LIABILITY
+                )
+                if section_type == AccountType.ASSET:
+                    amount = -balance.closing_balance
+            section = sections.get(section_type)
             if section is None:
-                # MEMO is off the statement by definition and CONTROL is not a
-                # section of a balance sheet. Neither is quietly absorbed
-                # somewhere: if one holds a balance the sheet stops balancing
-                # and says so.
+                # MEMO is off the statement by definition. It is not quietly
+                # absorbed somewhere: if one holds a balance the sheet stops
+                # balancing and says so.
                 continue
             section.append(
                 BalanceSheetLine(
@@ -259,7 +281,7 @@ class GeneralLedgerService:
                     account_code=account.code,
                     account_name=account.name,
                     account_type=AccountTypeEnum(account.account_type),
-                    amount=balance.closing_balance,
+                    amount=amount,
                 )
             )
 
@@ -523,6 +545,39 @@ class GeneralLedgerService:
             .limit(1)
         )
         return balance.closing_balance if balance is not None else ZERO
+
+    def _control_account_sides(self, firm_id: UUID) -> dict[UUID, AccountType]:
+        """Return which side of the sheet each mapped account belongs on.
+
+        Read from the purposes it is mapped to, through the same
+        ``EXPECTED_TYPE`` table that allowed a CONTROL account there: a
+        receivable or input-tax purpose is an asset, the payables are
+        liabilities. An account mapped to purposes on both sides is left out
+        of the answer, so its balance decides.
+        """
+        expected = {purpose.value: types for purpose, types in EXPECTED_TYPE.items()}
+        sides: dict[UUID, set[AccountType]] = {}
+        for account_id, purpose in self._session.execute(
+            select(FirmControlAccount.ledger_account_id, FirmControlAccount.purpose)
+            .join(
+                LedgerAccount,
+                LedgerAccount.id == FirmControlAccount.ledger_account_id,
+            )
+            .where(
+                FirmControlAccount.firm_id == firm_id,
+                FirmControlAccount.is_deleted.is_(False),
+                LedgerAccount.account_type == AccountType.CONTROL.value,
+            )
+        ).all():
+            allowed = expected.get(purpose, frozenset())
+            for side in (AccountType.ASSET, AccountType.LIABILITY):
+                if side.value in allowed:
+                    sides.setdefault(account_id, set()).add(side)
+        return {
+            account_id: next(iter(found))
+            for account_id, found in sides.items()
+            if len(found) == 1
+        }
 
     def _present_balance(
         self, account_type: str, closing_balance: Decimal

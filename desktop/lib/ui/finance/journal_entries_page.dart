@@ -202,8 +202,12 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
     if (entry == null) return;
     // A reversal is a new entry, so it needs its own reference. Offering the
     // original's with a suffix is a starting point, not a rule.
-    final TextEditingController reference =
-        TextEditingController(text: '${entry.referenceNumber}-REV');
+    final TextEditingController reference = TextEditingController(
+      // Hand journals live under JV- (D-FIN-9), and so does their reversal.
+      text: entry.referenceNumber.toUpperCase().startsWith('JV-')
+          ? '${entry.referenceNumber}-REV'
+          : 'JV-${entry.referenceNumber}-REV',
+    );
     final bool? confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(

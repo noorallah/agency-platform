@@ -291,7 +291,6 @@ class PurchaseReturnService(TransactionalDocumentService):
             due_date=data.due_date,
             reference_number=data.reference_number,
             remarks=data.remarks,
-            allow_direct_purchase_order=data.allow_direct_purchase_order,
             status=PurchaseReturnStatus.DRAFT.value,
             additional_charges=self._q(data.additional_charges),
             round_off=self._q(data.round_off),
@@ -391,7 +390,6 @@ class PurchaseReturnService(TransactionalDocumentService):
         row.due_date = data.due_date
         row.reference_number = data.reference_number
         row.remarks = data.remarks
-        row.allow_direct_purchase_order = data.allow_direct_purchase_order
         row.additional_charges = self._q(data.additional_charges)
         row.round_off = self._q(data.round_off)
         row.updated_by = actor_id
@@ -940,7 +938,6 @@ class PurchaseReturnService(TransactionalDocumentService):
             due_date=row.due_date,
             reference_number=row.reference_number,
             remarks=row.remarks,
-            allow_direct_purchase_order=row.allow_direct_purchase_order,
             status=PurchaseReturnStatus(row.status),
             total_source_quantity=row.total_source_quantity,
             total_already_returned_quantity=row.total_already_returned_quantity,
@@ -1546,6 +1543,21 @@ class PurchaseReturnService(TransactionalDocumentService):
             )
             for item in lines
         }
+        # No request can skip the receipt (D-BUY-14): a body flag the caller
+        # set was all it took to send back four units against a purchase
+        # order nothing had arrived on -- the shelf went to -4 and the
+        # supplier was debited 472. Only goods that came in can go back, which
+        # is the rule `require_posted_receipt` already holds a receipt to.
+        if any(
+            self._source_type(item["source_document_type"])
+            == PurchaseReturnSourceType.PURCHASE_ORDER.value
+            for item in (*sources, *lines)
+        ):
+            raise ValidationError(
+                "A purchase return is raised against the goods receipt or the "
+                "supplier bill, never straight against the purchase order: "
+                "goods that were never received cannot be sent back."
+            )
         if not sources:
             sources = [
                 {"source_document_type": source_type, "source_document_id": source_id}
@@ -1595,28 +1607,6 @@ class PurchaseReturnService(TransactionalDocumentService):
                         "source_document_date": invoice.invoice_date,
                         "vendor_id": invoice.vendor_id,
                         "branch_id": invoice.branch_id,
-                    }
-                )
-            elif source_type == PurchaseReturnSourceType.PURCHASE_ORDER.value:
-                if not data.allow_direct_purchase_order:
-                    raise ValidationError("Direct purchase order return is disabled.")
-                order = self._session.scalar(
-                    select(PurchaseOrder).where(
-                        PurchaseOrder.id == source_id,
-                        PurchaseOrder.firm_id == firm_id,
-                        PurchaseOrder.is_deleted.is_(False),
-                    )
-                )
-                if order is None:
-                    raise ResourceNotFoundError("Purchase order not found.")
-                source_rows.append(
-                    {
-                        "source_document_type": source_type,
-                        "source_document_id": order.id,
-                        "source_document_number": order.po_number,
-                        "source_document_date": order.purchase_date,
-                        "vendor_id": order.vendor_id,
-                        "branch_id": order.branch_id,
                     }
                 )
             else:

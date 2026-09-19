@@ -450,8 +450,6 @@ class SalesInvoiceService(TransactionalDocumentService):
             allow_direct_sales_order=self._raised_its_own_dispatch(
                 data, firm_id=firm_id
             ),
-            allow_over_invoice=data.allow_over_invoice,
-            over_invoice_percent=self._q(data.over_invoice_percent),
             status=SalesInvoiceStatus.DRAFT.value,
             additional_charges=self._q(data.additional_charges),
             round_off=self._q(data.round_off),
@@ -566,8 +564,6 @@ class SalesInvoiceService(TransactionalDocumentService):
         row.due_date = data.due_date
         row.reference_number = data.reference_number
         row.remarks = data.remarks
-        row.allow_over_invoice = data.allow_over_invoice
-        row.over_invoice_percent = self._q(data.over_invoice_percent)
         row.additional_charges = self._q(data.additional_charges)
         row.round_off = self._q(data.round_off)
         row.updated_by = actor_id
@@ -1030,7 +1026,9 @@ class SalesInvoiceService(TransactionalDocumentService):
             # overstated by the whole invoice from that moment on. Reversing
             # the entry mirrors what it raised, which is right in a way that
             # booking the lot as a sales return would not be.
-            self._reverse_invoice_posting(row, firm_scope=firm_scope, actor_id=actor_id)
+            reversed_on = self._reverse_invoice_posting(
+                row, firm_scope=firm_scope, actor_id=actor_id
+            )
             # The points the bill earned go with it, and their accrual with
             # them; kept, they could be spent from a sale that never happened
             # (D-SELL-2, 2026-09-19).
@@ -1041,7 +1039,11 @@ class SalesInvoiceService(TransactionalDocumentService):
                 row.customer_id,
                 CustomerReceivableTransactionCreate(
                     transaction_type=CustomerReceivableTransactionType.CREDIT_NOTE,
-                    transaction_date=utc_now().date(),
+                    # The reversal's own date, so the statement and 1100 agree;
+                    # and never before the bill (D-FIN-5), which a UTC "today"
+                    # was until 05:30 in India.
+                    transaction_date=reversed_on
+                    or max(utc_now().date(), row.invoice_date),
                     amount=_receivable_amount(row.grand_total),
                     reference_type="SALES_INVOICE",
                     reference_id=row.id,
@@ -1233,8 +1235,6 @@ class SalesInvoiceService(TransactionalDocumentService):
             reference_number=row.reference_number,
             remarks=row.remarks,
             allow_direct_sales_order=row.allow_direct_sales_order,
-            allow_over_invoice=row.allow_over_invoice,
-            over_invoice_percent=row.over_invoice_percent,
             status=SalesInvoiceStatus(row.status),
             total_source_quantity=row.total_source_quantity,
             total_already_invoiced_quantity=row.total_already_invoiced_quantity,
@@ -1629,17 +1629,9 @@ class SalesInvoiceService(TransactionalDocumentService):
                 firm_id=firm_id,
                 source_document_line_id=source_line.id,
             )
-            allowed_quantity = source_quantity
-            if row.allow_over_invoice:
-                allowed_quantity = self._q(
-                    source_quantity
-                    + (
-                        source_quantity
-                        * self._q(row.over_invoice_percent)
-                        / Decimal("100")
-                    )
-                )
-            if invoice_quantity + already_invoiced > allowed_quantity:
+            # No request can lift this cap: a body flag the caller set was all
+            # it took to bill 50 against a note for 5 (D-SELL-30).
+            if invoice_quantity + already_invoiced > source_quantity:
                 raise ValidationError(
                     "Invoice quantity exceeds the available source quantity."
                 )
@@ -2361,6 +2353,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                         discount_percent=self._q(item.discount_percent),
                         discount_amount=self._q(item.discount_amount),
                         free_quantity=self._q(item.free_quantity),
+                        warehouse_id=item.warehouse_id,
                     )
                     for item in lines
                 )
@@ -2500,6 +2493,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                         discount_percent=self._q(item.discount_percent),
                         discount_amount=self._q(item.discount_amount),
                         free_quantity=self._q(item.free_quantity),
+                        warehouse_id=item.warehouse_id or order.warehouse_id,
                     )
                     for item in lines
                 )
@@ -2534,6 +2528,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         discount_percent: Decimal,
         discount_amount: Decimal,
         free_quantity: Decimal,
+        warehouse_id: UUID | None = None,
     ) -> BillableLine | None:
         """Return one line's remaining quantity, or None if it is fully billed.
 
@@ -2570,7 +2565,16 @@ class SalesInvoiceService(TransactionalDocumentService):
             discount_percent=discount_percent,
             discount_amount=discount_amount,
             free_quantity=free_quantity,
+            track_serial=self._tracks_serial(product_id),
+            warehouse_id=warehouse_id,
         )
+
+    def _tracks_serial(self, product_id: UUID | None) -> bool:
+        """Say whether a product's units each carry a serial number."""
+        if product_id is None:
+            return False
+        product = self._session.get(Product, product_id)
+        return bool(product is not None and product.track_serial)
 
     def _customer_name(self, customer_id: UUID | None) -> str:
         """Name the customer so a picker is not a list of UUIDs."""
@@ -3010,12 +3014,17 @@ class SalesInvoiceService(TransactionalDocumentService):
         *,
         firm_scope: UUID,
         actor_id: UUID,
-    ) -> None:
+    ) -> date | None:
         """Cancel the journal an approved invoice wrote, if it wrote one.
 
         Found by `scripts/verify_sample_data.py`, which compares what customers
         owe against the receivable control account: cancelling an approved
         invoice moved the first and not the second.
+
+        Returns:
+            The date the reversal was posted on, so the customer's statement
+            row can carry the same one; None when nothing had posted.
+
         """
         entry_id = self._session.scalar(
             select(JournalEntry.id).where(
@@ -3032,13 +3041,14 @@ class SalesInvoiceService(TransactionalDocumentService):
         if entry_id is None:
             # Nothing posted, so there is nothing to take back -- a firm that
             # approved invoices before posting existed is in this state.
-            return
-        JournalEntryEngine(self._session).reverse_entry(
+            return None
+        reversal = JournalEntryEngine(self._session).reverse_entry(
             entry_id,
             firm_id=firm_scope,
             reference_number=f"{row.invoice_number}-REV",
             actor_id=actor_id,
         )
+        return reversal.journal_date
 
     def _record_event(
         self,

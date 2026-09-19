@@ -721,6 +721,70 @@ def test_a_payment_reverses_without_touching_a_party_balance() -> None:
     assert [row.outstanding_amount for row in owed] == [Decimal("700.00")]
 
 
+def test_a_receipt_steps_over_a_number_a_journal_already_holds() -> None:
+    """D-FIN-9: a taken number failed the receipt, and every retry got it again.
+
+    Driven on a fixture firm: a hand journal typed RC-2026-2027-000002 made
+    the next three POST /receipts fail "A journal entry with this reference
+    number already exists." -- the failure rolled the reservation back, so each
+    retry was issued the same number. The number is now stepped over.
+    """
+    from app.finance.models import JournalType, VoucherType
+    from app.finance.services.journal_engine import (
+        JournalEntryEngine,
+        JournalLineData,
+    )
+
+    books = _Books(_session_factory()())
+    first = _receipt(books, "10.00")
+    books.session.commit()
+    stem, sequence = first.settlement_number.rsplit("-", 1)
+    width = len(sequence)
+    taken = f"{stem}-{int(sequence) + 1:0{width}d}"
+
+    # A journal that already holds the next number -- written before hand
+    # journals were kept to JV-, as a store may hold one.
+    session = books.session
+    period = session.scalar(
+        select(AccountingPeriod).where(
+            AccountingPeriod.firm_id == books.firm.id,
+            AccountingPeriod.starts_on <= WHEN,
+            AccountingPeriod.ends_on >= WHEN,
+        )
+    )
+    assert period is not None
+    engine = JournalEntryEngine(session)
+    engine.create_entry(
+        firm_id=books.firm.id,
+        journal_type_id=session.scalars(select(JournalType.id)).first(),  # type: ignore[arg-type]
+        voucher_type_id=session.scalars(select(VoucherType.id)).first(),  # type: ignore[arg-type]
+        accounting_period_id=period.id,
+        journal_date=WHEN,
+        reference_number=taken,
+        description="Typed by hand with a receipt's number",
+        lines=[
+            JournalLineData(
+                ledger_account_id=books.account(ControlAccountPurpose.CASH),
+                debit_amount=Decimal("1.00"),
+            ),
+            JournalLineData(
+                ledger_account_id=books.account(
+                    ControlAccountPurpose.OPENING_BALANCE_EQUITY
+                ),
+                credit_amount=Decimal("1.00"),
+            ),
+        ],
+        actor_id=books.actor_id,
+    )
+    session.commit()
+
+    second = _receipt(books, "20.00")
+    session.commit()
+
+    assert second.settlement_number == f"{stem}-{int(sequence) + 2:0{width}d}"
+    assert second.status == "POSTED"
+
+
 def test_recording_a_receipt_the_old_way_is_refused() -> None:
     """The endpoint that moved a balance without a journal now says so.
 
