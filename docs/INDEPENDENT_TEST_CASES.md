@@ -582,7 +582,7 @@ name.
 - **Fixture:** `firm-admin`
 - **Steps:** as the fixture's **Firm admin**, Administration → Configuration → Tax Configuration → **Rule Simulator**. Transaction type `SALES_INVOICE`, tax profile `GST_18_LOCAL`, invoice value `1000` → Run Simulation. Then transaction type `SALES_INTERSTATE` → Run.
 - **Expect:** local — no rule matched, CGST 9% = 90 and SGST 9% = 90, total **180**. Interstate — matched rule **`INTERSTATE_GST_18`**, one component IGST 18% = 180, total **180**, and the trace shows the rule matched. (TEST01's rules come from the GST template, the same six the demo firms carry.)
-- **Data (HTTP):** `POST /api/v1/tax-framework/simulate` with the same values → `total_tax_amount` 180 both times; `matched_rule_id` null, then INTERSTATE_GST_18's id.
+- **Data (HTTP):** `POST /api/v1/tax-framework/simulate` with the same values → `total_tax_amount` 180 both times; `matched_rule_id` null, then INTERSTATE_GST_18's id. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §13.4 in `test_fixtures` — each run writes one `tax_rule_execution_logs` row (`execution_mode` SIMULATION, the trace in `evaluation_trace`: all six rules tried for the local run, four for the interstate one, which stops at the match) and an audit `tax.rule.simulated`. No document ever sends `SALES_INTERSTATE`, so a real bill to another state is charged CGST and SGST (D-CMP-1), and if INTERSTATE_GST_18 has been edited the match may be an old version (D-CMP-3).
 - **Leaves:** unchanged.
 
 ### TC-CONF-006 — A product's own conversion outranks the firm-wide one
@@ -1243,7 +1243,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 - **Fixture:** `compliance-firm`
 - **Steps:** as the fixture's **Firm admin**, Sales → **GST Returns** → this month (the From/To boxes are chosen, not typed) → **GSTR-1**.
 - **Expect:** "Filing as <the firm's GSTIN>". **B2B**: Invoice A — taxable 1,000.00, CGST 90.00, SGST 90.00 — and Invoice B — 500.00, 45.00, 45.00 — under the buyer's GSTIN. **B2CS**: one row, Place **33**, 18%, taxable 300.00, CGST 27.00, SGST 27.00 — never a blank place. **CDNR**: nothing. **HSN**: 340220, quantity 18, taxable 1,800.00. **Invoices without a place of supply**: "Nothing in this section." The status bar: "Derived from the documents on every read, never stored."
-- **Data (HTTP):** `GET /api/v1/gst-returns/gstr1?from_date=<first>&to_date=<last>`.
+- **Data (HTTP):** `GET /api/v1/gst-returns/gstr1?from_date=<first>&to_date=<last>`. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §13.6 in `fx_<suffix>_g` — the return is not stored and the read writes nothing, not even an audit row; its query lists the approved bills, their buyers' GSTINs and the CGST/SGST rows it is built from. A sales return would not show here (D-CMP-2).
 - **Leaves:** unchanged.
 
 ### TC-COMP-002 — What rests on a bill stops it being cancelled; a return follows what is left
@@ -1256,6 +1256,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 - **Expect**
   - Step 1: refused, naming what rests on it: "SI-… cannot be cancelled while it has money applied from RC-…; its registration with the tax authority. Reverse or cancel those first."
   - Step 2: C cancels. The **B2CS row is gone** and HSN falls to quantity 15, taxable 1,500.00. *(The plan's second refusal — by a sales return — is TC-SELL-015's return in reverse; this fixture has none.)*
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §13.8 and §13.6 — the refusal writes nothing and A's `einvoice_registrations` row stays REGISTERED; C's cancel is the §11.12 cancellation (receivable `CREDIT_NOTE`, the journal reversed, `sales_invoice.cancelled`) and the return drops it because it reads `status`, not because anything was written to it. `docs` then counts 2 bills with no cancelled column (D-CMP-10).
 - **Leaves:** Invoice C cancelled.
 
 ### TC-COMP-003 — GSTR-3B agrees with GSTR-1
@@ -1264,6 +1265,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 - **Fixture:** `compliance-firm`
 - **Steps:** GST Returns → **GSTR-3B**, same month. Add GSTR-1's B2B, B2CS and CDNR taxable values by hand.
 - **Expect:** **3.1(a)** taxable **1,800.00**, CGST 162.00, SGST 162.00 — equal to GSTR-1's sum; credit notes deducted 0; the inward side reads "Not derived: the purchase side files this." 3B is aggregated from the documents, not parsed out of GSTR-1.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §13.7 — nothing stored; its query sums 2200 for the same days, which should read 324.00 (162.00 + 162.00). After a sales return the two part (D-CMP-2), and on bills whose halves end in half a paisa they differ by 0.01 a bill (D-CMP-4).
 - **Leaves:** unchanged.
 
 ### TC-COMP-004 — The e-invoice screen says it is a rehearsal
@@ -1272,6 +1274,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 - **Fixture:** `compliance-firm`
 - **Steps:** Sales → **E-Invoice**.
 - **Expect:** a banner, "References marked sandbox are a rehearsal: nothing was filed with the tax authority..."; columns Invoice, Customer, Reference, E-way bill; **two** rows (A and B), each Reference an `SBX…` value (hover for `SBX… (sandbox — nothing filed)`), E-way bill —. If anything reads LIVE, stop.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §13.8 — two `einvoice_registrations` rows, `mode` SANDBOX, `status` REGISTERED, `irn` and `acknowledgement_number` beginning `SBX`, `attempts` 1, the payload in `request_payload`, one `einvoice.registered` audit row each; no `eway_bills` row yet.
 - **Leaves:** unchanged.
 
 ### TC-COMP-005 — An invoice to a buyer with no GSTIN is refused locally
@@ -1280,6 +1283,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
 - **Fixture:** `compliance-firm`
 - **Steps:** E-Invoice → **Register an invoice** → **Invoice C** (items read `SI-… — Walk-in Buyer <suffix> — 354.00`) → Register.
 - **Expect:** refused **locally**, in an error toast: "This invoice cannot be registered yet: the customer has no GST number." No row added, no portal code.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §13.8 — the refusal writes nothing: no `einvoice_registrations` row for C and no audit row, not even `einvoice.refused` (that one is written only when the portal itself refuses).
 - **Leaves:** unchanged.
 
 ### TC-COMP-006 — Raising and withdrawing an e-way bill
@@ -1294,6 +1298,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
   - Step 1: blank vehicle refused before sending: "Goods moving by road need a vehicle number on the bill."; then "E-way bill raised." and the cell fills with `SBX…`.
   - Step 2: "E-way bill withdrawn."
   - Step 3: **422**, "Register the invoice before raising its e-way bill: the bill quotes the IRN, and one without it cannot be matched to a supply." The screen does not offer it.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §13.10 — the refused blank-vehicle attempt writes nothing; the raise inserts one `eway_bills` row (`mode` SANDBOX, `status` GENERATED, `eway_bill_number` `SBX…`, `valid_until` today in UTC + 1 day for 120 km, `vehicle_number` TN01AB1234) and audit `eway_bill.generated`; the withdrawal sets CANCELLED, `cancelled_at`, `cancellation_reason`, `version` 2 and writes `eway_bill.cancelled`. Step 3 writes nothing. Withdrawing B's **registration** while its bill is GENERATED is not refused (D-CMP-5).
 - **Leaves:** a withdrawn e-way bill on B.
 
 ### TC-COMP-007 — TCS: the register, the settings, and a journal of its own
@@ -1305,7 +1310,7 @@ reference it mints `SBX…`. E-Invoice, GST Returns and TCS are under **Sales**.
   - The banner reads "Collecting under section 206C(1H) • (the threshold, 0) per buyer per year, then 0.100% (1.000% without a PAN)"; the register lists the two receipts from Vijaya — **2.42** and **3.42**, rate **1.000%** (no PAN), **COLLECTED**.
   - Settings: **Collect under section 206C(1H)** on; preceding year turnover 150,000,000; threshold 0; rate 0.1; without a PAN 1.0.
   - Journal: `TCS-RC-…` entries separate from the receipts' own; View reads **Dr 1100 Trade Receivables / Cr 2500 TCS Payable** — 2500, not Output Tax.
-- **Data (HTTP):** `GET /api/v1/tcs/collections` → `tcs_amount`, `rate_percent`, `without_pan: true`.
+- **Data (HTTP):** `GET /api/v1/tcs/collections` → `tcs_amount`, `rate_percent`, `without_pan: true`. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §13.11 in `fx_<suffix>_s` — one `tcs_collections` row per receipt (`cumulative_before` 0 then 241.60, `status` COLLECTED), each with its `TCS-RC-…` journal and a receivable row `TCS`; closing Settings without saving writes nothing (a save would write `tcs.settings_changed`). The second query there should show the collections and 2500 agreeing at 5.84. A back-dated receipt counts later ones in `cumulative_before` (D-CMP-7).
 - **Leaves:** unchanged.
 
 ---
