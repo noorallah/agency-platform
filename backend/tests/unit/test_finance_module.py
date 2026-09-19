@@ -28,6 +28,7 @@ from app.core.security.jwt import TokenClaims
 from app.finance.api.router import (
     create_journal_entry,
     post_journal_entry,
+    reverse_journal_entry,
     trial_balance,
 )
 from app.finance.models import (
@@ -50,6 +51,7 @@ from app.finance.schemas import (
     CostCenterCreate,
     FinancialYearCreate,
     JournalEntryCreate,
+    JournalEntryReverse,
     JournalTypeCreate,
     LedgerAccountCreate,
     PeriodStatusEnum,
@@ -521,6 +523,70 @@ def test_reversal_cancels_the_original_and_zeroes_the_ledger() -> None:
             reference_number="JV-0002-R2",
             actor_id=actor_id,
         )
+
+
+def test_a_documents_journal_cannot_be_reversed_by_hand() -> None:
+    """D-FIN-2: the journal screen reversed an invoice's journal, not the invoice.
+
+    The document stayed APPROVED/POSTED with its receivable and stock while the
+    ledger said it never happened, and a receipt so treated could no longer be
+    reversed at all ("Only posted entries can be reversed.") -- driven on a
+    fixture firm's RC-2026-2027-000001. The document's own cancel or return is
+    what undoes it; only a journal written by hand is reversed from here.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    user_id = uuid4()
+    book = _Book(session, firm.id, user_id)
+    session.add(UserFirm(user_id=user_id, firm_id=firm.id, is_active=True))
+    session.commit()
+    scope = _firm_scope(_principal(user_id, {"JOURNAL_REVERSE"}), session, firm.id)
+    engine = JournalEntryEngine(session)
+
+    def _posted(reference: str, source_module: str | None) -> UUID:
+        """Post one cash sale, as a document or by hand."""
+        entry = engine.create_entry(
+            firm_id=firm.id,
+            journal_type_id=book.journal_type.id,
+            voucher_type_id=book.voucher_type.id,
+            accounting_period_id=book.period.id,
+            journal_date=date(2026, 4, 10),
+            reference_number=reference,
+            description="Cash sale",
+            lines=_sale_lines(book, "80.00"),
+            source_module=source_module,
+            source_id=None if source_module is None else uuid4(),
+            actor_id=user_id,
+        )
+        engine.post_entry(entry.id, firm_id=firm.id, actor_id=user_id)
+        session.commit()
+        return entry.id
+
+    invoice_journal = _posted("SI-0001", "sales_invoice")
+    with pytest.raises(
+        ValidationError,
+        match="SI-0001 was posted by a sales invoice.*Cancel or return the sales",
+    ):
+        reverse_journal_entry(
+            invoice_journal,
+            JournalEntryReverse(reference_number="SI-0001-REV"),
+            scope,
+            session,
+        )
+    session.rollback()
+    assert (
+        session.get(JournalEntry, invoice_journal).status  # type: ignore[union-attr]
+        == JournalStatus.POSTED.value
+    )
+
+    hand_journal = _posted("JV-0009", None)
+    reversal = reverse_journal_entry(
+        hand_journal,
+        JournalEntryReverse(reference_number="JV-0009-REV"),
+        scope,
+        session,
+    )
+    assert reversal.data.reversal_of_id == hand_journal
 
 
 def test_a_quiet_period_still_lists_the_balances_it_carries() -> None:

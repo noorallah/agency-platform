@@ -21,7 +21,8 @@ PermissionService _permissionsFor(List<String> perms) {
   return PermissionService()..applyAccessToken('h.$payload.s');
 }
 
-JournalDraftLine _line(String account, {String debit = '', String credit = ''}) =>
+JournalDraftLine _line(String account,
+        {String debit = '', String credit = ''}) =>
     JournalDraftLine(ledgerAccountId: account, debit: debit, credit: credit);
 
 class _JournalApi extends ApiClient {
@@ -223,7 +224,8 @@ void main() {
       final FilledButton post = tester.widget<FilledButton>(
         find.widgetWithText(FilledButton, 'Post'),
       );
-      expect(post.onPressed, isNull, reason: 'a posted entry cannot be posted again');
+      expect(post.onPressed, isNull,
+          reason: 'a posted entry cannot be posted again');
     });
 
     testWidgets('only a posted entry can be reversed', (tester) async {
@@ -233,7 +235,35 @@ void main() {
       final OutlinedButton reverse = tester.widget<OutlinedButton>(
         find.widgetWithText(OutlinedButton, 'Reverse'),
       );
-      expect(reverse.onPressed, isNull, reason: 'a draft has nothing to reverse');
+      expect(reverse.onPressed, isNull,
+          reason: 'a draft has nothing to reverse');
+    });
+
+    testWidgets('a document\'s journal is not reversed from here',
+        (tester) async {
+      // D-FIN-2: reversing an invoice's journal by hand left the invoice
+      // approved with its receivable. The document's cancel undoes it.
+      final _JournalApi api = _JournalApi(entries: [
+        _entry(reference: 'SI-1', status: 'POSTED', source: 'sales_invoice'),
+      ]);
+      await _pumpList(tester, api);
+
+      final OutlinedButton reverse = tester.widget<OutlinedButton>(
+        find.widgetWithText(OutlinedButton, 'Reverse'),
+      );
+      expect(reverse.onPressed, isNull);
+    });
+
+    testWidgets('a posted hand entry can be reversed', (tester) async {
+      final _JournalApi api = _JournalApi(entries: [
+        _entry(reference: 'JV-9', status: 'POSTED'),
+      ]);
+      await _pumpList(tester, api);
+
+      final OutlinedButton reverse = tester.widget<OutlinedButton>(
+        find.widgetWithText(OutlinedButton, 'Reverse'),
+      );
+      expect(reverse.onPressed, isNotNull);
     });
 
     testWidgets('an entry opens on its lines, accounts named', (tester) async {

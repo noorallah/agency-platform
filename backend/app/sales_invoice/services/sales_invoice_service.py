@@ -3011,6 +3011,9 @@ class SalesInvoiceService(TransactionalDocumentService):
                 JournalEntry.source_module == "sales_invoice",
                 JournalEntry.source_id == row.id,
                 JournalEntry.status == JournalStatus.POSTED.value,
+                # A reversal carries its original's source, so without this the
+                # lookup can find a mirror and reverse the reversal.
+                JournalEntry.reversal_of_id.is_(None),
                 JournalEntry.is_deleted.is_(False),
             )
         )

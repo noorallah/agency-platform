@@ -220,7 +220,8 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
             const SizedBox(height: AppSpacing.lg),
             TextField(
               controller: reference,
-              decoration: const InputDecoration(labelText: 'Reference for the reversal'),
+              decoration: const InputDecoration(
+                  labelText: 'Reference for the reversal'),
             ),
           ],
         ),
@@ -321,9 +322,14 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
             const SizedBox(width: AppSpacing.sm),
             if (_canReverse)
               OutlinedButton.icon(
-                onPressed: selected != null && selected.isPosted
-                    ? () => unawaited(_reverseSelected())
-                    : null,
+                // Only a hand-written entry. One a document posted is undone
+                // by cancelling or returning that document, which takes its
+                // stock and balances back with it; the server refuses the
+                // rest (D-FIN-2).
+                onPressed:
+                    selected != null && selected.isPosted && selected.isManual
+                        ? () => unawaited(_reverseSelected())
+                        : null,
                 icon: const Icon(Icons.undo),
                 label: const Text('Reverse'),
               ),
@@ -373,22 +379,24 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
                         ),
                       ),
                       child: ListTile(
-                      selected: entry.id == selected?.id,
-                      title: Text('${entry.referenceNumber}  ·  ${entry.journalDate}'),
-                      subtitle: Text(
-                        entry.description.isEmpty
-                            ? (entry.isManual
-                                ? 'Written by hand'
-                                : 'Posted by ${entry.sourceModule}')
-                            : entry.description,
+                        selected: entry.id == selected?.id,
+                        title: Text(
+                            '${entry.referenceNumber}  ·  ${entry.journalDate}'),
+                        subtitle: Text(
+                          entry.description.isEmpty
+                              ? (entry.isManual
+                                  ? 'Written by hand'
+                                  : 'Posted by ${entry.sourceModule}')
+                              : entry.description,
+                        ),
+                        trailing:
+                            Row(mainAxisSize: MainAxisSize.min, children: [
+                          Text(entry.totalDebit),
+                          const SizedBox(width: AppSpacing.md),
+                          StatusBadge(label: entry.status),
+                        ]),
+                        onTap: () => setState(() => _selected = entry),
                       ),
-                      trailing: Row(mainAxisSize: MainAxisSize.min, children: [
-                        Text(entry.totalDebit),
-                        const SizedBox(width: AppSpacing.md),
-                        StatusBadge(label: entry.status),
-                      ]),
-                      onTap: () => setState(() => _selected = entry),
-                    ),
                     );
                   },
                 ),
