@@ -13,11 +13,12 @@ rather than recorded half-way.
 """
 
 from collections.abc import Sequence
-from datetime import date
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
+from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import Select, func, or_, select
+from sqlalchemy import Select, and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
@@ -80,7 +81,11 @@ SETTLEABLE_INVOICE_STATES = (
 
 
 def credited_against(
-    session: Session, *, firm_id: UUID, invoice_ids: Sequence[UUID]
+    session: Session,
+    *,
+    firm_id: UUID,
+    invoice_ids: Sequence[UUID],
+    as_of: date | None = None,
 ) -> dict[UUID, Decimal]:
     """Sum what returns and credit notes have taken off each sales invoice.
 
@@ -98,6 +103,8 @@ def credited_against(
         session: The firm's session.
         firm_id: The owning firm.
         invoice_ids: The sales invoices to ask about.
+        as_of: Count only what was dated on or before this day; None counts
+            everything.
 
     Returns:
         The credited amount per invoice, for those with any.
@@ -125,6 +132,7 @@ def credited_against(
             # return has not moved anything yet, a cancelled one is gone.
             SalesReturn.status.in_(("COMPLETED", "CLOSED")),
             SalesReturn.is_deleted.is_(False),
+            *(() if as_of is None else (SalesReturn.return_date <= as_of,)),
         )
         .group_by(SalesReturnLine.source_document_id)
     ).all()
@@ -139,6 +147,7 @@ def credited_against(
             # Approval is what posts; a draft has not, a cancelled one is gone.
             CreditNote.status == CreditNoteStatus.APPROVED.value,
             CreditNote.is_deleted.is_(False),
+            *(() if as_of is None else (CreditNote.credit_note_date <= as_of,)),
         )
         .group_by(CreditNote.sales_invoice_id)
     ).all()
@@ -147,6 +156,98 @@ def credited_against(
             Decimal(str(total))
         )
     return credited
+
+
+def settled_against(
+    session: Session,
+    *,
+    firm_id: UUID,
+    invoice_ids: Sequence[UUID],
+    as_of: date | None = None,
+) -> dict[UUID, Decimal]:
+    """Sum everything that has come off each sales invoice.
+
+    Money allocated from a posted receipt, points spent on the bill, and the
+    returns and credit notes raised against it (``credited_against``). Each
+    part is rounded to the ledger's two decimals before they are added, which
+    is how Record Receipt has always shown them. This is the one answer to
+    "what does this bill still owe": Record Receipt's list and the ageing both
+    read it, so the two cannot disagree again (D-FIN-10, where the ageing left
+    out points spent and aged 3,698.95 while Record Receipt offered 3,598.95).
+
+    Args:
+        session: The firm's session.
+        firm_id: The owning firm.
+        invoice_ids: The sales invoices to ask about.
+        as_of: Count only what had happened by the end of this day -- a
+            receipt dated after it had not arrived yet, and one reversed after
+            it still stood. None counts what stands now.
+
+    Returns:
+        The settled amount per invoice, for those with any.
+
+    """
+    if not invoice_ids:
+        return {}
+    if as_of is None:
+        standing = Settlement.status == SettlementStatus.POSTED.value
+        dated: tuple[Any, ...] = ()
+    else:
+        standing = or_(
+            Settlement.status == SettlementStatus.POSTED.value,
+            and_(
+                Settlement.status == SettlementStatus.REVERSED.value,
+                Settlement.reversed_at >= _start_of_day_after(as_of),
+            ),
+        )
+        dated = (Settlement.settlement_date <= as_of,)
+    allocated = session.execute(
+        select(
+            SettlementAllocation.sales_invoice_id,
+            func.coalesce(func.sum(SettlementAllocation.amount), 0),
+        )
+        .join(Settlement, Settlement.id == SettlementAllocation.settlement_id)
+        .where(
+            SettlementAllocation.firm_id == firm_id,
+            SettlementAllocation.sales_invoice_id.in_(invoice_ids),
+            SettlementAllocation.is_deleted.is_(False),
+            Settlement.is_deleted.is_(False),
+            standing,
+            *dated,
+        )
+        .group_by(SettlementAllocation.sales_invoice_id)
+    ).all()
+    spent = session.execute(
+        select(
+            LoyaltyEntry.sales_invoice_id,
+            func.coalesce(func.sum(LoyaltyEntry.amount), 0),
+        )
+        .where(
+            LoyaltyEntry.firm_id == firm_id,
+            LoyaltyEntry.sales_invoice_id.in_(invoice_ids),
+            LoyaltyEntry.kind == LoyaltyEntryKind.REDEEMED.value,
+            LoyaltyEntry.is_deleted.is_(False),
+            *(() if as_of is None else (LoyaltyEntry.earned_on <= as_of,)),
+        )
+        .group_by(LoyaltyEntry.sales_invoice_id)
+    ).all()
+    settled: dict[UUID, Decimal] = {}
+    for invoice_id, total in (*allocated, *spent):
+        if invoice_id is None:
+            continue
+        settled[invoice_id] = settled.get(invoice_id, ZERO) + quantize_ledger(
+            Decimal(str(total))
+        )
+    for invoice_id, amount in credited_against(
+        session, firm_id=firm_id, invoice_ids=invoice_ids, as_of=as_of
+    ).items():
+        settled[invoice_id] = settled.get(invoice_id, ZERO) + amount
+    return settled
+
+
+def _start_of_day_after(day: date) -> datetime:
+    """Return midnight UTC at the end of ``day`` -- the first instant after it."""
+    return datetime.combine(day + timedelta(days=1), time.min, tzinfo=UTC)
 
 
 class SettlementService(TransactionalDocumentService):
@@ -221,29 +322,16 @@ class SettlementService(TransactionalDocumentService):
             )
             .order_by(invoice.invoice_date.asc(), invoice.invoice_number.asc())
         ).all()
-        # Points spent on a customer's bill settle part of it too. The loyalty
-        # service's own cap subtracted them and this list did not, so a bill
-        # showed its full total here after points were spent on it and a
-        # receipt could collect that money again (plan item 10.9, 2026-09-13).
-        # The same derivation as `LoyaltyService._outstanding_of`.
-        spent: dict[UUID, Decimal] = {}
+        # A customer's bill: money allocated, points spent (plan item 10.9)
+        # and returns and credit notes against it (D-SELL-10) -- through the
+        # one derivation the ageing reads as well (D-FIN-10).
+        settled: dict[UUID, Decimal] = {}
         if is_receipt and rows:
-            spent = {
-                invoice_id: Decimal(str(total))
-                for invoice_id, total in self._session.execute(
-                    select(
-                        LoyaltyEntry.sales_invoice_id,
-                        func.coalesce(func.sum(LoyaltyEntry.amount), 0),
-                    )
-                    .where(
-                        LoyaltyEntry.firm_id == firm_id,
-                        LoyaltyEntry.sales_invoice_id.in_([row.id for row, _ in rows]),
-                        LoyaltyEntry.kind == LoyaltyEntryKind.REDEEMED.value,
-                        LoyaltyEntry.is_deleted.is_(False),
-                    )
-                    .group_by(LoyaltyEntry.sales_invoice_id)
-                ).all()
-            }
+            settled = settled_against(
+                self._session,
+                firm_id=firm_id,
+                invoice_ids=[row.id for row, _ in rows],
+            )
         # Goods sent back against a bill's own lines come off that bill (D-BUY-6,
         # decided by the owner on 2026-09-18). A completed return posts Dr
         # payable, so the ledger already owed less while this list still showed
@@ -256,20 +344,12 @@ class SettlementService(TransactionalDocumentService):
             returned = self._returned_against(
                 firm_id=firm_id, invoice_ids=[row.id for row, _ in rows]
             )
-        # The sales twin (D-SELL-10): a completed sales return raised from the
-        # bill's own lines, and an approved credit note -- which always names
-        # its bill -- post Cr receivable, so the bill owes that much less.
-        if is_receipt and rows:
-            returned = credited_against(
-                self._session,
-                firm_id=firm_id,
-                invoice_ids=[row.id for row, _ in rows],
-            )
         records: list[OutstandingInvoiceRecord] = []
         for row, allocated_amount in rows:
             already = (
-                quantize_ledger(Decimal(allocated_amount))
-                + quantize_ledger(spent.get(row.id, ZERO))
+                settled.get(row.id, ZERO)
+                if is_receipt
+                else quantize_ledger(Decimal(allocated_amount))
                 + quantize_ledger(returned.get(row.id, ZERO))
             )
             total = quantize_ledger(row.grand_total)
