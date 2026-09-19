@@ -15,6 +15,7 @@ from app.common.audit.services import record_audit
 from app.common.open_documents import describe_documents, find_open_documents
 from app.core.database.entity import BaseEntity
 from app.core.exceptions import (
+    AuthorizationError,
     ConflictError,
     ResourceNotFoundError,
     ValidationError,
@@ -57,8 +58,16 @@ class VendorService:
         self._session = session
         self._repository = VendorRepository(session)
 
-    def create(self, data: VendorCreate, *, firm_id: UUID, actor_id: UUID) -> Vendor:
+    def create(
+        self,
+        data: VendorCreate,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        may_manage_bank_details: bool = True,
+    ) -> Vendor:
         """Create a vendor with its nested detail rows."""
+        self._assert_may_set_bank_details([data], allowed=may_manage_bank_details)
         try:
             vendor = self._stage_create(data, firm_id=firm_id, actor_id=actor_id)
         except IntegrityError as error:
@@ -73,8 +82,12 @@ class VendorService:
         *,
         firm_id: UUID,
         actor_id: UUID,
+        may_manage_bank_details: bool = True,
     ) -> list[Vendor]:
         """Create several vendors from an uploaded batch."""
+        # A file is a second way to write the same fields, so every row is
+        # judged for the bank-details duty before any is staged.
+        self._assert_may_set_bank_details(records, allowed=may_manage_bank_details)
         try:
             vendors = [
                 self._stage_create(record, firm_id=firm_id, actor_id=actor_id)
@@ -110,9 +123,23 @@ class VendorService:
         *,
         firm_scope: UUID | None,
         actor_id: UUID,
+        may_manage_bank_details: bool = True,
+        may_view_bank_details: bool = True,
     ) -> Vendor:
-        """Replace a vendor and reconcile its nested rows."""
+        """Replace a vendor and reconcile its nested rows.
+
+        The two flags say whether the caller holds
+        ``VENDOR_MANAGE_BANK_DETAILS`` and ``VENDOR_VIEW_FINANCIAL_DETAILS``
+        (D-MST-10). Both default to a trusted caller; the router passes the
+        principal's answer.
+        """
         vendor = self.get(vendor_id, firm_scope=firm_scope)
+        banking = self._banking_to_write(
+            vendor,
+            data.banking,
+            may_manage=may_manage_bank_details,
+            may_view=may_view_bank_details,
+        )
         self._assert_unique(vendor.firm_id, data, excluding_id=vendor.id)
         self._assert_drug_license_allowed(vendor.firm_id, data)
         before = self._audit_snapshot(vendor)
@@ -128,8 +155,8 @@ class VendorService:
             self._reconcile_contacts(vendor, data.contacts, actor_id)
         if data.addresses is not None:
             self._reconcile_addresses(vendor, data.addresses, actor_id)
-        if data.banking is not None:
-            self._reconcile_banks(vendor, data.banking, actor_id)
+        if banking is not None:
+            self._reconcile_banks(vendor, banking, actor_id)
         if data.tax is not None:
             self._reconcile_tax(vendor, data.tax, actor_id)
         if data.attachments is not None:
@@ -936,6 +963,64 @@ class VendorService:
                 setattr(row, field, value)
             row.updated_by = actor_id
         self._mark_removed(existing, requested, actor_id)
+
+    @staticmethod
+    def _assert_may_set_bank_details(
+        records: list[VendorCreate], *, allowed: bool
+    ) -> None:
+        """Refuse a new vendor carrying a bank account from the wrong hands.
+
+        The account a payment is sent to was written with ``VENDOR_CREATE`` and
+        ``VENDOR_UPDATE`` alone, while ``VENDOR_MANAGE_BANK_DETAILS`` sat seeded
+        and enforced nowhere (D-MST-10). Changing where a supplier is paid is
+        the classic payment-fraud route, which is why it is a separate duty.
+        """
+        if allowed:
+            return
+        for data in records:
+            if data.banking:
+                raise AuthorizationError(
+                    f"{data.code}: recording a vendor's bank account needs the "
+                    "manage vendor bank details permission "
+                    "(VENDOR_MANAGE_BANK_DETAILS)."
+                )
+
+    @staticmethod
+    def _banking_to_write(
+        vendor: Vendor,
+        sent: list[VendorBankInput] | None,
+        *,
+        may_manage: bool,
+        may_view: bool,
+    ) -> list[VendorBankInput] | None:
+        """Decide what an update may do to the vendor's bank accounts.
+
+        Somebody who cannot *see* the accounts is served none, and a form sends
+        that empty list straight back -- so their ``banking`` is not an
+        instruction and is left unapplied, or a rename would erase every
+        account. Somebody who can see them but may not manage them can resend
+        what is stored, which is not a change; anything else is refused.
+        """
+        if sent is None or not may_view:
+            return None
+        if may_manage:
+            return sent
+        fields = set(VendorBankInput.model_fields) - {"id"}
+        stored = sorted(
+            tuple(str(getattr(row, field)) for field in sorted(fields))
+            for row in vendor.bank_accounts
+            if not row.is_deleted
+        )
+        wanted = sorted(
+            tuple(str(getattr(item, field)) for field in sorted(fields))
+            for item in sent
+        )
+        if stored != wanted:
+            raise AuthorizationError(
+                "Changing a vendor's bank accounts needs the manage vendor bank "
+                "details permission (VENDOR_MANAGE_BANK_DETAILS)."
+            )
+        return None
 
     def _reconcile_banks(
         self,

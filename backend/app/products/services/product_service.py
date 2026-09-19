@@ -32,7 +32,12 @@ from app.common.open_documents import (
     find_open_documents,
     find_stock_holdings,
 )
-from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
+from app.core.exceptions import (
+    AuthorizationError,
+    ConflictError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.core.utils.dates import utc_now
 from app.products.models import (
     Product,
@@ -58,12 +63,35 @@ from app.products.schemas.product import ProductCategoryResponse
 from app.tax.models import TaxProfile
 from app.uom.models import Uom
 
+#: The product fields that are somebody's separate duty, by the code that owns
+#: them, with what each is called in a refusal. A price decides what the firm
+#: earns and a tax group what it charges and remits, so each has had a code of
+#: its own since the seed was written -- and until D-MST-10 no route read
+#: either: both rode on ``PRODUCT_UPDATE``.
+PRODUCT_DUTY_FIELDS: dict[str, dict[str, str]] = {
+    "PRODUCT_PRICING_MANAGE": {
+        "purchase_price": "purchase price",
+        "selling_price": "selling price",
+        "mrp": "MRP",
+    },
+    "PRODUCT_TAX_MANAGE": {"tax_profile_group_code": "tax group"},
+}
+
 
 class ProductService:
     """Coordinate dynamic product validation, persistence, and retrieval."""
 
-    def __init__(self, session: Session) -> None:
+    def __init__(
+        self, session: Session, *, withheld_duties: frozenset[str] = frozenset()
+    ) -> None:
+        """Bind the service to one request.
+
+        ``withheld_duties`` names the codes of ``PRODUCT_DUTY_FIELDS`` the
+        caller does **not** hold. It is empty for a trusted caller -- a seeder,
+        a test, another service -- and the router fills it from the principal.
+        """
         self._session = session
+        self._withheld_duties = withheld_duties
         # Scoped to this request; the service is constructed per call.
         self._attribute_match_cache: dict[tuple[UUID, str], frozenset[UUID]] = {}
 
@@ -146,6 +174,7 @@ class ProductService:
     def create_product(
         self, data: ProductCreate, *, firm_id: UUID, actor_id: UUID
     ) -> Product:
+        self._assert_duties_held(None, self._product_values(data), code=data.code)
         self._assert_unique_code(firm_id, data.code)
         self._assert_unique_barcode(firm_id, data.barcode)
         category = self._validate_category_reference(firm_id, data.category_id)
@@ -223,6 +252,7 @@ class ProductService:
             sub_category_id=data.sub_category_id,
         )
         self._validate_tax_profile_group_code(firm_scope, data.tax_profile_group_code)
+        self._assert_duties_held(product, self._product_values(data), code=data.code)
         self._validate_uom_references(data)
         self._validate_feature_gated_fields(data, firm_scope)
         before: dict[str, object] = {
@@ -395,6 +425,31 @@ class ProductService:
                 "Move or write off the stock and finish, cancel or close what "
                 "is open first, or set the product inactive to stop trading it."
             )
+
+    def _assert_duties_held(
+        self, product: Product | None, values: dict[str, object], *, code: str
+    ) -> None:
+        """Refuse a write to a field whose duty the caller does not hold.
+
+        ``values`` is what is about to be written. On an update a field counts
+        only when it is present **and different** from the row, so a form
+        resending the stored price saves as before; on a create (``product``
+        is None) it counts when it carries a value at all. The form and all
+        three import formats end in ``create_product``, so one check covers
+        them. A duplicate copies what is already stored rather than deciding
+        a price, and its route withholds nothing.
+        """
+        for duty in sorted(self._withheld_duties):
+            for field, label in PRODUCT_DUTY_FIELDS.get(duty, {}).items():
+                if field not in values:
+                    continue
+                stored = None if product is None else getattr(product, field)
+                if values[field] == stored:
+                    continue
+                raise AuthorizationError(
+                    f"{code}: setting a product's {label} needs the "
+                    f"{duty.replace('_', ' ').lower()} permission ({duty})."
+                )
 
     def _audit_bulk(self, product: Product, *, action: str, actor_id: UUID) -> None:
         """Record a bulk mutation the way the single-row endpoint records it.
