@@ -251,20 +251,15 @@ class PurchaseReturnService(TransactionalDocumentService):
                 vendor_id=vendor_id,
                 supplier_return_number=data.supplier_return_number,
             )
-        return_number = (
-            data.return_number.strip().upper()
-            if data.return_number
-            else self._documents.reserve_number(
-                numbering_rule.id,
-                firm_id=firm_id,
-                financial_year_label=self._financial_year_label(
-                    data.return_date, firm_id
-                ),
-                branch_code=self._scope_code(branch_id),
-                company_code=self._company_code(firm_id),
-                document_date=data.return_date,
-                actor_id=actor_id,
-            )
+        return_number = self._issue_number(
+            numbering_rule,
+            typed=data.return_number.strip().upper() if data.return_number else None,
+            number_column=PurchaseReturn.return_number,
+            firm_id=firm_id,
+            document_date=data.return_date,
+            actor_id=actor_id,
+            branch_code=self._scope_code(branch_id),
+            company_code=self._company_code(firm_id),
         )
         row = PurchaseReturn(
             firm_id=firm_id,

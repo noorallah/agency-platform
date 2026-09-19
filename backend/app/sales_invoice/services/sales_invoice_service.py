@@ -403,20 +403,15 @@ class SalesInvoiceService(TransactionalDocumentService):
             customer_id=customer_id,
             customer_invoice_number=data.customer_invoice_number,
         )
-        invoice_number = (
-            data.invoice_number.strip().upper()
-            if data.invoice_number
-            else self._documents.reserve_number(
-                numbering_rule.id,
-                firm_id=firm_id,
-                financial_year_label=self._financial_year_label(
-                    data.invoice_date, firm_id
-                ),
-                branch_code=self._scope_code(branch_id),
-                company_code=self._company_code(firm_id),
-                document_date=data.invoice_date,
-                actor_id=actor_id,
-            )
+        invoice_number = self._issue_number(
+            numbering_rule,
+            typed=data.invoice_number.strip().upper() if data.invoice_number else None,
+            number_column=SalesInvoice.invoice_number,
+            firm_id=firm_id,
+            document_date=data.invoice_date,
+            actor_id=actor_id,
+            branch_code=self._scope_code(branch_id),
+            company_code=self._company_code(firm_id),
         )
         # Read once for the two fields below; the customer's terms decide when
         # payment falls due and its billing address decides the place of supply.

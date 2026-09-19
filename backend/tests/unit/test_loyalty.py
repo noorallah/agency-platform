@@ -43,6 +43,9 @@ from app.loyalty.schemas import LoyaltySettingsWrite
 from app.loyalty.services import LoyaltyService
 from app.sales_invoice.models import SalesInvoice
 
+# Fixtures here type their document numbers; see conftest (D-CFG-2).
+pytestmark = pytest.mark.typed_document_numbers
+
 WHEN = date(2026, 6, 10)
 
 

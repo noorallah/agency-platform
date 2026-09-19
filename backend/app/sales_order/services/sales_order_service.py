@@ -333,20 +333,15 @@ class SalesOrderService(TransactionalDocumentService):
             route_id=data.route_id,
             on_date=data.order_date,
         )
-        order_number = (
-            data.order_number
-            if data.order_number
-            else self._documents.reserve_number(
-                numbering_rule.id,
-                firm_id=firm_id,
-                financial_year_label=self._financial_year_label(
-                    data.order_date, firm_id
-                ),
-                branch_code=self._scope_code(data.branch_id),
-                company_code=self._company_code(firm_id),
-                document_date=data.order_date,
-                actor_id=actor_id,
-            )
+        order_number = self._issue_number(
+            numbering_rule,
+            typed=data.order_number,
+            number_column=SalesOrder.order_number,
+            firm_id=firm_id,
+            document_date=data.order_date,
+            actor_id=actor_id,
+            branch_code=self._scope_code(data.branch_id),
+            company_code=self._company_code(firm_id),
         )
         row = SalesOrder(
             firm_id=firm_id,
