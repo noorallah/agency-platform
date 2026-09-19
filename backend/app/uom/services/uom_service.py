@@ -581,6 +581,8 @@ class UomService:
         self, data: ConversionRuleCreate, *, firm_scope: UUID, actor_id: UUID
     ) -> ConversionRule:
         """Publish a conversion rule version for one unit pair."""
+        if data.product_id is not None:
+            self._assert_firm_product(firm_scope, data.product_id)
         self._assert_version_free(
             firm_scope=firm_scope,
             product_id=data.product_id,
@@ -871,8 +873,15 @@ class UomService:
                 )
             ).all():
                 product = self._session.get(Product, level.product_id)
-                if product is None or product.is_deleted:
-                    # A level outliving its product cannot answer for it.
+                if (
+                    product is None
+                    or product.is_deleted
+                    or product.firm_id != firm_scope
+                ):
+                    # A level outliving its product cannot answer for it, and
+                    # one written on another firm's product before
+                    # `create_packaging_level` refused it (D-CFG-9) must not
+                    # name that product here.
                     continue
                 matches.append((level, product, column))
 
@@ -941,6 +950,21 @@ class UomService:
         actor_id: UUID,
     ) -> ProductPackagingLevel:
         """Add a level to a product's packaging hierarchy."""
+        self._assert_firm_product(firm_scope, product_id)
+        if data.parent_level_id is not None and (
+            self._session.scalar(
+                select(ProductPackagingLevel.id).where(
+                    ProductPackagingLevel.id == data.parent_level_id,
+                    ProductPackagingLevel.firm_id == firm_scope,
+                    ProductPackagingLevel.product_id == product_id,
+                    ProductPackagingLevel.is_deleted.is_(False),
+                )
+            )
+            is None
+        ):
+            raise ValidationError(
+                "The parent level must be a level of this product's own hierarchy."
+            )
         row = ProductPackagingLevel(
             firm_id=firm_scope,
             product_id=product_id,
@@ -1217,6 +1241,26 @@ class UomService:
                 "No active conversion rule is configured for this UOM pair."
             )
         return exact
+
+    def _assert_firm_product(self, firm_scope: UUID, product_id: UUID) -> None:
+        """Refuse a product that is not a live product of this firm.
+
+        A packaging level and a conversion rule carry the firm that wrote
+        them, but took their product from the path or the body unchecked, so
+        in the shared store one firm could hang a level -- and a barcode --
+        on another firm's product, and the lookup then answered with that
+        product's code and name (D-CFG-9). Not found rather than forbidden:
+        another firm's product is not this firm's to know about.
+        """
+        found = self._session.scalar(
+            select(Product.id).where(
+                Product.id == product_id,
+                Product.firm_id == firm_scope,
+                Product.is_deleted.is_(False),
+            )
+        )
+        if found is None:
+            raise ResourceNotFoundError("Product not found.")
 
     def _audit(
         self,

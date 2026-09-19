@@ -77,6 +77,16 @@ the waiting note it raised, which the invoice records by
 permission. The order a bare bill raised is left APPROVED and is offered again
 to bill.
 
+**A bill ships only the note it raised itself** (D-CFG-16, 2026-09-19). The
+chain stamps each note it raises with the bill's id
+(`delivery_notes.raised_by_sales_invoice_id`), and that stamp -- never the
+firm's stage as it stands today -- is what lets a bill name the note before it
+is dispatched, dispatch it on approval, and withdraw it when the draft is
+cancelled. Reading "the stage is off now" as "this bill raised the note" let a
+draft adopt a note a person had raised before the stage was switched off,
+skip the dispatched-note check, and cancel that person's note with the draft.
+A note a person raised is billed like any other: once dispatched.
+
 **A bill that ships a serial-tracked product names its units** (D-STK-4,
 2026-09-19). Dispatch refuses a serial-tracked line that does not name one
 serial per unit leaving, and the document that issues the stock is where they

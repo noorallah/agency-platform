@@ -48,6 +48,12 @@ class SalesChainService:
     def __init__(self, session: Session) -> None:
         """Bind the service to the request unit of work."""
         self._session = session
+        #: The delivery notes this call raised for the bill, and only those.
+        #: The bill stamps itself on them once it exists, and a note is
+        #: billable before dispatch only by the bill that raised it -- the
+        #: firm's stage being off says nothing about who raised a note
+        #: (D-CFG-16).
+        self.raised_notes: list[DeliveryNote] = []
 
     def ensure_invoice_source(
         self, data: SalesInvoiceCreate, *, firm_id: UUID, actor_id: UUID
@@ -274,6 +280,7 @@ class SalesChainService:
             actor_id=actor_id,
         )
         notes.stage_approval(note.id, firm_scope=firm_id, actor_id=actor_id)
+        self.raised_notes.append(note)
         return self._rebind(data, note=note)
 
     def _refuse_serialised(self, lines: list[SalesOrderLine]) -> None:

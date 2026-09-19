@@ -352,16 +352,10 @@ def test_update_audits_both_sides_of_the_change() -> None:
         select(AuditLog).where(AuditLog.action == "firm.updated")
     ).all()
     assert len(updated) == 1
-    assert updated[0].before_data == {
-        "name": "Acme Distributors",
-        "code": "ACME",
-        "is_active": True,
-    }
-    assert updated[0].after_data == {
-        "name": "Renamed",
-        "code": "ACME",
-        "is_active": False,
-    }
+    # Only the fields that moved, each with both sides (D-IDN-5) -- the code
+    # did not change and is not restated.
+    assert updated[0].before_data == {"is_active": True, "name": "Acme Distributors"}
+    assert updated[0].after_data == {"is_active": False, "name": "Renamed"}
 
 
 def test_delete_refuses_an_assigned_firm_and_audits_the_soft_delete() -> None:
