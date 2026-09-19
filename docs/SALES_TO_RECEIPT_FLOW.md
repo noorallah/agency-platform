@@ -128,7 +128,8 @@ margin — which appears on its own, as revenue minus cost, rather than being
 computed anywhere.
 
 Two refusals guard this step: available stock short of the delivered quantity,
-and a reservation that does not cover it (unless the note allows over-delivery).
+and a reservation that does not cover it -- for every note, since no request can
+waive either (D-SELL-31).
 A failed posting **fails the dispatch** — stock that has moved with no
 accounting entry behind it is the gap this closes.
 
