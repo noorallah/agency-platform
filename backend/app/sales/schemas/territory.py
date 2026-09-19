@@ -311,8 +311,33 @@ class TerritoryCreate(TerritorySchema):
         return value.strip().upper()
 
 
-class TerritoryUpdate(TerritoryCreate):
-    """Replace editable territory node fields."""
+class TerritoryUpdate(TerritorySchema):
+    """Change part of a territory node.
+
+    Every field is optional and the service dumps with ``exclude_unset``, so
+    an omitted field means *leave it alone*. `route_profile` in particular:
+    omitted keeps the round exactly as it is, an explicit null retires it and
+    the node stops being a route. It used to be `TerritoryCreate`, and an edit
+    that left the profile out deleted the route, its beat plans stopped
+    running and its documents stopped being tagged with it (D-TER-7).
+    """
+
+    code: str | None = Field(
+        default=None, min_length=2, max_length=50, pattern=r"^[A-Z0-9_-]+$"
+    )
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    hierarchy_level_id: UUID | None = None
+    parent_id: UUID | None = None
+    description: str | None = None
+    status: TerritoryStatus | None = None
+    sort_order: int | None = Field(default=None, ge=0, le=999999)
+    route_profile: RouteProfileInput | None = None
+
+    @field_validator("code", mode="before")
+    @classmethod
+    def normalize_code(cls, value: str | None) -> str | None:
+        """Normalize territory code for deterministic uniqueness."""
+        return value if value is None else value.strip().upper()
 
 
 class RouteProfileResponse(TerritorySchema):
@@ -678,8 +703,38 @@ class BeatPlanCreate(BeatPlanWrite):
     """Create payload for one beat-plan template."""
 
 
-class BeatPlanUpdate(BeatPlanWrite):
-    """Replace payload for one beat-plan template."""
+class BeatPlanUpdate(TerritorySchema):
+    """Change part of a beat plan.
+
+    Every field is optional and the service dumps with ``exclude_unset``, so
+    an omitted field means *leave it alone*. `customer_stops` omitted keeps
+    the plan's outlets; an empty list is an instruction to clear them, which
+    the service tells apart through `model_fields_set`. The window is checked
+    in the service against the merged values, because one end may be here and
+    the other on the row.
+    """
+
+    code: str | None = Field(
+        default=None, min_length=2, max_length=50, pattern=r"^[A-Z0-9_-]+$"
+    )
+    name: str | None = Field(default=None, min_length=1, max_length=200)
+    territory_id: UUID | None = None
+    plan_type: BeatPlanType | None = None
+    weekday: int | None = Field(default=None, ge=1, le=7)
+    week_of_month: int | None = Field(default=None, ge=1, le=5)
+    starts_on: date | None = None
+    ends_on: date | None = None
+    is_active: bool | None = None
+    notes: str | None = None
+    customer_stops: list[BeatPlanCustomerStopInput] | None = Field(
+        default=None, max_length=1000
+    )
+
+    @field_validator("code", mode="before")
+    @classmethod
+    def normalize_code(cls, value: str | None) -> str | None:
+        """Normalize beat-plan code for deterministic uniqueness."""
+        return value if value is None else value.strip().upper()
 
 
 class BeatPlanCustomerStopResponse(TerritorySchema):
