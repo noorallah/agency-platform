@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -115,6 +116,23 @@ class ConversionRule(BaseEntity):
             "to_uom_id",
             "version_number",
             name="UQ_uom_conversion_rules_unique_version",
+        ),
+        # The constraint above cannot hold a firm-wide rule: its key includes
+        # the nullable `product_id`, and PostgreSQL treats two NULLs as
+        # distinct, so two firm-wide rules for one pair could both be
+        # "version 1" with different factors, and either one converted a line
+        # (D-CFG-10). Firm-wide is its own key here, and only a live rule
+        # holds a version -- a retired one is never read by either resolver.
+        # Both dialects, or SQLite builds it unconditional under `create_all`.
+        Index(
+            "UQ_uom_conversion_rules_firmwide_version_active",
+            "firm_id",
+            "from_uom_id",
+            "to_uom_id",
+            "version_number",
+            unique=True,
+            postgresql_where=text("product_id IS NULL AND NOT is_deleted"),
+            sqlite_where=text("product_id IS NULL AND NOT is_deleted"),
         ),
         Index("IX_uom_conversion_rules_firm", "firm_id"),
         Index("IX_uom_conversion_rules_product", "product_id"),

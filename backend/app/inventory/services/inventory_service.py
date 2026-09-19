@@ -3909,6 +3909,7 @@ class InventoryService:
                 # this second copy kept the defect.
                 case((ConversionRule.product_id.is_(None), 1), else_=0).asc(),
                 ConversionRule.version_number.desc(),
+                ConversionRule.created_at.desc(),
             )
         ).first()
         if rule is None:
