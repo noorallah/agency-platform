@@ -11,6 +11,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -291,13 +292,11 @@ class _Dispatch:
         quantity: Decimal = Decimal("2"),
         damaged: Decimal = Decimal("0"),
         scrap: Decimal = Decimal("0"),
-        allow_over_return: bool = False,
     ) -> SalesReturnCreate:
         """Build a return of the dispatched line."""
         return SalesReturnCreate(
             warehouse_id=self.warehouse.id,
             return_date=date(2026, 8, 5),
-            allow_over_return=allow_over_return,
             lines=[
                 SalesReturnLineWrite(
                     source_document_type=SalesReturnSourceType.DELIVERY_NOTE,
@@ -473,6 +472,22 @@ def test_a_return_larger_than_the_dispatch_is_refused() -> None:
             firm_id=setup.firm.id,
             actor_id=setup.actor_id,
         )
+
+
+def test_a_return_cannot_lift_its_own_cap() -> None:
+    """D-SELL-29: the request body used to carry a switch for the cap.
+
+    Driven 2026-09-19 on ``fx_t09194xes_s``: 50 returned against a note for
+    5 with ``allow_over_return`` true, approved and completed -- 50 back on
+    the shelf and 4,832.10 credited. The write schema no longer takes it.
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    body = setup.payload(quantity=Decimal("5")).model_dump(mode="json")
+    body["allow_over_return"] = True
+
+    with pytest.raises(PydanticValidationError, match="allow_over_return"):
+        SalesReturnCreate.model_validate(body)
 
 
 def test_a_second_return_counts_the_first_one() -> None:
