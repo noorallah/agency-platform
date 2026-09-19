@@ -103,6 +103,30 @@ class TaxRuleService:
             customer_id=customer_id,
         )
 
+    def inward_transaction_type(
+        self,
+        document_type: str,
+        *,
+        firm_id: UUID,
+        branch_id: UUID | None,
+        vendor_id: UUID | None,
+    ) -> str:
+        """Return the type an inward document's line is priced as.
+
+        ``PURCHASE_INTERSTATE`` when the supplier's state differs from the
+        firm's, so the firm's inward interstate rules charge IGST; the
+        document's own type otherwise. Every purchase-side module asks here
+        rather than naming its type itself (D-CMP-14).
+        """
+        if self._supply is None:
+            self._supply = SupplyPlaceResolver(self._session)
+        return self._supply.inward_transaction_type(
+            document_type,
+            firm_id=firm_id,
+            branch_id=branch_id,
+            vendor_id=vendor_id,
+        )
+
     def list_rules(
         self,
         *,

@@ -3333,14 +3333,15 @@ platform half.
   2017-07-01); `tax_profiles` 8 — `GST_0` (IGST 0), `GST_5_LOCAL`,
   `GST_12_LOCAL`, `GST_18_LOCAL` (CGST + SGST at half the rate each), their
   `_INTERSTATE` twins (IGST), `EXEMPT` (no components) — 10
-  `tax_profile_components`; `tax_rules` 6 with 9 conditions and 7 actions;
+  `tax_profile_components`; `tax_rules` 9 with 15 conditions and 13 actions (six before D-CMP-14);
   `geo_countries` India if the store has no country.
-- **The six rules:**
+- **The nine rules:**
 
   | Code | Priority | When | Does |
   | --- | --- | --- | --- |
   | `EXPORT_ZERO` | 1 | `transaction_type` = `EXPORT` | apply `GST_0`, zero-rated |
   | `INTERSTATE_GST_5` / `_12` / `_18` | 10 / 11 / 12 | `transaction_type` = `SALES_INTERSTATE` **and** `tax_profile_id` = that slab's LOCAL profile id | apply the INTERSTATE twin |
+  | `PURCHASE_INTERSTATE_GST_5` / `_12` / `_18` | 13 / 14 / 15 | `transaction_type` = `PURCHASE_INTERSTATE` **and** `tax_profile_id` = that slab's LOCAL profile id | apply the INTERSTATE twin, input credit allowed (D-CMP-14; `20260919_0148` adds them to firms templated earlier) |
   | `EXEMPT_PROFILE` | 20 | `tax_profile_id` = `EXEMPT`'s id | exempt |
   | `PURCHASE_INPUT_CREDIT` | 30 | `transaction_type` = `PURCHASE` | input credit allowed |
 
@@ -3349,15 +3350,15 @@ platform half.
   siblings — so on a real document only `EXEMPT_PROFILE` can ever match
   (D-CMP-1, D-CMP-13). The interstate rules name the LOCAL profile **by id**,
   so they would stop matching after a rate change supersedes it.
-- **Audit, firm trail — 20 rows:** `tax.system.created`,
+- **Audit, firm trail — 23 rows:** `tax.system.created`,
   `tax.component.created` ×4, `tax.country_mapping.created`,
-  `tax.profile.created` ×8, `tax.rule.created` ×6. The settings change has
+  `tax.profile.created` ×8, `tax.rule.created` ×9. The settings change has
   none. **Audit, platform:** `firm.tax_template_applied`, `after_data`
   `template` `IN_GST` and the counts.
 - **Not one transaction** — each record commits as it is made, so a failure
   half-way leaves a tax system that makes the next press answer "already has
   one" (D-CMP-8) *(not seen in a live row)*.
-- **Check** (fresh store: `1, 4, 8, 10, 1, 1, 6, 9, 7`):
+- **Check** (fresh store: `1, 4, 8, 10, 1, 1, 9, 15, 13`):
   ```sql
   select (select count(*) from fx_<suffix>_g.tax_systems)            as systems,
          (select count(*) from fx_<suffix>_g.tax_components)         as components,
