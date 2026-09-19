@@ -63,6 +63,7 @@ from app.inventory.schemas import (
 )
 from app.products.models import Product
 from app.uom.models import ConversionRule
+from app.uom.services.uom_service import assert_quantity_fits_unit, round_by_rule
 
 ZERO = Decimal("0")
 
@@ -2357,6 +2358,7 @@ class InventoryService:
             entered_uom_id=entered_uom_id,
             conversion_version=conversion_version,
             on_date=transaction_date,
+            enforce_whole_units=False,
         )
         inventory = self._ensure_inventory_projection(
             firm_id=firm_scope,
@@ -3817,8 +3819,19 @@ class InventoryService:
         entered_uom_id: UUID | None,
         conversion_version: int | None,
         on_date: date,
+        enforce_whole_units: bool = True,
     ) -> tuple[Decimal, Decimal, UUID | None, int | None]:
         entered = Decimal(str(quantity))
+        # Every movement that brings a quantity in: a release only gives back
+        # what was reserved, and refusing it would strand the reservation.
+        if enforce_whole_units:
+            assert_quantity_fits_unit(
+                self._session,
+                quantity=entered,
+                uom_id=entered_uom_id,
+                product_id=product_id,
+                firm_id=firm_scope,
+            )
         if entered_uom_id is None:
             return entered, entered, None, conversion_version
         product = self._session.scalar(
@@ -3876,7 +3889,8 @@ class InventoryService:
             raise ValidationError(
                 "No active conversion rule is configured for the selected UOM."
             )
-        base_quantity = entered * rule.conversion_factor
+        # The rule's own rounding, which the line was stored with.
+        base_quantity = round_by_rule(entered, rule)
         return base_quantity, entered, entered_uom_id, rule.version_number
 
     def _available_quantity(

@@ -102,7 +102,7 @@ from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.schemas import ConversionRequest
-from app.uom.services import UomService
+from app.uom.services import UomService, assert_quantity_fits_unit
 
 ZERO = Decimal("0")
 
@@ -1115,6 +1115,13 @@ class SalesReturnService(TransactionalDocumentService):
             dispatched = self._source_quantity(source_type, source_line)
             source_uom_id = self._source_uom_id(source_line)
             return_uom_id = _optional_uuid(spec.get("return_uom_id"))
+            assert_quantity_fits_unit(
+                self._session,
+                quantity=requested,
+                uom_id=return_uom_id or source_uom_id,
+                product_id=source_line.product_id,
+                firm_id=firm_id,
+            )
             conversion_factor = self._q(
                 _decimal(spec.get("conversion_factor"), Decimal("1"))
             )
