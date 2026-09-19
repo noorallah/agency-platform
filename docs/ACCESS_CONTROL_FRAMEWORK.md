@@ -80,7 +80,21 @@ two without the third is not a narrowing at all:
 
 **A designation is a ceiling, not a floor.** A `PLATFORM` administrator who
 holds a real `UserFirm` row acts in that firm as whatever their roles make
-them — no more, and no less.
+them — no more, and no less. "Their roles" means the roles granted **in that
+firm**: a global-tier row gives a `PLATFORM` operator nothing in any firm, so
+`_issue_tokens` builds their `firm_permissions` from firm-scoped rows alone.
+
+**Nor can they write the rows the narrowing reads** (D-IDN-1, 2026-09-19).
+The operator holds `ROLE_ASSIGN`, and before this could assign themselves a
+global `FIRM_ADMIN` that the token then turned into firm administration in
+every firm they were a member of. Three locks, each enforced in
+`IdentityService` whichever route reaches it:
+
+| Lock | Where |
+| --- | --- |
+| Nobody changes their **own** roles or memberships — any tier, any designation; a second administrator makes the change | `_assert_not_own_access`, in `set_user_roles`, `set_user_firm_roles`, `set_user_firms` (and so `apply_user_template`) |
+| A `PLATFORM` operator grants, in the global tier, only roles within their own ceiling — no seeded firm role, and no role holding a code outside `PLATFORM_OPERATOR_PERMISSION_CODES` (so not `PLATFORM_ADMIN` either). Nobody grants more than they hold | `_assert_global_grant_within_ceiling`, keyed on the actor's `platform_admins` row |
+| A `PLATFORM` operator's token takes firm permissions only from grants made in that firm | `_issue_tokens` |
 
 `PLATFORM_OPERATOR_PERMISSION_CODES` is deliberately **not**
 `PLATFORM_PERMISSION_CODES`. The latter answers a different question (what a
@@ -389,7 +403,7 @@ for **every firm the user is a member of**.
 
 | Assignment | Where the codes land | Effect |
 | --- | --- | --- |
-| System firm role (e.g. `FIRM_ADMIN`), `firm_id` NULL | `firm_permissions[every membership]` | Firm administrator in each of their firms, and nothing outside one |
+| System firm role (e.g. `FIRM_ADMIN`), `firm_id` NULL | `firm_permissions[every membership]` — **except for a `PLATFORM` operator**, for whom it lands nowhere | Firm administrator in each of their firms, and nothing outside one |
 | System firm role, `firm_id = F` | `firm_permissions[F]` | Firm administrator in F alone |
 | Custom role, `firm_id` NULL | `permissions` (global) **and** `firm_permissions` | Applies with or without a firm selected |
 | Platform role (`PLATFORM_ADMIN`, `SUPPORT_ADMIN`, `LICENSE_ADMIN`, `SYSTEM_AUDITOR`), `firm_id` NULL | `permissions` (global) | Applies platform-wide |
@@ -404,7 +418,10 @@ every firm's, which would show a user buttons the API then refuses.
 `PUT /api/v1/users/{id}/roles` (`ROLE_ASSIGN`) **replaces** the set.
 
 - A **platform caller** has a null scope: the assignment is unscoped
-  (`user_roles.firm_id` NULL).
+  (`user_roles.firm_id` NULL). A `PLATFORM` operator's global grant is held
+  to their own ceiling — see *Tier 1* above.
+- **Nobody** may send their own user id: the caller's own roles and
+  memberships are refused on every tier.
 - A **firm caller** may only assign roles that firm can hold — its own
   `firm_id`-scoped roles, plus the unscoped seeded **firm** roles. A platform or
   cross-firm role is refused with *"Platform or cross-firm roles cannot be
