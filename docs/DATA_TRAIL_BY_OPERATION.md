@@ -62,7 +62,14 @@ prices, units and tracking flags, branches, warehouses and storage areas, and
 what every delete, bulk action, import and export writes — read off the four
 master services and checked against every store on the server, then driven on
 six fixture runs (§16.21). What a document does to a master is §9 to §14 and is
-not repeated there. The rest follow.
+not repeated there. **Territory, commission and targets followed the same day
+(§17)**: the hierarchy, territories and routes, a round's customers and its
+salespeople, beat plans and call lists, how a document gets its territory,
+route and salesperson, commission rules and their ladders, the report, a
+payout from accrual to approval, payment and cancellation with the journal
+each posts, and sales targets and their achievement — read off `app/sales`,
+`app/commission` and `app/sales_targets`, checked against every store on the
+server, then driven on a `commission-firm` run (§17.18). The rest follow.
 
 ---
 
@@ -6047,3 +6054,786 @@ Five bulk endpoints (`/bulk-delete`, `/bulk-restore`, `/bulk-status`,
   product barcode reused after a delete; a restore refused by the default
   partial index; a branch or warehouse type deleted while a record names it; an
   XLSX product import; a `working_hours` value anything reads.
+
+---
+
+## 17. Territory, commission and targets — who calls on whom, what a sale earns, and what was expected (TC-TERR-001 to 005, TC-INCENT-006 to 008, TC-CONC-006)
+
+Read on 2026-09-19 off `app/sales` (`territory_service.py`,
+`scope_resolution.py`, the router), `app/commission` (`commission_service.py`,
+`payout_service.py`, the router), `app/sales_targets`
+(`sales_target_service.py`, the router) and what they call —
+`DocumentPostingService.post_commission_accrual` and
+`post_commission_payment`, `JournalEntryEngine.reverse_entry`,
+`FirmMetadataReader`, and the five sales services that call
+`resolve_sales_scope`. `docs/TERRITORY_FRAMEWORK.md` and
+`docs/COMMISSION_FRAMEWORK.md` are the references for *why*; this is *which
+rows*.
+
+**Earlier sections carry what is not repeated here**: the geography ladder
+(countries to localities) and its platform-only writes are §14.12, the order,
+note, invoice and receipt a commission is measured on are §11, the journals'
+own tables and periods §12, and who may hold which role §15.6.
+
+Checked read-only against every store on the local server that holds the
+territory tables (59 schemas in `agency_platform` plus `electrolink_ops` in
+`agency_electrolink`), and driven against the running backend on one
+`commission-firm` fixture run of this pass, `t0919tkvs` — a firm of its own,
+`T0919TKVS-T`, in schema `fx_t0919tkvs_t`. **Nothing was written to the demo
+firms** (WHOLE01, MEDI01, FOOD01, ELEC01); they were read only. §17.18 says
+which claims a live row confirmed and which it could not; a claim marked *(not
+seen in a live row)* was read off the code only.
+
+### 17.0 Before you look
+
+- **Stores.** Every table here is firm-owned and lives in the firm's own
+  store. `territory-firm` and `commission-firm` build **a firm of the run's
+  own**, so put the schema the fixture's **Tables** line prints
+  (`fx_<suffix>_t`); WHOLE01 is `wholesale_hub`, MEDI01 and FOOD01
+  `firm_shared` (filter on `firm_id`), ELEC01 `electrolink_ops` in the
+  `agency_electrolink` database. TEST01 holds no territory, rule, payout or
+  target at all.
+
+  | Case | Fixture | Schema |
+  | --- | --- | --- |
+  | TC-TERR-001 to 005 | `territory-firm` | `fx_<suffix>_t` |
+  | TC-INCENT-006 to 008, TC-CONC-006 | `commission-firm` | `fx_<suffix>_t` |
+
+- **The tables.**
+
+  | Tables | Rows per |
+  | --- | --- |
+  | `sales_hierarchy_configs`, `sales_hierarchy_levels` | one config per firm and its named levels — Region / Territory / Route in every store here |
+  | `sales_territories` | every node at every level: `parent_id`, `path` (the codes joined by slashes), `status` |
+  | `territory_route_profiles`, `territory_working_days` | the one row that makes a node a **route** (`UQ_territory_route_profiles_territory`), its effective window, and one row per working weekday 1..7 |
+  | `territory_customer_assignments` | shop ⇄ node: `is_primary`, `visit_sequence`, `is_potential` |
+  | `territory_salesman_assignments` | person ⇄ node: `is_primary`, `include_children`; `user_id` is a **bare id**, `users` being platform |
+  | `sales_route_types` | the firm's kinds of round |
+  | `sales_beat_plans`, `sales_beat_plan_customer_stops` | when a route runs, and optionally the outlets of one day |
+  | `commission_rules`, `commission_rule_slabs` | a rate, its scope and window, and its ladder |
+  | `commission_payouts` | one period's commission for one person, DRAFT to PAID |
+  | `sales_targets` | one expectation for one period, of a person, a node, or the firm |
+
+  `address_masters` has no client and no live row anywhere. Call lists,
+  coverage, the commission report and target achievement are **computed on
+  every read and stored nowhere**.
+- **No foreign key reaches a person.** `commission_rules.salesman_id`,
+  `commission_payouts.salesman_id` and `sales_targets.salesman_id` are declared
+  with a key to `users` in the ORM, and **no store carries it** — `users` is
+  pruned from a firm store, so the constraint is never built. The only keys on
+  these tables are to products, product categories, territories, ledger
+  accounts and journal entries. What the service does not check, nothing
+  checks (D-TER-15).
+- **The audit rows are the firm's own, every one carries its firm, and most
+  say very little.** `sales_territory.created` / `.updated` / `.deleted` /
+  `.restored` / `.moved` / `.status_changed` / `.customers_set` /
+  `.salesmen_set`, `sales_territory.hierarchy.updated`,
+  `sales_territory.route_type.*`, `sales_territory.beat_plan.*`,
+  `commission.rule.created` / `.updated` / `.deleted`,
+  `commission.payout.accrued` / `.updated` / `.approved` / `.paid` /
+  `.cancelled`, `sales_target.created` / `.updated` / `.deleted`. The payout
+  rows carry a full before and after; a rule row its whole shape **except
+  `measure`**; `customers_set` and `salesmen_set` carry only a count;
+  `sales_territory.updated` carries the code and path and nothing about the
+  route profile; `.deleted`, `.restored`, the hierarchy row and every
+  `beat_plan.*` row carry nothing at all; a target row carries only the
+  amount (D-TER-16). Query them:
+  ```sql
+  select created_at, action, entity_type, entity_id, actor_id,
+         before_data::jsonb - '_meta' as before, after_data::jsonb - '_meta' as after
+  from   fx_<suffix>_t.audit_logs
+  where  action ~ '^(sales_territory|commission|sales_target)'
+  order  by created_at desc;
+  ```
+- **Two writes reach the ledger, and one takes one off.** Approving a payout
+  posts `COMM-<yyyymm>-<id8>` (Dr `COMMISSION_EXPENSE` 5600 / Cr
+  `COMMISSION_PAYABLE` 2400), paying it posts `…-PAY` (Dr 2400 / Cr the account
+  named), cancelling an approved one posts `…-REV`. All three carry
+  `source_module = 'commission'` and the payout as `source_id`. Nothing in
+  territory or targets posts anything.
+- **What points at what.**
+
+  | From | Column | To |
+  | --- | --- | --- |
+  | `sales_orders`, `sales_invoices`, `delivery_notes` | `territory_id`, `route_id`, `salesman_id` | a node, a **`territory_route_profiles.id`** (not a node id), a user |
+  | `sales_quotations`, `sales_returns` | `territory_id`, `salesman_id` | the same, with no route column |
+  | `sales_beat_plans` | `territory_id` | a node that must be a route when the plan is written, and is not looked at again |
+  | `commission_rules` | `salesman_id`, `product_id`, `product_category_id` | NULL on all three is the firm-wide rule about the whole document |
+  | `sales_targets` | `salesman_id`, `territory_id` | NULL on both is the firm's own number |
+  | `commission_payouts` | `journal_entry_id`, `payment_journal_entry_id`, `money_account_id` | the accrual, the payment, and the account the money left |
+- **The keys.** `UQ_territory_customer_assignments_pair_active`,
+  `…_primary_active` and `…_sequence_active` are partial on live rows, and
+  `UQ_commission_payouts_period_active` on live, un-cancelled rows.
+  `UQ_sales_territories_firm_code`, `UQ_sales_beat_plans_firm_code` and
+  `UQ_territory_salesman_assignments_territory_user` are **plain**, so a
+  deleted territory or plan keeps its code for ever while the service's own
+  check filters `is_deleted` — the refusal then arrives as the bare 409.
+  `UQ_sales_targets_scope_period` is plain over
+  (`firm_id`, `salesman_id`, `territory_id`, `period_start`), and since
+  PostgreSQL never equates two NULLs it holds nothing for any target that
+  leaves either scope blank — which is nearly all of them (D-TER-16).
+- **Concurrency.** Territories, route types, beat plans, commission rules,
+  payouts and targets publish `version` as an `ETag` and on the body, and take
+  `If-Match`. The two whole-list replaces — a round's customers and a node's
+  salespeople — carry no version: the last save wins, and the proof that the
+  list was read first is the desktop's (`docs/TERRITORY_FRAMEWORK.md`).
+
+### 17.1 The hierarchy and route types — Sales → Geography, Route Types (TC-TERR-001)
+
+`GET` and `PUT /api/v1/sales-territories/hierarchy-levels`; the read takes
+`TERRITORY_VIEW`, the write is **platform-admin** by designation.
+`/route-types` takes `TERRITORY_VIEW` / `_CREATE` / `_UPDATE` / `_DELETE`.
+
+- **The first read of a new firm writes.** `_ensure_hierarchy_config` inserts
+  one `sales_hierarchy_configs` row and three `sales_hierarchy_levels` rows
+  (REGION, TERRITORY, ROUTE) and **commits them** (D-11-1), with no audit row.
+- **A save** rewrites the four settings (`max_levels`,
+  `allow_multi_route_per_salesman`, `allow_multi_salesman_per_route`,
+  `enforce_customer_leaf_assignment`) and replaces the levels; audit
+  `sales_territory.hierarchy.updated`, empty on both sides.
+- **A route type** is one `sales_route_types` row; delete is refused while a
+  live route profile names it — "<n> route(s) still use this route type.
+  Reassign them before deleting it."
+- **Check:**
+  ```sql
+  select c.max_levels, c.allow_multi_route_per_salesman, c.allow_multi_salesman_per_route,
+         c.enforce_customer_leaf_assignment, l.level_order, l.level_code, l.display_name, l.is_enabled
+  from   fx_<suffix>_t.sales_hierarchy_configs c
+  join   fx_<suffix>_t.sales_hierarchy_levels l on l.config_id = c.id and l.is_deleted = false
+  order  by l.level_order;
+  ```
+- **Confirmed** in `fx_t0919tkvs_t`: one config, three levels, one
+  `hierarchy.updated` and one `route_type.created` from the fixture.
+
+### 17.2 Create a territory or a route — Geography → New (TC-TERR-001)
+
+`POST /api/v1/sales-territories`, `TERRITORY_CREATE`. One commit.
+
+- **Inserts** one `sales_territories` row (`path` = the parent's path, a
+  slash, the code; `business_profile_id` from the firm's profile). With a
+  `route_profile` in the body, one `territory_route_profiles` row and one
+  `territory_working_days` row per weekday. Audit `sales_territory.created`
+  with the code and name.
+- **Refused, nothing written:** a code a live node holds; a name a live
+  sibling holds; a level that is not exactly one below the parent's — "Territory
+  level must be exactly one level below its parent."; a top-level node that is
+  not level 1; `max_nodes_per_parent` reached.
+- **Not checked:** that `hierarchy_level_id` is one of **this firm's** levels
+  (`_level` filters on the id alone), nor that `route_type_id` is this firm's
+  route type (D-TER-15). A code a **deleted** node holds passes the service and
+  is refused by `UQ_sales_territories_firm_code` as a bare 409.
+- **Check:**
+  ```sql
+  select t.path, t.status, t.is_deleted, l.display_name as level,
+         p.id as route_profile_id, p.visit_frequency, p.effective_from, p.effective_to,
+         p.is_deleted as profile_gone,
+         (select string_agg(d.weekday::text, ',' order by d.weekday)
+          from fx_<suffix>_t.territory_working_days d
+          where d.route_profile_id = p.id and d.is_deleted = false) as days
+  from   fx_<suffix>_t.sales_territories t
+  join   fx_<suffix>_t.sales_hierarchy_levels l on l.id = t.hierarchy_level_id
+  left   join fx_<suffix>_t.territory_route_profiles p on p.territory_id = t.id
+  order  by t.path;
+  ```
+- **Confirmed:** the fixture's six nodes, three of them routes; `T0919TKVS-R-X`
+  created with a profile and Monday.
+
+### 17.3 Edit, move, deactivate, delete and restore a territory
+
+`PUT /{id}` (`TERRITORY_UPDATE`, `If-Match` optional), `POST /bulk/status` and
+`/bulk/move` (`TERRITORY_UPDATE`), `DELETE /{id}` (`TERRITORY_DELETE`),
+`POST /{id}/restore` (`TERRITORY_RESTORE`).
+
+- **The edit is a whole replace, and the route profile is part of it.**
+  `TerritoryUpdate` *is* `TerritoryCreate`, every column is assigned from the
+  body, and `_upsert_route_profile` is called with whatever `route_profile`
+  holds — so a PUT that leaves it out **soft-deletes the profile** and the node
+  stops being a route: its beat plans report "The route is not in force on this
+  date.", a new plan is refused "… is not a route.", and documents stop being
+  tagged with it (D-TER-7). Sending the profile again un-deletes the same row.
+- **A changed code or parent repaths every descendant**
+  (`_repath_descendants`). Audit `sales_territory.updated` with the code and
+  path on both sides — and `before.code` is read **after** the row was
+  assigned, so a rename records the new code twice (D-TER-16). A bulk move
+  writes one `sales_territory.moved` per node with the two paths and commits
+  once; a bulk status change one `sales_territory.status_changed` each.
+- **`status` is a label.** Nothing in `resolve_sales_scope` or the call list
+  reads `sales_territories.status`, so an INACTIVE round still tags a sale and
+  is still called (D-TER-16).
+- **Delete** is soft (`is_deleted`, `deleted_at`, `deleted_by`), audit
+  `sales_territory.deleted` with nothing on either side, and is refused while
+  the node has live children, customers or salespeople. **It does not look at
+  beat plans or targets**: the plans stay live and the call list goes on
+  reporting the deleted round as running, and a target on it stays in the
+  achievement report (D-TER-14). The route profile and its working days are
+  left as they are.
+- **The edit reaches a deleted node**: `update_territory` loads with
+  `include_deleted=True`, so a PUT renames a territory that is in the bin and
+  leaves it there (D-TER-14). Restore clears the three columns, audits
+  `sales_territory.restored`, and re-checks neither the code nor that the
+  parent is still live.
+- **Check:** §17.2's query, and the plans and targets a node still carries:
+  ```sql
+  select t.code, t.is_deleted,
+         (select count(*) from fx_<suffix>_t.sales_beat_plans b
+          where b.territory_id = t.id and b.is_deleted = false) as live_plans,
+         (select count(*) from fx_<suffix>_t.sales_targets g
+          where g.territory_id = t.id and g.is_deleted = false) as live_targets
+  from   fx_<suffix>_t.sales_territories t order by t.path;
+  ```
+- **Confirmed:** a PUT of `T0919TKVS-R-N2` without `route_profile` answered 200
+  with `route_profile: null`, its three plans then "not in force", and a second
+  PUT brought the same profile row back at `version` 3; `T0919TKVS-R-X` deleted
+  204 carrying one live plan and one live target, `GET /call-lists` for the
+  Monday still answering `T0919TKVS-BP-X` `occurs: true`, and a PUT then
+  renaming the deleted node to `-R-X2`.
+
+### 17.4 A round's customers — Route Builder, the node's Customers tab (TC-TERR-004)
+
+`PUT /api/v1/sales-territories/{id}/customers`, `TERRITORY_ASSIGN_CUSTOMERS`;
+`POST /bulk/customers` the same for several nodes in **one commit**. The body
+is either `customer_ids` (membership only) or `entries`
+(`customer_id`, `visit_sequence`, `is_primary`, `is_potential`).
+
+- **Replaces the whole list for this node only.** A shop the list leaves out
+  is soft-deleted; a shop it adds is inserted, or its old row **un-deleted**;
+  rows for the same shop on other rounds are not touched.
+- **`visit_sequence` is position, and the swap is safe.** Every stop number
+  about to be reassigned is set to NULL and flushed before the new ones are
+  written, because `…_sequence_active` is checked per statement and a partial
+  index cannot be deferred. Only the numbers actually moving are released: the
+  `customer_ids` shape leaves every sequence where it was — including the gap a
+  removed shop leaves behind.
+- **`is_primary` omitted means leave alone.** A new row is primary only when
+  the shop is primary on no other round. **An un-deleted row keeps the flag it
+  was retired with**, so a shop that was primary here, left, and became primary
+  elsewhere cannot be brought back from the picker: the save trips
+  `…_primary_active` and answers the bare 409 "The operation violates
+  uniqueness constraints." (D-TER-10).
+- **Refused, nothing written:** a customer that is not this firm's, or is
+  deleted — "One or more customers do not belong to the active firm."; two
+  entries on one stop number (422, naming the numbers); a node that is not a
+  leaf when `enforce_customer_leaf_assignment` is on.
+- **Audit:** one `sales_territory.customers_set` on the **territory**, carrying
+  `customer_count` and nothing else — who joined, who left and what order they
+  are in is on no trail.
+- **Check:**
+  ```sql
+  select t.code as round, c.code as shop, a.visit_sequence, a.is_primary,
+         a.is_potential, a.is_deleted, a.version
+  from   fx_<suffix>_t.territory_customer_assignments a
+  join   fx_<suffix>_t.sales_territories t on t.id = a.territory_id
+  join   fx_<suffix>_t.customers c on c.id = a.customer_id
+  order  by t.code, a.is_deleted, a.visit_sequence nulls last, c.code;
+  ```
+- **Confirmed:** `T0919TKVS-C1` taken off N1 (row deleted, `is_primary` still
+  true), added to S1 (new row, primary), and the save putting it back on N1
+  answered 409 with nothing written; C2 kept stop 2 with stop 1 empty.
+
+### 17.5 A node's salespeople — the Salespeople tab, Coverage (TC-TERR-001)
+
+`PUT /api/v1/sales-territories/{id}/salesmen`, `TERRITORY_ASSIGN_SALESMEN`;
+`POST /bulk/salesmen` in one commit.
+
+- **Replaces the whole list**: a person left out is soft-deleted, one added is
+  inserted or un-deleted, and `include_children` and `is_primary` are written
+  from the body every time — `is_primary` defaults to **false**, so a client
+  that omits it demotes (the customer list's "leave alone" has no twin here).
+- **Checked through the platform store**: every `user_id` must be an active
+  member of this firm (`FirmMetadataReader.active_member_count`) — "One or more
+  salesmen are not active firm members." The two hierarchy settings are
+  applied: "… may have only one salesperson." and "A salesperson here is
+  already on …".
+- **Nothing takes somebody off a round when they leave the firm.** Deleting a
+  user, or ending their membership, touches no firm store, so the assignment
+  stays live and goes on being derived on to new orders (§17.8, D-TER-11).
+- **Audit:** `sales_territory.salesmen_set` with `salesman_count`.
+- **Check** (the platform join works where the firm's store is in
+  `agency_platform`):
+  ```sql
+  select t.code as round, u.full_name, a.is_primary, a.include_children, a.is_deleted,
+         u.is_deleted as person_gone,
+         exists (select 1 from platform.user_firms f
+                 where f.user_id = a.user_id and f.firm_id = t.firm_id
+                   and f.is_active and f.is_deleted = false) as still_a_member
+  from   fx_<suffix>_t.territory_salesman_assignments a
+  join   fx_<suffix>_t.sales_territories t on t.id = a.territory_id
+  left   join platform.users u on u.id = a.user_id
+  order  by t.code;
+  ```
+- **Confirmed:** Asha live on N1 and S1 with `person_gone` true after the
+  platform administrator deleted her.
+
+### 17.6 Beat plans — Sales → Beat Plans (TC-TERR-002, TC-TERR-003)
+
+`/api/v1/sales-territories/beat-plans`, `TERRITORY_CREATE` / `_UPDATE` /
+`_DELETE`.
+
+- **Create** inserts one `sales_beat_plans` row (`plan_type`, `weekday`,
+  `week_of_month`, `starts_on`, `ends_on`, `is_active`) and one
+  `sales_beat_plan_customer_stops` row per outlet named; the node must carry a
+  live route profile — "… is not a route. Turn on 'This is a route' for it
+  before scheduling a beat plan against it." — and every outlet must be this
+  firm's.
+- **The edit is a whole replace**, stops included: they are all soft-deleted
+  and re-inserted from the body, so a PUT that leaves `customer_stops` out
+  clears them (D-TER-7). It too loads with `include_deleted=True`.
+- **Audit:** `sales_territory.beat_plan.created` / `.updated` / `.deleted`,
+  each with **nothing on either side**.
+- **Check:**
+  ```sql
+  select b.code, t.code as route, t.is_deleted as route_gone, b.plan_type, b.weekday,
+         b.week_of_month, b.starts_on, b.ends_on, b.is_active, b.is_deleted,
+         (select count(*) from fx_<suffix>_t.sales_beat_plan_customer_stops s
+          where s.beat_plan_id = b.id and s.is_deleted = false) as own_stops
+  from   fx_<suffix>_t.sales_beat_plans b
+  join   fx_<suffix>_t.sales_territories t on t.id = b.territory_id
+  order  by b.code;
+  ```
+- **Confirmed:** the fixture's nine plans, none with stops of its own — **no
+  store anywhere holds a `sales_beat_plan_customer_stops` row**.
+
+### 17.7 Call lists and coverage — Sales → Call Lists, Coverage (TC-TERR-002, TC-TERR-003)
+
+`GET /call-lists?date=&salesman_id=`, `GET /beat-plans/{id}/call-list?date=`,
+`GET /dashboard`, `GET /coverage/salesmen`; all `TERRITORY_VIEW`. **They write
+nothing.**
+
+- A plan occurs when its recurrence says so (`_occurs_on`), the route's
+  effective window covers the date, and the route works that weekday; each
+  refusal carries its reason. The date defaults to `utc_now().date()`.
+- Stops are the plan's own outlets, else the node's live assignments ordered
+  by `visit_sequence` with the unplaced last — ranked on an explicit `case`, so
+  PostgreSQL and SQLite agree.
+- The plan's salesperson is the node's primary assignment, read without
+  looking at whether they are still a member.
+- The territory is read **without** its `is_deleted` flag, which is how a
+  deleted round goes on being called (§17.3).
+- **Confirmed:** "1 of 9 plan(s) run" on Monday 2026-09-21 and the four on
+  2027-01-12, as TC-TERR-002 and 003 record; `T0919TKVS-BP-COLL` "not in force"
+  while N2's profile was gone.
+
+### 17.8 How a document gets its territory, route and salesperson (TC-TERR-005)
+
+`resolve_sales_scope` in `app/sales/services/scope_resolution.py`, called by
+quotation and order on create and edit, and by invoice and return **only to
+fill blanks** on a document with no source; a delivery note takes all three
+from its order. It writes three columns on the document and nothing else.
+
+- **Blank is derived, and derivation refuses to guess.** Territory: the shop's
+  one primary assignment, or its only one. Salesperson: the node's one primary,
+  or its only one, else the nearest ancestor whose person has
+  `include_children`. Route: the profile on the node or its nearest ancestor
+  **that was in force on the document's own date** — a closed round leaves
+  `route_id` NULL and the territory still applies.
+- **What the caller names is validated — except the route.** A territory must
+  be this firm's and one the customer is on; a salesperson must cover it — "The
+  selected salesperson is not assigned to this territory." A **`route_id` is
+  kept as sent**: the order and invoice services check only that the profile
+  exists, not that it is this firm's, the customer's, the territory's or in
+  force, so an order is tagged to a round that ended in June, or to somebody
+  else's (D-TER-9).
+- **Membership is checked where the caller names a person, and only on three
+  documents.** Order, delivery note and invoice ask `active_member_count`
+  through the platform store — "Salesman is not an active member of this
+  firm."; **quotation and return do not**, so with no territory to check
+  against any id at all is stored (D-TER-15). A **derived** person is never
+  checked, so somebody who has left the firm is put on the order, the order
+  approves and reserves stock, and the delivery note — which does check — is
+  refused (D-TER-11).
+- **Check:**
+  ```sql
+  select o.order_number, o.order_date, o.status, c.code as customer,
+         t.code as territory, rt.code as route_is_on, p.effective_from, p.effective_to,
+         o.salesman_id
+  from   fx_<suffix>_t.sales_orders o
+  join   fx_<suffix>_t.customers c on c.id = o.customer_id
+  left   join fx_<suffix>_t.sales_territories t on t.id = o.territory_id
+  left   join fx_<suffix>_t.territory_route_profiles p on p.id = o.route_id
+  left   join fx_<suffix>_t.sales_territories rt on rt.id = p.territory_id
+  order  by o.order_number;
+  ```
+- **Confirmed:** with S1's window closed at 2026-06-30, SO-2026-2027-000004
+  (blank) took territory S1, Asha and **no route**; -000005 naming S1's closed
+  profile and -000006 naming N2's were both saved as sent; QT-2026-2027-000001
+  for the unrouted `T0919TKVS-SN` kept a random salesman id while the same id
+  on an order answered 422; with Asha deleted, SO-2026-2027-000008 was created
+  and approved in her name and its delivery note refused. Every demo order,
+  note and invoice carries all three (WHOLE01 72 / 62 / 53, ELEC01 58 / 58 /
+  49); the selling fixtures, which draw no rounds, carry none.
+
+### 17.9 Territory bulk actions, copy, import and export
+
+`POST /{id}/copy` (`TERRITORY_CREATE`), `POST /import` (`TERRITORY_IMPORT`),
+`GET /export` (`TERRITORY_EXPORT`), and the four `/bulk/*` routes.
+
+- **Import** stages every row through `create_territory(commit=False)` and
+  `set_customers(commit=False)` and **commits once**; a row naming an unknown
+  level refuses the file. **The four bulk routes** do the same.
+- **Copy does not.** `copy_hierarchy` calls `create_territory`,
+  `set_customers` and `set_salesmen` with their default `commit=True` for every
+  node, so a copy refused partway — a salesperson policy, a node cap — leaves
+  the nodes before it written. It also finds the subtree with
+  `path.ilike('<source path>%')`, which takes a sibling whose code merely
+  starts the same way, and treats `_` and `%` in a code as wildcards
+  (D-TER-13) *(not seen in a live row)*.
+- **Export** writes nothing; three CSVs and an XLSX, read off the same rows.
+- **Audit:** one row per node as in §17.2 to §17.5; no row for the import or
+  the copy as such.
+
+### 17.10 Commission rules — Sales → Commission → Rules (TC-INCENT-006)
+
+`/api/v1/commission/rules`; reads `COMMISSION_VIEW`, writes
+`COMMISSION_MANAGE`. One commit each.
+
+- **Create** inserts one `commission_rules` row and one `commission_rule_slabs`
+  row per rung, numbered by `from_amount`. **Edit is partial**
+  (`exclude_unset`): absent leaves a column alone, an explicit null clears
+  `effective_to`, the cap, the floor, or moves the rule to the firm-wide scope;
+  `slabs` omitted leaves the ladder, `[]` removes it. A ladder is **replaced**:
+  every live rung is soft-deleted and the new ones inserted. Delete is soft.
+- **`measure` is accepted and never stored.** Both write schemas declare it,
+  neither `create_rule` nor `update_rule` assigns it, and `rule_response` does
+  not pass it, so a MARGIN rule is saved — and read back — as VALUE and pays
+  on the whole sale price. The only MARGIN rows anywhere were written by the
+  demo seeder straight on to the column, and the seeder's own `create_rule`
+  call for a fresh store loses it the same way (D-TER-1).
+- **A rule with slabs ignores `percentage`** — the schema still requires one
+  on create, and the fixtures send 0. The desktop labels the box "Rate
+  (unused)" and the grid shows no single rate for a ladder or a per-unit rule.
+- **Refused, nothing written:** a per-unit rate on the COLLECTED basis or with
+  no product or category; a product *and* a category; a ladder that does not
+  start at 0, has a gap or an overlap, or is open-ended below the top; a second
+  ACTIVE rule over the same person, goods and days — "Another active rule
+  already covers part of that period for the same scope (from …)." That last
+  check is a read followed by an insert with **no key behind it** (D-TER-16).
+- **Not checked:** that `salesman_id` is anybody at all — an unknown id is
+  saved and listed as "Former member"; an unknown `product_id` reaches the
+  foreign key and answers the bare 409 (D-TER-15).
+- **Audit:** `commission.rule.created` / `.updated` / `.deleted` with the whole
+  rule and its ladder, `measure` excepted.
+- **Check:**
+  ```sql
+  select r.status, r.salesman_id, r.effective_from, r.effective_to, r.basis, r.measure,
+         r.rate_type, r.percentage, r.per_unit_amount, r.minimum_amount, r.bonus_percentage,
+         r.max_commission_amount, r.slab_mode, p.code as product, g.name as category,
+         (select string_agg(s.from_amount || '-' || coalesce(s.to_amount::text, '') || ' @' || s.percentage, ', '
+                            order by s.from_amount)
+          from fx_<suffix>_t.commission_rule_slabs s
+          where s.commission_rule_id = r.id and s.is_deleted = false) as ladder
+  from   fx_<suffix>_t.commission_rules r
+  left   join fx_<suffix>_t.products p on p.id = r.product_id
+  left   join fx_<suffix>_t.product_categories g on g.id = r.product_category_id
+  where  r.is_deleted = false order by r.created_at;
+  ```
+- **Confirmed:** a PUT of `{"measure": "MARGIN"}` answered 200 with
+  `measure: VALUE` and `version` 2, a POST of a MARGIN rule 201 with VALUE, and
+  the column reads VALUE for both; an unknown salesman 201, an unknown product
+  409. Every live rule in every store is COLLECTED and PERCENT: **no INVOICED
+  rule, per-unit rate or cap exists in a live row**.
+
+### 17.11 The commission report — Commission → Collected (TC-INCENT-006)
+
+`GET /api/v1/commission/report?from_date=&to_date=&salesman_id=`,
+`COMMISSION_VIEW`. **Writes nothing**; everything below is recomputed on every
+read.
+
+- **Collected** is `settlement_allocations` joined to a POSTED RECEIPT
+  settlement dated in the window, per allocation; **invoiced** is
+  `sales_invoices.grand_total` of APPROVED and CLOSED bills dated in the
+  window. Attribution is the invoice's own `salesman_id`; money with none is
+  the **Unassigned** row, which earns nothing and is never paid.
+- **The governing rule is resolved per row on its own date** — the receipt's
+  date for collected money, the bill's for invoiced — in six rungs (the
+  person's product, category, unscoped rule, then the firm's three), and a rule
+  pays only on its own basis. Each invoice's `grand_total` is apportioned over
+  its lines so an unscoped rule measures exactly the document; each rule's
+  subtotal is laddered **separately**, then floor, bonus and cap are applied in
+  that order.
+- **A margin line with no cost contributes nothing**
+  (`sales_invoice_lines.cost_amount` NULL is not zero), and a sale below cost
+  earns zero rather than a negative.
+- **It is measured on the document total, tax and freight included** — an open
+  question the owner has left as it is (`docs/COMMISSION_FRAMEWORK.md`).
+- **Nothing is ever taken off.** A credit note, a sales return and a refund
+  are read by neither sum, so a bill credited in full goes on counting as
+  invoiced, as collected and as commission (D-TER-3). A **reversed** receipt
+  does drop out.
+- **An advance counts on the day it arrived, not the day it was applied.**
+  `POST /receipts/{id}/allocate` adds the allocation to the original
+  settlement and the report dates it by `settlement_date`, so money taken in
+  August and set against a September bill is August's collection — a month
+  whose payout may already be accrued, where it will never be paid (D-TER-6).
+- **`target_met`** is the person's targets over the window **summed** against
+  their achievements summed (§17.15); null where they have none.
+- **Check** — what the report walks, per salesperson:
+  ```sql
+  select i.salesman_id, s.settlement_number, s.settlement_date, s.status,
+         i.invoice_number, i.invoice_date, a.amount
+  from   fx_<suffix>_t.settlement_allocations a
+  join   fx_<suffix>_t.settlements s on s.id = a.settlement_id
+  join   fx_<suffix>_t.sales_invoices i on i.id = a.sales_invoice_id
+  where  a.is_deleted = false and s.direction = 'RECEIPT'
+  order  by s.settlement_date, s.settlement_number;
+  ```
+- **Confirmed:** Asha 5,900.00 / 495.60 and Bala 4,720.00 / 94.40, as
+  TC-INCENT-006 records; RC-2026-2027-000004 (118.00, 2026-08-15) applied to
+  SI-2026-2027-000004 of 2026-09-19 and reported as **August's** 118.00 and
+  4.72; CN-2026-2027-000001 for the whole of SI-2026-2027-000003, APPROVED, and
+  Bala's row unchanged at 4,720.00 / 4,720.00 / 188.80.
+
+### 17.12 Accrue a period — Commission → Payouts → Accrue period (TC-INCENT-007, TC-CONC-006)
+
+`POST /api/v1/commission/payouts/accrue`, `COMMISSION_MANAGE`. One commit for
+the whole run.
+
+- **Reads the report once and stores what it said**: one DRAFT
+  `commission_payouts` row per person who earned anything — `basis`,
+  `measured_amount` (collected or invoiced, by basis), `earned_amount`,
+  `payable_amount` equal to it, `adjustment_amount` 0, `accrued_on` = the date
+  sent, else **`period_end`**. Nobody who earned nothing, and never the
+  Unassigned row. Nothing downstream reads the report again. **No journal.**
+- **One live payout per person per overlapping period**:
+  `_assert_period_is_free` answers 409 "A commission payout already covers part
+  of that period for this salesman (… to …)." and
+  `UQ_commission_payouts_period_active` catches the race the read cannot, as
+  "A commission payout for that period was created while this one was being
+  worked out." A run for everybody is all-or-nothing, so one person's existing
+  payout refuses the whole run; name a `salesman_id` to accrue the rest.
+- **The period need not be over, and need not be a month.** Accruing
+  September on the 19th is accepted, takes what has been collected so far, and
+  **holds the period**: whatever is collected from the 20th is covered by a
+  payout that no longer reads the report, and once that payout is PAID it
+  cannot be cancelled. `accrued_on` is then a date that has not arrived
+  (D-TER-6). `period_start` 2026-09-10 to `period_end` 2026-10-15 is accepted
+  too.
+- **Audit:** one `commission.payout.accrued` per row, with the snapshot.
+- **Check:**
+  ```sql
+  select p.status, p.salesman_id, p.period_start, p.period_end, p.accrued_on, p.paid_on,
+         p.basis, p.measured_amount, p.earned_amount, p.adjustment_amount, p.adjustment_reason,
+         p.payable_amount, p.version,
+         j.reference_number as accrual, j.journal_date as accrual_dated,
+         pj.reference_number as payment, pj.journal_date as payment_dated,
+         a.code as paid_from
+  from   fx_<suffix>_t.commission_payouts p
+  left   join fx_<suffix>_t.journal_entries j  on j.id  = p.journal_entry_id
+  left   join fx_<suffix>_t.journal_entries pj on pj.id = p.payment_journal_entry_id
+  left   join fx_<suffix>_t.ledger_accounts a  on a.id  = p.money_account_id
+  where  p.is_deleted = false order by p.created_at;
+  ```
+- **Confirmed:** Bala 94.40 on 4,720.00 and Asha 495.60 on 5,900.00, both
+  2026-09-01 to 2026-09-30 with `accrued_on` 2026-09-30, accrued on the 19th;
+  the run for everybody refused 409 once Bala's existed; a second payout for
+  Asha over 2026-09-10 to 2026-10-15 accepted after hers was cancelled, again
+  495.60; a run for 2026-09-20 to 2026-09-25 answered "Nobody earned anything in
+  that period." — nothing was collected in those days — and wrote nothing.
+
+### 17.13 Adjust, approve and cancel a payout (TC-INCENT-007)
+
+`PUT /payouts/{id}`, `POST /payouts/{id}/approve`, `POST /payouts/{id}/cancel`;
+all `COMMISSION_MANAGE`, `If-Match` optional.
+
+- **Adjust** — DRAFT only. Writes `adjustment_amount`, `adjustment_reason`,
+  `notes`, and `payable_amount` = earned + adjustment; a non-zero adjustment
+  needs a reason, and a negative total is refused. **`status` is not writable
+  here** — the schema forbids the field (422). There is no ceiling on a
+  positive adjustment. Audit `commission.payout.updated`, before and after.
+- **Approve** — DRAFT only, and not a payout of nothing. Posts
+  **`COMM-<yyyymm>-<first 8 of the id>`**: Dr `COMMISSION_EXPENSE` / Cr
+  `COMMISSION_PAYABLE` for `payable_amount`, dated **`accrued_on`**, in the
+  period open on that date — with none, or with either control account
+  unmapped, the approval is refused and nothing is written. Sets
+  `journal_entry_id`, status APPROVED.
+  Audit `commission.payout.approved`.
+- **Cancel** — DRAFT or APPROVED, never PAID ("Record a payment the other way
+  rather than cancelling it."). An approved one is reversed with
+  `reverse_entry`: a mirror entry **`…-REV`** dated `accrued_on`, the original
+  marked REVERSED, the payout's `journal_entry_id` left pointing at it. Status
+  CANCELLED, which releases the period. Audit `commission.payout.cancelled`.
+- **Nobody is compared with anybody.** Approve and pay look at the status and
+  at nothing else — not at who accrued it, who approved it, or **whose payout
+  it is** — and the seeded `ACCOUNTANT` and `FIRM_ADMIN` hold `COMMISSION_MANAGE`
+  and `COMMISSION_PAY` together, so one person states the debt, raises it and
+  pays it, their own included (D-TER-4). The payout row keeps no approver or
+  payer; the three audit rows' `actor_id` are the only record.
+- **Check:** §17.12's query, and the journals:
+  ```sql
+  select j.reference_number, j.journal_date, j.status, j.reversal_of_id is not null as is_reversal,
+         (select string_agg(a.code || ' ' || l.debit_amount || '/' || l.credit_amount, ', '
+                            order by l.line_number)
+          from fx_<suffix>_t.journal_lines l
+          join fx_<suffix>_t.ledger_accounts a on a.id = l.ledger_account_id
+          where l.journal_entry_id = j.id) as legs
+  from   fx_<suffix>_t.journal_entries j
+  where  j.source_module = 'commission' order by j.created_at;
+  ```
+- **Confirmed:** `COMM-202609-b238684f` 5600 495.60 / 2400 495.60 dated
+  2026-09-30, REVERSED, and `COMM-202609-b238684f-REV` its mirror, the same
+  date; a PUT of `{"status": "PAID"}` 422; and Bala — given `ACCOUNTANT` beside
+  `SALES_EXECUTIVE` — accruing his own payout, adjusting it by +5,000.00 "because",
+  approving it at 5,094.40 and paying it, five audit rows with his own id as
+  actor.
+
+### 17.14 Pay a payout (TC-INCENT-007, TC-INCENT-008)
+
+`POST /payouts/{id}/pay` with `paid_on` and `money_account_id`;
+**`COMMISSION_PAY`**, which `SALES_MANAGER` does not hold.
+
+- APPROVED only — "Only an approved payout can be paid. Approve it first, which
+  is what recognises the debt." Posts **`…-PAY`**: Dr `COMMISSION_PAYABLE` / Cr
+  **the account named**, dated `paid_on`. Sets `payment_journal_entry_id`,
+  `money_account_id`, `paid_on`, status PAID. The expense is not touched again.
+  Audit `commission.payout.paid`.
+- **Three references, because a journal reference is unique**: the accrual's,
+  `-PAY` and `-REV`.
+- **The account and the date are taken as sent.** The desktop offers cash and
+  bank accounts only; the server checks that the id is a live account of this
+  firm (`JournalEntryEngine._load_accounts`) and nothing more, so a payout is
+  "paid" out of Trade Receivables, out of Sales, or out of Commission Payable
+  itself — Dr 2400 / Cr 2400, which clears the debt on the payout and moves no
+  money at all. `paid_on` may fall before `accrued_on`, leaving 2400 in debit
+  between the two (D-TER-5).
+- **A PAID payout is final**: no cancel, no reversal route, no edit.
+- **Confirmed:** `COMM-202609-9b8f08c7-PAY` dated 2026-09-01 with legs
+  `2400 5094.40/0.00, 2400 0.00/5094.40`, against an accrual dated 2026-09-30;
+  in `fx_t0916zqbt_t` (TC-INCENT-007's own run) the payment is dated 2026-09-16
+  and the debt it clears 2026-09-30. WHOLE01, MEDI01 and FOOD01 pay from 1000
+  Cash on the accrual's own date. TC-INCENT-008 records the three 403s a
+  `SALES_EXECUTIVE` gets; they were not driven again here.
+
+### 17.15 Sales targets — Sales → Targets (TC-INCENT-006)
+
+`/api/v1/sales-targets`; reads `SALES_TARGET_VIEW`, writes
+`SALES_TARGET_MANAGE`. The service commits.
+
+- **Create** inserts one `sales_targets` row: a person, a node, both or
+  neither; the period's own dates; `period_type` a label; `basis` INVOICED or
+  COLLECTED; `status` **free text** — only `ACTIVE` is ever reported, and
+  `PAUSED` is accepted as readily as `INACTIVE` (D-TER-16).
+- **The edit is a whole replace** with the create schema: every column is
+  assigned from the body, so a PUT that leaves out `salesman_id` turns a
+  person's target into **the firm's**, one that leaves out `basis` makes it
+  INVOICED, and `notes` clears (D-TER-8). `If-Match` is honoured.
+- **"One target per scope and period" compares `period_start` alone.** A
+  quarterly target from the 1st is refused because the monthly one starts that
+  day, while a second target from the 2nd — overlapping the first entirely — is
+  accepted (D-TER-2).
+- **Delete** sets `is_deleted` and nothing else: `deleted_at` and `deleted_by`
+  stay NULL *(not seen in a live row — no store holds a deleted target)*.
+- **Not checked:** the salesperson or the territory, which may be anybody's or
+  nobody's (D-TER-15).
+- **Audit:** `sales_target.created` (start date and amount), `.updated` and
+  `.deleted` (the amount) — a changed person, node, period or basis is on no
+  trail.
+- **Check:**
+  ```sql
+  select g.status, g.salesman_id, t.code as territory, g.period_start, g.period_end,
+         g.period_type, g.basis, g.target_amount, g.is_deleted, g.deleted_at, g.version
+  from   fx_<suffix>_t.sales_targets g
+  left   join fx_<suffix>_t.sales_territories t on t.id = g.territory_id
+  order  by g.period_start, g.created_at;
+  ```
+- **Confirmed:** a PUT of Asha's target naming only its dates and amount
+  answered 200 with `salesman_id: null`, the achievement row read "Whole firm"
+  at 10,620.00, and her `target_met` went from true to null; the same-day
+  quarterly target 409 and the one from 2026-09-02 201; `PAUSED` 201.
+
+### 17.16 Achievement, and what it decides — Targets → Achievement (TC-INCENT-006)
+
+`GET /api/v1/sales-targets/achievement?from_date=&to_date=&salesman_id=`,
+`SALES_TARGET_VIEW`. **Writes nothing.**
+
+- Every ACTIVE target whose period **overlaps** the window is reported, each
+  measured over **its own** dates and on its own basis: INVOICED sums
+  `grand_total` of APPROVED and CLOSED bills dated in the period, COLLECTED the
+  same allocation walk as §17.11. Credit notes and returns take nothing off
+  either (D-TER-3).
+- **A person is matched on `sales_invoices.salesman_id`, a node on
+  `sales_invoices.territory_id` exactly.** A document is tagged with the node
+  its customer is assigned to — the route — so a target set on a Territory or a
+  Region **achieves nothing**, however much its routes sell; the row is also
+  labelled "Whole firm", which is what a target with no person is called
+  (D-TER-12).
+- **The commission bonus reads this, summed.** `_targets_met` adds every
+  target's amount and every target's achievement for a person and compares the
+  totals. Two targets over the same days therefore count the same sales twice:
+  4,720.00 sold against 8,000.00 is missed, and adding a second target of
+  1,000.00 from the 2nd makes it 9,440.00 against 9,000.00 — **met**, and the
+  2% bonus is paid (D-TER-2). A target naming only a node decides nobody's
+  bonus.
+- **Confirmed:** Asha 1,000.00 / 5,900.00 met and Bala 100,000.00 / 4,720.00
+  missed, as TC-INCENT-006 records; the Region's 5,000.00 target at 0.00 with
+  10,620.00 invoiced beneath it; Bala's report row 94.40 with his target at
+  8,000.00 and **188.80** once the second target existed.
+
+### 17.17 What these modules do not write, and is often looked for
+
+| You might expect | What actually happens |
+| --- | --- |
+| A stored call list, visit or check-in | Computed on every read; visit execution is not built (`docs/TERRITORY_FRAMEWORK.md`) |
+| A stored commission figure before accrual | The report is recomputed on every read; only `commission_payouts` remembers a number |
+| A payout that follows a reversed receipt or a corrected rate | Never: it is a snapshot. Cancel it while it is DRAFT or APPROVED and accrue again |
+| A credit note, return or refund taken off commission or a target | Neither reads them (§17.11, §17.16) |
+| A margin rule | `measure` is dropped on the way in; only the demo seeder's direct write is MARGIN (§17.10) |
+| Who approved and who paid, on the payout | Only on the three audit rows' `actor_id` |
+| Who joined or left a round, and in what order | `customers_set` records a count (§17.4) |
+| The route profile's old window | Overwritten; `sales_territory.updated` carries the code and path only |
+| A document retagged when a shop changes round | Never: the three ids are written once, and a note or invoice inherits them |
+| A salesperson taken off their rounds when they leave | Nothing touches the firm store (§17.5) |
+| A foreign key from a rule, payout or target to a person | None in any store (§17.0) |
+| A journal from a DRAFT or a cancelled-from-DRAFT payout | None: only approval posts |
+| Commission net of tax or freight | Measured on `grand_total`; an open question, not a defect (`docs/COMMISSION_FRAMEWORK.md`) |
+
+### 17.18 Checked against live rows, and not
+
+- **Confirmed by driving** (2026-09-19, 20:55–21:05 IST, `commission-firm`
+  `t0919tkvs`, schema `fx_t0919tkvs_t`): `measure` dropped on a PUT and a POST;
+  an unknown salesman accepted on a rule, a target and a quotation, and refused
+  on an order; a salesperson holding `ACCOUNTANT` accruing, adjusting by
+  +5,000.00, approving and paying his own payout, from 2400 into 2400, dated 29
+  days before the accrual; `status` refused on the payout update; an approved
+  payout cancelled and its `-REV` posted; a period accrued before it ended and
+  one running 10 September to 15 October; an August advance applied to a
+  September bill counted in August; a second, overlapping target turning a
+  missed target into a met one and 94.40 into 188.80; a credit note for a whole
+  bill changing nothing in the report or the achievement; a territory PUT
+  without `route_profile` deleting the profile, and a target PUT without
+  `salesman_id` making it the firm's; an order keeping a closed route and
+  another round's route as sent, and a blank one leaving the closed route off;
+  a shop refused back on to a round it had been primary on; a Region target
+  achieving 0.00; a deleted route still called, and renamed while deleted; a
+  deleted salesperson derived on to an order whose delivery note was then
+  refused. **What the drives left** in `fx_t0919tkvs_t`: payouts
+  `COMM-202609-9b8f08c7` (PAID, 5,094.40) and `-b238684f` (CANCELLED) and a
+  DRAFT for 2026-09-10 to 2026-10-15; an INACTIVE 9% rule and an ACTIVE 1% rule
+  for nobody; six targets beyond the fixture's two; S1 closed at 2026-06-30;
+  `T0919TKVS-C1` on S1 instead of N1; deleted node `T0919TKVS-R-X2` with plan
+  `T0919TKVS-BP-X`; orders SO-2026-2027-000004 to -000008, QT-2026-2027-000001,
+  RC-2026-2027-000004, SI-2026-2027-000004, CN-2026-2027-000001; and Asha's
+  account deleted in `platform`.
+- **Confirmed from the tables** (read only, 59 schemas plus
+  `electrolink_ops`): every audit action these modules have written anywhere,
+  and that **every one carries its firm** (the platform-only geography rows
+  of §14.12 excepted); no salesman foreign key in any store; the unique
+  indexes on all eight tables and which are partial; every live rule COLLECTED
+  and PERCENT, and MARGIN only on the seeder's product rule (WHOLE01 one,
+  `firm_shared` two, ELEC01 one), which `generate_transaction_history.py`
+  corrects in place on the column rather than through the service; fifteen
+  posted commission journals in the four stores that held any (WHOLE01,
+  `firm_shared`, ELEC01, `fx_t0916zqbt_t`), accruals and `-PAY` entries with
+  no `-REV` anywhere before this pass; WHOLE01's three CANCELLED payouts
+  carrying no journal, having been cancelled as drafts; no order anywhere tagged
+  to a route outside its territory or its window before this pass; no customer
+  assigned to another firm's territory in `firm_shared`; no
+  `sales_beat_plan_customer_stops` or `address_masters` row in any store; one
+  windowed route profile in WHOLE01 and none elsewhere.
+- **Not seen in a live row:** an INVOICED or per-unit rule, a cap, or a MIXED
+  payout; a margin line with a NULL cost in a report (the unit suite holds it,
+  `tests/unit/test_margin_commission.py`); the accrual race
+  (`UQ_commission_payouts_period_active` is there; TC-CONC-006 drives the read
+  that precedes it); an approval refused for want of an open period; a copy
+  refused partway, or one that took a sibling's subtree; an import; a restore;
+  a bulk move; a deleted target; the two hierarchy settings switched off; a
+  plan with outlet stops of its own; another firm's level or route type on a
+  node in `firm_shared`.
