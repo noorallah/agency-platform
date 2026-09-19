@@ -973,7 +973,9 @@ class IdentityService:
             data: The new person's own details.
             actor_id: Who is doing the hiring.
             firm_scope: The caller's firm, or None for a platform caller.
-            allowed_firm_ids: The firms the caller may staff, or None for all.
+            allowed_firm_ids: The firms the caller may staff, or None for all;
+                every firm the clone would join, and every firm-tier role
+                copied, must be among them.
 
         Returns:
             The new user.
@@ -981,6 +983,7 @@ class IdentityService:
         """
         target = self._target_firm(firm_scope, data.firm_id)
         source = self._get_user(source_id, target)
+        self._assert_clone_within_reach(source.id, target, allowed_firm_ids)
         firm_tier = (
             self._firm_roles_held_by(source.id, allowed_firm_ids)
             if target is None
@@ -1069,6 +1072,50 @@ class IdentityService:
                 .distinct()
             )
         )
+
+    def _assert_clone_within_reach(
+        self,
+        source_id: UUID,
+        target: UUID | None,
+        allowed_firm_ids: frozenset[UUID] | None,
+    ) -> None:
+        """Hold a clone's memberships to the reach a membership write is held to.
+
+        A clone puts the new person in firms -- the named one, or every firm
+        the source works in -- and `PUT /users/{id}/firms` refuses any firm
+        outside `_firms_the_caller_may_staff`. The clone did not look, so a
+        `PLATFORM` operator, refused every direct membership write, could
+        staff any firm by copying somebody who worked there (D-IDN-6). The
+        same reach now applies, refused by firm code before the account is
+        opened, as the direct write refuses by name rather than dropping.
+
+        Raises:
+            BusinessRuleError: If a firm the clone would join is out of reach.
+
+        """
+        if allowed_firm_ids is None:
+            return
+        if target is not None:
+            joining = {target}
+        else:
+            joining = set(
+                self._session.scalars(
+                    select(UserFirm.firm_id).where(
+                        UserFirm.user_id == source_id,
+                        UserFirm.is_active.is_(True),
+                        UserFirm.is_deleted.is_(False),
+                    )
+                )
+            )
+        beyond = joining - allowed_firm_ids
+        if beyond:
+            codes = sorted(
+                self._session.scalars(select(Firm.code).where(Firm.id.in_(beyond)))
+            )
+            raise BusinessRuleError(
+                "You can only assign firms you administer. This copy would put "
+                f"the new person in: {', '.join(codes)}."
+            )
 
     def _firm_roles_held_by(
         self, user_id: UUID, allowed_firm_ids: frozenset[UUID] | None
@@ -1838,11 +1885,18 @@ class IdentityService:
         actor_id: UUID,
         firm_scope: UUID | None = None,
     ) -> None:
-        """Replace a user's role set without committing (see `_stage_create_user`)."""
+        """Replace a user's role set without committing (see `_stage_create_user`).
+
+        The no-self-grant check lives here rather than on the wrapper, so it
+        holds for every composed caller too -- applying a job template to
+        yourself is the same decision as granting yourself the roles (D-IDN-1).
+        """
+        self._assert_not_own_access(user_id, actor_id)
         user = self._get_user(user_id, firm_scope)
         self._ensure_identifiers(Role, role_ids)
         before_codes = self._role_codes(self._held_role_ids(user.id, firm_scope))
         if firm_scope is None:
+            self._assert_global_grant_within_ceiling(role_ids, actor_id)
             # The **global** set: `firm_id IS NULL`, which applies in every
             # firm the person belongs to. Only a platform administrator writes
             # these, and a firm administrator can neither edit nor remove one.
@@ -1924,6 +1978,7 @@ class IdentityService:
             The resulting memberships.
 
         """
+        self._assert_not_own_access(user_id, actor_id)
         user = self._get_user_for_update(user_id)
         if allowed_firm_ids is not None:
             assignments = self._merged_within_reach(
@@ -2360,6 +2415,17 @@ class IdentityService:
         # Computed for a `PLATFORM` administrator too. They have no exemption,
         # so if they hold a real membership they act there as whatever their
         # roles make them -- and the desktop needs the map to know it.
+        #
+        # **Their roles in that firm, and only those.** For everybody else a
+        # global seeded firm role applies in each of their firms; for a
+        # `PLATFORM` operator it must not, or one global `FIRM_ADMIN` row --
+        # which they held `ROLE_ASSIGN` to write -- makes them a firm
+        # administrator everywhere they are a member (D-IDN-1). This is the
+        # token's half of the narrowing: the global `permissions` claim above
+        # already ignores their role rows, and the membership exemption and
+        # the short-circuit are withheld by `Principal`; all three agree that
+        # the operator reaches a firm's books only through a grant made in
+        # that firm.
         if not acts_in_every_firm:
             memberships = list(
                 self._session.scalars(
@@ -2371,6 +2437,14 @@ class IdentityService:
                 )
             )
             for firm_id in memberships:
+                reaches_firm: ColumnElement[bool] = (
+                    UserRole.firm_id == firm_id
+                    if is_platform_admin
+                    else or_(
+                        UserRole.firm_id == firm_id,
+                        (UserRole.firm_id.is_(None) & Role.code.in_(FIRM_ROLE_CODES)),
+                    )
+                )
                 firm_permissions[str(firm_id)] = list(
                     self._session.scalars(
                         select(Permission.code)
@@ -2379,13 +2453,7 @@ class IdentityService:
                         .join(UserRole, UserRole.role_id == RolePermission.role_id)
                         .where(
                             UserRole.user_id == user.id,
-                            or_(
-                                UserRole.firm_id == firm_id,
-                                (
-                                    UserRole.firm_id.is_(None)
-                                    & Role.code.in_(FIRM_ROLE_CODES)
-                                ),
-                            ),
+                            reaches_firm,
                             UserRole.is_deleted.is_(False),
                             RolePermission.is_deleted.is_(False),
                             Role.is_deleted.is_(False),
@@ -2871,6 +2939,7 @@ class IdentityService:
         is what makes a firm administrator's edit an override without any
         precedence rule to reason about.
         """
+        self._assert_not_own_access(user_id, actor_id)
         if allowed_firm_ids is not None and firm_id not in allowed_firm_ids:
             raise BusinessRuleError("You can only set roles in firms you administer.")
         user = self._get_user(user_id, firm_id if allowed_firm_ids else None)
@@ -3062,6 +3131,79 @@ class IdentityService:
         if code.strip().lower() in self._RESERVED_ROLE_CODES:
             raise BusinessRuleError(
                 f"'{code}' is reserved. Choose a different role code."
+            )
+
+    @staticmethod
+    def _assert_not_own_access(user_id: UUID, actor_id: UUID) -> None:
+        """Refuse an administrator changing what they themselves may do.
+
+        Every grant route -- the global role set, one firm's role set, a job
+        template, the membership list -- is somebody else's decision about
+        you. Letting the caller aim one at their own row is how a `PLATFORM`
+        operator, who holds `ROLE_ASSIGN` for the platform's sake, could hand
+        themselves `FIRM_ADMIN` in every firm they belong to (D-IDN-1). The
+        separation-of-duties answer is the ordinary one: a second
+        administrator makes the change, and the audit trail shows who.
+
+        Raises:
+            BusinessRuleError: If the caller names their own account.
+
+        """
+        if user_id == actor_id:
+            raise BusinessRuleError(
+                "You cannot change your own roles or firm memberships. Ask "
+                "another administrator to make the change."
+            )
+
+    def _assert_global_grant_within_ceiling(
+        self, role_ids: list[UUID], actor_id: UUID
+    ) -> None:
+        """Refuse a `PLATFORM` operator granting firm access in the global tier.
+
+        A global role applies in every firm the holder belongs to: a seeded
+        firm role lands in `firm_permissions` for each membership, and any
+        other role's codes land in the global `permissions` claim, which
+        `has_permission` reads in every firm. The operator's own ceiling is
+        `PLATFORM_OPERATOR_PERMISSION_CODES` -- run the platform, never a
+        firm's books -- and nobody may grant more than they hold, so a global
+        role reaching past that ceiling is theirs to request and an
+        `ALL_FIRMS` administrator's to grant.
+
+        Keyed on the actor's `platform_admins` row rather than on the token,
+        so it holds whichever route reaches it.
+
+        Raises:
+            BusinessRuleError: If any role would confer firm permissions.
+
+        """
+        if self._platform_admin_scope(actor_id) is not PlatformAdminScope.PLATFORM:
+            return
+        if not role_ids:
+            return
+        beyond_ceiling = (
+            select(RolePermission.id)
+            .join(Permission, Permission.id == RolePermission.permission_id)
+            .where(
+                RolePermission.role_id == Role.id,
+                RolePermission.is_deleted.is_(False),
+                Permission.is_deleted.is_(False),
+                Permission.code.not_in(PLATFORM_OPERATOR_PERMISSION_CODES),
+            )
+            .exists()
+        )
+        refused = sorted(
+            self._session.scalars(
+                select(Role.code).where(
+                    Role.id.in_(role_ids),
+                    or_(Role.code.in_(FIRM_ROLE_CODES), beyond_ceiling),
+                )
+            )
+        )
+        if refused:
+            raise BusinessRuleError(
+                "A platform operator cannot grant firm access in every firm: "
+                f"{', '.join(refused)}. The firm's own administrator, or an "
+                "administrator whose reach is every firm, can grant it."
             )
 
     # ------------------------------------------------------------------

@@ -221,6 +221,8 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
         // The server refuses a moved limit without it; the form says so first.
         mayChangeCreditLimit:
             widget.permissions.hasPermission('CUSTOMER_MANAGE_SETTINGS'),
+        mayChangeStandingDiscount:
+            widget.permissions.hasPermission('CUSTOMER_MANAGE_SETTINGS'),
       ),
     );
     if (saved == null || !mounted) return;
@@ -687,6 +689,7 @@ class CustomerWorkspaceDialog extends StatefulWidget {
     this.loadAttributes,
     this.loadGroups,
     this.mayChangeCreditLimit = true,
+    this.mayChangeStandingDiscount = true,
   });
 
   final CustomerDialogMode mode;
@@ -716,6 +719,13 @@ class CustomerWorkspaceDialog extends StatefulWidget {
   /// and not editable. A new customer's limit stays editable: it can only
   /// tighten one that otherwise starts with none.
   final bool mayChangeCreditLimit;
+
+  /// Whether the user holds `CUSTOMER_MANAGE_SETTINGS`. A standing discount
+  /// is a price decision -- a segment's rate already takes this code -- so
+  /// whoever sells on it must not be the one who sets it (D-MST-2). Without
+  /// it the rate is shown and not editable, on a new customer as well: the
+  /// server refuses a new customer that starts with one just the same.
+  final bool mayChangeStandingDiscount;
 
   @override
   State<CustomerWorkspaceDialog> createState() =>
@@ -1152,6 +1162,9 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
               nonNegative: true,
               maximum: 100,
               blankIsZero: true,
+              locked: !widget.mayChangeStandingDiscount,
+              lockedHelper: 'Setting a standing discount needs the manage '
+                  'customer settings permission.',
             ),
             _number('opening_balance', 'Opening balance'),
             _number(

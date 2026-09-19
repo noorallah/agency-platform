@@ -248,7 +248,14 @@ def create_customer(
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required when creating a customer.")
     customer = CustomerService(db).create(
-        data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        data,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        # A standing discount is a price decision, so giving one takes the code
+        # that writes a segment's rate, not the one that adds a shop (D-MST-2).
+        may_set_standing_discount=scope.principal.has_permission(
+            "CUSTOMER_MANAGE_SETTINGS"
+        ),
     )
     return ApiResponse(data=_response(customer, db))
 
@@ -270,6 +277,9 @@ def import_customers(
         data.records,
         firm_id=scope.firm_id,
         actor_id=scope.actor_id,
+        may_set_standing_discount=scope.principal.has_permission(
+            "CUSTOMER_MANAGE_SETTINGS"
+        ),
     )
     return ApiResponse(data=[_response(customer, db) for customer in customers])
 
@@ -461,6 +471,11 @@ def update_customer(
         # writes the credit policy rather than the one that edits a phone
         # number (D-CFG-17).
         may_change_credit_limit=scope.principal.has_permission(
+            "CUSTOMER_MANAGE_SETTINGS"
+        ),
+        # So is the standing discount: whoever sells at a price must not be
+        # the one who sets it (D-MST-2).
+        may_change_standing_discount=scope.principal.has_permission(
             "CUSTOMER_MANAGE_SETTINGS"
         ),
     )

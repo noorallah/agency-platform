@@ -48,6 +48,11 @@ from app.identity.system_seed import (
     seed_system_rbac,
 )
 
+#: Who makes the grants below. Nobody may change their own roles or
+#: memberships (D-IDN-1), so these tests use an administrator other than the
+#: person being changed -- they used to pass the person as their own actor.
+ADMINISTRATOR = uuid4()
+
 
 def _session() -> Session:
     """Create a portable in-memory unit-test session for service policies."""
@@ -450,9 +455,11 @@ def test_firm_admin_identity_scope_blocks_cross_firm_and_platform_roles() -> Non
     assert firm_role is not None
     with pytest.raises(BusinessRuleError, match="Platform or cross-firm"):
         service.set_user_roles(
-            user_a.id, [platform_role.id], user_a.id, firm_scope=firm_a.id
+            user_a.id, [platform_role.id], ADMINISTRATOR, firm_scope=firm_a.id
         )
-    service.set_user_roles(user_a.id, [firm_role.id], user_a.id, firm_scope=firm_a.id)
+    service.set_user_roles(
+        user_a.id, [firm_role.id], ADMINISTRATOR, firm_scope=firm_a.id
+    )
     assignment = session.scalar(
         select(UserRole).where(
             UserRole.user_id == user_a.id,
@@ -503,7 +510,7 @@ def test_assignment_replacement_reuses_existing_rows() -> None:
     session.commit()
     service = IdentityService(session, _settings())
 
-    service.set_user_roles(user.id, [role_one.id], user.id)
+    service.set_user_roles(user.id, [role_one.id], ADMINISTRATOR)
     user_role = session.scalar(
         select(UserRole).where(
             UserRole.user_id == user.id, UserRole.role_id == role_one.id
@@ -511,12 +518,12 @@ def test_assignment_replacement_reuses_existing_rows() -> None:
     )
     assert user_role is not None
     original_user_role_id = user_role.id
-    service.set_user_roles(user.id, [role_one.id], user.id)
+    service.set_user_roles(user.id, [role_one.id], ADMINISTRATOR)
     assert session.scalar(select(UserRole).where(UserRole.id == original_user_role_id))
     assert len(session.scalars(select(UserRole)).all()) == 1
 
-    service.set_user_roles(user.id, [role_two.id], user.id)
-    service.set_user_roles(user.id, [role_one.id, role_two.id], user.id)
+    service.set_user_roles(user.id, [role_two.id], ADMINISTRATOR)
+    service.set_user_roles(user.id, [role_one.id, role_two.id], ADMINISTRATOR)
     user_roles = {
         item.role_id: item for item in session.scalars(select(UserRole)).all()
     }
@@ -549,7 +556,7 @@ def test_assignment_replacement_reuses_existing_rows() -> None:
     first_assignment = UserFirmAssignment(
         firm_id=firm_one.id, is_primary=True, is_active=True
     )
-    service.set_user_firms(user.id, [first_assignment], user.id)
+    service.set_user_firms(user.id, [first_assignment], ADMINISTRATOR)
     user_firm = session.scalar(
         select(UserFirm).where(
             UserFirm.user_id == user.id, UserFirm.firm_id == firm_one.id
@@ -558,16 +565,18 @@ def test_assignment_replacement_reuses_existing_rows() -> None:
     assert user_firm is not None
     original_user_firm_id = user_firm.id
     original_created_by = user_firm.created_by
-    service.set_user_firms(user.id, [first_assignment], user.id)
+    service.set_user_firms(user.id, [first_assignment], ADMINISTRATOR)
 
     second_assignment = UserFirmAssignment(
         firm_id=firm_two.id, is_primary=True, is_active=True
     )
-    service.set_user_firms(user.id, [second_assignment], user.id)
+    service.set_user_firms(user.id, [second_assignment], ADMINISTRATOR)
     restored_assignment = UserFirmAssignment(
         firm_id=firm_one.id, is_primary=False, is_active=True
     )
-    service.set_user_firms(user.id, [restored_assignment, second_assignment], user.id)
+    service.set_user_firms(
+        user.id, [restored_assignment, second_assignment], ADMINISTRATOR
+    )
     user_firms = {
         item.firm_id: item for item in session.scalars(select(UserFirm)).all()
     }
@@ -584,7 +593,7 @@ def test_assignment_replacement_reuses_existing_rows() -> None:
             UserFirmAssignment(firm_id=firm_one.id, is_primary=False, is_active=True),
             UserFirmAssignment(firm_id=firm_two.id, is_primary=False, is_active=True),
         ],
-        user.id,
+        ADMINISTRATOR,
     )
     assert not any(
         item.is_primary
@@ -605,7 +614,7 @@ def test_assignment_replacement_reuses_existing_rows() -> None:
                     firm_id=firm_two.id, is_primary=True, is_active=True
                 ),
             ],
-            user.id,
+            ADMINISTRATOR,
         )
 
 
@@ -645,7 +654,7 @@ def test_primary_switch_respects_partial_unique_index() -> None:
     service.set_user_firms(
         user.id,
         [UserFirmAssignment(firm_id=firm_one.id, is_primary=True, is_active=True)],
-        user.id,
+        ADMINISTRATOR,
     )
 
     service.set_user_firms(
@@ -654,7 +663,7 @@ def test_primary_switch_respects_partial_unique_index() -> None:
             UserFirmAssignment(firm_id=firm_two.id, is_primary=True, is_active=True),
             UserFirmAssignment(firm_id=firm_one.id, is_primary=False, is_active=True),
         ],
-        user.id,
+        ADMINISTRATOR,
     )
 
     memberships = {
@@ -709,7 +718,7 @@ def test_user_preferences_are_versioned_and_require_active_firm_membership() -> 
                 firm_id=inactive_firm.id, is_primary=False, is_active=False
             ),
         ],
-        user.id,
+        ADMINISTRATOR,
     )
     updated = service.update_user_preferences(
         user.id,

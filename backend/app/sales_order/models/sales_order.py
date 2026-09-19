@@ -109,6 +109,15 @@ class SalesOrder(BaseEntity):
     freight_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: What a free-shipping offer took off the delivery charge asked for.
+    #: `freight_amount` is what is charged; the two together are what the
+    #: customer was asked, which is what an editor refills and what a save
+    #: prices again -- otherwise a lapsed offer's waiver is baked into the
+    #: order and the charge can never come back (D-SELL-35, the order twin of
+    #: D-SELL-34 on the quotation).
+    freight_waived_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
     line_discount_total: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )

@@ -66,9 +66,23 @@ class CustomerService:
         self._posting = DocumentPostingService(session)
 
     def create(
-        self, data: CustomerCreate, *, firm_id: UUID, actor_id: UUID
+        self,
+        data: CustomerCreate,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        may_set_standing_discount: bool = False,
     ) -> Customer:
-        """Create a firm-owned customer and all nested records."""
+        """Create a firm-owned customer and all nested records.
+
+        ``may_set_standing_discount`` says the caller holds
+        ``CUSTOMER_MANAGE_SETTINGS``; without it the customer starts at no
+        standing discount, which is what a form that leaves the box alone
+        sends (D-MST-2).
+        """
+        self._assert_may_set_standing_discount(
+            [data], allowed=may_set_standing_discount
+        )
         try:
             customer = self._stage_create(data, firm_id=firm_id, actor_id=actor_id)
         except IntegrityError as error:
@@ -83,8 +97,17 @@ class CustomerService:
         *,
         firm_id: UUID,
         actor_id: UUID,
+        may_set_standing_discount: bool = False,
     ) -> list[Customer]:
-        """Create a validated customer batch in one transaction."""
+        """Create a validated customer batch in one transaction.
+
+        A file is a second way to write the same fields, so it takes the same
+        code for a standing discount as the form does, and every row is judged
+        before any is staged.
+        """
+        self._assert_may_set_standing_discount(
+            records, allowed=may_set_standing_discount
+        )
         try:
             customers = [
                 self._stage_create(data, firm_id=firm_id, actor_id=actor_id)
@@ -162,12 +185,14 @@ class CustomerService:
         firm_scope: UUID | None,
         actor_id: UUID,
         may_change_credit_limit: bool = False,
+        may_change_standing_discount: bool = False,
     ) -> Customer:
         """Replace customer fields and reconcile addresses and contacts.
 
-        ``may_change_credit_limit`` says the caller holds
-        ``CUSTOMER_MANAGE_SETTINGS``. Without it a save that moves the limit is
-        refused by name, and one that resends the stored figure goes through.
+        ``may_change_credit_limit`` and ``may_change_standing_discount`` each
+        say the caller holds ``CUSTOMER_MANAGE_SETTINGS``. Without it a save
+        that moves the limit or the standing discount is refused by name, and
+        one that resends the stored figure goes through.
         """
         customer = self.get(customer_id, firm_scope=firm_scope)
         self._assert_unique(customer.firm_id, data, excluding_id=customer.id)
@@ -180,6 +205,9 @@ class CustomerService:
         values = self._customer_values(data, partial=True)
         self._assert_may_change_credit_limit(
             customer, values, allowed=may_change_credit_limit
+        )
+        self._assert_may_change_standing_discount(
+            customer, values, allowed=may_change_standing_discount
         )
         # The dump is untyped, so the figure is read back as a Decimal before
         # any of the balance arithmetic below touches it.
@@ -607,6 +635,52 @@ class CustomerService:
                 "Changing a customer's credit limit needs the manage customer "
                 "settings permission (CUSTOMER_MANAGE_SETTINGS)."
             )
+
+    @staticmethod
+    def _assert_may_change_standing_discount(
+        customer: Customer, values: dict[str, object], *, allowed: bool
+    ) -> None:
+        """Refuse a standing-discount change from somebody who sells on it.
+
+        The rate is the customer tier of the shared discount rule -- above the
+        price list and the segment -- and a segment's rate already takes
+        `CUSTOMER_MANAGE_SETTINGS`. The customer's own rate rode on
+        `CUSTOMER_UPDATE`, so the sales manager refused the credit limit
+        (D-CFG-17) could set 100% instead and bill an order at nothing
+        (D-MST-2). Whoever sells at a price must not be the one who sets it:
+        moving the rate, down as well as up, takes the settings code. A form
+        resending the stored figure is not a change and is not refused.
+        """
+        if allowed or "default_discount_percent" not in values:
+            return
+        sent = Decimal(str(values["default_discount_percent"]))
+        if sent != customer.default_discount_percent:
+            raise AuthorizationError(
+                "Changing a customer's standing discount needs the manage "
+                "customer settings permission (CUSTOMER_MANAGE_SETTINGS)."
+            )
+
+    @staticmethod
+    def _assert_may_set_standing_discount(
+        records: list[CustomerCreate], *, allowed: bool
+    ) -> None:
+        """Refuse a new customer that starts with a standing discount.
+
+        Creating a customer at 100% off is the same act as editing one to it,
+        so the form and the import both answer to the same code. Zero -- the
+        default, and what a form that leaves the box alone sends -- is not a
+        discount and is never refused.
+        """
+        if allowed:
+            return
+        for data in records:
+            if data.default_discount_percent != 0:
+                raise AuthorizationError(
+                    f"{data.code}: giving a customer a standing discount needs "
+                    "the manage customer settings permission "
+                    "(CUSTOMER_MANAGE_SETTINGS). Leave it at zero, or ask "
+                    "somebody who holds it."
+                )
 
     @staticmethod
     def _customer_values(

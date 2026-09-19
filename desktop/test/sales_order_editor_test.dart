@@ -573,6 +573,50 @@ void main() {
       expect(api.updated!['bill_discount_amount'], '50.0000');
     });
 
+    testWidgets('an edit keeps the delivery charge the order asked for',
+        (tester) async {
+      // The editor never sent one back at all where the box was empty, and
+      // the update replaces the whole document with what is sent.
+      final _OrderApi api = _api()
+        ..existing = (_draft()..['freight_amount'] = '150.0000');
+      await _pump(tester, api, orderId: 'so-1');
+
+      expect(find.text('150.0000'), findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, 'Save order'));
+      await tester.pumpAndSettle();
+
+      expect(api.updated!['freight_amount'], '150.0000');
+    });
+
+    testWidgets('an edit asks again for a delivery charge an offer waived',
+        (tester) async {
+      // Free shipping took the whole charge, so the order stores nothing
+      // charged and 150 waived. Sending the charged figure back would bake
+      // the waiver in: if the edit no longer qualifies, the charge could
+      // never come back (D-SELL-35).
+      final _OrderApi api = _api()
+        ..existing = (_draft()
+          ..['freight_amount'] = '0.0000'
+          ..['freight_waived_amount'] = '150.0000');
+      await _pump(tester, api, orderId: 'so-1');
+
+      expect(find.text('150.0000'), findsOneWidget);
+      await tester.tap(find.widgetWithText(FilledButton, 'Save order'));
+      await tester.pumpAndSettle();
+
+      expect(api.updated!['freight_amount'], '150.0000');
+    });
+
+    testWidgets('an edit of an order with no delivery charge sends none',
+        (tester) async {
+      final _OrderApi api = _api()..existing = _draft();
+      await _pump(tester, api, orderId: 'so-1');
+      await tester.tap(find.widgetWithText(FilledButton, 'Save order'));
+      await tester.pumpAndSettle();
+
+      expect(api.updated!.containsKey('freight_amount'), isFalse);
+    });
+
     testWidgets('a correction carries the version it read as the precondition',
         (tester) async {
       final _OrderApi api = _api()..existing = _draft(version: 6);
