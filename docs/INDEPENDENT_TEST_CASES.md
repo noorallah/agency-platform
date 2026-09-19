@@ -130,6 +130,7 @@ fifteen minutes.
   1. Sign in as the fixture's **Platform admin**; switch into **TEST01** → Masters → Customers; search `<SUFFIX>`.
   2. With the list open, switch to **TEST02**.
 - **Expect:** step 1 shows `<SUFFIX>-ONE`; after the switch the list reloads by itself and shows `<SUFFIX>-TWO` — **no row from TEST01 survives**, not even for a moment.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 and §14.17 — the switch writes only `platform.user_preferences.default_firm_id` (and an empty `user_preferences.updated`); each list then reads the other firm's store.
 - **Leaves:** unchanged.
 
 ### TC-SESS-002 — An idle session refreshes quietly, and a signed-out one leaves nothing behind
@@ -143,6 +144,7 @@ fifteen minutes.
 - **Expect**
   - Step 2: the list reloads; you are **not** asked to sign in again — the client refreshes once on a 401 and repeats the request.
   - Step 3: the sign-in screen stays; no cached screen is reachable.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.1 — the quiet refresh revokes the old `refresh_tokens` row and inserts the next with `replaced_by_id` pointing at it (audit `identity.refresh`); sign-out sets `revoked_at` on one row (audit `identity.logout`) and leaves the access token good for its 15 minutes (D-IDN-10).
 - **Leaves:** a firm admin user.
 
 ### TC-SESS-003 — Wrong passwords, a lockout, and a lock that counts down
@@ -161,6 +163,7 @@ fifteen minutes.
   - Step 4: refused the same way, with the time left. The lock is checked before the password is.
   - Step 5: at zero, "The lock on this account has lifted. You can sign in now." *(If you cannot wait, TC-SESS-004 lifts it.)*
 - **Data (HTTP):** the fifth attempt's refusal is **401** with code `account_locked` and `details.retry_after_seconds` 900 and `locked_until`. Table check: `scripts/sql/check_identity_data.sql` §5 shows the fifth as `locked` and the sixth as `account_locked`.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.1 — each attempt is one `login_history` row (`user_id` null for the unknown address); the fifth sets `users.locked_until` and `failed_login_attempts` 5.
 - **Leaves:** a locked target (for 15 minutes).
 
 ### TC-SESS-004 — A firm administrator clears a lock
@@ -173,6 +176,7 @@ fifteen minutes.
   3. Sign in as the target with `Fixture@2026pw`.
 - **Expect:** step 3 signs in at once — the lock cleared and the failed count reset. *(2.9's other way, waiting fifteen minutes, ends the same; TC-SESS-003 step 5 shows it.)*
 - **Data (HTTP):** the form sends `PATCH /api/v1/users/{id}` with `{"unlock": true}`.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.3 — `users.locked_until` null, `failed_login_attempts` 0, `authorization_version` +1; audit `user.updated` with TEST01 — a before (name, active flag) and no after, so the unlock itself is not named.
 - **Leaves:** an unlocked target.
 
 ### TC-SESS-005 — Inactive and expired accounts are told why
@@ -188,6 +192,7 @@ fifteen minutes.
   - Step 2, right password: "This account has expired. Ask an administrator to extend it."
   - Step 3: signs in.
   - **With a wrong password, all three answer "Invalid email or password."** — the state is named only to somebody who typed the right one. Fixed 2026-09-16; see defect **D-2-1**.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.1 and §15.3 — each Save is `user.updated` and moves `authorization_version`; the right password on an inactive or expired account writes `login_history` `failed` / `account_unavailable`, a wrong one `invalid_credentials`.
 - **Leaves:** the target active, no expiry.
 
 ### TC-SESS-006 — A password somebody else set must be changed
@@ -198,6 +203,7 @@ fifteen minutes.
   1. As the fixture's **Firm admin**, Users → New: `<suffix>.newbie@fixtures.local`, password `Welcome@123456`, **Require password change** on, in TEST01 → Save.
   2. Sign in as them. On the change-password screen try new passwords `Short@1`, then `LongEnoughPassw0rd`, then `Newbie-Passw0rd!`.
 - **Expect:** the change-password screen and nothing else reachable. `Short@1` refused ("Use at least 12 characters."); `LongEnoughPassw0rd` refused ("Include a symbol."); `Newbie-Passw0rd!` accepted and the app opens.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.2 in `platform` — the accepted change inserts one `password_history` row (the old hash), clears `force_password_change`, bumps `authorization_version` and writes `identity.password_changed`; the refused tries write nothing.
 - **Leaves:** a TEST01 user with their own password.
 
 ### TC-SESS-007 — Deleting somebody releases their address; the new account is a new person
@@ -208,6 +214,7 @@ fifteen minutes.
   1. As the fixture's **Platform admin**, Users → select the target → **Delete**.
   2. Users → New with the same email, any name and password, no firms or roles → Save.
 - **Expect:** step 1 — gone from the grid; Settings → Audit Logs keeps the row. Step 2 — the address is accepted again (soft delete releases it) and the new account has **no** roles and **no** firms.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.3 in `platform` — step 1 sets `users.is_deleted` and bumps the version (audit `user.deleted`, no firm from a platform administrator); step 2 is a second `users` row on the same address, which `UQ_users_email_active` allows because it is partial on `is_deleted = false`.
 - **Leaves:** a deleted target and a new, empty account on the same address.
 
 ### TC-SESS-008 — Restoring a deleted person as they were
@@ -222,6 +229,7 @@ fifteen minutes.
   - Step 1: status **Deleted**, Edit and Delete dead, View opens.
   - Step 2: back in the grid with TEST01 and SALES_EXECUTIVE; the old password works.
   - Step 3: refused — "Another live account now holds this email address. Delete that account first if this is the one to keep." Restore before re-onboarding, not after.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.3 in `platform` — Restore clears `is_deleted` and writes `user.restored` with no firm; the `user_firms` and `user_roles` rows were never touched, which is why they come back; the refusal writes nothing.
 - **Leaves:** a deleted target and a live account on its address (after step 3).
 
 ### TC-SESS-009 — Deleted people are a platform administrator's; inactive ones anybody's
@@ -238,6 +246,7 @@ fifteen minutes.
   - Step 2: **live** rows only — the flag is ignored for a firm caller.
   - Step 3: the target, and nobody active.
   - Step 4: the switched-off people from every firm, the target among them and no deleted ones; with TEST01 as well, only TEST01's inactive people.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.3 — reads only, except step 3's `user.updated`.
 - **Leaves:** an inactive target.
 
 ### TC-SESS-010 — Who may not be deleted
@@ -250,6 +259,7 @@ fifteen minutes.
 - **Expect**
   - Step 1: refused — "This person also works in another firm, so their profile is managed by a platform administrator. You can still set their roles and job template in your own firm."
   - Step 2: **422**, "Platform administrator users cannot be deleted."
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.3 — both refusals write nothing.
 - **Leaves:** unchanged.
 
 ### TC-SESS-011 — Setting somebody else's password
@@ -267,6 +277,7 @@ fifteen minutes.
   - Step 3: the app opens straight away: a handover, the password theirs to keep.
   - Step 4: refused — "Change your own password from My profile, where the current one is asked for."
   - Step 5: **no Reset password** in the footer. **(HTTP)** `POST /api/v1/users/{id}/password` as the firm admin → **403**.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.2 in `platform` — each reset inserts the old hash into `password_history`, sets `force_password_change` as chosen, clears the lock and bumps `authorization_version`; audit `user.password_reset` with `force_password_change`, no firm. The route takes the designation of either reach and never looks at the target's (D-IDN-2).
 - **Leaves:** the target on `Handover-Passw0rd!`.
 
 ### Known defects found while writing these cases
@@ -332,6 +343,7 @@ every query filtering by firm, so it is the one to check hardest.
 - **Expect**
   - Step 1: none. The switcher lists TEST01 alone.
   - Step 2: **403**, "You do not have permission to perform this action." — **not** an empty list, which would look like "no data" and hide the hole.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 — the refusal writes nothing. Firm-owned routes check the membership in `app/common/scope.py`; the identity routes take `X-Firm-ID` unchecked, which a holder of a global code could use (D-IDN-7).
 - **Leaves:** a firm admin user.
 
 ---
@@ -1580,6 +1592,7 @@ used to change `superadmin`'s scope by SQL and change it back. The
   where  u.email = '<suffix>.operator@fixtures.local';
   ```
   `PLATFORM`.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 — the operator's token carries the 33 operator codes globally and TEST01 and TEST02 in `firm_permissions` with nothing in either.
 - **Leaves:** a platform operator.
 
 ### TC-TIER-002 — A platform operator is refused the books, even where they are a member
@@ -1595,6 +1608,7 @@ used to change `superadmin`'s scope by SQL and change it back. The
   - Step 2: Platform, **TEST01** (primary) and **TEST02** — the two firms they are a member of, and **not** every firm. An `ALL_FIRMS` administrator is widened to every firm (TC-PLAT-003); a `PLATFORM` one is not, but memberships they genuinely hold still show.
   - Step 3: **no business modules**. A designation is a ceiling, not a floor, and they hold no role in TEST01.
 - **Data (HTTP):** `GET /api/v1/me/firms` as the operator → exactly TEST01 (`is_primary: true`) and TEST02.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 — the two `user_firms` rows are why TEST01 and TEST02 show; the operator can add no other (D-IDN-6), and one global `FIRM_ADMIN` row on their own account would open TEST01's books (D-IDN-1).
 - **Leaves:** a platform operator.
 
 ### TC-TIER-003 — The server agrees: no firm's books, all of the platform
@@ -1607,6 +1621,7 @@ used to change `superadmin`'s scope by SQL and change it back. The
 - **Expect**
   1. **403** on all three, "You do not have permission to perform this action." — although they are a member of TEST01. Not a rule of its own: a `PLATFORM` administrator is simply not exempt from the membership check, and meets it holding no role.
   2. **200** on all four.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 — reads only. The 403 holds while the operator holds no global-tier firm role — nothing stops them giving themselves one (D-IDN-1).
 - **Leaves:** a platform operator.
 
 ---
@@ -1637,6 +1652,7 @@ offered to every firm; cases count only the eleven.
   - Step 1: the **eleven** above with Origin **Platform**, each naming its roles — Counter Sales shows `BILLING_EXECUTIVE, CASHIER`.
   - Step 2: Edit and Delete **disabled**; the dialog subtitle reads "… · Provided by the platform". It is offered to every firm, so no one firm may change it.
   - Step 3: **422**, "Platform templates cannot be edited."
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.7 — the refused PATCH writes nothing; the eleven seeded templates are `is_system` rows in `platform.user_templates` — not the copies each firm store keeps (§15.0).
 - **Leaves:** a firm admin user.
 
 ### TC-TMPL-002 — A firm's own template, and an edit that keeps its roles
@@ -1658,6 +1674,7 @@ offered to every firm; cases count only the eleven.
   where  t.code = '<suffix>-night-counter';
   ```
   Two rows, `firm_id` = TEST01. Audit `user_template.created`, `user_template.updated`.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §5 and §15.7 — `user_template.created` / `.updated` carry TEST01's id and no data.
 - **Leaves:** a TEST01 template.
 
 ### TC-TMPL-003 — Hiring into a job in one step
@@ -1670,6 +1687,7 @@ offered to every firm; cases count only the eleven.
 - **Expect**
   - Step 1: created **and** holding `CASHIER` and `BILLING_EXECUTIVE` — one step, no second visit to the grid.
   - Step 2: exactly those two roles. The template field is optional.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.7 in `platform` — each Save writes `user.created`, `user.firms_set`, then `user_template.applied` + `user.roles_set` (step 1) or `user.roles_set` alone (step 2); `user.firms_set` carries no firm and is not on TEST01's Audit Logs (D-IDN-5).
 - **Leaves:** two users in TEST01.
 
 ### TC-TMPL-004 — When a job is named, the job decides
@@ -1684,6 +1702,7 @@ offered to every firm; cases count only the eleven.
   - Step 1: the helper text under **Roles in this firm** ends "Ignored when a job template is named above." Choosing the job **clears** ACCOUNTANT and **locks** the chips; clearing it unlocks them, empty.
   - Step 2: the user holds only `VIEWER`.
   - Step 3: **no Job template field** — it is create-only. A template is where somebody starts, and Apply job template on the grid is how to re-apply one.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.7 — the saved person's `user_roles` are Read Only's, TEST01-scoped; the rows as TC-TMPL-003.
 - **Leaves:** a TEST01 user holding VIEWER.
 
 ### TC-TMPL-005 — Applying a job replaces what somebody holds
@@ -1699,6 +1718,7 @@ offered to every firm; cases count only the eleven.
   - Step 2: only **Warehouse** remains (the search covers name, code, description and role). A filter that hides the chosen job clears the choice.
   - Step 3: their TEST01 roles become exactly `BILLING_EXECUTIVE` and `CASHIER` — `SALES_EXECUTIVE` and `CUSTOMER_SUPPORT` are gone.
 - **Data:** audit `user_template.applied` naming `template_code: counter-sales` and `role_codes`.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.7 — TEST01's `user_roles` rows soft-deleted and inserted, `authorization_version` +1.
 - **Leaves:** Manual Hire holding Counter Sales' roles.
 
 ### TC-TMPL-006 — A firm administrator's template writes the firm tier only
@@ -1710,6 +1730,7 @@ offered to every firm; cases count only the eleven.
   2. Sign in as the fixture's **Platform admin**, open the same user.
 - **Expect:** **Roles in every firm** still `VIEWER`, `CUSTOMER_SUPPORT`; **Roles in specific firms** now `TEST01: BILLING_EXECUTIVE · CASHIER` (was ACCOUNTANT, INVENTORY_MANAGER). A template overwrites the tier its caller writes and never touches the other.
 - **Data (HTTP)**, as the platform admin: `GET /api/v1/users/{id}/roles` → the two global ids; `GET /api/v1/users/{id}/firms/{TEST01 id}/roles` → the two Counter Sales ids.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 — only rows with `firm_id` TEST01 move.
 - **Leaves:** the user with a changed TEST01 tier.
 
 ### TC-TMPL-007 — A platform administrator's template writes the global tier only
@@ -1720,6 +1741,7 @@ offered to every firm; cases count only the eleven.
   1. As the fixture's **Platform admin**, Users → **Two Tier Hire (<suffix>)** → Apply job template → **Warehouse** → Apply.
   2. Reopen the user.
 - **Expect:** **Roles in every firm** becomes exactly `INVENTORY_MANAGER` (Warehouse carries that one role) — VIEWER and CUSTOMER_SUPPORT are gone — while **Roles in specific firms** still reads `TEST01: ACCOUNTANT · INVENTORY_MANAGER`, untouched. The desktop never names a firm on this call for a platform administrator. *(The plan said "four roles, a different four"; Warehouse has one role, so it is three.)*
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 and §15.7 — only rows with `firm_id` null move; `user_template.applied` and `user.roles_set` carry no firm, so neither is on TEST01's trail (D-IDN-5).
 - **Leaves:** the user with a changed global tier.
 
 ### TC-TMPL-008 — After a template, somebody is an ordinary user
@@ -1729,6 +1751,7 @@ offered to every firm; cases count only the eleven.
 - **Steps**
   1. As the fixture's **Firm admin**, edit **Two Tier Hire (<suffix>)**: under **Roles in this firm** remove `ACCOUNTANT`, add `CASHIER` → Save & Close → reopen.
 - **Expect:** `INVENTORY_MANAGER` and `CASHIER`. **Also applies here** (read-only, lower in the Security section) shows the global tier, `CUSTOMER_SUPPORT` and `VIEWER`, which a firm administrator cannot change. Nothing on the user records a template.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 — the TEST01 tier's rows only; audit `user.roles_set` with TEST01.
 - **Leaves:** the user with an edited TEST01 tier.
 
 ### TC-TMPL-009 — Somebody without role codes has no templates to see
@@ -1737,6 +1760,7 @@ offered to every firm; cases count only the eleven.
 - **Fixture:** `sales-executive`
 - **Steps:** sign in as the fixture's **Seller**; look for Administration.
 - **Expect:** **Administration is not offered at all**. `SALES_EXECUTIVE` holds `CUSTOMER_VIEW`, `SALES_VIEW`, `SALES_QUOTATION_CREATE`, `SALES_ORDER_CREATE`, `SALES_INVOICE_CREATE`, `TERRITORY_VIEW` — no `ROLE_VIEW`. **(HTTP)** `GET /api/v1/user-templates` with `X-Firm-ID` of TEST01 → **403**.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.7 — reads only.
 - **Leaves:** a seller.
 
 ### TC-TMPL-010 — Retiring a template is a decision about future hires
@@ -1751,6 +1775,7 @@ offered to every firm; cases count only the eleven.
   - Step 1: the row leaves the grid (a soft delete; there is no button called Retire).
   - Step 2: still `BILLING_EXECUTIVE` and `CASHIER`.
   - Step 3: the retired template is **not offered**.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.7 — `user_templates.is_deleted` true and `user_template.deleted`; the hire's `user_roles` are untouched.
 - **Leaves:** a retired template and the user it hired.
 
 ### TC-TMPL-011 — A template cannot bundle a platform role
@@ -1759,6 +1784,7 @@ offered to every firm; cases count only the eleven.
 - **Fixture:** `firm-admin`
 - **Steps (HTTP)** — find the `PLATFORM_ADMIN` role's id (`select id from platform.roles where code = 'PLATFORM_ADMIN'`; a firm admin's role list never shows it). As the fixture's firm admin, with `X-Firm-ID` of TEST01: `POST /api/v1/user-templates` `{"code": "<suffix>-bad", "name": "Bad", "role_ids": ["<that id>"]}`.
 - **Expect:** **422**, "A template cannot bundle platform or cross-firm roles." Nothing created. That role carries every permission code; a template able to name it would be a second door onto the same room.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.7 — the refusal writes nothing.
 - **Leaves:** a firm admin user.
 
 ---
@@ -1787,6 +1813,7 @@ digit, symbol.
   - Step 2: under each box — "Give the new person a name.", "An email is required.", "An initial password is required." Nothing created.
   - Step 3: "That is not an email." under Email.
   - Step 4: the **server** refuses, shown **on the dialog** in red: "Password does not meet the configured policy." with its reasons — must contain at least 12 characters, an uppercase letter, a digit, a symbol. Every box keeps what was typed.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.7 — every refusal writes nothing.
 - **Leaves:** a firm admin and a source seller; nothing cloned.
 
 ### TC-HIRE-002 — A clone gets the access, not the person
@@ -1807,6 +1834,7 @@ digit, symbol.
   from   platform.users where email = '<suffix>.clone@fixtures.local';
   ```
   `force_password_change` true until step 3, false after. Audit `user.cloned` carrying the source's id.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.7 — a firm administrator's clone copies the TEST01 tier into the TEST01 tier; a platform administrator's copies every tier into the global one (D-IDN-3), in three commits (D-IDN-8), and its copied memberships write no audit row.
 - **Leaves:** a clone in TEST01 with its own password.
 
 ### TC-HIRE-003 — A clone is a starting point, not a link
@@ -1818,6 +1846,7 @@ digit, symbol.
   2. Edit the clone: add `CUSTOMER_SUPPORT` under Roles in this firm → Save & Close.
   3. Open **Source Seller (<suffix>)**; close without saving.
 - **Expect:** the clone holds `SALES_EXECUTIVE` and `CUSTOMER_SUPPORT`; the source still holds exactly `SALES_EXECUTIVE`.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.7 — the edit writes the clone's `user_roles` alone; the source's rows and `authorization_version` do not move.
 - **Leaves:** a clone with one extra role.
 
 ### TC-HIRE-004 — Copying access is granting access
@@ -1830,6 +1859,7 @@ digit, symbol.
 - **Expect**
   - Step 1: **Administration is not offered**, so there is no Hire like this person.
   - Step 2: **403**. The action needs `ROLE_ASSIGN` — somebody who may open accounts but not grant access must not be able to copy access instead.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.7 — the 403 writes nothing.
 - **Leaves:** nothing new.
 
 ---
@@ -1851,6 +1881,7 @@ each case ends by deleting what it made.
 - **Fixture:** `platform-admin`
 - **Steps:** sign in as the fixture's **Platform admin** (on Platform) → Administration → **User Templates** → **New**.
 - **Expect:** the tab opens with no firm selected — it carries `requiresFirm: false`, since a platform operator has no firm of their own. The General section has an **Offered to** picker: one chip per firm reading `CODE · Name`, helper "Leave blank to offer this job to every firm." A firm administrator's form has no such field. It is create-only.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.7 — reads only; a template saved with a chip carries that firm's `firm_id`, and one saved blank carries none.
 - **Leaves:** nothing (cancel the form).
 
 ### TC-TMPL-013 — A job offered to one firm is not offered to another
@@ -1871,6 +1902,7 @@ each case ends by deleting what it made.
   where t.code = '<suffix>-t2-night';
   ```
   `TEST02`.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §5 and §15.10 — `user_template.created` carries TEST02's id, so it is on TEST02's trail and not TEST01's.
 - **Leaves:** nothing, once deleted.
 
 ### TC-TMPL-014 — A job offered to every firm is the platform's to change
@@ -1887,6 +1919,7 @@ each case ends by deleting what it made.
   - Step 2: listed, Origin **Every firm**, subtitle "… · Offered to every firm". **Edit** and **Delete** disabled.
   - Step 3: **422** on both, "This template is offered to every firm, so only a platform administrator can change or retire it."
   - Step 4: gone from every firm's list.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §5 and §15.7 — the platform's rows have `firm_id` null and audit with no firm; the firm administrator's refused writes leave nothing.
 - **Leaves:** nothing, once deleted.
 
 ### TC-TMPL-015 — A firm administrator cannot write a template for another firm
@@ -1897,6 +1930,7 @@ each case ends by deleting what it made.
 - **Expect:** **422**, "You can only act within your own firm." Nothing created. Refused, not silently redirected.
   - The `firm_id` need not be a real firm: for a firm caller any firm but their own takes the same branch, and a firm administrator cannot read `/api/v1/firms` to find one anyway.
   - `role_ids` must be non-empty and well formed, or validation refuses the body first and the case tests pydantic rather than the firm check. CASHIER's id: `select id from platform.roles where code = 'CASHIER'`.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.7 — the refusal writes nothing.
 - **Leaves:** a firm admin user.
 
 ---
@@ -1920,6 +1954,7 @@ their own firm, through **Roles by firm**.
   1. Sign in as the fixture's **Firm admin** → Administration → **Users**.
   2. Select **Manual Hire (<suffix>)** — in TEST01 only — → **Edit**.
 - **Expect:** **New** and **Edit** offered; the edit form opens normally, writable.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.3 — reads only; a save would be `user.updated` with a before and no after.
 - **Leaves:** unchanged.
 
 ### TC-USER-002 — Somebody who also works elsewhere opens read-only, and says why
@@ -1931,6 +1966,7 @@ their own firm, through **Roles by firm**.
   2. Double-click the row; then the context menu's **Edit**.
 - **Expect:** all three open the record **read-only**, never silently: the subtitle reads "… also works in another firm, so their profile is managed by a platform administrator. Use Roles by firm to set what they do in yours." The refusal is about writing; the row is still one somebody meant to look at, so it opens.
 - **Data (HTTP):** in `GET /api/v1/users?search=<suffix>.shared` as the firm admin, the row carries `belongs_to_other_firms: true`.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.3 — the guard counts only **active** memberships elsewhere (D-IDN-10).
 - **Leaves:** unchanged.
 
 ### TC-USER-003 — New starts in the firm that is open
@@ -1943,6 +1979,7 @@ their own firm, through **Roles by firm**.
 - **Expect**
   - Step 1: **TEST01 already ticked** — the firm open in the switcher — and the list offers the firms *you* belong to (`/api/v1/me/firms`; `/api/v1/firms` is platform-only and answers a firm admin 403). The form used to open empty and then silently remove the membership the save had just made.
   - Step 2: created, in TEST01, in the grid at once.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.3 and §15.4 in `platform` — `users`, one `user_firms` row for TEST01 (primary) that the form's Firms box then replaces; `user.created` with TEST01, `user.firms_set` with none.
 - **Leaves:** a TEST01 user.
 
 ### TC-USER-004 — Creating somebody in no firm
@@ -1958,6 +1995,7 @@ their own firm, through **Roles by firm**.
   - Step 2: found, not marked as already a member.
   - Step 3: the form says "Somebody in no firm cannot be given roles here, because roles are held per firm. Save them without roles, then use Add existing user to bring them into this firm and set what they do." — **and no account was created**: the lookup finds no `<suffix>.nofirm2`. Clear Roles and press Save; it saves. Fixed 2026-09-16; see defect **D-20-1**.
   - *Step 1 failed on 2026-09-15 ("User not found." with the user created anyway) and was fixed in #402. Driven on the API: a firm admin's create lands the user in TEST01, clearing the firms leaves none, and the lookup then finds them with `already_a_member: false`. Step 3's order — create, clear firms, then refuse — is read from `saveAssignments`, not seen on screen.*
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 in `platform` — clearing Firms soft-deletes the membership `create_user` wrote (`user.firms_set`, no firm); the lookup reads only.
 - **Leaves:** two users in no firm.
 
 ### TC-USER-005 — A platform administrator's New form
@@ -1966,6 +2004,7 @@ their own firm, through **Roles by firm**.
 - **Fixture:** `platform-admin`
 - **Steps:** sign in as the fixture's **Platform admin** → Administration → Users → **New**; look at Firms and open its list.
 - **Expect:** Firms is **empty**, not prefilled — a platform administrator has no firm of their own, and quietly using whichever one the switcher shows would be a surprise. The list offers **every** firm (`/api/v1/firms`). Same field, a different source.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.3 — reads only; a platform administrator's `user.created` carries no firm, whichever firms the form then names.
 - **Leaves:** nothing (cancel).
 
 ### TC-USER-006 — A firm outside your reach is refused by name
@@ -1974,6 +2013,7 @@ their own firm, through **Roles by firm**.
 - **Fixture:** `shared-member`
 - **Steps (HTTP)** — as the fixture's firm admin, `X-Firm-ID` TEST01: `PUT /api/v1/users/{Shared Member's id}/firms` with `{"assignments": [{"firm_id": "11111111-1111-1111-1111-111111111111", "is_primary": false, "is_active": true}]}`.
 - **Expect:** **422**, "You can only assign firms you administer." Refused, not silently dropped. Any id that is not TEST01's gives it — the reach check runs before the firm-exists check.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 — the refusal writes nothing.
 - **Leaves:** unchanged.
 
 ### TC-USER-007 — A firm administrator's membership write merges
@@ -1986,6 +2026,7 @@ their own firm, through **Roles by firm**.
 - **Expect**
   - Step 1: **200** — naming only your own firm is legitimate.
   - Step 2: **both** memberships, TEST02 still primary. The endpoint replaces for a platform caller and **merges** for a scoped one: memberships outside the caller's reach are carried through untouched, or a firm administrator correcting their own firm would silently remove that person from every other firm. The screen refuses this edit anyway (TC-USER-002); the merge protects the API from any other client.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 in `platform` — TEST02's `user_firms` row untouched, TEST01's written, `authorization_version` +1; `user.firms_set` with no firm and no data, so TEST01's trail does not show it (D-IDN-5).
 - **Leaves:** unchanged.
 
 ### TC-USER-008 — A firm administrator does not move somebody's primary firm
@@ -2003,6 +2044,7 @@ their own firm, through **Roles by firm**.
   join platform.users u on u.id = uf.user_id
   where u.email = '<suffix>.shared@fixtures.local' and uf.is_deleted = false;
   ```
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 — `is_primary` unmoved; the save still bumps `authorization_version` and writes `user.firms_set`.
 - **Leaves:** unchanged.
 
 ### TC-USER-009 — A Counter Sales hire gets the till and not the ledger
@@ -2014,6 +2056,7 @@ their own firm, through **Roles by firm**.
   2. Sign in as them and read the sidebar; open Finance.
 - **Expect:** **Sales** and **Inventory** offered; **Finance** offered holding **exactly Receipts and Payments**; no Administration. None of Chart of Accounts, Control Accounts, Cost Centres, Profit Centres, Journal Entries, Ledgers, Trial Balance, Profit & Loss, Balance Sheet or Refunds.
   - **Two opposite failures:** no Finance at all means the module gate was reverted and the empty-sidebar bug is back; Finance *with the ledger in it* means the tabs lost their own codes and the module gate is doing the work alone.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 and §15.7 — `user_template.applied` naming `counter-sales` with CASHIER and BILLING_EXECUTIVE, both TEST01-scoped `user_roles` rows.
 - **Leaves:** a Counter Sales user in TEST01.
 
 ### Known defects found while writing these cases
@@ -2051,6 +2094,7 @@ global grant.
   - Step 3: a section per firm they belong to — TEST01 and TEST02, no others. `VIEWER` once at the top under **Applies in every firm**, greyed and unclickable. Each Save is enabled only once its own firm changed.
   - Step 5: TEST02 saved; TEST01 still shows `SALES_MANAGER` — one Save, one firm.
 - **Data (HTTP)** as the platform admin: `GET /api/v1/users/{id}/roles` → VIEWER; `.../firms/{TEST01 id}/roles` → SALES_MANAGER; `.../firms/{TEST02 id}/roles` → CASHIER.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 — step 2 writes one `firm_id` null row (`user.roles_set`, no firm); steps 4 and 5 one row each with the firm (`user.firm_roles_set`, with the firm).
 - **Leaves:** Shared Member with a role in each tier.
 
 ### TC-RTIER-002 — Saving the form unchanged keeps every firm's own roles
@@ -2061,6 +2105,7 @@ global grant.
   1. As the fixture's **Platform admin**, edit **Shared Member (<suffix>)** → **Save** without changing anything.
   2. **Roles by firm**.
 - **Expect:** TEST01 still SALES_MANAGER, TEST02 still CASHIER, VIEWER still under Applies in every firm. **The regression case**: before the fix both firms ended up holding every role, globally. One writer per tier, so neither save can touch the other's rows.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 — an unchanged save moves no `user_roles` row but still bumps `authorization_version` and writes `user.roles_set`.
 - **Leaves:** unchanged.
 
 ### TC-RTIER-003 — Each administrator sees the tier they cannot write
@@ -2075,6 +2120,7 @@ global grant.
   - Step 1: **Also applies here** shows `VIEWER`, read-only. A global grant applies in their firm, so hiding it made the form report less than the person could do.
   - Step 2: no Also applies here — the roles field already *is* the global set. Instead **Roles in specific firms**, read-only: `TEST01: SALES_MANAGER · TEST02: CASHIER`.
   - Step 3: only `TEST01: SALES_MANAGER`. A firm holding nothing is left out rather than shown empty.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 — steps 1 and 2 read; step 3 soft-deletes one row and writes `user.firm_roles_set` with TEST02.
 - **Leaves:** Shared Member without the TEST02 role.
 
 ### TC-RTIER-004 — A firm administrator's Roles by firm is their firm only, and cannot clear a global grant
@@ -2087,6 +2133,7 @@ global grant.
 - **Expect**
   - Step 1: **one section, TEST01**, with chips that respond. TEST02 is not listed — its Save would be refused by name. `VIEWER` shown greyed under Applies in every firm, not clearable. This dialog used to read the platform-only firm list, answer 403 and show a firm administrator no firm at all.
   - Step 2: removed in TEST01; VIEWER survives. A firm administrator may not undo a platform grant.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 — TEST01's row soft-deleted, the global row untouched; `user.firm_roles_set` with TEST01.
 - **Leaves:** Shared Member with no TEST01 role.
 
 ### TC-RTIER-005 — A platform administrator's New writes the global tier only
@@ -2101,6 +2148,7 @@ global grant.
   - Step 1: **Job template**, **Roles in every firm**, and nothing that names a firm. **Apply roles to** is gone.
   - Step 2: both firm sections **empty**; CUSTOMER_SUPPORT under **Applies in every firm**.
   - Step 3: VIEWER under Applies in every firm — the job's roles land in the same tier the Roles field writes.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 in `platform` — `firm_id` null rows only; `user.created` and `user.roles_set` with no firm.
 - **Leaves:** two users.
 
 ### TC-RTIER-006 — The firm switcher has no say in where a role lands
@@ -2113,6 +2161,7 @@ global grant.
 - **Expect**
   - Step 1: **one** roles field, **Roles in every firm**, plus the read-only **Roles in specific firms** listing both firms — TEST01 included. No second column. The helper says a role in one firm only is set under Roles by firm.
   - Step 2: CUSTOMER_SUPPORT under **Applies in every firm**; no firm section changed.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 — the row lands with `firm_id` null whatever the switcher says.
 - **Leaves:** Shared Member with a second global role.
 
 ### TC-RTIER-007 — A firm administrator's form
@@ -2125,6 +2174,7 @@ global grant.
 - **Expect**
   - Step 1: the roles field labelled **Roles in this firm** (ACCOUNTANT, INVENTORY_MANAGER) and **Also applies here** showing CUSTOMER_SUPPORT and VIEWER read-only. Nothing names a firm.
   - Step 2: the per-firm editor opens without closing the form, from edit and from view.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 — reads only.
 - **Leaves:** unchanged.
 
 ### TC-RTIER-008 — The server holds a firm administrator to their firm, and a role to a membership
@@ -2141,6 +2191,7 @@ global grant.
   2. **422**, "You can only read roles in firms you administer." — the read used to answer for any firm. TEST01: **200**.
   3. **422**, "Add the user to this firm before giving them a role in it." A role there would sit in the table and stay out of the token.
   4. **200** and an **empty** list — a firm administrator learns nothing about which firms somebody outside theirs belongs to. *(Plan 20a.8k's screen message, "This person belongs to no firm you administer.", needs the Roles by firm dialog open on such a person, and a TEST02-only person is not in TEST01's grid to open it from; this is the server's half of the same rule.)*
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 — every refusal writes nothing; a platform administrator's global-tier save is held to nothing at all (D-IDN-3).
 - **Leaves:** unchanged.
 
 ---
@@ -2172,6 +2223,7 @@ only matters for accounts you already had open.
   - Step 3: the line names its product — **Fixture Product <suffix>** — not `Line 1`.
   - Step 4: a draft is listed. **Approve** and **Cancel** are **row actions** on the right, not toolbar buttons; Approve being there *is* the approve gate this case checks. Leave it a draft — approving posts the credit and reverses declared output tax.
 - **Data (HTTP):** `GET /api/v1/credit-notes` with `X-Firm-ID` TEST01 lists the draft against the fixture's invoice.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 for the grant, §11.17 for the credit note.
 - **Leaves:** a draft credit note in TEST01.
 
 ### TC-GRANT-002 — Proforma opens
@@ -2180,6 +2232,7 @@ only matters for accounts you already had open.
 - **Fixture:** `firm-admin`
 - **Steps:** as the fixture's **Firm admin**, Sales → **Proforma**.
 - **Expect:** offered, and a real screen — a grid or a proper empty state, never a "coming soon" placeholder. A proforma states what an approved order **will** be charged and **posts nothing**; its number comes from its own `PF` series, not the tax invoice's.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 — the grant is `FIRM_ADMIN`'s `role_permissions`; the screen reads only (§11.18).
 - **Leaves:** a firm admin user.
 
 ### TC-GRANT-003 — E-Invoice opens, and never says LIVE
@@ -2188,6 +2241,7 @@ only matters for accounts you already had open.
 - **Fixture:** `firm-admin`
 - **Steps:** as the fixture's **Firm admin**, Sales → **E-Invoice**.
 - **Expect:** offered and opens. Wherever a mode is shown it reads **`SANDBOX`**; if it reads LIVE anywhere, stop — that is not cosmetic. `mode` is NOT NULL with no server default on both e-invoice tables, and the sandbox marks every reference it mints `SBX…`. *(TEST01 has registered nothing, so the grid may be empty and show no mode at all; that passes.)*
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 — the grant; what the screen reads is §13.8.
 - **Leaves:** a firm admin user.
 
 ### TC-GRANT-004 — Loyalty: the banner states the scheme, and a firm can change it
@@ -2205,6 +2259,7 @@ only matters for accounts you already had open.
   - Step 3: back to "No scheme is running…".
   - *Until #399 there was no editor at all: the settings route, the code and the grant existed, and the desktop carried only the read.*
 - **Data (HTTP):** `GET /api/v1/loyalty/settings` with `X-Firm-ID` TEST01 after each save.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 for the grant, §14.15 for the scheme.
 - **Leaves:** TEST01's scheme off, minimum 50.
 
 ### TC-GRANT-005 — Loyalty settings are readable by somebody who cannot change them
@@ -2218,6 +2273,7 @@ only matters for accounts you already had open.
   - Step 1: it **opens**, read-only, saying "Changing the scheme needs the manage loyalty settings permission." Offered rather than hidden on purpose: whoever is asked why a balance is what it is should reach the rule behind it.
   - Step 2: **403**. Whoever a scheme constrains must not rewrite what it is worth.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §14.15 in `test_fixtures` — the read and the refused PUT write nothing. A permitted save writes `loyalty.settings_changed` with the five figures on both sides; changing `amount_per_point` re-prices points already held (D-CFG-3).
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 — the grant: SALES_MANAGER's `role_permissions` carry `LOYALTY_VIEW` and not `LOYALTY_MANAGE_SETTINGS`.
 - **Leaves:** a sales manager.
 
 ### TC-GRANT-006 — TCS settings open, and TCS is off
@@ -2226,6 +2282,7 @@ only matters for accounts you already had open.
 - **Fixture:** `firm-admin`
 - **Steps:** as the fixture's **Firm admin**, Sales → **TCS** → **Settings**; save without changing anything.
 - **Expect:** offered, opens and saves. **Collect under section 206C(1H)** is off — it defaults false so shipping the feature charged nobody. Leave it off: on, every receipt in TEST01 collects TCS, and other cases record receipts there.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 — the grant; the settings row is §13.11.
 - **Leaves:** a firm admin user.
 
 ### TC-GRANT-007 — The fix was a grant, not a wider gate
@@ -2234,6 +2291,7 @@ only matters for accounts you already had open.
 - **Fixture:** `sales-executive`
 - **Steps:** sign in as the fixture's **Seller**; open **Sales**, then **Masters**.
 - **Expect:** Sales is offered — `SALES_VIEW` is one of their six codes — with **no** Credit Notes, Proforma, E-Invoice or TCS; Masters has **no** Loyalty. Any of the five appearing means a tab lost its own code and its module gate is carrying it alone.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 — reads only; SALES_EXECUTIVE's `role_permissions` are unchanged.
 - **Leaves:** a seller.
 
 ### TC-GRANT-008 — The server grants all five
@@ -2242,6 +2300,7 @@ only matters for accounts you already had open.
 - **Fixture:** `firm-admin`
 - **Steps (HTTP)** — as the fixture's firm admin with `X-Firm-ID` TEST01: `GET /api/v1/credit-notes`, `/api/v1/proforma-invoices`, `/api/v1/einvoice/registrations`, `/api/v1/loyalty/settings`, `/api/v1/tcs/settings`.
 - **Expect:** **200** on all five. They answered 403 before `20260906_0130`. The screens being offered is the desktop honouring the claims; these are the claims being there.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 — reads only; the codes come from `firm_permissions[TEST01]` in the firm administrator's token.
 - **Leaves:** a firm admin user.
 
 ---
@@ -2320,6 +2379,7 @@ needs `DIAGNOSTICS_VIEW`, which `FIRM_ADMIN` does not hold.
 - **Fixture:** `platform-admin`
 - **Steps:** sign in as the fixture's **Platform admin**, no firm selected → Settings → **Audit Logs**.
 - **Expect:** the **platform** trail — user, role and firm administration: `identity.login`, `user.created`, `user.firm_roles_set` and the like, including the fixture's own setup a moment ago. Each row names who did it. *(Answered 403 between 2026-09-05 and 09-06: the designation had moved claims and the check had not.)*
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.10 — reads only; with no firm selected the platform trail holds every firm's platform rows as well as the platform's own.
 - **Leaves:** a platform administrator.
 
 ### TC-AUDIT-002 — Selecting a firm switches to that firm's trail
@@ -2328,6 +2388,7 @@ needs `DIAGNOSTICS_VIEW`, which `FIRM_ADMIN` does not hold.
 - **Fixture:** `platform-admin`
 - **Steps:** as the fixture's **Platform admin**, switch into **TEST01** (the header changes from Platform, the sidebar grows) → Settings → Audit Logs.
 - **Expect:** **TEST01's** trail — firm-owned work such as `customer.created`, `sales_invoice.created`, `settlement.receipt.recorded` from fixtures that sold or took money in TEST01 — with platform rows carrying TEST01's id interleaved. Not the platform trail of TC-AUDIT-001: selecting a firm is what sets `X-Firm-ID`.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.10 — reads only: TEST01's store merged with the platform rows carrying TEST01's id.
 - **Leaves:** a platform administrator.
 
 ### TC-AUDIT-003 — A firm administrator reads their own firm's history, naming people
@@ -2339,6 +2400,7 @@ needs `DIAGNOSTICS_VIEW`, which `FIRM_ADMIN` does not hold.
   - Settings opens with **Audit Logs** in it. It used to open empty — offered on `SETTINGS_VIEW` with both tabs demanding codes the role lacked.
   - TEST01's history and nothing else. **Every row names the person who did it** and, where the subject is a person, who it was done to (#407, #409).
   - **No Diagnostics.** Error reports are telemetry for whoever maintains the product, not something a firm owns.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.10 — reads only; every membership change, and whatever a platform administrator did to TEST01's people and roles, is not among the rows it can show (D-IDN-5).
 - **Leaves:** a firm admin user.
 
 ### TC-AUDIT-004 — A promotion lands in the firm's trail, in time order, and a filter reaches both stores
@@ -2355,6 +2417,7 @@ needs `DIAGNOSTICS_VIEW`, which `FIRM_ADMIN` does not hold.
   - Step 4: from the top, `customer.created` (Audit After), `user_template.applied` and `user.roles_set` (both naming Manual Hire), `customer.created` (Audit Before) — **strictly descending timestamps straight through**. The promotion is written to the *platform* store (user administration is a platform path) and the customers to TEST01's; nothing marks which came from where. A block of user-administration rows at one end and customers in another means the stores were concatenated, not merged. The promotion names the template **and the role codes it granted** — `role_codes` beside `role_ids`, `template_code` beside `template_id`.
   - Step 5: the promotion is found. A filter that reached one store and not the other would answer a half-truth that reads as correct because something came back. *(Exact match: `user` finds nothing — BACKLOG 31.17.)*
 - **Data (HTTP)**, as the firm admin with `X-Firm-ID` TEST01: `GET /api/v1/audit-logs?page_size=10` shows the order; `?action=user_template.applied` returns the row with `after_data.role_codes: ["BILLING_EXECUTIVE", "CASHIER"]`.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.10 — `user_template.applied` and `user.roles_set` carry TEST01 because a TEST01 administrator made them; the same promotion by a platform administrator naming no firm would not be on this screen (D-IDN-5).
 - **Leaves:** two customers in TEST01 and Manual Hire on Counter Sales.
 
 ### TC-AUDIT-005 — The platform trail needs platform authority
@@ -2363,6 +2426,7 @@ needs `DIAGNOSTICS_VIEW`, which `FIRM_ADMIN` does not hold.
 - **Fixture:** `firm-admin`
 - **Steps (HTTP):** `GET /api/v1/audit-logs` as the fixture's firm admin with **no** `X-Firm-ID`.
 - **Expect:** **403**.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.10 — the refusal writes nothing.
 - **Leaves:** a firm admin user.
 
 ### TC-AUDIT-006 — Somebody with none of the three codes has no Settings at all
@@ -2371,6 +2435,7 @@ needs `DIAGNOSTICS_VIEW`, which `FIRM_ADMIN` does not hold.
 - **Fixture:** `sales-executive`
 - **Steps:** sign in as the fixture's **Seller**; read the sidebar.
 - **Expect:** **no Settings** — the module absent, not an empty Settings. A module that opens and does nothing reads as broken rather than withheld.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.10 — reads only.
 - **Leaves:** a seller.
 
 ---
@@ -2406,6 +2471,7 @@ one job, and **one route answers two callers differently**:
   - Step 4: Outsider, and **Fixture Firm Admin (<suffix>)** marked **Already in this firm** with Add disabled.
   - Step 5: "Nobody matches. They may not have an account yet — use New."
 - **Data (HTTP):** as the firm admin, `GET /api/v1/users/lookup?q=<suffix>` → each row `{id, full_name, email, already_a_member}` and nothing more.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 — reads only.
 - **Leaves:** unchanged.
 
 ### TC-LOOK-002 — Adding them, with a job
@@ -2422,6 +2488,7 @@ one job, and **one route answers two callers differently**:
   where u.email = '<suffix>.outsider@fixtures.local' and uf.is_deleted = false;
   ```
   TEST02 (primary) and TEST01 — adding merged, it did not replace.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 and §15.7 — one `user_firms` row for TEST01, TEST02's untouched; `user.firms_set` with no firm, so the addition is not on TEST01's trail (D-IDN-5); the job's rows as TC-TMPL-003.
 - **Leaves:** Outsider in TEST01 as Counter Sales.
 
 ### TC-LOOK-003 — Their profile is not yours; their roles here are
@@ -2436,6 +2503,7 @@ one job, and **one route answers two callers differently**:
   - Step 1: all three open **read-only**, the subtitle saying they also work in another firm, so their profile is managed by a platform administrator, and Roles by firm is what to use.
   - Step 2: both work. Roles by firm shows **one section, TEST01** — not TEST02, though they work there: the dialog offers only firms you hold `USER_CREATE` in.
   - Step 3: **editable** — correct, not a hole. A platform administrator sees every firm, so nothing is hidden from them, and they are exactly who step 1's message points to.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 — the template writes TEST01's tier only; the refused profile edit writes nothing.
 - **Leaves:** Outsider on Warehouse in TEST01.
 
 ### TC-LOOK-004 — Adding somebody tells you nothing about their other firms
@@ -2450,6 +2518,7 @@ one job, and **one route answers two callers differently**:
   1. **Only TEST01.** It returned every membership until 2026-09-06, on a route gated only by `ROLE_VIEW`.
   2. Both firms, TEST02 primary.
   3. TEST02 still exactly `CASHIER`; TEST01 `BILLING_EXECUTIVE` and `CASHIER` from Counter Sales. Adding them to TEST01 touched nothing in TEST02.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 — reads only.
 - **Leaves:** unchanged.
 
 ### TC-LOOK-005 — Reaching across firms is not reading your own people
@@ -2464,6 +2533,7 @@ one job, and **one route answers two callers differently**:
   1. No Administration at all, so no Add existing user.
   2. **403** — the lookup needs `USER_CREATE`, deliberately not `USER_VIEW`.
   3. **422**, "Type at least 3 characters to look somebody up." — an empty term is the shortest of all. Page 2: **empty**, and a plain `?q=fixtures.local` returns **10** however many match: a firm caller gets "is this them?", not "who works here?".
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 — reads only.
 - **Leaves:** unchanged.
 
 ### TC-LOOK-006 — A platform administrator gets the directory
@@ -2480,6 +2550,7 @@ one job, and **one route answers two callers differently**:
   - Step 2: filtered on one character; the three-character rule is a firm caller's. Clearing brings the full list back.
   - Step 3: Outsider is added, and **absent** the second time. A firm caller's lookup *flags* a member; a platform caller's directory *excludes* them.
   - Step 4: two rows and a `pagination` block whose `total_records` is everybody not in TEST01.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 in `platform` — the Add writes one `user_firms` row and `user.firms_set` with no firm.
 - **Leaves:** Outsider in TEST01 with no roles there.
 
 ### TC-LOOK-007 — User-Firm Assignments is a platform administrator's tab
@@ -2488,6 +2559,7 @@ one job, and **one route answers two callers differently**:
 - **Fixture:** `template-offering` (a firm admin and a platform admin)
 - **Steps:** open Administration as the fixture's **Firm admin**; then as its **Platform admin**, with no firm and then with TEST01 selected.
 - **Expect:** the firm admin sees Users, Roles & Permissions and User Templates — **no User-Firm Assignments**; Users → Edit → Firms and Add existing user are their ways to the same thing. The platform admin sees **User-Firm Assignments**, with the Firm filter, either way. A tab-level `requiresPlatformAdmin`, because a platform administrator passes code checks by designation.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 — reads only. For a `PLATFORM` operator User-Firm Assignments is blank and refuses every write (D-IDN-6).
 - **Leaves:** unchanged.
 
 ---
@@ -2516,6 +2588,7 @@ own roles and templates without anybody writing code.
   order  by is_system desc, code;
   ```
   The twelve have `is_system = true` and `firm_id` null; the four platform roles are in the table too, and are filtered out of a firm caller's list by the service rather than absent.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.5 — reads only.
 - **Leaves:** a firm admin user.
 
 ### TC-ROLE-002 — Creating a custom role; the platform's codes are never offered
@@ -2541,6 +2614,7 @@ own roles and templates without anybody writing code.
   where  r.code = '<suffix>-my-role';
   ```
   Two rows; `firm_id` is TEST01's. Audit: `role.created` then `role.permissions_set` in `platform.audit_logs`.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.5 — `role.created` and `role.permissions_set`, TEST01's id, no data — the trail cannot say which codes the role got (D-IDN-5).
 - **Leaves:** a custom role.
 
 ### TC-ROLE-003 — No role may be named `platform_admin`
@@ -2553,6 +2627,7 @@ own roles and templates without anybody writing code.
 - **Expect:** refused on the form — **"'platform_admin' is reserved. Choose a different role code."** Nothing is created. The code pattern `^[a-z0-9._-]+$` *permits* that spelling, so the refusal is the service's. Before 2026-09-05 this went through, and a firm administrator who assigned it to themselves signed in as a platform administrator.
 - **Also try** `firm_admin`, `cashier` or `system_auditor` — the same named refusal: the designation and all sixteen seeded codes are reserved. **Type them in lower case.** `FIRM_ADMIN` or `Cashier` is refused *earlier*, by the code pattern, with a generic "The request validation failed" — a different refusal for a different reason, and not what this case is checking. (The service's check is case-insensitive as defence in depth, for a role row written by some other route; through this form the pattern means only lower case can reach it.) *(Corrected 2026-09-16 after driving it: the first version of this case said `FIRM_ADMIN` gave the same refusal.)*
 - **Data:** `select count(*) from platform.roles where lower(code) = 'platform_admin';` → **0**.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.5 — a refused code writes nothing; a code any other firm or any deleted role holds is refused as well (D-IDN-9).
 - **Leaves:** a firm admin user.
 
 ### TC-ROLE-004 — A firm admin *holds* `AUDIT_LOG_VIEW` and cannot *grant* it
@@ -2567,6 +2642,7 @@ own roles and templates without anybody writing code.
   - Step 2: **opens**, on TEST01's trail.
   - Step 3: **not offered**.
   - That is not a contradiction. `PLATFORM_PERMISSION_CODES` answers "what may a firm administrator not *grant*", a different question from what they may hold. `AUDIT_LOG_VIEW` was granted to `FIRM_ADMIN` directly on 2026-09-06. Confusing the two sets is how a permission's reach gets misjudged.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.5 — the refused grant writes nothing.
 - **Leaves:** a firm admin user.
 
 ### TC-ROLE-005 — A template can bundle the firm's own custom role
@@ -2588,6 +2664,7 @@ own roles and templates without anybody writing code.
   where  t.code = '<suffix>-my-job';
   ```
   One row, `firm_id` TEST01's, `is_system` false. Audit `user_template.created`.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.5 and §15.7.
 - **Leaves:** a custom role and a template.
 
 ### TC-ROLE-006 — Hiring into a template grants exactly its roles
@@ -2610,6 +2687,7 @@ own roles and templates without anybody writing code.
   where  u.email = '<suffix>.hire@fixtures.local';
   ```
   Audit: `user.created`, `user.firms_set`, `user_template.applied` (with `template_code` and `role_codes`) and `user.roles_set` — four rows for one Save.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.7.
 - **Leaves:** a custom role, a template, a user.
 
 ### TC-ROLE-007 — A custom role's codes become exactly those screens
@@ -2634,6 +2712,7 @@ own roles and templates without anybody writing code.
 
   **No** Dashboard, Purchases, Inventory, Reports, Settings or Administration. Four codes — `SALES_VIEW`, `CUSTOMER_VIEW`, `RECEIPT_VIEW`, `RECEIPT_CREATE` — rendered as screens.
 - **Why Finance holds Receipts at all:** the role carries `RECEIPT_VIEW` beside `RECEIPT_CREATE`. With the create code alone there is no Receipts screen to record on — Finance opens on the view code — which is the mistake plan row 25.3 used to make.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.6 — reads only; the codes are the role's live `role_permissions`, in `firm_permissions[TEST01]`.
 - **Leaves:** a custom role and a holder.
 
 ### TC-ROLE-008 — Editing a role signs out everyone holding it
@@ -2655,6 +2734,7 @@ own roles and templates without anybody writing code.
   where  email = '<suffix>.holder@fixtures.local';
   ```
   Run before and after step 2: **`authorization_version` goes up by one**. That column is the sign-out. Audit `role.permissions_set`.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.5 — confirmed on `t0918nhew`: 1 → 2 at 21:35:23 IST on 2026-09-18.
 - **Leaves:** a custom role with three codes, and a holder.
 
 ### TC-ROLE-009 — Deleting a role somebody holds just goes through
@@ -2677,6 +2757,7 @@ own roles and templates without anybody writing code.
   where  r.code = '<suffix>-night-desk';
   ```
   `roles.is_deleted` is **true**; the holder's `user_roles` row is **left in place** — it names a deleted role, and the token simply stops carrying its codes. Audit `role.deleted`.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.5 — confirmed on the 2026-09-16 and 09-17 runs; recorded in `docs/DEFECTS.md` as an open decision, not a defect.
 - **Leaves:** a deleted custom role, and a holder with nothing.
 
 ---
@@ -2705,6 +2786,7 @@ section 27. Cases name the firms that must be there, never how many.
   - Steps 2 and 3: the header firm control reads **Platform**, and so does the status bar — **including after having been in TEST01**.
   - That is deliberate: somebody with reach over every firm's books must not land silently in one of them on a screen that looks like their own. `SessionController.resolveLandingFirm` returns no firm for any platform administrator, whatever their last firm or primary.
 - **Data:** switching firms writes `platform.user_preferences.default_firm_id` (and a `user_preferences.updated` audit row) — for a platform administrator that preference is **ignored** at sign-in, which is the rule this case checks.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 and §14.17.
 - **Leaves:** a platform administrator.
 
 ### TC-PLAT-002 — Platform mode offers the platform, and nothing that needs a firm
@@ -2725,6 +2807,7 @@ section 27. Cases name the firms that must be there, never how many.
 
   **No** Masters, Sales, Quotations, Sales Orders, Delivery Notes, Sales Invoices, Sales Returns, Purchases, Inventory, Finance or Reports. **No** Numbering Series, Business Profiles, Tax, UOM or Industry Templates tabs — those live in a firm's own store.
 - **Why:** `requiresFirm` on a module *and* on a tab hides what needs a firm when none is selected. A platform administrator's token carries every code, so permissions alone would offer everything.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 — reads only.
 - **Leaves:** a platform administrator.
 
 ### TC-PLAT-003 — The switcher lists every firm, and choosing one grows the workspace
@@ -2747,6 +2830,7 @@ section 27. Cases name the firms that must be there, never how many.
   GET /api/v1/me/firms          (as the fixture's platform admin)
   ```
   Every active firm, each with `is_primary: false` — there is no membership row, so nobody's primary. The same call as a firm user returns only their own firms.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 — every live, active firm, primary first by an explicit `case` rather than NULL order.
 - **Leaves:** a platform administrator.
 
 ### TC-PLAT-004 — Being a member of firms does not change where a platform administrator lands
@@ -2757,6 +2841,7 @@ section 27. Cases name the firms that must be there, never how many.
   1. Sign in as the fixture's **Platform admin** — this one *is* a member of TEST01 (primary) and TEST02.
   2. Read the header; open the firm control.
 - **Expect:** still starts on **Platform**. The switcher looks as in TC-PLAT-003, with TEST01 marked **primary**. Membership is not what decides the landing; the designation is.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 — reads only; an `ALL_FIRMS` administrator's memberships add nothing to the token — `firm_permissions` is not built for them.
 - **Leaves:** a platform administrator with two memberships.
 
 ### TC-PLAT-005 — A firm user never sees Platform
@@ -2767,6 +2852,7 @@ section 27. Cases name the firms that must be there, never how many.
   1. Sign in as the fixture's **Firm admin**.
   2. Read the header; open the firm control.
 - **Expect:** **no Platform entry** anywhere; TEST01 selected and the only firm; lands in it. For an ordinary user a null firm is an empty application rather than a mode, so the switcher refuses to offer it.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 — reads only.
 - **Leaves:** a firm admin user.
 
 ---
@@ -2788,6 +2874,7 @@ being signed in and nothing else.
 - **Expect**
   - Step 2: the first row is the **full name** — `Two Firm User (<suffix>)` — with the **email** under it. Not the address typed at sign-in, and not the word "User". The status bar shows the same name.
   - Step 3: still the name. It used to read "User", because a restored session never passes through the login form and the token carries no name.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 — reads only (`GET /me`).
 - **Leaves:** a two-firm user.
 
 ### TC-ME-002 — Choosing your own primary firm
@@ -2812,6 +2899,7 @@ being signed in and nothing else.
   where  u.email = '<suffix>.twofirm@fixtures.local' and uf.is_deleted = false;
   ```
   TEST02 `true`, TEST01 `false`. Audit `user.primary_firm_set`. The old primary is cleared and flushed before the new one is set, because `UQ_user_firms_active_primary` is checked per statement.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 — `user.primary_firm_set` with the firm; no `authorization_version` move.
 - **Leaves:** a two-firm user whose primary is TEST02.
 
 ### TC-ME-003 — Signing in lands in the primary firm, not the last one used
@@ -2823,6 +2911,7 @@ being signed in and nothing else.
   2. Switch to **TEST02** and open any screen there.
   3. Sign out, sign back in.
 - **Expect:** you land in **TEST01**, the primary — not TEST02, where you were last. Switching is for the session; the primary is for next time. Until 2026-09-08 it was the reverse, so the flag meant nothing to anybody who had ever switched.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.1 and §15.4 — sign-in writes §15.1's rows; where it lands is `user_firms.is_primary`.
 - **Leaves:** a two-firm user.
 
 ### TC-ME-004 — Nobody can make a firm they do not belong to their primary
@@ -2836,6 +2925,7 @@ being signed in and nothing else.
   ```
   WHOLE01's id is in `GET /api/v1/firms` as a platform administrator, or in `platform.firms`.
 - **Expect:** **422**, "You can only make a firm you belong to your primary firm." Nothing changes.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 — the refusal writes nothing.
 - **Leaves:** a two-firm user.
 
 ### TC-ME-005 — My profile, for somebody who cannot read the user list
@@ -2851,6 +2941,7 @@ being signed in and nothing else.
   - **Access:** roles grouped as **In every firm** (Customer Support) and **In TEST01** (Sales Executive).
   - No boxes to type in, and the line: *"These details are held by your administrator. Ask them to change anything here; your appearance, primary firm and password are yours to set."*
 - **Data (HTTP):** `GET /api/v1/me` as this user → **200** with `profile` and `roles` (each role carrying `firm_code`, null for the every-firm tier). `GET /api/v1/users/{their own id}` → **403**: reading yourself is not reading the user list.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.4.
 - **Leaves:** a two-firm user.
 
 ### TC-ME-006 — A platform administrator's menu
@@ -2861,6 +2952,7 @@ being signed in and nothing else.
   1. Sign in as the fixture's **Platform admin**.
   2. Open the account menu; open **My profile**.
 - **Expect:** **no Primary firm entry** — a platform administrator always starts on Platform, so there is nothing to choose. My profile shows a **Platform administrator** chip under the name.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 — reads only.
 - **Leaves:** a platform administrator.
 
 ### TC-ME-007 — Somebody in one firm has no primary to choose
@@ -2869,6 +2961,7 @@ being signed in and nothing else.
 - **Fixture:** `firm-admin`
 - **Steps:** sign in as the fixture's **Firm admin** and open the account menu.
 - **Expect:** **no Primary firm entry**. The menu offers it only to somebody with more than one firm who is not a platform administrator.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 — reads only.
 - **Leaves:** a firm admin user.
 
 ### TC-ME-008 — Changing your own password
@@ -2897,6 +2990,7 @@ being signed in and nothing else.
   where  u.email = '<suffix>.twofirm@fixtures.local';
   ```
   `authorization_version` up by one (every session ends, including this one); one `password_history` row holding the old hash. Audit `identity.password_changed`. The server also refuses any of the last five passwords.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.2.
 - **Leaves:** a two-firm user whose password is `Str0ng-Passw0rd!`.
 
 ---
@@ -2933,6 +3027,7 @@ dedicated one leaves its schema behind. Provisioning runs the migrations, so
 - **Expect**
   - Step 2: the list of every firm. This is the one Administration tab that works with no firm selected.
   - Step 3: **no Firms** under Masters. It moved to Administration on 2026-09-06 — as a Masters tab it needed a firm, so creating a firm was reachable only from inside another one.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.8 — reads only.
 - **Leaves:** a platform administrator.
 
 ### TC-FIRM-002 — Creating a shared firm, and reaching it at once
@@ -2956,6 +3051,7 @@ dedicated one leaves its schema behind. Provisioning runs the migrations, so
   from   platform.firms where code = '<SUFFIX>-S';
   ```
   `SHARED`, no schema of its own. Audit `firm.created` on the platform trail.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.8 — `firm.created` carries the firm's own id.
 - **Leaves:** a platform administrator, and a firm `<SUFFIX>-S` in the shared store with nothing in it. Delete it from the Firms grid if you like.
 
 ### TC-FIRM-003 — What firm creation refuses
@@ -2972,6 +3068,7 @@ dedicated one leaves its schema behind. Provisioning runs the migrations, so
   2. **422**, the code "should match pattern `^[A-Z0-9_-]+$`" — no spaces, no dots.
   3. **422**, country "should have at most 2 characters".
   4. **422**, "Connection profile 'NOPE' is not configured. Configured profiles: REMOTE_A." Refused at creation, not at first use — otherwise the firm would provision nothing and fail far from the request that caused it.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.8 — every refusal writes nothing — but a SCHEMA firm naming `firm_shared` or `platform` is **not** refused (D-IDN-4).
 - **Leaves:** nothing; every request was refused.
 
 ### TC-FIRM-004 — A dedicated firm cannot be opened until it is provisioned
@@ -2992,6 +3089,7 @@ dedicated one leaves its schema behind. Provisioning runs the migrations, so
   select count(*) from information_schema.tables where table_schema = 'fx_<suffix>_u';
   ```
   `provisioned_at` set, no error, and the schema now holds the firm tables — none of the platform's (`users`, `firms`, `user_firms` are pruned). Audit `firm.storage_provisioned`.
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.9.
 - **Leaves:** the firm, now provisioned.
 
 ### TC-FIRM-005 — A firm's storage routing is fixed at creation
@@ -3000,6 +3098,7 @@ dedicated one leaves its schema behind. Provisioning runs the migrations, so
 - **Fixture:** `unprovisioned-firm`
 - **Steps (HTTP)** — as the fixture's platform admin, `GET /api/v1/firms/{id}` for the fixture's firm, then `PUT` it back with `name`, `code`, `country`, `currency_code`, `financial_year_start` as read and `deployment_mode: "SHARED"`.
 - **Expect:** **422**, "Firm storage routing cannot be changed after creation (currently SCHEMA/fx_<suffix>_u). Migrate the firm's data first." Nothing moves a firm's rows between stores.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.8 — the refusal writes nothing; an edit that keeps the routing is a full replacement — an omitted `is_active` is true, omitted GST and PAN are cleared (D-IDN-10).
 - **Leaves:** the firm, unchanged.
 
 ### TC-FIRM-006 — The setup panel on a firm whose storage is not built
@@ -3014,6 +3113,7 @@ dedicated one leaves its schema behind. Provisioning runs the migrations, so
   - Step 1: **Cannot post documents yet.** Storage is **missing** with a **Provision storage** button. Business profile, Books, Tax, Geography and Branches read "Cannot be checked until the firm's storage is provisioned." with no button and no hint. People reads "Nobody belongs to this firm yet. Only a platform administrator can open it."
   - Step 2: three **422**s — "Provision the firm's storage before opening its books.", "… before applying a tax template.", "… before creating its first branch."
   - Step 3: the list re-reads; Storage is done and Books now offers **Open the books**.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.9 — reads only.
 - **Leaves:** the firm, provisioned.
 
 ### TC-FIRM-007 — The setup panel says what an unfinished firm still needs
@@ -3038,6 +3138,7 @@ dedicated one leaves its schema behind. Provisioning runs the migrations, so
     | People | Nobody belongs to this firm yet. … | a hint: Users → Add existing user, or User-Firm Assignments |
   - Step 2: **200**, `can_post: false`, `ready: false`, the same seven `steps` with `status` DONE / MISSING and `required`.
   - Step 3: the same seven rows from the same implementation, and that it **cannot post** because the books are not open.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.9 — reads only.
 - **Leaves:** the firm, unchanged.
 
 ### TC-FIRM-008 — Opening the books, once
@@ -3060,6 +3161,7 @@ dedicated one leaves its schema behind. Provisioning runs the migrations, so
   select action, created_at from platform.audit_logs
   where  entity_id = '<firm id>' order by created_at;
   ```
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §12.1 — audit `firm.books_opened` on the platform with the firm (§15.10).
 - **Leaves:** the firm with its books open.
 
 ### TC-FIRM-009 — The GST template, once
@@ -3074,6 +3176,7 @@ dedicated one leaves its schema behind. Provisioning runs the migrations, so
   - Step 1: "GST set up: 8 tax profiles and 6 rules." Tax re-reads as "1 tax system, 8 profiles, 6 rules", and **Geography flips to done** ("1 country in the store") — the template adds India to a store that has no country.
   - Step 2: "The firm already has a tax system; nothing was created.", `already_configured: true`. With `US`: **422**, only `IN_GST` exists. One `firm.tax_template_applied` audit row, not two.
   - Step 3: the system, four components and eight profiles, editable.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §13.2 — audit `firm.tax_template_applied` on the platform with the firm (§15.10); a second press writes nothing.
 - **Leaves:** the firm with GST set up.
 
 ### TC-FIRM-010 — Assigning the business profile from the panel
@@ -3101,6 +3204,7 @@ dedicated one leaves its schema behind. Provisioning runs the migrations, so
   - Step 1: "Created branch HO and warehouse MAIN. Rename them on their own screens." The row reads "1 branch, 1 warehouse". The verdict stays **Cannot post documents yet.** — the books are still shut in this run; that is TC-FIRM-008's step, not this one's.
   - Step 2: "The firm already has a branch and a warehouse; nothing was created.", `already_present: true`.
   - Step 3: `HO` Head Office, default; `MAIN` under it.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §14.16 — `branches` HO and `warehouses` MAIN in the firm's store with `branch.created` / `warehouse.created` there, and `firm.default_branch_created` on the platform with the firm (§15.10).
 - **Leaves:** the firm with a branch and a warehouse.
 
 ### TC-FIRM-012 — Profile Assignment, the other way to set a profile
@@ -3133,6 +3237,7 @@ dedicated one leaves its schema behind. Provisioning runs the migrations, so
 - **Expect**
   - Step 1: saves. Masters do not need the books.
   - Step 2: **422**, "No ledger account is configured for CASH. Set the firm's control accounts before posting this document." The posting service refuses rather than guesses — the design working, not a broken firm.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §14.16 and §12.1 — the masters write the firm's store with no journal; the refused posting writes nothing.
 - **Leaves:** a customer `C1` in the fixture's firm; no receipt.
 
 ### TC-FIRM-014 — What "finished" looks like
@@ -3141,6 +3246,7 @@ dedicated one leaves its schema behind. Provisioning runs the migrations, so
 - **Fixture:** `ready-firm`
 - **Steps:** sign in as the fixture's **Platform admin** → Administration → Firms → the fixture's firm → **Set up**.
 - **Expect:** **Finished. Every step is done.** — "24 accounts, 1 financial year, 12 periods, all 24 control accounts mapped, and a period open today"; Assigned: WHOLESALE; 1 tax system, 8 profiles, 6 rules; 1 country; 1 branch, 1 warehouse; **2 members**. No buttons. The contrast with TC-FIRM-007 is the point.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.9 — reads only.
 - **Leaves:** the firm, unchanged.
 
 ### TC-FIRM-015 — Control accounts: held once something has posted
@@ -3164,6 +3270,7 @@ dedicated one leaves its schema behind. Provisioning runs the migrations, so
   select purpose, ledger_account_id, updated_at from fx_<suffix>_r.firm_control_accounts
   where  purpose in ('ACCOUNTS_RECEIVABLE', 'CASH', 'ROUNDING');
   ```
+  Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §12.7.
 - **Leaves:** the firm, with Rounding back where it was.
 
 ### TC-FIRM-016 — A firm administrator cannot reach firms at all
@@ -3176,6 +3283,7 @@ dedicated one leaves its schema behind. Provisioning runs the migrations, so
 - **Expect**
   - Step 1: **no Firms** tab and **no Business Profiles** group, so no setup panel. `FIRM_VIEW` and `PLATFORM_VIEW` are platform codes no firm role can hold.
   - Step 2: **403** for all four. No permission code can grant them. What they would show, a firm administrator reads as their own Finance → Chart of Accounts and Financial Years.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.8 — every refusal writes nothing.
 - **Leaves:** a firm admin user.
 
 ### TC-FIRM-017 — A firm whose people have been deleted cannot be deleted either
@@ -3192,6 +3300,7 @@ dedicated one leaves its schema behind. Provisioning runs the migrations, so
   - Step 2: **nobody**. The firm's own directory is empty and its Users grid has no rows, so every screen agrees the firm has no people.
   - Step 3: **204** — the firm deletes. Until 2026-09-16 this answered **422**, "Assigned firms cannot be deleted.", naming a condition no screen could show; see defect **D-27-5**. The memberships themselves are untouched, because they are what a restore reads to put those people back.
   - Step 4: **422**, "Assigned firms cannot be deleted." A firm with people who still exist is still refused — that half of the guard is the point of it.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.8 — the delete writes `firm.deleted` with the firm and leaves the mapping; the guard counts memberships of live users only.
 - **Leaves:** nothing live — the first firm is deleted, the second is not. A deleted firm's schema stays behind, because storage routing is never reused, soft-deleted firms included.
 
 ### Known defects found while writing these cases
