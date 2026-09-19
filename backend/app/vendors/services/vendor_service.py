@@ -197,6 +197,7 @@ class VendorService:
         from app.purchase_invoice.models import PurchaseInvoice
         from app.settlements.models import Settlement, SettlementStatus
         from app.settlements.services import PaymentService
+        from app.settlements.services.supplier_credits import supplier_credits
 
         reasons: list[str] = []
         open_bills = PaymentService(self._session).outstanding_invoices(
@@ -237,6 +238,23 @@ class VendorService:
             reasons.append(
                 f"holds {Decimal(str(unapplied)):,.2f} paid in advance and "
                 "not yet applied to a bill"
+            )
+        # Goods sent back against a receipt left a credit the supplier owes
+        # the firm; deleting past it left payables carrying a debit nobody on
+        # the vendor list owed (D-FIN-19).
+        credits = [
+            credit
+            for credit in supplier_credits(
+                self._session, firm_id=vendor.firm_id, vendor_id=vendor.id
+            )
+            if credit.available_amount > 0
+        ]
+        if credits:
+            held = sum((credit.available_amount for credit in credits), Decimal(0))
+            returns = ", ".join(credit.return_number for credit in credits[:5])
+            reasons.append(
+                f"owes the firm {held:,.2f} of supplier credit from returns "
+                f"({returns}) not yet set against a bill"
             )
         if reasons:
             raise ValidationError(

@@ -153,6 +153,45 @@ class OutstandingInvoice {
       );
 }
 
+/// What a purchase return raised from the goods receipt left on a
+/// supplier's account: a credit the supplier owes the firm until it is set
+/// against one of their bills (D-FIN-19).
+class SupplierCredit {
+  const SupplierCredit({
+    required this.purchaseReturnId,
+    required this.returnNumber,
+    required this.returnDate,
+    required this.creditAmount,
+    required this.appliedAmount,
+    required this.availableAmount,
+    required this.appliedTo,
+  });
+
+  final String purchaseReturnId;
+  final String returnNumber;
+  final String returnDate;
+  final String creditAmount;
+  final String appliedAmount;
+  final String availableAmount;
+  final List<String> appliedTo;
+
+  double get available => double.tryParse(availableAmount) ?? 0;
+
+  factory SupplierCredit.fromJson(Json json) => SupplierCredit(
+        purchaseReturnId: stringValue(json['purchase_return_id']),
+        returnNumber: stringValue(json['return_number']),
+        returnDate: stringValue(json['return_date']),
+        creditAmount: stringValue(json['credit_amount']),
+        appliedAmount: stringValue(json['applied_amount']),
+        availableAmount: stringValue(json['available_amount']),
+        appliedTo: [
+          for (final dynamic number
+              in json['applied_to'] is List ? json['applied_to'] : const [])
+            stringValue(number),
+        ],
+      );
+}
+
 /// Spread an amount across invoices, oldest first.
 ///
 /// This is what a cashier does by hand with a stack of invoices and a cheque,
