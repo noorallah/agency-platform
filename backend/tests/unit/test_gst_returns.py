@@ -29,6 +29,7 @@ from app.credit_note.models import CreditNote, CreditNoteLine
 from app.customers.models import Customer, CustomerReceivableTransaction
 from app.firms.models import Firm
 from app.gst_returns.services import GstReturnService
+from app.gst_returns.services.gstr_service import b2cl_threshold
 from app.products.models import Product
 from app.sales_invoice.models import (
     SalesInvoice,
@@ -709,6 +710,132 @@ def test_freight_and_a_line_charge_are_both_declared() -> None:
     assert invoice["taxable_value"] == 1150.0
 
 
+def _untaxed(books: _Books, invoice: SalesInvoice, *, kind: str) -> None:
+    """Make an invoice's only line a nil-rated, exempt or non-GST supply."""
+    line = books.session.scalars(
+        select(SalesInvoiceLine).where(SalesInvoiceLine.sales_invoice_id == invoice.id)
+    ).one()
+    components = books.session.scalars(
+        select(SalesInvoiceLineTax).where(
+            SalesInvoiceLineTax.sales_invoice_line_id == line.id
+        )
+    ).all()
+    for component in components:
+        if kind == "NIL":
+            component.percentage = Decimal("0")
+            component.amount = Decimal("0")
+        else:
+            books.session.delete(component)
+    line.tax_amount = Decimal("0")
+    line.tax_profile_id = None if kind == "NON_GST" else uuid4()
+    invoice.grand_total = Decimal(str(line.gross_amount))
+    books.session.commit()
+
+
+@pytest.mark.parametrize(
+    ("on", "section"),
+    [
+        # 1,77,000 is above the Rs 1,00,000 limit in force from 1 August 2024.
+        (date(2026, 4, 10), "b2cl"),
+        # The same bill before that day was below the Rs 2,50,000 limit then.
+        (date(2024, 7, 10), "b2cs"),
+    ],
+)
+def test_the_b2cl_limit_is_the_one_in_force_on_the_invoice_date(
+    on: date, section: str
+) -> None:
+    """Notification 12/2024-CT cut B2CL to Rs 1,00,000 from 1 August 2024.
+
+    A bill between the two figures was summarised in B2CS when it had to be
+    declared invoice by invoice (D-CMP-10).
+    """
+    books = _Books(_session_factory()())
+    books.invoice(
+        "SI-1",
+        customer=books.walk_in,
+        gross="150000",
+        tax="27000",
+        interstate=True,
+        on=on,
+    )
+
+    answer = GstReturnService(books.session).gstr1(
+        firm_scope=books.firm.id,
+        from_date=on.replace(day=1),
+        to_date=on.replace(day=28),
+    )
+
+    assert len(answer[section]) == 1
+    assert b2cl_threshold(on) == (
+        Decimal("100000") if on >= date(2024, 8, 1) else Decimal("250000")
+    )
+
+
+def test_untaxed_supplies_are_table_8_not_zero_rate_rows() -> None:
+    """Nil-rated, exempt and non-GST sales were filed as 0% taxable (D-CMP-10)."""
+    books = _Books(_session_factory()())
+    books.invoice("SI-1")
+    _untaxed(books, books.invoice("SI-2", gross="200"), kind="NIL")
+    _untaxed(books, books.invoice("SI-3", gross="300"), kind="EXEMPT")
+    _untaxed(
+        books, books.invoice("SI-4", customer=books.walk_in, gross="50"), kind="NON_GST"
+    )
+
+    answer = books.gstr1()
+    summary = books.gstr3b()
+
+    assert [
+        invoice["invoice_number"]
+        for party in answer["b2b"]
+        for invoice in party["invoices"]
+    ] == ["SI-1"]
+    assert answer["b2cs"] == []
+    assert answer["nil_exempt"] == [
+        {
+            "supply_type": "INTRA-STATE TO REGISTERED",
+            "nil_rated": 200.0,
+            "exempted": 300.0,
+            "non_gst": 0.0,
+        },
+        {
+            "supply_type": "INTRA-STATE TO UNREGISTERED",
+            "nil_rated": 0.0,
+            "exempted": 0.0,
+            "non_gst": 50.0,
+        },
+    ]
+    assert summary["outward_taxable_supplies"]["taxable_value"] == 1000.0
+    assert summary["nil_rated_and_exempt_supplies"] == {"taxable_value": 500.0}
+    assert summary["non_gst_supplies"] == {"taxable_value": 50.0}
+
+
+def test_the_document_series_counts_what_was_cancelled() -> None:
+    """Table 13 explains every number in the range (D-CMP-10).
+
+    Counting only live bills left a cancelled number as a gap in the declared
+    range with nothing to say why.
+    """
+    books = _Books(_session_factory()())
+    books.invoice("SI-2026-0001")
+    books.invoice("SI-2026-0002", status="CANCELLED")
+    books.invoice("SI-2026-0003")
+    books.invoice("SI-2026-0004", status="DRAFT")
+
+    docs = books.gstr1()["docs"]
+
+    assert docs == [
+        {
+            "prefix": "SI-2026",
+            "from": "SI-2026-0001",
+            "to": "SI-2026-0003",
+            "total_number": 3,
+            "cancelled": 1,
+            "net_issued": 2,
+            "count": 2,
+        }
+    ]
+
+
 def test_the_declared_tax_is_what_the_journal_credited() -> None:
     """Rounding the sum is not rounding the parts (D-CMP-4).
 
@@ -861,6 +988,26 @@ def test_an_unregistered_buyer_s_late_cancellation_comes_off_the_summary() -> No
     assert april["b2cs"][0]["taxable_value"] == 300.0
     assert may["b2cs"][0]["taxable_value"] == -300.0
     assert may["b2cs"][0]["central_tax"] == -27.0
+
+
+def test_a_bill_cancelled_after_its_month_was_due_counts_as_issued_there() -> None:
+    """April's DOCS was filed with the bill standing (D-CMP-10 with D-CMP-11).
+
+    A cancellation after 11 May belongs to May, so April's Table 13 must not
+    count it as cancelled; one cancelled before the due date still is.
+    """
+    books = _Books(_session_factory()())
+    late = books.invoice("SI-2026-0001")
+    early = books.invoice("SI-2026-0002")
+    books.invoice("SI-2026-0003")
+    _cancel(books, late, on=date(2026, 5, 20))
+    _cancel(books, early, on=date(2026, 5, 5))
+
+    docs = books.gstr1()["docs"]
+
+    assert docs[0]["total_number"] == 3
+    assert docs[0]["cancelled"] == 1
+    assert docs[0]["net_issued"] == 2
 
 
 def test_a_sales_return_is_declared_at_what_its_journal_reversed() -> None:

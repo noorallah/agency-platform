@@ -242,6 +242,17 @@ unit suite saw the right answer and the defect only existed in production.
 line down, and it must stay in the integration suite: SQLite cannot express the
 bug.
 
+**One live rule per version, and firm-wide is its own key.** The version is
+what a document line records, so two live rules sharing one would let either
+factor move the stock. `UQ_uom_conversion_rules_unique_version` includes the
+nullable `product_id`, and PostgreSQL treats two NULLs as distinct, so it never
+held a firm-wide rule: BOX -> PIECE was published at 10 and again at 12, both
+firm-wide version 1, on 2026-09-19 (D-CFG-10). The partial index
+`UQ_uom_conversion_rules_firmwide_version_active` (`20260919_0143`, which
+renumbered any live duplicates it found: the earliest keeps its number and each
+later one moves to the next free number, noted in its `reason`) holds the firm-wide case, and `create_conversion_rule` refuses a taken
+version by name, saying which number is free. A retired rule holds no number.
+
 Rounding is per rule — `rounding_mode` (`HALF_UP`, `HALF_DOWN`, `HALF_EVEN`,
 `UP`, `DOWN`, `CEILING`, `FLOOR`; default `HALF_UP`) and `precision_scale`
 (default 4).

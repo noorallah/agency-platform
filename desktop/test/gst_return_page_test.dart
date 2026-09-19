@@ -179,6 +179,40 @@ void main() {
     expect(find.text('Use this period'), findsOneWidget);
   });
 
+  testWidgets('untaxed supplies and cancelled numbers have their own tables',
+      (tester) async {
+    // Nil-rated and exempt sales were filed as 0% rows, and a cancelled bill
+    // was a gap in the declared range nothing explained (D-CMP-10).
+    final Json one = <String, dynamic>{
+      ..._gstr1(),
+      'nil_exempt': <Json>[
+        <String, dynamic>{
+          'supply_type': 'INTRA-STATE TO REGISTERED',
+          'nil_rated': 200.0,
+          'exempted': 300.0,
+          'non_gst': 0.0,
+        },
+      ],
+      'docs': <Json>[
+        <String, dynamic>{
+          'prefix': 'SI-2026',
+          'from': 'SI-2026-0001',
+          'to': 'SI-2026-0003',
+          'total_number': 3,
+          'cancelled': 1,
+          'net_issued': 2,
+          'count': 2,
+        },
+      ],
+    };
+    await _pump(tester, _ReturnsApi(one: one, summary: _gstr3b()));
+
+    expect(find.textContaining('Table 8'), findsOneWidget);
+    expect(find.text('INTRA-STATE TO REGISTERED'), findsOneWidget);
+    expect(find.text('300.00'), findsOneWidget);
+    expect(find.text('SI-2026-0001 to SI-2026-0003'), findsOneWidget);
+  });
+
   testWidgets('a registered buyer is shown invoice by invoice', (tester) async {
     await _pump(tester, _ReturnsApi(one: _gstr1(), summary: _gstr3b()));
 

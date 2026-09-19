@@ -484,6 +484,13 @@ class UomService:
         """Publish a conversion rule version for one unit pair."""
         if data.product_id is not None:
             self._assert_firm_product(firm_scope, data.product_id)
+        self._assert_version_free(
+            firm_scope=firm_scope,
+            product_id=data.product_id,
+            from_uom_id=data.from_uom_id,
+            to_uom_id=data.to_uom_id,
+            version_number=data.version_number,
+        )
         row = ConversionRule(
             firm_id=firm_scope,
             business_profile_id=data.business_profile_id,
@@ -1031,6 +1038,53 @@ class UomService:
         row.updated_by = actor_id
         self._session.commit()
 
+    def _assert_version_free(
+        self,
+        *,
+        firm_scope: UUID,
+        product_id: UUID | None,
+        from_uom_id: UUID,
+        to_uom_id: UUID,
+        version_number: int,
+    ) -> None:
+        """Refuse a version this firm already publishes for the same pair.
+
+        A document line records the version it converted with, and stock
+        re-reads the rule by that number, so two live rules sharing one would
+        let either factor move the stock. Firm-wide (no product) is its own
+        key: comparing ``product_id`` with ``==`` would never match a NULL,
+        which is exactly how two firm-wide rules came to share version 1
+        (D-CFG-10). ``UQ_uom_conversion_rules_firmwide_version_active`` holds
+        the same line for two requests that race past this read.
+        """
+        owner = (
+            ConversionRule.product_id.is_(None)
+            if product_id is None
+            else ConversionRule.product_id == product_id
+        )
+        same_rule = (
+            ConversionRule.firm_id == firm_scope,
+            ConversionRule.is_deleted.is_(False),
+            ConversionRule.from_uom_id == from_uom_id,
+            ConversionRule.to_uom_id == to_uom_id,
+            owner,
+        )
+        clash = self._session.scalar(
+            select(ConversionRule.id).where(
+                *same_rule, ConversionRule.version_number == version_number
+            )
+        )
+        if clash is not None:
+            taken = self._session.scalar(
+                select(func.max(ConversionRule.version_number)).where(*same_rule)
+            )
+            whose = "firm-wide" if product_id is None else "this product's"
+            raise ConflictError(
+                f"Version {version_number} of the {whose} conversion for this "
+                f"unit pair is already published. Publish the change as "
+                f"version {int(taken or 0) + 1}."
+            )
+
     def _resolve_conversion_rule(
         self,
         *,
@@ -1065,6 +1119,9 @@ class UomService:
             .order_by(
                 case((ConversionRule.product_id.is_(None), 1), else_=0).asc(),
                 ConversionRule.version_number.desc(),
+                # Never a tie since D-CFG-10's index; this only keeps a store
+                # the migration had to renumber from resolving by disk order.
+                ConversionRule.created_at.desc(),
             )
         ).first()
         if exact is None:

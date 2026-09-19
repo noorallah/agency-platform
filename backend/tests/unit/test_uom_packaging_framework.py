@@ -7,6 +7,7 @@ from uuid import UUID, uuid4
 import pytest
 from fastapi import Response
 from sqlalchemy import create_engine, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -428,6 +429,101 @@ def test_an_unusable_rounding_mode_is_refused() -> None:
             firm_scope=firm.id,
             actor_id=actor_id,
         )
+
+
+def _firmwide_rule(
+    factor: str, version: int, box: Uom, piece: Uom
+) -> ConversionRuleCreate:
+    """Describe a firm-wide BOX -> PIECE rule at one factor and version."""
+    return ConversionRuleCreate(
+        from_uom_id=box.id,
+        to_uom_id=piece.id,
+        conversion_factor=Decimal(factor),
+        effective_from=date(2026, 1, 1),
+        version_number=version,
+    )
+
+
+def test_two_firm_wide_rules_cannot_share_a_version() -> None:
+    """D-CFG-10: the unique key held the nullable product id, NULLs are distinct.
+
+    Driven on ``fx_t0919duz7_r``: BOX -> PIECE published at 10 and again at
+    12, both firm-wide and both version 1, and both accepted -- so a line
+    recording "version 1" could have its stock moved by either factor.
+    """
+    session = _session_factory()()
+    service = UomService(session)
+    actor_id = uuid4()
+    firm = _firm(session)
+    box, piece = _rule_setup(session, service, actor_id, firm)
+    service.create_conversion_rule(
+        _firmwide_rule("10", 1, box, piece), firm_scope=firm.id, actor_id=actor_id
+    )
+
+    with pytest.raises(ConflictError, match="as version 2"):
+        service.create_conversion_rule(
+            _firmwide_rule("12", 1, box, piece), firm_scope=firm.id, actor_id=actor_id
+        )
+
+    # The next number is accepted, and a product's own rule keeps its own key.
+    service.create_conversion_rule(
+        _firmwide_rule("12", 2, box, piece), firm_scope=firm.id, actor_id=actor_id
+    )
+    product = _product(session, firm.id)
+    own = _firmwide_rule("6", 1, box, piece).model_copy(
+        update={"product_id": product.id}
+    )
+    service.create_conversion_rule(own, firm_scope=firm.id, actor_id=actor_id)
+
+
+def test_the_index_holds_a_firm_wide_version_the_service_check_missed() -> None:
+    """Two requests can both pass the read; the partial index refuses the second."""
+    session = _session_factory()()
+    service = UomService(session)
+    actor_id = uuid4()
+    firm = _firm(session)
+    box, piece = _rule_setup(session, service, actor_id, firm)
+    for factor in ("10", "12"):
+        session.add(
+            ConversionRule(
+                firm_id=firm.id,
+                from_uom_id=box.id,
+                to_uom_id=piece.id,
+                conversion_factor=Decimal(factor),
+                effective_from=date(2026, 1, 1),
+                version_number=1,
+            )
+        )
+    with pytest.raises(IntegrityError):
+        session.flush()
+
+
+def test_a_retired_firm_wide_version_holds_no_number() -> None:
+    """Only a live rule is read by either resolver, so only a live one holds."""
+    session = _session_factory()()
+    service = UomService(session)
+    actor_id = uuid4()
+    firm = _firm(session)
+    box, piece = _rule_setup(session, service, actor_id, firm)
+    first = service.create_conversion_rule(
+        _firmwide_rule("10", 1, box, piece), firm_scope=firm.id, actor_id=actor_id
+    )
+    service.delete_conversion_rule(first.id, firm_scope=firm.id, actor_id=actor_id)
+
+    again = service.create_conversion_rule(
+        _firmwide_rule("12", 1, box, piece), firm_scope=firm.id, actor_id=actor_id
+    )
+    converted = service.convert_quantity(
+        ConversionRequest(
+            quantity=Decimal("1"),
+            from_uom_id=box.id,
+            to_uom_id=piece.id,
+            conversion_date=date(2026, 8, 2),
+        ),
+        firm_scope=firm.id,
+    )
+    assert converted.conversion_rule_id == again.id
+    assert converted.converted_quantity == Decimal("12")
 
 
 def test_a_unit_in_use_cannot_be_deleted() -> None:

@@ -96,10 +96,45 @@ from app.sales.schemas import (
     TerritoryUpdate,
 )
 from app.sales.services.scope_resolution import route_profile_in_force
+from app.tax.models import TaxCountryMapping, TaxRule, TaxSystem
+from app.vendors.models import Vendor, VendorAddress
 
 #: Any geography master row. The lookup helper is shared by all six levels
 #: and must hand back the concrete type it was asked for.
 _GeoRowT = TypeVar("_GeoRowT", bound=BaseEntity)
+
+#: What a refusal to retire a geography row calls each kind of record that
+#: still names it, singular and plural, so the message says what to reassign
+#: rather than a bare count.
+_GEO_USE_NOUNS: dict[type[BaseEntity], tuple[str, str]] = {
+    GeoState: ("state", "states"),
+    GeoDistrict: ("district", "districts"),
+    GeoCity: ("city", "cities"),
+    GeoPostalCode: ("postal code", "postal codes"),
+    GeoLocality: ("locality", "localities"),
+    AddressMaster: ("address", "addresses"),
+    Branch: ("branch", "branches"),
+    Warehouse: ("warehouse", "warehouses"),
+    TerritoryRouteProfile: ("route profile", "route profiles"),
+}
+
+#: The tax tables that name a country. The execution log is left out on
+#: purpose: it records evaluations that already happened and is pruned by
+#: retention, so it must never hold a country in place.
+_TAX_COUNTRY_USES: tuple[
+    tuple[type[TaxSystem] | type[TaxCountryMapping] | type[TaxRule], tuple[str, str]],
+    ...,
+] = (
+    (TaxSystem, ("tax system", "tax systems")),
+    (TaxCountryMapping, ("tax country mapping", "tax country mappings")),
+    (TaxRule, ("tax rule", "tax rules")),
+)
+
+
+def _name_use(uses: list[str], count: int, nouns: tuple[str, str]) -> None:
+    """Add "3 customer addresses" to ``uses`` when ``count`` is not zero."""
+    if count:
+        uses.append(f"{count} {nouns[0] if count == 1 else nouns[1]}")
 
 
 def _ordinal(number: int) -> str:
@@ -609,6 +644,7 @@ class SalesTerritoryService:
                 (Warehouse, Warehouse.country_id),
             ],
             row.id,
+            field="country_id",
         )
         self._retire_geo(row, actor_id)
         self._audit_geo("country", "deleted", row.id, actor_id, row.name)
@@ -655,6 +691,7 @@ class SalesTerritoryService:
                 (Warehouse, Warehouse.state_id),
             ],
             row.id,
+            field="state_id",
         )
         self._retire_geo(row, actor_id)
         self._audit_geo("state", "deleted", row.id, actor_id, row.name)
@@ -701,6 +738,7 @@ class SalesTerritoryService:
                 (Warehouse, Warehouse.district_id),
             ],
             row.id,
+            field="district_id",
         )
         self._retire_geo(row, actor_id)
         self._audit_geo("district", "deleted", row.id, actor_id, row.name)
@@ -748,6 +786,7 @@ class SalesTerritoryService:
                 (TerritoryRouteProfile, TerritoryRouteProfile.city_id),
             ],
             row.id,
+            field="city_id",
         )
         self._retire_geo(row, actor_id)
         self._audit_geo("city", "deleted", row.id, actor_id, row.name)
@@ -792,6 +831,7 @@ class SalesTerritoryService:
                 (TerritoryRouteProfile, TerritoryRouteProfile.postal_code_id),
             ],
             row.id,
+            field="postal_code_id",
         )
         self._retire_geo(row, actor_id)
         self._audit_geo("postal_code", "deleted", row.id, actor_id, row.postal_code)
@@ -835,6 +875,7 @@ class SalesTerritoryService:
                 (TerritoryRouteProfile, TerritoryRouteProfile.locality_id),
             ],
             row.id,
+            field="locality_id",
         )
         self._retire_geo(row, actor_id)
         self._audit_geo("locality", "deleted", row.id, actor_id, row.name)
@@ -884,19 +925,80 @@ class SalesTerritoryService:
         label: str,
         references: list[tuple[type[BaseEntity], InstrumentedAttribute[UUID | None]]],
         row_id: UUID,
+        *,
+        field: str,
     ) -> None:
-        """Refuse to retire a geography row anything still points at."""
+        """Refuse to retire a geography row anything still points at, naming what.
+
+        ``references`` are the level below and the other masters that name the
+        row directly. The customer and vendor addresses are asked by ``field``
+        on top of them, counting only the addresses of a live customer or
+        vendor -- the next save of one of those resends the stored place, and a
+        retired place is refused as unknown, so the record could never be saved
+        again. A country is also asked of the tax tables that name one.
+        """
+        uses: list[str] = []
+        total = 0
         for model, column in references:
-            count = self._session.scalar(
-                select(func.count())
-                .select_from(model)
-                .where(column == row_id, model.is_deleted.is_(False))
-            )
-            if int(count or 0) > 0:
-                raise ConflictError(
-                    f"{count} record(s) still use this {label}. "
-                    "Reassign them before deleting it."
+            count = int(
+                self._session.scalar(
+                    select(func.count())
+                    .select_from(model)
+                    .where(column == row_id, model.is_deleted.is_(False))
                 )
+                or 0
+            )
+            total += count
+            _name_use(uses, count, _GEO_USE_NOUNS[model])
+        for address, owner, owner_key, nouns in (
+            (
+                CustomerAddress,
+                Customer,
+                CustomerAddress.customer_id,
+                ("customer address", "customer addresses"),
+            ),
+            (
+                VendorAddress,
+                Vendor,
+                VendorAddress.vendor_id,
+                ("vendor address", "vendor addresses"),
+            ),
+        ):
+            count = int(
+                self._session.scalar(
+                    select(func.count())
+                    .select_from(address)
+                    .join(owner, owner.id == owner_key)
+                    .where(
+                        getattr(address, field) == row_id,
+                        address.is_deleted.is_(False),
+                        owner.is_deleted.is_(False),
+                    )
+                )
+                or 0
+            )
+            total += count
+            _name_use(uses, count, nouns)
+        if field == "country_id":
+            for tax_model, tax_nouns in _TAX_COUNTRY_USES:
+                count = int(
+                    self._session.scalar(
+                        select(func.count())
+                        .select_from(tax_model)
+                        .where(
+                            tax_model.country_id == row_id,
+                            tax_model.is_deleted.is_(False),
+                        )
+                    )
+                    or 0
+                )
+                total += count
+                _name_use(uses, count, tax_nouns)
+        if uses:
+            raise ConflictError(
+                f"{total} record(s) still use this {label}: {', '.join(uses)}. "
+                "Reassign them before deleting it."
+            )
 
     def _retire_geo(self, row: BaseEntity, actor_id: UUID) -> None:
         row.is_deleted = True

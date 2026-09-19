@@ -27,6 +27,7 @@ from app.branches.models import Branch
 from app.common.audit.models import AuditLog
 from app.core.database.base import Base
 from app.core.exceptions import ConflictError, ResourceNotFoundError
+from app.customers.models import Customer, CustomerAddress
 from app.firms.models import Firm
 from app.sales.schemas.territory import (
     GeoCityWrite,
@@ -37,6 +38,8 @@ from app.sales.schemas.territory import (
     GeoStateWrite,
 )
 from app.sales.services import SalesTerritoryService
+from app.tax.models import TaxSystem
+from app.vendors.models import Vendor, VendorAddress
 
 
 def _session_factory() -> sessionmaker[Session]:
@@ -276,3 +279,122 @@ def test_changing_geography_leaves_an_audit_trail() -> None:
     ]
     assert "sales_territory.geo.country.updated" in actions
     assert "sales_territory.geo.country.deleted" in actions
+
+
+def _customer_at(session: Session, firm: Firm, ids: dict[str, UUID]) -> Customer:
+    """Add a live customer whose one address stands on the whole chain."""
+    customer = Customer(
+        firm_id=firm.id,
+        code="GEO-C1",
+        customer_type="RETAIL",
+        name="Parrys Traders",
+        display_name="Parrys Traders",
+        currency_code="INR",
+        status="ACTIVE",
+    )
+    session.add(customer)
+    session.flush()
+    session.add(
+        CustomerAddress(
+            customer_id=customer.id,
+            address_type="BILLING",
+            address_line1="1 Beach Road",
+            area="Parrys",
+            city="Chennai City",
+            district="Chennai",
+            state="Tamil Nadu",
+            country="IN",
+            postal_code="600001",
+            country_id=ids["country"],
+            state_id=ids["state"],
+            district_id=ids["district"],
+            city_id=ids["city"],
+            postal_code_id=ids["postal"],
+            locality_id=ids["locality"],
+        )
+    )
+    session.commit()
+    return customer
+
+
+def test_a_place_a_customer_address_stands_on_cannot_be_retired() -> None:
+    """D-CFG-12: the next save of that customer resends the place.
+
+    A retired place is refused as unknown on that save, so retiring one a live
+    customer's address names would leave the customer impossible to save. The
+    refusal names what holds it, so the administrator knows what to reassign.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    ids = _chain(service, actor)
+    _customer_at(session, firm, ids)
+
+    with pytest.raises(ConflictError, match="still use this locality: 1 customer"):
+        service.delete_locality(ids["locality"], actor_id=actor)
+
+
+def test_a_place_a_vendor_address_stands_on_cannot_be_retired() -> None:
+    session = _session_factory()()
+    firm = _firm(session)
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    ids = _chain(service, actor)
+    vendor = Vendor(
+        firm_id=firm.id, code="GEO-V1", name="Beach Supply", display_name="Beach"
+    )
+    session.add(vendor)
+    session.flush()
+    session.add(
+        VendorAddress(
+            vendor_id=vendor.id,
+            address_type="BILLING",
+            address_line1="2 Beach Road",
+            locality_id=ids["locality"],
+        )
+    )
+    session.commit()
+
+    with pytest.raises(ConflictError, match="1 vendor address"):
+        service.delete_locality(ids["locality"], actor_id=actor)
+
+
+def test_the_address_of_a_deleted_customer_does_not_hold_a_place() -> None:
+    """Only a record somebody can still save is counted."""
+    session = _session_factory()()
+    firm = _firm(session)
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    ids = _chain(service, actor)
+    customer = _customer_at(session, firm, ids)
+    customer.is_deleted = True
+    session.commit()
+
+    service.delete_locality(ids["locality"], actor_id=actor)
+
+    assert service.list_localities(postal_code_id=ids["postal"]) == []
+
+
+def test_a_country_a_tax_system_names_cannot_be_retired() -> None:
+    session = _session_factory()()
+    firm = _firm(session)
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    country = service.create_country(
+        GeoCountryWrite(code="LK", name="Sri Lanka"), actor_id=actor
+    )
+    session.add(
+        TaxSystem(
+            firm_id=firm.id,
+            country_id=country.id,
+            code="VAT",
+            name="VAT",
+            display_name="VAT",
+            status="ACTIVE",
+        )
+    )
+    session.commit()
+
+    with pytest.raises(ConflictError, match="1 tax system"):
+        service.delete_country(country.id, actor_id=actor)

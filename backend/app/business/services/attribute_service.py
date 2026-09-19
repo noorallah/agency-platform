@@ -178,13 +178,15 @@ class AttributeService:
                 "One or more attributes do not apply to this record.",
                 details={"invalid_attribute_definition_ids": unknown},
             )
-        missing = sorted(
-            str(item)
-            for item in self.mandatory_ids(
-                entity_type, firm_id=firm_id, category_code=category_code
-            )
-            - submitted
+        # One answer to "must this record carry it", used twice: the field
+        # has to be sent, and what is sent has to be a value. A category rule
+        # is as mandatory as the definition's own flag -- reading only the
+        # flag at the value check let a rule-required field be stored with
+        # every value column null by sending it blank.
+        required = self.mandatory_ids(
+            entity_type, firm_id=firm_id, category_code=category_code
         )
+        missing = sorted(str(item) for item in required - submitted)
         if missing:
             raise ValidationError(
                 "Required attributes are missing.",
@@ -200,7 +202,10 @@ class AttributeService:
             # from the list does not make the record unsaveable -- see
             # `_coerce`.
             columns = self._coerce(
-                definition, item.value, kept=row.value_text if row else None
+                definition,
+                item.value,
+                kept=row.value_text if row else None,
+                required=definition.id in required,
             )
             if row is None:
                 self._session.add(
@@ -363,8 +368,13 @@ class AttributeService:
         value: AttributeValue,
         *,
         kept: str | None = None,
+        required: bool = False,
     ) -> dict[str, object]:
         """Convert a submitted value into its typed storage column.
+
+        `required` says a category rule makes the field mandatory for this
+        record even though the definition's own flag does not; either one
+        refuses a blank.
 
         `kept` is what this record already holds, and it is accepted even when
         the definition no longer offers it. Withdrawing a choice -- taking
@@ -382,7 +392,7 @@ class AttributeService:
             "value_boolean": None,
         }
         if value is None or (isinstance(value, str) and not value.strip()):
-            if definition.mandatory:
+            if definition.mandatory or required:
                 raise ValidationError(
                     f"Attribute {definition.code} is required and cannot be empty."
                 )
