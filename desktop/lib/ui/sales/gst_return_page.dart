@@ -274,6 +274,9 @@ class _GstReturnPageState extends State<GstReturnPage> {
     final List<dynamic> b2cs = data['b2cs'] as List<dynamic>? ?? const [];
     final List<dynamic> cdnr = data['cdnr'] as List<dynamic>? ?? const [];
     final List<dynamic> hsn = data['hsn'] as List<dynamic>? ?? const [];
+    final List<dynamic> nil =
+        data['nil_exempt'] as List<dynamic>? ?? const [];
+    final List<dynamic> docs = data['docs'] as List<dynamic>? ?? const [];
     final List<dynamic> unplaced =
         data['unplaced_invoices'] as List<dynamic>? ?? const [];
     return Column(
@@ -335,6 +338,21 @@ class _GstReturnPageState extends State<GstReturnPage> {
           ],
           headers: const ['Note', 'Against', 'Taxable', 'CGST', 'SGST'],
         ),
+        // Nil-rated, exempt and non-GST supplies are their own table, not a
+        // 0% row in B2B or B2CS (D-CMP-10).
+        _Section(
+          title: 'Table 8 — nil-rated, exempt and non-GST supplies',
+          headers: const ['Supply', 'Nil rated', 'Exempted', 'Non-GST'],
+          rows: [
+            for (final dynamic row in nil)
+              ([
+                stringValue((row as Map)['supply_type']),
+                _money(row['nil_rated']),
+                _money(row['exempted']),
+                _money(row['non_gst']),
+              ]),
+          ],
+        ),
         _Section(
           title: 'HSN summary',
           rows: [
@@ -349,6 +367,22 @@ class _GstReturnPageState extends State<GstReturnPage> {
               ]),
           ],
           headers: const ['HSN', 'Rate', 'Quantity', 'Taxable', 'CGST', 'SGST'],
+        ),
+        // Every number in the range is accounted for: a cancelled bill is a
+        // gap the return has to explain (D-CMP-10).
+        _Section(
+          title: 'Documents issued',
+          headers: const ['Series', 'Range', 'Total', 'Cancelled', 'Net'],
+          rows: [
+            for (final dynamic row in docs)
+              ([
+                stringValue((row as Map)['prefix']),
+                '${stringValue(row['from'])} to ${stringValue(row['to'])}',
+                '${row['total_number'] ?? row['count'] ?? 0}',
+                '${row['cancelled'] ?? 0}',
+                '${row['net_issued'] ?? row['count'] ?? 0}',
+              ]),
+          ],
         ),
         const SizedBox(height: AppSpacing.md),
         // The server names an invoice it could not place rather than filing
@@ -372,6 +406,13 @@ class _GstReturnPageState extends State<GstReturnPage> {
     final Map<String, dynamic> credited =
         (data['credit_notes_deducted'] as Map?)?.cast<String, dynamic>() ??
             const <String, dynamic>{};
+    final Map<String, dynamic> nilExempt =
+        (data['nil_rated_and_exempt_supplies'] as Map?)
+                ?.cast<String, dynamic>() ??
+            const <String, dynamic>{};
+    final Map<String, dynamic> nonGst =
+        (data['non_gst_supplies'] as Map?)?.cast<String, dynamic>() ??
+            const <String, dynamic>{};
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -386,6 +427,20 @@ class _GstReturnPageState extends State<GstReturnPage> {
               _money(outward['state_tax']),
               _money(outward['cess']),
             ]),
+          ],
+        ),
+        _Section(
+          title: '3.1(c) — nil-rated and exempt supplies',
+          headers: const ['Taxable'],
+          rows: [
+            ([_money(nilExempt['taxable_value'])]),
+          ],
+        ),
+        _Section(
+          title: '3.1(e) — non-GST supplies',
+          headers: const ['Value'],
+          rows: [
+            ([_money(nonGst['taxable_value'])]),
           ],
         ),
         _Section(
