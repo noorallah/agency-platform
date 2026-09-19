@@ -197,6 +197,7 @@ class TcsService:
             firm_id=firm_id,
             customer_id=customer_id,
             year_start=year_start,
+            up_to=on,
             excluding_settlement_id=excluding_settlement_id,
         )
         without_pan = not (customer.pan_number or "").strip()
@@ -559,19 +560,27 @@ class TcsService:
         firm_id: UUID,
         customer_id: UUID,
         year_start: date,
+        up_to: date,
         excluding_settlement_id: UUID | None = None,
     ) -> Decimal:
-        """Return what this buyer has already paid this financial year.
+        """Return what this buyer had already paid this year, by a given day.
 
         **Summed from the receipts, never held as a counter.** A counter and a
         reversal are two chances to disagree, and here disagreeing means
         charging a buyer on money they got back. Reversed receipts are
         excluded, because a reversed receipt is money the firm does not have.
 
+        **Only receipts dated on or before the day in question.** The section
+        charges the consideration received *in excess of* the threshold, so
+        what counts is what had been received by then -- not what happened to
+        be recorded first. Summing the whole year charged a back-dated receipt
+        on money the buyer paid after it (D-CMP-7).
+
         Args:
             firm_id: The collecting firm.
             customer_id: The buyer.
             year_start: First day of the financial year.
+            up_to: The receipt's own date; later receipts are not counted.
             excluding_settlement_id: A receipt to leave out.
 
         Returns:
@@ -591,6 +600,7 @@ class TcsService:
                 Settlement.status != SettlementStatus.REVERSED.value,
                 Settlement.settlement_date >= year_start,
                 Settlement.settlement_date < year_end,
+                Settlement.settlement_date <= up_to,
             )
             if excluding_settlement_id is not None:
                 query = query.where(Settlement.id != excluding_settlement_id)
