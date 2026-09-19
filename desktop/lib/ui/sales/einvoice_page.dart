@@ -180,9 +180,12 @@ class _EInvoicePageState extends State<EInvoicePage> {
   /// attempt FAILED is offered again, because the service keeps the row and
   /// counts the attempt rather than treating a refusal as final.
   Future<List<Json>> _registerable() async {
+    // Only a refusal can be sent again. A registered invoice already has its
+    // IRN, and a withdrawn one can never have another under the same number
+    // (D-CMP-6) -- the server refuses it, so it is not offered.
     final Set<String> registered = <String>{
       for (final EInvoiceRegistrationRecord row in _rows)
-        if (row.isRegistered) row.salesInvoiceId,
+        if (!row.isFailed) row.salesInvoiceId,
     };
     try {
       final Json response = await widget.api.documentPage(
@@ -439,8 +442,10 @@ class _EInvoicePageState extends State<EInvoicePage> {
           ),
         // A refusal was a dead end: the row showed why and offered nothing.
         // The service keeps the row and counts the attempt, so the retry is
-        // the same call rather than a second kind of registration.
-        if (!row.isRegistered)
+        // the same call rather than a second kind of registration. Only a
+        // refusal: a withdrawn IRN is never reissued for the same number
+        // (D-CMP-6), so a withdrawn row offers nothing to press.
+        if (row.isFailed)
           TextButton(
             onPressed: () => _registerOne(row.salesInvoiceId),
             child: const Text('Try again'),

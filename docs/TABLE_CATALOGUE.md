@@ -380,6 +380,7 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `settlement_allocations` | firm store ¹ | Store how much of one settlement cleared one invoice. | `firms`, `settlements`, `sales_invoices`, `purchase_invoices` |
 | `settlements` | firm store ¹ | Store one receipt from a customer or payment to a vendor. | `firms`, `customers`, `vendors`, `ledger_accounts`, `sales_orders`, `journal_entries` |
+| `supplier_credit_applications` | firm store ¹ | Store how much of one purchase return's supplier credit cleared one bill. | `vendors`, `purchase_returns`, `purchase_invoices` |
 
 ### `app/tax`
 

@@ -57,7 +57,7 @@ from app.inventory.schemas import (
     WriteOffReason,
 )
 from app.inventory.services import InventoryService
-from app.inventory.services.inventory_service import _Movement
+from app.inventory.services.inventory_service import LineConversion, _Movement
 from app.products.models import Product
 from app.sales.models import territory as _geo_models  # noqa: F401
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
@@ -2051,6 +2051,19 @@ def test_stock_is_converted_with_the_rounding_the_line_was() -> None:
     assert base == Decimal("0.33")
     assert base == line.converted_quantity
     assert (entered, unit, version) == (Decimal("1"), pack.id, 1)
+
+    # A movement carrying its line's own factor (D-CFG-1) is rounded the way
+    # that line was too, or the snapshot path would put 0.3333 back.
+    snapshot, *_rest = InventoryService(session)._resolve_base_quantity(
+        firm_scope=firm.id,
+        product_id=product.id,
+        quantity=Decimal("1"),
+        entered_uom_id=pack.id,
+        conversion_version=1,
+        on_date=date(2026, 8, 1),
+        line_conversion=LineConversion(factor=Decimal("0.3333333333"), to_uom_id=kg.id),
+    )
+    assert snapshot == Decimal("0.33")
 
 
 def test_a_stock_movement_refuses_a_fraction_of_a_whole_unit() -> None:

@@ -35,6 +35,9 @@ from app.proforma.schemas import ProformaCreate, ProformaUpdate
 from app.proforma.services import ProformaService
 from app.sales_order.models import SalesOrder, SalesOrderLine
 
+# Fixtures here type their document numbers; see conftest (D-CFG-2).
+pytestmark = pytest.mark.typed_document_numbers
+
 WHEN = date(2026, 6, 10)
 
 

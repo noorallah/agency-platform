@@ -253,6 +253,30 @@ bill, not any bill that ever existed.
 The posting rule handles a supplier billing a different price from the receipt,
 but nothing in the desktop shows the variance or explains it.
 
+### A return off the receipt is a credit on the supplier's account
+
+A completed purchase return debits Trade Payables with its whole total. One
+raised from the bill's own lines comes off that bill (D-BUY-6). One raised from
+the **goods receipt** names no bill, and until 2026-09-19 nothing tracked it per
+supplier: the payment screen still offered the whole bill, a payment could
+settle it in full, and the supplier could then be deleted with the debit in
+payables belonging to nobody (D-FIN-19).
+
+It is now a **supplier credit**, the payable twin of a customer's advance:
+
+- what a return gives is derived -- its ledger total less what its bill-sourced
+  lines took off their bills -- and listed by `GET
+  /api/v1/payments/supplier-credits?vendor_id=` (`app/settlements/services/supplier_credits.py`);
+- `POST /api/v1/payments/supplier-credits/{return_id}/apply` sets part of it
+  against one of the supplier's approved bills, recorded in
+  `supplier_credit_applications`. **Nothing posts** -- the return and the bill
+  already did -- and the bill's outstanding falls by the amount;
+- the Payments screen has a **Supplier credits** action, and Record Payment says
+  when the chosen supplier holds one;
+- the vendor delete guard counts what is left of it;
+- cancelling the return or the bill withdraws what was set between them, so the
+  bill owes it again, or the credit is free again.
+
 ### Not a gap: a payment needs no invoice
 
 Worth stating because it looks like one. A payment with no allocations is

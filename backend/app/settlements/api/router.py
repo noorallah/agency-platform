@@ -25,12 +25,19 @@ from app.settlements.schemas import (
     SettlementPartyRecord,
     SettlementResponse,
     SettlementReverseRequest,
+    SupplierCreditApplyRequest,
+    SupplierCreditRecord,
 )
 from app.settlements.services import (
     PaymentService,
     ReceiptService,
     RefundService,
     SettlementService,
+)
+from app.settlements.services.supplier_credits import (
+    SupplierCredit,
+    apply_supplier_credit,
+    supplier_credits,
 )
 
 receipts_router = APIRouter(
@@ -458,6 +465,75 @@ def payment_parties(
         search=search,
         page=page,
         page_size=page_size,
+    )
+
+
+def _credit_record(credit: SupplierCredit) -> SupplierCreditRecord:
+    """Build the response for one supplier credit."""
+    return SupplierCreditRecord(
+        purchase_return_id=credit.purchase_return_id,
+        return_number=credit.return_number,
+        return_date=credit.return_date,
+        vendor_id=credit.vendor_id,
+        credit_amount=credit.credit_amount,
+        applied_amount=credit.applied_amount,
+        available_amount=credit.available_amount,
+        applied_to=credit.applied_to,
+    )
+
+
+@payments_router.get(
+    "/supplier-credits", response_model=ApiResponse[list[SupplierCreditRecord]]
+)
+def vendor_supplier_credits(
+    vendor_id: UUID,
+    scope: PaymentViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[SupplierCreditRecord]]:
+    """Return what the vendor owes the firm from returns, not yet set off.
+
+    A purchase return raised from the goods receipt debits payables but names
+    no bill, so it stands on the vendor's account as a credit until it is set
+    against one (D-FIN-19). Only credits with something left are listed.
+    """
+    return ApiResponse(
+        data=[
+            _credit_record(credit)
+            for credit in supplier_credits(
+                db, firm_id=scope.firm_id, vendor_id=vendor_id
+            )
+            if credit.available_amount > 0
+        ]
+    )
+
+
+@payments_router.post(
+    "/supplier-credits/{return_id}/apply",
+    response_model=ApiResponse[SupplierCreditRecord],
+)
+def apply_vendor_supplier_credit(
+    return_id: UUID,
+    payload: SupplierCreditApplyRequest,
+    scope: PaymentCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SupplierCreditRecord]:
+    """Set a return's supplier credit against one of the vendor's bills.
+
+    Nothing is posted: the return debited payables when it completed and the
+    bill credited them when it was approved; this says which bill the debit
+    belongs to, so the bill owes that much less.
+    """
+    credit = apply_supplier_credit(
+        db,
+        firm_id=scope.firm_id,
+        purchase_return_id=return_id,
+        invoice_id=payload.invoice_id,
+        amount=payload.amount,
+        actor_id=scope.actor_id,
+    )
+    db.commit()
+    return ApiResponse(
+        data=_credit_record(credit), message="Supplier credit applied to the bill."
     )
 
 

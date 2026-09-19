@@ -4,7 +4,7 @@ from collections.abc import Iterable
 from datetime import date, timedelta
 from io import StringIO
 from typing import Any
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
@@ -27,6 +27,9 @@ from app.tax.models import (
     TaxProfile,
     TaxProfileAttributeValue,
     TaxProfileComponent,
+    TaxRule,
+    TaxRuleAction,
+    TaxRuleCondition,
     TaxSettings,
     TaxSystem,
 )
@@ -45,6 +48,18 @@ from app.tax.schemas import (
     TaxStatus,
     TaxSystemWrite,
 )
+
+#: How each tax record is named in the audit trail: its ``entity_type`` and
+#: the prefix of its actions. Tax History reads these entity types, so a write
+#: recorded under any other name would not appear there.
+_AUDIT_NAMES: dict[type[BaseEntity], tuple[str, str]] = {
+    TaxSystem: ("tax_system", "tax.system"),
+    TaxComponent: ("tax_component", "tax.component"),
+    TaxProfile: ("tax_profile", "tax.profile"),
+    TaxCountryMapping: ("tax_country_mapping", "tax.country_mapping"),
+    TaxMigrationMapping: ("tax_migration_mapping", "tax.migration_mapping"),
+    TaxSettings: ("tax_settings", "tax.settings"),
+}
 
 
 class TaxFrameworkService:
@@ -569,6 +584,7 @@ class TaxFrameworkService:
         )
         assert_version(row.version, expected_version)
         self._assert_system_exists(data.tax_system_id, firm_scope)
+        before = self._mapping_state(row)
         row.country_id = data.country_id
         row.business_profile_id = data.business_profile_id
         row.tax_system_id = data.tax_system_id
@@ -578,6 +594,14 @@ class TaxFrameworkService:
         row.effective_to = data.effective_to
         row.updated_by = actor_id
         self._flush_conflicts("Country mapping already exists for this combination.")
+        self._record(
+            row,
+            "updated",
+            actor_id=actor_id,
+            firm_scope=firm_scope,
+            before=before,
+            after=self._mapping_state(row),
+        )
         self._commit()
         return row
 
@@ -634,6 +658,7 @@ class TaxFrameworkService:
         assert_version(row.version, expected_version)
         if data.target_tax_profile_id is not None:
             self.get_profile(data.target_tax_profile_id, firm_scope=firm_scope)
+        before = self._mapping_state(row)
         row.legacy_tax_code = data.legacy_tax_code
         row.legacy_tax_name = data.legacy_tax_name
         row.source_system = data.source_system
@@ -646,38 +671,50 @@ class TaxFrameworkService:
         self._flush_conflicts(
             "Legacy mapping already exists for this tax code and name."
         )
+        self._record(
+            row,
+            "updated",
+            actor_id=actor_id,
+            firm_scope=firm_scope,
+            before=before,
+            after=self._mapping_state(row),
+        )
         self._commit()
         return row
 
     def get_settings(self, *, firm_scope: UUID) -> TaxSettings:
-        """Return the firm's tax settings."""
-        row = self._session.scalar(
-            select(TaxSettings).where(
-                TaxSettings.firm_id == firm_scope,
-                TaxSettings.is_deleted.is_(False),
-            )
-        )
+        """Return the firm's tax settings, or the defaults where it has none.
+
+        A read writes nothing (D-CMP-9): a firm with no row is answered with
+        the defaults, unsaved, and the row is created by the first write.
+        """
+        row = self._stored_settings(firm_scope)
         if row is not None:
             return row
-        created = TaxSettings(
+        now = utc_now()
+        return TaxSettings(
+            id=uuid4(),
             firm_id=firm_scope,
             primary_label="Tax",
             component_label="Component",
             profile_label="Profile",
             report_label="Tax",
-            created_at=utc_now(),
-            updated_at=utc_now(),
+            allow_mixed_historical=False,
+            additional_settings={},
+            created_at=now,
+            updated_at=now,
         )
-        self._session.add(created)
-        self._session.flush()
-        self._commit()
-        return created
 
     def update_settings(
         self, data: TaxSettingsWrite, *, firm_scope: UUID, actor_id: UUID
     ) -> TaxSettings:
-        """Replace the firm's tax settings."""
-        row = self.get_settings(firm_scope=firm_scope)
+        """Replace the firm's tax settings, creating them on the first write."""
+        row = self._stored_settings(firm_scope)
+        before = None if row is None else self._settings_state(row)
+        if row is None:
+            row = self.get_settings(firm_scope=firm_scope)
+            row.created_by = actor_id
+            self._session.add(row)
         row.primary_label = data.primary_label
         row.component_label = data.component_label
         row.profile_label = data.profile_label
@@ -685,8 +722,102 @@ class TaxFrameworkService:
         row.allow_mixed_historical = data.allow_mixed_historical
         row.additional_settings = data.additional_settings
         row.updated_by = actor_id
+        self._session.flush()
+        self._record(
+            row,
+            "changed",
+            actor_id=actor_id,
+            firm_scope=firm_scope,
+            before=before,
+            after=self._settings_state(row),
+        )
         self._commit()
         return row
+
+    def _stored_settings(self, firm_scope: UUID) -> TaxSettings | None:
+        """Return the firm's saved settings row, if it has one."""
+        return self._session.scalar(
+            select(TaxSettings).where(
+                TaxSettings.firm_id == firm_scope,
+                TaxSettings.is_deleted.is_(False),
+            )
+        )
+
+    @staticmethod
+    def _settings_state(row: TaxSettings) -> dict[str, object]:
+        """Return what a settings write can change, for the audit trail."""
+        return {
+            "primary_label": row.primary_label,
+            "component_label": row.component_label,
+            "profile_label": row.profile_label,
+            "report_label": row.report_label,
+            "allow_mixed_historical": row.allow_mixed_historical,
+            "additional_settings": dict(row.additional_settings or {}),
+        }
+
+    @staticmethod
+    def _mapping_state(
+        row: TaxCountryMapping | TaxMigrationMapping,
+    ) -> dict[str, object]:
+        """Return a mapping's editable fields, for the audit trail."""
+        names = (
+            (
+                "country_id",
+                "business_profile_id",
+                "tax_system_id",
+                "status",
+                "is_default",
+                "effective_from",
+                "effective_to",
+            )
+            if isinstance(row, TaxCountryMapping)
+            else (
+                "legacy_tax_code",
+                "legacy_tax_name",
+                "source_system",
+                "legacy_rate",
+                "target_tax_profile_id",
+                "keep_historical",
+                "status",
+                "notes",
+            )
+        )
+        return {
+            name: (
+                (None if getattr(row, name) is None else str(getattr(row, name)))
+                if not isinstance(getattr(row, name), bool)
+                else getattr(row, name)
+            )
+            for name in names
+        }
+
+    def _record(
+        self,
+        row: BaseEntity,
+        verb: str,
+        *,
+        actor_id: UUID,
+        firm_scope: UUID,
+        before: dict[str, object] | None = None,
+        after: dict[str, object] | None = None,
+    ) -> None:
+        """Write one audit row for a change to a tax record.
+
+        Deletes, restores, bulk changes, mapping edits and the settings wrote
+        nothing to the trail, so Tax History could not show them (D-CMP-9).
+        """
+        entity_type, prefix = _AUDIT_NAMES[type(row)]
+        code = getattr(row, "code", None) or getattr(row, "legacy_tax_code", None)
+        record_audit(
+            self._session,
+            action=f"{prefix}.{verb}",
+            entity_type=entity_type,
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            before_data=before,
+            after_data={**({"code": code} if code else {}), **(after or {})},
+        )
 
     def export_systems_csv(self, *, firm_scope: UUID, search: str | None) -> str:
         """Export matching tax systems as CSV."""
@@ -792,8 +923,28 @@ class TaxFrameworkService:
             )
         ).all()
         for row in rows:
+            before = row.status
+            # Activating a version is where two can come to cover one day, so
+            # the check `create_profile` runs has to run here too (D-CMP-9).
+            if status == TaxStatus.ACTIVE and row.group_code:
+                self.assert_no_overlapping_version(
+                    row.group_code,
+                    row.effective_from,
+                    row.effective_to,
+                    firm_scope=firm_scope,
+                    exclude_id=row.id,
+                )
             row.status = status.value
             row.updated_by = actor_id
+            self._session.flush()
+            self._record(
+                row,
+                "status_changed",
+                actor_id=actor_id,
+                firm_scope=firm_scope,
+                before={"status": before},
+                after={"status": row.status, "bulk": True},
+            )
         if rows:
             self._commit()
         return len(rows)
@@ -1005,6 +1156,7 @@ class TaxFrameworkService:
                         "tax_profile",
                         "tax_country_mapping",
                         "tax_migration_mapping",
+                        "tax_settings",
                     ]
                 ),
             )
@@ -1114,6 +1266,7 @@ class TaxFrameworkService:
         row = self.get_system(system_id, firm_scope=firm_scope)
         self._ensure_system_can_be_deleted(row.id, firm_scope=firm_scope)
         self._soft_delete(row, actor_id=actor_id)
+        self._record(row, "deleted", actor_id=actor_id, firm_scope=firm_scope)
         self._commit()
 
     def restore_system(
@@ -1122,6 +1275,7 @@ class TaxFrameworkService:
         """Restore one system."""
         row = self.get_system(system_id, firm_scope=firm_scope, include_deleted=True)
         self._restore_row(row, actor_id=actor_id)
+        self._record(row, "restored", actor_id=actor_id, firm_scope=firm_scope)
         self._commit()
         return row
 
@@ -1131,6 +1285,7 @@ class TaxFrameworkService:
         """Soft delete one component."""
         row = self.get_component(component_id, firm_scope=firm_scope)
         self._soft_delete(row, actor_id=actor_id)
+        self._record(row, "deleted", actor_id=actor_id, firm_scope=firm_scope)
         self._commit()
 
     def restore_component(
@@ -1141,6 +1296,7 @@ class TaxFrameworkService:
             component_id, firm_scope=firm_scope, include_deleted=True
         )
         self._restore_row(row, actor_id=actor_id)
+        self._record(row, "restored", actor_id=actor_id, firm_scope=firm_scope)
         self._commit()
         return row
 
@@ -1151,6 +1307,7 @@ class TaxFrameworkService:
         row = self.get_profile(profile_id, firm_scope=firm_scope)
         self._ensure_profile_can_be_deleted(row.id, firm_scope=firm_scope)
         self._soft_delete(row, actor_id=actor_id)
+        self._record(row, "deleted", actor_id=actor_id, firm_scope=firm_scope)
         self._commit()
 
     def restore_profile(
@@ -1158,7 +1315,10 @@ class TaxFrameworkService:
     ) -> TaxProfile:
         """Restore one profile."""
         row = self.get_profile(profile_id, firm_scope=firm_scope, include_deleted=True)
+        if row.is_deleted:
+            self._ensure_profile_can_be_restored(row, firm_scope=firm_scope)
         self._restore_row(row, actor_id=actor_id)
+        self._record(row, "restored", actor_id=actor_id, firm_scope=firm_scope)
         self._commit()
         self._session.refresh(row)
         return row
@@ -1169,6 +1329,7 @@ class TaxFrameworkService:
         """Soft delete one country mapping."""
         row = self.get_country_mapping(mapping_id, firm_scope=firm_scope)
         self._soft_delete(row, actor_id=actor_id)
+        self._record(row, "deleted", actor_id=actor_id, firm_scope=firm_scope)
         self._commit()
 
     def delete_migration_mapping(
@@ -1177,6 +1338,7 @@ class TaxFrameworkService:
         """Soft delete one migration mapping."""
         row = self.get_migration_mapping(mapping_id, firm_scope=firm_scope)
         self._soft_delete(row, actor_id=actor_id)
+        self._record(row, "deleted", actor_id=actor_id, firm_scope=firm_scope)
         self._commit()
 
     def _assert_system_exists(self, system_id: UUID, firm_scope: UUID) -> None:
@@ -1291,6 +1453,13 @@ class TaxFrameworkService:
             if checker is not None:
                 checker(row.id, firm_scope=firm_scope)
             self._soft_delete(row, actor_id=actor_id)
+            self._record(
+                row,
+                "deleted",
+                actor_id=actor_id,
+                firm_scope=firm_scope,
+                after={"bulk": True},
+            )
             count += 1
         if count:
             self._commit()
@@ -1311,7 +1480,17 @@ class TaxFrameworkService:
             )
             if row is None or not row.is_deleted:
                 continue
+            if isinstance(row, TaxProfile):
+                self._ensure_profile_can_be_restored(row, firm_scope=firm_scope)
             self._restore_row(row, actor_id=actor_id)
+            self._session.flush()
+            self._record(
+                row,
+                "restored",
+                actor_id=actor_id,
+                firm_scope=firm_scope,
+                after={"bulk": True},
+            )
             count += 1
         if count:
             self._commit()
@@ -1357,6 +1536,77 @@ class TaxFrameworkService:
                 raise ValidationError(
                     "Tax profile group assigned to active products cannot be deleted."
                 )
+        # A rule that applies this profile, is scoped to it, or tests for it
+        # would go on firing and apply nothing -- the sale is then charged no
+        # tax at all (D-CMP-9). Named, so the administrator knows what to
+        # change first.
+        rules = self.rules_naming_profile(profile.id, firm_scope=firm_scope)
+        if rules:
+            raise ValidationError(
+                f"Tax profile {profile.code} is used by active tax rule"
+                f"{'s' if len(rules) > 1 else ''} {', '.join(rules)}. Change or "
+                "retire those rules before deleting it.",
+                details={"rules": rules},
+            )
+
+    def rules_naming_profile(self, profile_id: UUID, *, firm_scope: UUID) -> list[str]:
+        """Return the codes of the ACTIVE rules that name one profile.
+
+        Named as the rule's scope, as an action's target, or as the value of a
+        ``tax_profile_id`` condition -- the way the GST template's interstate
+        rules name their local profile.
+        """
+        live = (
+            TaxRule.firm_id == firm_scope,
+            TaxRule.is_deleted.is_(False),
+            TaxRule.status == TaxStatus.ACTIVE.value,
+        )
+        codes: set[str] = set(
+            self._session.scalars(
+                select(TaxRule.code).where(*live, TaxRule.tax_profile_id == profile_id)
+            ).all()
+        )
+        codes.update(
+            self._session.scalars(
+                select(TaxRule.code)
+                .join(TaxRuleAction, TaxRuleAction.tax_rule_id == TaxRule.id)
+                .where(
+                    *live,
+                    TaxRuleAction.is_deleted.is_(False),
+                    TaxRuleAction.target_tax_profile_id == profile_id,
+                )
+            ).all()
+        )
+        for code, value in self._session.execute(
+            select(TaxRule.code, TaxRuleCondition.value_text)
+            .join(TaxRuleCondition, TaxRuleCondition.tax_rule_id == TaxRule.id)
+            .where(
+                *live,
+                TaxRuleCondition.is_deleted.is_(False),
+                TaxRuleCondition.field_key == "tax_profile_id",
+            )
+        ).all():
+            if (value or "").strip().lower() == str(profile_id).lower():
+                codes.add(code)
+        return sorted(codes)
+
+    def _ensure_profile_can_be_restored(
+        self, row: TaxProfile, *, firm_scope: UUID
+    ) -> None:
+        """Refuse to bring back an ACTIVE version that overlaps a live one.
+
+        Restoring is creating it again, so it runs the check creating does
+        (D-CMP-9): two ACTIVE versions covering one day leave the rate to
+        whichever the resolver happens to pick.
+        """
+        if row.status == TaxStatus.ACTIVE.value and row.group_code:
+            self.assert_no_overlapping_version(
+                row.group_code,
+                row.effective_from,
+                row.effective_to,
+                firm_scope=firm_scope,
+                exclude_id=row.id,
+            )
 
     @staticmethod
     def _soft_delete(row: BaseEntity, *, actor_id: UUID) -> None:

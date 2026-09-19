@@ -383,20 +383,15 @@ class SalesReturnService(TransactionalDocumentService):
             raise ValidationError("Return customer must match all source documents.")
         if branch_id != header["branch_id"]:
             raise ValidationError("Return branch must match all source documents.")
-        return_number = (
-            data.return_number.strip().upper()
-            if data.return_number
-            else self._documents.reserve_number(
-                numbering_rule.id,
-                firm_id=firm_id,
-                financial_year_label=self._financial_year_label(
-                    data.return_date, firm_id
-                ),
-                branch_code=self._scope_code(branch_id),
-                company_code=self._company_code(firm_id),
-                document_date=data.return_date,
-                actor_id=actor_id,
-            )
+        return_number = self._issue_number(
+            numbering_rule,
+            typed=data.return_number.strip().upper() if data.return_number else None,
+            number_column=SalesReturn.return_number,
+            firm_id=firm_id,
+            document_date=data.return_date,
+            actor_id=actor_id,
+            branch_code=self._scope_code(branch_id),
+            company_code=self._company_code(firm_id),
         )
         scope_salesman, scope_territory = self._fill_missing_scope(
             firm_id=firm_id,

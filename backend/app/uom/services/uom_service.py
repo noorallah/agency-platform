@@ -81,8 +81,18 @@ def round_by_rule(quantity: Decimal, rule: ConversionRule) -> Decimal:
     while the line was stored rounded, so a factor such as 1/3 at two places
     left a line of 0.33 KG and a shelf of 0.3333 (D-CFG-11).
     """
+    return quantize_by_rule(quantity * rule.conversion_factor, rule)
+
+
+def quantize_by_rule(converted: Decimal, rule: ConversionRule) -> Decimal:
+    """Round an already-converted quantity to the rule's precision and mode.
+
+    Separate from ``round_by_rule`` for a movement that converts at the
+    factor its document line recorded (D-CFG-1) but must still round the way
+    that line was rounded.
+    """
     precision = Decimal("1").scaleb(-int(rule.precision_scale))
-    return (quantity * rule.conversion_factor).quantize(
+    return converted.quantize(
         precision, rounding=ROUNDING_MODES.get(rule.rounding_mode, ROUND_HALF_UP)
     )
 
