@@ -6,18 +6,23 @@ from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.common.audit.services import record_audit
+from app.common.audit.services import changed_fields, record_audit, row_state
 from app.core.concurrency import assert_version
 from app.core.config.settings import TenancySettings
 from app.core.database.config import DatabaseDialect
 from app.core.exceptions import BusinessRuleError, ConflictError, ResourceNotFoundError
 from app.core.tenancy import DeploymentMode, TenantStorageLifecycleService
+from app.core.tenancy.lifecycle import RESERVED_DATABASE_NAMES, is_reserved_schema
 from app.core.utils.dates import utc_now
 from app.firms.models import Firm, FirmStorageMapping
 from app.firms.schemas import FirmCreate, FirmUpdate
 from app.identity.models import User, UserFirm
 
 _SLUG = re.compile(r"[^a-z0-9]+")
+
+#: Firm columns the trail leaves out: two timestamps the row stamps itself,
+#: which move on every save and say nothing about the firm.
+_FIRM_AUDIT_EXCLUDE = ("created_date", "updated_date")
 
 
 class FirmService:
@@ -39,6 +44,7 @@ class FirmService:
         self._assert_unique(data.code, data.gst_number, data.pan_number)
         payload = data.model_dump()
         payload, storage_payload = self._normalize_registry_defaults(payload)
+        self._assert_storage_not_reserved(storage_payload)
         self._assert_storage_unclaimed(storage_payload, current_firm_id=None)
         now = utc_now()
         payload["created_date"] = now
@@ -153,7 +159,7 @@ class FirmService:
         firm = self.get(firm_id)
         assert_version(firm.version, expected_version)
         self._assert_unique(data.code, data.gst_number, data.pan_number, firm.id)
-        before = {"name": firm.name, "code": firm.code, "is_active": firm.is_active}
+        before = row_state(firm, exclude=_FIRM_AUDIT_EXCLUDE)
         mapping = self._storage_mapping(firm.id)
         payload, storage_payload = self._normalize_registry_defaults(
             data.model_dump(), mapping
@@ -169,20 +175,23 @@ class FirmService:
         )
         firm.updated_by = actor_id
         firm.updated_date = utc_now()
-        record_audit(
-            self._session,
-            action="firm.updated",
-            entity_type="firm",
-            entity_id=firm.id,
-            actor_id=actor_id,
-            firm_id=firm.id,
-            before_data=before,
-            after_data={
-                "name": firm.name,
-                "code": firm.code,
-                "is_active": firm.is_active,
-            },
+        # Every field that moved -- GST, PAN, address, status -- not only the
+        # name, code and active flag, which is all this used to record
+        # (D-IDN-5). A save that changed nothing writes no row.
+        before_data, after_data = changed_fields(
+            before, row_state(firm, exclude=_FIRM_AUDIT_EXCLUDE)
         )
+        if after_data:
+            record_audit(
+                self._session,
+                action="firm.updated",
+                entity_type="firm",
+                entity_id=firm.id,
+                actor_id=actor_id,
+                firm_id=firm.id,
+                before_data=before_data,
+                after_data=after_data,
+            )
         self._session.commit()
         return firm
 
@@ -415,6 +424,54 @@ class FirmService:
                 f"(currently {current['deployment_mode']}"
                 f"/{current['schema_name'] or 'shared'}). Migrate the firm's "
                 "data first."
+            )
+
+    def _assert_storage_not_reserved(self, storage_payload: dict[str, object]) -> None:
+        """Refuse routing a dedicated firm into a store that is not a firm's.
+
+        `_assert_storage_unclaimed` compares with other firms' mappings only,
+        and nobody's mapping names `platform`, while SHARED firms record no
+        schema at all -- so a SCHEMA or DATABASE firm could name `platform`,
+        `firm_shared` or `public`, and **Provision** would then migrate it and
+        drop the platform tables there (D-IDN-4). Refused by name, at create,
+        before anything is recorded.
+
+        Raises:
+            BusinessRuleError: If the schema or database is reserved.
+
+        """
+        schema_name = storage_payload["schema_name"]
+        if not isinstance(schema_name, str):
+            return
+        also: set[str] = set()
+        reserved_databases = set(RESERVED_DATABASE_NAMES)
+        if self._tenancy_settings is not None:
+            also |= {
+                self._tenancy_settings.shared_schema_name,
+                self._tenancy_settings.platform_schema_name,
+            }
+            reserved_databases |= {
+                name.lower()
+                for name in (
+                    self._tenancy_settings.platform_database_name,
+                    self._tenancy_settings.shared_database_name,
+                )
+                if name
+            }
+        if is_reserved_schema(schema_name, also=frozenset(also)):
+            raise BusinessRuleError(
+                f"The schema '{schema_name}' is reserved for the platform or the "
+                "database server. Choose another schema name for this firm."
+            )
+        database_name = storage_payload["database_name"]
+        if (
+            storage_payload["deployment_mode"] == DeploymentMode.DATABASE.value
+            and isinstance(database_name, str)
+            and database_name.strip().lower() in reserved_databases
+        ):
+            raise BusinessRuleError(
+                f"The database '{database_name}' is reserved for the platform or "
+                "the database server. Choose another database name for this firm."
             )
 
     def _assert_storage_unclaimed(

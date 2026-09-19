@@ -1,5 +1,6 @@
 """Application services for authentication and platform identity administration."""
 
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from math import ceil
@@ -12,7 +13,12 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
-from app.common.audit.services import changed_fields, record_audit, row_state
+from app.common.audit.services import (
+    changed_fields,
+    record_audit,
+    record_change,
+    row_state,
+)
 from app.core.config.settings import Settings
 from app.core.enums import PlatformAdminScope, TokenType
 from app.core.exceptions import (
@@ -525,7 +531,7 @@ class IdentityService:
             entity_id=user.id,
             actor_id=actor_id,
             firm_id=firm_scope,
-            after_data={"email": user.email},
+            after_data=self._user_state(user),
         )
         self._session.commit()
         return user
@@ -541,7 +547,7 @@ class IdentityService:
         user = self._get_user(user_id, firm_scope)
         if firm_scope is not None:
             self._assert_exclusive_firm_user(user.id, firm_scope)
-        before = {"full_name": user.full_name, "is_active": user.is_active}
+        before = self._user_state(user)
         if data.full_name is not None:
             user.full_name = data.full_name.strip()
         if data.is_active is not None:
@@ -553,17 +559,21 @@ class IdentityService:
         for field in _PROFILE_FIELDS:
             if field in data.model_fields_set:
                 setattr(user, field, getattr(data, field))
+        before_data, after_data = changed_fields(before, self._user_state(user))
         user.updated_by = actor_id
         self._revoke_user_tokens(user.id)
-        record_audit(
-            self._session,
-            action="user.updated",
-            entity_type="user",
-            entity_id=user.id,
-            actor_id=actor_id,
-            firm_id=firm_scope,
-            before_data=before,
-        )
+        if after_data:
+            # Every firm the person works in: a user record is platform-wide,
+            # so a rename or a switch-off concerns each of them.
+            self._audit_for_firms(
+                self._member_firm_ids(user.id),
+                action="user.updated",
+                entity_type="user",
+                entity_id=user.id,
+                actor_id=actor_id,
+                before_data=before_data,
+                after_data=after_data,
+            )
         self._session.commit()
         return user
 
@@ -581,13 +591,18 @@ class IdentityService:
         user.deleted_by = actor_id
         user.updated_by = actor_id
         self._revoke_user_tokens(user.id)
-        record_audit(
-            self._session,
+        self._audit_for_firms(
+            self._member_firm_ids(user.id),
             action="user.deleted",
             entity_type="user",
             entity_id=user.id,
             actor_id=actor_id,
-            firm_id=firm_scope,
+            before_data={
+                "email": user.email,
+                "full_name": user.full_name,
+                "is_deleted": False,
+            },
+            after_data={"is_deleted": True},
         )
         self._session.commit()
 
@@ -628,19 +643,25 @@ class IdentityService:
                 user_id=user.id, password_hash=user.password_hash, created_by=actor_id
             )
         )
+        was_locked = user.locked_until is not None
         user.password_hash = self._passwords.hash_password(new_password)
         user.force_password_change = force_change
         user.failed_login_attempts = 0
         user.locked_until = None
         user.updated_by = actor_id
         self._revoke_user_tokens(user.id)
-        record_audit(
-            self._session,
+        # Never the password, nor its hash -- that a reset happened, whether
+        # it forces a change, and whether it lifted a lock.
+        self._audit_for_firms(
+            self._member_firm_ids(user.id),
             action="user.password_reset",
             entity_type="user",
             entity_id=user.id,
             actor_id=actor_id,
-            after_data={"force_password_change": force_change},
+            after_data={
+                "force_password_change": force_change,
+                "lock_cleared": was_locked,
+            },
         )
         self._session.commit()
         return user
@@ -676,12 +697,16 @@ class IdentityService:
         user.deleted_at = None
         user.deleted_by = None
         user.updated_by = actor_id
-        record_audit(
-            self._session,
+        # The memberships survived the delete, so the restore concerns the
+        # same firms and they are read as they stand.
+        self._audit_for_firms(
+            self._member_firm_ids(user.id),
             action="user.restored",
             entity_type="user",
             entity_id=user.id,
             actor_id=actor_id,
+            before_data={"is_deleted": True},
+            after_data={"email": user.email, "is_deleted": False},
         )
         self._session.commit()
         return user
@@ -782,13 +807,15 @@ class IdentityService:
         )
         self._session.add(role)
         self._session.flush()
-        record_audit(
+        # The firm that owns the role; a global role concerns no one firm and
+        # stays on the platform trail.
+        record_change(
             self._session,
             action="role.created",
             entity_type="role",
-            entity_id=role.id,
+            row=role,
             actor_id=actor_id,
-            firm_id=firm_scope,
+            firm_id=role.firm_id,
         )
         self._session.commit()
         return role
@@ -804,17 +831,21 @@ class IdentityService:
         role = self._get_role(role_id, firm_scope)
         if role.is_system:
             raise BusinessRuleError("System roles cannot be modified.")
+        before = row_state(role)
         for field, value in data.model_dump(exclude_unset=True).items():
             setattr(role, field, value)
         role.updated_by = actor_id
         self._revoke_role_users(role.id)
-        record_audit(
+        # The role's own firm, not the caller's scope: a platform
+        # administrator editing a firm's role was recorded against no firm.
+        record_change(
             self._session,
             action="role.updated",
             entity_type="role",
-            entity_id=role.id,
+            row=role,
             actor_id=actor_id,
-            firm_id=firm_scope,
+            before=before,
+            firm_id=role.firm_id,
         )
         self._session.commit()
         return role
@@ -831,13 +862,13 @@ class IdentityService:
         role.deleted_by = actor_id
         role.updated_by = actor_id
         self._revoke_role_users(role.id)
-        record_audit(
+        record_change(
             self._session,
             action="role.deleted",
             entity_type="role",
-            entity_id=role.id,
+            row=role,
             actor_id=actor_id,
-            firm_id=firm_scope,
+            firm_id=role.firm_id,
         )
         self._session.commit()
 
@@ -915,13 +946,22 @@ class IdentityService:
         can express; cloning a platform administrator gives you their roles and
         not their designation, or this method would be a way to mint one.
 
+        **Each role keeps its tier** when a platform caller names no firm
+        (D-IDN-3). A global grant is copied as a global grant; a role the
+        source holds in one firm is copied into that firm alone -- it used to
+        be written global, so a role granted for one firm applied to the clone
+        in every firm they were copied into. And only into firms the caller
+        may administer (`allowed_firm_ids`): a firm-tier role outside that
+        reach is refused by name rather than dropped or widened.
+
         Args:
             source_id: The person whose access to copy.
             data: The new person's own details.
             actor_id: Who is doing the hiring.
             firm_scope: The caller's firm, or None for a platform caller.
             allowed_firm_ids: The firms the caller may staff, or None for all;
-                every firm the clone would join must be among them.
+                every firm the clone would join, and every firm-tier role
+                copied, must be among them.
 
         Returns:
             The new user.
@@ -930,6 +970,11 @@ class IdentityService:
         target = self._target_firm(firm_scope, data.firm_id)
         source = self._get_user(source_id, target)
         self._assert_clone_within_reach(source.id, target, allowed_firm_ids)
+        firm_tier = (
+            self._firm_roles_held_by(source.id, allowed_firm_ids)
+            if target is None
+            else {}
+        )
         clone = self.create_user(
             UserCreate(
                 email=data.email,
@@ -946,21 +991,31 @@ class IdentityService:
         role_ids = self._roles_held_by(source.id, target)
         if role_ids:
             self.set_user_roles(clone.id, role_ids, actor_id, target)
+        for firm_id, firm_role_ids in firm_tier.items():
+            self._replace_scoped_user_roles(clone.id, firm_role_ids, actor_id, firm_id)
         # A platform caller is not creating inside any firm, so the clone would
         # otherwise land nowhere. Copy where the source works.
         if target is None:
             self._copy_memberships(source.id, clone.id, actor_id)
-        record_audit(
-            self._session,
+        self._session.flush()
+        # One row per firm the clone now works in -- the copied memberships
+        # wrote none of their own, so a platform clone reached no firm's
+        # trail (D-IDN-5). Which person's access this copied, and what it
+        # came to: without them the trail says a user was created and
+        # nothing about where their access came from.
+        joined = self._member_firm_ids(clone.id)
+        self._audit_for_firms(
+            joined,
             action="user.cloned",
             entity_type="user",
             entity_id=clone.id,
             actor_id=actor_id,
-            firm_id=target,
-            # Which person's access this copied. Without it the trail says a
-            # user was created and nothing about where their access came
-            # from, which is the one question anybody reviewing it will ask.
-            after_data={"source_user_id": str(source.id)},
+            after_data={
+                "source_user_id": str(source.id),
+                "email": clone.email,
+                "firm_ids": sorted(str(firm_id) for firm_id in joined),
+                "role_codes": self._role_codes(role_ids),
+            },
         )
         self._session.commit()
         return clone
@@ -971,7 +1026,9 @@ class IdentityService:
         A firm caller copies what the source holds **in their firm** -- the
         firm-scoped rows plus the unscoped firm roles that reach every firm.
         Anything belonging to another firm is invisible to them and stays that
-        way. A platform caller copies every role the source holds.
+        way. A platform caller naming no firm gets the **global** rows only:
+        what the source holds in one firm is `_firm_roles_held_by`'s, and is
+        copied into that firm rather than into every one (D-IDN-3).
         """
         conditions = [
             UserRole.user_id == user_id,
@@ -979,7 +1036,9 @@ class IdentityService:
             Role.is_deleted.is_(False),
             Role.is_active.is_(True),
         ]
-        if firm_scope is not None:
+        if firm_scope is None:
+            conditions.append(UserRole.firm_id.is_(None))
+        else:
             conditions.append(
                 or_(
                     UserRole.firm_id == firm_scope,
@@ -1041,6 +1100,58 @@ class IdentityService:
                 "You can only assign firms you administer. This copy would put "
                 f"the new person in: {', '.join(codes)}."
             )
+
+    def _firm_roles_held_by(
+        self, user_id: UUID, allowed_firm_ids: frozenset[UUID] | None
+    ) -> dict[UUID, list[UUID]]:
+        """Return the roles a user holds in each firm they actively belong to.
+
+        The firm tier of a platform clone. A row in a firm the source no longer
+        belongs to grants nothing and is not copied. A role the firm could not
+        hold -- anything but its own custom roles and the seeded firm roles --
+        is left behind, since no firm writer could have put it there.
+
+        Raises:
+            BusinessRuleError: If the source holds roles in a firm outside the
+                caller's reach, named by code.
+
+        """
+        rows = self._session.execute(
+            select(UserRole.firm_id, UserRole.role_id)
+            .join(Role, Role.id == UserRole.role_id)
+            .join(
+                UserFirm,
+                and_(
+                    UserFirm.user_id == UserRole.user_id,
+                    UserFirm.firm_id == UserRole.firm_id,
+                ),
+            )
+            .where(
+                UserRole.user_id == user_id,
+                UserRole.firm_id.is_not(None),
+                UserRole.is_deleted.is_(False),
+                Role.is_deleted.is_(False),
+                Role.is_active.is_(True),
+                or_(Role.firm_id == UserRole.firm_id, Role.code.in_(FIRM_ROLE_CODES)),
+                UserFirm.is_active.is_(True),
+                UserFirm.is_deleted.is_(False),
+            )
+            .order_by(UserRole.firm_id, UserRole.role_id)
+        ).all()
+        by_firm: dict[UUID, list[UUID]] = {}
+        for firm_id, role_id in rows:
+            by_firm.setdefault(firm_id, []).append(role_id)
+        if allowed_firm_ids is not None:
+            beyond = set(by_firm) - allowed_firm_ids
+            if beyond:
+                codes = sorted(
+                    self._session.scalars(select(Firm.code).where(Firm.id.in_(beyond)))
+                )
+                raise BusinessRuleError(
+                    "You can only copy roles in firms you administer. The person "
+                    f"being copied also has roles in: {', '.join(codes)}."
+                )
+        return by_firm
 
     def _copy_memberships(
         self, source_id: UUID, clone_id: UUID, actor_id: UUID
@@ -1204,7 +1315,10 @@ class IdentityService:
         for field, value in values.items():
             setattr(template, field, value)
         if role_ids is not None:
-            self._assert_roles_are_assignable(role_ids, firm_scope)
+            # Against the firm that owns the template, as at creation -- not
+            # the caller's scope, which is None for a platform caller and
+            # validated nothing (D-IDN-3).
+            self._assert_roles_are_assignable(role_ids, template.firm_id)
             self._set_template_roles(template, role_ids, actor_id)
         template.updated_by = actor_id
         record_audit(
@@ -1213,7 +1327,7 @@ class IdentityService:
             entity_type="user_template",
             entity_id=template.id,
             actor_id=actor_id,
-            firm_id=firm_scope,
+            firm_id=template.firm_id,
         )
         self._session.commit()
         return template
@@ -1245,7 +1359,7 @@ class IdentityService:
             entity_type="user_template",
             entity_id=template.id,
             actor_id=actor_id,
-            firm_id=firm_scope,
+            firm_id=template.firm_id,
         )
         self._session.commit()
 
@@ -1271,6 +1385,13 @@ class IdentityService:
         """
         target = self._target_firm(firm_scope, firm_id)
         template = self._get_user_template(template_id, target)
+        if target is None and template.firm_id is not None:
+            # A platform caller naming no firm writes the global tier, and a
+            # firm's own job applied there becomes a grant in every firm the
+            # person belongs to (D-IDN-3). Name the firm to apply it in it.
+            raise BusinessRuleError(
+                "This template belongs to one firm. Name that firm to apply it."
+            )
         if not template.is_active:
             raise BusinessRuleError("This template is no longer offered.")
         role_ids = [
@@ -1280,13 +1401,14 @@ class IdentityService:
         # platform or cross-firm role applies here too and there is one
         # implementation of it rather than two.
         self.set_user_roles(user_id, role_ids, actor_id, target)
-        record_audit(
-            self._session,
+        # The firm it was applied in; applied to the global tier it concerns
+        # every firm the person works in.
+        self._audit_for_firms(
+            [target] if target is not None else self._member_firm_ids(user_id),
             action="user_template.applied",
             entity_type="user",
             entity_id=user_id,
             actor_id=actor_id,
-            firm_id=target,
             # Which job, not merely that a job was applied. This recorded
             # neither the template nor the roles, so the trail said somebody's
             # access changed and nothing about what it changed to -- and this
@@ -1436,6 +1558,9 @@ class IdentityService:
         """
         self._ensure_identifiers(Role, role_ids)
         if firm_scope is None:
+            # Offered to every firm, so it may not bundle a role one firm owns:
+            # applied anywhere else it would be another firm's grant.
+            self._assert_no_firm_owned_roles(role_ids)
             return
         allowed = self._session.scalar(
             select(func.count())
@@ -1449,6 +1574,32 @@ class IdentityService:
         if int(allowed or 0) != len(set(role_ids)):
             raise BusinessRuleError(
                 "A template cannot bundle platform or cross-firm roles."
+            )
+
+    def _assert_no_firm_owned_roles(self, role_ids: list[UUID]) -> None:
+        """Refuse a firm's own custom role in a grant that reaches every firm.
+
+        The global tier and a platform-wide template both apply in every firm.
+        A custom role with a `firm_id` is that firm's decision, and granting it
+        there would carry it into firms that never made it (D-IDN-3).
+
+        Raises:
+            BusinessRuleError: If any role belongs to one firm, named by code.
+
+        """
+        if not role_ids:
+            return
+        owned = sorted(
+            self._session.scalars(
+                select(Role.code).where(
+                    Role.id.in_(role_ids), Role.firm_id.is_not(None)
+                )
+            )
+        )
+        if owned:
+            raise BusinessRuleError(
+                "A role one firm owns cannot be granted in every firm: "
+                f"{', '.join(owned)}. Grant it in that firm."
             )
 
     def _set_template_roles(
@@ -1660,6 +1811,7 @@ class IdentityService:
                 raise BusinessRuleError(
                     "Platform permissions cannot be assigned to firm roles."
                 )
+        before_codes = self._permission_codes_of(role.id)
         self._replace_associations(
             RolePermission,
             "role_id",
@@ -1668,16 +1820,35 @@ class IdentityService:
             permission_ids,
             actor_id,
         )
+        self._session.flush()
+        after_codes = self._permission_codes_of(role.id)
         self._revoke_role_users(role.id)
-        record_audit(
-            self._session,
-            action="role.permissions_set",
-            entity_type="role",
-            entity_id=role.id,
-            actor_id=actor_id,
-            firm_id=firm_scope,
-        )
+        if before_codes != after_codes:
+            record_audit(
+                self._session,
+                action="role.permissions_set",
+                entity_type="role",
+                entity_id=role.id,
+                actor_id=actor_id,
+                # The role's own firm; a global role's catalogue is platform's.
+                firm_id=role.firm_id,
+                before_data={"role_code": role.code, "permissions": before_codes},
+                after_data={"role_code": role.code, "permissions": after_codes},
+            )
         self._session.commit()
+
+    def _permission_codes_of(self, role_id: UUID) -> list[str]:
+        """Return the live permission codes a role grants, sorted."""
+        return sorted(
+            self._session.scalars(
+                select(Permission.code)
+                .join(RolePermission, RolePermission.permission_id == Permission.id)
+                .where(
+                    RolePermission.role_id == role_id,
+                    RolePermission.is_deleted.is_(False),
+                )
+            )
+        )
 
     def set_user_roles(
         self,
@@ -1689,6 +1860,7 @@ class IdentityService:
         """Replace a user's role assignment set."""
         user = self._get_user(user_id, firm_scope)
         self._ensure_identifiers(Role, role_ids)
+        before_codes = self._role_codes(self._held_role_ids(user.id, firm_scope))
         if firm_scope is None:
             # The **global** set: `firm_id IS NULL`, which applies in every
             # firm the person belongs to. Only a platform administrator writes
@@ -1699,6 +1871,7 @@ class IdentityService:
             # row as well, then re-create the survivors unscoped -- so a
             # platform administrator opening this and pressing Save, changing
             # nothing, collapsed each firm's own roles into global ones.
+            self._assert_no_firm_owned_roles(role_ids)
             self._replace_global_user_roles(user.id, role_ids, actor_id)
         else:
             allowed_count = self._session.scalar(
@@ -1719,14 +1892,25 @@ class IdentityService:
                 )
             self._replace_scoped_user_roles(user.id, role_ids, actor_id, firm_scope)
         self._revoke_user_tokens(user.id)
-        record_audit(
-            self._session,
-            action="user.roles_set",
-            entity_type="user",
-            entity_id=user.id,
-            actor_id=actor_id,
-            firm_id=firm_scope,
-        )
+        self._session.flush()
+        after_codes = self._role_codes(self._held_role_ids(user.id, firm_scope))
+        if before_codes != after_codes:
+            # A global grant applies in every firm the person works in, so it
+            # is written to each of their trails; a firm grant to that firm's.
+            tier = "global" if firm_scope is None else str(firm_scope)
+            self._audit_for_firms(
+                (
+                    self._member_firm_ids(user.id)
+                    if firm_scope is None
+                    else [firm_scope]
+                ),
+                action="user.roles_set",
+                entity_type="user",
+                entity_id=user.id,
+                actor_id=actor_id,
+                before_data={"tier": tier, "role_codes": before_codes},
+                after_data={"tier": tier, "role_codes": after_codes},
+            )
         self._session.commit()
 
     def set_user_firms(
@@ -1777,6 +1961,7 @@ class IdentityService:
                 select(UserFirm).where(UserFirm.user_id == user.id).with_for_update()
             )
         }
+        before_memberships = self._membership_state(existing_by_firm.values())
         requested_firm_ids = set(firm_ids)
         requested_primary_firm_ids = {
             item.firm_id for item in assignments if item.is_active and item.is_primary
@@ -1824,16 +2009,47 @@ class IdentityService:
                 existing.deleted_at = now
                 existing.deleted_by = actor_id
                 existing.updated_by = actor_id
-        record_audit(
-            self._session,
-            action="user.firms_set",
-            entity_type="user",
-            entity_id=user.id,
-            actor_id=actor_id,
+        after_memberships = self._membership_state(
+            [*existing_by_firm.values(), *result]
         )
+        # One row per firm whose membership moved, in that firm's name, with
+        # that membership before and after. `user.firms_set` named no firm
+        # and no change, so 1,121 of them reached no firm's screen (D-IDN-5).
+        absent: dict[str, object] = {"member": False}
+        for firm_id in sorted(
+            set(before_memberships) | set(after_memberships), key=str
+        ):
+            before = before_memberships.get(firm_id, absent)
+            after = after_memberships.get(firm_id, absent)
+            if before != after:
+                record_audit(
+                    self._session,
+                    action="user.firms_set",
+                    entity_type="user",
+                    entity_id=user.id,
+                    actor_id=actor_id,
+                    firm_id=firm_id,
+                    before_data=before,
+                    after_data=after,
+                )
         self._revoke_user_tokens(user.id)
         self._session.commit()
         return result
+
+    @staticmethod
+    def _membership_state(
+        rows: Iterable[UserFirm],
+    ) -> dict[UUID, dict[str, object]]:
+        """Return each live membership's flags, keyed by firm, for the trail."""
+        return {
+            row.firm_id: {
+                "member": True,
+                "is_active": row.is_active,
+                "is_primary": row.is_primary,
+            }
+            for row in rows
+            if not row.is_deleted
+        }
 
     def _merged_within_reach(
         self,
@@ -2702,16 +2918,22 @@ class IdentityService:
         )
         if int(allowed_count or 0) != len(role_ids):
             raise BusinessRuleError("Platform or cross-firm roles cannot be assigned.")
+        before_codes = self._role_codes(self._held_role_ids(user.id, firm_id))
         self._replace_scoped_user_roles(user.id, role_ids, actor_id, firm_id)
         self._revoke_user_tokens(user.id)
-        record_audit(
-            self._session,
-            action="user.firm_roles_set",
-            entity_type="user",
-            entity_id=user.id,
-            actor_id=actor_id,
-            firm_id=firm_id,
-        )
+        self._session.flush()
+        after_codes = self._role_codes(self._held_role_ids(user.id, firm_id))
+        if before_codes != after_codes:
+            record_audit(
+                self._session,
+                action="user.firm_roles_set",
+                entity_type="user",
+                entity_id=user.id,
+                actor_id=actor_id,
+                firm_id=firm_id,
+                before_data={"role_codes": before_codes},
+                after_data={"role_codes": after_codes},
+            )
         self._session.commit()
 
     def list_user_global_role_ids(self, user_id: UUID) -> list[UUID]:
@@ -2860,6 +3082,96 @@ class IdentityService:
         if code.strip().lower() in self._RESERVED_ROLE_CODES:
             raise BusinessRuleError(
                 f"'{code}' is reserved. Choose a different role code."
+            )
+
+    # ------------------------------------------------------------------
+    # The identity trail -- which firms a change concerns, and what it was
+    # ------------------------------------------------------------------
+    #
+    # Identity rows live in the platform store, and a firm's audit screen
+    # merges in only the platform rows whose `firm_id` is that firm
+    # (`AuditLogReader.list_events_with`). A row carrying the *caller's*
+    # scope -- null for every platform administrator -- therefore reached no
+    # firm's screen, whatever firm the person or role belonged to, and many
+    # carried no data saying what changed (D-IDN-5). The helpers below name
+    # the firm(s) a change concerns, one row per firm, with the change itself.
+
+    #: User columns never written into the trail: a credential, and two that
+    #: move on every sign-in or grant and say nothing about the person.
+    _USER_AUDIT_EXCLUDE = ("password_hash", "authorization_version", "last_login_at")
+
+    def _user_state(self, user: User) -> dict[str, object]:
+        """Return the audit-safe state of a user row."""
+        return row_state(user, exclude=self._USER_AUDIT_EXCLUDE)
+
+    def _member_firm_ids(self, user_id: UUID) -> list[UUID]:
+        """Return the firms a person belongs to -- the firms their changes concern."""
+        return list(
+            self._session.scalars(
+                select(UserFirm.firm_id)
+                .where(
+                    UserFirm.user_id == user_id,
+                    UserFirm.is_deleted.is_(False),
+                    UserFirm.is_active.is_(True),
+                )
+                .distinct()
+            )
+        )
+
+    def _role_codes(self, role_ids: list[UUID]) -> list[str]:
+        """Return role codes, sorted, for the trail's before and after."""
+        if not role_ids:
+            return []
+        return sorted(
+            self._session.scalars(select(Role.code).where(Role.id.in_(role_ids)))
+        )
+
+    def _held_role_ids(self, user_id: UUID, firm_id: UUID | None) -> list[UUID]:
+        """Return the live role ids a user holds in one tier."""
+        tier = (
+            UserRole.firm_id.is_(None)
+            if firm_id is None
+            else UserRole.firm_id == firm_id
+        )
+        return list(
+            self._session.scalars(
+                select(UserRole.role_id).where(
+                    UserRole.user_id == user_id, UserRole.is_deleted.is_(False), tier
+                )
+            )
+        )
+
+    def _audit_for_firms(
+        self,
+        firm_ids: list[UUID] | list[UUID | None],
+        *,
+        action: str,
+        entity_type: str,
+        entity_id: UUID,
+        actor_id: UUID,
+        before_data: dict[str, object] | None = None,
+        after_data: dict[str, object] | None = None,
+    ) -> None:
+        """Write one row per firm the change concerns, or one platform row.
+
+        A change that spans firms -- a global role, a person who works in two
+        -- is written once per firm, so each firm's merged trail shows it; a
+        change that concerns no firm at all is one row with no firm, which the
+        platform trail shows.
+        """
+        targets: list[UUID | None] = sorted(
+            {firm_id for firm_id in firm_ids if firm_id is not None}, key=str
+        ) or [None]
+        for firm_id in targets:
+            record_audit(
+                self._session,
+                action=action,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                actor_id=actor_id,
+                firm_id=firm_id,
+                before_data=before_data,
+                after_data=after_data,
             )
 
     def _is_platform_admin(self, user_id: UUID) -> bool:

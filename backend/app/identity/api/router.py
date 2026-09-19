@@ -1005,7 +1005,9 @@ def clone_user(
                 _actor_id(principal),
                 _firm_scope(principal),
                 # The same reach a direct membership write is held to
-                # (D-IDN-6): a clone puts somebody in firms.
+                # (D-IDN-6): a clone puts somebody in firms. It is also what
+                # keeps a copied firm-tier role inside the caller's reach
+                # (D-IDN-3).
                 allowed_firm_ids=_firms_the_caller_may_staff(principal),
             )
         ),
