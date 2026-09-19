@@ -20,6 +20,7 @@ from app.core.exceptions import (
     AccountInactiveError,
     AccountLockedError,
     AuthenticationError,
+    AuthorizationError,
     BusinessRuleError,
     ConflictError,
     ResourceNotFoundError,
@@ -93,6 +94,22 @@ One list because two lists drift: creation carried none of these at all, so a
 mobile number typed into the create form was dropped and the record opened
 blank afterwards.
 """
+
+
+#: The account migration `20260728_0001` seeds as `platform-admin@agency.local`
+#: -- the installation's break-glass administrator. Its password is its
+#: holder's alone: another administrator setting it would be a way to sign in
+#: as the one account every installation has (D-IDN-2).
+BOOTSTRAP_ADMIN_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
+
+#: How far each platform designation reaches, narrowest first. An
+#: administrator may act on another account only when their own reach is at
+#: least the target's; an account with no designation ranks lowest.
+_REACH_RANK: dict[PlatformAdminScope | None, int] = {
+    None: 0,
+    PlatformAdminScope.PLATFORM: 1,
+    PlatformAdminScope.ALL_FIRMS: 2,
+}
 
 
 def _locked_error(locked_until: datetime, now: datetime) -> AccountLockedError:
@@ -541,6 +558,15 @@ class IdentityService:
         user = self._get_user(user_id, firm_scope)
         if firm_scope is not None:
             self._assert_exclusive_firm_user(user.id, firm_scope)
+        self._assert_may_administer(user.id, actor_id)
+        if user.id == actor_id and (
+            data.is_active is False
+            or ("expires_at" in data.model_fields_set and data.expires_at is not None)
+        ):
+            raise BusinessRuleError(
+                "You cannot switch off or set an expiry on your own account. "
+                "Ask another administrator."
+            )
         before = {"full_name": user.full_name, "is_active": user.is_active}
         if data.full_name is not None:
             user.full_name = data.full_name.strip()
@@ -614,14 +640,23 @@ class IdentityService:
         password should not have to know what the person used before.
 
         Refused for the caller's own account -- My profile is that route, and
-        it asks for the current password for a reason.
+        it asks for the current password for a reason. Refused for the
+        bootstrap administrator, whose password only its holder sets, and for
+        an administrator whose designation reaches further than the caller's
+        (`_assert_may_administer`).
         """
         if user_id == actor_id:
             raise BusinessRuleError(
                 "Change your own password from My profile, where the current "
                 "one is asked for."
             )
+        if user_id == BOOTSTRAP_ADMIN_USER_ID:
+            raise BusinessRuleError(
+                "The bootstrap administrator's password can be changed only "
+                "by its holder, from My profile."
+            )
         user = self._get_user_for_update(user_id)
+        self._assert_may_administer(user.id, actor_id)
         validate_password_policy(new_password)
         self._session.add(
             PasswordHistory(
@@ -2811,6 +2846,33 @@ class IdentityService:
         if code.strip().lower() in self._RESERVED_ROLE_CODES:
             raise BusinessRuleError(
                 f"'{code}' is reserved. Choose a different role code."
+            )
+
+    def _assert_may_administer(self, target_id: UUID, actor_id: UUID) -> None:
+        """Refuse acting on an account whose designation reaches further.
+
+        `reset_password` and `update_user` never looked at the target, so a
+        `PLATFORM` operator could set an `ALL_FIRMS` administrator's password
+        with no forced change and sign in as them -- every firm's books -- or
+        rename, switch off or expire one (D-IDN-2). Only deletion checked the
+        designation. An administrator may now act on another account only
+        when their own reach is at least as wide; peers may act on peers, and
+        anybody holding the route may act on an undesignated account.
+
+        Keyed on the `platform_admins` rows of both, not on the token, so it
+        holds whichever route reaches it.
+
+        Raises:
+            AuthorizationError: If the target's designation outranks the actor's.
+
+        """
+        target = self._platform_admin_scope(target_id)
+        if target is None:
+            return
+        if _REACH_RANK[self._platform_admin_scope(actor_id)] < _REACH_RANK[target]:
+            raise AuthorizationError(
+                "This administrator's reach is wider than yours, so only an "
+                "administrator with the same reach can change their account."
             )
 
     def _is_platform_admin(self, user_id: UUID) -> bool:
