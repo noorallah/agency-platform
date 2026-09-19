@@ -15,6 +15,7 @@ A purpose with no mapping is an error naming the purpose, never a fallback: a
 journal posted to a guessed account is worse than a journal refused.
 """
 
+from collections.abc import Iterable
 from dataclasses import dataclass
 from enum import StrEnum
 from uuid import UUID
@@ -114,6 +115,22 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     ControlAccountPurpose.CASH: frozenset({"ASSET"}),
     ControlAccountPurpose.BANK: frozenset({"ASSET"}),
 }
+
+
+#: Purposes whose account is kept in step with a sub-ledger, so only the
+#: documents that move the sub-ledger may post to it (D-FIN-11). Stored as
+#: values, the way `firm_control_accounts.purpose` holds them.
+SUBLEDGER_PURPOSES: frozenset[str] = frozenset(
+    purpose.value
+    for purpose in (
+        ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
+        ControlAccountPurpose.ACCOUNTS_PAYABLE,
+        ControlAccountPurpose.INVENTORY,
+        ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED,
+        ControlAccountPurpose.COMMISSION_PAYABLE,
+        ControlAccountPurpose.LOYALTY_PAYABLE,
+    )
+)
 
 
 #: What each purpose means to somebody reading the screen, in the order the
@@ -406,3 +423,67 @@ class ControlAccountService:
         """
         configured = self.mapping(firm_id)
         return tuple(p for p in purposes if p.value not in configured)
+
+    def assert_open_to_hand_journals(
+        self, firm_id: UUID, ledger_account_ids: Iterable[UUID]
+    ) -> None:
+        """Refuse a hand journal on an account a sub-ledger keeps (D-FIN-11).
+
+        Receivables are kept in step with what customers owe, payables with
+        what suppliers are owed, inventory with the stock, GRNI with goods
+        received and not yet billed, commission and loyalty payable with the
+        payouts and points behind them. A hand line on one of those moves the
+        ledger with nothing moving underneath it, and the two stop agreeing
+        for good. Any account of type CONTROL is treated the same way, mapped
+        or not. Taxes, cash, bank, income and expense stay open: a GST set-off
+        or a cash expense is exactly what a hand journal is for.
+
+        Raises:
+            ValidationError: Naming every such account and what keeps it.
+
+        """
+        requested = set(ledger_account_ids)
+        if not requested:
+            return
+        kept_by: dict[UUID, list[str]] = {}
+        for account_id, purpose in self._session.execute(
+            select(FirmControlAccount.ledger_account_id, FirmControlAccount.purpose)
+            .where(
+                FirmControlAccount.firm_id == firm_id,
+                FirmControlAccount.ledger_account_id.in_(requested),
+                FirmControlAccount.is_deleted.is_(False),
+            )
+            .order_by(FirmControlAccount.purpose.asc())
+        ).all():
+            if purpose in SUBLEDGER_PURPOSES:
+                kept_by.setdefault(account_id, []).append(
+                    PURPOSE_LABELS[ControlAccountPurpose(purpose)]
+                )
+        accounts = {
+            row.id: row
+            for row in self._session.scalars(
+                select(LedgerAccount).where(
+                    LedgerAccount.id.in_(requested),
+                    LedgerAccount.firm_id == firm_id,
+                )
+            ).all()
+        }
+        problems: list[str] = []
+        for account_id, account in sorted(
+            accounts.items(), key=lambda item: item[1].code
+        ):
+            if account_id in kept_by:
+                problems.append(
+                    f"{account.code} {account.name} "
+                    f"({', '.join(kept_by[account_id])})"
+                )
+            elif account.account_type == "CONTROL":
+                problems.append(f"{account.code} {account.name} (a control account)")
+        if problems:
+            raise ValidationError(
+                "A journal written by hand cannot post to an account its "
+                f"documents keep: {'; '.join(problems)}. Post it through the "
+                "document that owns it -- an invoice, receipt, payment, return, "
+                "stock adjustment or payout -- so the account and what it "
+                "summarises move together."
+            )

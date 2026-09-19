@@ -91,6 +91,7 @@ from app.sales_order.models import (
 )
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
+from app.tax.models import TaxRuleExecutionLog
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
 from app.tax.schemas import (
     TaxComponentWrite,
@@ -98,6 +99,7 @@ from app.tax.schemas import (
     TaxRuleWrite,
     TaxSystemWrite,
 )
+from app.tax.services.gst_template import apply_india_gst_template
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.models import uom as _uom_models  # noqa: F401
@@ -1377,6 +1379,126 @@ def test_the_line_keeps_the_tax_it_charged_component_by_component() -> None:
         "the line records the profile that produced the tax, not the one the "
         "caller happened to send"
     )
+
+
+def _interstate_bill(
+    *, buyer_gstin: str | None, billing_state: str | None
+) -> tuple[Session, SalesInvoice]:
+    """Bill 4 x 250 of an 18% good from a Tamil Nadu firm, on the GST template."""
+    session = _session_factory()()
+    actor_id = uuid4()
+    firm = _firm(session)
+    firm.gst_number = "33AABCU9603R1ZM"
+    session.commit()
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    customer.gst_number = buyer_gstin
+    if billing_state is not None:
+        session.add(
+            CustomerAddress(
+                customer_id=customer.id,
+                address_type="BILLING",
+                address_line1="4 Brigade Road",
+                city="Bengaluru",
+                state=billing_state,
+                country="IN",
+                postal_code="560001",
+                is_default_billing=True,
+            )
+        )
+    session.commit()
+    apply_india_gst_template(session, firm_id=firm.id, actor_id=actor_id)
+    session.commit()
+    product = _product(session, firm_id=firm.id)
+    product.tax_profile_group_code = "GST_18_LOCAL"
+    session.commit()
+    note, note_line = _dispatched_line_for(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+    )
+    invoice = SalesInvoiceService(session).create_invoice(
+        SalesInvoiceCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            invoice_date=date(2026, 8, 4),
+            lines=[
+                SalesInvoiceLineWrite(
+                    source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                    source_document_id=note.id,
+                    source_document_line_id=note_line.id,
+                    line_number=1,
+                    current_invoice_quantity=Decimal("4"),
+                    unit_price=Decimal("250"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    return session, invoice
+
+
+def _components(session: Session, invoice: SalesInvoice) -> list[tuple[str, Decimal]]:
+    """Return the tax an invoice's lines charged, component by component."""
+    return [
+        (row.component_code, row.amount)
+        for row in session.scalars(
+            select(SalesInvoiceLineTax)
+            .join(
+                SalesInvoiceLine,
+                SalesInvoiceLine.id == SalesInvoiceLineTax.sales_invoice_line_id,
+            )
+            .where(SalesInvoiceLine.sales_invoice_id == invoice.id)
+            .order_by(SalesInvoiceLineTax.sequence.asc())
+        ).all()
+    ]
+
+
+@pytest.mark.parametrize(
+    ("buyer_gstin", "billing_state"),
+    [
+        # A registered buyer: the GSTIN names the state.
+        ("29AAACR5055K1Z5", None),
+        # An unregistered one: the address the bill is addressed to does.
+        (None, "Karnataka"),
+    ],
+)
+def test_a_sale_to_another_state_is_charged_igst(
+    buyer_gstin: str | None, billing_state: str | None
+) -> None:
+    """A Tamil Nadu firm selling to Karnataka charges IGST, not CGST + SGST.
+
+    D-CMP-1: every line was priced as ``SALES_INVOICE`` and the template's
+    interstate rules wait for ``SALES_INTERSTATE``, which nothing sent -- so
+    every sale to another state was charged central and state tax, a row
+    GSTR-1 files under the buyer's state and the e-invoice portal refuses.
+    The order and the note the bill continues are priced the same way.
+    """
+    session, invoice = _interstate_bill(
+        buyer_gstin=buyer_gstin, billing_state=billing_state
+    )
+
+    assert _components(session, invoice) == [("IGST", Decimal("180.0000"))]
+    # Every document in the chain -- order, note, bill -- priced it the same way.
+    priced_as = set(session.scalars(select(TaxRuleExecutionLog.transaction_type)))
+    assert priced_as == {"SALES_INTERSTATE"}
+
+
+def test_a_sale_within_the_state_keeps_central_and_state_tax() -> None:
+    """The border is the rule's only trigger: a Tamil Nadu buyer pays CGST + SGST."""
+    session, invoice = _interstate_bill(
+        buyer_gstin="33AAACR5055K1Z5", billing_state="Karnataka"
+    )
+
+    assert _components(session, invoice) == [
+        ("CGST", Decimal("90.0000")),
+        ("SGST", Decimal("90.0000")),
+    ]
 
 
 def test_a_line_records_the_profile_the_product_resolved() -> None:

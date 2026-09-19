@@ -264,6 +264,17 @@ class EInvoiceService:
             raise ValidationError("This invoice has no live registration.")
         if not reason.strip():
             raise ValidationError("Say why the registration is being withdrawn.")
+        # The authority will not cancel an IRN while an e-way bill generated
+        # against it stands: the goods may be on the road under that bill.
+        # Withdrawing the registration here left the bill live and quoting an
+        # IRN that no longer existed (D-CMP-5).
+        live_bill = self.eway_bill_for(invoice_id, firm_scope=firm_scope)
+        if live_bill is not None and live_bill.status == EWayBillStatus.GENERATED.value:
+            raise ValidationError(
+                f"E-way bill {live_bill.eway_bill_number} is still live against "
+                "this registration. Withdraw the e-way bill first; the "
+                "authority will not cancel an IRN while its e-way bill stands."
+            )
         acknowledged = row.acknowledged_at
         if acknowledged is not None:
             hours = (utc_now() - as_utc(acknowledged)).total_seconds() / 3600
