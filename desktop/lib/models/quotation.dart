@@ -85,6 +85,8 @@ class Quotation {
     required this.status,
     this.billDiscountPercent = '0',
     this.billDiscountSource = '',
+    this.freightAmount = '0',
+    this.freightWaivedAmount = '0',
     required this.subtotal,
     required this.taxTotal,
     required this.grandTotal,
@@ -124,6 +126,14 @@ class Quotation {
   /// Where that came from: `typed`, `promotion` or `none`. Empty on an offer
   /// saved before the server recorded it, when it could only have been typed.
   final String billDiscountSource;
+
+  /// What the customer is charged for delivery, after any free-shipping
+  /// offer took its share off.
+  final String freightAmount;
+
+  /// What a free-shipping offer took off the delivery charge that was asked
+  /// for. The charge asked is [freightAmount] plus this.
+  final String freightWaivedAmount;
 
   final String subtotal;
   final String taxTotal;
@@ -171,6 +181,12 @@ class Quotation {
                 ? '0'
                 : stringValue(json['bill_discount_percent']),
         billDiscountSource: stringValue(json['bill_discount_source']),
+        freightAmount: stringValue(json['freight_amount']).isEmpty
+            ? '0'
+            : stringValue(json['freight_amount']),
+        freightWaivedAmount: stringValue(json['freight_waived_amount']).isEmpty
+            ? '0'
+            : stringValue(json['freight_waived_amount']),
         subtotal: stringValue(json['subtotal']),
         taxTotal: stringValue(json['tax_total']),
         grandTotal: stringValue(json['grand_total']),
