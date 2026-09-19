@@ -188,6 +188,26 @@ class TestReadiness:
             )
         )
         session.commit()
+        # Rows are not a finished firm (D-CFG-15): a bill raised with the
+        # order and note stages off ships from the default branch's default
+        # warehouse, and neither is marked.
+        readiness = FirmReadinessService(session).readiness(firm, session)
+        branches = _step(readiness, "branches")
+        assert branches.status is ReadinessStatus.MISSING
+        assert "no branch is marked default" in branches.detail
+
+        branch.is_default = True
+        session.commit()
+        branches = _step(
+            FirmReadinessService(session).readiness(firm, session), "branches"
+        )
+        assert branches.status is ReadinessStatus.MISSING
+        assert "branch HO has no default warehouse" in branches.detail
+
+        warehouse = session.scalar(select(Warehouse).where(Warehouse.code == "W1"))
+        assert warehouse is not None
+        warehouse.is_default = True
+        session.commit()
         readiness = FirmReadinessService(session).readiness(firm, session)
         assert _step(readiness, "branches").status is ReadinessStatus.DONE
 
@@ -495,13 +515,21 @@ class TestDefaultBranch:
 
         created = service.create_default_branch(firm, session, _ACTOR)
 
-        assert created == {"branch": "HO", "warehouse": "MAIN"}
+        assert created == {
+            "branch": "HO",
+            "warehouse": "MAIN",
+            "default_branch": None,
+            "default_warehouse": None,
+        }
         branch = session.scalar(select(Branch).where(Branch.firm_id == firm.id))
         assert branch is not None and branch.is_default is True
         warehouse = session.scalar(
             select(Warehouse).where(Warehouse.firm_id == firm.id)
         )
         assert warehouse is not None and warehouse.branch_id == branch.id
+        # MAIN is the branch's default warehouse, so a bare bill has somewhere
+        # to ship from (D-CFG-15).
+        assert warehouse.is_default is True
         assert _step(service.readiness(firm, session), "branches").status is (
             ReadinessStatus.DONE
         )
@@ -528,7 +556,12 @@ class TestDefaultBranch:
             firm, session, _ACTOR
         )
 
-        assert created == {"branch": None, "warehouse": "MAIN"}
+        assert created == {
+            "branch": None,
+            "warehouse": "MAIN",
+            "default_branch": None,
+            "default_warehouse": None,
+        }
         warehouse = session.scalar(
             select(Warehouse).where(Warehouse.firm_id == firm.id)
         )
@@ -544,7 +577,7 @@ class TestDefaultBranch:
 
         again = service.create_default_branch(firm, session, _ACTOR)
 
-        assert again == {"branch": None, "warehouse": None}
+        assert not any(again.values())
         rows = session.scalars(
             select(AuditLog).where(AuditLog.action == "firm.default_branch_created")
         ).all()
@@ -555,6 +588,97 @@ class TestDefaultBranch:
         firm = _firm(session, mode=DeploymentMode.SCHEMA)
         with pytest.raises(BusinessRuleError, match="Provision the firm's storage"):
             FirmReadinessService(session).create_default_branch(firm, session, _ACTOR)
+
+    def test_repairs_a_firm_whose_rows_are_not_defaults(self) -> None:
+        """A store set up before MAIN was made default gets it marked (D-CFG-15).
+
+        The step read DONE on rows alone, while every bare bill was refused
+        "This branch has no default warehouse". The same action is the repair:
+        create-if-missing, so it marks what is there rather than adding more.
+        """
+        session = _session()
+        firm = _firm(session)
+        branch = Branch(firm_id=firm.id, code="HO", name="HO", display_name="HO")
+        session.add(branch)
+        session.flush()
+        session.add_all(
+            [
+                Warehouse(
+                    firm_id=firm.id,
+                    branch_id=branch.id,
+                    code="AUX",
+                    name="A",
+                    display_name="A",
+                ),
+                Warehouse(
+                    firm_id=firm.id,
+                    branch_id=branch.id,
+                    code="MAIN",
+                    name="M",
+                    display_name="M",
+                ),
+            ]
+        )
+        session.commit()
+        service = FirmReadinessService(session)
+        assert _step(service.readiness(firm, session), "branches").status is (
+            ReadinessStatus.MISSING
+        )
+
+        created = service.create_default_branch(firm, session, _ACTOR)
+
+        assert created == {
+            "branch": None,
+            "warehouse": None,
+            "default_branch": "HO",
+            "default_warehouse": "MAIN",
+        }
+        defaults = session.scalars(
+            select(Warehouse.code).where(Warehouse.is_default.is_(True))
+        ).all()
+        assert defaults == ["MAIN"]
+        assert _step(service.readiness(firm, session), "branches").status is (
+            ReadinessStatus.DONE
+        )
+
+    def test_never_overrides_a_default_somebody_chose(self) -> None:
+        session = _session()
+        firm = _firm(session)
+        branch = Branch(
+            firm_id=firm.id, code="HO", name="HO", display_name="HO", is_default=True
+        )
+        session.add(branch)
+        session.flush()
+        session.add_all(
+            [
+                Warehouse(
+                    firm_id=firm.id,
+                    branch_id=branch.id,
+                    code="MAIN",
+                    name="M",
+                    display_name="M",
+                ),
+                Warehouse(
+                    firm_id=firm.id,
+                    branch_id=branch.id,
+                    code="DOCK",
+                    name="D",
+                    display_name="D",
+                    is_default=True,
+                ),
+            ]
+        )
+        session.commit()
+
+        created = FirmReadinessService(session).create_default_branch(
+            firm, session, _ACTOR
+        )
+
+        assert not any(created.values())
+        defaults = session.scalars(
+            select(Warehouse.code).where(Warehouse.is_default.is_(True))
+        ).all()
+        assert defaults == ["DOCK"]
 
 
 def test_the_default_branch_route_is_platform_only() -> None:
