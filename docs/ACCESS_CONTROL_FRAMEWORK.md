@@ -939,6 +939,27 @@ Those rows carry the firm. They were simply in a store the firm cannot read, so
 until 2026-09-06 a firm administrator could not see their own staffing
 decisions. `GET /api/v1/audit-logs` with `X-Firm-ID` now reads both.
 
+**Which firm a row carries is the firm the change concerns, never the
+caller's scope** (D-IDN-5, 2026-09-19). The caller's scope is null for every
+platform administrator, so until then `user.firms_set` carried no firm at all
+and `user.updated`, `.deleted`, `.roles_set` and `role.*` reached a firm's
+screen only when a firm administrator made the change. Now:
+
+| Row | Firm(s) | Data |
+| --- | --- | --- |
+| `user.updated`, `.deleted`, `.restored`, `.password_reset` | every firm the person actively belongs to, one row each | the fields that moved, both sides (never the password or its hash) |
+| `user.roles_set` | the firm written, or — for the global tier — every firm the person belongs to | `tier` and the role codes before and after |
+| `user.firm_roles_set` | that firm | role codes before and after |
+| `user.firms_set` | each firm whose membership moved, one row each | that membership before and after (`member`, `is_active`, `is_primary`) |
+| `user.cloned` | every firm the clone joined | source, email, firms, role codes |
+| `user_template.applied` | the firm applied in, or the person's firms for the global tier | template and role codes |
+| `role.*`, `user_template.updated/deleted` | the firm that **owns** the role or template (none for a global one) | the fields that moved; `role.permissions_set` the codes before and after |
+| `firm.updated` | the firm | every column that moved, not only name, code and active flag |
+
+A person in no firm, or a global role, gets one platform row. A save that
+changes nothing writes nothing — the convention `record_change` set for
+configuration in D-CFG-13.
+
 The write was left where it is on purpose. A DATABASE-mode firm is a separate
 database, possibly on a separate server, so writing the audit row there would
 be a second transaction — the promotion could commit and its record fail, or
