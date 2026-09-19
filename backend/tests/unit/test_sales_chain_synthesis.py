@@ -28,7 +28,9 @@ from app.business.models import framework as _business_models  # noqa: F401
 from app.core.database.base import Base
 from app.core.exceptions import ValidationError
 from app.customers.models import Customer
-from app.delivery_note.models import DeliveryNote
+from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
+from app.delivery_note.schemas import DeliveryNoteCreate, DeliveryNoteLineWrite
+from app.delivery_note.services.delivery_note_service import DeliveryNoteService
 from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
@@ -45,7 +47,9 @@ from app.sales_invoice.schemas import (
     SalesInvoiceStatus,
 )
 from app.sales_invoice.services import SalesInvoiceService
-from app.sales_order.models import SalesOrder, SalesWorkflowSettings
+from app.sales_order.models import SalesOrder, SalesOrderLine, SalesWorkflowSettings
+from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
+from app.sales_order.services.sales_order_service import SalesOrderService
 
 
 def _session_factory() -> sessionmaker[Session]:
@@ -408,6 +412,139 @@ def test_cancelling_a_draft_bill_withdraws_the_note_it_raised() -> None:
     note = session.scalar(select(DeliveryNote))
     assert note is not None
     assert note.status == "CANCELLED"
+    assert _dispatches(session) == 0
+
+
+def _persons_note(setup: _Firm) -> DeliveryNote:
+    """Raise and approve an order and a note by hand, dispatching nothing."""
+    actor = uuid4()
+    orders = SalesOrderService(setup.session)
+    order = orders.stage_order(
+        SalesOrderCreate(
+            customer_id=setup.customer.id,
+            branch_id=setup.branch.id,
+            warehouse_id=setup.warehouse.id,
+            order_date=date(2026, 8, 3),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=setup.product.id,
+                    quantity=Decimal("4"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+    orders.stage_approval(order.id, firm_scope=setup.firm.id, actor_id=actor)
+    order_line = setup.session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
+    )
+    assert order_line is not None
+    notes = DeliveryNoteService(setup.session)
+    note = notes.stage_note(
+        DeliveryNoteCreate(
+            sales_order_id=order.id,
+            delivery_date=date(2026, 8, 3),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=order_line.id,
+                    line_number=1,
+                    current_delivery_quantity=Decimal("4"),
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+    notes.stage_approval(note.id, firm_scope=setup.firm.id, actor_id=actor)
+    setup.session.commit()
+    return note
+
+
+def _bill_of(setup: _Firm, note: DeliveryNote) -> SalesInvoiceCreate:
+    """Describe a bill for every line of a note."""
+    line = setup.session.scalar(
+        select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note.id)
+    )
+    assert line is not None
+    return SalesInvoiceCreate(
+        customer_id=setup.customer.id,
+        invoice_date=date(2026, 8, 4),
+        lines=[
+            SalesInvoiceLineWrite(
+                source_document_type="DELIVERY_NOTE",
+                source_document_id=note.id,
+                source_document_line_id=line.id,
+                line_number=1,
+                current_invoice_quantity=Decimal("4"),
+            )
+        ],
+    )
+
+
+def test_a_note_a_person_raised_is_not_adopted_when_the_stage_goes_off() -> None:
+    """D-CFG-16: "the stage is off now" is not "this bill raised the note".
+
+    Driven 2026-09-19 on ``fx_t0919jsu8_s``: a note raised and approved by
+    hand, the delivery-note stage then switched off, and a draft bill naming
+    the undispatched note was saved (SI-2026-2027-000001) -- skipping
+    D-SELL-3's check -- and cancelling the draft **cancelled the person's
+    note**. It is billed like any other note: once dispatched.
+    """
+    session = _session_factory()()
+    setup = _Firm(session)
+    setup.stages(delivery_note=True)
+    note = _persons_note(setup)
+    settings = session.scalar(select(SalesWorkflowSettings))
+    assert settings is not None
+    settings.delivery_note_stage = False
+    session.commit()
+
+    with pytest.raises(ValidationError, match="only a dispatched delivery note"):
+        SalesInvoiceService(session).create_invoice(
+            _bill_of(setup, note), firm_id=setup.firm.id, actor_id=uuid4()
+        )
+    session.rollback()
+    session.refresh(note)
+    assert note.status == "APPROVED"
+    assert note.raised_by_sales_invoice_id is None
+
+
+def test_a_draft_ships_and_withdraws_only_the_note_it_stamped() -> None:
+    """The bill's own note carries its id; a note without it is not its to move.
+
+    A draft saved before the stamp existed, or one naming a note somebody else
+    raised, is refused at approval like any bill naming an undispatched note,
+    and cancelling it leaves the note alone.
+    """
+    session = _session_factory()()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    service = SalesInvoiceService(session)
+    actor = uuid4()
+    invoice = service.create_invoice(
+        setup.bare_bill(), firm_id=setup.firm.id, actor_id=actor
+    )
+    note = session.scalar(select(DeliveryNote))
+    assert note is not None
+    assert note.raised_by_sales_invoice_id == invoice.id, "the bill stamps its note"
+    assert invoice.allow_direct_sales_order is True
+
+    # The same note, as though a person had raised it.
+    note.raised_by_sales_invoice_id = None
+    session.commit()
+
+    with pytest.raises(ValidationError, match="only a dispatched delivery note"):
+        service.approve_invoice(invoice.id, firm_scope=setup.firm.id, actor_id=actor)
+    session.rollback()
+    service.cancel_invoice(
+        invoice.id, firm_scope=setup.firm.id, actor_id=actor, reason="walked out"
+    )
+
+    session.refresh(note)
+    assert note.status == "APPROVED", "a note the bill did not raise stays"
     assert _dispatches(session) == 0
 
 

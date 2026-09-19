@@ -7,7 +7,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    RequiredFirmScope,
+    ResolvedFirmScope,
+    firm_permission_scope,
+)
 from app.core.concurrency import ExpectedVersion, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
@@ -15,6 +19,7 @@ from app.core.exceptions import AuthorizationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.core.security.authorization import Principal, require_platform_admin
 from app.uom.models import Uom
 from app.uom.schemas import (
     BarcodeLookupResponse,
@@ -59,6 +64,12 @@ PackagingManageScope = Annotated[
 ConversionManageScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("CONVERSION_RULE_MANAGE")
 ]
+#: The shared unit catalogue -- units, groups, packaging types and industry
+#: templates. None of them carries a firm, so in `firm_shared` one row serves
+#: every firm there: a firm administrator renaming BOX, or making it
+#: whole-number, did it for MEDI01 and FOOD01 as well (D-CFG-9). Reference
+#: data like the geography masters, so the same designation writes it.
+PlatformPrincipal = Annotated[Principal, Depends(require_platform_admin())]
 
 
 def _uom_response(service: UomService, row: Uom, firm_id: UUID) -> UomResponse:
@@ -89,7 +100,8 @@ def list_uoms(
 )
 def create_uom(
     data: UomCreate,
-    scope: UomManageScope,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[UomResponse]:
     """Add a unit to the catalogue."""
@@ -107,7 +119,20 @@ def update_uom(
     db: Session = Depends(get_db),
     expected_version: ExpectedVersion = None,
 ) -> ApiResponse[UomResponse]:
-    """Change a unit in the catalogue."""
+    """Change a unit in the catalogue, or the calling firm's custom fields on it.
+
+    The unit's own columns are shared by every firm in the store, so they need
+    the platform designation, as creating or deleting a unit does. The custom
+    fields are the calling firm's own values, so ``UOM_MANAGE`` is enough for
+    a body carrying nothing else.
+    """
+    shared = data.model_dump(exclude_unset=True, exclude={"attributes"})
+    if shared and not scope.principal.is_platform_admin:
+        raise AuthorizationError(
+            "A unit is shared by every firm in this store, so only a platform "
+            "administrator can change it. Your firm's own custom fields on it "
+            "can still be saved on their own."
+        )
     service = UomService(db)
     row = service.update_uom(
         uom_id,
@@ -123,7 +148,8 @@ def update_uom(
 @router.delete("/uoms/{uom_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_uom(
     uom_id: UUID,
-    scope: UomManageScope,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> Response:
     """Remove a unit that nothing references."""
@@ -147,7 +173,8 @@ def list_uom_groups(
 )
 def create_uom_group(
     data: UomGroupCreate,
-    scope: UomManageScope,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[UomGroupResponse]:
     """Add a unit group."""
@@ -159,7 +186,8 @@ def create_uom_group(
 def update_uom_group(
     group_id: UUID,
     data: UomGroupUpdate,
-    scope: UomManageScope,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
     response: Response,
     db: Session = Depends(get_db),
     expected_version: ExpectedVersion = None,
@@ -178,7 +206,8 @@ def update_uom_group(
 @router.delete("/uom-groups/{group_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_uom_group(
     group_id: UUID,
-    scope: UomManageScope,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> Response:
     """Remove a unit group that holds no units."""
@@ -202,7 +231,8 @@ def list_packaging_types(
 )
 def create_packaging_type(
     data: PackagingTypeCreate,
-    scope: PackagingManageScope,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[PackagingTypeResponse]:
     """Add a packaging type."""
@@ -217,7 +247,8 @@ def create_packaging_type(
 def update_packaging_type(
     packaging_type_id: UUID,
     data: PackagingTypeUpdate,
-    scope: PackagingManageScope,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
     response: Response,
     db: Session = Depends(get_db),
     expected_version: ExpectedVersion = None,
@@ -238,7 +269,8 @@ def update_packaging_type(
 )
 def delete_packaging_type(
     packaging_type_id: UUID,
-    scope: PackagingManageScope,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> Response:
     """Remove a packaging type no packaging level uses."""
@@ -555,7 +587,8 @@ def list_industry_templates(
 )
 def create_industry_template(
     data: IndustryTemplateCreate,
-    scope: UomManageScope,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[IndustryTemplateResponse]:
     """Add an industry UOM template."""
@@ -570,7 +603,8 @@ def create_industry_template(
 def update_industry_template(
     template_id: UUID,
     data: IndustryTemplateUpdate,
-    scope: UomManageScope,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
     response: Response,
     db: Session = Depends(get_db),
     expected_version: ExpectedVersion = None,
@@ -591,7 +625,8 @@ def update_industry_template(
 )
 def delete_industry_template(
     template_id: UUID,
-    scope: UomManageScope,
+    _: PlatformPrincipal,
+    scope: RequiredFirmScope,
     db: Session = Depends(get_db),
 ) -> Response:
     """Remove an industry UOM template."""

@@ -1021,8 +1021,9 @@ def _seed_business_profile_assignment(
 
 def _seed_tax_data(session: Session, firm: Firm, actor_id: UUID) -> None:
     # The same template the Firms setup panel applies; it skips a firm that
-    # already holds a tax system.
+    # already holds a tax system. It is one transaction the caller commits.
     apply_india_gst_template(session, firm_id=firm.id, actor_id=actor_id)
+    session.commit()
 
 
 def _seed_branching(

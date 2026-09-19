@@ -6,7 +6,7 @@ from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
-from app.common.audit.services import record_audit
+from app.common.audit.services import changed_fields, record_audit, row_state
 from app.core.concurrency import assert_version
 from app.core.config.settings import TenancySettings
 from app.core.database.config import DatabaseDialect
@@ -18,6 +18,10 @@ from app.firms.schemas import FirmCreate, FirmUpdate
 from app.identity.models import User, UserFirm
 
 _SLUG = re.compile(r"[^a-z0-9]+")
+
+#: Firm columns the trail leaves out: two timestamps the row stamps itself,
+#: which move on every save and say nothing about the firm.
+_FIRM_AUDIT_EXCLUDE = ("created_date", "updated_date")
 
 
 class FirmService:
@@ -153,7 +157,7 @@ class FirmService:
         firm = self.get(firm_id)
         assert_version(firm.version, expected_version)
         self._assert_unique(data.code, data.gst_number, data.pan_number, firm.id)
-        before = {"name": firm.name, "code": firm.code, "is_active": firm.is_active}
+        before = row_state(firm, exclude=_FIRM_AUDIT_EXCLUDE)
         mapping = self._storage_mapping(firm.id)
         payload, storage_payload = self._normalize_registry_defaults(
             data.model_dump(), mapping
@@ -169,20 +173,23 @@ class FirmService:
         )
         firm.updated_by = actor_id
         firm.updated_date = utc_now()
-        record_audit(
-            self._session,
-            action="firm.updated",
-            entity_type="firm",
-            entity_id=firm.id,
-            actor_id=actor_id,
-            firm_id=firm.id,
-            before_data=before,
-            after_data={
-                "name": firm.name,
-                "code": firm.code,
-                "is_active": firm.is_active,
-            },
+        # Every field that moved -- GST, PAN, address, status -- not only the
+        # name, code and active flag, which is all this used to record
+        # (D-IDN-5). A save that changed nothing writes no row.
+        before_data, after_data = changed_fields(
+            before, row_state(firm, exclude=_FIRM_AUDIT_EXCLUDE)
         )
+        if after_data:
+            record_audit(
+                self._session,
+                action="firm.updated",
+                entity_type="firm",
+                entity_id=firm.id,
+                actor_id=actor_id,
+                firm_id=firm.id,
+                before_data=before_data,
+                after_data=after_data,
+            )
         self._session.commit()
         return firm
 
