@@ -92,6 +92,15 @@ class BillableLine(SalesInvoiceSchema):
     #: free and no more.
     free_quantity: Decimal
 
+    #: Whether each unit of the product carries its own serial number. A bill
+    #: that dispatches its own goods -- one billing an order, for a firm that
+    #: types no delivery notes -- names the units on the line (D-STK-15).
+    track_serial: bool = False
+
+    #: Where the source line ships from, so a picker can offer the units on
+    #: that shelf. None where the line does not say.
+    warehouse_id: UUID | None = None
+
 
 class BillableDocument(SalesInvoiceSchema):
     """A dispatched delivery note or approved order with something left to bill.
@@ -216,10 +225,6 @@ class SalesInvoiceCreate(SalesInvoiceSchema):
     due_date: date | None = None
     reference_number: str | None = Field(default=None, max_length=120)
     remarks: str | None = None
-    allow_over_invoice: bool = False
-    over_invoice_percent: Decimal = Field(
-        default=Decimal("0"), ge=0, max_digits=9, decimal_places=4
-    )
     additional_charges: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
@@ -429,8 +434,6 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     reference_number: str | None
     remarks: str | None
     allow_direct_sales_order: bool
-    allow_over_invoice: bool
-    over_invoice_percent: Decimal
     status: SalesInvoiceStatus
     total_source_quantity: Decimal
     total_already_invoiced_quantity: Decimal

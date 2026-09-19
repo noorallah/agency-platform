@@ -554,9 +554,26 @@ def customer_credit_status(
 #: The service method stays general: the sales invoice and settlement services
 #: call it as part of a larger unit of work that does post. It is this
 #: endpoint, reachable by hand, that had no counterpart in the ledger.
+#:
+#: Every type a module of its own records is refused here and pointed at that
+#: module (D-FIN-4). Only receipts were refused at first, so a bill (INVOICE),
+#: tax collected at source (TCS), points spent (LOYALTY), an advance applied
+#: (ADVANCE_APPLY) and an advance handed back (REFUND) all still moved the
+#: balance with nothing in the ledger -- and a LOYALTY or ADVANCE_APPLY with no
+#: allocation left the bill reading unpaid besides. A credit note is what is
+#: left, and it posts below.
 POSTED_ELSEWHERE = {
-    CustomerReceivableTransactionType.RECEIPT: "receipts",
-    CustomerReceivableTransactionType.ADVANCE_RECEIPT: "receipts",
+    CustomerReceivableTransactionType.RECEIPT: "/api/v1/receipts",
+    CustomerReceivableTransactionType.ADVANCE_RECEIPT: "/api/v1/receipts",
+    CustomerReceivableTransactionType.INVOICE: "/api/v1/sales-invoices",
+    # Tax collected at source is charged on the receipt that crosses the
+    # threshold, so the receipt is what records it.
+    CustomerReceivableTransactionType.TCS: "/api/v1/receipts",
+    CustomerReceivableTransactionType.LOYALTY: "/api/v1/loyalty/redeem",
+    CustomerReceivableTransactionType.ADVANCE_APPLY: (
+        "/api/v1/receipts/{receipt_id}/allocate"
+    ),
+    CustomerReceivableTransactionType.REFUND: "/api/v1/refunds",
 }
 
 
@@ -642,25 +659,25 @@ def post_customer_receivable_transaction(
     scope: CustomerReceiptScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[CustomerReceivableTransactionResponse]:
-    """Post one receivable transaction that is not money arriving.
+    """Post a credit note against a customer's balance, and nothing else.
 
-    Money in is recorded as a receipt, which posts to the ledger as well as to
-    the customer, so accepting one here would leave the two disagreeing by the
-    amount collected.
+    Every other type belongs to a module that records it together with its
+    journal -- a receipt, a bill, tax collected at source, points spent, an
+    advance applied or handed back -- so accepting one here would leave the
+    customer's balance and the receivable control account disagreeing by its
+    amount (D-FIN-4). The refusal names the endpoint that records it.
 
-    What is left does not all sit outside the ledger. A credit note reduces
-    what the customer owes, so it reduces the receivable control account and
-    posts; an advance application moves nothing the ledger has not already
-    recorded, because the advance was credited to receivables when the receipt
-    posted.
+    A credit note reduces what the customer owes, so it reduces the receivable
+    control account and posts.
     """
     service = CustomerService(db)
     destination = POSTED_ELSEWHERE.get(data.transaction_type)
     if destination is not None:
         raise ValidationError(
-            f"A {data.transaction_type.value.lower().replace('_', ' ')} moves "
-            f"money, so it is recorded at /api/v1/{destination} where it also "
-            "reaches the ledger. This endpoint only moves the customer balance."
+            f"A {data.transaction_type.value.lower().replace('_', ' ')} is "
+            f"recorded at {destination}, where it also reaches the ledger. "
+            "This endpoint only moves the customer balance, so it takes "
+            "credit notes alone."
         )
     row = service.post_receivable_transaction(
         customer_id,
