@@ -284,8 +284,6 @@ class GoodsReceiptService(TransactionalDocumentService):
             vehicle_number=data.vehicle_number,
             invoice_reference=data.invoice_reference,
             remarks=data.remarks,
-            allow_over_receipt=data.allow_over_receipt,
-            over_receipt_percent=self._q(data.over_receipt_percent),
             status=GoodsReceiptStatus.DRAFT.value,
             created_by=actor_id,
             updated_by=actor_id,
@@ -351,8 +349,6 @@ class GoodsReceiptService(TransactionalDocumentService):
         row.vehicle_number = data.vehicle_number
         row.invoice_reference = data.invoice_reference
         row.remarks = data.remarks
-        row.allow_over_receipt = data.allow_over_receipt
-        row.over_receipt_percent = self._q(data.over_receipt_percent)
         row.updated_by = actor_id
         self._replace_lines(row, data=data, firm_id=firm_scope, actor_id=actor_id)
         self._replace_attachments(row, data.attachments, actor_id=actor_id)
@@ -1043,15 +1039,17 @@ class GoodsReceiptService(TransactionalDocumentService):
                 raise ValidationError("Accepted quantity cannot be negative.")
             if total_sellable < ZERO:
                 raise ValidationError("Receipt quantity cannot be negative.")
-            if not receipt.allow_over_receipt:
-                limit = ordered_quantity + self._q(
-                    ordered_quantity * receipt.over_receipt_percent / Decimal("100")
+            # Capped at what the order line still owes, for every receipt: a
+            # body flag switched this off and a body percentage widened it, so
+            # 20 more came in against an order of 10 already received in full
+            # (D-BUY-16).
+            if prev_received + self._q(line.current_receipt_quantity) > (
+                ordered_quantity
+            ):
+                raise ValidationError(
+                    "Goods receipt exceeds allowed quantity for PO line "
+                    f"{purchase_line.line_number}."
                 )
-                if prev_received + self._q(line.current_receipt_quantity) > limit:
-                    raise ValidationError(
-                        "Goods receipt exceeds allowed quantity for PO line "
-                        f"{purchase_line.line_number}."
-                    )
             conversion = self._conversion(
                 quantity=total_sellable,
                 purchase_uom_id=line.purchase_uom_id or purchase_line.purchase_uom_id,
@@ -1340,12 +1338,7 @@ class GoodsReceiptService(TransactionalDocumentService):
                 )
             expected = self._q(purchase_line.ordered_quantity)
             previous = previous_map.get(purchase_line.id, ZERO)
-            allowed = expected
-            if receipt.allow_over_receipt:
-                allowed += self._q(
-                    expected * receipt.over_receipt_percent / Decimal("100")
-                )
-            if previous + line.current_receipt_quantity > allowed:
+            if previous + line.current_receipt_quantity > expected:
                 raise ValidationError(
                     "Receipt exceeds allowed quantity for purchase order line "
                     f"{purchase_line.line_number}."
@@ -1361,8 +1354,8 @@ class GoodsReceiptService(TransactionalDocumentService):
         because the status resync only moves an order already in the receiving
         part of its life.
 
-        RECEIVED is allowed through so an over-receipt, where the firm permits
-        one, is still possible.
+        RECEIVED is allowed through; the quantity cap, not the status, is what
+        refuses taking in more than was ordered (D-BUY-16).
         """
         receivable = {
             PurchaseOrderStatus.APPROVED.value,
@@ -1455,7 +1448,14 @@ class GoodsReceiptService(TransactionalDocumentService):
         firm_id: UUID,
         exclude_receipt_id: UUID | None = None,
     ) -> dict[UUID, Decimal]:
-        """Received quantities for po."""
+        """Return what each order line has taken in, per order line.
+
+        A CLOSED receipt counts: closing says its business is finished, not
+        that its goods left. Counting COMPLETED alone let a closed receipt's
+        quantity be received a second time, and walked a fully received order
+        back to PARTIALLY_RECEIVED when a later receipt was cancelled
+        (D-BUY-16, driven on TEST01 on 2026-09-19).
+        """
         statement = (
             select(
                 GoodsReceiptLine.purchase_order_line_id,
@@ -1465,7 +1465,12 @@ class GoodsReceiptService(TransactionalDocumentService):
             .where(
                 GoodsReceipt.firm_id == firm_id,
                 GoodsReceipt.purchase_order_id == purchase_order_id,
-                GoodsReceipt.status == GoodsReceiptStatus.COMPLETED.value,
+                GoodsReceipt.status.in_(
+                    (
+                        GoodsReceiptStatus.COMPLETED.value,
+                        GoodsReceiptStatus.CLOSED.value,
+                    )
+                ),
                 GoodsReceipt.is_deleted.is_(False),
                 GoodsReceiptLine.is_deleted.is_(False),
             )

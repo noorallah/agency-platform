@@ -14,6 +14,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -1623,3 +1624,74 @@ def test_a_rule_edited_under_a_draft_receipt_leaves_its_stock_alone() -> None:
     line = session.get(GoodsReceiptLine, line.id)
     assert line is not None
     assert line.conversion_factor == Decimal("1"), "the line is never rewritten"
+
+
+def test_a_receipt_cannot_lift_its_own_cap() -> None:
+    """D-BUY-16: the request body used to carry a switch for the cap.
+
+    Driven 2026-09-19 on TEST01 (fixture ``po-received``, suffix t0919hv0b):
+    PO-TEST01-HO-2026-2027-000012 for ten, already received in full, took
+    GRN-TEST01-HO-2026-2027-000022 for 20 more with ``allow_over_receipt``
+    true and ``over_receipt_percent`` 1000 -- completed, 30 in against 10
+    ordered. Neither field is on the write schema any more, and the cap is
+    the order line, less what came in before, for every receipt.
+    """
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-OVER")
+    service = GoodsReceiptService(session)
+    body = fixture.receipt_payload("20").model_dump(mode="json")
+
+    for field, value in (("allow_over_receipt", True), ("over_receipt_percent", 1000)):
+        with pytest.raises(PydanticValidationError, match=field):
+            GoodsReceiptCreate.model_validate({**body, field: value})
+
+    first = service.create_receipt(
+        fixture.receipt_payload("10"),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    service.complete_receipt(
+        first.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    with pytest.raises(ValidationError, match="exceeds allowed quantity"):
+        service.create_receipt(
+            fixture.receipt_payload("1"),
+            firm_id=fixture.firm.id,
+            actor_id=fixture.actor_id,
+        )
+
+
+def test_a_closed_receipt_still_counts_as_received() -> None:
+    """D-BUY-16, second way past the cap: closing freed a receipt's quantity.
+
+    What an order line had taken in was summed over COMPLETED receipts only,
+    so closing one -- which says its business is finished, not that its goods
+    left -- let the same quantity be received again. Driven 2026-09-19 on
+    TEST01: GRN-TEST01-HO-2026-2027-000019 (4) closed, then a receipt of 4
+    more completed against an order of ten already received in full.
+    """
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-CLOSED")
+    service = GoodsReceiptService(session)
+    receipt = service.create_receipt(
+        fixture.receipt_payload("10"),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+    service.complete_receipt(
+        receipt.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    service.close_receipt(
+        receipt.id,
+        firm_scope=fixture.firm.id,
+        actor_id=fixture.actor_id,
+        reason="finished",
+    )
+
+    with pytest.raises(ValidationError, match="exceeds allowed quantity"):
+        service.create_receipt(
+            fixture.receipt_payload("4"),
+            firm_id=fixture.firm.id,
+            actor_id=fixture.actor_id,
+        )
+    assert _order_status(session, fixture.order.id) == "RECEIVED"

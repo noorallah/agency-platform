@@ -89,7 +89,9 @@ receipt straddling the line pays on the part above it; charging the whole
 receipt over-collects by the entire remaining headroom. **The running total
 is summed from the receipts**, never a counter, net of refunds and excluding
 the receipt being charged -- counting that one would make the first receipt
-over the threshold pay on itself. **The financial year is the firm's own**,
+over the threshold pay on itself -- **and only from receipts dated on or
+before the one being charged**: summing the whole year charged a back-dated
+receipt on money the buyer paid after it (D-CMP-7). **The financial year is the firm's own**,
 read off `financial_year_start`, because the threshold resets with it.
 **A seller below the turnover threshold collects nothing**, and that
 turnover is *stated* rather than derived: the preceding year may predate
@@ -125,6 +127,17 @@ way out or the HSN summary and the invoice detail drift apart a paisa at a
 time. `split_components` in `app/tax/services/gst_buckets.py` is the one
 place a component code becomes a bucket, shared with `app/einvoice`, so what
 is filed and what was registered cannot disagree.
+
+**A month once due is not rewritten.** Derived on read, a return re-read a
+bill's *current* status, so cancelling an August bill in September took it
+out of August's GSTR-1 -- a return already due on 11 September -- and no
+month showed the reversal (D-CMP-11). Nothing records that a return was
+filed, so its due date stands in for it: a bill cancelled **after** the 11th
+of the month following its date stays in its own month, and the
+cancellation is declared in the month it happened (the date of the
+receivable credit the cancellation posted) as a credit for the whole bill --
+CDNR for a registered buyer, off B2CS otherwise, and deducted in 3B. One
+cancelled before the due date simply drops out, as before.
 
 ## A credit note's receivable is rounded the way its journal rounded it
 

@@ -1933,7 +1933,14 @@ class DeliveryNoteService(TransactionalDocumentService):
                 tax_profile_id, delivery_date, firm_scope=firm_id
             )
         request = TaxRuleSimulationRequest(
-            transaction_type="DELIVERY_NOTE",
+            # The supply's own nature, not just the document's name: a buyer in
+            # another state is charged IGST (D-CMP-1).
+            transaction_type=self._tax.outward_transaction_type(
+                "DELIVERY_NOTE",
+                firm_id=firm_id,
+                branch_id=branch_id,
+                customer_id=customer_id,
+            ),
             transaction_date=delivery_date,
             business_profile_id=business_profile_id,
             tax_profile_id=tax_profile_id,
@@ -1942,7 +1949,10 @@ class DeliveryNoteService(TransactionalDocumentService):
             customer_id=customer_id,
             product_id=product_id,
             invoice_value=invoice_value,
-            additional_context={"source": "delivery_note"},
+            additional_context={
+                "source": "delivery_note",
+                "document_type": "DELIVERY_NOTE",
+            },
         )
         response = self._tax.simulate(request, firm_scope=firm_id, actor_id=actor_id)
         return self._q(response.total_tax_amount)
