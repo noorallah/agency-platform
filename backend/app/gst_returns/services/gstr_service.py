@@ -55,7 +55,13 @@ from app.sales_invoice.models import (
     SalesInvoiceLine,
     SalesInvoiceLineTax,
 )
-from app.tax.services.gst_buckets import GstBuckets, TaxComponent, split_components
+from app.tax.services.gst_buckets import (
+    GstBuckets,
+    TaxComponent,
+    intra_state_halves,
+    settle_to_ledger,
+    split_components,
+)
 
 
 def _filed(value: Decimal) -> float:
@@ -408,6 +414,17 @@ class GstReturnService:
                     by_invoice.get(invoice.id, []), key=lambda row: row.line_number
                 )
             ]
+            # Declared at paise, adding up to what the journal credited for
+            # this invoice -- rounded once, as a sum, not bucket by bucket
+            # (D-CMP-4). Every section below folds these, so B2B, B2CS, HSN
+            # and 3B all carry the same paise the ledger does.
+            settled = settle_to_ledger([buckets for _, buckets, _, _ in priced])
+            priced = [
+                (taxable, filed, product, quantity)
+                for (taxable, _, product, quantity), filed in zip(
+                    priced, settled, strict=True
+                )
+            ]
             answer.append((invoice, customer, priced))
         return answer
 
@@ -484,6 +501,8 @@ class GstReturnService:
             # than off an address -- the same rule the place of supply uses,
             # and the only one an unregistered buyer can be judged by at all.
             interstate = note.sales_invoice_id in crossed_a_border
+            # Halved at paise so the two add to what the journal credited.
+            central, state = intra_state_halves(tax)
             if not gstin:
                 # A credit note to an unregistered buyer is netted off the
                 # B2CS row it belongs to, which is what the return asks for
@@ -497,9 +516,9 @@ class GstReturnService:
                         rate=rate,
                         taxable=taxable,
                         buckets=GstBuckets(
-                            igst=tax if interstate else ZERO,
-                            cgst=ZERO if interstate else tax / 2,
-                            sgst=ZERO if interstate else tax / 2,
+                            igst=quantize_ledger(tax) if interstate else ZERO,
+                            cgst=ZERO if interstate else central,
+                            sgst=ZERO if interstate else state,
                             rate=rate,
                         ),
                     )
@@ -516,8 +535,8 @@ class GstReturnService:
                     "rate": float(rate),
                     "taxable_value": _filed(taxable),
                     "integrated_tax": _filed(tax if interstate else ZERO),
-                    "central_tax": _filed(ZERO if interstate else tax / 2),
-                    "state_tax": _filed(ZERO if interstate else tax / 2),
+                    "central_tax": _filed(ZERO if interstate else central),
+                    "state_tax": _filed(ZERO if interstate else state),
                     "cess": 0.0,
                 }
             )
