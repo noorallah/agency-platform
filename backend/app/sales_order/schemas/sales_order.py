@@ -298,6 +298,9 @@ class SalesOrderResponse(SalesOrderSchema):
     coupon_code: str | None = None
     #: What was charged for delivery, split across the lines and taxed there.
     freight_amount: Decimal = Decimal("0")
+    #: What a free-shipping offer took off it. The two together are what the
+    #: customer was asked, which is what an editor refills (D-SELL-35).
+    freight_waived_amount: Decimal = Decimal("0")
     line_discount_total: Decimal
     subtotal: Decimal
     tax_total: Decimal
