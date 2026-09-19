@@ -373,7 +373,7 @@ that an edit changes what it names and nothing else.
   join   test_fixtures.customers c on c.id = a.customer_id
   where  c.code = '<SUFFIX>-CM' and a.is_deleted = false;
   ```
-  One address, `version` up by one. *(Driven over HTTP: a PUT naming only the four required fields and the phone leaves all of these as they were.)*
+  One address, `version` up by one. *(Driven over HTTP: a PUT naming only the four required fields and the phone leaves all of these as they were.)* `docs/DATA_TRAIL_BY_OPERATION.md` §16.2 has what the edit writes: the partial dump, the two collections guarded on `model_fields_set`, and the one `customer.updated` snapshot that does **not** say which field moved.
 - **Leaves:** the customer with a new phone number.
 
 ### TC-CUST-002 — The place picker loads each rung from the one above
@@ -386,6 +386,7 @@ that an edit changes what it names and nothing else.
 - **Expect**
   - Step 1: each rung loads **immediately** after the one above is chosen — choosing the country fills the states at once, not after a second click. *(It shipped loading from the value the parent had not rebuilt yet.)*
   - Step 2: the place is still chosen, and the text fields agree with it: city `City <suffix>`, state `State <suffix>`, country `IN`. The ids are the truth; the text is derived from them.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §16.1 in `test_fixtures` — the create writes one `customers` row, one `customer_addresses` row whose free text is derived from the ids by `_apply_place`, and `customer.created`; a rung that does not belong under the one above is refused with nothing written.
 - **Leaves:** a second customer.
 
 ### TC-CUST-003 — The credit policy: readable by whoever it warns, writable by one permission
@@ -400,7 +401,7 @@ that an edit changes what it names and nothing else.
   - Step 1: **Credit policy** — "When a customer reaches their limit" **Warn**, warn at 80, block at 100 (TEST01 has no policy row, so the default applies), editable.
   - Step 2: the dialog **opens read-only**, with "Changing the policy needs the manage customer settings permission." *(The plan said the action is not offered to a salesperson; it is offered on `CUSTOMER_VIEW` on purpose — someone the policy warns should see the rule behind the warning.)*
   - Step 3: **403**.
-- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §14.14 in `test_fixtures` — both reads write nothing (TEST01 has no `credit_control_settings` row, so the defaults answer), and the refused PUT writes nothing either. A permitted save writes one row and an audit `CREATE` (`entity_type` `CreditControlSettings`). The seller cannot change the policy, but a sales manager can lift a BLOCK for one customer by raising their limit (D-CFG-17).
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §14.14 in `test_fixtures` — both reads write nothing (TEST01 has no `credit_control_settings` row, so the defaults answer), and the refused PUT writes nothing either. A permitted save writes one row and an audit `CREATE` (`entity_type` `CreditControlSettings`). The limit itself is §16.2: moving it now takes `CUSTOMER_MANAGE_SETTINGS` too (D-CFG-17, fixed), while the customer's **standing discount** still takes only `CUSTOMER_UPDATE`, so the same sales manager can sell at 100% off instead (D-MST-2).
 - **Leaves:** unchanged.
 
 ### TC-CUST-004 — A credit limit warns and does not block
@@ -411,7 +412,7 @@ that an edit changes what it names and nothing else.
   1. As the fixture's **Firm admin**, edit `<SUFFIX>-CM`: credit limit `1` → Save.
   2. Sales Orders → New: customer `<SUFFIX>-CM`, one line `<SUFFIX>-P` quantity 2 at 100 → Create draft → **Approve**.
 - **Expect:** a warning names the exposure — "Master Check <suffix> would be at …% of a 1.00 credit limit, leaving … available." — and the order **is approved**. TEST01 is in warn mode (no policy row), so nothing blocks.
-- **Data (HTTP):** `GET /api/v1/customers/{id}/credit-status?amount=<order total>` → `status: WARNING`, `would_block: false`.
+- **Data (HTTP):** `GET /api/v1/customers/{id}/credit-status?amount=<order total>` → `status: WARNING`, `would_block: false`. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §16.2 for the limit (the save needs `CUSTOMER_MANAGE_SETTINGS`) and §11.6 for what approval does with it; the status check writes nothing.
 - **Leaves:** an approved order for 2, and a customer with a limit of 1.
 
 ### TC-CUST-005 — Statement and ageing agree with the account
@@ -437,6 +438,7 @@ that an edit changes what it names and nothing else.
 - **Expect**
   - Step 1: the segment holds.
   - Step 2: refused — "1 customer(s) are still in Wholesaler <suffix>. Move them first, or the group would vanish from every list while staying on their records." `ondelete="RESTRICT"` is no guard on a soft-deleted table, so the service refuses.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §16.5 in `test_fixtures` — the assignment is one column on `customers` and one `customer.updated`; the refused delete writes nothing; a segment that *is* retired keeps its code for ever and is still accepted on a new customer, another firm's included (D-MST-3, D-MST-11).
 - **Leaves:** the customer in the Wholesaler segment.
 
 ---
@@ -454,7 +456,7 @@ warehouse rename its capability flags.
 - **Fixture:** `vendor-master` — `<SUFFIX>-V`, Supply Check: one contact, address, bank account, tax record, attachment and note.
 - **Steps:** as the fixture's **Firm admin**, Masters → Vendors → Edit `<SUFFIX>-V` → change only the phone → Save → reopen.
 - **Expect:** the contact, address, bank account, tax record, attachment and note are **all still there**.
-- **Data (HTTP):** `GET /api/v1/vendors/{id}` → `contacts`, `addresses`, `bank_accounts`, `tax_details`, `attachments`, `notes` one each. *(Driven: a PUT with only code, name and phone leaves all six.)*
+- **Data (HTTP):** `GET /api/v1/vendors/{id}` → `contacts`, `addresses`, `bank_accounts`, `tax_details`, `attachments`, `notes` one each. *(Driven: a PUT with only code, name and phone leaves all six.)* Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §16.7 — `None` leaves a collection alone and `[]` clears it, the header is dumped with `exclude_unset`, and one `vendor.updated` carries the four child counts. The bank account is edited on `VENDOR_UPDATE`: `VENDOR_MANAGE_BANK_DETAILS` is enforced nowhere (D-MST-10).
 - **Leaves:** the vendor with a new phone.
 
 ### TC-MAST-002 — Vendor categories and types
@@ -467,6 +469,7 @@ warehouse rename its capability flags.
 - **Expect**
   - Step 1: both lists load — the fixture's `<SUFFIX>-CAT` and `<SUFFIX>-TYP` are in them — and both accept a new row. *(These returned nothing until the route order was fixed, and until 2026-09-11 the sidebar opened a "coming soon" placeholder — BACKLOG §26.)*
   - Step 2: both held, and the six child collections are still there.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §16.8 in `test_fixtures` — one `vendor_categories` / `vendor_types` row each and **no audit row at all**; a delete is refused while a live vendor names it; a retired code can never be used again, and a `PUT` on a retired row silently brings it back (D-MST-11).
 - **Leaves:** a second category and type; the vendor categorised.
 
 ### TC-MAST-003 — A product's slots
@@ -475,6 +478,7 @@ warehouse rename its capability flags.
 - **Fixture:** `product-master` — `<SUFFIX>-PM`, Slot Check.
 - **Steps:** as the fixture's **Firm admin**, Masters → Products → open `<SUFFIX>-PM`.
 - **Expect:** category **Shelf <suffix>**; tax profile group **GST_18_LOCAL**; base, inventory and sales units **PIECE**, purchase unit **BOX** — each read as a name, not an id.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §16.11 in `test_fixtures` — the query there reads all seven slots at once. Open the product and save it from a client that does not send every field and they all clear: the update dumps its whole write model (D-MST-5), which is the one thing not to do while checking this case.
 - **Leaves:** unchanged.
 
 ### TC-MAST-004 — A rename keeps a branch's address, city, GST registration and default flag
@@ -483,6 +487,7 @@ warehouse rename its capability flags.
 - **Fixture:** `branch-master` — in **TEST02**: `<SUFFIX>-BR`, Keep Branch, default, GST registered, 1 Keep Street / Keep Nagar, City <suffix>.
 - **Steps:** sign in as the fixture's **TEST02 admin** → Masters → Branches → Edit `<SUFFIX>-BR` → rename to `Kept Branch renamed` → Save → reopen.
 - **Expect:** both street lines, the city (and its state), **GST registration**, the PAN and **Default** are all unchanged.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §16.16 in `test_fixtures_2` — the update is partial and reads `is_default` with the row as its fallback, so the flag survives a rename; `display_name` is the one field recomputed from the name (D-MST-11); audit `branch.updated` with the code and status.
 - **Leaves:** the branch renamed.
 
 ### TC-MAST-005 — A rename keeps a warehouse's capacity and capability flags
@@ -491,6 +496,7 @@ warehouse rename its capability flags.
 - **Fixture:** `branch-master` — `<SUFFIX>-WH`, Keep Warehouse, 1000 SQFT, default; on: temperature controlled, cold storage, receiving area, dispatch area, inspection area, loading dock; off: hazardous, returns area, packing area.
 - **Steps:** as the fixture's **TEST02 admin**, Masters → Warehouses → Edit `<SUFFIX>-WH` → rename → Save → reopen.
 - **Expect:** capacity 1000 SQFT, Default, and **every flag exactly as listed** — the six on still on, the three off still off. *(Until 2026-09-11 a warehouse with no capacity could not be saved at all — BACKLOG §28.)*
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §16.17 in `test_fixtures_2` — the update keeps the branch when neither `branch_id` nor `branch_code` is sent, and the query there shows the flags beside the stock the delete guard counts.
 - **Leaves:** the warehouse renamed.
 
 ### TC-MAST-006 — An import with one bad row imports nothing
@@ -505,7 +511,7 @@ warehouse rename its capability flags.
   - Step 1: **nothing** imported, and the dialog says so. The import stages and commits once.
   - Step 2: the message selects, and the copy icon puts the whole text on the clipboard.
   - Step 3: all four rows go in: `<SUFFIX>-I1` to `-I4`.
-- **Data (HTTP):** `POST /api/v1/branches/import` with the clash rows → **409**, "Branch code already exists in this firm.", and a search for `<SUFFIX>-I` then finds none.
+- **Data (HTTP):** `POST /api/v1/branches/import` with the clash rows → **409**, "Branch code already exists in this firm.", and a search for `<SUFFIX>-I` then finds none. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §16.19 in `test_fixtures_2` — the batch is staged and committed once, so nothing is written and the corrected file imports. The **product** import is the one that still commits per row (D-MST-9), which is worth contrasting here.
 - **Leaves:** four imported branches in TEST02.
 
 ### TC-MAST-007 — Sample files and exports round-trip
@@ -520,6 +526,7 @@ warehouse rename its capability flags.
   - Step 1: eleven column headings and one example row; previews as "1 rows ready" and imports. Reopen it: display name, both address lines and the currency are filled (multi-word headings were silently dropped until 2026-09-11 — BACKLOG §31.4).
   - Step 2: the example names a branch **by code**, prefilled with this firm's first branch.
   - Step 3: a save dialog suggesting `branches.csv` / `warehouses.csv`; the notice names the full path; the file holds the grid's rows in the **same columns the importer reads**. Dismissing says no file was saved.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §16.19 — `BRANCH_EXPORT_COLUMNS` and `WAREHOUSE_EXPORT_COLUMNS` are the two lists, written through `csv.writer` and held to the desktop's reader by `tests/unit/test_import_samples_match_the_server.py`; an export writes nothing.
 - **Leaves:** one more branch in TEST02; two CSV files where you saved them.
 
 ### TC-MAST-008 — A carton barcode finds its product
@@ -528,7 +535,7 @@ warehouse rename its capability flags.
 - **Fixture:** `product-master` — `<SUFFIX>-PM` has a **Case** level of 12 pieces with the barcode the fixture printed.
 - **Steps:** as the fixture's **Firm admin**, Administration → Configuration → UOM & Packaging → **Packaging Levels** (or Ctrl+K and the screen's name) → product `<SUFFIX>-PM` → type the barcode into "Scan or type a code" → **Look up**.
 - **Expect:** resolves to **Slot Check <suffix>**, level **Case**, **12** base units. No scanner needed: a scanner only types the digits and presses Enter.
-- **Data (HTTP):** `GET /api/v1/uom-framework/barcode-lookup?code=<barcode>` → `product_code`, `level_name: Case`, `base_quantity: 12`, `matched_field: barcode`.
+- **Data (HTTP):** `GET /api/v1/uom-framework/barcode-lookup?code=<barcode>` → `product_code`, `level_name: Case`, `base_quantity: 12`, `matched_field: barcode`. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §14.10 for the packaging level the code hangs on, and §16.15 for the difference between that and `products.barcode`, the loose single code; the lookup writes nothing.
 - **Leaves:** unchanged.
 
 ---
@@ -1479,6 +1486,7 @@ redo yours."*
 - **Fixture:** `customer-master`
 - **Steps:** on **A** and **B**: Masters → Customers → double-click `<SUFFIX>-CM`. On A change the phone → **Save**. On B change the phone to something else → **Save**.
 - **Expect:** A saves ("Customer updated."). B is refused **inside the editor** with the sentence naming `customer`; the dialog stays open with B's typed phone still in the box. Cancel B; reopen: A's phone.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §16.2 and §16.0 — the customer endpoints publish `version` as an `ETag` and on the body and take `If-Match`; A's save moves it by one and writes one `customer.updated`, B's writes nothing.
 - **Leaves:** the customer with A's phone.
 
 ### TC-CONC-002 — The same race on an order, a product and a price list
@@ -1487,6 +1495,7 @@ redo yours."*
 - **Fixture:** `selling-firm`
 - **Steps:** create a draft Sales Order for `<SUFFIX>-C01` first (any line). Then, on A and B: open that draft → **Edit**, change **Remarks** on both, Save A then B. Repeat on Masters → Products → `<SUFFIX>-DET` (Description) and Sales → Price Lists → `STANDING` (the **Name** — the dialog has no Description).
 - **Expect:** B is refused each time with the sentence naming `sales order`, `product`, `price list`; typing kept, dialog open.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §16.12 for the product half — the precondition is the row's `version`, and the winning save rewrites **every** product column from the payload, so B's loss is the whole record rather than the one field.
 - **Leaves:** three records with A's edits.
 
 ### TC-CONC-003 — Saving unchanged does not move the version
@@ -1495,6 +1504,7 @@ redo yours."*
 - **Fixture:** `customer-master`
 - **Steps:** on A alone, double-click `<SUFFIX>-CM`, change nothing → Save; do it again. **(HTTP)** `GET /api/v1/customers/{id}` before and after; compare the `ETag`.
 - **Expect:** accepted both times; the `ETag` and the body's `version` are **the same before and after** — so a client re-sending the same `If-Match` is still accepted. *(Driven: `"2"` before and after an unchanged PUT.)*
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §16.2 — a save that changes no column writes no `UPDATE`, so the mapper's version id does not move; the `customer.updated` audit row is still written, with both sides identical.
 - **Leaves:** unchanged.
 
 ### TC-CONC-004 — Two approvals of one order
