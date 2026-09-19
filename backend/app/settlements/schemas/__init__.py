@@ -162,6 +162,31 @@ class SettlementPartyRecord(SettlementSchema):
     name: str
 
 
+class SupplierCreditRecord(SettlementSchema):
+    """One purchase return's credit on a supplier's account (D-FIN-19).
+
+    A return raised from the goods receipt names no bill, so its payables
+    debit stands on the vendor's account until somebody sets it against one.
+    `available_amount` is what is left to set; it is derived, never stored.
+    """
+
+    purchase_return_id: UUID
+    return_number: str
+    return_date: date
+    vendor_id: UUID
+    credit_amount: Decimal
+    applied_amount: Decimal
+    available_amount: Decimal
+    applied_to: list[str]
+
+
+class SupplierCreditApplyRequest(SettlementSchema):
+    """Set part of a supplier credit against one of the supplier's bills."""
+
+    invoice_id: UUID
+    amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
+
+
 __all__ = [
     "SettlementAllocateRequest",
     "OutstandingInvoiceRecord",
@@ -174,4 +199,6 @@ __all__ = [
     "SettlementResponse",
     "SettlementReverseRequest",
     "SettlementSchema",
+    "SupplierCreditApplyRequest",
+    "SupplierCreditRecord",
 ]

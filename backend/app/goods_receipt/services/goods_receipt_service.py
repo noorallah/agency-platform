@@ -50,7 +50,7 @@ from app.goods_receipt.schemas import (
     GoodsReceiptUpdate,
 )
 from app.inventory.models import StockLedgerEntry
-from app.inventory.services import InventoryService
+from app.inventory.services import InventoryService, LineConversion
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
 from app.purchase.schemas import PurchaseOrderStatus
@@ -255,20 +255,15 @@ class GoodsReceiptService(TransactionalDocumentService):
         branch_code, company_code = self._scope_codes(
             firm_id=firm_id, branch_id=purchase_order.branch_id
         )
-        grn_number = (
-            data.grn_number.strip().upper()
-            if data.grn_number
-            else self._documents.reserve_number(
-                numbering_rule.id,
-                firm_id=firm_id,
-                financial_year_label=self._financial_year_label(
-                    data.receipt_date, firm_id
-                ),
-                branch_code=branch_code,
-                company_code=company_code,
-                document_date=data.receipt_date,
-                actor_id=actor_id,
-            )
+        grn_number = self._issue_number(
+            numbering_rule,
+            typed=data.grn_number.strip().upper() if data.grn_number else None,
+            number_column=GoodsReceipt.grn_number,
+            firm_id=firm_id,
+            document_date=data.receipt_date,
+            actor_id=actor_id,
+            branch_code=branch_code,
+            company_code=company_code,
         )
         row = GoodsReceipt(
             firm_id=firm_id,
@@ -1277,6 +1272,9 @@ class GoodsReceiptService(TransactionalDocumentService):
                 ),
                 entered_uom_id=line.purchase_uom_id,
                 conversion_version=line.conversion_version,
+                line_conversion=LineConversion(
+                    line.conversion_factor, line.inventory_uom_id
+                ),
                 remarks=line.remarks,
                 batch_id=batch_id,
             )

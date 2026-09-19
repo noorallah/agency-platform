@@ -44,6 +44,9 @@ from app.settlements.schemas import (
 )
 from app.settlements.services import ReceiptService
 
+# Fixtures here type their document numbers; see conftest (D-CFG-2).
+pytestmark = pytest.mark.typed_document_numbers
+
 WHEN = date(2026, 4, 20)
 APRIL = (date(2026, 4, 1), date(2026, 4, 30))
 MAY = (date(2026, 5, 1), date(2026, 5, 31))

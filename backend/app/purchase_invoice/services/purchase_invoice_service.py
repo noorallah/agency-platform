@@ -257,20 +257,15 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             vendor_id=vendor_id,
             supplier_invoice_number=data.supplier_invoice_number,
         )
-        invoice_number = (
-            data.invoice_number.strip().upper()
-            if data.invoice_number
-            else self._documents.reserve_number(
-                numbering_rule.id,
-                firm_id=firm_id,
-                financial_year_label=self._financial_year_label(
-                    data.invoice_date, firm_id
-                ),
-                branch_code=self._scope_code(branch_id),
-                company_code=self._company_code(firm_id),
-                document_date=data.invoice_date,
-                actor_id=actor_id,
-            )
+        invoice_number = self._issue_number(
+            numbering_rule,
+            typed=data.invoice_number.strip().upper() if data.invoice_number else None,
+            number_column=PurchaseInvoice.invoice_number,
+            firm_id=firm_id,
+            document_date=data.invoice_date,
+            actor_id=actor_id,
+            branch_code=self._scope_code(branch_id),
+            company_code=self._company_code(firm_id),
         )
         row = PurchaseInvoice(
             firm_id=firm_id,
@@ -520,6 +515,19 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             # TEST01: 2300 left debited 600 on its own). The entry faces the
             # supplier, not the stock, so a mirror is the right reversal.
             self._reverse_invoice_posting(row, firm_scope=firm_scope, actor_id=actor_id)
+        # Supplier credit set against this bill is free again: the bill's
+        # payable is gone, the return's debit still stands (D-FIN-19). Nothing
+        # posts -- applying it posted nothing either.
+        from app.settlements.services.supplier_credits import (
+            withdraw_credit_applications,
+        )
+
+        withdraw_credit_applications(
+            self._session,
+            firm_id=firm_scope,
+            actor_id=actor_id,
+            purchase_invoice_id=row.id,
+        )
         self._record_event(
             firm_id=firm_scope,
             document_type=self._document_type(firm_scope),

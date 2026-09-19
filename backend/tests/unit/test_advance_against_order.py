@@ -45,6 +45,9 @@ from app.settlements.schemas import SettlementCreate, SettlementMethodEnum
 from app.settlements.services import PaymentService, ReceiptService
 from app.vendors.models import Vendor
 
+# Fixtures here type their document numbers; see conftest (D-CFG-2).
+pytestmark = pytest.mark.typed_document_numbers
+
 WHEN = date(2026, 6, 10)
 
 

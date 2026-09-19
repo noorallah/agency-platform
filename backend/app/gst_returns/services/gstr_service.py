@@ -59,7 +59,13 @@ from app.sales_invoice.models import (
     SalesInvoiceLineTax,
 )
 from app.sales_return.models import SalesReturn, SalesReturnLine, SalesReturnLineTax
-from app.tax.services.gst_buckets import GstBuckets, TaxComponent, split_components
+from app.tax.services.gst_buckets import (
+    GstBuckets,
+    TaxComponent,
+    intra_state_halves,
+    settle_to_ledger,
+    split_components,
+)
 
 
 def _filed(value: Decimal) -> float:
@@ -82,9 +88,38 @@ def _filed(value: Decimal) -> float:
 
 
 #: Above this, an inter-state supply to an unregistered buyer is declared
-#: invoice by invoice rather than summarised. The published figure; held here
-#: rather than inline so the one place it is read is the one place to change.
-B2CL_THRESHOLD = Decimal("250000")
+#: invoice by invoice rather than summarised: Rs 2,50,000 for invoices dated
+#: before 1 August 2024, Rs 1,00,000 from that day (Notification 12/2024-CT,
+#: amending rule 59). Date-effective, because a return for an older period is
+#: still filed under the rule of its day (D-CMP-10).
+B2CL_THRESHOLD = Decimal("100000")
+B2CL_THRESHOLD_BEFORE_AUGUST_2024 = Decimal("250000")
+B2CL_THRESHOLD_CHANGED_ON = date(2024, 8, 1)
+
+
+def b2cl_threshold(invoice_date: date) -> Decimal:
+    """Return the B2CL invoice-value limit in force on an invoice's date.
+
+    Args:
+        invoice_date: The invoice's own date.
+
+    Returns:
+        The value an inter-state bill to an unregistered buyer must exceed to
+        be declared invoice by invoice.
+
+    """
+    if invoice_date < B2CL_THRESHOLD_CHANGED_ON:
+        return B2CL_THRESHOLD_BEFORE_AUGUST_2024
+    return B2CL_THRESHOLD
+
+
+#: What a line that charged no GST was, for Table 8 and 3.1(c)/(e): a
+#: component at 0% is nil-rated, no component at all is exempt, and a line
+#: with no tax profile at all is outside GST.
+NIL_RATED = "NIL_RATED"
+EXEMPTED = "EXEMPTED"
+NON_GST = "NON_GST"
+TAXABLE = "TAXABLE"
 
 #: What the invoice statuses mean for a return. A draft is not a supply and a
 #: cancelled one has been undone, so neither is declared.
@@ -221,8 +256,8 @@ class GstReturnService:
         b2cl: list[dict[str, object]] = []
         b2cs: dict[tuple[str, str], _RateRow] = {}
         hsn: dict[tuple[str, str], dict[str, object]] = {}
-        series: dict[str, dict[str, object]] = {}
         unplaced: list[str] = []
+        nil: dict[str, dict[str, Decimal]] = {}
 
         for invoice, customer, lines in self._invoices(
             firm_scope=firm_scope, from_date=from_date, to_date=to_date
@@ -230,12 +265,29 @@ class GstReturnService:
             buyer_gstin = (getattr(customer, "gst_number", None) or "").strip().upper()
             rates: dict[Decimal, _RateRow] = {}
             charged = GstBuckets()
-            for taxable, buckets, product, quantity in lines:
+            untaxed: list[tuple[str, Decimal]] = []
+            for taxable, buckets, product, quantity, kind in lines:
+                # Every supply is in the HSN summary, taxed or not.
+                self._fold_hsn(hsn, product, quantity, taxable, buckets)
+                if kind != TAXABLE:
+                    # Nil-rated, exempt and non-GST supplies are Table 8, not
+                    # a 0% row in B2B or B2CS (D-CMP-10).
+                    untaxed.append((kind, taxable))
+                    continue
                 row = rates.setdefault(buckets.rate, _RateRow(rate=buckets.rate))
                 row.add(taxable, buckets)
                 charged = charged.plus(buckets)
-                self._fold_hsn(hsn, product, quantity, taxable, buckets)
-            self._fold_series(series, invoice)
+            if untaxed:
+                crossed = (
+                    buyer_gstin[:2] != seller_state
+                    if buyer_gstin
+                    else charged.igst > ZERO
+                )
+                self._fold_nil(
+                    nil, untaxed, interstate=crossed, registered=bool(buyer_gstin)
+                )
+            if not rates:
+                continue
             place = (
                 buyer_gstin[:2]
                 if buyer_gstin
@@ -256,7 +308,9 @@ class GstReturnService:
                 invoices.append(self._document(invoice, place, rates))
                 continue
             interstate = place != seller_state
-            if interstate and Decimal(str(invoice.grand_total)) > B2CL_THRESHOLD:
+            if interstate and Decimal(str(invoice.grand_total)) > b2cl_threshold(
+                invoice.invoice_date
+            ):
                 b2cl.append(self._document(invoice, place, rates))
                 continue
             # Everything else the return only wants summarised: an
@@ -312,7 +366,18 @@ class GstReturnService:
                 self._filed_row(row)
                 for row in sorted(hsn.values(), key=lambda item: str(item["hsn"]))
             ],
-            "docs": sorted(series.values(), key=lambda item: str(item["prefix"])),
+            "nil_exempt": [
+                {
+                    "supply_type": supply_type,
+                    "nil_rated": _filed(amounts[NIL_RATED]),
+                    "exempted": _filed(amounts[EXEMPTED]),
+                    "non_gst": _filed(amounts[NON_GST]),
+                }
+                for supply_type, amounts in sorted(nil.items())
+            ],
+            "docs": self._document_series(
+                firm_scope=firm_scope, from_date=from_date, to_date=to_date
+            ),
             # Named rather than left as a blank cell. The portal rejects a row
             # with no place of supply, so a return that quietly carried one
             # would be refused at upload with nothing here to say which
@@ -360,12 +425,20 @@ class GstReturnService:
 
         taxable = ZERO
         buckets = GstBuckets()
+        nil_or_exempt = non_gst = ZERO
         for _invoice, _customer, lines in self._invoices(
             firm_scope=firm_scope, from_date=from_date, to_date=to_date
         ):
-            for line_taxable, line_buckets, _product, _quantity in lines:
-                taxable += line_taxable
-                buckets = buckets.plus(line_buckets)
+            for line_taxable, line_buckets, _product, _quantity, kind in lines:
+                # 3.1(a) is taxable supplies; nil-rated and exempt ones are
+                # 3.1(c) and non-GST ones 3.1(e) (D-CMP-10).
+                if kind == NON_GST:
+                    non_gst += line_taxable
+                elif kind != TAXABLE:
+                    nil_or_exempt += line_taxable
+                else:
+                    taxable += line_taxable
+                    buckets = buckets.plus(line_buckets)
 
         credited = ZERO
         credit_igst = credit_cgst = credit_sgst = credit_cess = ZERO
@@ -406,6 +479,10 @@ class GstReturnService:
                 "state_tax": _filed(buckets.sgst - credit_sgst),
                 "cess": _filed(buckets.cess - credit_cess),
             },
+            "nil_rated_and_exempt_supplies": {
+                "taxable_value": _filed(nil_or_exempt),
+            },
+            "non_gst_supplies": {"taxable_value": _filed(non_gst)},
             # Credit notes and completed sales returns alike (D-CMP-2).
             "credit_notes_deducted": {
                 "taxable_value": _filed(credited),
@@ -423,7 +500,7 @@ class GstReturnService:
         tuple[
             SalesInvoice,
             Customer,
-            list[tuple[Decimal, GstBuckets, Product | None, Decimal]],
+            list[tuple[Decimal, GstBuckets, Product | None, Decimal, str]],
         ]
     ]:
         """Return each invoice the period declares, with its priced lines.
@@ -497,7 +574,7 @@ class GstReturnService:
         tuple[
             SalesInvoice,
             Customer,
-            list[tuple[Decimal, GstBuckets, Product | None, Decimal]],
+            list[tuple[Decimal, GstBuckets, Product | None, Decimal, str]],
             date,
         ]
     ]:
@@ -545,7 +622,7 @@ class GstReturnService:
         credits: _CreditNotes,
         invoice: SalesInvoice,
         customer: Customer,
-        lines: list[tuple[Decimal, GstBuckets, Product | None, Decimal]],
+        lines: list[tuple[Decimal, GstBuckets, Product | None, Decimal, str]],
         cancelled_on: date,
         seller_state: str,
     ) -> None:
@@ -555,10 +632,17 @@ class GstReturnService:
         unregistered buyer's comes off B2CS, rate by rate.
         """
         rates: dict[Decimal, _RateRow] = {}
-        for taxable, buckets, _product, _quantity in lines:
+        for taxable, buckets, _product, _quantity, kind in lines:
+            # Only what was taxed is credited back: a nil-rated or exempt
+            # line was never in B2B / B2CS, so there is nothing there to
+            # reverse (D-CMP-10).
+            if kind != TAXABLE:
+                continue
             rates.setdefault(buckets.rate, _RateRow(rate=buckets.rate)).add(
                 taxable, buckets
             )
+        if not rates:
+            return
         gstin = (getattr(customer, "gst_number", None) or "").strip().upper()
         if not gstin:
             credits.unregistered.extend(rates.values())
@@ -587,7 +671,7 @@ class GstReturnService:
         tuple[
             SalesInvoice,
             Customer,
-            list[tuple[Decimal, GstBuckets, Product | None, Decimal]],
+            list[tuple[Decimal, GstBuckets, Product | None, Decimal, str]],
         ]
     ]:
         """Return each invoice with its lines, priced into GST buckets."""
@@ -640,9 +724,21 @@ class GstReturnService:
                     ),
                     products.get(line.product_id),
                     Decimal(str(line.current_invoice_quantity)),
+                    self._kind(line, taxes.get(line.id, [])),
                 )
                 for line in sorted(
                     by_invoice.get(invoice.id, []), key=lambda row: row.line_number
+                )
+            ]
+            # Declared at paise, adding up to what the journal credited for
+            # this invoice -- rounded once, as a sum, not bucket by bucket
+            # (D-CMP-4). Every section below folds these, so B2B, B2CS, HSN
+            # and 3B all carry the same paise the ledger does.
+            settled = settle_to_ledger([buckets for _, buckets, _, _, _ in priced])
+            priced = [
+                (taxable, filed, product, quantity, kind)
+                for (taxable, _, product, quantity, kind), filed in zip(
+                    priced, settled, strict=True
                 )
             ]
             answer.append((invoice, customer, priced))
@@ -776,6 +872,8 @@ class GstReturnService:
             # than off an address -- the same rule the place of supply uses,
             # and the only one an unregistered buyer can be judged by at all.
             interstate = note.sales_invoice_id in crossed_a_border
+            # Halved at paise so the two add to what the journal credited.
+            central, state = intra_state_halves(tax)
             answer.append(
                 _Credit(
                     number=note.credit_note_number,
@@ -791,9 +889,9 @@ class GstReturnService:
                             rate=rate,
                             taxable=Decimal(str(note.taxable_amount)),
                             buckets=GstBuckets(
-                                igst=tax if interstate else ZERO,
-                                cgst=ZERO if interstate else tax / 2,
-                                sgst=ZERO if interstate else tax / 2,
+                                igst=quantize_ledger(tax) if interstate else ZERO,
+                                cgst=ZERO if interstate else central,
+                                sgst=ZERO if interstate else state,
                                 rate=rate,
                             ),
                         )
@@ -866,20 +964,29 @@ class GstReturnService:
         for sales_return in returns:
             rates: dict[Decimal, _RateRow] = {}
             against: list[UUID] = []
-            for line in sorted(
+            ordered = sorted(
                 by_return.get(sales_return.id, []), key=lambda row: row.line_number
-            ):
-                buckets = split_components(
-                    [
-                        TaxComponent(
-                            code=component.component_code,
-                            percentage=Decimal(str(component.percentage)),
-                            amount=Decimal(str(component.amount)),
-                        )
-                        for component in taxes.get(line.id, [])
-                        if not component.included_in_price
-                    ]
-                )
+            )
+            # Settled at paise to what the return's journal reversed, as an
+            # invoice's lines are (D-CMP-4): rounding each bucket on its own
+            # declares a paisa the ledger never moved.
+            settled = settle_to_ledger(
+                [
+                    split_components(
+                        [
+                            TaxComponent(
+                                code=component.component_code,
+                                percentage=Decimal(str(component.percentage)),
+                                amount=Decimal(str(component.amount)),
+                            )
+                            for component in taxes.get(line.id, [])
+                            if not component.included_in_price
+                        ]
+                    )
+                    for line in ordered
+                ]
+            )
+            for line, buckets in zip(ordered, settled, strict=True):
                 # What the line credited before tax: `net_amount` carries the
                 # tax, exactly as an invoice line's does.
                 taxable = Decimal(str(line.net_amount)) - Decimal(str(line.tax_amount))
@@ -942,6 +1049,112 @@ class GstReturnService:
             for invoice_id, grand_total, gstin in rows
             if not (gstin or "").strip() and Decimal(str(grand_total)) > B2CL_THRESHOLD
         }
+
+    @staticmethod
+    def _kind(line: SalesInvoiceLine, components: list[SalesInvoiceLineTax]) -> str:
+        """Say whether a line was a taxable supply, and if not, which kind.
+
+        A component charging a rate is taxable. Components that are all at 0%
+        are a **nil-rated** supply (GST applies, at nil). No component at all
+        is **exempt** -- the profile or a rule charged nothing -- unless the
+        line names no tax profile whatever, which is a supply **outside GST**.
+        """
+        if any(
+            Decimal(str(component.percentage)) != ZERO
+            or Decimal(str(component.amount)) != ZERO
+            for component in components
+        ):
+            return TAXABLE
+        if components:
+            return NIL_RATED
+        return EXEMPTED if line.tax_profile_id is not None else NON_GST
+
+    @staticmethod
+    def _fold_nil(
+        nil: dict[str, dict[str, Decimal]],
+        untaxed: list[tuple[str, Decimal]],
+        *,
+        interstate: bool,
+        registered: bool,
+    ) -> None:
+        """Add an invoice's untaxed lines to Table 8, by supply type.
+
+        The four rows the table has: inter- or intra-state, to a registered
+        or an unregistered person. Where the invoice charged no tax at all
+        there is no tax to place it by, so an unregistered buyer's untaxed
+        invoice is taken as intra-state unless some line on it charged IGST.
+        """
+        supply_type = (
+            f"{'INTER' if interstate else 'INTRA'}-STATE TO "
+            f"{'REGISTERED' if registered else 'UNREGISTERED'}"
+        )
+        row = nil.setdefault(
+            supply_type, {NIL_RATED: ZERO, EXEMPTED: ZERO, NON_GST: ZERO}
+        )
+        for kind, taxable in untaxed:
+            row[kind] += taxable
+
+    def _document_series(
+        self, *, firm_scope: UUID, from_date: date, to_date: date
+    ) -> list[dict[str, object]]:
+        """Return the invoice series issued in the period, with what was cancelled.
+
+        Table 13 declares every number issued -- first, last, how many, how
+        many were cancelled and how many stand -- so a range with a gap in it
+        explains the gap. Counting only live bills left a cancelled number as
+        a gap nothing explained (D-CMP-10). A draft has not been issued.
+
+        A bill cancelled only **after** its month's return was due counts as
+        issued, not cancelled: that month was filed with it standing, and the
+        cancellation is declared in the month it happened (D-CMP-11).
+        """
+        series: dict[str, dict[str, object]] = {}
+        rows = self._session.execute(
+            select(
+                SalesInvoice.id,
+                SalesInvoice.invoice_number,
+                SalesInvoice.status,
+                SalesInvoice.invoice_date,
+            ).where(
+                SalesInvoice.firm_id == firm_scope,
+                SalesInvoice.is_deleted.is_(False),
+                SalesInvoice.status.in_((*_LIVE_INVOICE_STATUSES, "CANCELLED")),
+                SalesInvoice.invoice_date >= from_date,
+                SalesInvoice.invoice_date <= to_date,
+            )
+        ).all()
+        cancelled_on = self._cancellation_dates(
+            [row[0] for row in rows if row[2] == "CANCELLED"]
+        )
+        for invoice_id, number, status, invoice_date in rows:
+            text = number or ""
+            prefix = text.rsplit("-", 1)[0] if "-" in text else text
+            row = series.setdefault(
+                prefix,
+                {
+                    "prefix": prefix,
+                    "from": text,
+                    "to": text,
+                    "total_number": 0,
+                    "cancelled": 0,
+                },
+            )
+            row["total_number"] = int(str(row["total_number"])) + 1
+            on = cancelled_on.get(invoice_id)
+            if status == "CANCELLED" and not (
+                on is not None and on > gstr1_due_date(invoice_date)
+            ):
+                row["cancelled"] = int(str(row["cancelled"])) + 1
+            if text < str(row["from"]):
+                row["from"] = text
+            if text > str(row["to"]):
+                row["to"] = text
+        for row in series.values():
+            issued = int(str(row["total_number"])) - int(str(row["cancelled"]))
+            row["net_issued"] = issued
+            # Kept under its old name for readers that sum it.
+            row["count"] = issued
+        return sorted(series.values(), key=lambda item: str(item["prefix"]))
 
     # ---- folding -------------------------------------------------------
 
@@ -1035,27 +1248,6 @@ class GstReturnService:
             key: _filed(Decimal(str(value))) if key in money else value
             for key, value in row.items()
         }
-
-    @staticmethod
-    def _fold_series(
-        series: dict[str, dict[str, object]], invoice: SalesInvoice
-    ) -> None:
-        """Record the document series an invoice belongs to.
-
-        The return asks which numbers were issued, so a firm cannot quietly
-        skip a range. Derived from the number itself, since that is where the
-        series lives.
-        """
-        number = invoice.invoice_number or ""
-        prefix = number.rsplit("-", 1)[0] if "-" in number else number
-        row = series.setdefault(
-            prefix, {"prefix": prefix, "from": number, "to": number, "count": 0}
-        )
-        row["count"] = int(row["count"]) + 1  # type: ignore[call-overload]
-        if number < str(row["from"]):
-            row["from"] = number
-        if number > str(row["to"]):
-            row["to"] = number
 
     # ---- helpers -------------------------------------------------------
 
@@ -1185,4 +1377,4 @@ class GstReturnService:
         }
 
 
-__all__ = ["B2CL_THRESHOLD", "GstReturnService"]
+__all__ = ["B2CL_THRESHOLD", "GstReturnService", "b2cl_threshold"]

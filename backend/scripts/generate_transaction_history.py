@@ -247,6 +247,9 @@ RESET_ORDER: tuple[str, ...] = (
     # the receipts and payments module and this list did not know about them.
     "settlement_allocations",
     "settlements",
+    # Supplier credit set against a bill names both the purchase return and
+    # the bill, RESTRICT each way (D-FIN-19).
+    "supplier_credit_applications",
     # What the tax authority was told about a bill has to go before the bill.
     # Both carry `ondelete="RESTRICT"`, so a firm that had registered even one
     # invoice could not be reset at all -- the fourth table to arrive with a

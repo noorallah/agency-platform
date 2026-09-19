@@ -21,11 +21,11 @@ from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, class_mapper
+from sqlalchemy.orm import InstrumentedAttribute, Session, class_mapper
 
 from app.branches.models import Branch
 from app.common.firm_metadata import FirmMetadataReader
-from app.core.exceptions import ConflictError, ResourceNotFoundError
+from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import financial_year_label
 from app.core.utils.money import quantize_money
 from app.document_framework.models import (
@@ -306,12 +306,27 @@ class TransactionalDocumentService:
                 ),
                 actor_id,
             )
+        # The series a document is numbered from: an active one before an
+        # inactive one, the default before the rest, then the oldest -- every
+        # key non-null, so no database's NULL ordering decides it. It used to
+        # be whichever live row the database returned first, so "Use this
+        # series by default" and "Active" changed nothing (D-CFG-6). An
+        # inactive series is still returned when it is all the type has, so
+        # a document can be read; `reserve_number` refuses to issue from it.
         numbering_rule = self._session.scalar(
-            select(DocumentNumberingRule).where(
+            select(DocumentNumberingRule)
+            .where(
                 DocumentNumberingRule.firm_id == firm_id,
                 DocumentNumberingRule.document_type_id == document_type.id,
                 DocumentNumberingRule.is_deleted.is_(False),
             )
+            .order_by(
+                DocumentNumberingRule.is_active.desc(),
+                DocumentNumberingRule.is_default.desc(),
+                DocumentNumberingRule.created_at.asc(),
+                DocumentNumberingRule.id.asc(),
+            )
+            .limit(1)
         )
         if numbering_rule is None:
             numbering_rule = self._documents.create_numbering_rule(
@@ -335,8 +350,126 @@ class TransactionalDocumentService:
                     configuration={"module": spec.module},
                 ),
                 actor_id,
+                # The platform's own default: its prefix is distinct by
+                # construction, and a firm's older clashing series must not
+                # stop it raising this document at all.
+                other_types_checked=False,
             )
         return document_type, numbering_rule
+
+    # ---- document numbers -------------------------------------------------
+
+    #: How many already-used numbers one save steps over before giving up. A
+    #: handful is a collision; hundreds would be a misconfigured series, and
+    #: the refusal then says so rather than spinning.
+    MAX_NUMBER_SKIPS = 50
+
+    def _issue_number(
+        self,
+        numbering_rule: DocumentNumberingRule,
+        *,
+        typed: str | None,
+        number_column: InstrumentedAttribute[str],
+        firm_id: UUID,
+        document_date: date,
+        actor_id: UUID,
+        branch_code: str | None = None,
+        company_code: str | None = None,
+    ) -> str:
+        """Return the number a new document is created under.
+
+        A number typed by the caller is taken only when the series says one
+        may be (``manual_allowed``, off by default); otherwise it is refused
+        by name. Every create used to accept whatever it was sent, so the
+        switch meant nothing (D-CFG-2).
+
+        A number the series issues steps over any number already held -- by a
+        document of this type (deleted ones included, since the unique keys
+        count them) or by a journal, whose references are unique per firm. A
+        number typed ahead of the counter used to be issued again when the
+        counter reached it; the insert failed, the failure rolled the
+        reservation back, and every retry was handed the same number. The
+        series now keeps a gap there instead, as a cancelled voucher leaves
+        one. This is the step-over #500 gave settlements, for every module.
+
+        Args:
+            numbering_rule: The series this document type is numbered from.
+            typed: The number the caller sent, already normalised the way the
+                module stores it, or ``None`` when it sent none.
+            number_column: The column holding this document type's numbers.
+            firm_id: The owning firm.
+            document_date: The document's own date, which picks the year.
+            actor_id: The user creating the document.
+            branch_code: The branch code, for a series that prints it.
+            company_code: The firm code, for a series that prints it.
+
+        Returns:
+            The document number.
+
+        Raises:
+            ValidationError: A number was typed into a series that does not
+                allow it, or the next ``MAX_NUMBER_SKIPS`` numbers are all
+                taken.
+
+        """
+        if typed:
+            if not numbering_rule.manual_allowed:
+                raise ValidationError(
+                    f"The numbering series {numbering_rule.code} does not allow a "
+                    "number to be typed in. Leave the number blank and the next "
+                    "number in the series is issued, or allow typed numbers on "
+                    "the series first."
+                )
+            return typed
+        label = self._financial_year_label(document_date, firm_id)
+        for _ in range(self.MAX_NUMBER_SKIPS):
+            number = self._documents.reserve_number(
+                numbering_rule.id,
+                firm_id=firm_id,
+                financial_year_label=label,
+                branch_code=branch_code,
+                company_code=company_code,
+                document_date=document_date,
+                actor_id=actor_id,
+            )
+            if not self._number_taken(number_column, number, firm_id=firm_id):
+                return number
+        raise ValidationError(
+            f"The next {self.MAX_NUMBER_SKIPS} numbers of the series "
+            f"{numbering_rule.code} are all in use already. Check the series: "
+            "its counter is behind numbers the firm has already used."
+        )
+
+    def _number_taken(
+        self, number_column: InstrumentedAttribute[str], number: str, *, firm_id: UUID
+    ) -> bool:
+        """Say whether a document or a journal of the firm already holds a number.
+
+        Deleted documents count: the unique keys on document numbers are not
+        partial. Journals count because documents post under their own
+        numbers, and a journal reference is unique per firm.
+        """
+        # Imported here: finance is a domain this framework otherwise does not
+        # depend on, and finance depends on the document modules.
+        from app.finance.models import JournalEntry
+
+        owner = number_column.class_
+        document = self._session.scalar(
+            select(number_column)
+            .where(owner.firm_id == firm_id, number_column == number)
+            .limit(1)
+        )
+        if document is not None:
+            return True
+        journal = self._session.scalar(
+            select(JournalEntry.id)
+            .where(
+                JournalEntry.firm_id == firm_id,
+                JournalEntry.reference_number == number,
+            )
+            .limit(1)
+        )
+        return journal is not None
 
     # ---- child rows -------------------------------------------------------
 

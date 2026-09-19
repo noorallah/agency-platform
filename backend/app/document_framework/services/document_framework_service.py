@@ -372,12 +372,35 @@ class DocumentFrameworkService:
         return list(rows), int(self._session.scalar(count) or 0)
 
     def create_numbering_rule(
-        self, firm_id: UUID, data: DocumentNumberingRuleCreate, actor_id: UUID
+        self,
+        firm_id: UUID,
+        data: DocumentNumberingRuleCreate,
+        actor_id: UUID,
+        *,
+        other_types_checked: bool = True,
     ) -> DocumentNumberingRule:
+        """Create a numbering series for a document type.
+
+        ``other_types_checked`` is False only for the default series a module
+        bootstraps on its first document: those prefixes are the platform's
+        own and distinct by construction, and a firm's older series clashing
+        with one must not stop the firm raising that document at all. The
+        hand-journal space is refused either way.
+        """
         self._assert_unique_numbering_rule(firm_id, data.document_type_id, data.code)
         self._assert_outside_the_manual_journal_namespace(
-            prefix=data.prefix, separator=data.separator
+            prefix=data.prefix,
+            separator=data.separator,
+            format_pattern=data.format_pattern,
         )
+        if other_types_checked:
+            self._assert_numbered_apart_from_other_types(
+                firm_id,
+                document_type_id=data.document_type_id,
+                prefix=data.prefix,
+                separator=data.separator,
+                format_pattern=data.format_pattern,
+            )
         self._assert_a_reset_shows_its_year(
             auto_reset=data.auto_reset,
             include_financial_year=data.include_financial_year,
@@ -389,6 +412,7 @@ class DocumentFrameworkService:
             created_by=actor_id,
             updated_by=actor_id,
         )
+        self._keep_one_default(row, firm_id=firm_id, actor_id=actor_id)
         self._session.add(row)
         self._session.flush()
         record_audit(
@@ -449,9 +473,19 @@ class DocumentFrameworkService:
         )
         before = row_state(row)
         values = data.model_dump(exclude_unset=True)
+        # Judged on what the rule will be, as the year check below is.
         self._assert_outside_the_manual_journal_namespace(
             prefix=values.get("prefix", row.prefix),
             separator=values.get("separator", row.separator),
+            format_pattern=values.get("format_pattern", row.format_pattern),
+        )
+        self._assert_numbered_apart_from_other_types(
+            firm_id,
+            document_type_id=values.get("document_type_id", row.document_type_id),
+            prefix=values.get("prefix", row.prefix),
+            separator=values.get("separator", row.separator),
+            format_pattern=values.get("format_pattern", row.format_pattern),
+            current_id=row.id,
         )
         # Judged on what the rule will be, not on what the request mentions.
         # This update is partial, so a caller turning the year off says
@@ -467,6 +501,7 @@ class DocumentFrameworkService:
         for field, value in values.items():
             setattr(row, field, value)
         row.updated_by = actor_id
+        self._keep_one_default(row, firm_id=firm_id, actor_id=actor_id)
         # The prefix, the pattern and the yearly restart are what the next
         # number is built from, so the row carries each field that moved.
         record_change(
@@ -563,6 +598,13 @@ class DocumentFrameworkService:
         actor_id: UUID | None = None,
     ) -> str:
         rule = self.get_numbering_rule(firm_id, rule_id, for_update=True)
+        if not rule.is_active:
+            # An inactive series is never used (D-CFG-6).
+            raise ValidationError(
+                f"The numbering series {rule.code} is switched off, and no other "
+                "series of this document type is active. Switch a series on "
+                "before raising the document."
+            )
         on = document_date or utc_now().date()
         # The same derivation `preview_number` uses, so the two cannot answer
         # differently for the same rule and date.
@@ -605,9 +647,21 @@ class DocumentFrameworkService:
         """Return this scope's counter, creating it the first time it is used.
 
         A scope not seen before starts at the rule's configured
-        ``next_sequence`` when the rule has never issued anything, and at 1
-        otherwise -- a new financial year begins at one, which is the point of
-        ``auto_reset``.
+        ``next_sequence`` when the rule has never issued anything. It starts
+        at 1 only when the scope is genuinely new -- a new financial year, the
+        point of ``auto_reset``, or a branch or firm code the number prints.
+        A key that changed shape because a setting changed is the same series
+        and carries on (D-CFG-7).
+
+        **A series never goes back behind a number it has issued** (D-CFG-7).
+        Turning "restart each financial year" off and on again used to find
+        no live counter under the yearly key and start at 1; the retired
+        counter under that key then made the insert fail, and every document
+        of the type was refused. Retiring a type's last series did the same
+        through the default created in its place. So a counter retired under
+        this key is revived rather than duplicated, and a new or revived
+        counter starts past every number a series printing the same way has
+        issued under the same key.
         """
         counter = self._session.scalar(
             select(DocumentNumberSequence)
@@ -618,31 +672,146 @@ class DocumentFrameworkService:
             )
             .with_for_update()
         )
-        if counter is not None:
-            return counter
-        legacy = self._legacy_counters(rule, scope_signature)
-        if legacy:
-            # The series continues from wherever the old keys had got to; the
-            # rows under the old keys are retired so this happens once.
-            start = max(row.next_sequence for row in legacy)
+        if counter is None:
+            legacy = self._legacy_counters(rule, scope_signature)
+            start = max(
+                self._fresh_start(rule, scope_signature, legacy),
+                self._issued_under(rule, scope_signature),
+            )
+            # The rows under the old keys are retired so this happens once.
             for row in legacy:
                 row.is_deleted = True
                 row.deleted_at = utc_now()
                 if actor_id is not None:
                     row.updated_by = actor_id
-        else:
-            start = 1 if rule.last_scope_signature else rule.next_sequence
-        counter = DocumentNumberSequence(
-            firm_id=rule.firm_id,
-            numbering_rule_id=rule.id,
-            scope_signature=scope_signature,
-            next_sequence=max(start, 1),
-            created_by=actor_id,
-            updated_by=actor_id,
+            counter = self._session.scalar(
+                select(DocumentNumberSequence)
+                .where(
+                    DocumentNumberSequence.numbering_rule_id == rule.id,
+                    DocumentNumberSequence.scope_signature == scope_signature,
+                    DocumentNumberSequence.is_deleted.is_(True),
+                )
+                .with_for_update()
+            )
+            if counter is not None:
+                # Revived: the unique key covers retired rows, so a second row
+                # under this key could never be inserted.
+                counter.is_deleted = False
+                counter.deleted_at = None
+                counter.next_sequence = max(counter.next_sequence, start)
+                if actor_id is not None:
+                    counter.updated_by = actor_id
+            else:
+                counter = DocumentNumberSequence(
+                    firm_id=rule.firm_id,
+                    numbering_rule_id=rule.id,
+                    scope_signature=scope_signature,
+                    next_sequence=max(start, 1),
+                    created_by=actor_id,
+                    updated_by=actor_id,
+                )
+                self._session.add(counter)
+        # Back on a key the rule left when a setting changed: it carries on
+        # from where the rule had got to under the other key.
+        counter.next_sequence = max(
+            counter.next_sequence, self._carried_on(rule, scope_signature)
         )
-        self._session.add(counter)
         self._session.flush()
         return counter
+
+    @staticmethod
+    def _genuinely_new_scope(rule: DocumentNumberingRule, scope_signature: str) -> bool:
+        """Say whether a key is a new scope, not the same one reshaped.
+
+        A part that is present on both keys and differs -- another financial
+        year, another branch or firm code the number prints -- is a new
+        scope, and its numbers cannot collide with the last one's. A part
+        present on one key and absent from the other is a setting that
+        changed; the numbers are the same series.
+        """
+        if not rule.last_scope_signature:
+            return False
+        last = (rule.last_scope_signature.split("|") + ["", "", ""])[:3]
+        now = (scope_signature.split("|") + ["", "", ""])[:3]
+        return any(a and b and a != b for a, b in zip(last, now, strict=True))
+
+    def _fresh_start(
+        self,
+        rule: DocumentNumberingRule,
+        scope_signature: str,
+        legacy: list[DocumentNumberSequence],
+    ) -> int:
+        """Return where a counter the rule has no live row for begins."""
+        if legacy:
+            # The series continues from wherever the old keys had got to.
+            return max(row.next_sequence for row in legacy)
+        if not rule.last_scope_signature:
+            return rule.next_sequence
+        if self._genuinely_new_scope(rule, scope_signature):
+            return 1
+        return rule.next_sequence
+
+    def _carried_on(self, rule: DocumentNumberingRule, scope_signature: str) -> int:
+        """Return the floor a counter the rule returns to must start from.
+
+        The rule's own ``next_sequence`` follows the counter it last used, so
+        coming back to this key after issuing under another shape of it
+        continues from there. A genuinely new scope has no such floor.
+        """
+        if (
+            not rule.last_scope_signature
+            or rule.last_scope_signature == scope_signature
+            or self._genuinely_new_scope(rule, scope_signature)
+        ):
+            return 1
+        return rule.next_sequence
+
+    def _issued_under(self, rule: DocumentNumberingRule, scope_signature: str) -> int:
+        """Return the next number past what any look-alike series issued here.
+
+        Every series of the firm that prints numbers the same way -- this
+        rule's own retired counters, a series retired and replaced by a new
+        default, a document type deleted and bootstrapped again -- counts, if
+        its counter is under the same key: those numbers are the ones this
+        counter would otherwise issue a second time.
+        """
+        twins = [
+            row.id
+            for row in self._session.scalars(
+                select(DocumentNumberingRule).where(
+                    DocumentNumberingRule.firm_id == rule.firm_id,
+                    (
+                        DocumentNumberingRule.prefix == rule.prefix
+                        if rule.prefix is not None
+                        else DocumentNumberingRule.prefix.is_(None)
+                    ),
+                )
+            ).all()
+            if self._prints_alike(row, rule)
+        ]
+        if not twins:
+            return 1
+        highest = self._session.scalar(
+            select(func.max(DocumentNumberSequence.next_sequence)).where(
+                DocumentNumberSequence.numbering_rule_id.in_(twins),
+                DocumentNumberSequence.scope_signature == scope_signature,
+            )
+        )
+        return int(highest or 1)
+
+    @staticmethod
+    def _prints_alike(a: DocumentNumberingRule, b: DocumentNumberingRule) -> bool:
+        """Say whether two series print their numbers in the same shape."""
+        return (
+            (a.prefix or "") == (b.prefix or "")
+            and (a.suffix or "") == (b.suffix or "")
+            and a.separator == b.separator
+            and (a.format_pattern or "") == (b.format_pattern or "")
+            and a.include_financial_year == b.include_financial_year
+            and a.include_branch_code == b.include_branch_code
+            and a.include_company_code == b.include_company_code
+            and a.sequence_padding == b.sequence_padding
+        )
 
     def _legacy_counters(
         self, rule: DocumentNumberingRule, scope_signature: str
@@ -774,28 +943,153 @@ class DocumentFrameworkService:
         if existing is not None:
             raise ConflictError("A document state with this code already exists.")
 
+    def _keep_one_default(
+        self, row: DocumentNumberingRule, *, firm_id: UUID, actor_id: UUID
+    ) -> None:
+        """Hold a document type to one default series, and never an inactive one.
+
+        The series a document is numbered from is the active default
+        (D-CFG-6), so a second default would leave the choice to row order
+        again. Saving a series as the default takes the flag off the type's
+        other series, the way choosing a default anywhere else works; a
+        series that is switched off cannot be the default at all.
+
+        Raises:
+            ValidationError: If the series is the default and switched off.
+
+        """
+        if not row.is_default:
+            return
+        if not row.is_active:
+            raise ValidationError(
+                f"The numbering series {row.code} is switched off, so it cannot "
+                "be the default. Switch it on, or make another series the "
+                "default."
+            )
+        others = self._session.scalars(
+            select(DocumentNumberingRule).where(
+                DocumentNumberingRule.firm_id == firm_id,
+                DocumentNumberingRule.document_type_id == row.document_type_id,
+                DocumentNumberingRule.is_default.is_(True),
+                DocumentNumberingRule.is_deleted.is_(False),
+            )
+        ).all()
+        for other in others:
+            if other is row:
+                continue
+            other.is_default = False
+            other.updated_by = actor_id
+
     @staticmethod
+    def _number_head(
+        *, prefix: str | None, separator: str | None, format_pattern: str | None
+    ) -> str:
+        """Return the fixed text every number a series issues starts with.
+
+        For a series built from its flags that is the prefix and separator.
+        A ``format_pattern`` overrides the flags, so its head is the pattern
+        up to its first placeholder that is not the prefix or separator --
+        ``{prefix}-T09193UGD-R-HO-{financial_year}-{sequence}`` with prefix
+        ``GRN`` starts ``GRN-T09193UGD-R-HO-``.
+        """
+        if format_pattern:
+            text = format_pattern.replace("{prefix}", prefix or "").replace(
+                "{separator}", separator or ""
+            )
+            cut = text.find("{")
+            return (text if cut < 0 else text[:cut]).upper()
+        if not prefix:
+            return ""
+        return f"{prefix}{separator or ''}".upper()
+
+    @classmethod
     def _assert_outside_the_manual_journal_namespace(
-        *, prefix: str | None, separator: str | None
+        cls,
+        *,
+        prefix: str | None,
+        separator: str | None,
+        format_pattern: str | None = None,
     ) -> None:
         """Refuse a document number that would start in the hand-journal space.
 
         Documents post their journals under their own numbers, and hand
         journals are kept to ``JV-`` so the two can never take each other's
         reference (D-FIN-9). A rule numbering documents ``JV-...`` would undo
-        that from the other side.
+        that from the other side -- through its prefix, or through a format
+        pattern that spells ``JV-`` itself (D-CFG-8).
         """
         # Imported here: finance is a domain this framework otherwise does
         # not depend on.
         from app.finance.services.journal_engine import MANUAL_REFERENCE_PREFIX
 
-        start = f"{prefix or ''}{separator or ''}".upper()
-        if prefix and start.startswith(MANUAL_REFERENCE_PREFIX):
+        head = cls._number_head(
+            prefix=prefix, separator=separator, format_pattern=format_pattern
+        )
+        if head.startswith(MANUAL_REFERENCE_PREFIX):
             raise ValidationError(
-                f"A numbering prefix of {prefix!r} would number documents "
-                f"{MANUAL_REFERENCE_PREFIX}..., which is reserved for journals "
+                f"This series would number documents {head}..., and "
+                f"{MANUAL_REFERENCE_PREFIX}... is reserved for journals "
                 "written by hand. Choose another prefix."
             )
+
+    def _assert_numbered_apart_from_other_types(
+        self,
+        firm_id: UUID,
+        *,
+        document_type_id: UUID,
+        prefix: str | None,
+        separator: str | None,
+        format_pattern: str | None,
+        current_id: UUID | None = None,
+    ) -> None:
+        """Refuse a series whose numbers another document type's could share.
+
+        Document numbers are posted as journal references, which are unique
+        per firm, so a receipt numbered ``GRN-...`` took a goods receipt's
+        reference and the second of the two to post was refused for good
+        (D-CFG-8, the general case of D-SELL-17). Two series of different
+        types may not start alike -- the same fixed text, or one's the start
+        of the other's. Series of the same type are that type's own business.
+
+        Raises:
+            ValidationError: Naming the series and the type it would clash with.
+
+        """
+        head = self._number_head(
+            prefix=prefix, separator=separator, format_pattern=format_pattern
+        )
+        statement = select(DocumentNumberingRule, DocumentTypeDefinition.name).join(
+            DocumentTypeDefinition,
+            DocumentTypeDefinition.id == DocumentNumberingRule.document_type_id,
+        )
+        statement = statement.where(
+            DocumentNumberingRule.firm_id == firm_id,
+            DocumentNumberingRule.document_type_id != document_type_id,
+            DocumentNumberingRule.is_deleted.is_(False),
+            DocumentTypeDefinition.is_deleted.is_(False),
+        )
+        if current_id is not None:
+            statement = statement.where(DocumentNumberingRule.id != current_id)
+        for other, type_name in self._session.execute(statement).all():
+            theirs = self._number_head(
+                prefix=other.prefix,
+                separator=other.separator,
+                format_pattern=other.format_pattern,
+            )
+            clash = (
+                theirs == head
+                if not head or not theirs
+                else head.startswith(theirs) or theirs.startswith(head)
+            )
+            if clash:
+                shown = head or "no prefix"
+                raise ValidationError(
+                    f"Numbers from this series would start {shown!r}, like the "
+                    f"{type_name} series {other.code} ({theirs or 'no prefix'}). "
+                    "Two document types may not be numbered alike: their "
+                    "numbers post as journal references, which are unique. "
+                    "Choose another prefix."
+                )
 
     @staticmethod
     def _assert_a_reset_shows_its_year(
@@ -891,14 +1185,26 @@ class DocumentFrameworkService:
                 DocumentNumberSequence.is_deleted.is_(False),
             )
         )
+        # A preview writes nothing, so old and retired rows are left where they
+        # are; it still shows the number `_sequence_for` will issue.
         if counter is not None:
             sequence = counter.next_sequence
-        elif legacy := self._legacy_counters(rule, scope_signature):
-            # A preview writes nothing, so the old rows are left where they
-            # are; it still shows the number the reservation will issue.
-            sequence = max(row.next_sequence for row in legacy)
         else:
-            sequence = 1 if rule.last_scope_signature else rule.next_sequence
+            retired = self._session.scalar(
+                select(func.max(DocumentNumberSequence.next_sequence)).where(
+                    DocumentNumberSequence.numbering_rule_id == rule.id,
+                    DocumentNumberSequence.scope_signature == scope_signature,
+                    DocumentNumberSequence.is_deleted.is_(True),
+                )
+            )
+            sequence = max(
+                self._fresh_start(
+                    rule, scope_signature, self._legacy_counters(rule, scope_signature)
+                ),
+                self._issued_under(rule, scope_signature),
+                int(retired or 1),
+            )
+        sequence = max(sequence, self._carried_on(rule, scope_signature))
         if rule.format_pattern:
             return rule.format_pattern.format(
                 prefix=rule.prefix or "",

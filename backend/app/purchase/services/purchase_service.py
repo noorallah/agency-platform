@@ -284,20 +284,15 @@ class PurchaseService(TransactionalDocumentService):
         branch_code, company_code = self._scope_codes(
             firm_id=firm_id, branch_id=data.branch_id
         )
-        po_number = (
-            data.po_number.strip()
-            if data.po_number
-            else self._documents.reserve_number(
-                numbering_rule.id,
-                firm_id=firm_id,
-                financial_year_label=self._financial_year_label(
-                    data.purchase_date, firm_id
-                ),
-                branch_code=branch_code,
-                company_code=company_code,
-                document_date=data.purchase_date,
-                actor_id=actor_id,
-            )
+        po_number = self._issue_number(
+            numbering_rule,
+            typed=data.po_number.strip() if data.po_number else None,
+            number_column=PurchaseOrder.po_number,
+            firm_id=firm_id,
+            document_date=data.purchase_date,
+            actor_id=actor_id,
+            branch_code=branch_code,
+            company_code=company_code,
         )
         row = PurchaseOrder(
             firm_id=firm_id,

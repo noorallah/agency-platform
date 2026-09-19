@@ -36,6 +36,9 @@ from app.identity.models import User, UserFirm
 from app.products.models import Product, ProductCategory
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 
+# Fixtures here type their document numbers; see conftest (D-CFG-2).
+pytestmark = pytest.mark.typed_document_numbers
+
 WHEN = date(2026, 4, 20)
 YEAR = (date(2026, 4, 1), date(2027, 3, 31))
 

@@ -77,7 +77,7 @@ from app.document_framework.services.transactional_document_service import (
 from app.finance.services.document_posting import DocumentPostingService
 from app.identity.models import User
 from app.inventory.models import InventoryRecord, StockLedgerEntry
-from app.inventory.services import InventoryService
+from app.inventory.services import InventoryService, LineConversion
 from app.products.models import Product
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales_order.models import SalesOrder, SalesOrderLine
@@ -314,20 +314,15 @@ class DeliveryNoteService(TransactionalDocumentService):
             territory_id=order.territory_id,
             route_id=order.route_id,
         )
-        note_number = (
-            data.delivery_note_number
-            if data.delivery_note_number
-            else self._documents.reserve_number(
-                numbering_rule.id,
-                firm_id=firm_id,
-                financial_year_label=self._financial_year_label(
-                    data.delivery_date, firm_id
-                ),
-                branch_code=self._scope_code(order.branch_id),
-                company_code=self._company_code(firm_id),
-                document_date=data.delivery_date,
-                actor_id=actor_id,
-            )
+        note_number = self._issue_number(
+            numbering_rule,
+            typed=data.delivery_note_number,
+            number_column=DeliveryNote.delivery_note_number,
+            firm_id=firm_id,
+            document_date=data.delivery_date,
+            actor_id=actor_id,
+            branch_code=self._scope_code(order.branch_id),
+            company_code=self._company_code(firm_id),
         )
         row = DeliveryNote(
             firm_id=firm_id,
@@ -1387,7 +1382,8 @@ class DeliveryNoteService(TransactionalDocumentService):
                 inventory_uom_id=item.inventory_uom_id or source_line.inventory_uom_id,
                 packaging_type_id=item.packaging_type_id
                 or source_line.packaging_type_id,
-                conversion_factor=self._q(conversion["factor"]),
+                # Stored as the rule gave it: stock moves at this factor (D-CFG-1).
+                conversion_factor=Decimal(str(conversion["factor"])),
                 conversion_version=conversion["version"],
                 unit_price=prices[index],
                 discount_percent=line_discount.percent,
@@ -1759,6 +1755,9 @@ class DeliveryNoteService(TransactionalDocumentService):
                         ),
                         entered_uom_id=line.sales_uom_id,
                         conversion_version=line.conversion_version,
+                        line_conversion=LineConversion(
+                            line.conversion_factor, line.inventory_uom_id
+                        ),
                         remarks=f"delivery_note release line {line.line_number}",
                         batch_id=batch_id,
                     )
@@ -1833,6 +1832,9 @@ class DeliveryNoteService(TransactionalDocumentService):
                     entered_quantity=share,
                     entered_uom_id=line.sales_uom_id,
                     conversion_version=line.conversion_version,
+                    line_conversion=LineConversion(
+                        line.conversion_factor, line.inventory_uom_id
+                    ),
                     remarks=line.remarks or row.remarks,
                     batch_id=batch_id,
                     serial_id=self._trail.single_serial(shares[index], allocated),

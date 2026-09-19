@@ -4956,6 +4956,37 @@ class ApiClient {
         ),
       );
 
+  /// What a supplier owes the firm from goods sent back against a receipt,
+  /// not yet set against a bill (D-FIN-19).
+  Future<List<SupplierCredit>> supplierCredits(String vendorId) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/payments/supplier-credits',
+      query: {'vendor_id': vendorId},
+    );
+    return _unwrapList(response, SupplierCredit.fromJson);
+  }
+
+  /// Set part of a supplier credit against one of that supplier's bills.
+  ///
+  /// Nothing is posted: the return debited payables when it completed and
+  /// the bill credited them when it was approved. This says which bill the
+  /// debit belongs to, so the bill owes that much less.
+  Future<SupplierCredit> applySupplierCredit({
+    required String returnId,
+    required String invoiceId,
+    required String amount,
+  }) async =>
+      SupplierCredit.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/payments/supplier-credits/$returnId/apply',
+            body: <String, dynamic>{'invoice_id': invoiceId, 'amount': amount},
+          ),
+        ),
+      );
+
   /// What a customer has paid against one sales order.
   Future<Json> salesOrderAdvances(String orderId) async =>
       _unwrapMap(await request(
