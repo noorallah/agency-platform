@@ -348,16 +348,14 @@ class SalesInvoiceService(TransactionalDocumentService):
         # Raise whatever earlier documents this firm has chosen not to type.
         # A firm on the whole chain gets its payload back untouched, so this
         # costs one settings read and changes nothing for anybody else.
-        data = SalesChainService(self._session).ensure_invoice_source(
-            data, firm_id=firm_id, actor_id=actor_id
-        )
+        chain = SalesChainService(self._session)
+        data = chain.ensure_invoice_source(data, firm_id=firm_id, actor_id=actor_id)
+        own_notes = frozenset(note.id for note in chain.raised_notes)
         document_type, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
         header, source_rows, line_specs = self._prepare_invoice_sources(
-            data,
-            firm_id=firm_id,
-            ships_on_approval=self._raised_its_own_dispatch(data, firm_id=firm_id),
+            data, firm_id=firm_id, own_notes=own_notes
         )
         branch_id = data.branch_id or header["branch_id"]
         customer_id = data.customer_id or header["customer_id"]
@@ -440,11 +438,10 @@ class SalesInvoiceService(TransactionalDocumentService):
             place_of_supply=self._place_of_supply(customer),
             reference_number=data.reference_number,
             remarks=data.remarks,
-            # A record of how this bill was raised, not a permission:
-            # true when the bill dispatched its own goods.
-            allow_direct_sales_order=self._raised_its_own_dispatch(
-                data, firm_id=firm_id
-            ),
+            # A record of how this bill was raised, not a permission: true
+            # when the bill raised the note that ships its goods. What the
+            # bill may do with a note is decided by the note's own stamp.
+            allow_direct_sales_order=bool(own_notes),
             status=SalesInvoiceStatus.DRAFT.value,
             additional_charges=self._q(data.additional_charges),
             round_off=self._q(data.round_off),
@@ -453,6 +450,8 @@ class SalesInvoiceService(TransactionalDocumentService):
         )
         self._session.add(row)
         self._session.flush()
+        for note in chain.raised_notes:
+            note.raised_by_sales_invoice_id = row.id
         self._replace_sources(row, source_rows, firm_id=firm_id, actor_id=actor_id)
         line_totals = self._replace_lines(
             row,
@@ -529,7 +528,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             raise ValidationError("Only draft sales invoices can be updated.")
         self._delete_children(row.id)
         header, source_rows, line_specs = self._prepare_invoice_sources(
-            data, firm_id, ships_on_approval=row.allow_direct_sales_order
+            data, firm_id, own_notes=self._notes_raised_by(row)
         )
         row.customer_id = data.customer_id or header["customer_id"]
         row.branch_id = data.branch_id or header["branch_id"]
@@ -672,10 +671,13 @@ class SalesInvoiceService(TransactionalDocumentService):
         # before the save refused an undispatched note would otherwise still
         # post revenue for goods that never left (D-SELL-3). A bill that
         # raised its own note is the exception: its approval is the dispatch.
+        # "Its own" is the note's stamp, not the firm's stage today -- a note
+        # a person raised before the stage was switched off is theirs to
+        # dispatch (D-CFG-16).
         to_ship: list[DeliveryNote] = []
         for note in self._billed_notes(row):
             if (
-                row.allow_direct_sales_order
+                note.raised_by_sales_invoice_id == row.id
                 and note.status == DeliveryNoteStatus.APPROVED.value
             ):
                 to_ship.append(note)
@@ -772,6 +774,17 @@ class SalesInvoiceService(TransactionalDocumentService):
         )
         return row
 
+    def _notes_raised_by(self, row: SalesInvoice) -> frozenset[UUID]:
+        """Return the ids of the delivery notes this bill raised for itself."""
+        return frozenset(
+            self._session.scalars(
+                select(DeliveryNote.id).where(
+                    DeliveryNote.raised_by_sales_invoice_id == row.id,
+                    DeliveryNote.is_deleted.is_(False),
+                )
+            ).all()
+        )
+
     def _billed_notes(self, row: SalesInvoice) -> list[DeliveryNote]:
         """Return the delivery notes a bill names as its sources."""
         return list(
@@ -842,11 +855,15 @@ class SalesInvoiceService(TransactionalDocumentService):
         They were raised to carry this bill's goods and have not left; kept,
         they would hold the order's quantity against a sale that is off, with
         no screen offering them. A note another live bill also names is left
-        alone.
+        alone, and so is one this bill did not raise: a person's note is
+        theirs to cancel, whatever the firm's stage says now (D-CFG-16).
         """
         service = DeliveryNoteService(self._session)
         for note in self._billed_notes(row):
-            if note.status != DeliveryNoteStatus.APPROVED.value:
+            if (
+                note.status != DeliveryNoteStatus.APPROVED.value
+                or note.raised_by_sales_invoice_id != row.id
+            ):
                 continue
             others = self._session.scalar(
                 select(func.count(SalesInvoiceSource.id))
@@ -1947,14 +1964,15 @@ class SalesInvoiceService(TransactionalDocumentService):
         data: SalesInvoiceCreate,
         firm_id: UUID,
         *,
-        ships_on_approval: bool = False,
+        own_notes: frozenset[UUID] = frozenset(),
     ) -> tuple[dict[str, UUID], list[dict[str, object]], list[dict[str, object]]]:
         """Read the documents a bill names, and the header they agree on.
 
-        ``ships_on_approval`` is true for a bill that raises its own delivery
-        note (the firm leaves that stage to the service): the note it bills is
-        approved and waiting, and the bill's approval is what dispatches it
-        (D-SELL-13). Any other bill names only a note whose goods have left.
+        ``own_notes`` are the delivery notes this bill raised for itself (the
+        firm leaves that stage to the service): each is approved and waiting,
+        and the bill's approval is what dispatches it (D-SELL-13). Every other
+        note -- a person's included, even with the stage now off -- must have
+        shipped its goods before it is billed (D-SELL-3, D-CFG-16).
         """
         if any(item.serial_ids for item in data.lines):
             # Left over only on a line billing a note already dispatched --
@@ -1994,7 +2012,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 if note is None:
                     raise ResourceNotFoundError("Delivery note not found.")
                 if not (
-                    ships_on_approval
+                    note.id in own_notes
                     and note.status == DeliveryNoteStatus.APPROVED.value
                 ):
                     require_dispatched_note(note, "billed")
@@ -2403,22 +2421,6 @@ class SalesInvoiceService(TransactionalDocumentService):
             self._billable_orders(firm_scope=firm_scope, limit=limit, offset=offset)
         )
         return documents
-
-    def _raised_its_own_dispatch(
-        self, data: SalesInvoiceCreate, *, firm_id: UUID
-    ) -> bool:
-        """Report whether this bill shipped the goods it charges for.
-
-        True when the firm's configuration leaves the delivery note to the
-        service, which is the only way an invoice now reaches approval without
-        somebody having dispatched its goods by hand. Recorded so a reader can
-        tell the two kinds of bill apart afterwards.
-        """
-        return (
-            not SalesWorkflowService(self._session)
-            .settings_for(firm_id)
-            .delivery_note_stage
-        )
 
     def _billable_orders(
         self, *, firm_scope: UUID, limit: int, offset: int = 0

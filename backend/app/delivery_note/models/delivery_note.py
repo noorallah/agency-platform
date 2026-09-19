@@ -91,6 +91,15 @@ class DeliveryNote(BaseEntity):
     status: Mapped[str] = mapped_column(
         String(30), nullable=False, default="DRAFT", server_default="DRAFT"
     )
+    #: The bill that raised this note for itself, when the firm leaves the
+    #: delivery-note stage to the service. Only that bill may bill it before it
+    #: is dispatched, dispatch it on approval, or withdraw it when a draft is
+    #: cancelled; a note a person raised is billed like any other, once
+    #: dispatched (D-CFG-16). A bare id, like every source reference here: the
+    #: invoice module depends on this one, not the other way round.
+    raised_by_sales_invoice_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), nullable=True, index=True
+    )
     total_ordered_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
