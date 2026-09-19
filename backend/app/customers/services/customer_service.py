@@ -33,7 +33,7 @@ from app.customers.schemas import (
     CustomerUpdate,
 )
 from app.customers.schemas.customer import CustomerListFilters
-from app.finance.models import JournalEntry
+from app.finance.models import JournalEntry, JournalStatus
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.sales.models.territory import (
@@ -246,14 +246,18 @@ class CustomerService:
     ) -> None:
         """Soft delete one customer and audit the lifecycle action.
 
-        A customer with an opening balance takes its journal with it. The
-        balance leaves the customer's account on delete, so leaving the entry
-        behind would put the receivable control account above what anybody is
-        recorded as owing -- which is the same drift in the other direction.
+        Only a customer whose account is square can go (D-FIN-1). Deleting
+        one who still owed money, or held an advance, left the balance in the
+        receivable control account while no live customer carried it, so every
+        report of the receivable ledger dropped it -- TEST01 held 1,960.00
+        that way. A settled account has nothing in the ledger to take with it,
+        which is why nothing is reversed here any more: reversing the opening
+        balance of a customer who has since paid it would put the control
+        account out by the balance in the other direction.
         """
         customer = self.get(customer_id, firm_scope=firm_scope)
+        self._assert_account_is_square(customer)
         before = self._audit_snapshot(customer)
-        self._reverse_opening_balance_postings(customer, actor_id=actor_id)
         customer.is_deleted = True
         customer.deleted_at = utc_now()
         customer.deleted_by = actor_id
@@ -272,10 +276,18 @@ class CustomerService:
     def restore(
         self, customer_id: UUID, *, firm_scope: UUID | None, actor_id: UUID
     ) -> Customer:
-        """Restore one soft-deleted customer."""
+        """Restore one soft-deleted customer.
+
+        A customer deleted before D-FIN-1 was fixed may have had its opening
+        balance journal reversed on the way out while the balance stayed on
+        the account. Bringing the account back brings that balance back, so
+        the journal is posted again, or the receivable control account would
+        be short of what the restored customer is recorded as owing.
+        """
         customer = self.get(customer_id, firm_scope=firm_scope, include_deleted=True)
         if not customer.is_deleted:
             return customer
+        self._repost_reversed_opening_balance(customer, actor_id=actor_id)
         customer.is_deleted = False
         customer.deleted_at = None
         customer.deleted_by = None
@@ -740,14 +752,119 @@ class CustomerService:
         advance = -opening_balance if opening_balance < 0 else zero
         return outstanding, advance
 
+    def _assert_account_is_square(self, customer: Customer) -> None:
+        """Refuse to delete a customer whose account is not settled (D-FIN-1).
+
+        The rule every ledger package keeps -- Tally will not delete a ledger
+        with a balance, Odoo and Zoho refuse a contact with open documents:
+        what a customer owes, any advance they hold, and any invoice still
+        open or still in draft all have to be dealt with first. A customer the
+        firm has stopped trading with is marked inactive instead.
+        """
+        # Imported here: the settlement module imports this service.
+        from app.sales_invoice.models import SalesInvoice
+        from app.settlements.services import ReceiptService
+
+        reasons: list[str] = []
+        if customer.current_outstanding != 0:
+            reasons.append(f"owes {customer.current_outstanding:,.2f}")
+        if customer.unapplied_advance_balance != 0:
+            reasons.append(
+                f"holds an advance of {customer.unapplied_advance_balance:,.2f}"
+            )
+        open_numbers = [
+            record.invoice_number
+            for record in ReceiptService(self._session).outstanding_invoices(
+                firm_id=customer.firm_id, party_id=customer.id
+            )
+        ]
+        open_numbers += list(
+            self._session.scalars(
+                select(SalesInvoice.invoice_number)
+                .where(
+                    SalesInvoice.firm_id == customer.firm_id,
+                    SalesInvoice.customer_id == customer.id,
+                    SalesInvoice.is_deleted.is_(False),
+                    SalesInvoice.status == "DRAFT",
+                )
+                .order_by(SalesInvoice.created_at.asc())
+            ).all()
+        )
+        if open_numbers:
+            shown = ", ".join(open_numbers[:5])
+            more = len(open_numbers) - 5
+            reasons.append(
+                f"has {len(open_numbers)} open invoice"
+                f"{'' if len(open_numbers) == 1 else 's'} ({shown}"
+                f"{f' and {more} more' if more > 0 else ''})"
+            )
+        if reasons:
+            raise ValidationError(
+                f"{customer.code} cannot be deleted: it {', '.join(reasons)}. "
+                "Settle, refund or cancel what is open first, or set the "
+                "customer inactive to stop trading with them."
+            )
+
+    def _repost_reversed_opening_balance(
+        self, customer: Customer, *, actor_id: UUID
+    ) -> None:
+        """Post again an opening balance a pre-D-FIN-1 delete reversed.
+
+        Such a delete mirrored the opening-balance journal and cleared the
+        link on the receivable row, but left the balance on the account. Only
+        that shape is reposted: an opening-balance row with no journal while a
+        REVERSED original from this customer's master still stands. A row that
+        never posted (a nil balance) has no reversed original to find.
+        """
+        rows = [
+            row
+            for row in self._session.scalars(
+                select(CustomerReceivableTransaction).where(
+                    CustomerReceivableTransaction.customer_id == customer.id,
+                    CustomerReceivableTransaction.transaction_type
+                    == CustomerReceivableTransactionType.OPENING_BALANCE.value,
+                    CustomerReceivableTransaction.journal_entry_id.is_(None),
+                    CustomerReceivableTransaction.is_deleted.is_(False),
+                )
+            ).all()
+            if row.outstanding_delta != 0 or row.advance_delta != 0
+        ]
+        if not rows:
+            return
+        reversed_original = self._session.scalar(
+            select(JournalEntry.id)
+            .where(
+                JournalEntry.firm_id == customer.firm_id,
+                JournalEntry.source_module == "customers",
+                JournalEntry.source_id == customer.id,
+                JournalEntry.reversal_of_id.is_(None),
+                JournalEntry.status == JournalStatus.REVERSED.value,
+            )
+            .limit(1)
+        )
+        if reversed_original is None:
+            return
+        for row in rows:
+            entry = self._posting.post_opening_balance(
+                firm_id=customer.firm_id,
+                customer_id=customer.id,
+                reference_number=self._opening_balance_reference(customer),
+                posting_date=utc_now().date(),
+                amount=row.outstanding_delta - row.advance_delta,
+                actor_id=actor_id,
+            )
+            row.journal_entry_id = None if entry is None else entry.id
+
     def _reverse_opening_balance_postings(
         self, customer: Customer, *, actor_id: UUID
     ) -> None:
         """Mirror every journal this customer's opening balances have posted.
 
-        Used by both paths that make an opening balance stop being true:
-        revising it and deleting the customer. Each reversal takes the original
-        entry's reference with `-REV`, so the pair reads as one correction.
+        Used when an opening balance stops being true because it is revised.
+        Deleting the customer no longer calls it: only a settled account can
+        be deleted, and its journals already net to nothing. Each reversal
+        takes the original entry's reference with `-REV`, so the pair reads as
+        one correction.
         """
         engine = JournalEntryEngine(self._session)
         for row in self._session.scalars(

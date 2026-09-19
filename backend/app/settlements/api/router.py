@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.core.constants.core import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
@@ -138,7 +139,12 @@ def _list(
 
 
 def _parties(
-    service: SettlementService, *, firm_id: UUID, search: str
+    service: SettlementService,
+    *,
+    firm_id: UUID,
+    search: str,
+    page: int,
+    page_size: int,
 ) -> ApiResponse[list[SettlementPartyRecord]]:
     """Answer one direction's party picker.
 
@@ -151,7 +157,9 @@ def _parties(
     return ApiResponse(
         data=[
             SettlementPartyRecord(id=party_id, code=code, name=name)
-            for party_id, code, name in service.parties(firm_id=firm_id, search=search)
+            for party_id, code, name in service.parties(
+                firm_id=firm_id, search=search, page=page, page_size=page_size
+            )
         ]
     )
 
@@ -197,10 +205,18 @@ def customer_outstanding_invoices(
 def receipt_parties(
     scope: ReceiptViewScope,
     search: str = Query(default=""),
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SettlementPartyRecord]]:
     """List the customers money can be received from."""
-    return _parties(ReceiptService(db), firm_id=scope.firm_id, search=search)
+    return _parties(
+        ReceiptService(db),
+        firm_id=scope.firm_id,
+        search=search,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @receipts_router.get("/{receipt_id}", response_model=ApiResponse[SettlementResponse])
@@ -334,10 +350,18 @@ def record_refund(
 def refund_parties(
     scope: RefundViewScope,
     search: str = Query(default=""),
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SettlementPartyRecord]]:
     """List the customers money can be refunded to."""
-    return _parties(RefundService(db), firm_id=scope.firm_id, search=search)
+    return _parties(
+        RefundService(db),
+        firm_id=scope.firm_id,
+        search=search,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @refunds_router.get("/{refund_id}", response_model=ApiResponse[SettlementResponse])
@@ -423,10 +447,18 @@ def vendor_outstanding_invoices(
 def payment_parties(
     scope: PaymentViewScope,
     search: str = Query(default=""),
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SettlementPartyRecord]]:
     """List the vendors money can be paid to."""
-    return _parties(PaymentService(db), firm_id=scope.firm_id, search=search)
+    return _parties(
+        PaymentService(db),
+        firm_id=scope.firm_id,
+        search=search,
+        page=page,
+        page_size=page_size,
+    )
 
 
 @payments_router.get("/{payment_id}", response_model=ApiResponse[SettlementResponse])

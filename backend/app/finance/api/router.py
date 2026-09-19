@@ -640,8 +640,12 @@ def reverse_journal_entry(
     scope: JournalReverseScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[JournalEntryResponse]:
-    """Reverse one posted journal entry under a new reference."""
-    reversal = JournalEntryEngine(db).reverse_entry(
+    """Reverse one posted hand-made journal entry under a new reference.
+
+    A journal a document posted is refused: the document's own cancel or
+    return takes it off, with the stock and balances it moved (D-FIN-2).
+    """
+    reversal = JournalEntryEngine(db).reverse_by_hand(
         entry_id,
         firm_id=scope.firm_id,
         reference_number=payload.reference_number,

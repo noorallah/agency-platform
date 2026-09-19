@@ -28,6 +28,7 @@ from app.core.security.jwt import TokenClaims
 from app.finance.api.router import (
     create_journal_entry,
     post_journal_entry,
+    reverse_journal_entry,
     trial_balance,
 )
 from app.finance.models import (
@@ -51,6 +52,7 @@ from app.finance.schemas import (
     FinancialYearCreate,
     FinancialYearUpdate,
     JournalEntryCreate,
+    JournalEntryReverse,
     JournalTypeCreate,
     LedgerAccountCreate,
     PeriodStatusEnum,
@@ -522,6 +524,70 @@ def test_reversal_cancels_the_original_and_zeroes_the_ledger() -> None:
             reference_number="JV-0002-R2",
             actor_id=actor_id,
         )
+
+
+def test_a_documents_journal_cannot_be_reversed_by_hand() -> None:
+    """D-FIN-2: the journal screen reversed an invoice's journal, not the invoice.
+
+    The document stayed APPROVED/POSTED with its receivable and stock while the
+    ledger said it never happened, and a receipt so treated could no longer be
+    reversed at all ("Only posted entries can be reversed.") -- driven on a
+    fixture firm's RC-2026-2027-000001. The document's own cancel or return is
+    what undoes it; only a journal written by hand is reversed from here.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    user_id = uuid4()
+    book = _Book(session, firm.id, user_id)
+    session.add(UserFirm(user_id=user_id, firm_id=firm.id, is_active=True))
+    session.commit()
+    scope = _firm_scope(_principal(user_id, {"JOURNAL_REVERSE"}), session, firm.id)
+    engine = JournalEntryEngine(session)
+
+    def _posted(reference: str, source_module: str | None) -> UUID:
+        """Post one cash sale, as a document or by hand."""
+        entry = engine.create_entry(
+            firm_id=firm.id,
+            journal_type_id=book.journal_type.id,
+            voucher_type_id=book.voucher_type.id,
+            accounting_period_id=book.period.id,
+            journal_date=date(2026, 4, 10),
+            reference_number=reference,
+            description="Cash sale",
+            lines=_sale_lines(book, "80.00"),
+            source_module=source_module,
+            source_id=None if source_module is None else uuid4(),
+            actor_id=user_id,
+        )
+        engine.post_entry(entry.id, firm_id=firm.id, actor_id=user_id)
+        session.commit()
+        return entry.id
+
+    invoice_journal = _posted("SI-0001", "sales_invoice")
+    with pytest.raises(
+        ValidationError,
+        match="SI-0001 was posted by a sales invoice.*Cancel or return the sales",
+    ):
+        reverse_journal_entry(
+            invoice_journal,
+            JournalEntryReverse(reference_number="SI-0001-REV"),
+            scope,
+            session,
+        )
+    session.rollback()
+    assert (
+        session.get(JournalEntry, invoice_journal).status  # type: ignore[union-attr]
+        == JournalStatus.POSTED.value
+    )
+
+    hand_journal = _posted("JV-0009", None)
+    reversal = reverse_journal_entry(
+        hand_journal,
+        JournalEntryReverse(reference_number="JV-0009-REV"),
+        scope,
+        session,
+    )
+    assert reversal.data.reversal_of_id == hand_journal
 
 
 def test_a_quiet_period_still_lists_the_balances_it_carries() -> None:
@@ -1459,143 +1525,98 @@ def test_locked_period_accepts_only_a_reopen() -> None:
     assert reopened.status == PeriodStatus.OPEN.value
 
 
-def test_periods_do_not_overlap_and_keep_the_dates_their_journals_carry() -> None:
-    """D-FIN-6: periods and years were re-dated with no regard to each other.
+def test_a_locked_year_takes_no_postings_and_its_periods_stay_as_they_are() -> None:
+    """D-FIN-3: locking a year stopped nothing but the year's own edit.
 
-    Driven on a fixture firm: a period FINFIX-OVL (15-25 September) was
-    created on top of P06, P06 was re-dated to end on the 10th while it held
-    posted journals, and the year was moved to start on 1 May past its April
-    period -- all accepted.
+    Driven on a fixture firm: with FY3031 locked, its period was closed,
+    reopened and posted into through the API, and the audit row for the lock
+    read the same on both sides. The lock is the year-end close -- final by
+    design -- so it freezes the periods, refuses every posting, and says so in
+    the trail.
     """
     session = _session_factory()()
     firm = _firm(session)
     actor_id = uuid4()
     book = _Book(session, firm.id, actor_id)
     service = FinanceService(session)
-    may = service.create_accounting_period(
-        AccountingPeriodCreate(
-            financial_year_id=book.year.id,
-            period_number=2,
-            code="P2",
-            name="May 2026",
-            starts_on=date(2026, 5, 1),
-            ends_on=date(2026, 5, 31),
-        ),
+    engine = JournalEntryEngine(session)
+    draft = engine.create_entry(
+        firm_id=firm.id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 10),
+        reference_number="JV-DRAFT",
+        description="Written before the lock",
+        lines=_sale_lines(book, "10.00"),
+        actor_id=actor_id,
+    )
+    session.commit()
+
+    service.update_financial_year(
+        book.year.id,
+        FinancialYearUpdate(is_locked=True),
         firm_id=firm.id,
         actor_id=actor_id,
     )
     session.commit()
 
-    with pytest.raises(ValidationError, match="overlaps P1"):
+    audit = session.scalars(
+        select(AuditLog).where(AuditLog.action == "finance.financial_year.updated")
+    ).one()
+    assert audit.before_data is not None and audit.after_data is not None
+    assert audit.before_data["is_locked"] is False
+    assert audit.after_data["is_locked"] is True
+
+    for status in (PeriodStatusEnum.CLOSED, PeriodStatusEnum.OPEN):
+        with pytest.raises(ValidationError, match="FY2027 is locked"):
+            service.update_accounting_period(
+                book.period.id,
+                AccountingPeriodUpdate(status=status),
+                firm_id=firm.id,
+                actor_id=actor_id,
+            )
+        session.rollback()
+    with pytest.raises(ValidationError, match="FY2027 is locked"):
         service.create_accounting_period(
             AccountingPeriodCreate(
                 financial_year_id=book.year.id,
-                period_number=3,
-                code="P3",
-                name="Mid April",
-                starts_on=date(2026, 4, 15),
-                ends_on=date(2026, 4, 25),
+                period_number=2,
+                code="P2",
+                name="May 2026",
+                starts_on=date(2026, 5, 1),
+                ends_on=date(2026, 5, 31),
             ),
             firm_id=firm.id,
             actor_id=actor_id,
         )
     session.rollback()
 
-    # A period with a journal in it keeps its dates.
-    engine = JournalEntryEngine(session)
-    entry = engine.create_entry(
-        firm_id=firm.id,
-        journal_type_id=book.journal_type.id,
-        voucher_type_id=book.voucher_type.id,
-        accounting_period_id=book.period.id,
-        journal_date=date(2026, 4, 20),
-        reference_number="JV-HELD",
-        description="Cash sale",
-        lines=_sale_lines(book, "10.00"),
-        actor_id=actor_id,
-    )
-    engine.post_entry(entry.id, firm_id=firm.id, actor_id=actor_id)
-    session.commit()
-    with pytest.raises(ValidationError, match="P1 holds 1 journal entry"):
-        service.update_accounting_period(
-            book.period.id,
-            AccountingPeriodUpdate(ends_on=date(2026, 4, 10)),
+    with pytest.raises(ValidationError, match="FY2027, which is locked"):
+        engine.create_entry(
             firm_id=firm.id,
+            journal_type_id=book.journal_type.id,
+            voucher_type_id=book.voucher_type.id,
+            accounting_period_id=book.period.id,
+            journal_date=date(2026, 4, 12),
+            reference_number="JV-LOCKED",
+            description="After the lock",
+            lines=_sale_lines(book, "10.00"),
             actor_id=actor_id,
         )
+    session.rollback()
+    with pytest.raises(ValidationError, match="FY2027, which is locked"):
+        engine.post_entry(draft.id, firm_id=firm.id, actor_id=actor_id)
     session.rollback()
 
-    # One without journals moves, but not out of its year or onto another.
-    with pytest.raises(ValidationError, match="overlaps P1"):
-        service.update_accounting_period(
-            may.id,
-            AccountingPeriodUpdate(starts_on=date(2026, 4, 25)),
-            firm_id=firm.id,
-            actor_id=actor_id,
-        )
-    session.rollback()
-    with pytest.raises(ValidationError, match="inside its financial year"):
-        service.update_accounting_period(
-            may.id,
-            AccountingPeriodUpdate(ends_on=date(2027, 5, 31)),
-            firm_id=firm.id,
-            actor_id=actor_id,
-        )
-    session.rollback()
-    moved = service.update_accounting_period(
-        may.id,
-        AccountingPeriodUpdate(ends_on=date(2026, 5, 30)),
-        firm_id=firm.id,
-        actor_id=actor_id,
-    )
-    assert moved.ends_on == date(2026, 5, 30)
-
-    # And a year cannot be moved out from under its periods.
-    with pytest.raises(ValidationError, match="its period P1 would fall outside"):
+    # And the lock is final: unlocking is refused like any other change.
+    with pytest.raises(ValidationError, match="cannot be modified or unlocked"):
         service.update_financial_year(
             book.year.id,
-            FinancialYearUpdate(starts_on=date(2026, 5, 1)),
+            FinancialYearUpdate(is_locked=False),
             firm_id=firm.id,
             actor_id=actor_id,
         )
-
-
-def test_posting_picks_one_period_the_same_way_every_time() -> None:
-    """D-FIN-6: two open periods covering a date were picked by an unordered query.
-
-    New periods can no longer overlap, but a store made before that rule may
-    hold some. The most specific one -- the latest start -- is the answer, for
-    documents and for reversals alike.
-    """
-    session = _session_factory()()
-    firm = _firm(session)
-    actor_id = uuid4()
-    book = _Book(session, firm.id, actor_id)
-    # Written straight to the table, as an older store would already hold it.
-    narrow = AccountingPeriod(
-        firm_id=firm.id,
-        financial_year_id=book.year.id,
-        period_number=9,
-        code="P1B",
-        name="Mid April",
-        starts_on=date(2026, 4, 10),
-        ends_on=date(2026, 4, 20),
-        status=PeriodStatus.OPEN.value,
-        created_by=actor_id,
-        updated_by=actor_id,
-    )
-    session.add(narrow)
-    session.commit()
-
-    context = DocumentPostingService(session).context_for(firm.id, date(2026, 4, 15))
-    assert context.accounting_period_id == narrow.id
-    covering = JournalEntryEngine(session)._open_period_covering(
-        date(2026, 4, 15), firm_id=firm.id
-    )
-    assert covering is not None and covering.id == narrow.id
-    # Outside the narrow one, the month is still the answer.
-    context = DocumentPostingService(session).context_for(firm.id, date(2026, 4, 25))
-    assert context.accounting_period_id == book.period.id
 
 
 def test_control_accounts_map_posting_purposes_to_nominated_accounts() -> None:
@@ -2391,3 +2412,142 @@ def test_a_reversal_is_dated_the_day_it_happens(
 
     assert reversal.journal_date == expected
     assert reversal.accounting_period_id == book.period.id
+
+
+def test_periods_do_not_overlap_and_keep_the_dates_their_journals_carry() -> None:
+    """D-FIN-6: periods and years were re-dated with no regard to each other.
+
+    Driven on a fixture firm: a period FINFIX-OVL (15-25 September) was
+    created on top of P06, P06 was re-dated to end on the 10th while it held
+    posted journals, and the year was moved to start on 1 May past its April
+    period -- all accepted.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    service = FinanceService(session)
+    may = service.create_accounting_period(
+        AccountingPeriodCreate(
+            financial_year_id=book.year.id,
+            period_number=2,
+            code="P2",
+            name="May 2026",
+            starts_on=date(2026, 5, 1),
+            ends_on=date(2026, 5, 31),
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    session.commit()
+
+    with pytest.raises(ValidationError, match="overlaps P1"):
+        service.create_accounting_period(
+            AccountingPeriodCreate(
+                financial_year_id=book.year.id,
+                period_number=3,
+                code="P3",
+                name="Mid April",
+                starts_on=date(2026, 4, 15),
+                ends_on=date(2026, 4, 25),
+            ),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+    session.rollback()
+
+    # A period with a journal in it keeps its dates.
+    engine = JournalEntryEngine(session)
+    entry = engine.create_entry(
+        firm_id=firm.id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 20),
+        reference_number="JV-HELD",
+        description="Cash sale",
+        lines=_sale_lines(book, "10.00"),
+        actor_id=actor_id,
+    )
+    engine.post_entry(entry.id, firm_id=firm.id, actor_id=actor_id)
+    session.commit()
+    with pytest.raises(ValidationError, match="P1 holds 1 journal entry"):
+        service.update_accounting_period(
+            book.period.id,
+            AccountingPeriodUpdate(ends_on=date(2026, 4, 10)),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+    session.rollback()
+
+    # One without journals moves, but not out of its year or onto another.
+    with pytest.raises(ValidationError, match="overlaps P1"):
+        service.update_accounting_period(
+            may.id,
+            AccountingPeriodUpdate(starts_on=date(2026, 4, 25)),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+    session.rollback()
+    with pytest.raises(ValidationError, match="inside its financial year"):
+        service.update_accounting_period(
+            may.id,
+            AccountingPeriodUpdate(ends_on=date(2027, 5, 31)),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+    session.rollback()
+    moved = service.update_accounting_period(
+        may.id,
+        AccountingPeriodUpdate(ends_on=date(2026, 5, 30)),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    assert moved.ends_on == date(2026, 5, 30)
+
+    # And a year cannot be moved out from under its periods.
+    with pytest.raises(ValidationError, match="its period P1 would fall outside"):
+        service.update_financial_year(
+            book.year.id,
+            FinancialYearUpdate(starts_on=date(2026, 5, 1)),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+
+
+def test_posting_picks_one_period_the_same_way_every_time() -> None:
+    """D-FIN-6: two open periods covering a date were picked by an unordered query.
+
+    New periods can no longer overlap, but a store made before that rule may
+    hold some. The most specific one -- the latest start -- is the answer, for
+    documents and for reversals alike.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    # Written straight to the table, as an older store would already hold it.
+    narrow = AccountingPeriod(
+        firm_id=firm.id,
+        financial_year_id=book.year.id,
+        period_number=9,
+        code="P1B",
+        name="Mid April",
+        starts_on=date(2026, 4, 10),
+        ends_on=date(2026, 4, 20),
+        status=PeriodStatus.OPEN.value,
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    session.add(narrow)
+    session.commit()
+
+    context = DocumentPostingService(session).context_for(firm.id, date(2026, 4, 15))
+    assert context.accounting_period_id == narrow.id
+    covering = JournalEntryEngine(session)._open_period_covering(
+        date(2026, 4, 15), firm_id=firm.id
+    )
+    assert covering is not None and covering.id == narrow.id
+    # Outside the narrow one, the month is still the answer.
+    context = DocumentPostingService(session).context_for(firm.id, date(2026, 4, 25))
+    assert context.accounting_period_id == book.period.id

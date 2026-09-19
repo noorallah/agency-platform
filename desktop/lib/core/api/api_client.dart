@@ -3478,39 +3478,111 @@ class ApiClient {
         ),
       );
 
-  /// The documents a return can be raised against.
+  /// The largest page any list endpoint serves -- `MAX_PAGE_SIZE` on the
+  /// server, `maxApiPageSize` beside `fetchAllPages`.
+  static const int _pageCap = 100;
+
+  /// A backstop on reading every page, so a server (or a fake) that keeps
+  /// answering can never spin the client for ever.
+  static const int _pageBackstop = 50;
+
+  /// Read every page of a list endpoint, in its own order.
+  ///
+  /// Stops at the reported total, at an empty page, or at a page that adds
+  /// nothing new -- whichever comes first.
+  Future<List<Json>> _everyRow(String path, Map<String, String> query) async {
+    final List<Json> rows = <Json>[];
+    final Set<String> seen = <String>{};
+    for (int page = 1; page <= _pageBackstop; page++) {
+      final Json response = await request('GET', path, query: {
+        ...query,
+        'page': '$page',
+        'page_size': '$_pageCap',
+      });
+      final dynamic data = response['data'];
+      final List<Json> batch = <Json>[
+        for (final dynamic row in data is List ? data : const [])
+          if (row is Map) Map<String, dynamic>.from(row),
+      ];
+      final int before = rows.length;
+      for (final Json row in batch) {
+        if (seen.add(stringValue(row['id']))) rows.add(row);
+      }
+      final dynamic pagination = response['pagination'];
+      final int total = pagination is Map
+          ? (pagination['total_records'] as num?)?.toInt() ?? -1
+          : -1;
+      if (batch.isEmpty || rows.length == before) break;
+      if (total >= 0 && rows.length >= total) break;
+      // A plain list says nothing of its total, but a short page is the last.
+      if (total < 0 && batch.length < _pageCap) break;
+    }
+    return rows;
+  }
+
+  /// The documents a return can be raised against: every dispatched delivery
+  /// note and every approved or closed invoice, however old.
   ///
   /// Delivery notes and sales invoices are read together and flattened, so the
   /// editor offers one list rather than making somebody decide which kind of
   /// paperwork they are holding before they can find it. A failure on either
   /// side yields that side's documents only -- half a picker still lets a
   /// return be raised.
-  Future<List<ReturnableDocument>> returnableDocuments({int limit = 50}) async {
-    final List<List<ReturnableDocument>> both = await Future.wait([
-      _returnable(
-          '/api/v1/delivery-notes', ReturnableDocument.fromDeliveryNote, limit),
-      _returnable(
-          '/api/v1/sales-invoices', ReturnableDocument.fromSalesInvoice, limit),
+  ///
+  /// This read the newest 50 of each kind in any status, so an older note or
+  /// bill could not be returned against from the desktop at all, and a draft
+  /// or cancelled one was offered and then refused (D-SELL-18). Only goods
+  /// that left can come back, so a closed note is offered only if it was
+  /// dispatched first -- the same test the server applies.
+  Future<List<ReturnableDocument>> returnableDocuments() async {
+    final List<List<ReturnableDocument>> parts = await Future.wait([
+      for (final String status in const <String>[
+        'DISPATCHED',
+        'COMPLETED',
+        'CLOSED',
+      ])
+        _returnable(
+          '/api/v1/delivery-notes',
+          status,
+          ReturnableDocument.fromDeliveryNote,
+          keep: (Json row) =>
+              status != 'CLOSED' || stringValue(row['dispatched_at']).isNotEmpty,
+        ),
+      for (final String status in const <String>['APPROVED', 'CLOSED'])
+        _returnable(
+          '/api/v1/sales-invoices',
+          status,
+          ReturnableDocument.fromSalesInvoice,
+        ),
     ]);
-    return [...both[0], ...both[1]];
+    // Once each, whatever a list answered: a document appears in one status.
+    final Set<String> seen = <String>{};
+    return [
+      for (final List<ReturnableDocument> part in parts)
+        for (final ReturnableDocument document in part)
+          if (seen.add('${document.sourceType.name}:${document.id}')) document,
+    ];
   }
 
   Future<List<ReturnableDocument>> _returnable(
     String path,
-    ReturnableDocument Function(Json) parser,
-    int limit,
-  ) async {
+    String status,
+    ReturnableDocument Function(Json) parser, {
+    bool Function(Json row)? keep,
+  }) async {
     try {
-      final Json response = await request('GET', path, query: {
-        'page': '1',
-        'page_size': '$limit',
+      final List<Json> rows = await _everyRow(path, {
+        'status': status,
         'sort_by': 'created_at',
         'sort_direction': 'desc',
       });
-      final dynamic data = response['data'];
       return [
-        for (final dynamic row in data is List ? data : const [])
-          if (row is Map) parser(Map<String, dynamic>.from(row)),
+        for (final Json row in rows)
+          // The status asked for, checked on the row as well: the picker must
+          // never offer a draft or a cancelled document, whatever answered.
+          if ((row['status'] == null || stringValue(row['status']) == status) &&
+              (keep == null || keep(row)))
+            parser(row),
       ];
     } on ApiException {
       return const [];
@@ -4823,19 +4895,20 @@ class ApiClient {
     required SettlementDirection direction,
     String search = '',
   }) async {
-    final Json response = await request(
-      'GET',
+    // Every page: the route stopped at the first 200 by code, so a firm with
+    // more could not take money from the rest (D-SELL-18).
+    final List<Json> rows = await _everyRow(
       '/api/v1/${direction.path}/parties',
-      query: {if (search.isNotEmpty) 'search': search},
+      {if (search.isNotEmpty) 'search': search},
     );
-    return _unwrapList(
-      response,
-      (Json row) => PartyOption(
-        id: stringValue(row['id']),
-        code: stringValue(row['code']),
-        name: stringValue(row['name']),
-      ),
-    );
+    return [
+      for (final Json row in rows)
+        PartyOption(
+          id: stringValue(row['id']),
+          code: stringValue(row['code']),
+          name: stringValue(row['name']),
+        ),
+    ];
   }
 
   /// The party's invoices that still owe something.
@@ -5294,18 +5367,31 @@ class ApiClient {
   /// Asked for rather than derived client-side: only the server knows how much
   /// of a delivery line earlier invoices already took, and a picker that
   /// guessed would offer documents the save then refuses.
-  Future<List<BillableDocument>> billableDocuments({int limit = 50}) async {
-    final Json response = await request(
-      'GET',
-      '/api/v1/sales-invoices/billable',
-      query: {'limit': '$limit'},
-    );
-    final dynamic data = response['data'];
-    if (data is! List) return const [];
-    return data
-        .whereType<Map>()
-        .map((item) => BillableDocument.fromJson(Map<String, dynamic>.from(item)))
-        .toList();
+  ///
+  /// Every page of it: this read the newest 50 notes, so an older one still
+  /// waiting could not be billed from the desktop at all (D-SELL-18).
+  Future<List<BillableDocument>> billableDocuments() async {
+    final List<BillableDocument> documents = <BillableDocument>[];
+    final Set<String> seen = <String>{};
+    for (int page = 1; page <= _pageBackstop; page++) {
+      final Json response = await request(
+        'GET',
+        '/api/v1/sales-invoices/billable',
+        query: {'limit': '$_pageCap', 'page': '$page'},
+      );
+      final dynamic data = response['data'];
+      final int before = documents.length;
+      for (final dynamic item in data is List ? data : const []) {
+        if (item is! Map) continue;
+        final BillableDocument document =
+            BillableDocument.fromJson(Map<String, dynamic>.from(item));
+        final String key =
+            '${document.sourceDocumentType}:${document.sourceDocumentId}';
+        if (seen.add(key)) documents.add(document);
+      }
+      if (documents.length == before) break;
+    }
+    return documents;
   }
 
   /// Raise a sales order without a quotation behind it.

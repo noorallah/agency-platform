@@ -2248,6 +2248,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         *,
         firm_scope: UUID,
         limit: int = 50,
+        page: int = 1,
     ) -> list[BillableDocument]:
         """Return what is still waiting to be billed, newest first.
 
@@ -2262,8 +2263,12 @@ class SalesInvoiceService(TransactionalDocumentService):
         offered here is the number the save will accept. Cancelled invoices do
         not count against a line, which means cancelling one puts its quantity
         back on this list.
+
+        ``page`` reads further back, ``limit`` at a time, so a client can reach
+        every note still waiting rather than the newest fifty (D-SELL-18).
         """
         documents: list[BillableDocument] = []
+        offset = (page - 1) * limit
 
         # What every invoice has already taken from each delivery line, as a
         # subquery rather than a loop: the filter below needs it before it can
@@ -2325,7 +2330,11 @@ class SalesInvoiceService(TransactionalDocumentService):
                 goods_have_left_clause(),
                 DeliveryNote.id.in_(open_notes),
             )
-            .order_by(DeliveryNote.delivery_date.desc())
+            .order_by(
+                DeliveryNote.delivery_date.desc(),
+                DeliveryNote.delivery_note_number.desc(),
+            )
+            .offset(offset)
             .limit(limit)
         ).all()
 
@@ -2372,7 +2381,9 @@ class SalesInvoiceService(TransactionalDocumentService):
                 )
             )
 
-        documents.extend(self._billable_orders(firm_scope=firm_scope, limit=limit))
+        documents.extend(
+            self._billable_orders(firm_scope=firm_scope, limit=limit, offset=offset)
+        )
         return documents
 
     def _raised_its_own_dispatch(
@@ -2392,7 +2403,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         )
 
     def _billable_orders(
-        self, *, firm_scope: UUID, limit: int
+        self, *, firm_scope: UUID, limit: int, offset: int = 0
     ) -> list[BillableDocument]:
         """Approved orders that nothing has been dispatched against.
 
@@ -2460,7 +2471,8 @@ class SalesInvoiceService(TransactionalDocumentService):
                 SalesOrder.id.notin_(delivered),
                 SalesOrder.id.in_(open_orders),
             )
-            .order_by(SalesOrder.order_date.desc())
+            .order_by(SalesOrder.order_date.desc(), SalesOrder.order_number.desc())
+            .offset(offset)
             .limit(limit)
         ).all()
 
@@ -3011,6 +3023,9 @@ class SalesInvoiceService(TransactionalDocumentService):
                 JournalEntry.source_module == "sales_invoice",
                 JournalEntry.source_id == row.id,
                 JournalEntry.status == JournalStatus.POSTED.value,
+                # A reversal carries its original's source, so without this the
+                # lookup can find a mirror and reverse the reversal.
+                JournalEntry.reversal_of_id.is_(None),
                 JournalEntry.is_deleted.is_(False),
             )
         )

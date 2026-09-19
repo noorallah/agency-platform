@@ -136,17 +136,30 @@ class _ProformaPageState extends State<ProformaPage> {
   /// A draft is not a deal and a cancelled one has been called off, so the
   /// picker offers neither -- the server refuses them anyway, and a list that
   /// offers what will be refused wastes the user's time twice.
+  ///
+  /// Every page of them: this read the newest hundred orders of any status,
+  /// so an older approved order could not be stated at all (D-SELL-18).
   Future<List<Json>> _statableOrders() async {
     try {
-      final Json response = await widget.api.documentPage(
-        'sales-orders',
-        pageSize: 100,
-      );
-      final dynamic data = response['data'];
-      if (data is! List) return const <Json>[];
-      return data
-          .whereType<Map>()
-          .map(Map<String, dynamic>.from)
+      final List<Json> orders = await fetchAllPages<Json>((int page) async {
+        final Json response = await widget.api.documentPage(
+          'sales-orders',
+          page: page,
+          pageSize: maxApiPageSize,
+        );
+        final dynamic data = response['data'];
+        final dynamic pagination = response['pagination'];
+        final List<Json> rows = data is List
+            ? data.whereType<Map>().map(Map<String, dynamic>.from).toList()
+            : <Json>[];
+        return PagedResult<Json>(
+          items: rows,
+          total: pagination is Map
+              ? (pagination['total_records'] as num?)?.toInt() ?? rows.length
+              : rows.length,
+        );
+      });
+      return orders
           .where((order) => const <String>{
                 'APPROVED',
                 'PARTIALLY_DELIVERED',

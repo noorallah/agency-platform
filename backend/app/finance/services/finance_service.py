@@ -121,8 +121,14 @@ class FinanceService:
         """Apply a partial update to one financial year."""
         year = self.get_financial_year(year_id, firm_id=firm_id)
         if year.is_locked:
-            raise ValidationError("A locked financial year cannot be modified.")
-        before = {"name": year.name, "is_active": year.is_active}
+            # Locking is the year-end close, and it is final by design: a
+            # year that could be unlocked through the same form that locked it
+            # protects nothing. The refusal covers `is_locked: false` too.
+            raise ValidationError(
+                f"Financial year {year.code} is locked. A locked year cannot "
+                "be modified or unlocked."
+            )
+        before = self._year_snapshot(year)
         starts_on = data.starts_on or year.starts_on
         ends_on = data.ends_on or year.ends_on
         if ends_on <= starts_on:
@@ -175,10 +181,36 @@ class FinanceService:
             actor_id=actor_id,
             firm_id=firm_id,
             before_data=before,
-            after_data={"name": year.name, "is_active": year.is_active},
+            after_data=self._year_snapshot(year),
         )
         self._session.flush()
         return year
+
+    @staticmethod
+    def _year_snapshot(year: FinancialYear) -> dict[str, object]:
+        """Return what an audit row says about a year, the lock included.
+
+        The trail recorded the name and the active flag only, so a year being
+        locked -- the one change here that cannot be undone -- left no trace
+        in it (D-FIN-3).
+        """
+        return {
+            "name": year.name,
+            "starts_on": year.starts_on.isoformat(),
+            "ends_on": year.ends_on.isoformat(),
+            "description": year.description,
+            "is_active": year.is_active,
+            "is_locked": year.is_locked,
+        }
+
+    def _refuse_locked_year(self, year_id: UUID, *, firm_id: UUID) -> None:
+        """Refuse to touch a period whose financial year is locked."""
+        year = self.get_financial_year(year_id, firm_id=firm_id)
+        if year.is_locked:
+            raise ValidationError(
+                f"Financial year {year.code} is locked, so its accounting "
+                "periods cannot be added, closed, reopened or edited."
+            )
 
     def delete_financial_year(
         self, year_id: UUID, *, firm_id: UUID, actor_id: UUID
@@ -220,6 +252,7 @@ class FinanceService:
     ) -> AccountingPeriod:
         """Create one accounting period inside an existing financial year."""
         year = self.get_financial_year(data.financial_year_id, firm_id=firm_id)
+        self._refuse_locked_year(year.id, firm_id=firm_id)
         if data.starts_on < year.starts_on or data.ends_on > year.ends_on:
             raise ValidationError(
                 "The accounting period must fall inside its financial year."
@@ -292,6 +325,9 @@ class FinanceService:
     ) -> AccountingPeriod:
         """Apply a partial update, including open/close/lock transitions."""
         period = self.get_accounting_period(period_id, firm_id=firm_id)
+        # A locked year freezes every period in it, reopening included -- the
+        # lock is what makes a filed year's figures final (D-FIN-3).
+        self._refuse_locked_year(period.financial_year_id, firm_id=firm_id)
         before: dict[str, object] = {"status": period.status, "name": period.name}
         # A locked period is frozen: the only edit it accepts is being reopened.
         # Compare on the stored string so the schema and model enums cannot drift.
