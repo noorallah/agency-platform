@@ -11,7 +11,8 @@ and the script now calls it.
 It is a **starting point**, editable afterwards on the tax screens like
 anything else: one GST system with CGST, SGST, IGST and CESS; the 0, 5, 12
 and 18 percent slabs as local and interstate profiles plus an exempt one; and
-the six rules that switch a local slab to its interstate twin, zero-rate an
+the nine rules that switch a local slab to its interstate twin -- for a sale
+to another state and for a purchase from one (D-CMP-14) -- zero-rate an
 export, keep exempt goods exempt and allow input credit on purchases. The
 country India is created in the store if the store has none, because a tax
 system belongs to a country and a new dedicated store has no geography at all.
@@ -45,6 +46,7 @@ from app.tax.schemas import (
     TaxStatus,
     TaxSystemWrite,
 )
+from app.tax.services.place_of_supply import PURCHASE_INTERSTATE, SALES_INTERSTATE
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 
@@ -244,7 +246,12 @@ def apply_india_gst_template(
 
 
 def _interstate_rule(
-    code: str, slab: int, priority: int, profiles: dict[str, TaxProfile]
+    code: str,
+    slab: int,
+    priority: int,
+    profiles: dict[str, TaxProfile],
+    *,
+    inward: bool = False,
 ) -> tuple[
     str,
     str,
@@ -252,26 +259,45 @@ def _interstate_rule(
     list[tuple[str, TaxRuleConditionOperator, str]],
     list[TaxRuleActionWrite],
 ]:
-    """One rule switching a local slab to its interstate twin."""
+    """One rule switching a local slab to its interstate twin.
+
+    ``inward`` makes the purchase-side twin: conditioned on
+    ``PURCHASE_INTERSTATE`` and also allowing input credit, because it outranks
+    ``PURCHASE_INPUT_CREDIT`` and evaluation stops at the first match -- without
+    the second action an interstate purchase would lose the credit a local one
+    is given (D-CMP-14).
+    """
+    actions = [
+        TaxRuleActionWrite(
+            sequence=1,
+            action_type=TaxRuleActionType.APPLY_TAX_PROFILE,
+            target_tax_profile_id=profiles[f"GST_{slab}_INTERSTATE"].id,
+        )
+    ]
+    if inward:
+        actions.append(
+            TaxRuleActionWrite(
+                sequence=2, action_type=TaxRuleActionType.INPUT_CREDIT_ALLOWED
+            )
+        )
     return (
         code,
-        f"Interstate sale switches {slab} percent GST to IGST",
+        f"Interstate {'purchase' if inward else 'sale'} switches {slab} percent "
+        "GST to IGST",
         priority,
         [
-            ("transaction_type", TaxRuleConditionOperator.EQUALS, "SALES_INTERSTATE"),
+            (
+                "transaction_type",
+                TaxRuleConditionOperator.EQUALS,
+                PURCHASE_INTERSTATE if inward else SALES_INTERSTATE,
+            ),
             (
                 "tax_profile_id",
                 TaxRuleConditionOperator.EQUALS,
                 str(profiles[f"GST_{slab}_LOCAL"].id),
             ),
         ],
-        [
-            TaxRuleActionWrite(
-                sequence=1,
-                action_type=TaxRuleActionType.APPLY_TAX_PROFILE,
-                target_tax_profile_id=profiles[f"GST_{slab}_INTERSTATE"].id,
-            )
-        ],
+        actions,
     )
 
 
@@ -282,7 +308,7 @@ def _create_rules(
     country_id: UUID,
     profiles: dict[str, TaxProfile],
 ) -> int:
-    """Create the six rules and return how many."""
+    """Create the nine rules and return how many."""
     definitions = (
         (
             "EXPORT_ZERO",
@@ -303,6 +329,9 @@ def _create_rules(
         _interstate_rule("INTERSTATE_GST_5", 5, 10, profiles),
         _interstate_rule("INTERSTATE_GST_12", 12, 11, profiles),
         _interstate_rule("INTERSTATE_GST_18", 18, 12, profiles),
+        _interstate_rule("PURCHASE_INTERSTATE_GST_5", 5, 13, profiles, inward=True),
+        _interstate_rule("PURCHASE_INTERSTATE_GST_12", 12, 14, profiles, inward=True),
+        _interstate_rule("PURCHASE_INTERSTATE_GST_18", 18, 15, profiles, inward=True),
         (
             "EXEMPT_PROFILE",
             "Exempt products remain exempt",

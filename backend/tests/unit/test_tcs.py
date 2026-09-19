@@ -555,6 +555,54 @@ def test_a_back_dated_receipt_does_not_count_money_paid_after_it() -> None:
     assert preview.cumulative_before == Decimal("100000.00")
 
 
+def test_a_reversal_is_settled_on_the_next_receipt_not_by_rewriting() -> None:
+    """D-CMP-16: what a standing collection charged on is not charged twice.
+
+    60 lakh then 10 lakh: each is charged on 10 lakh. The first is then
+    reversed, so the buyer is back to 10 lakh paid -- but the second
+    collection stands, and a collection already made is never rewritten. A
+    further 60 lakh brings the year to 70 lakh received, 20 lakh taxable in
+    all, 10 of it already charged: so 10 lakh, not the 20 this used to charge
+    on top of the 10 the buyer had already paid.
+    """
+    books = _Books(_session_factory()())
+    first = books.receipt("6000000")
+    second = books.collection(books.receipt("1000000", on=WHEN + timedelta(days=1)))
+    assert second is not None
+    assert second.taxable_amount == Decimal("1000000.00")
+
+    ReceiptService(books.session).reverse(
+        first, firm_id=books.firm.id, actor_id=books.actor_id, reason="Bounced."
+    )
+    books.session.commit()
+
+    later = books.collection(books.receipt("6000000", on=WHEN + timedelta(days=2)))
+
+    assert later is not None
+    assert later.cumulative_before == Decimal("1000000.00")
+    assert later.taxable_amount == Decimal("1000000.00")
+
+
+def test_a_back_dated_receipt_is_settled_on_the_next_one() -> None:
+    """D-CMP-16, the other direction: the shortfall it leaves is collected.
+
+    60 lakh on the 10th is charged on 10 lakh. A receipt of 40 lakh dated the
+    1st is then recorded: on that day the buyer was still inside the
+    threshold, so it charges nothing, and the 10th's collection is not
+    rewritten. The next receipt squares the year up -- 101 lakh received, 51
+    lakh taxable, 10 already charged, so 41.
+    """
+    books = _Books(_session_factory()())
+    books.receipt("6000000")
+    assert books.collection(books.receipt("4000000", on=EARLIER)) is None
+
+    later = books.collection(books.receipt("100000", on=WHEN + timedelta(days=5)))
+
+    assert later is not None
+    assert later.cumulative_before == Decimal("10000000.00")
+    assert later.taxable_amount == Decimal("4100000.00")
+
+
 def test_a_receipt_on_the_same_day_counts_one_recorded_before_it() -> None:
     """Money received earlier the same day was received by that day."""
     books = _Books(_session_factory()())

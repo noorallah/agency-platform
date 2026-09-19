@@ -202,6 +202,9 @@ and persisted to `tax_rule_execution_logs`.
 10  INTERSTATE_GST_5
 11  INTERSTATE_GST_12
 12  INTERSTATE_GST_18
+13  PURCHASE_INTERSTATE_GST_5
+14  PURCHASE_INTERSTATE_GST_12
+15  PURCHASE_INTERSTATE_GST_18
 20  EXEMPT_PROFILE
 30  PURCHASE_INPUT_CREDIT   most general, last resort
 ```
@@ -272,7 +275,24 @@ first two; the **split** changes, and the split is what the GST return needs.
   `app/tax/services/place_of_supply.py` is the one place this is decided.
   Until 2026-09-19 every module sent its own name, so nothing ever sent
   `SALES_INTERSTATE` and every sale to another state was charged CGST + SGST
-  (D-CMP-1). The purchase side has no interstate rule to send to yet.
+  (D-CMP-1).
+- **An inward document never names its own transaction type either.** Purchase
+  order, goods receipt, supplier invoice and purchase return ask
+  `TaxRuleService.inward_transaction_type`, which answers
+  `PURCHASE_INTERSTATE` when the supplier's state differs from the firm's
+  (IGST Act s.7; the place of supply of goods delivered to the firm is the
+  firm's location, s.10(1)(a)). The supplier's state is its GSTIN, else a
+  GSTIN on its tax details, else its primary / billing / head-office / office
+  address; a supplier abroad is an import and inter-state (s.5(1), 7(2)). The
+  firm's side is read exactly as for a sale. The template's
+  `PURCHASE_INTERSTATE_GST_5/12/18` (priority 13-15) switch the local slab to
+  IGST **and** allow input credit, because they outrank
+  `PURCHASE_INPUT_CREDIT` and evaluation stops at the first match. Until
+  2026-09-19 the template had no inward interstate rule at all, so every
+  purchase from another state was charged CGST + SGST (D-CMP-14);
+  `20260919_0148` copies each firm's live `INTERSTATE_GST_n` into its purchase
+  twin where the firm has none -- never overwriting, and skipping a sales rule
+  somebody has rewritten.
 - **`country_id` and `business_profile_id` are derived, not sent.** No document
   supplies either. A country-scoped rule never fired on an invoice, and a
   profile-scoped one fired on five document types but not on goods receipts or
@@ -282,6 +302,15 @@ first two; the **split** changes, and the split is what the GST return needs.
   `included_in_price` and tax under `REVERSE_CHARGE` are reported in
   `inclusive_tax_amount` and `reverse_charge_tax_amount` and must **not** be
   added to a document total.
+- **The place of supply a sales invoice prints is the one its tax was charged
+  by.** `TaxRuleService.place_of_supply` asks the same resolver as
+  `outward_transaction_type` -- the buyer's GSTIN, else the billing address --
+  and names it with its code, `Karnataka (29)` (CGST Rules r.46(n)). A draft
+  takes it again on every save; an issued invoice keeps what it was issued
+  with. Until 2026-09-19 the invoice copied the billing address's state text,
+  so a buyer registered in another state was charged IGST under a place of
+  supply naming the seller's own state (D-CMP-15). Where no code can be told,
+  the address text is still printed.
 - **Never read the server clock.** Effective windows are judged against the
   document's date. `utc_now().date()` is the only acceptable fallback;
   `tests/unit/test_time_conventions.py` fails the build on `date.today()`.

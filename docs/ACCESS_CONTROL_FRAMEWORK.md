@@ -80,7 +80,21 @@ two without the third is not a narrowing at all:
 
 **A designation is a ceiling, not a floor.** A `PLATFORM` administrator who
 holds a real `UserFirm` row acts in that firm as whatever their roles make
-them — no more, and no less.
+them — no more, and no less. "Their roles" means the roles granted **in that
+firm**: a global-tier row gives a `PLATFORM` operator nothing in any firm, so
+`_issue_tokens` builds their `firm_permissions` from firm-scoped rows alone.
+
+**Nor can they write the rows the narrowing reads** (D-IDN-1, 2026-09-19).
+The operator holds `ROLE_ASSIGN`, and before this could assign themselves a
+global `FIRM_ADMIN` that the token then turned into firm administration in
+every firm they were a member of. Three locks, each enforced in
+`IdentityService` whichever route reaches it:
+
+| Lock | Where |
+| --- | --- |
+| Nobody changes their **own** roles or memberships — any tier, any designation; a second administrator makes the change | `_assert_not_own_access`, in `set_user_roles`, `set_user_firm_roles`, `set_user_firms` (and so `apply_user_template`) |
+| A `PLATFORM` operator grants, in the global tier, only roles within their own ceiling — no seeded firm role, and no role holding a code outside `PLATFORM_OPERATOR_PERMISSION_CODES` (so not `PLATFORM_ADMIN` either). Nobody grants more than they hold | `_assert_global_grant_within_ceiling`, keyed on the actor's `platform_admins` row |
+| A `PLATFORM` operator's token takes firm permissions only from grants made in that firm | `_issue_tokens` |
 
 `PLATFORM_OPERATOR_PERMISSION_CODES` is deliberately **not**
 `PLATFORM_PERMISSION_CODES`. The latter answers a different question (what a
@@ -389,7 +403,7 @@ for **every firm the user is a member of**.
 
 | Assignment | Where the codes land | Effect |
 | --- | --- | --- |
-| System firm role (e.g. `FIRM_ADMIN`), `firm_id` NULL | `firm_permissions[every membership]` | Firm administrator in each of their firms, and nothing outside one |
+| System firm role (e.g. `FIRM_ADMIN`), `firm_id` NULL | `firm_permissions[every membership]` — **except for a `PLATFORM` operator**, for whom it lands nowhere | Firm administrator in each of their firms, and nothing outside one |
 | System firm role, `firm_id = F` | `firm_permissions[F]` | Firm administrator in F alone |
 | Custom role, `firm_id` NULL | `permissions` (global) **and** `firm_permissions` | Applies with or without a firm selected |
 | Platform role (`PLATFORM_ADMIN`, `SUPPORT_ADMIN`, `LICENSE_ADMIN`, `SYSTEM_AUDITOR`), `firm_id` NULL | `permissions` (global) | Applies platform-wide |
@@ -404,7 +418,10 @@ every firm's, which would show a user buttons the API then refuses.
 `PUT /api/v1/users/{id}/roles` (`ROLE_ASSIGN`) **replaces** the set.
 
 - A **platform caller** has a null scope: the assignment is unscoped
-  (`user_roles.firm_id` NULL).
+  (`user_roles.firm_id` NULL). A `PLATFORM` operator's global grant is held
+  to their own ceiling — see *Tier 1* above.
+- **Nobody** may send their own user id: the caller's own roles and
+  memberships are refused on every tier.
 - A **firm caller** may only assign roles that firm can hold — its own
   `firm_id`-scoped roles, plus the unscoped seeded **firm** roles. A platform or
   cross-firm role is refused with *"Platform or cross-firm roles cannot be
@@ -715,7 +732,22 @@ a firm administrator cannot reach one to clone; and a platform caller who can
 reach one gets their roles and not the `platform_admins` row.
 
 A firm caller copies only what their scope can see — the firm-scoped rows plus
-the unscoped firm roles — so another firm's roles stay invisible. The audit row
+the unscoped firm roles — so another firm's roles stay invisible.
+
+A platform caller naming no firm copies **each role into the tier it came
+from**: the source's global rows become the clone's global rows, and a role
+the source holds in one firm (where they are still an active member) is
+copied into that firm alone. Until 2026-09-19 every tier was written global,
+so a role granted for one firm applied to the clone in every firm (D-IDN-3).
+A firm-tier role in a firm the caller may not staff
+(`_firms_the_caller_may_staff`) refuses the whole clone, by firm code, before
+any account is opened.
+
+The same rule holds wherever a grant reaches every firm: the global tier of
+`set_user_roles` and a platform-wide template refuse a custom role one firm
+owns (`_assert_no_firm_owned_roles`), `apply_user_template` with no firm
+named refuses a firm's own template, and a template edit is validated against
+the firm that **owns** the template rather than the caller's scope. The audit row
 records `source_user_id`, because "a user was created" with nothing about where
 their access came from is the one question anybody reviewing it will ask.
 
@@ -938,6 +970,27 @@ template runs on the platform session and is recorded there.
 Those rows carry the firm. They were simply in a store the firm cannot read, so
 until 2026-09-06 a firm administrator could not see their own staffing
 decisions. `GET /api/v1/audit-logs` with `X-Firm-ID` now reads both.
+
+**Which firm a row carries is the firm the change concerns, never the
+caller's scope** (D-IDN-5, 2026-09-19). The caller's scope is null for every
+platform administrator, so until then `user.firms_set` carried no firm at all
+and `user.updated`, `.deleted`, `.roles_set` and `role.*` reached a firm's
+screen only when a firm administrator made the change. Now:
+
+| Row | Firm(s) | Data |
+| --- | --- | --- |
+| `user.updated`, `.deleted`, `.restored`, `.password_reset` | every firm the person actively belongs to, one row each | the fields that moved, both sides (never the password or its hash) |
+| `user.roles_set` | the firm written, or — for the global tier — every firm the person belongs to | `tier` and the role codes before and after |
+| `user.firm_roles_set` | that firm | role codes before and after |
+| `user.firms_set` | each firm whose membership moved, one row each | that membership before and after (`member`, `is_active`, `is_primary`) |
+| `user.cloned` | every firm the clone joined | source, email, firms, role codes |
+| `user_template.applied` | the firm applied in, or the person's firms for the global tier | template and role codes |
+| `role.*`, `user_template.updated/deleted` | the firm that **owns** the role or template (none for a global one) | the fields that moved; `role.permissions_set` the codes before and after |
+| `firm.updated` | the firm | every column that moved, not only name, code and active flag |
+
+A person in no firm, or a global role, gets one platform row. A save that
+changes nothing writes nothing — the convention `record_change` set for
+configuration in D-CFG-13.
 
 The write was left where it is on purpose. A DATABASE-mode firm is a separate
 database, possibly on a separate server, so writing the audit row there would

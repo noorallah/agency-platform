@@ -112,6 +112,20 @@ receipts dated earlier are charged as the law then stood, and collections
 already made are never rewritten (D-CMP-12). The module still answers for
 FY 2024-25 and earlier, which is why it stays.
 
+**What a receipt is charged on is the year's running total, less what
+standing collections have already charged.** A collection is never rewritten
+-- the quarter it falls in may already have been filed -- so when the history
+behind a receipt moves, the **next** receipt settles the difference
+(D-CMP-16). Reverse a receipt and the collection on it goes back with it, but
+the collections that followed it stand; a later receipt then charges only what
+the year still owes, instead of charging again on what those collections
+already covered. Back-date a receipt in front of collections already made and
+it charges what was due on *its own* date -- usually nothing -- while the
+shortfall it leaves is collected on the next receipt. Both fall out of
+`_taxable_part` taking `already_taxed`, summed from the collections that still
+stand and dated on or before the receipt, exactly as the consideration is
+summed from the receipts.
+
 ## A return is a view of the documents
 
 **A return is a view of the documents, and a supply is placed by the tax it

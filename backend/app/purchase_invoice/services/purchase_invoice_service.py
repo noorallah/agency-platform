@@ -1370,7 +1370,14 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 tax_profile_id, invoice_date, firm_scope=firm_id
             )
         request = TaxRuleSimulationRequest(
-            transaction_type="PURCHASE_INVOICE",
+            # The supply's own nature, not just the document's name: a
+            # supplier in another state charges IGST (D-CMP-14).
+            transaction_type=self._tax.inward_transaction_type(
+                "PURCHASE_INVOICE",
+                firm_id=firm_id,
+                branch_id=branch_id,
+                vendor_id=vendor_id,
+            ),
             transaction_date=invoice_date,
             business_profile_id=business_profile_id,
             tax_profile_id=tax_profile_id,
@@ -1379,7 +1386,10 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             vendor_id=vendor_id,
             product_id=product_id,
             invoice_value=invoice_value,
-            additional_context={"source": "purchase_invoice"},
+            additional_context={
+                "source": "purchase_invoice",
+                "document_type": "PURCHASE_INVOICE",
+            },
         )
         response = self._tax.simulate(request, firm_scope=firm_id, actor_id=actor_id)
         return self._q(response.total_tax_amount)
