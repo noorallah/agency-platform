@@ -20,6 +20,7 @@ from sqlalchemy import Select, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.core.constants.core import MAX_PAGE_SIZE
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO
@@ -968,7 +969,12 @@ class SettlementService(TransactionalDocumentService):
         return vendor
 
     def parties(
-        self, *, firm_id: UUID, search: str = ""
+        self,
+        *,
+        firm_id: UUID,
+        search: str = "",
+        page: int = 1,
+        page_size: int = MAX_PAGE_SIZE,
     ) -> list[tuple[UUID, str, str]]:
         """List the parties this direction can settle with, by code.
 
@@ -978,16 +984,19 @@ class SettlementService(TransactionalDocumentService):
         `CUSTOMER_VIEW`, so reading the master made the wrong code the gate on
         taking money.
 
-        Ordered by code because that is what the picker shows, and capped: a
-        firm with thousands of customers is not choosing from a dropdown, and
-        the search is there for that.
+        Ordered by code because that is what the picker shows, and read a
+        page at a time. It used to stop at the first 200 by code, so a firm
+        with more could not take money from the rest from the desktop at all
+        (D-SELL-18); the client now reads every page.
 
         Args:
             firm_id: The firm whose parties to list.
             search: Match against code or name, case-insensitively.
+            page: Which page, from 1.
+            page_size: How many to a page.
 
         Returns:
-            Up to 200 parties as (id, code, name), in code order.
+            One page of parties as (id, code, name), in code order.
 
         """
         is_customer = self.DIRECTION in (
@@ -1004,7 +1013,11 @@ class SettlementService(TransactionalDocumentService):
             statement = statement.where(
                 or_(model.code.ilike(pattern), model.name.ilike(pattern))
             )
-        rows = self._session.execute(statement.order_by(model.code.asc()).limit(200))
+        rows = self._session.execute(
+            statement.order_by(model.code.asc(), model.id.asc())
+            .offset((page - 1) * page_size)
+            .limit(page_size)
+        )
         return [(row[0], row[1], row[2]) for row in rows]
 
     def _money_account(self, *, firm_id: UUID, method: SettlementMethod) -> UUID:

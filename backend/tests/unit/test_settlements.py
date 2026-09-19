@@ -965,6 +965,39 @@ def test_the_party_picker_is_searchable_and_scoped_to_the_firm() -> None:
     assert service.parties(firm_id=uuid4()) == []
 
 
+def test_every_party_is_reachable_a_page_at_a_time() -> None:
+    """D-SELL-18: the picker stopped at the first 200 customers by code.
+
+    A firm with more could not take money from the rest from the desktop.
+    The list is paged now, and the last customer is on the last page.
+    """
+    books = _Books(_session_factory()())
+    books.session.add_all(
+        Customer(
+            firm_id=books.firm.id,
+            code=f"Z{index:03d}",
+            customer_type="BUSINESS",
+            name=f"Customer Z{index:03d}",
+            display_name=f"Customer Z{index:03d}",
+            currency_code="INR",
+            status="ACTIVE",
+        )
+        for index in range(205)
+    )
+    books.session.commit()
+    service = ReceiptService(books.session)
+
+    pages = [
+        service.parties(firm_id=books.firm.id, page=page, page_size=100)
+        for page in (1, 2, 3)
+    ]
+
+    assert [len(page) for page in pages] == [100, 100, 6]
+    assert pages[2][-1][1] == "Z204"
+    codes = [row[1] for page in pages for row in page]
+    assert len(set(codes)) == 206
+
+
 def test_goods_returned_against_a_bill_come_off_what_it_owes() -> None:
     """D-BUY-6, decided by the owner on 2026-09-18.
 

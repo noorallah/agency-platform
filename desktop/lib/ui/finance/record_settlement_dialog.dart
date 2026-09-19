@@ -421,10 +421,9 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
   /// 2026-09-15.
   ///
   /// Filtered here rather than by re-asking the server on every keystroke:
-  /// the route caps at 200 and the list is already in hand, so a round trip
-  /// per character would be slower and would make the field stutter. The
-  /// route's own `search` is there for the firm whose list is longer than the
-  /// cap, and is the next step if one appears.
+  /// the whole list is already in hand -- every page of it, since the route
+  /// stopped capping at 200 (D-SELL-18) -- so a round trip per character
+  /// would be slower and would make the field stutter.
   ///
   /// Matching is on code **and** name, because either is what somebody has in
   /// front of them -- a code off a bill, a name off a cheque.
