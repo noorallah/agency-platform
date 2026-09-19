@@ -482,6 +482,21 @@ class IdentityService:
         self, data: UserCreate, actor_id: UUID, firm_scope: UUID | None = None
     ) -> User:
         """Provision a user with a policy-compliant initial password."""
+        user = self._stage_create_user(data, actor_id, firm_scope)
+        self._session.commit()
+        return user
+
+    def _stage_create_user(
+        self, data: UserCreate, actor_id: UUID, firm_scope: UUID | None = None
+    ) -> User:
+        """Write the account and its audit row without committing.
+
+        The internal half of `create_user`. `clone_user` composes this with
+        `_stage_set_user_roles` and commits once: a chain of committing
+        services is not a transaction, and a failure part-way used to leave an
+        account holding the address with no roles and no firms, whose retry
+        was then refused 409 (D-IDN-8).
+        """
         email = validate_email(data.email)
         # Only live accounts hold an address; soft-deleted users release theirs so
         # a leaver can be re-onboarded. This mirrors UQ_users_email_active and is
@@ -527,7 +542,6 @@ class IdentityService:
             firm_id=firm_scope,
             after_data={"email": user.email},
         )
-        self._session.commit()
         return user
 
     def update_user(
@@ -925,7 +939,9 @@ class IdentityService:
         """
         target = self._target_firm(firm_scope, data.firm_id)
         source = self._get_user(source_id, target)
-        clone = self.create_user(
+        # Staged, then committed once at the end: the account, its roles and
+        # its memberships are one hiring decision (D-IDN-8).
+        clone = self._stage_create_user(
             UserCreate(
                 email=data.email,
                 full_name=data.full_name,
@@ -940,7 +956,7 @@ class IdentityService:
         )
         role_ids = self._roles_held_by(source.id, target)
         if role_ids:
-            self.set_user_roles(clone.id, role_ids, actor_id, target)
+            self._stage_set_user_roles(clone.id, role_ids, actor_id, target)
         # A platform caller is not creating inside any firm, so the clone would
         # otherwise land nowhere. Copy where the source works.
         if target is None:
@@ -1229,8 +1245,9 @@ class IdentityService:
         ]
         # Through the ordinary path, so the firm-scope check that refuses a
         # platform or cross-firm role applies here too and there is one
-        # implementation of it rather than two.
-        self.set_user_roles(user_id, role_ids, actor_id, target)
+        # implementation of it rather than two. Staged, so the grant and the
+        # row saying which job it was commit together (D-IDN-8).
+        self._stage_set_user_roles(user_id, role_ids, actor_id, target)
         record_audit(
             self._session,
             action="user_template.applied",
@@ -1638,6 +1655,17 @@ class IdentityService:
         firm_scope: UUID | None = None,
     ) -> None:
         """Replace a user's role assignment set."""
+        self._stage_set_user_roles(user_id, role_ids, actor_id, firm_scope)
+        self._session.commit()
+
+    def _stage_set_user_roles(
+        self,
+        user_id: UUID,
+        role_ids: list[UUID],
+        actor_id: UUID,
+        firm_scope: UUID | None = None,
+    ) -> None:
+        """Replace a user's role set without committing (see `_stage_create_user`)."""
         user = self._get_user(user_id, firm_scope)
         self._ensure_identifiers(Role, role_ids)
         if firm_scope is None:
@@ -1678,7 +1706,6 @@ class IdentityService:
             actor_id=actor_id,
             firm_id=firm_scope,
         )
-        self._session.commit()
 
     def set_user_firms(
         self,
