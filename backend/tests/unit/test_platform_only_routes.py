@@ -182,6 +182,24 @@ _EXPECTED = frozenset(
         ("DELETE", "/api/v1/sales-territories/geo/states/{state_id}"),
         ("PUT", "/api/v1/sales-territories/geo/states/{state_id}"),
         ("PUT", "/api/v1/sales-territories/hierarchy-levels"),
+        # The shared unit catalogue, for the geography masters' reason: none
+        # of these rows carries a firm, so in `firm_shared` a firm
+        # administrator holding UOM_MANAGE renamed, recoded or made
+        # whole-number a unit every other firm there uses (D-CFG-9). A unit's
+        # PUT is deliberately *not* here: the calling firm's own custom
+        # fields on a unit still take UOM_MANAGE, and the handler refuses
+        # the shared columns to anybody without the designation.
+        ("POST", "/api/v1/uom-framework/uoms"),
+        ("DELETE", "/api/v1/uom-framework/uoms/{uom_id}"),
+        ("POST", "/api/v1/uom-framework/uom-groups"),
+        ("PUT", "/api/v1/uom-framework/uom-groups/{group_id}"),
+        ("DELETE", "/api/v1/uom-framework/uom-groups/{group_id}"),
+        ("POST", "/api/v1/uom-framework/packaging-types"),
+        ("PUT", "/api/v1/uom-framework/packaging-types/{packaging_type_id}"),
+        ("DELETE", "/api/v1/uom-framework/packaging-types/{packaging_type_id}"),
+        ("POST", "/api/v1/uom-framework/industry-templates"),
+        ("PUT", "/api/v1/uom-framework/industry-templates/{template_id}"),
+        ("DELETE", "/api/v1/uom-framework/industry-templates/{template_id}"),
     }
 )
 

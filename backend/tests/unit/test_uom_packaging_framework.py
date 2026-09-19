@@ -5,6 +5,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import Response
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -18,17 +19,23 @@ from app.business.models import BusinessProfile, FirmBusinessProfile
 from app.business.models import framework as _business_models  # noqa: F401
 from app.business.system_seed import seed_business_profiles
 from app.common.audit.models import AuditLog
+from app.common.scope import ResolvedFirmScope
 from app.core.database.base import Base
+from app.core.enums import TokenType
 from app.core.exceptions import (
+    AuthorizationError,
     ConflictError,
     ResourceNotFoundError,
     ValidationError,
 )
+from app.core.security.authorization import Principal
+from app.core.security.jwt import TokenClaims
 from app.customers.models import customer as _customer_models  # noqa: F401
 from app.firms.models import Firm
 from app.products.models import Product
 from app.sales.models import territory as _sales_models  # noqa: F401
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
+from app.uom.api.router import update_uom
 from app.uom.models.uom import (
     BusinessProfileUomDefault,
     ConversionRule,
@@ -46,6 +53,7 @@ from app.uom.schemas import (
     PackagingLevelCreate,
     PackagingTypeCreate,
     UomCreate,
+    UomUpdate,
 )
 from app.uom.services import UomService
 from app.uom.system_seed import seed_uom_reference_data
@@ -1000,3 +1008,147 @@ def test_a_deleted_level_stops_answering_for_its_code() -> None:
 
     with pytest.raises(ResourceNotFoundError):
         service.lookup_barcode(firm_scope=firm.id, code="3003003003003")
+
+
+def test_a_level_cannot_hang_on_another_firms_product() -> None:
+    """D-CFG-9: the level took its product from the path with no firm check.
+
+    Driven in ``firm_shared``: TESTSH1's administrator added a level carrying
+    a barcode to TESTSH2's product (201), and TESTSH1's barcode lookup then
+    answered with TESTSH2's product code and name.
+    """
+    session = _session_factory()()
+    service = UomService(session)
+    actor_id = uuid4()
+    mine, theirs = _firm(session, "LVLA"), _firm(session, "LVLB")
+    their_product = _product(session, theirs.id, "THEIRS-1")
+    unit = service.create_uom(
+        UomCreate(code="carton", name="Carton"), actor_id=actor_id
+    )
+
+    with pytest.raises(ResourceNotFoundError, match="Product not found"):
+        service.create_packaging_level(
+            firm_scope=mine.id,
+            product_id=their_product.id,
+            data=PackagingLevelCreate(
+                uom_id=unit.id,
+                level_name="Carton",
+                conversion_to_base_factor=Decimal("6"),
+                barcode="CROSS-FIRM-1",
+            ),
+            actor_id=actor_id,
+        )
+    session.rollback()
+    assert session.scalar(select(ProductPackagingLevel)) is None
+
+
+def test_a_level_already_on_another_firms_product_names_nothing() -> None:
+    """A row written before the refusal existed must not answer a scan."""
+    session = _session_factory()()
+    service = UomService(session)
+    mine, theirs = _firm(session, "LVLC"), _firm(session, "LVLD")
+    their_product = _product(session, theirs.id, "THEIRS-2")
+    unit = service.create_uom(UomCreate(code="carton", name="Carton"), actor_id=uuid4())
+    session.add(
+        ProductPackagingLevel(
+            firm_id=mine.id,
+            product_id=their_product.id,
+            uom_id=unit.id,
+            level_name="Carton",
+            conversion_to_base_factor=Decimal("6"),
+            barcode="CROSS-FIRM-2",
+        )
+    )
+    session.commit()
+
+    with pytest.raises(ResourceNotFoundError):
+        service.lookup_barcode(firm_scope=mine.id, code="CROSS-FIRM-2")
+
+
+def test_a_conversion_rule_cannot_name_another_firms_product() -> None:
+    """The same hole as the level: the product was never checked against the firm."""
+    session = _session_factory()()
+    service = UomService(session)
+    actor_id = uuid4()
+    mine, theirs = _firm(session, "CRA"), _firm(session, "CRB")
+    their_product = _product(session, theirs.id, "THEIRS-3")
+    box, piece = _rule_setup(session, service, actor_id, mine)
+
+    with pytest.raises(ResourceNotFoundError, match="Product not found"):
+        service.create_conversion_rule(
+            ConversionRuleCreate(
+                product_id=their_product.id,
+                from_uom_id=box.id,
+                to_uom_id=piece.id,
+                conversion_factor=Decimal("7"),
+                effective_from=date(2026, 1, 1),
+                version_number=1,
+            ),
+            firm_scope=mine.id,
+            actor_id=actor_id,
+        )
+
+
+def _scope(firm_id: UUID, *, platform_admin: bool) -> ResolvedFirmScope:
+    """Build the scope a firm administrator, or a platform administrator, has."""
+    user_id = uuid4()
+    extra = {"platform_admin": True} if platform_admin else {}
+    return ResolvedFirmScope(
+        principal=Principal(
+            subject=user_id,
+            roles=frozenset(),
+            permissions=frozenset({"UOM_MANAGE"}),
+            claims=TokenClaims(
+                sub=str(user_id),
+                type=TokenType.ACCESS,
+                iat=1,
+                exp=4_102_444_800,
+                permissions=["UOM_MANAGE"],
+                **extra,
+            ),
+        ),
+        firm_id=firm_id,
+    )
+
+
+def test_a_firm_cannot_change_a_shared_unit_but_can_its_own_fields() -> None:
+    """D-CFG-9: one firm renamed a unit every firm in ``firm_shared`` uses.
+
+    Driven there: TESTSH1's administrator created, renamed and deleted a unit
+    TESTSH2 saw, holding only UOM_MANAGE. The unit's own columns now need the
+    platform designation; the firm's custom-field values on it do not.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "SHU")
+    unit = UomService(session).create_uom(
+        UomCreate(code="box", name="Box"), actor_id=uuid4()
+    )
+
+    with pytest.raises(AuthorizationError, match="shared by every firm"):
+        update_uom(
+            unit.id,
+            UomUpdate(name="Renamed by one firm"),
+            _scope(firm.id, platform_admin=False),
+            Response(),
+            session,
+        )
+    session.rollback()
+    assert session.get(Uom, unit.id).name == "Box"
+
+    # The firm's own custom fields alone still go through.
+    update_uom(
+        unit.id,
+        UomUpdate(attributes=[]),
+        _scope(firm.id, platform_admin=False),
+        Response(),
+        session,
+    )
+    renamed = update_uom(
+        unit.id,
+        UomUpdate(name="Box of ten"),
+        _scope(firm.id, platform_admin=True),
+        Response(),
+        session,
+    )
+    assert renamed.data is not None
+    assert renamed.data.name == "Box of ten"
