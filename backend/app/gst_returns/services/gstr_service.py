@@ -16,6 +16,9 @@ The sections are the ones this system's data can honestly fill:
 - **CDNR** -- credit notes against registered customers. One to an
   unregistered customer is netted off its B2CS row instead: there is nobody
   to reverse a claim, and the section has no room for a number nobody reads.
+  A completed **sales return** is a credit note here (CGST Act s.34).
+- **CDNUR** -- credits to an unregistered buyer against a B2CL invoice, which
+  was declared invoice by invoice and so is credited note by note.
 - **HSN** -- what was sold, by HSN code and rate.
 - **DOCS** -- the document series issued.
 
@@ -55,6 +58,7 @@ from app.sales_invoice.models import (
     SalesInvoiceLine,
     SalesInvoiceLineTax,
 )
+from app.sales_return.models import SalesReturn, SalesReturnLine, SalesReturnLineTax
 from app.tax.services.gst_buckets import GstBuckets, TaxComponent, split_components
 
 
@@ -86,6 +90,10 @@ B2CL_THRESHOLD = Decimal("250000")
 #: cancelled one has been undone, so neither is declared.
 _LIVE_INVOICE_STATUSES = ("APPROVED", "CLOSED")
 
+#: A sales return has given tax back once it is completed -- the customer is
+#: credited and the output tax reversed -- and closing it changes neither.
+_CREDITED_RETURN_STATUSES = ("COMPLETED", "CLOSED")
+
 
 @dataclass(slots=True)
 class _RateRow:
@@ -108,10 +116,49 @@ class _RateRow:
 
 @dataclass(slots=True)
 class _CreditNotes:
-    """The period's credit notes, split by whether the buyer is registered."""
+    """The period's credit notes, split by whether the buyer is registered.
+
+    ``unregistered_large`` is Table 9B's CDNUR: a credit to an unregistered
+    buyer against an invoice that was itself declared invoice by invoice in
+    B2CL, so it is declared note by note too rather than netted off B2CS.
+    """
 
     registered: list[dict[str, object]] = field(default_factory=list)
     unregistered: list[_RateRow] = field(default_factory=list)
+    unregistered_large: list[dict[str, object]] = field(default_factory=list)
+
+
+@dataclass(slots=True)
+class _Credit:
+    """One document that gives tax back: a credit note or a sales return.
+
+    A completed sales return is a credit note in GST terms (CGST Act s.34): it
+    reduces the taxable value and the tax of a supply already declared, and
+    the ledger has already reversed its output tax. Both are brought to this
+    one shape so the return cannot treat them differently.
+    """
+
+    number: str
+    issued_on: date
+    customer_id: UUID
+    reason: str | None
+    against_invoice_ids: list[UUID]
+    against_invoice_number: str
+    rates: dict[Decimal, _RateRow]
+    document_type: str
+
+    @property
+    def taxable(self) -> Decimal:
+        """Return the credit's whole taxable value."""
+        return sum((row.taxable for row in self.rates.values()), ZERO)
+
+    @property
+    def buckets(self) -> GstBuckets:
+        """Return the credit's whole tax, by bucket."""
+        total = GstBuckets()
+        for row in self.rates.values():
+            total = total.plus(row.buckets)
+        return total
 
 
 class GstReturnService:
@@ -232,6 +279,7 @@ class GstReturnService:
                 for (place, _), row in sorted(b2cs.items())
             ],
             "cdnr": credits.registered,
+            "cdnur": credits.unregistered_large,
             "hsn": [
                 self._filed_row(row)
                 for row in sorted(hsn.values(), key=lambda item: str(item["hsn"]))
@@ -292,23 +340,25 @@ class GstReturnService:
                 buckets = buckets.plus(line_buckets)
 
         credited = ZERO
-        credit_igst = credit_cgst = credit_sgst = ZERO
+        credit_igst = credit_cgst = credit_sgst = credit_cess = ZERO
         credits = self._credit_notes(
             firm_scope=firm_scope, from_date=from_date, to_date=to_date
         )
         # Both halves: 3B is a summary of what is payable, and an unregistered
         # buyer's credit reduces it exactly as a registered one does. Reading
         # only CDNR here is what left the two returns disagreeing.
-        for note in credits.registered:
+        for note in (*credits.registered, *credits.unregistered_large):
             credited += Decimal(str(note["taxable_value"]))
             credit_igst += Decimal(str(note["integrated_tax"]))
             credit_cgst += Decimal(str(note["central_tax"]))
             credit_sgst += Decimal(str(note["state_tax"]))
+            credit_cess += Decimal(str(note["cess"]))
         for row in credits.unregistered:
             credited += row.taxable
             credit_igst += row.buckets.igst
             credit_cgst += row.buckets.cgst
             credit_sgst += row.buckets.sgst
+            credit_cess += row.buckets.cess
 
         return {
             "gstin": seller_gstin,
@@ -319,11 +369,12 @@ class GstReturnService:
                 "integrated_tax": _filed(buckets.igst - credit_igst),
                 "central_tax": _filed(buckets.cgst - credit_cgst),
                 "state_tax": _filed(buckets.sgst - credit_sgst),
-                "cess": _filed(buckets.cess),
+                "cess": _filed(buckets.cess - credit_cess),
             },
+            # Credit notes and completed sales returns alike (D-CMP-2).
             "credit_notes_deducted": {
                 "taxable_value": _filed(credited),
-                "tax": _filed(credit_igst + credit_cgst + credit_sgst),
+                "tax": _filed(credit_igst + credit_cgst + credit_sgst + credit_cess),
             },
             # Said rather than left blank: a zero here would read as "no input
             # credit", which is a different claim from "this module does not
@@ -414,16 +465,25 @@ class GstReturnService:
     def _credit_notes(
         self, *, firm_scope: UUID, from_date: date, to_date: date
     ) -> _CreditNotes:
-        """Return credit notes issued in the period, split by buyer.
+        """Return the credits issued in the period, split by buyer.
+
+        Two documents give tax back: an approved **credit note** and a
+        completed **sales return**. A return is a credit note in GST terms
+        (CGST Act s.34) -- it credits the customer and its journal reverses
+        the output tax (Dr 2200) -- so it is declared exactly as one. Until
+        D-CMP-2 only credit notes were read, and a firm declared and paid tax
+        it had already given back on every return.
 
         Declared in the period they were **issued**, not the period of the
         invoice they credit: that is what the return asks for, and it is why a
         note against an old invoice still belongs in this month's filing.
 
-        A registered buyer's note is declared in CDNR, note by note, because
+        A registered buyer's credit is declared in CDNR, note by note, because
         the buyer reverses its own credit against it. An unregistered buyer's
-        is netted off the B2CS row for its place and rate -- there is nobody
-        to reverse a claim, and the section has no room for a number nobody
+        is declared note by note in CDNUR when the invoice it credits was
+        itself declared invoice by invoice in B2CL (Table 9B), and otherwise
+        netted off the B2CS row for its place and rate -- there is nobody to
+        reverse a claim, and that section has no room for a number nobody
         reads.
 
         Args:
@@ -432,9 +492,65 @@ class GstReturnService:
             to_date: Last day.
 
         Returns:
-            The CDNR rows, and the summary rows to take off B2CS.
+            The CDNR and CDNUR rows, and the summary rows to take off B2CS.
 
         """
+        credits = self._issued_credit_notes(
+            firm_scope=firm_scope, from_date=from_date, to_date=to_date
+        ) + self._completed_sales_returns(
+            firm_scope=firm_scope, from_date=from_date, to_date=to_date
+        )
+        if not credits:
+            return _CreditNotes()
+        customers = self._customers([credit.customer_id for credit in credits])
+        large = self._b2cl_invoices(
+            [
+                invoice_id
+                for credit in credits
+                for invoice_id in credit.against_invoice_ids
+            ]
+        )
+
+        answer = _CreditNotes()
+        for credit in credits:
+            customer = customers.get(credit.customer_id)
+            gstin = (getattr(customer, "gst_number", None) or "").strip().upper()
+            buckets = credit.buckets
+            row: dict[str, object] = {
+                "note_number": credit.number,
+                "note_date": credit.issued_on.isoformat(),
+                "document_type": credit.document_type,
+                "against_invoice": credit.against_invoice_number,
+                "reason": credit.reason,
+                "rate": float(max(credit.rates, default=ZERO)),
+                "taxable_value": _filed(credit.taxable),
+                **self._bucket_fields(buckets),
+            }
+            if gstin:
+                answer.registered.append(
+                    {"gstin": gstin, "name": getattr(customer, "name", ""), **row}
+                )
+                continue
+            if buckets.igst > ZERO and any(
+                invoice_id in large for invoice_id in credit.against_invoice_ids
+            ):
+                answer.unregistered_large.append(
+                    {"name": getattr(customer, "name", ""), **row}
+                )
+                continue
+            # A credit note to an unregistered buyer is netted off the B2CS
+            # row it belongs to, which is what the return asks for and what
+            # keeps GSTR-1 reconciling against 3B. Filed in CDNR it would be a
+            # claim about a buyer who cannot claim credit; dropped -- which it
+            # was, on the belief that this system could not produce one -- it
+            # left 3B deducting a credit that GSTR-1 never declared.
+            answer.unregistered.extend(credit.rates.values())
+        return answer
+
+    def _issued_credit_notes(
+        self, *, firm_scope: UUID, from_date: date, to_date: date
+    ) -> list[_Credit]:
+        """Return the approved credit notes issued in the period."""
         notes = list(
             self._session.scalars(
                 select(CreditNote)
@@ -449,19 +565,13 @@ class GstReturnService:
             ).all()
         )
         if not notes:
-            return _CreditNotes()
-        customers = self._customers([note.customer_id for note in notes])
+            return []
         crossed_a_border = self._interstate_invoices(
             [note.sales_invoice_id for note in notes]
         )
-        invoice_numbers = {
-            invoice_id: number
-            for invoice_id, number in self._session.execute(
-                select(SalesInvoice.id, SalesInvoice.invoice_number).where(
-                    SalesInvoice.id.in_([note.sales_invoice_id for note in notes])
-                )
-            ).all()
-        }
+        invoice_numbers = self._invoice_numbers(
+            [note.sales_invoice_id for note in notes]
+        )
         rates: dict[UUID, Decimal] = {}
         for line in self._session.scalars(
             select(CreditNoteLine).where(
@@ -471,57 +581,181 @@ class GstReturnService:
         ).all():
             rates.setdefault(line.credit_note_id, Decimal(str(line.tax_rate_percent)))
 
-        answer: list[dict[str, object]] = []
-        unregistered: list[_RateRow] = []
+        answer: list[_Credit] = []
         for note in notes:
-            customer = customers.get(note.customer_id)
-            gstin = (getattr(customer, "gst_number", None) or "").strip().upper()
             rate = rates.get(note.id, ZERO)
-            taxable = Decimal(str(note.taxable_amount))
             tax = Decimal(str(note.tax_amount))
             # The note stores one tax figure, not a split. Re-split it the way
             # the supply it credits was taxed, read off that invoice rather
             # than off an address -- the same rule the place of supply uses,
             # and the only one an unregistered buyer can be judged by at all.
             interstate = note.sales_invoice_id in crossed_a_border
-            if not gstin:
-                # A credit note to an unregistered buyer is netted off the
-                # B2CS row it belongs to, which is what the return asks for
-                # and what keeps GSTR-1 reconciling against 3B. Filed in CDNR
-                # it would be a claim about a buyer who cannot claim credit;
-                # dropped -- which it was, on the belief that this system
-                # could not produce one -- it left 3B deducting a credit that
-                # GSTR-1 never declared.
-                unregistered.append(
-                    _RateRow(
-                        rate=rate,
-                        taxable=taxable,
-                        buckets=GstBuckets(
-                            igst=tax if interstate else ZERO,
-                            cgst=ZERO if interstate else tax / 2,
-                            sgst=ZERO if interstate else tax / 2,
-                            rate=rate,
-                        ),
-                    )
-                )
-                continue
             answer.append(
-                {
-                    "gstin": gstin,
-                    "name": getattr(customer, "name", ""),
-                    "note_number": note.credit_note_number,
-                    "note_date": note.credit_note_date.isoformat(),
-                    "against_invoice": invoice_numbers.get(note.sales_invoice_id, ""),
-                    "reason": note.reason,
-                    "rate": float(rate),
-                    "taxable_value": _filed(taxable),
-                    "integrated_tax": _filed(tax if interstate else ZERO),
-                    "central_tax": _filed(ZERO if interstate else tax / 2),
-                    "state_tax": _filed(ZERO if interstate else tax / 2),
-                    "cess": 0.0,
-                }
+                _Credit(
+                    number=note.credit_note_number,
+                    issued_on=note.credit_note_date,
+                    customer_id=note.customer_id,
+                    reason=note.reason,
+                    against_invoice_ids=[note.sales_invoice_id],
+                    against_invoice_number=invoice_numbers.get(
+                        note.sales_invoice_id, ""
+                    ),
+                    rates={
+                        rate: _RateRow(
+                            rate=rate,
+                            taxable=Decimal(str(note.taxable_amount)),
+                            buckets=GstBuckets(
+                                igst=tax if interstate else ZERO,
+                                cgst=ZERO if interstate else tax / 2,
+                                sgst=ZERO if interstate else tax / 2,
+                                rate=rate,
+                            ),
+                        )
+                    },
+                    document_type="CREDIT_NOTE",
+                )
             )
-        return _CreditNotes(registered=answer, unregistered=unregistered)
+        return answer
+
+    def _completed_sales_returns(
+        self, *, firm_scope: UUID, from_date: date, to_date: date
+    ) -> list[_Credit]:
+        """Return the sales returns completed with a return date in the period.
+
+        COMPLETED and CLOSED: completion is what credits the customer and
+        posts the reversal of output tax, and closing a completed return
+        changes neither. A draft or approved return has given nothing back
+        yet, and a cancelled one has been undone.
+
+        Split exactly as the invoice was -- read off the components each line
+        stored (``sales_return_line_taxes``), through the same
+        ``split_components`` -- never re-derived from an address.
+        """
+        returns = list(
+            self._session.scalars(
+                select(SalesReturn)
+                .where(
+                    SalesReturn.firm_id == firm_scope,
+                    SalesReturn.is_deleted.is_(False),
+                    SalesReturn.status.in_(_CREDITED_RETURN_STATUSES),
+                    SalesReturn.return_date >= from_date,
+                    SalesReturn.return_date <= to_date,
+                )
+                .order_by(SalesReturn.return_date.asc())
+            ).all()
+        )
+        if not returns:
+            return []
+        lines = list(
+            self._session.scalars(
+                select(SalesReturnLine).where(
+                    SalesReturnLine.sales_return_id.in_([row.id for row in returns]),
+                    SalesReturnLine.is_deleted.is_(False),
+                )
+            ).all()
+        )
+        taxes: dict[UUID, list[SalesReturnLineTax]] = defaultdict(list)
+        if lines:
+            for component in self._session.scalars(
+                select(SalesReturnLineTax).where(
+                    SalesReturnLineTax.sales_return_line_id.in_(
+                        [line.id for line in lines]
+                    ),
+                    SalesReturnLineTax.is_deleted.is_(False),
+                )
+            ).all():
+                taxes[component.sales_return_line_id].append(component)
+        by_return: dict[UUID, list[SalesReturnLine]] = defaultdict(list)
+        for line in lines:
+            by_return[line.sales_return_id].append(line)
+        billed = self._invoice_numbers(
+            [
+                line.source_document_id
+                for line in lines
+                if line.source_document_type == "SALES_INVOICE"
+            ]
+        )
+
+        answer: list[_Credit] = []
+        for sales_return in returns:
+            rates: dict[Decimal, _RateRow] = {}
+            against: list[UUID] = []
+            for line in sorted(
+                by_return.get(sales_return.id, []), key=lambda row: row.line_number
+            ):
+                buckets = split_components(
+                    [
+                        TaxComponent(
+                            code=component.component_code,
+                            percentage=Decimal(str(component.percentage)),
+                            amount=Decimal(str(component.amount)),
+                        )
+                        for component in taxes.get(line.id, [])
+                        if not component.included_in_price
+                    ]
+                )
+                # What the line credited before tax: `net_amount` carries the
+                # tax, exactly as an invoice line's does.
+                taxable = Decimal(str(line.net_amount)) - Decimal(str(line.tax_amount))
+                rates.setdefault(buckets.rate, _RateRow(rate=buckets.rate)).add(
+                    taxable, buckets
+                )
+                if (
+                    line.source_document_id in billed
+                    and line.source_document_id not in against
+                ):
+                    against.append(line.source_document_id)
+            answer.append(
+                _Credit(
+                    number=sales_return.return_number,
+                    issued_on=sales_return.return_date,
+                    customer_id=sales_return.customer_id,
+                    reason=sales_return.return_reason,
+                    against_invoice_ids=against,
+                    against_invoice_number=(
+                        ", ".join(billed[invoice_id] for invoice_id in against)
+                        or (sales_return.reference_invoice_number or "")
+                    ),
+                    rates=rates,
+                    document_type="SALES_RETURN",
+                )
+            )
+        return answer
+
+    def _invoice_numbers(self, invoice_ids: list[UUID]) -> dict[UUID, str]:
+        """Return the numbers of these invoices."""
+        if not invoice_ids:
+            return {}
+        return {
+            invoice_id: number
+            for invoice_id, number in self._session.execute(
+                select(SalesInvoice.id, SalesInvoice.invoice_number).where(
+                    SalesInvoice.id.in_(set(invoice_ids))
+                )
+            ).all()
+        }
+
+    def _b2cl_invoices(self, invoice_ids: list[UUID]) -> set[UUID]:
+        """Return which of these invoices were declared in B2CL.
+
+        Inter-state (they charged IGST), to a buyer with no GSTIN, and above
+        the invoice-wise threshold -- the same test ``gstr1`` applies.
+        """
+        if not invoice_ids:
+            return set()
+        interstate = self._interstate_invoices(list(set(invoice_ids)))
+        if not interstate:
+            return set()
+        rows = self._session.execute(
+            select(SalesInvoice.id, SalesInvoice.grand_total, Customer.gst_number)
+            .join(Customer, Customer.id == SalesInvoice.customer_id)
+            .where(SalesInvoice.id.in_(interstate))
+        ).all()
+        return {
+            invoice_id
+            for invoice_id, grand_total, gstin in rows
+            if not (gstin or "").strip() and Decimal(str(grand_total)) > B2CL_THRESHOLD
+        }
 
     # ---- folding -------------------------------------------------------
 

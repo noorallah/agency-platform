@@ -35,6 +35,7 @@ from app.sales_invoice.models import (
     SalesInvoiceLine,
     SalesInvoiceLineTax,
 )
+from app.sales_return.models import SalesReturn, SalesReturnLine, SalesReturnLineTax
 
 APRIL = (date(2026, 4, 1), date(2026, 4, 30))
 SELLER = "29AABCU9603R1ZM"
@@ -230,6 +231,81 @@ class _Books:
         )
         self.session.commit()
         return note
+
+    def returned(
+        self,
+        number: str,
+        invoice: SalesInvoice,
+        *,
+        taxable: str = "100",
+        tax: str = "18",
+        on: date = date(2026, 4, 22),
+        status: str = "COMPLETED",
+        interstate: bool = False,
+    ) -> SalesReturn:
+        """Take goods back against an invoice, the tax split as it was charged."""
+        source = self.session.scalars(
+            select(SalesInvoiceLine).where(
+                SalesInvoiceLine.sales_invoice_id == invoice.id
+            )
+        ).first()
+        assert source is not None
+        row = SalesReturn(
+            firm_id=self.firm.id,
+            customer_id=invoice.customer_id,
+            branch_id=self.branch.id,
+            warehouse_id=uuid4(),
+            return_number=number,
+            return_date=on,
+            status=status,
+            subtotal=Decimal(taxable),
+            tax_total=Decimal(tax),
+            grand_total=Decimal(taxable) + Decimal(tax),
+        )
+        self.session.add(row)
+        self.session.flush()
+        line = SalesReturnLine(
+            sales_return_id=row.id,
+            firm_id=self.firm.id,
+            line_number=1,
+            source_document_type="SALES_INVOICE",
+            source_document_id=invoice.id,
+            source_document_number=invoice.invoice_number,
+            source_document_line_id=source.id,
+            source_document_line_number=1,
+            product_id=self.product.id,
+            dispatched_quantity=Decimal("10"),
+            current_return_quantity=Decimal("1"),
+            unit_price=Decimal(taxable),
+            gross_amount=Decimal(taxable),
+            tax_amount=Decimal(tax),
+            net_amount=Decimal(taxable) + Decimal(tax),
+        )
+        self.session.add(line)
+        self.session.flush()
+        components = (
+            (("IGST", Decimal(tax), Decimal("18")),)
+            if interstate
+            else (
+                ("CGST", Decimal(tax) / 2, Decimal("9")),
+                ("SGST", Decimal(tax) / 2, Decimal("9")),
+            )
+        )
+        for index, (code, amount, rate) in enumerate(components, start=1):
+            self.session.add(
+                SalesReturnLineTax(
+                    sales_return_line_id=line.id,
+                    firm_id=self.firm.id,
+                    sequence=index,
+                    component_code=code,
+                    component_label=code,
+                    percentage=rate,
+                    base_amount=Decimal(taxable),
+                    amount=amount,
+                )
+            )
+        self.session.commit()
+        return row
 
     def gstr1(self) -> dict[str, object]:
         """Return April's outward supplies."""
@@ -512,6 +588,77 @@ def test_both_returns_deduct_the_same_credit_notes() -> None:
 
     assert summary["credit_notes_deducted"]["taxable_value"] == 150.0
     assert summary["outward_taxable_supplies"]["taxable_value"] == declared - credited
+
+
+def test_a_sales_return_to_a_registered_buyer_is_declared_in_cdnr() -> None:
+    """A completed return is a credit note in GST terms (D-CMP-2).
+
+    It credits the customer and its journal reverses the output tax, and it
+    appeared in no section and no deduction -- the firm declared and paid tax
+    it had already given back.
+    """
+    books = _Books(_session_factory()())
+    invoice = books.invoice("SI-1")
+    books.returned("SR-1", invoice, taxable="100", tax="18")
+
+    cdnr = books.gstr1()["cdnr"]
+
+    assert len(cdnr) == 1
+    assert cdnr[0]["note_number"] == "SR-1"
+    assert cdnr[0]["document_type"] == "SALES_RETURN"
+    assert cdnr[0]["against_invoice"] == "SI-1"
+    assert cdnr[0]["taxable_value"] == 100.0
+    assert (cdnr[0]["central_tax"], cdnr[0]["state_tax"]) == (9.0, 9.0)
+
+
+def test_a_sales_return_to_an_unregistered_buyer_comes_off_the_summary() -> None:
+    """Netted off the B2CS row for its place and rate, as a credit note is."""
+    books = _Books(_session_factory()())
+    invoice = books.invoice("SI-1", customer=books.walk_in, gross="300", tax="54")
+    books.returned("SR-1", invoice, taxable="100", tax="18")
+
+    answer = books.gstr1()
+
+    assert answer["cdnr"] == []
+    assert answer["b2cs"][0]["taxable_value"] == 200.0
+    assert answer["b2cs"][0]["central_tax"] == 18.0
+
+
+def test_the_summary_return_deducts_a_completed_sales_return() -> None:
+    """3B's outward tax falls by what the return gave back, and only once done."""
+    books = _Books(_session_factory()())
+    invoice = books.invoice("SI-1", gross="1000", tax="180")
+    books.returned("SR-1", invoice, taxable="100", tax="18")
+    # Not yet given back: an approved return has credited nobody.
+    books.returned("SR-2", invoice, taxable="100", tax="18", status="APPROVED")
+    books.returned("SR-3", invoice, taxable="100", tax="18", status="CANCELLED")
+
+    summary = books.gstr3b()
+
+    assert summary["outward_taxable_supplies"]["taxable_value"] == 900.0
+    assert summary["outward_taxable_supplies"]["central_tax"] == 81.0
+    assert summary["outward_taxable_supplies"]["state_tax"] == 81.0
+    assert summary["credit_notes_deducted"] == {"taxable_value": 100.0, "tax": 18.0}
+
+
+def test_a_return_against_a_large_interstate_bill_is_declared_in_cdnur() -> None:
+    """Table 9B: the bill was declared invoice by invoice, so is its credit."""
+    books = _Books(_session_factory()())
+    invoice = books.invoice(
+        "SI-1",
+        customer=books.walk_in,
+        gross="300000",
+        tax="54000",
+        interstate=True,
+    )
+    books.returned("SR-1", invoice, taxable="1000", tax="180", interstate=True)
+
+    answer = books.gstr1()
+
+    assert [row["note_number"] for row in answer["cdnur"]] == ["SR-1"]
+    assert answer["cdnur"][0]["integrated_tax"] == 180.0
+    assert answer["b2cs"] == []
+    assert books.gstr3b()["outward_taxable_supplies"]["integrated_tax"] == 53820.0
 
 
 def test_freight_is_declared_inside_the_taxable_value() -> None:
