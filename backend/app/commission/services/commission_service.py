@@ -25,6 +25,7 @@ from app.commission.models import (
 )
 from app.commission.schemas import (
     CommissionBasisEnum,
+    CommissionMeasureEnum,
     CommissionRateTypeEnum,
     CommissionReport,
     CommissionRuleCreate,
@@ -223,6 +224,7 @@ class CommissionService:
             max_commission_amount=data.max_commission_amount,
             product_id=data.product_id,
             product_category_id=data.product_category_id,
+            measure=data.measure.value,
             rate_type=data.rate_type.value,
             per_unit_amount=data.per_unit_amount,
             minimum_amount=data.minimum_amount,
@@ -299,6 +301,8 @@ class CommissionService:
             row.product_id = values["product_id"]
         if "product_category_id" in values:
             row.product_category_id = values["product_category_id"]
+        if values.get("measure") is not None:
+            row.measure = CommissionMeasureEnum(values["measure"]).value
         if values.get("rate_type") is not None:
             row.rate_type = CommissionRateTypeEnum(values["rate_type"]).value
         if values.get("per_unit_amount") is not None:
@@ -689,6 +693,7 @@ class CommissionService:
             "product_category_id": (
                 str(row.product_category_id) if row.product_category_id else None
             ),
+            "measure": row.measure,
             "rate_type": row.rate_type,
             "per_unit_amount": str(row.per_unit_amount),
             "minimum_amount": (
@@ -766,6 +771,7 @@ class CommissionService:
             product_category_name=self._goods_names().get(
                 row.product_category_id or _NOBODY, ""
             ),
+            measure=CommissionMeasureEnum(row.measure),
             rate_type=CommissionRateTypeEnum(row.rate_type),
             per_unit_amount=row.per_unit_amount,
             minimum_amount=row.minimum_amount,
