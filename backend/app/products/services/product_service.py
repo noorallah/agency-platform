@@ -2,12 +2,14 @@
 
 # ruff: noqa: D102, D107
 
-from collections.abc import Iterable
-from decimal import Decimal
+from collections.abc import Callable, Iterable
+from decimal import Decimal, InvalidOperation
+from functools import partial
 from io import BytesIO
 from typing import Any
 from uuid import UUID
 
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import String, case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -32,7 +34,12 @@ from app.common.open_documents import (
     find_open_documents,
     find_stock_holdings,
 )
-from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
+from app.core.exceptions import (
+    ApplicationError,
+    ConflictError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.core.utils.dates import utc_now
 from app.products.models import (
     Product,
@@ -146,6 +153,19 @@ class ProductService:
     def create_product(
         self, data: ProductCreate, *, firm_id: UUID, actor_id: UUID
     ) -> Product:
+        product = self.stage_product(data, firm_id=firm_id, actor_id=actor_id)
+        self._commit()
+        self._session.refresh(product)
+        return product
+
+    def stage_product(
+        self, data: ProductCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> Product:
+        """Build, flush and audit one product without committing it.
+
+        Split out so the import can stage a whole file and commit once. Nothing
+        here is durable until the caller commits.
+        """
         self._assert_unique_code(firm_id, data.code)
         self._assert_unique_barcode(firm_id, data.barcode)
         category = self._validate_category_reference(firm_id, data.category_id)
@@ -180,8 +200,6 @@ class ProductService:
             firm_id=firm_id,
             after_data={"code": product.code},
         )
-        self._commit()
-        self._session.refresh(product)
         return product
 
     def get_product(
@@ -620,11 +638,35 @@ class ProductService:
     def import_products_json(
         self, records: list[ProductCreate], *, firm_scope: UUID, actor_id: UUID
     ) -> list[Product]:
+        """Import a batch of products in one transaction.
+
+        This looped over ``create_product``, which commits -- so a file whose
+        second row clashed answered 409 with the first row written, and the
+        corrected file was then refused as a duplicate of what the failed one
+        had left behind (D-MST-9). Every row is staged, and the batch commits
+        once; a row that fails rolls the whole file back and is named by its
+        position, because a 409 that does not say which of 3,000 rows clashed
+        is not much of an answer.
+        """
         result: list[Product] = []
-        for item in records:
-            result.append(
-                self.create_product(item, firm_id=firm_scope, actor_id=actor_id)
-            )
+        try:
+            for position, item in enumerate(records, start=1):
+                try:
+                    result.append(
+                        self.stage_product(item, firm_id=firm_scope, actor_id=actor_id)
+                    )
+                except ApplicationError as error:
+                    raise type(error)(
+                        f"Row {position} ({item.code}): {error.message} "
+                        "Nothing was imported.",
+                        details=error.details,
+                    ) from error
+        except Exception:
+            self._session.rollback()
+            raise
+        self._commit()
+        for product in result:
+            self._session.refresh(product)
         return result
 
     def import_products_csv(
@@ -634,42 +676,14 @@ class ProductService:
         import io
 
         reader = csv.DictReader(io.StringIO(csv_content))
-        records: list[ProductCreate] = []
-        for row in reader:
-            code = (row.get("Code") or "").strip().upper()
-            if not code:
-                continue
-            records.append(
-                ProductCreate(
-                    code=code,
-                    barcode=None,
-                    qr_code=None,
-                    name=(row.get("Name") or "").strip(),
-                    short_name=None,
-                    description=None,
-                    product_type=(row.get("Type") or "STOCK_ITEM").strip().upper(),
-                    category_id=None,
-                    sub_category_id=None,
-                    unit=None,
-                    brand=(row.get("Brand") or "").strip() or None,
-                    model=None,
-                    hsn_sac=(row.get("HSN") or "").strip().upper() or None,
-                    tax_profile_group_code=None,
-                    purchase_price=None,
-                    selling_price=(
-                        Decimal(row["SellingPrice"])
-                        if row.get("SellingPrice")
-                        else None
-                    ),
-                    mrp=None,
-                    status=(row.get("Status") or "ACTIVE").strip().upper(),
-                    remarks=None,
-                    attributes=[],
-                    media=[],
-                )
-            )
+        records = [
+            self._import_record(number, row.get)
+            for number, row in enumerate(reader, start=2)
+        ]
         return self.import_products_json(
-            records, firm_scope=firm_scope, actor_id=actor_id
+            [record for record in records if record is not None],
+            firm_scope=firm_scope,
+            actor_id=actor_id,
         )
 
     def import_products_xlsx(
@@ -688,49 +702,75 @@ class ProductService:
             return []
         header = [str(value or "").strip() for value in rows[0]]
         index = {name: position for position, name in enumerate(header)}
-        records: list[ProductCreate] = []
-        for values in rows[1:]:
-            code = str(values[index.get("Code", -1)] or "").strip().upper()
-            if not code:
-                continue
-            records.append(
-                ProductCreate(
-                    code=code,
-                    barcode=None,
-                    qr_code=None,
-                    name=str(values[index.get("Name", -1)] or "").strip(),
-                    short_name=None,
-                    description=None,
-                    product_type=str(values[index.get("Type", -1)] or "STOCK_ITEM")
-                    .strip()
-                    .upper(),
-                    category_id=None,
-                    sub_category_id=None,
-                    unit=None,
-                    brand=str(values[index.get("Brand", -1)] or "").strip() or None,
-                    model=None,
-                    hsn_sac=str(values[index.get("HSN", -1)] or "").strip().upper()
-                    or None,
-                    tax_profile_group_code=None,
-                    purchase_price=None,
-                    selling_price=(
-                        Decimal(str(values[index.get("SellingPrice", -1)]).strip())
-                        if index.get("SellingPrice", -1) >= 0
-                        and values[index["SellingPrice"]] is not None
-                        else None
-                    ),
-                    mrp=None,
-                    status=str(values[index.get("Status", -1)] or "ACTIVE")
-                    .strip()
-                    .upper(),
-                    remarks=None,
-                    attributes=[],
-                    media=[],
-                )
-            )
+
+        def cell(values: tuple[object, ...], name: str) -> object:
+            """Read a named column, or nothing when the sheet has no such one.
+
+            Looked up with ``index.get(name, -1)`` before, which read a missing
+            column as the **last** one.
+            """
+            position = index.get(name)
+            if position is None or position >= len(values):
+                return None
+            return values[position]
+
+        records = [
+            self._import_record(number, partial(cell, values))
+            for number, values in enumerate(rows[1:], start=2)
+        ]
         return self.import_products_json(
-            records, firm_scope=firm_scope, actor_id=actor_id
+            [record for record in records if record is not None],
+            firm_scope=firm_scope,
+            actor_id=actor_id,
         )
+
+    @staticmethod
+    def _import_record(
+        row_number: int, read: Callable[[str], object]
+    ) -> ProductCreate | None:
+        """Build one product from a spreadsheet row, or skip a row with no code.
+
+        The two readers each spelled this out and called ``Decimal(...)`` and
+        the schema bare, so a bad number or an unknown status surfaced as a
+        server error naming nothing. It is refused here by row number -- the
+        header is row 1, as a spreadsheet shows it.
+        """
+
+        def text(name: str) -> str:
+            """Read a column as trimmed text."""
+            value = read(name)
+            return "" if value is None else str(value).strip()
+
+        code = text("Code").upper()
+        if not code:
+            return None
+        price = text("SellingPrice")
+        try:
+            selling_price = Decimal(price) if price else None
+        except InvalidOperation as error:
+            raise ValidationError(
+                f"Row {row_number} ({code}): SellingPrice: '{price}' is not a "
+                "number. Nothing was imported."
+            ) from error
+        try:
+            return ProductCreate.model_validate(
+                {
+                    "code": code,
+                    "name": text("Name"),
+                    "product_type": (text("Type") or "STOCK_ITEM").upper(),
+                    "brand": text("Brand") or None,
+                    "hsn_sac": text("HSN").upper() or None,
+                    "selling_price": selling_price,
+                    "status": (text("Status") or "ACTIVE").upper(),
+                }
+            )
+        except PydanticValidationError as error:
+            first = error.errors()[0]
+            column = ".".join(str(part) for part in first["loc"]) or "row"
+            raise ValidationError(
+                f"Row {row_number} ({code}): {column}: {first['msg']}. "
+                "Nothing was imported."
+            ) from error
 
     def _apply_filters(
         self,
