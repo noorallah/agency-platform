@@ -33,13 +33,30 @@ from app.branches.schemas import (
     WarehouseTypeWrite,
     WarehouseUpdate,
 )
+from app.business.models import BusinessProfile
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit
+from app.common.master_references import (
+    MasterReferences,
+    assert_master_references,
+)
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.inventory.models import InventoryRecord
 from app.sales_order.models import SalesWorkflowSettings
+
+#: The masters a branch and a warehouse name by id. A type must be a live row
+#: of the same firm; a business profile has no firm and is shared by every
+#: firm in the store, so it only has to be live (D-MST-3).
+_BRANCH_REFERENCES: MasterReferences = {
+    "branch_type_id": (BranchType, "Branch type"),
+    "business_profile_id": (BusinessProfile, "Business profile"),
+}
+_WAREHOUSE_REFERENCES: MasterReferences = {
+    "warehouse_type_id": (WarehouseType, "Warehouse type"),
+    "business_profile_id": (BusinessProfile, "Business profile"),
+}
 
 
 class BranchWarehouseService:
@@ -82,6 +99,9 @@ class BranchWarehouseService:
         """
         self._assert_unique_branch_code(firm_id, data.code)
         values = self._branch_values(data)
+        assert_master_references(
+            self._session, values, _BRANCH_REFERENCES, firm_id=firm_id
+        )
         self._demote_other_default_branches(
             firm_id, is_default=bool(values["is_default"]), exclude_id=None
         )
@@ -164,6 +184,13 @@ class BranchWarehouseService:
         self._assert_unique_branch_code(row.firm_id, data.code, excluding_id=row.id)
         before: dict[str, object] = {"code": row.code, "status": row.status}
         values = self._branch_values(data, partial=True)
+        assert_master_references(
+            self._session,
+            values,
+            _BRANCH_REFERENCES,
+            firm_id=row.firm_id,
+            current=row,
+        )
         self._demote_other_default_branches(
             row.firm_id,
             is_default=bool(values.get("is_default", row.is_default)),
@@ -403,6 +430,9 @@ class BranchWarehouseService:
         self._assert_unique_warehouse_code(firm_id, data.code)
         branch = self._resolve_branch(data, firm_id=firm_id)
         values = self._warehouse_values(data)
+        assert_master_references(
+            self._session, values, _WAREHOUSE_REFERENCES, firm_id=firm_id
+        )
         values["branch_id"] = branch.id
         self._demote_other_default_warehouses(
             branch.id, is_default=bool(values["is_default"]), exclude_id=None
@@ -489,6 +519,13 @@ class BranchWarehouseService:
         )
         before: dict[str, object] = {"code": row.code, "status": row.status}
         values = self._warehouse_values(data, partial=True)
+        assert_master_references(
+            self._session,
+            values,
+            _WAREHOUSE_REFERENCES,
+            firm_id=row.firm_id,
+            current=row,
+        )
         if "branch_id" in values or data.branch_code:
             values["branch_id"] = branch.id
         self._demote_other_default_warehouses(
