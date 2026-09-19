@@ -42,6 +42,53 @@ _PLATFORM_TABLES = (
 )
 
 
+#: Schemas that belong to somebody other than a dedicated firm: the platform
+#: store, the store every SHARED firm lives in, and PostgreSQL's own. A
+#: dedicated firm routed to one of these would be migrated and **pruned** there
+#: -- `DROP TABLE ... CASCADE` of `users`, `roles`, `firms` and the rest -- which
+#: on `platform` is the identity store and the registry (D-IDN-4). Anything
+#: starting `pg_` is PostgreSQL's too. Compared case-insensitively: a quoted
+#: `"Platform"` is a different schema, but nobody means it as one.
+RESERVED_SCHEMA_NAMES = frozenset(
+    {"platform", "firm_shared", "public", "information_schema"}
+)
+
+#: Schemas `prune_platform_objects` refuses outright. Not `firm_shared`: it is a
+#: firm store, and `scripts/reset_tenancy_layout.py` and CI prune it on purpose.
+_NEVER_PRUNED = frozenset({"platform", "public", "information_schema"})
+
+#: Databases a DATABASE-mode firm may not name: the server's own, before the
+#: platform's database is added by whoever knows it.
+RESERVED_DATABASE_NAMES = frozenset(
+    {
+        "postgres",
+        "template0",
+        "template1",
+        "mysql",
+        "sys",
+        "information_schema",
+        "performance_schema",
+    }
+)
+
+
+def is_reserved_schema(name: str, *, also: frozenset[str] = frozenset()) -> bool:
+    """Return whether a schema name belongs to the platform or the server.
+
+    Args:
+        name: The schema a firm would be routed to.
+        also: Further names reserved by this installation's configuration --
+            the platform schema and the shared schema as configured.
+
+    Returns:
+        True when no dedicated firm may be given the schema.
+
+    """
+    folded = name.strip().lower()
+    reserved = RESERVED_SCHEMA_NAMES | {item.strip().lower() for item in also}
+    return folded in reserved or folded.startswith("pg_")
+
+
 def _safe_identifier(value: str, label: str) -> str:
     if not _IDENTIFIER.fullmatch(value):
         raise BusinessRuleError(f"Invalid {label}: {value!r}.")
@@ -60,7 +107,23 @@ def prune_platform_objects(*, database_url: str, schema_name: str) -> None:
     below, ``scripts/reset_tenancy_layout.py`` for the shared schema, and CI.
 
     Safe to repeat, and a no-op on dialects other than PostgreSQL.
+
+    **Refuses the platform schema, `public`, `information_schema` and any
+    `pg_*` schema**, as defence in depth behind the create-time refusal
+    (D-IDN-4): pruning `platform` drops the identity store and the firm
+    registry. `firm_shared` is allowed -- it is a firm store, pruned on
+    purpose by the reset script and by CI.
+
+    Raises:
+        BusinessRuleError: If the schema is one that must never be pruned.
+
     """
+    folded = schema_name.strip().lower()
+    if folded in _NEVER_PRUNED or folded.startswith("pg_"):
+        raise BusinessRuleError(
+            f"Refusing to prune platform tables from the reserved schema "
+            f"{schema_name!r}."
+        )
     schema = _safe_identifier(schema_name, "schema name")
     engine = create_engine(database_url, pool_pre_ping=True)
     try:
@@ -111,6 +174,7 @@ class TenantStorageLifecycleService:
             raise BusinessRuleError("schema_name is required for dedicated firms.")
         if database_name is None or not database_name.strip():
             raise BusinessRuleError("database_name is required for dedicated firms.")
+        self._assert_not_reserved(mode, schema_name, database_name)
         target_config = self._build_database_config_for_firm(firm)
         target_url = make_url(target_config.url)
         schema = _safe_identifier(schema_name, "schema name")
@@ -156,6 +220,36 @@ class TenantStorageLifecycleService:
                 database_type=target_config.dialect.value,
             )
         )
+
+    def _assert_not_reserved(
+        self, mode: DeploymentMode, schema_name: str, database_name: str
+    ) -> None:
+        """Refuse to build a dedicated store on top of somebody else's.
+
+        The create-time refusal in `FirmService` stops a new firm naming a
+        reserved store; this stops provisioning one that was recorded before
+        that refusal existed, since provisioning migrates the schema and then
+        prunes it (D-IDN-4). Nothing is touched when it fires.
+
+        Raises:
+            BusinessRuleError: If the schema or database is reserved.
+
+        """
+        platform = self._platform_database.config
+        also = frozenset({platform.default_schema} if platform.default_schema else ())
+        if is_reserved_schema(schema_name, also=also):
+            raise BusinessRuleError(
+                f"The schema {schema_name!r} is reserved and cannot hold a "
+                "dedicated firm."
+            )
+        if mode is DeploymentMode.DATABASE:
+            platform_database = make_url(platform.url).database or ""
+            reserved = RESERVED_DATABASE_NAMES | {platform_database.lower()}
+            if database_name.strip().lower() in reserved:
+                raise BusinessRuleError(
+                    f"The database {database_name!r} is reserved and cannot "
+                    "hold a dedicated firm."
+                )
 
     def _create_schema_if_missing(
         self,

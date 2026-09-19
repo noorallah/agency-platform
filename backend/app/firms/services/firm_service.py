@@ -12,6 +12,7 @@ from app.core.config.settings import TenancySettings
 from app.core.database.config import DatabaseDialect
 from app.core.exceptions import BusinessRuleError, ConflictError, ResourceNotFoundError
 from app.core.tenancy import DeploymentMode, TenantStorageLifecycleService
+from app.core.tenancy.lifecycle import RESERVED_DATABASE_NAMES, is_reserved_schema
 from app.core.utils.dates import utc_now
 from app.firms.models import Firm, FirmStorageMapping
 from app.firms.schemas import FirmCreate, FirmUpdate
@@ -43,6 +44,7 @@ class FirmService:
         self._assert_unique(data.code, data.gst_number, data.pan_number)
         payload = data.model_dump()
         payload, storage_payload = self._normalize_registry_defaults(payload)
+        self._assert_storage_not_reserved(storage_payload)
         self._assert_storage_unclaimed(storage_payload, current_firm_id=None)
         now = utc_now()
         payload["created_date"] = now
@@ -422,6 +424,54 @@ class FirmService:
                 f"(currently {current['deployment_mode']}"
                 f"/{current['schema_name'] or 'shared'}). Migrate the firm's "
                 "data first."
+            )
+
+    def _assert_storage_not_reserved(self, storage_payload: dict[str, object]) -> None:
+        """Refuse routing a dedicated firm into a store that is not a firm's.
+
+        `_assert_storage_unclaimed` compares with other firms' mappings only,
+        and nobody's mapping names `platform`, while SHARED firms record no
+        schema at all -- so a SCHEMA or DATABASE firm could name `platform`,
+        `firm_shared` or `public`, and **Provision** would then migrate it and
+        drop the platform tables there (D-IDN-4). Refused by name, at create,
+        before anything is recorded.
+
+        Raises:
+            BusinessRuleError: If the schema or database is reserved.
+
+        """
+        schema_name = storage_payload["schema_name"]
+        if not isinstance(schema_name, str):
+            return
+        also: set[str] = set()
+        reserved_databases = set(RESERVED_DATABASE_NAMES)
+        if self._tenancy_settings is not None:
+            also |= {
+                self._tenancy_settings.shared_schema_name,
+                self._tenancy_settings.platform_schema_name,
+            }
+            reserved_databases |= {
+                name.lower()
+                for name in (
+                    self._tenancy_settings.platform_database_name,
+                    self._tenancy_settings.shared_database_name,
+                )
+                if name
+            }
+        if is_reserved_schema(schema_name, also=frozenset(also)):
+            raise BusinessRuleError(
+                f"The schema '{schema_name}' is reserved for the platform or the "
+                "database server. Choose another schema name for this firm."
+            )
+        database_name = storage_payload["database_name"]
+        if (
+            storage_payload["deployment_mode"] == DeploymentMode.DATABASE.value
+            and isinstance(database_name, str)
+            and database_name.strip().lower() in reserved_databases
+        ):
+            raise BusinessRuleError(
+                f"The database '{database_name}' is reserved for the platform or "
+                "the database server. Choose another database name for this firm."
             )
 
     def _assert_storage_unclaimed(
