@@ -79,6 +79,16 @@ class TaxRuleService:
         finally:
             self._staged = False
 
+    def place_of_supply(self, customer_id: UUID | None) -> str | None:
+        """Return the place of supply an outward document prints.
+
+        The same answer ``outward_transaction_type`` charges by, so the print
+        and the tax cannot name different states (D-CMP-15).
+        """
+        if self._supply is None:
+            self._supply = SupplyPlaceResolver(self._session)
+        return self._supply.place_of_supply(customer_id)
+
     def outward_transaction_type(
         self,
         document_type: str,
