@@ -37,6 +37,16 @@ from app.finance.models import (
 ZERO = Decimal("0")
 MONEY = Decimal("0.01")
 
+#: Which open period a date posts into when more than one covers it (D-FIN-6).
+#: New periods can no longer overlap, but stores created before that rule may
+#: hold some, and an unordered ``scalar()`` let the database pick. The most
+#: specific one wins -- the latest start, then the earliest end -- and the code
+#: settles a tie. Every column is NOT NULL, so no NULL ordering can decide it.
+COVERING_PERIOD_ORDER = (
+    AccountingPeriod.starts_on.desc(),
+    AccountingPeriod.ends_on.asc(),
+    AccountingPeriod.code.asc(),
+)
 #: What each posting module is called in a refusal, by ``source_module``. A
 #: module missing here is still refused -- by its own name with the
 #: underscores taken out -- so this is wording, not the rule.
@@ -693,13 +703,16 @@ class JournalEntryEngine:
     ) -> AccountingPeriod | None:
         """Return the open period that covers a date, if there is one."""
         return self._session.scalar(
-            select(AccountingPeriod).where(
+            select(AccountingPeriod)
+            .where(
                 AccountingPeriod.firm_id == firm_id,
                 AccountingPeriod.starts_on <= on,
                 AccountingPeriod.ends_on >= on,
                 AccountingPeriod.status == PeriodStatus.OPEN.value,
                 AccountingPeriod.is_deleted.is_(False),
             )
+            .order_by(*COVERING_PERIOD_ORDER)
+            .limit(1)
         )
 
     def _require_open_period(

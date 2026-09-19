@@ -2664,3 +2664,142 @@ def test_a_reversal_cannot_be_asked_for_before_its_original() -> None:
             journal_date=date(2026, 4, 15),
             actor_id=actor_id,
         )
+
+
+def test_periods_do_not_overlap_and_keep_the_dates_their_journals_carry() -> None:
+    """D-FIN-6: periods and years were re-dated with no regard to each other.
+
+    Driven on a fixture firm: a period FINFIX-OVL (15-25 September) was
+    created on top of P06, P06 was re-dated to end on the 10th while it held
+    posted journals, and the year was moved to start on 1 May past its April
+    period -- all accepted.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    service = FinanceService(session)
+    may = service.create_accounting_period(
+        AccountingPeriodCreate(
+            financial_year_id=book.year.id,
+            period_number=2,
+            code="P2",
+            name="May 2026",
+            starts_on=date(2026, 5, 1),
+            ends_on=date(2026, 5, 31),
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    session.commit()
+
+    with pytest.raises(ValidationError, match="overlaps P1"):
+        service.create_accounting_period(
+            AccountingPeriodCreate(
+                financial_year_id=book.year.id,
+                period_number=3,
+                code="P3",
+                name="Mid April",
+                starts_on=date(2026, 4, 15),
+                ends_on=date(2026, 4, 25),
+            ),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+    session.rollback()
+
+    # A period with a journal in it keeps its dates.
+    engine = JournalEntryEngine(session)
+    entry = engine.create_entry(
+        firm_id=firm.id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 20),
+        reference_number="JV-HELD",
+        description="Cash sale",
+        lines=_sale_lines(book, "10.00"),
+        actor_id=actor_id,
+    )
+    engine.post_entry(entry.id, firm_id=firm.id, actor_id=actor_id)
+    session.commit()
+    with pytest.raises(ValidationError, match="P1 holds 1 journal entry"):
+        service.update_accounting_period(
+            book.period.id,
+            AccountingPeriodUpdate(ends_on=date(2026, 4, 10)),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+    session.rollback()
+
+    # One without journals moves, but not out of its year or onto another.
+    with pytest.raises(ValidationError, match="overlaps P1"):
+        service.update_accounting_period(
+            may.id,
+            AccountingPeriodUpdate(starts_on=date(2026, 4, 25)),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+    session.rollback()
+    with pytest.raises(ValidationError, match="inside its financial year"):
+        service.update_accounting_period(
+            may.id,
+            AccountingPeriodUpdate(ends_on=date(2027, 5, 31)),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+    session.rollback()
+    moved = service.update_accounting_period(
+        may.id,
+        AccountingPeriodUpdate(ends_on=date(2026, 5, 30)),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    assert moved.ends_on == date(2026, 5, 30)
+
+    # And a year cannot be moved out from under its periods.
+    with pytest.raises(ValidationError, match="its period P1 would fall outside"):
+        service.update_financial_year(
+            book.year.id,
+            FinancialYearUpdate(starts_on=date(2026, 5, 1)),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+
+
+def test_posting_picks_one_period_the_same_way_every_time() -> None:
+    """D-FIN-6: two open periods covering a date were picked by an unordered query.
+
+    New periods can no longer overlap, but a store made before that rule may
+    hold some. The most specific one -- the latest start -- is the answer, for
+    documents and for reversals alike.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    # Written straight to the table, as an older store would already hold it.
+    narrow = AccountingPeriod(
+        firm_id=firm.id,
+        financial_year_id=book.year.id,
+        period_number=9,
+        code="P1B",
+        name="Mid April",
+        starts_on=date(2026, 4, 10),
+        ends_on=date(2026, 4, 20),
+        status=PeriodStatus.OPEN.value,
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    session.add(narrow)
+    session.commit()
+
+    context = DocumentPostingService(session).context_for(firm.id, date(2026, 4, 15))
+    assert context.accounting_period_id == narrow.id
+    covering = JournalEntryEngine(session)._open_period_covering(
+        date(2026, 4, 15), firm_id=firm.id
+    )
+    assert covering is not None and covering.id == narrow.id
+    # Outside the narrow one, the month is still the answer.
+    context = DocumentPostingService(session).context_for(firm.id, date(2026, 4, 25))
+    assert context.accounting_period_id == book.period.id
