@@ -438,6 +438,13 @@ ROLE_PERMISSION_CODES = {
         {
             "CUSTOMER_VIEW",
             "VENDOR_VIEW",
+            # Whoever pays a supplier has to read the account the money goes
+            # to. `VENDOR_VIEW` served it to everybody until the code was
+            # enforced (D-MST-10), so this keeps what the accountant already
+            # read; changing the account stays with `VENDOR_MANAGE_BANK_DETAILS`,
+            # which this role deliberately does not hold -- whoever sends the
+            # money must not be the one who says where it goes.
+            "VENDOR_VIEW_FINANCIAL_DETAILS",
             "PRODUCT_VIEW",
             # Credit policy governs receivables, so it belongs to the role that
             # owns them rather than to the role it constrains.

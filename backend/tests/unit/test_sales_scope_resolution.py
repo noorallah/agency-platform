@@ -34,6 +34,7 @@ from app.identity.models import User, UserFirm
 from app.identity.models import identity as _identity_models  # noqa: F401
 from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.products.models import Product
+from app.sales.models import TerritoryRouteProfile
 from app.sales.models import territory as _sales_models  # noqa: F401
 from app.sales.schemas import (
     TerritoryAssignCustomersRequest,
@@ -487,6 +488,151 @@ def test_with_no_date_the_route_still_applies() -> None:
     scope = resolve_sales_scope(session, firm_id=firm.id, customer_id=customer.id)
 
     assert scope.route_id is not None
+
+
+def _route_of(session: Session, territory_id: UUID) -> UUID:
+    """Return the live route profile id on a node."""
+    profile_id = session.scalar(
+        select(TerritoryRouteProfile.id).where(
+            TerritoryRouteProfile.territory_id == territory_id,
+            TerritoryRouteProfile.is_deleted.is_(False),
+        )
+    )
+    assert profile_id is not None
+    return profile_id
+
+
+def test_a_named_route_that_had_ended_is_refused() -> None:
+    """D-TER-9: the window was enforced on a blank and on nothing else.
+
+    With the round closed at the end of June, a blank took no route -- and a
+    caller who named it kept it. Now both are judged on the document's date.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    hierarchy = service.get_hierarchy(firm_scope=firm.id, actor_id=actor)
+    node = service.create_territory(
+        TerritoryCreate(
+            code="S1",
+            name="S1 node",
+            hierarchy_level_id=hierarchy.levels[0].id,
+            route_profile=RouteProfileInput(
+                visit_frequency=VisitFrequency.WEEKLY,
+                effective_to=date(2026, 6, 30),
+            ),
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    customer = _customer(session, firm.id)
+    _assign_customer(service, node.id, customer.id, firm.id, actor)
+    route = _route_of(session, node.id)
+
+    with pytest.raises(ValidationError, match="not in force on 2026-09-19"):
+        resolve_sales_scope(
+            session,
+            firm_id=firm.id,
+            customer_id=customer.id,
+            route_id=route,
+            on_date=date(2026, 9, 19),
+        )
+    during = resolve_sales_scope(
+        session,
+        firm_id=firm.id,
+        customer_id=customer.id,
+        route_id=route,
+        on_date=date(2026, 5, 1),
+    )
+    assert during.route_id == route
+
+
+def test_a_named_route_the_customer_is_not_on_is_refused() -> None:
+    """A round that does not call this shop cannot carry its sale.
+
+    N2 is a live round, but the customer is on S1; naming N2 was kept as
+    sent. It is refused unless the customer is on N2 or a node beneath it.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    on_s1 = _territory(service, firm.id, actor, "S1")
+    other = _territory(service, firm.id, actor, "N2")
+    customer = _customer(session, firm.id)
+    _assign_customer(service, on_s1, customer.id, firm.id, actor)
+
+    with pytest.raises(ValidationError, match="Route N2 does not cover"):
+        resolve_sales_scope(
+            session,
+            firm_id=firm.id,
+            customer_id=customer.id,
+            route_id=_route_of(session, other),
+            on_date=date(2026, 9, 19),
+        )
+    resolved = resolve_sales_scope(
+        session,
+        firm_id=firm.id,
+        customer_id=customer.id,
+        route_id=_route_of(session, on_s1),
+        on_date=date(2026, 9, 19),
+    )
+    assert resolved.route_id == _route_of(session, on_s1)
+    assert resolved.territory_id == on_s1
+
+
+def test_a_named_route_above_the_customer_s_node_is_accepted() -> None:
+    """A route above the leaf reaches the document the way a derived one does."""
+    session = _session_factory()()
+    firm = _firm(session)
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    region = _territory(service, firm.id, actor, "RGN", is_route=True)
+    leaf = _territory(
+        service, firm.id, actor, "LEAF", level=1, parent_id=region, is_route=False
+    )
+    customer = _customer(session, firm.id)
+    _assign_customer(service, leaf, customer.id, firm.id, actor)
+
+    resolved = resolve_sales_scope(
+        session,
+        firm_id=firm.id,
+        customer_id=customer.id,
+        route_id=_route_of(session, region),
+        on_date=date(2026, 9, 19),
+    )
+
+    assert resolved.territory_id == leaf
+    assert resolved.route_id == _route_of(session, region)
+
+
+def test_another_firm_s_route_is_refused() -> None:
+    """In the shared store an id is just an id; the firm is checked."""
+    session = _session_factory()()
+    firm = _firm(session)
+    other = Firm(
+        name="Other Firm",
+        code="SCOPE02",
+        country="IN",
+        currency_code="INR",
+        financial_year_start=date(2026, 4, 1),
+    )
+    session.add(other)
+    session.commit()
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    theirs = _territory(service, other.id, actor, "X1")
+    customer = _customer(session, firm.id)
+
+    with pytest.raises(ValidationError, match="does not belong to this firm"):
+        resolve_sales_scope(
+            session,
+            firm_id=firm.id,
+            customer_id=customer.id,
+            route_id=_route_of(session, theirs),
+            on_date=date(2026, 9, 19),
+        )
 
 
 def _leaves(session: Session, firm_id: UUID, user_id: UUID) -> None:

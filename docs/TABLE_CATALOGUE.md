@@ -98,6 +98,7 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
+| `commission_clawbacks` | firm store ¹ | What one payout recovered from one earlier, paid payout whose period was later credited or returned against. | `commission_payouts` |
 | `commission_payouts` | firm store ¹ | One period's commission for one salesman, from accrual to payment. | `users`, `ledger_accounts`, `journal_entries` |
 | `commission_rule_slabs` | firm store ¹ | One rung of a rule's ladder: a band of value, and its rate. | `commission_rules` |
 | `commission_rules` | firm store ¹ | Store one flat commission percentage, scoped and effective-dated. | `users`, `products`, `product_categories` |

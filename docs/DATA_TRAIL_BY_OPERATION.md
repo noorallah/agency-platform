@@ -5591,12 +5591,16 @@ commit.
   written straight through, so another firm's category in the shared store is
   accepted (D-MST-3); the address's geography ids are stored without the
   parent-and-child check a customer address gets (§16.1).
-- **Bank details are the firm's money, and nothing guards them.**
-  `VENDOR_MANAGE_BANK_DETAILS` and `VENDOR_VIEW_FINANCIAL_DETAILS` are seeded
-  and enforced on no route — the scope is declared in
-  `backend/app/vendors/api/router.py` and never used — so the account number a
-  payment is sent to is edited with `VENDOR_UPDATE` and read with
-  `VENDOR_VIEW`, which the seeded `VIEWER` role holds (D-MST-10).
+- **Bank details are the firm's money, and two codes guard them.**
+  `VENDOR_MANAGE_BANK_DETAILS` and `VENDOR_VIEW_FINANCIAL_DETAILS` were seeded
+  and enforced on no route, so the account number a payment is sent to was
+  edited with `VENDOR_UPDATE` and read with `VENDOR_VIEW`, which the seeded
+  `VIEWER` role holds (D-MST-10, fixed). The router now serves
+  `bank_accounts` empty without the read code, and the service refuses a
+  create or an update that adds, changes or removes an account without the
+  manage code; a caller shown no accounts has their resent empty list left
+  unapplied rather than read as an instruction to clear them. `ACCOUNTANT`
+  gained the read (`20260919_0150`) and deliberately not the write.
 - **Check:**
   ```sql
   select v.code, v.name, v.display_name, v.status, v.gstin,
@@ -6005,8 +6009,8 @@ Five bulk endpoints (`/bulk-delete`, `/bulk-restore`, `/bulk-status`,
 | A deleted customer's or vendor's documents cancelled | Nothing is touched; the documents stand and refuse to move (§16.3, §16.10) |
 | A deleted product's stock cleared or written off | It stays, invisible to the stock summary and unmovable (§16.14) |
 | An inactive customer refused a sale | Nothing reads the status on the sales side (§16.4) |
-| A vendor's bank account behind its own permission | `VENDOR_MANAGE_BANK_DETAILS` is enforced on no route (§16.7) |
-| A price or tax-group change behind `PRODUCT_PRICING_MANAGE` / `PRODUCT_TAX_MANAGE` | Both are seeded and enforced nowhere; `PRODUCT_UPDATE` carries them (§16.12) |
+| A vendor's bank account behind its own permission | Fixed (D-MST-10): shown only with `VENDOR_VIEW_FINANCIAL_DETAILS`, changed only with `VENDOR_MANAGE_BANK_DETAILS` (§16.7) |
+| A price, a tax group or the custom fields behind `PRODUCT_PRICING_MANAGE` / `PRODUCT_TAX_MANAGE` / `PRODUCT_ATTRIBUTE_MANAGE` | Fixed (D-MST-10): a *change* to the field is refused without the duty; resending what is stored saves as before (§16.12) |
 | A customer's or vendor's custom fields on the record's own audit row | They are their own table and their own timestamps (§14.5) |
 | A branch or warehouse manager resolved to a person | `branch_manager_id` is a bare id: `users` lives in `platform` (§16.0) |
 

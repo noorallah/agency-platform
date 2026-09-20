@@ -83,15 +83,113 @@ def resolve_sales_scope(
     )
     return ResolvedSalesScope(
         territory_id=resolved_territory,
-        # A caller who named a route keeps it. Callers that have no `route_id`
-        # column pass nothing and always get the derived one.
+        # A caller who named a route keeps it once it has been checked: this
+        # firm's, in force on the document's date, and a round this customer
+        # is on. Callers that have no `route_id` column pass nothing and
+        # always get the derived one.
         route_id=(
-            route_id
+            validate_named_route(
+                session,
+                firm_id=firm_id,
+                customer_id=customer_id,
+                territory_id=resolved_territory,
+                route_id=route_id,
+                on_date=on_date,
+            )
             if route_id is not None
             else _route_profile_for(session, resolved_territory, on_date)
         ),
         salesman_id=resolved_salesman,
     )
+
+
+def validate_named_route(
+    session: Session,
+    *,
+    firm_id: UUID,
+    customer_id: UUID,
+    territory_id: UUID | None,
+    route_id: UUID,
+    on_date: date | None,
+) -> UUID:
+    """Accept a caller's route only if the document can honestly carry it.
+
+    Three things, each refused by name (D-TER-9). The profile must be a live
+    round on one of **this firm's** nodes -- in the shared store an id is
+    just an id, and nothing else stopped one firm tagging its sales with
+    another's round. It must have been **in force on the document's date**,
+    the same window `_route_profile_for` applies to a blank; a window
+    enforced only on what nobody typed is not enforced. And it must be a
+    round this document **belongs to**: the resolved territory or one above
+    it when the document has a territory, otherwise a round the customer is
+    on or one above that. A route above the leaf reaches the document the
+    way an inherited one does.
+
+    Args:
+        session: The firm's session.
+        firm_id: The owning firm.
+        customer_id: The customer on the document.
+        territory_id: The document's territory, already validated or
+            derived, or None when it has none.
+        route_id: The `territory_route_profiles.id` the caller sent.
+        on_date: The document's own date, or None when it has none.
+
+    Returns:
+        The route id, unchanged.
+
+    Raises:
+        ValidationError: If the route fails any of the three tests.
+
+    """
+    profile = session.scalar(
+        select(TerritoryRouteProfile).where(
+            TerritoryRouteProfile.id == route_id,
+            TerritoryRouteProfile.is_deleted.is_(False),
+        )
+    )
+    node = (
+        None
+        if profile is None
+        else session.scalar(
+            select(SalesTerritoryNode).where(
+                SalesTerritoryNode.id == profile.territory_id,
+                SalesTerritoryNode.firm_id == firm_id,
+                SalesTerritoryNode.is_deleted.is_(False),
+            )
+        )
+    )
+    if profile is None or node is None:
+        raise ValidationError("The selected route does not belong to this firm.")
+    if not route_profile_in_force(profile, on_date):
+        when = on_date.isoformat() if on_date is not None else "that date"
+        raise ValidationError(
+            f"Route {node.code} was not in force on {when}. Leave the route "
+            "blank to use the one the customer is on."
+        )
+    anchors = (
+        [territory_id]
+        if territory_id is not None
+        else list(
+            session.scalars(
+                select(TerritoryCustomerAssignment.territory_id).where(
+                    TerritoryCustomerAssignment.customer_id == customer_id,
+                    TerritoryCustomerAssignment.is_deleted.is_(False),
+                )
+            )
+        )
+    )
+    reachable: set[UUID] = set()
+    for anchor in anchors:
+        reachable.add(anchor)
+        reachable.update(_ancestors(session, anchor))
+    if node.id not in reachable:
+        raise ValidationError(
+            f"Route {node.code} does not cover this customer"
+            + (" on the selected territory" if territory_id is not None else "")
+            + ". Put them on that round first, or leave the route blank to use "
+            "the one they are on."
+        )
+    return route_id
 
 
 def _validated_territory(

@@ -137,8 +137,19 @@ class CommissionPayout(BaseEntity):
         Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
     )
     adjustment_reason: Mapped[str | None] = mapped_column(Text)
-    #: What is actually owed: earned plus the adjustment, floored at zero.
-    #: Stored rather than derived because it is what posted to the ledger.
+    #: What this payout recovers from earlier PAID payouts whose periods
+    #: are now worth less than was paid on them -- a credit note or a return
+    #: against a bill already commissioned. Which payouts, and how much from
+    #: each, is `commission_clawbacks`; this is the sum, held here because
+    #: it is what came off the payable. Never negative, never more than
+    #: `earned_amount`: a payout cannot take money back, so what one period
+    #: cannot recover waits for the next (D-TER-3).
+    clawback_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: What is actually owed: earned less the clawback plus the adjustment,
+    #: floored at zero. Stored rather than derived because it is what posted
+    #: to the ledger.
     payable_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
     )
@@ -165,3 +176,41 @@ class CommissionPayout(BaseEntity):
         UUIDType(), ForeignKey("journal_entries.id", ondelete="RESTRICT")
     )
     notes: Mapped[str | None] = mapped_column(Text)
+
+
+class CommissionClawback(BaseEntity):
+    """What one payout recovered from one earlier, paid payout.
+
+    A payout is snapshotted at accrual and never rewritten -- least of all a
+    PAID one, whose money has gone. When the period it paid for is later
+    worth less (a bill credited or returned after the payout was made), the
+    shortfall is carried onto the person's **next** accrual instead, and
+    this row is the record of which payout it came off and by how much.
+
+    A link table rather than a tally on the paid row, so that cancelling the
+    carrying payout releases what it recovered without anything on the paid
+    row moving: what has already been recovered from a payout is the sum of
+    these rows whose carrier is still live.
+    """
+
+    __tablename__ = "commission_clawbacks"
+    __table_args__ = (
+        CheckConstraint("amount > 0", name="CK_commission_clawbacks_positive"),
+        Index("IX_commission_clawbacks_firm_payout", "firm_id", "payout_id"),
+        Index("IX_commission_clawbacks_firm_source", "firm_id", "source_payout_id"),
+    )
+
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    #: The payout carrying the recovery: the one whose payable it came off.
+    payout_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("commission_payouts.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    #: The PAID payout whose period turned out to be worth less.
+    source_payout_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("commission_payouts.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)

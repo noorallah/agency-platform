@@ -6,7 +6,7 @@ from collections.abc import Callable, Iterable
 from decimal import Decimal, InvalidOperation
 from functools import partial
 from io import BytesIO
-from typing import Any
+from typing import Any, cast
 from uuid import UUID
 
 from pydantic import ValidationError as PydanticValidationError
@@ -36,6 +36,7 @@ from app.common.open_documents import (
 )
 from app.core.exceptions import (
     ApplicationError,
+    AuthorizationError,
     ConflictError,
     ResourceNotFoundError,
     ValidationError,
@@ -65,12 +66,51 @@ from app.products.schemas.product import ProductCategoryResponse
 from app.tax.models import TaxProfile
 from app.uom.models import Uom
 
+#: The product fields that are somebody's separate duty, by the code that owns
+#: them, with what each is called in a refusal. A price decides what the firm
+#: earns and a tax group what it charges and remits, so each has had a code of
+#: its own since the seed was written -- and until D-MST-10 no route read
+#: either: both rode on ``PRODUCT_UPDATE``.
+PRODUCT_DUTY_FIELDS: dict[str, dict[str, str]] = {
+    "PRODUCT_PRICING_MANAGE": {
+        "purchase_price": "purchase price",
+        "selling_price": "selling price",
+        "mrp": "MRP",
+    },
+    "PRODUCT_TAX_MANAGE": {"tax_profile_group_code": "tax group"},
+}
+#: The custom fields are the third duty, over a collection rather than a
+#: column, so it is judged by ``_assert_attribute_duty_held`` instead.
+ATTRIBUTE_DUTY = "PRODUCT_ATTRIBUTE_MANAGE"
+#: Every product duty a router projects from the principal.
+PRODUCT_DUTIES: frozenset[str] = frozenset(PRODUCT_DUTY_FIELDS) | {ATTRIBUTE_DUTY}
+
+#: The fields that say how a product's stock is counted and traced, and what
+#: each is called in a refusal. Changing one under stock is refused (D-MST-7).
+_STOCK_SHAPE_FIELDS = {
+    "base_uom_id": "base unit",
+    "inventory_uom_id": "inventory unit",
+    "track_batch": "batch tracking",
+    "track_serial": "serial tracking",
+    "require_batch_on_issue": "batch-on-issue rule",
+    "require_serial_on_issue": "serial-on-issue rule",
+}
+
 
 class ProductService:
     """Coordinate dynamic product validation, persistence, and retrieval."""
 
-    def __init__(self, session: Session) -> None:
+    def __init__(
+        self, session: Session, *, withheld_duties: frozenset[str] = frozenset()
+    ) -> None:
+        """Bind the service to one request.
+
+        ``withheld_duties`` names the codes of ``PRODUCT_DUTY_FIELDS`` the
+        caller does **not** hold. It is empty for a trusted caller -- a seeder,
+        a test, another service -- and the router fills it from the principal.
+        """
         self._session = session
+        self._withheld_duties = withheld_duties
         # Scoped to this request; the service is constructed per call.
         self._attribute_match_cache: dict[tuple[UUID, str], frozenset[UUID]] = {}
 
@@ -166,6 +206,10 @@ class ProductService:
         Split out so the import can stage a whole file and commit once. Nothing
         here is durable until the caller commits.
         """
+        # The form and all three import formats end here, so one check covers
+        # every way a product is created (D-MST-10).
+        self._assert_duties_held(None, self._product_values(data), code=data.code)
+        self._assert_attribute_duty_held(None, data.attributes, code=data.code)
         self._assert_unique_code(firm_id, data.code)
         self._assert_unique_barcode(firm_id, data.barcode)
         category = self._validate_category_reference(firm_id, data.category_id)
@@ -260,6 +304,9 @@ class ProductService:
         sub_category_id = self._as_uuid(
             values.get("sub_category_id", product.sub_category_id)
         )
+        self._assert_duties_held(product, values, code=data.code)
+        if "attributes" in data.model_fields_set:
+            self._assert_attribute_duty_held(product, data.attributes, code=data.code)
         if "category_id" in values:
             category = self._validate_category_reference(firm_scope, category_id)
         else:
@@ -276,6 +323,7 @@ class ProductService:
             )
         self._validate_uom_references(data)
         self._validate_feature_gated_fields(data, firm_scope)
+        self._assert_stock_shape_unchanged(product, self._product_values(data))
         self._assert_price_within_mrp(product, values)
         before: dict[str, object] = {
             "code": product.code,
@@ -420,6 +468,54 @@ class ProductService:
             self._commit()
         return count
 
+    def _assert_stock_shape_unchanged(
+        self, product: Product, values: dict[str, object]
+    ) -> None:
+        """Refuse to change how stock is counted or traced while stock exists.
+
+        ``inventories.current_quantity`` is held in the product's base unit,
+        so moving the unit from PIECE to BOX re-reads 50 pieces as 50 boxes
+        without a single movement; and switching serial or batch tracking on
+        over stock received without serials or batches leaves quantity the
+        picker then refuses to dispatch (D-MST-7). The rule every stock
+        package keeps: the unit and the tracking mode are settled before the
+        first receipt, and changed only once the product is back at nothing --
+        no quantity anywhere, no reservation, no document still to ship,
+        receive or bill it.
+
+        ``values`` is what the update is about to write, so only a field that
+        is present **and different** is a change: a form resending what is
+        stored saves as before. Naming a unit for a product that had none is
+        not a change of unit -- nothing is re-read -- and is how a product
+        created without one is repaired, so it is let through.
+        """
+        changing = [
+            label
+            for field, label in _STOCK_SHAPE_FIELDS.items()
+            if field in values
+            and values[field] != getattr(product, field)
+            and not (field.endswith("_uom_id") and getattr(product, field) is None)
+        ]
+        if not changing:
+            return
+        reasons: list[str] = []
+        holdings = find_stock_holdings(
+            self._session, product.firm_id, product_id=product.id
+        )
+        if holdings:
+            reasons.append(f"holds {describe_stock(holdings)}")
+        documents = find_open_documents(
+            self._session, product.firm_id, product_id=product.id
+        )
+        if documents:
+            reasons.append(f"is on {describe_documents(documents)}")
+        if reasons:
+            raise ValidationError(
+                f"{product.code}: the {', '.join(changing)} cannot be changed "
+                f"while it {' and '.join(reasons)}. Move or write off the "
+                "stock and finish, cancel or close what is open first."
+            )
+
     def _assert_product_removable(self, product: Product) -> None:
         """Refuse to delete a product that still holds stock or is in flight.
 
@@ -449,6 +545,75 @@ class ProductService:
                 "Move or write off the stock and finish, cancel or close what "
                 "is open first, or set the product inactive to stop trading it."
             )
+
+    def _assert_duties_held(
+        self, product: Product | None, values: dict[str, object], *, code: str
+    ) -> None:
+        """Refuse a write to a field whose duty the caller does not hold.
+
+        ``values`` is what is about to be written. On an update a field counts
+        only when it is present **and different** from the row, so a form
+        resending the stored price saves as before; on a create (``product``
+        is None) it counts when it carries a value at all. The form and all
+        three import formats end in ``create_product``, so one check covers
+        them. A duplicate copies what is already stored rather than deciding
+        a price, and its route withholds nothing.
+        """
+        for duty in sorted(self._withheld_duties):
+            for field, label in PRODUCT_DUTY_FIELDS.get(duty, {}).items():
+                if field not in values:
+                    continue
+                stored = None if product is None else getattr(product, field)
+                if values[field] == stored:
+                    continue
+                raise AuthorizationError(
+                    f"{code}: setting a product's {label} needs the "
+                    f"{duty.replace('_', ' ').lower()} permission ({duty})."
+                )
+
+    def _assert_attribute_duty_held(
+        self,
+        product: Product | None,
+        attributes: list[ProductAttributeInput],
+        *,
+        code: str,
+    ) -> None:
+        """Refuse a change to the custom fields without ``PRODUCT_ATTRIBUTE_MANAGE``.
+
+        The custom fields are the third duty the seed split off ``PRODUCT_UPDATE``
+        and no route read (D-MST-10). On a create any value at all counts; on an
+        update only a set that differs from what is stored, so a form resending
+        the values it was served saves as before. Numbers compare as decimals,
+        because a stored ``10.00`` and a resent ``10`` are the same value.
+        """
+        if ATTRIBUTE_DUTY not in self._withheld_duties:
+            return
+        sent = {
+            self._attribute_key(item.attribute_definition_id, item.value)
+            for item in attributes
+        }
+        stored: set[tuple[str, str]] = set()
+        if product is not None:
+            stored = {
+                self._attribute_key(
+                    cast(UUID, item["attribute_definition_id"]), item["value"]
+                )
+                for item in self._attribute_inputs_for(product)
+            }
+        if sent != stored:
+            raise AuthorizationError(
+                f"{code}: setting a product's custom fields needs the manage "
+                f"product attributes permission ({ATTRIBUTE_DUTY})."
+            )
+
+    @staticmethod
+    def _attribute_key(definition_id: UUID, value: object) -> tuple[str, str]:
+        """Normalise one attribute value so a resend compares equal to the row."""
+        if isinstance(value, bool):
+            return (str(definition_id), str(value))
+        if isinstance(value, int | float | Decimal):
+            return (str(definition_id), str(Decimal(str(value)).normalize()))
+        return (str(definition_id), str(value))
 
     def _audit_bulk(self, product: Product, *, action: str, actor_id: UUID) -> None:
         """Record a bulk mutation the way the single-row endpoint records it.

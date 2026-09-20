@@ -29,6 +29,7 @@ from app.commission.services import CommissionService
 from app.common.audit.models import AuditLog
 from app.core.database.base import Base
 from app.core.exceptions import ConflictError, ValidationError
+from app.credit_note.models import CreditNote
 from app.customers.models import Customer
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
@@ -151,6 +152,33 @@ class _Books:
         )
         self.session.commit()
         return row
+
+    def credit(self, invoice: SalesInvoice, amount: str, when: date = LATER) -> None:
+        """Credit part of an invoice, as an approved credit note.
+
+        Written to the table rather than raised through `CreditNoteService`,
+        which needs invoice lines, document numbering and a chart to post to.
+        The row carries exactly what `credited_against` reads -- the invoice,
+        the status and the total -- which is the established derivation of
+        what a bill has had taken off it.
+        """
+        self.session.add(
+            CreditNote(
+                firm_id=self.firm.id,
+                customer_id=self.customer.id,
+                branch_id=self.branch_id,
+                sales_invoice_id=invoice.id,
+                credit_note_number=f"CN-{invoice.invoice_number}-{amount}",
+                credit_note_date=when,
+                status="APPROVED",
+                taxable_amount=Decimal(amount),
+                tax_amount=Decimal("0"),
+                total_amount=Decimal(amount),
+                created_by=self.actor_id,
+                updated_by=self.actor_id,
+            )
+        )
+        self.session.commit()
 
     def rule(
         self,
@@ -834,3 +862,76 @@ def test_an_omitted_ladder_is_left_alone() -> None:
     assert service.slabs_of(rule) == []
     _collect(books, "SI-1", "1000.00", books.asha)
     assert _earned(books, books.asha) == Decimal("40.00")
+
+
+def test_a_credit_note_takes_the_sale_off_what_was_collected() -> None:
+    """D-TER-3: a bill credited went on earning its full commission.
+
+    1,000 billed and collected, then 400 credited back: the sale is now worth
+    600, and that is what the collected basis measures and pays on.
+    """
+    books = _Books(_session_factory()())
+    books.rule("10", salesman_id=books.asha)
+    invoice = books.invoice("SI-1", "1000.00", books.asha)
+    books.receipt(invoice, "1000.00")
+    assert books.report()[books.asha] == (Decimal("1000.00"), Decimal("100.00"))
+
+    books.credit(invoice, "400.00")
+
+    assert books.report()[books.asha] == (Decimal("600.00"), Decimal("60.00"))
+
+
+def test_a_credit_note_takes_the_sale_off_what_was_invoiced() -> None:
+    """The invoiced figure is the bill less what has been credited against it."""
+    books = _Books(_session_factory()())
+    books.rule("10", salesman_id=books.asha, basis=CommissionBasisEnum.INVOICED)
+    invoice = books.invoice("SI-1", "1000.00", books.asha)
+    books.credit(invoice, "1000.00")
+
+    report = CommissionService(books.session).report(
+        firm_id=books.firm.id, from_date=YEAR[0], to_date=YEAR[1]
+    )
+
+    [row] = [row for row in report.rows if row.salesman_id == books.asha]
+    assert row.invoiced_amount == Decimal("0.00")
+    assert row.commission_amount == Decimal("0.00")
+
+
+def test_a_credit_comes_off_the_latest_receipt_first() -> None:
+    """Earlier money was good money for a good sale on the day.
+
+    600 in April and 400 in July against a 1,000 bill, then 500 credited:
+    the customer is owed 500 back, and it comes off July's 400 first and then
+    100 of April's. April's payout, if already made, is corrected by the
+    shortfall it leaves rather than by rewriting which receipt it was.
+    """
+    books = _Books(_session_factory()())
+    books.rule("10", salesman_id=books.asha)
+    invoice = books.invoice("SI-1", "1000.00", books.asha)
+    books.receipt(invoice, "600.00", when=WHEN)
+    books.receipt(invoice, "400.00", when=LATER)
+    books.credit(invoice, "500.00", when=date(2026, 9, 1))
+
+    def collected(period: tuple[date, date]) -> Decimal:
+        report = CommissionService(books.session).report(
+            firm_id=books.firm.id, from_date=period[0], to_date=period[1]
+        )
+        return next(
+            (r.collected_amount for r in report.rows if r.salesman_id == books.asha),
+            Decimal("0"),
+        )
+
+    assert collected((date(2026, 4, 1), date(2026, 4, 30))) == Decimal("500.00")
+    assert collected((date(2026, 7, 1), date(2026, 7, 31))) == Decimal("0.00")
+    assert books.report()[books.asha] == (Decimal("500.00"), Decimal("50.00"))
+
+
+def test_a_credit_on_an_unpaid_bill_takes_nothing_off_the_money_received() -> None:
+    """What was received is still less than what the bill is now worth."""
+    books = _Books(_session_factory()())
+    books.rule("10", salesman_id=books.asha)
+    invoice = books.invoice("SI-1", "1000.00", books.asha)
+    books.receipt(invoice, "300.00")
+    books.credit(invoice, "500.00")
+
+    assert books.report()[books.asha] == (Decimal("300.00"), Decimal("30.00"))

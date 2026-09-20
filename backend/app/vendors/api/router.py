@@ -116,14 +116,32 @@ def _filters(
         raise ValidationError(str(error)) from error
 
 
-def _response(row: Vendor, db: Session) -> VendorResponse:
+def _may_manage_bank(scope: ResolvedFirmScope) -> bool:
+    """Say whether the caller may change where a supplier is paid."""
+    return scope.principal.has_permission("VENDOR_MANAGE_BANK_DETAILS")
+
+
+def _may_view_bank(scope: ResolvedFirmScope) -> bool:
+    """Say whether the caller may read a supplier's bank accounts."""
+    return scope.principal.has_permission("VENDOR_VIEW_FINANCIAL_DETAILS")
+
+
+def _response(row: Vendor, db: Session, scope: ResolvedFirmScope) -> VendorResponse:
     """Build one vendor response with its custom fields attached.
 
     The values live in their own table and `VendorResponse` cannot reach them
     through the row, so every site goes through here.
+
+    It is also where the bank accounts are withheld. They were served to
+    anybody holding `VENDOR_VIEW` -- the seeded read-only `VIEWER` included --
+    while `VENDOR_VIEW_FINANCIAL_DETAILS` sat seeded and enforced nowhere
+    (D-MST-10). One projection rather than a second scope, the way the product
+    router withholds a cost price.
     """
     payload = VendorResponse.model_validate(row).model_dump(mode="python")
     payload["attributes"] = VendorService(db).attribute_responses(row)
+    if not _may_view_bank(scope):
+        payload["bank_accounts"] = []
     return VendorResponse.model_validate(payload)
 
 
@@ -173,7 +191,7 @@ def list_vendors(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=[_response(row, db) for row in rows],
+        data=[_response(row, db, scope) for row in rows],
         pagination=params.metadata(total),
     )
 
@@ -248,9 +266,12 @@ def create_vendor(
     if scope.firm_id is None:
         raise ValidationError("X-Firm-ID is required when creating a vendor.")
     vendor = VendorService(db).create(
-        data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        data,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        may_manage_bank_details=_may_manage_bank(scope),
     )
-    return ApiResponse(data=_response(vendor, db))
+    return ApiResponse(data=_response(vendor, db, scope))
 
 
 @router.post(
@@ -270,8 +291,9 @@ def import_vendors(
         data.records,
         firm_id=scope.firm_id,
         actor_id=scope.actor_id,
+        may_manage_bank_details=_may_manage_bank(scope),
     )
-    return ApiResponse(data=[_response(item, db) for item in vendors])
+    return ApiResponse(data=[_response(item, db, scope) for item in vendors])
 
 
 # The two masters come first on purpose. FastAPI matches in declaration
@@ -462,7 +484,7 @@ def get_vendor(
         include_deleted=include_deleted,
     )
     set_etag(response, vendor)
-    return ApiResponse(data=_response(vendor, db))
+    return ApiResponse(data=_response(vendor, db, scope))
 
 
 @router.put("/{vendor_id}", response_model=ApiResponse[VendorResponse])
@@ -490,9 +512,13 @@ def update_vendor(
         data,
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
+        # Where a supplier is paid is its own duty, and somebody who is not
+        # shown the accounts cannot be taken to be instructing about them.
+        may_manage_bank_details=_may_manage_bank(scope),
+        may_view_bank_details=_may_view_bank(scope),
     )
     set_etag(response, vendor)
-    return ApiResponse(data=_response(vendor, db))
+    return ApiResponse(data=_response(vendor, db, scope))
 
 
 @router.delete("/{vendor_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -518,7 +544,7 @@ def restore_vendor(
     vendor = VendorService(db).restore(
         vendor_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
-    return ApiResponse(data=_response(vendor, db))
+    return ApiResponse(data=_response(vendor, db, scope))
 
 
 @router.post("/{vendor_id}/duplicate", response_model=ApiResponse[VendorResponse])
@@ -533,7 +559,7 @@ def duplicate_vendor(
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )
-    return ApiResponse(data=_response(vendor, db))
+    return ApiResponse(data=_response(vendor, db, scope))
 
 
 @router.post("/bulk-delete", response_model=ApiResponse[dict[str, int]])
