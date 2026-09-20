@@ -14,6 +14,7 @@ happened is what it counts towards.
 
 from datetime import date
 from decimal import Decimal
+from enum import StrEnum
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -21,13 +22,14 @@ from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader
-from app.core.exceptions import ConflictError, ResourceNotFoundError
+from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.money import quantize_money
 from app.sales_targets.models import SalesTarget
 from app.sales_targets.schemas import (
     SalesTargetAchievement,
     SalesTargetBasis,
     SalesTargetResponse,
+    SalesTargetUpdate,
     SalesTargetWrite,
 )
 from app.settlements.services.net_sales import (
@@ -43,6 +45,35 @@ HUNDRED = Decimal("100")
 #: dropped, for the reason the commission report names its own: a total that
 #: silently omits untagged sales cannot be reconciled against the day book.
 UNASSIGNED = "Unassigned"
+#: Every column an update may touch, in the order the audit row lists them.
+_COLUMNS: tuple[str, ...] = (
+    "salesman_id",
+    "territory_id",
+    "period_start",
+    "period_end",
+    "period_type",
+    "basis",
+    "target_amount",
+    "notes",
+    "status",
+)
+#: The ones that cannot be emptied: a target with no period, basis, amount
+#: or status is not a target. The other three -- the person, the round and
+#: the notes -- are cleared by an explicit ``null``.
+_REQUIRED: frozenset[str] = frozenset(
+    {"period_start", "period_end", "period_type", "basis", "target_amount", "status"}
+)
+
+
+def _audit_value(value: object) -> object:
+    """Render one column for the audit row: JSON-safe, and ``None`` as itself."""
+    return None if value is None else str(value)
+
+
+def _optional_uuid(value: object) -> UUID | None:
+    """Narrow a merged column back to the id it is, for the type checker."""
+    assert value is None or isinstance(value, UUID)
+    return value
 
 
 class SalesTargetService:
@@ -100,7 +131,14 @@ class SalesTargetService:
         self, data: SalesTargetWrite, *, firm_id: UUID, actor_id: UUID
     ) -> SalesTarget:
         """Set one target."""
-        self._assert_free(data, firm_id=firm_id)
+        self._assert_free(
+            firm_id=firm_id,
+            basis=data.basis.value,
+            period_start=data.period_start,
+            period_end=data.period_end,
+            salesman_id=data.salesman_id,
+            territory_id=data.territory_id,
+        )
         row = SalesTarget(
             firm_id=firm_id,
             salesman_id=data.salesman_id,
@@ -135,24 +173,70 @@ class SalesTargetService:
     def update_target(
         self,
         target_id: UUID,
-        data: SalesTargetWrite,
+        data: SalesTargetUpdate,
         *,
         firm_scope: UUID,
         actor_id: UUID,
     ) -> SalesTarget:
-        """Replace one target's numbers."""
+        """Change some of one target, leaving the rest as it was.
+
+        Only the fields the body actually set are written -- **absent means
+        leave alone, and an explicit ``null`` still clears** -- because the
+        write model's defaults used to be applied to every omission: a PUT
+        naming only the dates and the amount cleared the person, made the
+        target the firm's own, and stopped their bonus (D-TER-8). The overlap
+        check runs on the merged row rather than the body, since the body may
+        name none of what decides it, and the audit row records the before
+        and after of every column that moved.
+
+        Raises:
+            ValidationError: If a column that cannot be empty is set to
+                ``null``, or the merged period ends before it starts.
+            ConflictError: If the merged target overlaps another on the same
+                scope and basis.
+
+        """
         row = self.get_target(target_id, firm_scope=firm_scope)
-        self._assert_free(data, firm_id=firm_scope, excluding=row.id)
-        before: dict[str, object] = {"target_amount": str(row.target_amount)}
-        row.salesman_id = data.salesman_id
-        row.territory_id = data.territory_id
-        row.period_start = data.period_start
-        row.period_end = data.period_end
-        row.period_type = data.period_type.value
-        row.basis = data.basis.value
-        row.target_amount = data.target_amount
-        row.notes = data.notes
-        row.status = data.status
+        changes = data.model_dump(exclude_unset=True)
+        emptied = sorted(
+            field for field in changes if field in _REQUIRED and changes[field] is None
+        )
+        if emptied:
+            raise ValidationError(
+                "A target cannot have these cleared: " + ", ".join(emptied) + "."
+            )
+        merged: dict[str, object] = {
+            field: changes.get(field, getattr(row, field)) for field in _COLUMNS
+        }
+        for field in ("period_type", "basis"):
+            label = merged[field]
+            if isinstance(label, StrEnum):
+                merged[field] = label.value
+        period_start, period_end = merged["period_start"], merged["period_end"]
+        assert isinstance(period_start, date) and isinstance(period_end, date)
+        if period_end < period_start:
+            raise ValidationError("A target cannot end before it starts.")
+        self._assert_free(
+            firm_id=firm_scope,
+            basis=str(merged["basis"]),
+            period_start=period_start,
+            period_end=period_end,
+            salesman_id=_optional_uuid(merged["salesman_id"]),
+            territory_id=_optional_uuid(merged["territory_id"]),
+            excluding=row.id,
+        )
+        before: dict[str, object] = {}
+        after: dict[str, object] = {}
+        for field in _COLUMNS:
+            current = getattr(row, field)
+            if merged[field] == current:
+                continue
+            before[field] = _audit_value(current)
+            after[field] = _audit_value(merged[field])
+            setattr(row, field, merged[field])
+        if not after:
+            # Nothing moved: no write, no audit row, and the version stays.
+            return row
         row.updated_by = actor_id
         record_audit(
             self._session,
@@ -162,7 +246,7 @@ class SalesTargetService:
             actor_id=actor_id,
             firm_id=firm_scope,
             before_data=before,
-            after_data={"target_amount": str(row.target_amount)},
+            after_data=after,
         )
         self._session.commit()
         return row
@@ -342,9 +426,13 @@ class SalesTargetService:
 
     def _assert_free(
         self,
-        data: SalesTargetWrite,
         *,
         firm_id: UUID,
+        basis: str,
+        period_start: date,
+        period_end: date,
+        salesman_id: UUID | None,
+        territory_id: UUID | None,
         excluding: UUID | None = None,
     ) -> None:
         """Refuse a second target for the same scope and basis over any of the days.
@@ -358,9 +446,17 @@ class SalesTargetService:
         overlap: what was invoiced and what was collected are different
         numbers, and a firm may set both.
 
+        Takes the values rather than a body, because an update's body may
+        name none of them: the check has to run on what the row will hold
+        once the body is merged into it (D-TER-8).
+
         Args:
-            data: The target about to be written.
             firm_id: The owning firm.
+            basis: INVOICED or COLLECTED.
+            period_start: First day of the target about to be written.
+            period_end: Last day of it.
+            salesman_id: The person it is for, if anyone.
+            territory_id: The round it is for, if any.
             excluding: The row being updated, which may of course overlap
                 itself.
 
@@ -372,18 +468,18 @@ class SalesTargetService:
         statement = select(SalesTarget).where(
             SalesTarget.firm_id == firm_id,
             SalesTarget.is_deleted.is_(False),
-            SalesTarget.basis == data.basis.value,
-            SalesTarget.period_start <= data.period_end,
-            SalesTarget.period_end >= data.period_start,
+            SalesTarget.basis == basis,
+            SalesTarget.period_start <= period_end,
+            SalesTarget.period_end >= period_start,
             (
                 SalesTarget.salesman_id.is_(None)
-                if data.salesman_id is None
-                else SalesTarget.salesman_id == data.salesman_id
+                if salesman_id is None
+                else SalesTarget.salesman_id == salesman_id
             ),
             (
                 SalesTarget.territory_id.is_(None)
-                if data.territory_id is None
-                else SalesTarget.territory_id == data.territory_id
+                if territory_id is None
+                else SalesTarget.territory_id == territory_id
             ),
         )
         if excluding is not None:
