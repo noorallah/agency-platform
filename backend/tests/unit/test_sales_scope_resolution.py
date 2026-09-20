@@ -633,3 +633,108 @@ def test_another_firm_s_route_is_refused() -> None:
             route_id=_route_of(session, theirs),
             on_date=date(2026, 9, 19),
         )
+
+
+def _leaves(session: Session, firm_id: UUID, user_id: UUID) -> None:
+    """End somebody's membership of the firm, as an administrator would."""
+    membership = session.scalars(
+        select(UserFirm).where(UserFirm.user_id == user_id, UserFirm.firm_id == firm_id)
+    ).one()
+    membership.is_active = False
+    session.commit()
+
+
+def test_somebody_who_has_left_is_not_derived_on_to_a_document() -> None:
+    """D-TER-11: the assignment row outlives the membership.
+
+    Deleting a user or ending a membership touches no firm store, so the
+    round still names Asha; an order was created and approved in her name
+    and its delivery note -- which does check -- was refused. The derivation
+    now skips anybody who is no longer an active member: the round's other
+    assignee if there is exactly one, else nobody.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    asha = _salesman(session, firm.id, "asha@example.local")
+    route = _territory(service, firm.id, actor, "N1")
+    customer = _customer(session, firm.id)
+    _assign_customer(service, route, customer.id, firm.id, actor)
+    service.set_salesmen(
+        route,
+        TerritoryAssignSalesmenRequest(
+            assignments=[SalesmanAssignmentInput(user_id=asha, is_primary=True)]
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    before = resolve_sales_scope(session, firm_id=firm.id, customer_id=customer.id)
+    assert before.salesman_id == asha
+
+    _leaves(session, firm.id, asha)
+
+    scope = resolve_sales_scope(session, firm_id=firm.id, customer_id=customer.id)
+    assert scope.territory_id == route
+    assert scope.salesman_id is None
+
+
+def test_the_round_s_remaining_person_takes_over_from_one_who_left() -> None:
+    """With the primary gone, the one person still on the round is the answer."""
+    session = _session_factory()()
+    firm = _firm(session)
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    asha = _salesman(session, firm.id, "asha@example.local")
+    bala = _salesman(session, firm.id, "bala@example.local")
+    route = _territory(service, firm.id, actor, "N1")
+    customer = _customer(session, firm.id)
+    _assign_customer(service, route, customer.id, firm.id, actor)
+    service.set_salesmen(
+        route,
+        TerritoryAssignSalesmenRequest(
+            assignments=[
+                SalesmanAssignmentInput(user_id=asha, is_primary=True),
+                SalesmanAssignmentInput(user_id=bala, is_primary=False),
+            ]
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    _leaves(session, firm.id, asha)
+
+    scope = resolve_sales_scope(session, firm_id=firm.id, customer_id=customer.id)
+
+    assert scope.salesman_id == bala
+
+
+def test_a_manager_who_has_left_is_not_inherited_either() -> None:
+    """The walk up the tree applies the same test."""
+    session = _session_factory()()
+    firm = _firm(session)
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    manager = _salesman(session, firm.id, "manager@example.local")
+    region = _territory(service, firm.id, actor, "REGION1", is_route=False)
+    route = _territory(
+        service, firm.id, actor, "RT01", level=1, parent_id=region, is_route=True
+    )
+    customer = _customer(session, firm.id)
+    _assign_customer(service, route, customer.id, firm.id, actor)
+    service.set_salesmen(
+        region,
+        TerritoryAssignSalesmenRequest(
+            assignments=[
+                SalesmanAssignmentInput(
+                    user_id=manager, is_primary=True, include_children=True
+                )
+            ]
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    _leaves(session, firm.id, manager)
+
+    scope = resolve_sales_scope(session, firm_id=firm.id, customer_id=customer.id)
+
+    assert scope.salesman_id is None
