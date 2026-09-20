@@ -23,6 +23,7 @@ from sqlalchemy.pool import StaticPool
 from app.commission.models import CommissionPayoutStatus, CommissionRule
 from app.commission.schemas import CommissionRuleCreate
 from app.commission.schemas.payout import (
+    CommissionPaymentMethodEnum,
     CommissionPayoutAccrue,
     CommissionPayoutPay,
     CommissionPayoutUpdate,
@@ -642,6 +643,76 @@ def test_the_seeded_chart_nominates_both_commission_accounts() -> None:
         account = books.session.get(LedgerAccount, books.account(purpose))
         assert account is not None
         assert account.code == code
+
+
+def test_a_payout_is_paid_from_cash_or_bank_and_nothing_else() -> None:
+    """D-TER-5: the credit leg landed on whatever account the caller named.
+
+    Trade Receivables, Sales, or Commission Payable itself -- which marked
+    the payout PAID and moved no money. The account has to be the firm's
+    CASH or BANK control account; `method` resolves it the way a receipt
+    does, and an account named outright has to be one of the same two.
+    """
+    books = _ready()
+    [payout] = books.accrue()
+    service = CommissionPayoutService(books.session)
+    service.approve(payout.id, firm_id=books.firm.id, actor_id=books.actor_id)
+    books.session.commit()
+    payable = books.account(ControlAccountPurpose.COMMISSION_PAYABLE)
+
+    with pytest.raises(ValidationError, match="cash or bank"):
+        service.pay(
+            payout.id,
+            CommissionPayoutPay(paid_on=date(2026, 5, 5), money_account_id=payable),
+            firm_id=books.firm.id,
+            actor_id=books.actor_id,
+        )
+
+    paid = service.pay(
+        payout.id,
+        CommissionPayoutPay(
+            paid_on=date(2026, 5, 5), method=CommissionPaymentMethodEnum.BANK
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+    bank = books.account(ControlAccountPurpose.BANK)
+    assert paid.money_account_id == bank
+    legs = books.legs(paid.payment_journal_entry_id)
+    assert legs[bank] == (Decimal("0.00"), Decimal("500.00"))
+
+
+def test_a_payout_cannot_be_paid_before_it_was_accrued() -> None:
+    """A payment dated ahead of the accrual leaves the payable in debit."""
+    books = _ready()
+    [payout] = books.accrue()
+    service = CommissionPayoutService(books.session)
+    service.approve(payout.id, firm_id=books.firm.id, actor_id=books.actor_id)
+    books.session.commit()
+    assert payout.accrued_on == APRIL[1]
+
+    with pytest.raises(ValidationError, match="before it was accrued"):
+        service.pay(
+            payout.id,
+            CommissionPayoutPay(
+                paid_on=date(2026, 4, 15), method=CommissionPaymentMethodEnum.CASH
+            ),
+            firm_id=books.firm.id,
+            actor_id=books.actor_id,
+        )
+
+
+def test_the_payment_says_where_the_money_left_exactly_once() -> None:
+    """Neither `method` nor an account is nothing to post; both is two answers."""
+    with pytest.raises(ValueError, match="either method"):
+        CommissionPayoutPay(paid_on=date(2026, 5, 5))
+    with pytest.raises(ValueError, match="either method"):
+        CommissionPayoutPay(
+            paid_on=date(2026, 5, 5),
+            method=CommissionPaymentMethodEnum.CASH,
+            money_account_id=uuid4(),
+        )
 
 
 JUNE = (date(2026, 6, 1), date(2026, 6, 30))

@@ -42,7 +42,6 @@ class _CommissionApi extends ApiClient {
     this.refusal,
     this.salesmen = const [],
     this.payouts = const [],
-    this.accounts = const [],
     this.goods = const [],
     this.goodsCategories = const [],
   })
@@ -68,10 +67,6 @@ class _CommissionApi extends ApiClient {
 
   /// What `GET /commission/payouts` answers with.
   final List<Json> payouts;
-
-  /// What `GET /finance/ledger-accounts` answers with -- deliberately
-  /// including an income account, so the screen has something to filter out.
-  final List<Json> accounts;
 
   /// What `GET /products` and `GET /products/categories` answer with -- what
   /// a rule can be scoped to.
@@ -106,9 +101,6 @@ class _CommissionApi extends ApiClient {
         'data': goods,
         'pagination': <String, dynamic>{'total_records': goods.length},
       };
-    }
-    if (path.contains('/finance/ledger-accounts')) {
-      return <String, dynamic>{'data': accounts};
     }
     if (path.contains('/commission/payouts')) {
       if (path.endsWith('/accrue')) {
@@ -902,41 +894,11 @@ void main() {
     expect(find.textContaining('cannot end before it starts'), findsOneWidget);
   });
 
-  testWidgets('the payment form offers only accounts money can leave from',
+  testWidgets('the payment form asks cash or bank and sends the method',
       (tester) async {
     final _CommissionApi api = _CommissionApi(
       payouts: <Json>[
         <String, dynamic>{..._draftPayout(), 'status': 'APPROVED'},
-      ],
-      accounts: <Json>[
-        <String, dynamic>{
-          'id': 'acct-cash',
-          'firm_id': 'firm-1',
-          'account_group_id': 'g1',
-          'code': '1000',
-          'name': 'Cash',
-          'account_type': 'ASSET',
-          'description': '',
-          'is_balance_sheet': true,
-          'is_profit_loss': false,
-          'requires_cost_center': false,
-          'requires_profit_center': false,
-          'is_active': true,
-        },
-        <String, dynamic>{
-          'id': 'acct-sales',
-          'firm_id': 'firm-1',
-          'account_group_id': 'g2',
-          'code': '4000',
-          'name': 'Sales Revenue',
-          'account_type': 'INCOME',
-          'description': '',
-          'is_balance_sheet': false,
-          'is_profit_loss': true,
-          'requires_cost_center': false,
-          'requires_profit_center': false,
-          'is_active': true,
-        },
       ],
     );
     await _pump(tester, api);
@@ -945,13 +907,17 @@ void main() {
     await tester.tap(find.text('Pay'));
     await tester.pumpAndSettle();
 
-    // Offering the whole chart would invite a payment posted against revenue.
-    expect(find.text('1000 — Cash'), findsOneWidget);
-    expect(find.text('4000 — Sales Revenue'), findsNothing);
+    // No chart of accounts to pick from: the money leaves through the
+    // firm's bank or cash control account, which the API resolves
+    // (D-TER-5). A picker of ASSET accounts used to let a payment land on
+    // Trade Receivables.
+    expect(find.text('Paid from'), findsOneWidget);
+    expect(find.text('Bank'), findsOneWidget);
 
     await tester.tap(find.widgetWithText(FilledButton, 'Record payment'));
     await tester.pumpAndSettle();
-    expect(api.paid!['money_account_id'], 'acct-cash');
+    expect(api.paid!['method'], 'BANK');
+    expect(api.paid!.containsKey('money_account_id'), isFalse);
   });
 
   // --------------------------------------------------------------------
