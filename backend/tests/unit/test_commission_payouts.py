@@ -30,7 +30,7 @@ from app.commission.schemas.payout import (
 )
 from app.commission.services import CommissionPayoutService, CommissionService
 from app.core.database.base import Base
-from app.core.exceptions import ConflictError, ValidationError
+from app.core.exceptions import AuthorizationError, ConflictError, ValidationError
 from app.core.utils.dates import utc_now
 from app.credit_note.models import CreditNote
 from app.customers.models import Customer
@@ -77,7 +77,11 @@ class _Books:
     def __init__(self, session: Session, code: str = "PAYO") -> None:
         """Seed everything an accrual needs to have something to accrue."""
         self.session = session
+        #: Three people, because the service insists on three (D-TER-4): one
+        #: accrues, a second approves, a third pays -- and none is Asha.
         self.actor_id = uuid4()
+        self.approver_id = uuid4()
+        self.payer_id = uuid4()
         self.firm = Firm(
             name=f"{code} Firm",
             code=code,
@@ -193,7 +197,7 @@ class _Books:
     def settle(self, payout_id: UUID, *, paid_on: date = date(2026, 5, 5)) -> None:
         """Approve and pay one payout."""
         service = CommissionPayoutService(self.session)
-        service.approve(payout_id, firm_id=self.firm.id, actor_id=self.actor_id)
+        service.approve(payout_id, firm_id=self.firm.id, actor_id=self.approver_id)
         self.session.commit()
         service.pay(
             payout_id,
@@ -202,7 +206,7 @@ class _Books:
                 money_account_id=self.account(ControlAccountPurpose.CASH),
             ),
             firm_id=self.firm.id,
-            actor_id=self.actor_id,
+            actor_id=self.payer_id,
         )
         self.session.commit()
 
@@ -276,7 +280,7 @@ def test_an_approved_payout_is_not_recomputed_when_the_world_moves() -> None:
     books = _ready()
     [payout] = books.accrue()
     CommissionPayoutService(books.session).approve(
-        payout.id, firm_id=books.firm.id, actor_id=books.actor_id
+        payout.id, firm_id=books.firm.id, actor_id=books.approver_id
     )
     books.session.commit()
 
@@ -308,7 +312,7 @@ def test_approving_posts_the_cost_and_the_debt() -> None:
     [payout] = books.accrue()
 
     approved = CommissionPayoutService(books.session).approve(
-        payout.id, firm_id=books.firm.id, actor_id=books.actor_id
+        payout.id, firm_id=books.firm.id, actor_id=books.approver_id
     )
     books.session.commit()
 
@@ -330,7 +334,7 @@ def test_paying_clears_the_debt_and_does_not_book_the_cost_again() -> None:
     books = _ready()
     [payout] = books.accrue()
     service = CommissionPayoutService(books.session)
-    service.approve(payout.id, firm_id=books.firm.id, actor_id=books.actor_id)
+    service.approve(payout.id, firm_id=books.firm.id, actor_id=books.approver_id)
     books.session.commit()
     cash = books.account(ControlAccountPurpose.CASH)
 
@@ -338,7 +342,7 @@ def test_paying_clears_the_debt_and_does_not_book_the_cost_again() -> None:
         payout.id,
         CommissionPayoutPay(paid_on=date(2026, 5, 5), money_account_id=cash),
         firm_id=books.firm.id,
-        actor_id=books.actor_id,
+        actor_id=books.payer_id,
     )
     books.session.commit()
 
@@ -383,7 +387,7 @@ def test_cancelling_an_approved_payout_reverses_its_journal() -> None:
     [payout] = books.accrue()
     service = CommissionPayoutService(books.session)
     approved = service.approve(
-        payout.id, firm_id=books.firm.id, actor_id=books.actor_id
+        payout.id, firm_id=books.firm.id, actor_id=books.approver_id
     )
     books.session.commit()
     original = approved.journal_entry_id
@@ -408,7 +412,7 @@ def test_a_paid_payout_cannot_be_cancelled() -> None:
     books = _ready()
     [payout] = books.accrue()
     service = CommissionPayoutService(books.session)
-    service.approve(payout.id, firm_id=books.firm.id, actor_id=books.actor_id)
+    service.approve(payout.id, firm_id=books.firm.id, actor_id=books.approver_id)
     books.session.commit()
     service.pay(
         payout.id,
@@ -417,7 +421,7 @@ def test_a_paid_payout_cannot_be_cancelled() -> None:
             money_account_id=books.account(ControlAccountPurpose.CASH),
         ),
         firm_id=books.firm.id,
-        actor_id=books.actor_id,
+        actor_id=books.payer_id,
     )
     books.session.commit()
 
@@ -438,7 +442,7 @@ def test_a_payout_cannot_be_paid_before_it_is_approved() -> None:
                 money_account_id=books.account(ControlAccountPurpose.CASH),
             ),
             firm_id=books.firm.id,
-            actor_id=books.actor_id,
+            actor_id=books.payer_id,
         )
 
 
@@ -491,7 +495,7 @@ def test_an_approved_payout_cannot_be_adjusted() -> None:
     books = _ready()
     [payout] = books.accrue()
     service = CommissionPayoutService(books.session)
-    service.approve(payout.id, firm_id=books.firm.id, actor_id=books.actor_id)
+    service.approve(payout.id, firm_id=books.firm.id, actor_id=books.approver_id)
     books.session.commit()
 
     with pytest.raises(ValidationError):
@@ -521,7 +525,7 @@ def test_the_adjusted_amount_is_what_posts() -> None:
     books.session.commit()
 
     approved = service.approve(
-        payout.id, firm_id=books.firm.id, actor_id=books.actor_id
+        payout.id, firm_id=books.firm.id, actor_id=books.approver_id
     )
     books.session.commit()
     legs = books.legs(approved.journal_entry_id)
@@ -609,7 +613,7 @@ def test_a_money_account_from_another_firm_is_refused() -> None:
 
     [payout] = books.accrue()
     service = CommissionPayoutService(session)
-    service.approve(payout.id, firm_id=books.firm.id, actor_id=books.actor_id)
+    service.approve(payout.id, firm_id=books.firm.id, actor_id=books.approver_id)
     session.commit()
 
     with pytest.raises(ValidationError):
@@ -617,7 +621,7 @@ def test_a_money_account_from_another_firm_is_refused() -> None:
             payout.id,
             CommissionPayoutPay(paid_on=date(2026, 5, 5), money_account_id=intruder),
             firm_id=books.firm.id,
-            actor_id=books.actor_id,
+            actor_id=books.payer_id,
         )
 
 
@@ -662,7 +666,7 @@ def test_a_payout_is_paid_from_cash_or_bank_and_nothing_else() -> None:
     books = _ready()
     [payout] = books.accrue()
     service = CommissionPayoutService(books.session)
-    service.approve(payout.id, firm_id=books.firm.id, actor_id=books.actor_id)
+    service.approve(payout.id, firm_id=books.firm.id, actor_id=books.approver_id)
     books.session.commit()
     payable = books.account(ControlAccountPurpose.COMMISSION_PAYABLE)
 
@@ -671,7 +675,7 @@ def test_a_payout_is_paid_from_cash_or_bank_and_nothing_else() -> None:
             payout.id,
             CommissionPayoutPay(paid_on=date(2026, 5, 5), money_account_id=payable),
             firm_id=books.firm.id,
-            actor_id=books.actor_id,
+            actor_id=books.payer_id,
         )
 
     paid = service.pay(
@@ -680,7 +684,7 @@ def test_a_payout_is_paid_from_cash_or_bank_and_nothing_else() -> None:
             paid_on=date(2026, 5, 5), method=CommissionPaymentMethodEnum.BANK
         ),
         firm_id=books.firm.id,
-        actor_id=books.actor_id,
+        actor_id=books.payer_id,
     )
     books.session.commit()
     bank = books.account(ControlAccountPurpose.BANK)
@@ -694,7 +698,7 @@ def test_a_payout_cannot_be_paid_before_it_was_accrued() -> None:
     books = _ready()
     [payout] = books.accrue()
     service = CommissionPayoutService(books.session)
-    service.approve(payout.id, firm_id=books.firm.id, actor_id=books.actor_id)
+    service.approve(payout.id, firm_id=books.firm.id, actor_id=books.approver_id)
     books.session.commit()
     assert payout.accrued_on == APRIL[1]
 
@@ -705,7 +709,7 @@ def test_a_payout_cannot_be_paid_before_it_was_accrued() -> None:
                 paid_on=date(2026, 4, 15), method=CommissionPaymentMethodEnum.CASH
             ),
             firm_id=books.firm.id,
-            actor_id=books.actor_id,
+            actor_id=books.payer_id,
         )
 
 
@@ -829,6 +833,123 @@ def test_a_period_only_worth_more_now_is_not_paid_again() -> None:
 
 
 # ----------------------------------------------------------------------
+# D-TER-4: one person may not state, agree and pay a debt -- least of all
+# their own. Judged per person, not per role, so holding two roles buys
+# nothing.
+# ----------------------------------------------------------------------
+
+
+def _cash_payment(books: _Books) -> CommissionPayoutPay:
+    """Pay from the firm's cash account on 5 May."""
+    return CommissionPayoutPay(
+        paid_on=date(2026, 5, 5),
+        money_account_id=books.account(ControlAccountPurpose.CASH),
+    )
+
+
+def test_nobody_approves_or_pays_their_own_payout() -> None:
+    """A salesman who also holds the accountant's role is still the payee.
+
+    Live: one user holding ACCOUNTANT beside SALES_EXECUTIVE accrued his own
+    payout, adjusted it by 5,000 "because", approved it and paid it, with his
+    own id on all five audit rows.
+    """
+    books = _ready()
+    [payout] = books.accrue()
+    service = CommissionPayoutService(books.session)
+
+    with pytest.raises(AuthorizationError, match="your own"):
+        service.approve(payout.id, firm_id=books.firm.id, actor_id=books.asha)
+    books.session.rollback()
+
+    service.approve(payout.id, firm_id=books.firm.id, actor_id=books.approver_id)
+    books.session.commit()
+    with pytest.raises(AuthorizationError, match="your own"):
+        service.pay(
+            payout.id,
+            _cash_payment(books),
+            firm_id=books.firm.id,
+            actor_id=books.asha,
+        )
+
+
+def test_the_accruer_cannot_approve_and_the_approver_cannot_pay() -> None:
+    """Maker-checker at the person level: three signatures, three people."""
+    books = _ready()
+    [payout] = books.accrue()
+    service = CommissionPayoutService(books.session)
+
+    with pytest.raises(AuthorizationError, match="accrued"):
+        service.approve(payout.id, firm_id=books.firm.id, actor_id=books.actor_id)
+    books.session.rollback()
+
+    service.approve(payout.id, firm_id=books.firm.id, actor_id=books.approver_id)
+    books.session.commit()
+    with pytest.raises(AuthorizationError, match="approved"):
+        service.pay(
+            payout.id,
+            _cash_payment(books),
+            firm_id=books.firm.id,
+            actor_id=books.approver_id,
+        )
+    books.session.rollback()
+
+    # The accruer may pay: the rule is that the approver and the payer
+    # differ, and that neither is the payee.
+    paid = service.pay(
+        payout.id,
+        _cash_payment(books),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+    assert paid.status == CommissionPayoutStatus.PAID.value
+
+
+def test_the_row_records_who_approved_and_who_paid() -> None:
+    """The row and the audit trail say the same thing about who signed.
+
+    Held on the row because the payment check reads it, and a check that
+    has to search the trail is one that quietly stops being made.
+    """
+    books = _ready()
+    [payout] = books.accrue()
+    assert payout.approved_by is None
+    assert payout.approved_at is None
+    assert payout.paid_by is None
+
+    books.settle(payout.id)
+
+    service = CommissionPayoutService(books.session)
+    row = service.get_payout(payout.id, firm_id=books.firm.id)
+    assert row.created_by == books.actor_id
+    assert row.approved_by == books.approver_id
+    assert row.approved_at is not None
+    assert row.paid_by == books.payer_id
+    response = service.payout_response(row, {})
+    assert response.accrued_by == books.actor_id
+    assert response.approved_by == books.approver_id
+    assert response.paid_by == books.payer_id
+
+
+def test_cancelling_keeps_the_approval_on_record() -> None:
+    """What was recorded happened; withdrawing the payout does not unsay it."""
+    books = _ready()
+    [payout] = books.accrue()
+    service = CommissionPayoutService(books.session)
+    service.approve(payout.id, firm_id=books.firm.id, actor_id=books.approver_id)
+    books.session.commit()
+
+    cancelled = service.cancel(
+        payout.id, firm_id=books.firm.id, actor_id=books.actor_id
+    )
+    books.session.commit()
+
+    assert cancelled.status == CommissionPayoutStatus.CANCELLED.value
+    assert cancelled.approved_by == books.approver_id
+    assert cancelled.approved_at is not None
+
+
 # D-TER-6: a period is accrued once it has ended, booked no earlier than its
 # end and no later than today, and a collection belongs to the day the money
 # met the bill.

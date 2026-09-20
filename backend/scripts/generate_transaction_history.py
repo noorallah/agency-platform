@@ -175,6 +175,11 @@ from app.tcs.services import TcsService
 from app.vendors.models import Vendor
 
 ACTOR = UUID("00000000-0000-0000-0000-0000000000aa")
+#: A commission payout is accrued by one person, approved by a second and paid
+#: by a third (D-TER-4), and the service refuses anything less. The seeder
+#: therefore signs as three people rather than being let off the rule.
+PAYOUT_APPROVER = UUID("00000000-0000-0000-0000-0000000000ab")
+PAYOUT_PAYER = UUID("00000000-0000-0000-0000-0000000000ac")
 
 #: Quantity and price patterns, cycled so no two months look identical and the
 #: reports have something to actually rank.
@@ -1860,7 +1865,7 @@ class HistoryBuilder:
                 service.approve(
                     payout.id,
                     firm_id=self._target.firm_id,
-                    actor_id=ACTOR,
+                    actor_id=PAYOUT_APPROVER,
                 )
                 self._session.commit()
                 self._tally.payouts += 1
@@ -1872,7 +1877,7 @@ class HistoryBuilder:
                             money_account_id=money_account,
                         ),
                         firm_id=self._target.firm_id,
-                        actor_id=ACTOR,
+                        actor_id=PAYOUT_PAYER,
                     )
                     self._session.commit()
             except (ValidationError, BusinessRuleError, ConflictError) as error:

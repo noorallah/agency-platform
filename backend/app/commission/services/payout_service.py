@@ -39,7 +39,12 @@ from app.commission.services.commission_service import (
 )
 from app.common.audit.services import record_audit
 from app.core.concurrency import assert_version
-from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
+from app.core.exceptions import (
+    AuthorizationError,
+    ConflictError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO
 from app.finance.services.control_accounts import (
@@ -519,6 +524,28 @@ class CommissionPayoutService:
     # Approval, payment, cancellation
     # ------------------------------------------------------------------
 
+    @staticmethod
+    def _assert_not_own(row: CommissionPayout, actor_id: UUID, *, doing: str) -> None:
+        """Refuse to let the person a payout pays approve or pay it.
+
+        Judged on `salesman_id` against the actor, whatever roles the actor
+        holds: a salesman who is also the accountant is still the payee.
+
+        Args:
+            row: The payout being acted on.
+            actor_id: The user acting.
+            doing: The verb for the message -- "approve" or "pay".
+
+        Raises:
+            AuthorizationError: If the actor is the payee.
+
+        """
+        if row.salesman_id == actor_id:
+            raise AuthorizationError(
+                f"You cannot {doing} your own commission payout. Ask somebody "
+                "else to; a payout is agreed by a person it does not pay."
+            )
+
     def approve(
         self,
         payout_id: UUID,
@@ -528,6 +555,12 @@ class CommissionPayoutService:
         expected_version: int | None = None,
     ) -> CommissionPayout:
         """Recognise the debt and post the accrual journal.
+
+        **The approver is a second person.** Not the one the payout pays, and
+        not the one who accrued it: one person who could state a debt, raise
+        it and agree it -- their own included -- did exactly that (D-TER-4).
+        Judged on the person, not the role, so holding two roles buys
+        nothing.
 
         Args:
             payout_id: The payout to approve.
@@ -540,6 +573,7 @@ class CommissionPayoutService:
 
         Raises:
             ValidationError: If it is not a draft, or owes nothing.
+            AuthorizationError: If the actor is the payee or the accruer.
 
         """
         row = self.get_payout(payout_id, firm_id=firm_id)
@@ -548,6 +582,12 @@ class CommissionPayoutService:
             raise ValidationError("Only a draft payout can be approved.")
         if row.payable_amount <= ZERO and row.clawback_amount <= ZERO:
             raise ValidationError("A payout of nothing cannot be approved.")
+        self._assert_not_own(row, actor_id, doing="approve")
+        if row.created_by == actor_id:
+            raise AuthorizationError(
+                "The person who accrued a payout cannot approve it. Approval "
+                "is a second person agreeing what the first stated."
+            )
         before = self._snapshot(row)
         if row.payable_amount > ZERO:
             entry = self._posting.post_commission_accrual(
@@ -564,6 +604,8 @@ class CommissionPayoutService:
         # exactly the expense the earlier period overstated. Approving it
         # still matters -- it is what makes the recovery final.
         row.status = CommissionPayoutStatus.APPROVED.value
+        row.approved_by = actor_id
+        row.approved_at = utc_now()
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -609,9 +651,16 @@ class CommissionPayoutService:
         And not before it was accrued: a payment dated ahead of the accrual
         leaves the payable in debit between the two dates.
 
+        **The payer is a third person**: not the payee, and not the approver
+        (D-TER-4). Whoever agreed the debt must not be the one who moves the
+        cash, which is the same line `COMMISSION_PAY` draws between roles,
+        drawn here between people so that one person holding both roles is
+        still refused.
+
         Raises:
             ValidationError: If it has not been approved, the account is not
                 the firm's cash or bank, or the date precedes the accrual.
+            AuthorizationError: If the actor is the payee or the approver.
 
         """
         row = self.get_payout(payout_id, firm_id=firm_id)
@@ -620,6 +669,12 @@ class CommissionPayoutService:
             raise ValidationError(
                 "Only an approved payout can be paid. Approve it first, which "
                 "is what recognises the debt."
+            )
+        self._assert_not_own(row, actor_id, doing="pay")
+        if row.approved_by == actor_id:
+            raise AuthorizationError(
+                "The person who approved a payout cannot pay it. Paying is a "
+                "second person releasing what the first agreed."
             )
         if data.paid_on < row.accrued_on:
             raise ValidationError(
@@ -647,6 +702,7 @@ class CommissionPayoutService:
         # PAID records that the person has settled up.
         row.money_account_id = money_account_id
         row.paid_on = data.paid_on
+        row.paid_by = actor_id
         row.status = CommissionPayoutStatus.PAID.value
         row.updated_by = actor_id
         self._session.flush()
@@ -811,6 +867,10 @@ class CommissionPayoutService:
             payable_amount=row.payable_amount,
             status=CommissionPayoutStatusEnum(row.status),
             accrued_on=row.accrued_on,
+            accrued_by=row.created_by,
+            approved_by=row.approved_by,
+            approved_at=row.approved_at,
+            paid_by=row.paid_by,
             paid_on=row.paid_on,
             money_account_id=row.money_account_id,
             journal_entry_id=row.journal_entry_id,
@@ -835,6 +895,10 @@ class CommissionPayoutService:
             "payable_amount": str(row.payable_amount),
             "status": row.status,
             "accrued_on": row.accrued_on.isoformat(),
+            "accrued_by": str(row.created_by) if row.created_by else None,
+            "approved_by": str(row.approved_by) if row.approved_by else None,
+            "approved_at": row.approved_at.isoformat() if row.approved_at else None,
+            "paid_by": str(row.paid_by) if row.paid_by else None,
             "paid_on": row.paid_on.isoformat() if row.paid_on else None,
             "journal_entry_id": (
                 str(row.journal_entry_id) if row.journal_entry_id else None
