@@ -10,8 +10,16 @@ Attribution is the document's own `salesman_id` -- the tag it carried when it
 was raised, not the customer's current territory assignment. The same rule
 `app/commission` follows, and for the same reason: what was true when the sale
 happened is what it counts towards.
+
+A target on a territory covers the node **and every live descendant**. A
+document carries the node its customer is assigned to -- the route, at the
+bottom of the tree -- so a target matched on that column alone achieved
+nothing on any level above it (D-TER-12). The descendants are walked down
+`parent_id` rather than matched on a `path LIKE` prefix, which also took a
+sibling whose code merely started the same way and read `_` as a wildcard.
 """
 
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -23,6 +31,7 @@ from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ConflictError, ResourceNotFoundError
 from app.core.utils.money import quantize_money
+from app.sales.models import SalesTerritoryNode
 from app.sales_targets.models import SalesTarget
 from app.sales_targets.schemas import (
     SalesTargetAchievement,
@@ -43,6 +52,30 @@ HUNDRED = Decimal("100")
 #: dropped, for the reason the commission report names its own: a total that
 #: silently omits untagged sales cannot be reconciled against the day book.
 UNASSIGNED = "Unassigned"
+#: What a target naming neither a person nor a territory is for.
+WHOLE_FIRM = "Whole firm"
+
+
+@dataclass(frozen=True)
+class TerritoryLabel:
+    """A territory's code and name, as the reports print them."""
+
+    code: str
+    name: str
+
+    def __str__(self) -> str:
+        """Print as ``CODE · Name``."""
+        return f"{self.code} · {self.name}"
+
+
+def scope_label(salesman_name: str | None, territory: TerritoryLabel | None) -> str:
+    """Say who a target is for, ready to print.
+
+    The person, the territory, both, or the firm. A client deriving this
+    from the salesman alone called every territory target "Whole firm".
+    """
+    parts = [part for part in (salesman_name, str(territory or "")) if part]
+    return " · ".join(parts) or WHOLE_FIRM
 
 
 class SalesTargetService:
@@ -221,20 +254,34 @@ class SalesTargetService:
         names = self._names_for(
             {row.salesman_id for row in targets if row.salesman_id}, firm_scope
         )
+        territory_ids = {row.territory_id for row in targets if row.territory_id}
+        labels = self.territory_labels(territory_ids, firm_scope)
+        covered = {
+            territory_id: self._covered_by(territory_id, firm_scope)
+            for territory_id in territory_ids
+        }
         answers: list[SalesTargetAchievement] = []
         for row in targets:
-            achieved = quantize_money(self._achieved(row, firm_scope=firm_scope))
+            achieved = quantize_money(
+                self._achieved(
+                    row,
+                    firm_scope=firm_scope,
+                    covered=covered.get(row.territory_id) if row.territory_id else None,
+                )
+            )
             target = quantize_money(row.target_amount)
+            person = names.get(row.salesman_id, UNASSIGNED) if row.salesman_id else None
+            territory = labels.get(row.territory_id) if row.territory_id else None
+            label = scope_label(person, territory)
             answers.append(
                 SalesTargetAchievement(
                     target_id=row.id,
                     salesman_id=row.salesman_id,
-                    salesman_name=(
-                        names.get(row.salesman_id, UNASSIGNED)
-                        if row.salesman_id
-                        else "Whole firm"
-                    ),
+                    salesman_name=person or label,
                     territory_id=row.territory_id,
+                    territory_code=territory.code if territory else None,
+                    territory_name=territory.name if territory else None,
+                    scope_label=label,
                     period_start=row.period_start,
                     period_end=row.period_end,
                     period_type=row.period_type,
@@ -253,13 +300,37 @@ class SalesTargetService:
             )
         return answers
 
-    def _achieved(self, target: SalesTarget, *, firm_scope: UUID) -> Decimal:
-        """Return what this target actually took, on its own basis."""
-        if target.basis == SalesTargetBasis.COLLECTED.value:
-            return self._collected(target, firm_scope=firm_scope)
-        return self._invoiced(target, firm_scope=firm_scope)
+    def _achieved(
+        self,
+        target: SalesTarget,
+        *,
+        firm_scope: UUID,
+        covered: frozenset[UUID] | None = None,
+    ) -> Decimal:
+        """Return what this target actually took, on its own basis.
 
-    def _invoiced(self, target: SalesTarget, *, firm_scope: UUID) -> Decimal:
+        Args:
+            target: The target being measured.
+            firm_scope: The owning firm.
+            covered: The territory ids the target reaches -- its own node
+                and every live descendant -- resolved by the caller once per
+                territory rather than once per target. Resolved here when
+                not given; ``None`` for a target naming no territory.
+
+        """
+        if target.territory_id is not None and covered is None:
+            covered = self._covered_by(target.territory_id, firm_scope)
+        if target.basis == SalesTargetBasis.COLLECTED.value:
+            return self._collected(target, firm_scope=firm_scope, covered=covered)
+        return self._invoiced(target, firm_scope=firm_scope, covered=covered)
+
+    def _invoiced(
+        self,
+        target: SalesTarget,
+        *,
+        firm_scope: UUID,
+        covered: frozenset[UUID] | None,
+    ) -> Decimal:
         """Sum what was billed in the period, net of what came back.
 
         Only approved invoices: a draft is not a sale, and a cancelled one is
@@ -274,9 +345,15 @@ class SalesTargetService:
             from_date=target.period_start,
             to_date=target.period_end,
         )
-        return sum_of([row for row in rows if self._in_scope(target, row)])
+        return sum_of([row for row in rows if self._in_scope(target, row, covered)])
 
-    def _collected(self, target: SalesTarget, *, firm_scope: UUID) -> Decimal:
+    def _collected(
+        self,
+        target: SalesTarget,
+        *,
+        firm_scope: UUID,
+        covered: frozenset[UUID] | None,
+    ) -> Decimal:
         """Sum the money that actually arrived in the period.
 
         Walks the allocations rather than the invoices, and counts only POSTED
@@ -291,18 +368,82 @@ class SalesTargetService:
             from_date=target.period_start,
             to_date=target.period_end,
         )
-        return sum_of([row for row in rows if self._in_scope(target, row)])
+        return sum_of([row for row in rows if self._in_scope(target, row, covered)])
 
     @staticmethod
-    def _in_scope(target: SalesTarget, row: NetSale) -> bool:
+    def _in_scope(
+        target: SalesTarget, row: NetSale, covered: frozenset[UUID] | None
+    ) -> bool:
         """Say whether one sale counts towards whoever the target is for.
 
         A target naming neither a salesman nor a territory is the firm's own
-        number, and takes everything.
+        number, and takes everything. One naming a territory takes the sales
+        tagged to that node **or any live node beneath it** -- a document
+        carries the route its customer is on, and a region is its routes
+        (D-TER-12).
+
+        Args:
+            target: The target being measured.
+            row: One measured sale.
+            covered: The territory ids the target reaches, or ``None`` when
+                it names no territory.
+
         """
         if target.salesman_id is not None and row.salesman_id != target.salesman_id:
             return False
-        return target.territory_id is None or row.territory_id == target.territory_id
+        if target.territory_id is None:
+            return True
+        return row.territory_id is not None and row.territory_id in (
+            covered or frozenset({target.territory_id})
+        )
+
+    def _covered_by(self, territory_id: UUID, firm_scope: UUID) -> frozenset[UUID]:
+        """Return the territory and every live descendant, as ids.
+
+        Breadth-first down `parent_id`, which is the relation the tree is
+        built on, bounded by the ids seen so a cycle in a plain column cannot
+        walk for ever. Not a `path LIKE '<prefix>%'`: that also took a
+        sibling whose code merely started the same way (`T-N` and `T-N2`)
+        and read `_` in a code as a wildcard. Only rows that are not deleted
+        count as live; a node the target names is always its own.
+        """
+        covered = {territory_id}
+        frontier = [territory_id]
+        while frontier:
+            children = [
+                child
+                for child in self._session.scalars(
+                    select(SalesTerritoryNode.id).where(
+                        SalesTerritoryNode.firm_id == firm_scope,
+                        SalesTerritoryNode.parent_id.in_(frontier),
+                        SalesTerritoryNode.is_deleted.is_(False),
+                    )
+                ).all()
+                if child not in covered
+            ]
+            covered.update(children)
+            frontier = children
+        return frozenset(covered)
+
+    def territory_labels(
+        self, territory_ids: set[UUID], firm_scope: UUID
+    ) -> dict[UUID, TerritoryLabel]:
+        """Resolve territory codes and names, from the firm's own store.
+
+        Deleted nodes are answered too: a target set on a territory since
+        retired should still say which one, not fall back to "Whole firm".
+        """
+        if not territory_ids:
+            return {}
+        rows = self._session.execute(
+            select(
+                SalesTerritoryNode.id, SalesTerritoryNode.code, SalesTerritoryNode.name
+            ).where(
+                SalesTerritoryNode.firm_id == firm_scope,
+                SalesTerritoryNode.id.in_(list(territory_ids)),
+            )
+        ).all()
+        return {row_id: TerritoryLabel(code, name) for row_id, code, name in rows}
 
     def _names_for(self, salesman_ids: set[UUID], firm_scope: UUID) -> dict[UUID, str]:
         """Resolve salesman names through the platform store.
@@ -321,15 +462,41 @@ class SalesTargetService:
         }
 
     def target_response(
-        self, row: SalesTarget, names: dict[UUID, str] | None = None
+        self,
+        row: SalesTarget,
+        names: dict[UUID, str] | None = None,
+        territories: dict[UUID, TerritoryLabel] | None = None,
     ) -> SalesTargetResponse:
-        """Build the API response for one target."""
-        lookup = names or {}
+        """Build the API response for one target.
+
+        Args:
+            row: The target.
+            names: Salesman names already resolved, keyed by user id. Looked
+                up for this row when not given.
+            territories: Territory labels already resolved, keyed by node
+                id. Looked up for this row when not given.
+
+        """
+        lookup = names
+        if lookup is None:
+            lookup = self._names_for(
+                {row.salesman_id} if row.salesman_id else set(), row.firm_id
+            )
+        labels = territories
+        if labels is None:
+            labels = self.territory_labels(
+                {row.territory_id} if row.territory_id else set(), row.firm_id
+            )
+        person = lookup.get(row.salesman_id) if row.salesman_id else None
+        territory = labels.get(row.territory_id) if row.territory_id else None
         return SalesTargetResponse(
             id=row.id,
             salesman_id=row.salesman_id,
-            salesman_name=(lookup.get(row.salesman_id) if row.salesman_id else None),
+            salesman_name=person,
             territory_id=row.territory_id,
+            territory_code=territory.code if territory else None,
+            territory_name=territory.name if territory else None,
+            scope_label=scope_label(person, territory),
             period_start=row.period_start,
             period_end=row.period_end,
             period_type=row.period_type,

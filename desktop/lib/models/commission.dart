@@ -286,12 +286,18 @@ class SalesTargetRecord {
     this.notes = '',
     this.status = 'ACTIVE',
     this.version = 0,
-  });
+    this.territoryCode = '',
+    this.territoryName = '',
+    String scopeLabel = '',
+  }) : _scopeLabel = scopeLabel;
 
   final String id;
   final String salesmanId;
   final String salesmanName;
   final String territoryId;
+  final String territoryCode;
+  final String territoryName;
+  final String _scopeLabel;
   final String periodStart;
   final String periodEnd;
   final String periodType;
@@ -303,15 +309,24 @@ class SalesTargetRecord {
   final String status;
   final int version;
 
-  /// Who the target is for. Neither a salesman nor a round means the firm.
-  String get scopeLabel =>
-      salesmanName.isNotEmpty ? salesmanName : 'Whole firm';
+  /// Who the target is for: the server's label, which names a territory by
+  /// code and name. Derived from the salesman alone, every territory target
+  /// read "Whole firm" (D-TER-12); the fallback is for a server that has
+  /// not sent one.
+  String get scopeLabel => _scopeLabel.isNotEmpty
+      ? _scopeLabel
+      : salesmanName.isNotEmpty
+          ? salesmanName
+          : 'Whole firm';
 
   factory SalesTargetRecord.fromJson(Json json) => SalesTargetRecord(
         id: stringValue(json['id']),
         salesmanId: stringValue(json['salesman_id']),
         salesmanName: stringValue(json['salesman_name']),
         territoryId: stringValue(json['territory_id']),
+        territoryCode: stringValue(json['territory_code']),
+        territoryName: stringValue(json['territory_name']),
+        scopeLabel: stringValue(json['scope_label']),
         periodStart: stringValue(json['period_start']),
         periodEnd: stringValue(json['period_end']),
         periodType: stringValue(json['period_type']),
@@ -336,10 +351,17 @@ class SalesTargetAchievementRecord {
     required this.achievedPercent,
     this.basis = 'INVOICED',
     this.periodType = 'MONTHLY',
-  });
+    String scopeLabel = '',
+  }) : _scopeLabel = scopeLabel;
 
   final String targetId;
   final String salesmanName;
+  final String _scopeLabel;
+
+  /// Who the target is for, as the server labels it -- a person, a territory
+  /// by code and name, or the firm. Falls back to the salesman column for a
+  /// server that has not sent one.
+  String get scopeLabel => _scopeLabel.isNotEmpty ? _scopeLabel : salesmanName;
   final String periodStart;
   final String periodEnd;
   final String periodType;
@@ -356,6 +378,7 @@ class SalesTargetAchievementRecord {
       SalesTargetAchievementRecord(
         targetId: stringValue(json['target_id']),
         salesmanName: stringValue(json['salesman_name']),
+        scopeLabel: stringValue(json['scope_label']),
         periodStart: stringValue(json['period_start']),
         periodEnd: stringValue(json['period_end']),
         periodType: stringValue(json['period_type']),

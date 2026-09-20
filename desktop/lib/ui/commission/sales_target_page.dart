@@ -274,7 +274,7 @@ class _SalesTargetPageState extends State<SalesTargetPage> {
       onSelect: (_) {},
       onPageChanged: (_) {},
       cells: (row) => [
-        row.salesmanName,
+        row.scopeLabel,
         '${row.periodStart} to ${row.periodEnd}',
         row.basis == 'COLLECTED' ? 'Money collected' : 'Value invoiced',
         row.targetAmount,

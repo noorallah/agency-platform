@@ -66,6 +66,12 @@ class SalesTargetResponse(SalesTargetSchema):
     salesman_id: UUID | None
     salesman_name: str | None
     territory_id: UUID | None
+    territory_code: str | None
+    territory_name: str | None
+    #: Who the target is for, ready to print: the person, the territory by
+    #: code and name, both, or "Whole firm". A client that derived this from
+    #: `salesman_name` alone called every territory target the firm's own.
+    scope_label: str
     period_start: date
     period_end: date
     period_type: str
@@ -81,8 +87,14 @@ class SalesTargetAchievement(SalesTargetSchema):
 
     target_id: UUID
     salesman_id: UUID | None
+    #: The person's name, or the scope label where the target names none:
+    #: the column older clients print under "For".
     salesman_name: str
     territory_id: UUID | None
+    territory_code: str | None
+    territory_name: str | None
+    #: Who the target is for, ready to print -- see `SalesTargetResponse`.
+    scope_label: str
     period_start: date
     period_end: date
     period_type: str

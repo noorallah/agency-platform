@@ -80,8 +80,11 @@ def list_sales_targets(
     names = service._names_for(  # noqa: SLF001
         {row.salesman_id for row in rows if row.salesman_id}, scope.firm_id
     )
+    territories = service.territory_labels(
+        {row.territory_id for row in rows if row.territory_id}, scope.firm_id
+    )
     return PaginatedResponse(
-        data=[service.target_response(row, names) for row in rows],
+        data=[service.target_response(row, names, territories) for row in rows],
         pagination=params.metadata(total),
     )
 
