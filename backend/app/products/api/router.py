@@ -42,6 +42,7 @@ from app.products.schemas import (
     ProductUpdate,
 )
 from app.products.services import ProductService
+from app.products.services.product_service import PRODUCT_DUTIES
 
 
 def _can_view_cost(scope: ResolvedFirmScope) -> bool:
@@ -51,6 +52,21 @@ def _can_view_cost(scope: ResolvedFirmScope) -> bool:
     of a permission, so it does not justify a private scope resolver.
     """
     return scope.principal.has_permission("PRODUCT_VIEW_COST_PRICE")
+
+
+def _withheld_duties(scope: ResolvedFirmScope) -> frozenset[str]:
+    """Return the product duties the caller does not hold.
+
+    ``PRODUCT_PRICING_MANAGE``, ``PRODUCT_TAX_MANAGE`` and
+    ``PRODUCT_ATTRIBUTE_MANAGE`` were seeded and read by no route, so a price,
+    a tax group and the custom fields all rode on ``PRODUCT_UPDATE``
+    (D-MST-10). A projection of the principal, like the cost price above,
+    because the duty is over *fields* of a resource every product editor
+    writes, not over an endpoint.
+    """
+    return frozenset(
+        code for code in PRODUCT_DUTIES if not scope.principal.has_permission(code)
+    )
 
 
 router = APIRouter(
@@ -166,7 +182,7 @@ def create_product(
     scope: ProductCreateScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[ProductResponse]:
-    row = ProductService(db).create_product(
+    row = ProductService(db, withheld_duties=_withheld_duties(scope)).create_product(
         data, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data=_response(row, can_view_cost=_can_view_cost(scope), db=db))
@@ -184,7 +200,7 @@ async def import_products(
     payload: Annotated[str | None, Form()] = None,
     file: Annotated[UploadFile | None, File()] = None,
 ) -> ApiResponse[list[ProductResponse]]:
-    service = ProductService(db)
+    service = ProductService(db, withheld_duties=_withheld_duties(scope))
     if format == "json":
         if payload is None:
             raise ValidationError("payload is required for JSON import.")
@@ -324,7 +340,7 @@ def update_product(
     db: Session = Depends(get_db),
     expected_version: ExpectedVersion = None,
 ) -> ApiResponse[ProductResponse]:
-    service = ProductService(db)
+    service = ProductService(db, withheld_duties=_withheld_duties(scope))
     assert_version(
         service.get_product(product_id, firm_scope=scope.firm_id).version,
         expected_version,

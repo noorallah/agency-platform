@@ -18,13 +18,11 @@ from uuid import UUID
 
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
-from sqlalchemy.sql.elements import ColumnElement
 
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ConflictError, ResourceNotFoundError
 from app.core.utils.money import quantize_money
-from app.sales_invoice.models import SalesInvoice
 from app.sales_targets.models import SalesTarget
 from app.sales_targets.schemas import (
     SalesTargetAchievement,
@@ -32,7 +30,12 @@ from app.sales_targets.schemas import (
     SalesTargetResponse,
     SalesTargetWrite,
 )
-from app.settlements.models import Settlement, SettlementAllocation
+from app.settlements.services.net_sales import (
+    NetSale,
+    collected_net,
+    invoiced_net,
+    sum_of,
+)
 
 ZERO = Decimal("0")
 HUNDRED = Decimal("100")
@@ -257,64 +260,49 @@ class SalesTargetService:
         return self._invoiced(target, firm_scope=firm_scope)
 
     def _invoiced(self, target: SalesTarget, *, firm_scope: UUID) -> Decimal:
-        """Sum what was billed in the period.
+        """Sum what was billed in the period, net of what came back.
 
         Only approved invoices: a draft is not a sale, and a cancelled one is
-        not one either.
+        not one either. Each bill counts for its total less what a credit
+        note or a completed return has since taken off it -- `invoiced_net`
+        is the one walk, shared with `app/commission`, so a target and a
+        payout cannot disagree about the same money.
         """
-        statement = select(func.coalesce(func.sum(SalesInvoice.grand_total), 0)).where(
-            SalesInvoice.firm_id == firm_scope,
-            SalesInvoice.is_deleted.is_(False),
-            SalesInvoice.status.in_(("APPROVED", "CLOSED")),
-            SalesInvoice.invoice_date >= target.period_start,
-            SalesInvoice.invoice_date <= target.period_end,
+        rows = invoiced_net(
+            self._session,
+            firm_id=firm_scope,
+            from_date=target.period_start,
+            to_date=target.period_end,
         )
-        statement = statement.where(*self._scope_clauses(target))
-        return Decimal(str(self._session.scalar(statement) or 0))
+        return sum_of([row for row in rows if self._in_scope(target, row)])
 
     def _collected(self, target: SalesTarget, *, firm_scope: UUID) -> Decimal:
         """Sum the money that actually arrived in the period.
 
         Walks the allocations rather than the invoices, and counts only POSTED
-        receipts -- a reversed settlement collected nothing. The same walk
-        `app/commission` makes, and it must stay the same one: two numbers
-        describing the same money computed two ways will disagree.
+        receipts -- a reversed settlement collected nothing -- net of what has
+        been credited against the bill since. The same walk `app/commission`
+        makes, and it must stay the same one: two numbers describing the same
+        money computed two ways will disagree.
         """
-        statement = (
-            select(func.coalesce(func.sum(SettlementAllocation.amount), 0))
-            .join(Settlement, Settlement.id == SettlementAllocation.settlement_id)
-            .join(
-                SalesInvoice, SalesInvoice.id == SettlementAllocation.sales_invoice_id
-            )
-            .where(
-                SettlementAllocation.firm_id == firm_scope,
-                SettlementAllocation.is_deleted.is_(False),
-                SettlementAllocation.sales_invoice_id.is_not(None),
-                Settlement.is_deleted.is_(False),
-                Settlement.status == "POSTED",
-                Settlement.direction == "RECEIPT",
-                Settlement.settlement_date >= target.period_start,
-                Settlement.settlement_date <= target.period_end,
-            )
+        rows = collected_net(
+            self._session,
+            firm_id=firm_scope,
+            from_date=target.period_start,
+            to_date=target.period_end,
         )
-        statement = statement.where(*self._scope_clauses(target))
-        return Decimal(str(self._session.scalar(statement) or 0))
+        return sum_of([row for row in rows if self._in_scope(target, row)])
 
     @staticmethod
-    def _scope_clauses(target: SalesTarget) -> list[ColumnElement[bool]]:
-        """Narrow a sum to whoever the target is for.
+    def _in_scope(target: SalesTarget, row: NetSale) -> bool:
+        """Say whether one sale counts towards whoever the target is for.
 
         A target naming neither a salesman nor a territory is the firm's own
-        number, and takes everything. Returned as clauses rather than applied
-        to a statement, so one helper serves both sums without either of them
-        losing the type of the thing it is building.
+        number, and takes everything.
         """
-        clauses: list[ColumnElement[bool]] = []
-        if target.salesman_id is not None:
-            clauses.append(SalesInvoice.salesman_id == target.salesman_id)
-        if target.territory_id is not None:
-            clauses.append(SalesInvoice.territory_id == target.territory_id)
-        return clauses
+        if target.salesman_id is not None and row.salesman_id != target.salesman_id:
+            return False
+        return target.territory_id is None or row.territory_id == target.territory_id
 
     def _names_for(self, salesman_ids: set[UUID], firm_scope: UUID) -> dict[UUID, str]:
         """Resolve salesman names through the platform store.

@@ -95,6 +95,9 @@ class CommissionPayoutResponse(PayoutSchema):
     earned_amount: Decimal
     adjustment_amount: Decimal
     adjustment_reason: str | None
+    #: What this payout recovered from earlier paid payouts whose periods
+    #: were later credited or returned against. Comes off the payable.
+    clawback_amount: Decimal
     payable_amount: Decimal
     status: CommissionPayoutStatusEnum
     accrued_on: date

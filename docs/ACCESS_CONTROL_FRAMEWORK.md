@@ -181,7 +181,7 @@ Four are platform-tier and twelve are firm-tier. `SUPPORT_ADMIN` is in
 | `SYSTEM_AUDITOR` | platform | 5 | Reads the trails: `AUDIT_LOG_VIEW`, `DIAGNOSTICS_VIEW`, `FIRM_VIEW`, `USER_VIEW`, `REPORT_VIEW` | every write |
 | `FIRM_ADMIN` | firm | 170 | Runs the firm: every operational module **plus** users, roles, permissions, `SETTINGS_VIEW`/`SETTINGS_UPDATE` | platform codes, `high_risk`, and the six areas in [Part 11](#part-11--what-the-seeded-grants-do-not-cover) |
 | `FIRM_MANAGER` | firm | 150 | Everything `FIRM_ADMIN` operates, **minus** administering the firm's people | `user`, `role`, `permission`, `SETTINGS_*` |
-| `ACCOUNTANT` | firm | 24 | The books: `accounting`, `commission`, `report`, plus `CUSTOMER_MANAGE_SETTINGS` | sales and purchase writes |
+| `ACCOUNTANT` | firm | 25 | The books: `accounting`, `commission`, `report`, plus `CUSTOMER_MANAGE_SETTINGS` and `VENDOR_VIEW_FINANCIAL_DETAILS` | sales and purchase writes, `VENDOR_MANAGE_BANK_DETAILS` |
 | `SALES_MANAGER` | firm | 35 | Owns the sales desk: customers, the sales chain, territory assignment, credit notes (draft), proforma, loyalty spend | the ten controls in the table below |
 | `SALES_EXECUTIVE` | firm | 6 | Works a beat: view customers and territory; raise quotation, order, invoice | approval, cancellation, every master write |
 | `PURCHASE_MANAGER` | firm | 9 | All nine `purchase` codes | everything outside purchasing |
@@ -211,7 +211,7 @@ FIRM_ADMIN (170)          runs the firm and its people
     │   └── CUSTOMER_SUPPORT (3)
     ├── PURCHASE_MANAGER (9)
     │   └── PURCHASE_EXECUTIVE (8)
-    ├── ACCOUNTANT (24)
+    ├── ACCOUNTANT (25)
     │   └── CASHIER (4)
     └── INVENTORY_MANAGER (16)
 
@@ -254,6 +254,7 @@ able to switch the control off.**
 | `SALES_MANAGER` | `EINVOICE_MANAGE` | Reading a registration is running a sales desk; filing with the authority is not |
 | `FIRM_MANAGER` | `user` / `role` / `permission` | Operating the firm and deciding who may operate it are different jobs |
 | `ACCOUNTANT` | *(holds)* `CUSTOMER_MANAGE_SETTINGS` | Credit policy governs receivables, so it belongs to the role that owns them rather than to the role it constrains |
+| `ACCOUNTANT` | *(holds)* `VENDOR_VIEW_FINANCIAL_DETAILS`, **not** `VENDOR_MANAGE_BANK_DETAILS` | Whoever pays a supplier has to read the account the money goes to, and must not be the one who says where it goes. The vendor router withholds the bank accounts without the read code and refuses a change to them without the manage code (D-MST-10); `VIEWER` holds neither, so a read-only user is served a vendor with no accounts |
 
 ## Custom roles
 

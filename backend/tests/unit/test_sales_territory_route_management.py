@@ -36,8 +36,10 @@ from app.sales.schemas import (
 from app.sales.schemas.territory import (
     HierarchyLevelInput,
     HierarchyUpdateRequest,
+    RouteProfileInput,
     TerritoryBulkStatusRequest,
     TerritoryStatus,
+    VisitFrequency,
 )
 from app.sales.services import SalesTerritoryService
 
@@ -366,6 +368,67 @@ def test_bulk_territory_changes_are_audited_per_territory() -> None:
     assert {row.entity_id for row in changed} == {first.id, second.id}
     assert all(row.firm_id == firm.id for row in changed)
     assert all(row.after_data == {"status": "INACTIVE"} for row in changed)
+
+
+def test_an_edit_that_leaves_out_the_route_profile_keeps_the_route() -> None:
+    """D-TER-7: a PUT without `route_profile` deleted the route.
+
+    The node stopped being a round, its beat plans stopped running and its
+    documents stopped being tagged with it, all from an omission. Now an
+    omitted field keeps what is stored -- the profile, the status, the
+    description -- and only an explicit null retires the round.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "TRU")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    hierarchy = service.get_hierarchy(firm_scope=firm.id, actor_id=actor)
+    route = service.create_territory(
+        TerritoryCreate(
+            code="N2",
+            name="North Two",
+            hierarchy_level_id=hierarchy.levels[0].id,
+            description="Tuesday round",
+            sort_order=7,
+            route_profile=RouteProfileInput(
+                visit_frequency=VisitFrequency.WEEKLY, working_days=[2]
+            ),
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    assert route.route_profile is not None
+
+    renamed = service.update_territory(
+        route.id,
+        TerritoryUpdate(name="North Two (Tue)"),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+
+    assert renamed.name == "North Two (Tue)"
+    assert renamed.code == "N2"
+    assert renamed.description == "Tuesday round"
+    assert renamed.sort_order == 7
+    assert renamed.route_profile is not None
+    assert renamed.route_profile.working_days == [2]
+    audit = session.scalars(
+        select(AuditLog).where(AuditLog.action == "sales_territory.updated")
+    ).one()
+    assert audit.before_data is not None and audit.after_data is not None
+    assert audit.before_data["name"] == "North Two"
+    assert audit.after_data["name"] == "North Two (Tue)"
+    assert audit.before_data["is_route"] is True
+    assert audit.after_data["is_route"] is True
+
+    retired = service.update_territory(
+        route.id,
+        TerritoryUpdate(route_profile=None),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    assert retired.route_profile is None
+    assert retired.name == "North Two (Tue)"
 
 
 def _count_nodes(session: Session, firm_id: UUID) -> int:

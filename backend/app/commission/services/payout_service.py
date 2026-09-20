@@ -20,7 +20,11 @@ from sqlalchemy import Select, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.commission.models import CommissionPayout, CommissionPayoutStatus
+from app.commission.models import (
+    CommissionClawback,
+    CommissionPayout,
+    CommissionPayoutStatus,
+)
 from app.commission.schemas.payout import (
     CommissionPayoutAccrue,
     CommissionPayoutPay,
@@ -153,6 +157,12 @@ class CommissionPayoutService:
         paperwork that has to be approved and paid like any other, and it says
         nothing the report does not.
 
+        **What an earlier, paid period is now short by is taken off here.** A
+        bill credited or returned after its period was paid makes that period
+        worth less than was paid on it; the PAID row is never rewritten, so
+        the shortfall is carried onto this accrual as a clawback, up to what
+        this period earned, and the rest waits for the next (D-TER-3).
+
         Args:
             data: The period, optionally narrowed to one person.
             firm_id: The owning firm.
@@ -189,6 +199,12 @@ class CommissionPayoutService:
             measured = (
                 row.invoiced_amount if row.basis == "INVOICED" else row.collected_amount
             )
+            recovered = self._recover(
+                firm_id=firm_id,
+                salesman_id=row.salesman_id,
+                available=Decimal(str(row.commission_amount)),
+            )
+            clawback = sum((amount for _, amount in recovered), ZERO)
             payout = CommissionPayout(
                 firm_id=firm_id,
                 salesman_id=row.salesman_id,
@@ -198,7 +214,10 @@ class CommissionPayoutService:
                 measured_amount=measured,
                 earned_amount=row.commission_amount,
                 adjustment_amount=ZERO,
-                payable_amount=row.commission_amount,
+                clawback_amount=clawback,
+                payable_amount=quantize_ledger(
+                    Decimal(str(row.commission_amount)) - clawback
+                ),
                 status=CommissionPayoutStatus.DRAFT.value,
                 accrued_on=accrued_on,
                 created_by=actor_id,
@@ -218,6 +237,18 @@ class CommissionPayoutService:
                     "this one was being worked out. Reload and check before "
                     "accruing again."
                 ) from exc
+            for source, amount in recovered:
+                self._session.add(
+                    CommissionClawback(
+                        firm_id=firm_id,
+                        payout_id=payout.id,
+                        source_payout_id=source.id,
+                        amount=amount,
+                        created_by=actor_id,
+                        updated_by=actor_id,
+                    )
+                )
+            self._session.flush()
             record_audit(
                 self._session,
                 action="commission.payout.accrued",
@@ -229,6 +260,89 @@ class CommissionPayoutService:
             )
             created.append(payout)
         return created
+
+    def _recover(
+        self, *, firm_id: UUID, salesman_id: UUID, available: Decimal
+    ) -> list[tuple[CommissionPayout, Decimal]]:
+        """Say what this accrual takes back from the person's paid periods.
+
+        For each PAID payout of theirs, the period's report is read again and
+        the difference between what was paid on it and what it is worth now
+        -- less whatever a live later payout has already recovered -- is the
+        shortfall. Only a shortfall is carried: a period now worth *more* is
+        not paid again, because nothing about it was owed at the time.
+
+        The re-read is the one place a paid period's report is consulted
+        after accrual, and it changes nothing on the paid row. It exists so
+        that a credit note or a return after payment reaches the person who
+        was paid on the sale, which is what a firm means by commission on net
+        sales.
+
+        Applied oldest period first, each up to what is left of `available`,
+        because a payout cannot take money back: what this period cannot
+        cover waits for the next.
+
+        Args:
+            firm_id: The owning firm.
+            salesman_id: The person being accrued for.
+            available: What this period earned, which is the most that can be
+                recovered now.
+
+        Returns:
+            The paid payouts recovered from, with the amount taken off each.
+
+        """
+        if available <= ZERO:
+            return []
+        paid = self._session.scalars(
+            self._scoped(select(CommissionPayout), firm_id)
+            .where(
+                CommissionPayout.salesman_id == salesman_id,
+                CommissionPayout.status == CommissionPayoutStatus.PAID.value,
+            )
+            .order_by(CommissionPayout.period_start.asc(), CommissionPayout.id.asc())
+        ).all()
+        recovered: list[tuple[CommissionPayout, Decimal]] = []
+        for source in paid:
+            if available <= ZERO:
+                break
+            shortfall = self._shortfall_of(source)
+            if shortfall <= ZERO:
+                continue
+            taken = min(shortfall, available)
+            recovered.append((source, taken))
+            available -= taken
+        return recovered
+
+    def _shortfall_of(self, source: CommissionPayout) -> Decimal:
+        """Return what a paid payout's period is now short by, net of recoveries."""
+        report = self._commission.report(
+            firm_id=source.firm_id,
+            from_date=source.period_start,
+            to_date=source.period_end,
+            salesman_id=source.salesman_id,
+        )
+        worth_now = sum(
+            (
+                Decimal(str(row.commission_amount))
+                for row in report.rows
+                if row.salesman_id == source.salesman_id
+            ),
+            ZERO,
+        )
+        already = self._session.scalar(
+            select(func.coalesce(func.sum(CommissionClawback.amount), 0))
+            .join(CommissionPayout, CommissionPayout.id == CommissionClawback.payout_id)
+            .where(
+                CommissionClawback.source_payout_id == source.id,
+                CommissionClawback.is_deleted.is_(False),
+                CommissionPayout.is_deleted.is_(False),
+                CommissionPayout.status != CommissionPayoutStatus.CANCELLED.value,
+            )
+        )
+        return quantize_ledger(
+            Decimal(str(source.earned_amount)) - worth_now - Decimal(str(already or 0))
+        )
 
     def _assert_period_is_free(
         self,
@@ -319,7 +433,11 @@ class CommissionPayoutService:
             row.adjustment_reason = values["adjustment_reason"]
         if "notes" in values:
             row.notes = values["notes"]
-        payable = Decimal(str(row.earned_amount)) + Decimal(str(row.adjustment_amount))
+        payable = (
+            Decimal(str(row.earned_amount))
+            - Decimal(str(row.clawback_amount))
+            + Decimal(str(row.adjustment_amount))
+        )
         if payable < ZERO:
             raise ValidationError(
                 "That adjustment would make the payout negative. A payout "
@@ -376,18 +494,23 @@ class CommissionPayoutService:
         assert_version(row.version, expected_version)
         if row.status != CommissionPayoutStatus.DRAFT.value:
             raise ValidationError("Only a draft payout can be approved.")
-        if row.payable_amount <= ZERO:
+        if row.payable_amount <= ZERO and row.clawback_amount <= ZERO:
             raise ValidationError("A payout of nothing cannot be approved.")
         before = self._snapshot(row)
-        entry = self._posting.post_commission_accrual(
-            firm_id=firm_id,
-            payout_id=row.id,
-            reference=self.reference_for(row),
-            accrued_on=row.accrued_on,
-            amount=Decimal(str(row.payable_amount)),
-            actor_id=actor_id,
-        )
-        row.journal_entry_id = entry.id
+        if row.payable_amount > ZERO:
+            entry = self._posting.post_commission_accrual(
+                firm_id=firm_id,
+                payout_id=row.id,
+                reference=self.reference_for(row),
+                accrued_on=row.accrued_on,
+                amount=Decimal(str(row.payable_amount)),
+                actor_id=actor_id,
+            )
+            row.journal_entry_id = entry.id
+        # A period whose earnings were wholly taken by a clawback owes
+        # nothing and posts nothing: the expense it would have booked is
+        # exactly the expense the earlier period overstated. Approving it
+        # still matters -- it is what makes the recovery final.
         row.status = CommissionPayoutStatus.APPROVED.value
         row.updated_by = actor_id
         self._session.flush()
@@ -443,20 +566,23 @@ class CommissionPayoutService:
                 "is what recognises the debt."
             )
         before = self._snapshot(row)
-        entry = self._posting.post_commission_payment(
-            firm_id=firm_id,
-            payout_id=row.id,
-            # Its own reference, not the accrual's: a journal reference is
-            # unique, so sharing one made an approved payout impossible to
-            # pay -- the payment entry collided with the accrual that had
-            # just been posted for it.
-            reference=f"{self.reference_for(row)}-PAY",
-            paid_on=data.paid_on,
-            amount=Decimal(str(row.payable_amount)),
-            money_account_id=data.money_account_id,
-            actor_id=actor_id,
-        )
-        row.payment_journal_entry_id = entry.id
+        if row.payable_amount > ZERO:
+            entry = self._posting.post_commission_payment(
+                firm_id=firm_id,
+                payout_id=row.id,
+                # Its own reference, not the accrual's: a journal reference
+                # is unique, so sharing one made an approved payout
+                # impossible to pay -- the payment entry collided with the
+                # accrual that had just been posted for it.
+                reference=f"{self.reference_for(row)}-PAY",
+                paid_on=data.paid_on,
+                amount=Decimal(str(row.payable_amount)),
+                money_account_id=data.money_account_id,
+                actor_id=actor_id,
+            )
+            row.payment_journal_entry_id = entry.id
+        # Nothing to pay when a clawback took the whole period; marking it
+        # PAID records that the person has settled up.
         row.money_account_id = data.money_account_id
         row.paid_on = data.paid_on
         row.status = CommissionPayoutStatus.PAID.value
@@ -578,6 +704,7 @@ class CommissionPayoutService:
             earned_amount=row.earned_amount,
             adjustment_amount=row.adjustment_amount,
             adjustment_reason=row.adjustment_reason,
+            clawback_amount=row.clawback_amount,
             payable_amount=row.payable_amount,
             status=CommissionPayoutStatusEnum(row.status),
             accrued_on=row.accrued_on,
@@ -601,6 +728,7 @@ class CommissionPayoutService:
             "earned_amount": str(row.earned_amount),
             "adjustment_amount": str(row.adjustment_amount),
             "adjustment_reason": row.adjustment_reason,
+            "clawback_amount": str(row.clawback_amount),
             "payable_amount": str(row.payable_amount),
             "status": row.status,
             "accrued_on": row.accrued_on.isoformat(),
