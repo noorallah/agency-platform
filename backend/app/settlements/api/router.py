@@ -92,6 +92,9 @@ def _to_response(service: SettlementService, row: Settlement) -> SettlementRespo
                 invoice_date=invoice_date,
                 invoice_total=total,
                 amount=allocation.amount,
+                # Rows older than the column carry nothing; the settlement's
+                # date is what the backfill wrote for them.
+                allocated_on=allocation.allocated_on or row.settlement_date,
             )
         )
     return SettlementResponse(

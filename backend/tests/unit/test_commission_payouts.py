@@ -11,7 +11,7 @@ cases that decide whether the payout that closes that gap can be trusted:
   record never disagree about what the firm owes.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -30,8 +30,14 @@ from app.commission.schemas.payout import (
 from app.commission.services import CommissionPayoutService, CommissionService
 from app.core.database.base import Base
 from app.core.exceptions import ConflictError, ValidationError
+from app.core.utils.dates import utc_now
 from app.credit_note.models import CreditNote
 from app.customers.models import Customer
+from app.customers.schemas.customer import (
+    CustomerReceivableTransactionCreate,
+    CustomerReceivableTransactionType,
+)
+from app.customers.services.customer_service import CustomerService
 from app.finance.models import JournalEntry, JournalLine, LedgerAccount
 from app.finance.services.control_accounts import ControlAccountPurpose
 from app.finance.services.opening_setup import seed_finance_setup
@@ -749,3 +755,121 @@ def test_a_period_only_worth_more_now_is_not_paid_again() -> None:
     assert may.clawback_amount == Decimal("0.00")
     assert may.earned_amount == Decimal("1500.00")
     assert may.payable_amount == Decimal("1500.00")
+
+
+# ----------------------------------------------------------------------
+# D-TER-6: a period is accrued once it has ended, booked no earlier than its
+# end and no later than today, and a collection belongs to the day the money
+# met the bill.
+# ----------------------------------------------------------------------
+
+
+def _accrue_raw(
+    books: _Books, period: tuple[date, date], accrued_on: date | None = None
+) -> list[object]:
+    """Run an accrual with an explicit booking date, without committing."""
+    return list(
+        CommissionPayoutService(books.session).accrue(
+            CommissionPayoutAccrue(
+                period_start=period[0], period_end=period[1], accrued_on=accrued_on
+            ),
+            firm_id=books.firm.id,
+            actor_id=books.actor_id,
+        )
+    )
+
+
+def test_a_period_still_running_cannot_be_accrued() -> None:
+    """The payout holds the whole period, so an early one loses the rest.
+
+    Live: September was accrued on the 19th with `accrued_on` 2026-09-30,
+    and everything collected from the 20th belonged to no payout.
+    """
+    books = _ready()
+    today = utc_now().date()
+
+    with pytest.raises(ValidationError, match="has not ended"):
+        _accrue_raw(books, (today - timedelta(days=10), today))
+    with pytest.raises(ValidationError, match="has not ended"):
+        _accrue_raw(books, (today - timedelta(days=10), today + timedelta(days=5)))
+    # Yesterday is over, and any length of period is fine.
+    assert (
+        _accrue_raw(books, (today - timedelta(days=45), today - timedelta(days=1)))
+        == []
+    )
+
+
+def test_the_booking_date_falls_between_the_period_end_and_today() -> None:
+    """The cost belongs to the period, and a journal cannot be dated ahead."""
+    books = _ready()
+    today = utc_now().date()
+
+    with pytest.raises(ValidationError, match="before the period ends"):
+        _accrue_raw(books, APRIL, accrued_on=date(2026, 4, 15))
+    with pytest.raises(ValidationError, match="not happened yet"):
+        _accrue_raw(books, APRIL, accrued_on=today + timedelta(days=1))
+
+    [payout] = _accrue_raw(books, APRIL, accrued_on=date(2026, 5, 2))
+    assert payout.accrued_on == date(2026, 5, 2)
+
+
+def test_an_advance_is_collected_the_day_it_meets_the_bill() -> None:
+    """Money applied to a bill raised later belongs to the bill's period.
+
+    Live: a receipt of 2026-08-15 applied to an invoice of 2026-09-19 was
+    reported as August's collection -- a period whose payout may already
+    have been paid, so the commission on it would never have been stated.
+    """
+    books = _Books(_session_factory()())
+    books.rule("10")
+    receipt = ReceiptService(books.session).create(
+        SettlementCreate(
+            party_id=books.customer.id,
+            settlement_date=date(2026, 4, 15),
+            amount=Decimal("5000.00"),
+            method=SettlementMethodEnum.CASH,
+            allocations=[],
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+    invoice = SalesInvoice(
+        firm_id=books.firm.id,
+        customer_id=books.customer.id,
+        branch_id=books.branch_id,
+        salesman_id=books.asha,
+        invoice_number="SI-LATE",
+        invoice_date=date(2026, 5, 19),
+        status="APPROVED",
+        grand_total=Decimal("5000.00"),
+        created_by=books.actor_id,
+        updated_by=books.actor_id,
+    )
+    books.session.add(invoice)
+    books.session.commit()
+    # The bill reaches the customer's account the way an approved invoice
+    # does, or applying the advance is refused as exceeding what is owed.
+    CustomerService(books.session).post_receivable_transaction(
+        books.customer.id,
+        CustomerReceivableTransactionCreate(
+            transaction_type=CustomerReceivableTransactionType.INVOICE,
+            amount=Decimal("5000.00"),
+            transaction_date=date(2026, 5, 19),
+        ),
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+    ReceiptService(books.session).allocate(
+        receipt.id,
+        invoice_id=invoice.id,
+        amount=Decimal("5000.00"),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+
+    assert books.accrue(APRIL) == []
+    [may] = books.accrue(MAY)
+    assert may.measured_amount == Decimal("5000.00")
+    assert may.earned_amount == Decimal("500.00")
