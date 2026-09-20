@@ -10,6 +10,8 @@ missing half is trustworthy:
 - and on the **target's** basis, because a firm measuring what was collected
   and a firm measuring what was invoiced want different numbers out of the
   same documents;
+- and a target on a territory covers the node and every live descendant,
+  because a document carries the route and a region is its routes (D-TER-12).
 - and an edit changes what it names and nothing else, because the write
   model's defaults used to be applied to every omission (D-TER-8).
 """
@@ -33,6 +35,7 @@ from app.credit_note.models import CreditNote
 from app.customers.models import Customer
 from app.firms.models import Firm
 from app.identity.models import identity as _identity_models  # noqa: F401
+from app.sales.models import SalesTerritoryNode
 from app.sales_invoice.models import SalesInvoice
 from app.sales_targets.schemas import (
     SalesTargetBasis,
@@ -114,6 +117,7 @@ def _invoice(
     on: date,
     total: str,
     salesman_id: UUID | None = None,
+    territory_id: UUID | None = None,
     status: str = "APPROVED",
 ) -> None:
     """Write one invoice straight to the table.
@@ -127,7 +131,8 @@ def _invoice(
             customer_id=customer_id,
             branch_id=branch_id,
             salesman_id=salesman_id,
-            invoice_number=f"SI-{on}-{total}-{status}",
+            territory_id=territory_id,
+            invoice_number=f"SI-{on}-{total}-{status}-{territory_id or ''}",
             invoice_date=on,
             status=status,
             grand_total=Decimal(total),
@@ -142,6 +147,7 @@ def _target(
     firm_id: UUID,
     amount: str,
     salesman_id: UUID | None = None,
+    territory_id: UUID | None = None,
     basis: SalesTargetBasis = SalesTargetBasis.INVOICED,
     period: tuple[date, date] = APRIL,
 ) -> None:
@@ -149,6 +155,7 @@ def _target(
     service.create_target(
         SalesTargetWrite(
             salesman_id=salesman_id,
+            territory_id=territory_id,
             period_start=period[0],
             period_end=period[1],
             period_type=SalesTargetPeriod.MONTHLY,
@@ -499,6 +506,191 @@ def test_an_edit_may_overlap_the_target_it_is_editing() -> None:
     )
 
     assert row.period_end == date(2026, 6, 30)
+
+
+def _node(
+    session: Session,
+    *,
+    firm_id: UUID,
+    code: str,
+    name: str,
+    parent: SalesTerritoryNode | None = None,
+) -> SalesTerritoryNode:
+    """Write one territory node under its parent, with the path the tree keeps."""
+    row = SalesTerritoryNode(
+        firm_id=firm_id,
+        hierarchy_level_id=uuid4(),
+        parent_id=parent.id if parent else None,
+        code=code,
+        name=name,
+        path=code if parent is None else f"{parent.path}/{code}",
+    )
+    session.add(row)
+    session.commit()
+    return row
+
+
+def _tree(session: Session, firm_id: UUID) -> dict[str, SalesTerritoryNode]:
+    """Build a region over a territory over two routes, and a look-alike sibling.
+
+    The sibling region is coded `T-N2` beside `T-N`, and its route's path
+    starts with the first region's: exactly what a `path LIKE 'T-N%'` would
+    have swept in. And `T_N` beside them, because `_` is a wildcard to LIKE.
+    """
+    region = _node(session, firm_id=firm_id, code="T-N", name="North")
+    territory = _node(
+        session, firm_id=firm_id, code="T-N-CITY", name="North City", parent=region
+    )
+    route_a = _node(
+        session, firm_id=firm_id, code="T-N-CITY-A", name="Route A", parent=territory
+    )
+    route_b = _node(
+        session, firm_id=firm_id, code="T-N-CITY-B", name="Route B", parent=territory
+    )
+    sibling = _node(session, firm_id=firm_id, code="T-N2", name="North Two")
+    route_c = _node(
+        session, firm_id=firm_id, code="T-N2-C", name="Route C", parent=sibling
+    )
+    underscore = _node(session, firm_id=firm_id, code="T_N", name="Underscore")
+    return {
+        "region": region,
+        "territory": territory,
+        "route_a": route_a,
+        "route_b": route_b,
+        "sibling": sibling,
+        "route_c": route_c,
+        "underscore": underscore,
+    }
+
+
+def _bill_every_route(
+    session: Session, *, firm_id: UUID, tree: dict[str, SalesTerritoryNode]
+) -> None:
+    """Invoice 4,000 on route A, 3,000 on route B, and 9,000 outside the region."""
+    branch = _branch(session, firm_id=firm_id)
+    customer = _customer(session, firm_id=firm_id)
+    for node, total in (
+        ("route_a", "4000"),
+        ("route_b", "3000"),
+        ("route_c", "9000"),
+        ("underscore", "9000"),
+    ):
+        _invoice(
+            session,
+            firm_id=firm_id,
+            customer_id=customer.id,
+            branch_id=branch.id,
+            on=date(2026, 4, 10),
+            total=total,
+            territory_id=tree[node].id,
+        )
+
+
+def test_a_target_on_a_region_counts_what_its_routes_sold() -> None:
+    """D-TER-12: a 5,000 target on a region read 0.00 with 10,620 on its routes.
+
+    A document carries the route its customer is on, so a target matched on
+    that column alone achieved nothing on any level above it. The region is
+    its routes: 4,000 on A and 3,000 on B count, and neither the look-alike
+    sibling `T-N2` nor `T_N` does. The row is labelled with the territory
+    rather than "Whole firm".
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    tree = _tree(session, firm.id)
+    _bill_every_route(session, firm_id=firm.id, tree=tree)
+    service = SalesTargetService(session)
+    _target(service, firm_id=firm.id, amount="5000", territory_id=tree["region"].id)
+
+    [answer] = service.achievement(
+        firm_scope=firm.id, from_date=APRIL[0], to_date=APRIL[1]
+    )
+
+    assert answer.achieved_amount == Decimal("7000.00")
+    assert answer.shortfall_amount == Decimal("0.00")
+    assert answer.territory_code == "T-N"
+    assert answer.territory_name == "North"
+    assert answer.scope_label == "T-N · North"
+    assert answer.salesman_name == "T-N · North"
+    [row] = service.list_targets(firm_scope=firm.id, page=1, page_size=10)[0]
+    listed = service.target_response(row)
+    assert listed.scope_label == "T-N · North"
+    assert listed.territory_code == "T-N"
+
+
+def test_a_target_on_a_route_counts_only_its_own_route() -> None:
+    """The bottom of the tree has no descendants, so it takes exactly itself."""
+    session = _session_factory()()
+    firm = _firm(session)
+    tree = _tree(session, firm.id)
+    _bill_every_route(session, firm_id=firm.id, tree=tree)
+    service = SalesTargetService(session)
+    _target(service, firm_id=firm.id, amount="5000", territory_id=tree["route_b"].id)
+
+    [answer] = service.achievement(
+        firm_scope=firm.id, from_date=APRIL[0], to_date=APRIL[1]
+    )
+
+    assert answer.achieved_amount == Decimal("3000.00")
+
+
+def test_a_person_s_target_on_a_region_takes_only_their_sales_in_it() -> None:
+    """Both halves of the scope apply: their sales, on the region's routes."""
+    session = _session_factory()()
+    firm = _firm(session)
+    tree = _tree(session, firm.id)
+    branch = _branch(session, firm_id=firm.id)
+    customer = _customer(session, firm_id=firm.id)
+    theirs = uuid4()
+    for node, total, who in (
+        ("route_a", "4000", theirs),
+        ("route_b", "3000", uuid4()),
+        ("route_c", "9000", theirs),
+    ):
+        _invoice(
+            session,
+            firm_id=firm.id,
+            customer_id=customer.id,
+            branch_id=branch.id,
+            on=date(2026, 4, 10),
+            total=total,
+            salesman_id=who,
+            territory_id=tree[node].id,
+        )
+    service = SalesTargetService(session)
+    _target(
+        service,
+        firm_id=firm.id,
+        amount="5000",
+        salesman_id=theirs,
+        territory_id=tree["region"].id,
+    )
+
+    [answer] = service.achievement(
+        firm_scope=firm.id, from_date=APRIL[0], to_date=APRIL[1]
+    )
+
+    assert answer.achieved_amount == Decimal("4000.00")
+    assert answer.scope_label.endswith(" · T-N · North")
+
+
+def test_a_region_target_and_a_route_target_beneath_it_are_different_scopes() -> None:
+    """The D-TER-2 overlap rule is not widened by the tree.
+
+    A firm may set the region a number and one of its routes a number over
+    the same days on the same basis: they are different questions, and the
+    bonus is judged per person rather than by adding territory targets up.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    tree = _tree(session, firm.id)
+    service = SalesTargetService(session)
+    _target(service, firm_id=firm.id, amount="5000", territory_id=tree["region"].id)
+    _target(service, firm_id=firm.id, amount="2000", territory_id=tree["route_a"].id)
+
+    with pytest.raises(ConflictError):
+        _target(service, firm_id=firm.id, amount="1", territory_id=tree["region"].id)
+    assert len(service.list_targets(firm_scope=firm.id, page=1, page_size=10)[0]) == 2
 
 
 def _persons_target(
