@@ -1631,6 +1631,11 @@ class SalesTerritoryService:
         # other territories are none of this call's business; the loop below
         # already retires the ones that belong to this territory and were
         # dropped from the list.
+        # Who was on the round when this call began. A row retired here and
+        # revived below is a re-save and keeps its flag and its stop; a row
+        # that was already retired is a shop *rejoining*, which is decided
+        # afresh (D-TER-10).
+        previously_live: set[UUID] = set()
         for assignment in self._session.scalars(
             select(TerritoryCustomerAssignment).where(
                 TerritoryCustomerAssignment.territory_id == territory.id,
@@ -1638,6 +1643,7 @@ class SalesTerritoryService:
                 TerritoryCustomerAssignment.is_deleted.is_(False),
             )
         ):
+            previously_live.add(assignment.customer_id)
             assignment.is_deleted = True
             assignment.deleted_at = utc_now()
             assignment.deleted_by = actor_id
@@ -1675,6 +1681,16 @@ class SalesTerritoryService:
         for customer_id in requested:
             row = existing.get(customer_id)
             entry = entry_by_customer.get(customer_id)
+            if entry is not None and entry.is_primary:
+                # Naming this round primary for a shop moves the flag here
+                # from wherever it was: one primary per shop is what the key
+                # holds, and a caller who says "primary" has said which one.
+                # Refusing instead made the caller demote the other round
+                # first, and the bare 409 that greeted anyone who did not
+                # know that named no round at all. Done before this shop's
+                # row is written, because the key is checked per statement
+                # and a query below would flush the new flag first.
+                self._demote_elsewhere(customer_id, territory.id, actor_id)
             if row is None:
                 self._session.add(
                     TerritoryCustomerAssignment(
@@ -1706,6 +1722,24 @@ class SalesTerritoryService:
                     )
                 )
             elif row.is_deleted:
+                if customer_id not in previously_live:
+                    # A shop rejoining a round it once left: its flag and its
+                    # stop are decided the way a new row's are, not read back
+                    # from the day it left. It used to keep the primary flag
+                    # it was retired with, and if the shop had become primary
+                    # elsewhere meanwhile the save tripped
+                    # `UQ_territory_customer_assignments_primary_active` and
+                    # answered the bare 409 -- from the picker, which sends
+                    # no flag at all (D-TER-10). The stop number is released
+                    # for the same reason: another shop may hold it by now.
+                    # Decided while the row is still retired, so the query
+                    # does not flush a flag the key would refuse.
+                    row.is_primary = (
+                        entry.is_primary
+                        if entry is not None and entry.is_primary is not None
+                        else not self._has_primary_elsewhere(customer_id, territory.id)
+                    )
+                    row.visit_sequence = None
                 row.is_deleted = False
                 row.deleted_at = None
                 row.deleted_by = None
@@ -1738,6 +1772,24 @@ class SalesTerritoryService:
         else:
             self._session.flush()
         return self.customers(territory_id, firm_scope=firm_scope)
+
+    def _demote_elsewhere(
+        self, customer_id: UUID, territory_id: UUID, actor_id: UUID
+    ) -> None:
+        """Take the primary flag off this shop's other rounds."""
+        for other in self._session.scalars(
+            select(TerritoryCustomerAssignment).where(
+                TerritoryCustomerAssignment.customer_id == customer_id,
+                TerritoryCustomerAssignment.territory_id != territory_id,
+                TerritoryCustomerAssignment.is_primary.is_(True),
+                TerritoryCustomerAssignment.is_deleted.is_(False),
+            )
+        ):
+            other.is_primary = False
+            other.updated_by = actor_id
+        # Flushed before the row that takes the flag is written, because the
+        # key is checked per statement and cannot be deferred.
+        self._session.flush()
 
     def _has_primary_elsewhere(self, customer_id: UUID, territory_id: UUID) -> bool:
         """Whether this shop is already the primary of some other round."""
@@ -2731,19 +2783,19 @@ class SalesTerritoryService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> TerritoryResponse:
+        """Copy a subtree under a new root, all of it or none of it.
+
+        The nodes are found by walking `parent_id` down from the source, not
+        by a `path LIKE '<source>%'` -- that also took a sibling whose code
+        merely started the same way (`T-N` and `T-N2`) and read `_` in a code
+        as a wildcard. Every create and assignment is staged with
+        ``commit=False`` and the whole copy commits once at the end, so a
+        refusal partway -- the one-route-per-salesperson setting, a node cap
+        -- leaves nothing behind (D-TER-13).
+        """
         source = self._territory(territory_id, firm_scope)
         target_parent = self._parent(firm_scope, payload.target_parent_id)
-        source_nodes = list(
-            self._session.scalars(
-                select(SalesTerritoryNode)
-                .where(
-                    SalesTerritoryNode.firm_id == firm_scope,
-                    SalesTerritoryNode.path.ilike(f"{source.path}%"),
-                    SalesTerritoryNode.is_deleted.is_(False),
-                )
-                .order_by(SalesTerritoryNode.path.asc())
-            )
-        )
+        source_nodes = self._subtree(source, firm_scope)
         id_map: dict[UUID, UUID] = {}
         created_root_id: UUID | None = None
         route_profiles = self._route_profile_map({item.id for item in source_nodes})
@@ -2787,6 +2839,7 @@ class SalesTerritoryService:
                 ),
                 firm_scope=firm_scope,
                 actor_id=actor_id,
+                commit=False,
             )
             id_map[node.id] = created.id
             if created_root_id is None:
@@ -2815,6 +2868,7 @@ class SalesTerritoryService:
                     ),
                     firm_scope=firm_scope,
                     actor_id=actor_id,
+                    commit=False,
                 )
                 salesmen = self.salesmen(node.id, firm_scope=firm_scope)
                 self.set_salesmen(
@@ -2822,10 +2876,60 @@ class SalesTerritoryService:
                     TerritoryAssignSalesmenRequest(assignments=salesmen),
                     firm_scope=firm_scope,
                     actor_id=actor_id,
+                    commit=False,
                 )
         if created_root_id is None:
             raise ValidationError("No hierarchy nodes were copied.")
+        record_audit(
+            self._session,
+            action="sales_territory.copied",
+            entity_type="sales_territory",
+            entity_id=created_root_id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            after_data={
+                "source_id": str(source.id),
+                "source_code": source.code,
+                "nodes": len(id_map),
+                "include_assignments": payload.include_assignments,
+            },
+        )
+        self._commit()
         return self.get_territory(created_root_id, firm_scope=firm_scope)
+
+    def _subtree(
+        self, source: SalesTerritoryNode, firm_scope: UUID
+    ) -> list[SalesTerritoryNode]:
+        """Return the source and every live descendant, parents before children.
+
+        Breadth-first over `parent_id`, which is the relation the tree is
+        built on; bounded by the nodes seen so a cycle in `parent_id` -- a
+        plain column -- cannot walk for ever.
+        """
+        nodes = [source]
+        seen = {source.id}
+        frontier = [source.id]
+        while frontier:
+            children = [
+                child
+                for child in self._session.scalars(
+                    select(SalesTerritoryNode)
+                    .where(
+                        SalesTerritoryNode.firm_id == firm_scope,
+                        SalesTerritoryNode.parent_id.in_(frontier),
+                        SalesTerritoryNode.is_deleted.is_(False),
+                    )
+                    .order_by(
+                        SalesTerritoryNode.sort_order.asc(),
+                        SalesTerritoryNode.code.asc(),
+                    )
+                )
+                if child.id not in seen
+            ]
+            nodes.extend(children)
+            seen.update(child.id for child in children)
+            frontier = [child.id for child in children]
+        return nodes
 
     def bulk_set_customers(
         self,

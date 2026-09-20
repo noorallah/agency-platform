@@ -576,6 +576,9 @@ class SettlementService(TransactionalDocumentService):
                     sales_invoice_id=allocation.invoice_id if is_receipt else None,
                     purchase_invoice_id=(None if is_receipt else allocation.invoice_id),
                     amount=quantize_ledger(allocation.amount),
+                    # Applied with the money, so it met the bill the day the
+                    # money arrived.
+                    allocated_on=data.settlement_date,
                     created_by=actor_id,
                     updated_by=actor_id,
                 )
@@ -834,6 +837,13 @@ class SettlementService(TransactionalDocumentService):
                 settlement_id=row.id,
                 sales_invoice_id=invoice_id,
                 amount=asked,
+                # The day the money met the bill: the bill's own date, or the
+                # receipt's where the receipt came later. Not today, which
+                # would put the collection in whichever month the clerk got
+                # round to applying it -- and it is the date the ADVANCE_APPLY
+                # row below already carries, so the customer's ledger and the
+                # commission report read the same day (D-TER-6).
+                allocated_on=max(row.settlement_date, record.invoice_date),
                 created_by=actor_id,
                 updated_by=actor_id,
             )

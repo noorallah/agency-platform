@@ -752,3 +752,93 @@ def test_an_edit_that_leaves_out_the_stops_keeps_them() -> None:
             firm_scope=firm.id,
             actor_id=actor,
         )
+
+
+def test_a_shop_can_go_back_on_a_round_it_was_once_primary_on() -> None:
+    """D-TER-10: the revived row kept the flag it was retired with.
+
+    C1 is taken off N1, put on S1 (which makes S1 primary), and then put back
+    on N1 from the picker, which sends no flag. The revived row used to come
+    back primary, trip the one-primary-per-shop key and answer the bare 409.
+    It now rejoins as a second round, with S1 still primary.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "PRIM3")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    north = _route(service, firm.id, actor, "N1")
+    south = _route(service, firm.id, actor, "S1")
+    shop = _customer(session, firm.id, "C1")
+    service.set_customers(
+        north,
+        TerritoryAssignCustomersRequest(customer_ids=[shop.id]),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    service.set_customers(
+        north,
+        TerritoryAssignCustomersRequest(customer_ids=[]),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    service.set_customers(
+        south,
+        TerritoryAssignCustomersRequest(customer_ids=[shop.id]),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+
+    service.set_customers(
+        north,
+        TerritoryAssignCustomersRequest(customer_ids=[shop.id]),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+
+    assert [row.is_primary for row in service.customers(north, firm_scope=firm.id)] == [
+        False
+    ]
+    assert [row.is_primary for row in service.customers(south, firm_scope=firm.id)] == [
+        True
+    ]
+
+
+def test_naming_a_round_primary_moves_the_flag_there() -> None:
+    """One primary per shop, and the caller who says which has said which.
+
+    Promoting the collection round used to be refused with the bare 409
+    unless the sales round had been demoted first, by hand, in a separate
+    save.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "PRIM4")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    sales = _route(service, firm.id, actor, "SALES01")
+    collection = _route(service, firm.id, actor, "COLL01")
+    shop = _customer(session, firm.id, "C1")
+    for route in (sales, collection):
+        service.set_customers(
+            route,
+            TerritoryAssignCustomersRequest(customer_ids=[shop.id]),
+            firm_scope=firm.id,
+            actor_id=actor,
+        )
+
+    service.set_customers(
+        collection,
+        TerritoryAssignCustomersRequest(
+            entries=[
+                TerritoryCustomerAssignmentInput(customer_id=shop.id, is_primary=True)
+            ]
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+
+    assert [row.is_primary for row in service.customers(sales, firm_scope=firm.id)] == [
+        False
+    ]
+    assert [
+        row.is_primary for row in service.customers(collection, firm_scope=firm.id)
+    ] == [True]

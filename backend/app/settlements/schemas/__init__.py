@@ -90,6 +90,10 @@ class SettlementAllocationResponse(SettlementSchema):
     invoice_date: date
     invoice_total: Decimal
     amount: Decimal
+    #: The day the money met the bill -- the settlement's date, or later for
+    #: an advance applied to a bill raised since. Commission and targets count
+    #: the collection in this day's period (D-TER-6).
+    allocated_on: date
 
 
 class SettlementResponse(SettlementSchema):

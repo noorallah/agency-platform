@@ -66,9 +66,10 @@ def commission_report(
 ) -> ApiResponse[CommissionReport]:
     """Report money collected in the period and the commission it earned.
 
-    The period is read against the settlement date -- the day the money
-    arrived -- because that is what earns the commission, not the day the
-    invoice was raised.
+    The period is read against the day the money met the bill -- the
+    allocation's own date -- because that is what earns the commission, not
+    the day the invoice was raised, and not the day an advance arrived that
+    was only applied to the bill later (D-TER-6).
     """
     report = CommissionService(db).report(
         firm_id=scope.firm_id,

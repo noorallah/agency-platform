@@ -17,6 +17,7 @@ from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.sales_targets.schemas import (
     SalesTargetAchievement,
     SalesTargetResponse,
+    SalesTargetUpdate,
     SalesTargetWrite,
 )
 from app.sales_targets.services import SalesTargetService
@@ -122,13 +123,17 @@ def get_sales_target(
 @router.put("/{target_id}", response_model=ApiResponse[SalesTargetResponse])
 def update_sales_target(
     target_id: UUID,
-    data: SalesTargetWrite,
+    data: SalesTargetUpdate,
     scope: TargetManageScope,
     response: Response,
     expected_version: ExpectedVersion = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[SalesTargetResponse]:
-    """Replace one target's numbers."""
+    """Change some of one target.
+
+    A field left out of the body is left alone; an explicit ``null`` clears
+    the person, the round or the notes.
+    """
     service = SalesTargetService(db)
     current = service.get_target(target_id, firm_scope=scope.firm_id)
     assert_version(current.version, expected_version)

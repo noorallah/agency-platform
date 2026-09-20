@@ -12,10 +12,14 @@ missing half is trustworthy:
   same documents;
 - and a target on a territory covers the node and every live descendant,
   because a document carries the route and a region is its routes (D-TER-12).
+- and an edit changes what it names and nothing else, because the write
+  model's defaults used to be applied to every omission (D-TER-8).
 """
 
+import re
 from datetime import date
 from decimal import Decimal
+from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
@@ -24,8 +28,9 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.branches.models import Branch
+from app.common.audit.models.audit_log import AuditLog
 from app.core.database.base import Base
-from app.core.exceptions import ConflictError
+from app.core.exceptions import ConflictError, ValidationError
 from app.credit_note.models import CreditNote
 from app.customers.models import Customer
 from app.firms.models import Firm
@@ -35,6 +40,7 @@ from app.sales_invoice.models import SalesInvoice
 from app.sales_targets.schemas import (
     SalesTargetBasis,
     SalesTargetPeriod,
+    SalesTargetUpdate,
     SalesTargetWrite,
 )
 from app.sales_targets.services import SalesTargetService
@@ -490,7 +496,7 @@ def test_an_edit_may_overlap_the_target_it_is_editing() -> None:
 
     service.update_target(
         row.id,
-        SalesTargetWrite(
+        SalesTargetUpdate(
             period_start=date(2026, 4, 1),
             period_end=date(2026, 6, 30),
             target_amount=Decimal("30000"),
@@ -685,3 +691,205 @@ def test_a_region_target_and_a_route_target_beneath_it_are_different_scopes() ->
     with pytest.raises(ConflictError):
         _target(service, firm_id=firm.id, amount="1", territory_id=tree["region"].id)
     assert len(service.list_targets(firm_scope=firm.id, page=1, page_size=10)[0]) == 2
+
+
+def _persons_target(
+    session: Session, *, firm_id: UUID, salesman_id: UUID
+) -> tuple[SalesTargetService, UUID]:
+    """Set a collected target for one person, with notes, and return its id."""
+    service = SalesTargetService(session)
+    row = service.create_target(
+        SalesTargetWrite(
+            salesman_id=salesman_id,
+            period_start=APRIL[0],
+            period_end=APRIL[1],
+            period_type=SalesTargetPeriod.MONTHLY,
+            basis=SalesTargetBasis.COLLECTED,
+            target_amount=Decimal("10000"),
+            notes="Includes the trade fair",
+        ),
+        firm_id=firm_id,
+        actor_id=uuid4(),
+    )
+    return service, row.id
+
+
+def test_an_edit_naming_only_the_dates_and_amount_keeps_the_rest() -> None:
+    """D-TER-8: a PUT of the dates and amount made it the firm's target.
+
+    The write model's defaults -- ``None``, ``None``, MONTHLY, INVOICED,
+    ACTIVE -- were applied to every field the body left out, so the person
+    was cleared, the basis flipped to INVOICED and the notes went. Absent
+    means leave alone. The audit row records the before and after of every
+    column that moved, and only those.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    theirs = uuid4()
+    service, target_id = _persons_target(session, firm_id=firm.id, salesman_id=theirs)
+
+    row = service.update_target(
+        target_id,
+        SalesTargetUpdate(
+            period_start=APRIL[0],
+            period_end=date(2026, 6, 30),
+            target_amount=Decimal("30000"),
+        ),
+        firm_scope=firm.id,
+        actor_id=uuid4(),
+    )
+
+    assert row.salesman_id == theirs
+    assert row.basis == "COLLECTED"
+    assert row.notes == "Includes the trade fair"
+    assert row.status == "ACTIVE"
+    assert row.period_end == date(2026, 6, 30)
+    assert row.target_amount == Decimal("30000")
+    [achievement] = service.achievement(
+        firm_scope=firm.id, from_date=APRIL[0], to_date=APRIL[1]
+    )
+    assert achievement.salesman_id == theirs
+    audit = session.scalars(
+        select(AuditLog).where(AuditLog.action == "sales_target.updated")
+    ).one()
+    assert audit.before_data is not None and audit.after_data is not None
+    assert set(audit.before_data) >= {"period_end", "target_amount"}
+    assert "salesman_id" not in audit.after_data
+    assert audit.before_data["period_end"] == "2026-04-30"
+    assert audit.after_data["period_end"] == "2026-06-30"
+    assert audit.after_data["target_amount"] == "30000"
+
+
+def test_an_explicit_null_still_clears_the_person() -> None:
+    """Absent and null are different answers; null is the instruction."""
+    session = _session_factory()()
+    firm = _firm(session)
+    service, target_id = _persons_target(session, firm_id=firm.id, salesman_id=uuid4())
+
+    row = service.update_target(
+        target_id,
+        SalesTargetUpdate(salesman_id=None, notes=None),
+        firm_scope=firm.id,
+        actor_id=uuid4(),
+    )
+
+    assert row.salesman_id is None
+    assert row.notes is None
+    assert row.basis == "COLLECTED"
+    audit = session.scalars(
+        select(AuditLog).where(AuditLog.action == "sales_target.updated")
+    ).one()
+    assert audit.after_data == {"salesman_id": None, "notes": None}
+
+
+def test_a_column_a_target_cannot_do_without_is_not_cleared_by_null() -> None:
+    """A target with no period, basis or amount is not a target."""
+    session = _session_factory()()
+    firm = _firm(session)
+    service, target_id = _persons_target(session, firm_id=firm.id, salesman_id=uuid4())
+
+    with pytest.raises(ValidationError):
+        service.update_target(
+            target_id,
+            SalesTargetUpdate(basis=None, target_amount=None),
+            firm_scope=firm.id,
+            actor_id=uuid4(),
+        )
+    with pytest.raises(ValidationError):
+        # The merged period, not the body's own: only the end moved, and it
+        # now ends before the row's start.
+        service.update_target(
+            target_id,
+            SalesTargetUpdate(period_end=date(2026, 3, 15)),
+            firm_scope=firm.id,
+            actor_id=uuid4(),
+        )
+
+
+def test_the_overlap_check_reads_the_merged_row_not_the_body() -> None:
+    """A body naming only the dates still belongs to the person it edits.
+
+    Their May target moved back into April would overlap their April one on
+    the same basis. Checked against the body alone, the edit reads as a
+    firm-wide INVOICED target overlapping nothing, and is let through.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    theirs = uuid4()
+    service, _ = _persons_target(session, firm_id=firm.id, salesman_id=theirs)
+    may = service.create_target(
+        SalesTargetWrite(
+            salesman_id=theirs,
+            period_start=date(2026, 5, 1),
+            period_end=date(2026, 5, 31),
+            basis=SalesTargetBasis.COLLECTED,
+            target_amount=Decimal("5000"),
+        ),
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+
+    with pytest.raises(ConflictError):
+        service.update_target(
+            may.id,
+            SalesTargetUpdate(period_start=date(2026, 4, 15)),
+            firm_scope=firm.id,
+            actor_id=uuid4(),
+        )
+
+
+def test_an_edit_that_changes_nothing_writes_nothing() -> None:
+    """A save that changes nothing does not move the counter or the trail."""
+    session = _session_factory()()
+    firm = _firm(session)
+    service, target_id = _persons_target(session, firm_id=firm.id, salesman_id=uuid4())
+    before = service.get_target(target_id, firm_scope=firm.id).version
+
+    row = service.update_target(
+        target_id,
+        SalesTargetUpdate(target_amount=Decimal("10000")),
+        firm_scope=firm.id,
+        actor_id=uuid4(),
+    )
+
+    assert row.version == before
+    assert (
+        session.scalars(
+            select(AuditLog).where(AuditLog.action == "sales_target.updated")
+        ).first()
+        is None
+    )
+
+
+_EDITOR = (
+    Path(__file__).resolve().parents[3]
+    / "desktop"
+    / "lib"
+    / "ui"
+    / "commission"
+    / "sales_target_page.dart"
+)
+
+
+@pytest.mark.skipif(not _EDITOR.exists(), reason="desktop tree not present")
+def test_every_key_the_desktop_editor_sends_is_one_the_update_accepts() -> None:
+    """The contract from the client's side, as the preference test asks it.
+
+    The schema forbids unknown fields, so one stray key would refuse every
+    save; and the keys the editor leaves out are the ones D-TER-8 was about,
+    so the update model must treat their absence as leave-alone.
+    """
+    source = _EDITOR.read_text(encoding="utf-8")
+    bodies = re.findall(r"final Json body = <String, dynamic>\{(.*?)\};", source, re.S)
+    assert bodies, "no save body found in the desktop editor -- regex drifted?"
+    sent = {key for body in bodies for key in re.findall(r"'([a-z_]+)'\s*:", body)}
+    assert sent, "the editor's save body names no keys -- regex drifted?"
+
+    unknown = sorted(sent - set(SalesTargetUpdate.model_fields))
+    assert not unknown, "the desktop sends keys the update refuses: " + ", ".join(
+        unknown
+    )
+    left_alone = set(SalesTargetUpdate.model_fields) - sent
+    assert {"salesman_id", "territory_id", "notes"} <= left_alone
+    for field in left_alone:
+        assert SalesTargetUpdate.model_fields[field].default is None

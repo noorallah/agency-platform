@@ -5,6 +5,7 @@ from app.sales_targets.schemas.sales_target import (
     SalesTargetBasis,
     SalesTargetPeriod,
     SalesTargetResponse,
+    SalesTargetUpdate,
     SalesTargetWrite,
 )
 
@@ -13,5 +14,6 @@ __all__ = [
     "SalesTargetBasis",
     "SalesTargetPeriod",
     "SalesTargetResponse",
+    "SalesTargetUpdate",
     "SalesTargetWrite",
 ]

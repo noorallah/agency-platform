@@ -809,10 +809,14 @@ class CommissionService:
         had cleared, and `Settlement.status` is the only thing that says the
         money went back.
 
+        A collection is dated by the day the money met the bill -- the
+        allocation's own date -- not by the receipt's. An advance taken in
+        August and applied to a September bill is September's (D-TER-6).
+
         Args:
             firm_id: The owning firm.
-            from_date: First settlement date to include, inclusive.
-            to_date: Last settlement date to include, inclusive.
+            from_date: First allocation (or invoice) date to include, inclusive.
+            to_date: Last allocation (or invoice) date to include, inclusive.
             salesman_id: Report one person rather than everybody.
 
         Returns:
@@ -962,12 +966,12 @@ class CommissionService:
         to_date: date,
         salesman_id: UUID | None,
     ) -> list[tuple[UUID | None, UUID, date, Decimal]]:
-        """Return (salesman, invoice, settlement date, amount) for the period.
+        """Return (salesman, invoice, allocation date, amount) for the period.
 
         Row-grained rather than summed in SQL because the rate depends on the
-        day the money arrived: two receipts against one invoice can fall either
-        side of a rate change, and a sum taken first would have to pick one of
-        the two rates for both.
+        day the money met the bill: two receipts against one invoice can fall
+        either side of a rate change, and a sum taken first would have to pick
+        one of the two rates for both.
 
         Net of what has been credited against the bill since -- a credit note
         or a completed return -- which comes off the latest receipts first.
