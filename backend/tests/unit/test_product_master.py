@@ -282,6 +282,8 @@ def test_product_api_applies_permissions_and_soft_delete_restore() -> None:
         "PRODUCT_UPDATE",
         "PRODUCT_DELETE",
         "PRODUCT_RESTORE",
+        # The payload carries prices, so the pricing duty too (D-MST-10).
+        "PRODUCT_PRICING_MANAGE",
     }
     principal = _principal(user_id, permissions)
     session = factory()
@@ -329,7 +331,13 @@ def test_product_cost_price_is_hidden_without_permission() -> None:
 
     creator_scope = _firm_scope(
         _principal(
-            user_id, {"PRODUCT_VIEW", "PRODUCT_CREATE", "PRODUCT_VIEW_COST_PRICE"}
+            user_id,
+            {
+                "PRODUCT_VIEW",
+                "PRODUCT_CREATE",
+                "PRODUCT_VIEW_COST_PRICE",
+                "PRODUCT_PRICING_MANAGE",
+            },
         ),
         session,
         firm.id,

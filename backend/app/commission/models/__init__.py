@@ -9,11 +9,16 @@ from app.commission.models.commission import (
     CommissionRuleStatus,
     CommissionSlabMode,
 )
-from app.commission.models.payout import CommissionPayout, CommissionPayoutStatus
+from app.commission.models.payout import (
+    CommissionClawback,
+    CommissionPayout,
+    CommissionPayoutStatus,
+)
 
 __all__ = [
     "CommissionMeasure",
     "CommissionBasis",
+    "CommissionClawback",
     "CommissionPayout",
     "CommissionPayoutStatus",
     "CommissionRateType",

@@ -1633,9 +1633,10 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
                       : _description.text.trim(),
                   'status': _status,
                   'sort_order': 0,
-                  // Omitted for a region or a zone, which the API reads as
-                  // "this is not a round" and retires any profile it had.
-                  if (_isRoute) 'route_profile': _routeProfilePayload(),
+                  // An explicit null for a region or a zone: the API reads
+                  // an omission as "leave the round alone", so saying
+                  // nothing would keep a profile the user just switched off.
+                  'route_profile': _isRoute ? _routeProfilePayload() : null,
                 },
               );
             },
