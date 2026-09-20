@@ -12,7 +12,7 @@ is one nobody can reconcile against the journal it posted.
 """
 
 from collections.abc import Sequence
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -168,6 +168,17 @@ class CommissionPayoutService:
         the shortfall is carried onto this accrual as a clawback, up to what
         this period earned, and the rest waits for the next (D-TER-3).
 
+        **Only a period that has ended can be accrued (D-TER-6).** The payout
+        holds the whole period against a second accrual and a paid one cannot
+        be cancelled, so whatever is collected between an early accrual and
+        the period's end belongs to no payout, ever. Judged against today in
+        UTC, the only clock this repo reads. The booking date may not precede
+        the period's end -- the cost belongs to the period -- nor fall in the
+        future, which would date a journal for a day that has not happened.
+        Any length of period is allowed: the overlap guard already refuses
+        the same day being paid twice, and a firm that pays fortnightly is
+        not wrong.
+
         Args:
             data: The period, optionally narrowed to one person.
             firm_id: The owning firm.
@@ -177,10 +188,13 @@ class CommissionPayoutService:
             The payouts created, biggest first.
 
         Raises:
+            ValidationError: If the period runs backwards, has not ended, or
+                the booking date is outside the window it may fall in.
             ConflictError: If a live payout already covers part of the period
                 for one of the people it would accrue for.
 
         """
+        self._assert_period_has_ended(data)
         report = self._commission.report(
             firm_id=firm_id,
             from_date=data.period_start,
@@ -348,6 +362,39 @@ class CommissionPayoutService:
         return quantize_ledger(
             Decimal(str(source.earned_amount)) - worth_now - Decimal(str(already or 0))
         )
+
+    def _assert_period_has_ended(self, data: CommissionPayoutAccrue) -> None:
+        """Refuse a period still running, and a booking date outside its window.
+
+        Args:
+            data: The accrual being asked for.
+
+        Raises:
+            ValidationError: If the period runs backwards or has not ended,
+                or `accrued_on` precedes the period's end or is in the future.
+
+        """
+        today = self.utc_today()
+        if data.period_end < data.period_start:
+            raise ValidationError("period_end cannot be before period_start.")
+        if data.period_end >= today:
+            first_free_day = data.period_end + timedelta(days=1)
+            raise ValidationError(
+                "That period has not ended. A payout accrued before its last "
+                "day is over would leave whatever is collected afterwards "
+                f"belonging to no payout; accrue it from {first_free_day:%Y-%m-%d}."
+            )
+        if data.accrued_on is not None:
+            if data.accrued_on < data.period_end:
+                raise ValidationError(
+                    "The accrual cannot be booked before the period ends: "
+                    "the cost belongs to the period it was earned in."
+                )
+            if data.accrued_on > today:
+                raise ValidationError(
+                    "The accrual cannot be booked on a day that has not "
+                    "happened yet."
+                )
 
     def _assert_period_is_free(
         self,
