@@ -2783,19 +2783,19 @@ class SalesTerritoryService:
         firm_scope: UUID,
         actor_id: UUID,
     ) -> TerritoryResponse:
+        """Copy a subtree under a new root, all of it or none of it.
+
+        The nodes are found by walking `parent_id` down from the source, not
+        by a `path LIKE '<source>%'` -- that also took a sibling whose code
+        merely started the same way (`T-N` and `T-N2`) and read `_` in a code
+        as a wildcard. Every create and assignment is staged with
+        ``commit=False`` and the whole copy commits once at the end, so a
+        refusal partway -- the one-route-per-salesperson setting, a node cap
+        -- leaves nothing behind (D-TER-13).
+        """
         source = self._territory(territory_id, firm_scope)
         target_parent = self._parent(firm_scope, payload.target_parent_id)
-        source_nodes = list(
-            self._session.scalars(
-                select(SalesTerritoryNode)
-                .where(
-                    SalesTerritoryNode.firm_id == firm_scope,
-                    SalesTerritoryNode.path.ilike(f"{source.path}%"),
-                    SalesTerritoryNode.is_deleted.is_(False),
-                )
-                .order_by(SalesTerritoryNode.path.asc())
-            )
-        )
+        source_nodes = self._subtree(source, firm_scope)
         id_map: dict[UUID, UUID] = {}
         created_root_id: UUID | None = None
         route_profiles = self._route_profile_map({item.id for item in source_nodes})
@@ -2839,6 +2839,7 @@ class SalesTerritoryService:
                 ),
                 firm_scope=firm_scope,
                 actor_id=actor_id,
+                commit=False,
             )
             id_map[node.id] = created.id
             if created_root_id is None:
@@ -2867,6 +2868,7 @@ class SalesTerritoryService:
                     ),
                     firm_scope=firm_scope,
                     actor_id=actor_id,
+                    commit=False,
                 )
                 salesmen = self.salesmen(node.id, firm_scope=firm_scope)
                 self.set_salesmen(
@@ -2874,10 +2876,60 @@ class SalesTerritoryService:
                     TerritoryAssignSalesmenRequest(assignments=salesmen),
                     firm_scope=firm_scope,
                     actor_id=actor_id,
+                    commit=False,
                 )
         if created_root_id is None:
             raise ValidationError("No hierarchy nodes were copied.")
+        record_audit(
+            self._session,
+            action="sales_territory.copied",
+            entity_type="sales_territory",
+            entity_id=created_root_id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            after_data={
+                "source_id": str(source.id),
+                "source_code": source.code,
+                "nodes": len(id_map),
+                "include_assignments": payload.include_assignments,
+            },
+        )
+        self._commit()
         return self.get_territory(created_root_id, firm_scope=firm_scope)
+
+    def _subtree(
+        self, source: SalesTerritoryNode, firm_scope: UUID
+    ) -> list[SalesTerritoryNode]:
+        """Return the source and every live descendant, parents before children.
+
+        Breadth-first over `parent_id`, which is the relation the tree is
+        built on; bounded by the nodes seen so a cycle in `parent_id` -- a
+        plain column -- cannot walk for ever.
+        """
+        nodes = [source]
+        seen = {source.id}
+        frontier = [source.id]
+        while frontier:
+            children = [
+                child
+                for child in self._session.scalars(
+                    select(SalesTerritoryNode)
+                    .where(
+                        SalesTerritoryNode.firm_id == firm_scope,
+                        SalesTerritoryNode.parent_id.in_(frontier),
+                        SalesTerritoryNode.is_deleted.is_(False),
+                    )
+                    .order_by(
+                        SalesTerritoryNode.sort_order.asc(),
+                        SalesTerritoryNode.code.asc(),
+                    )
+                )
+                if child.id not in seen
+            ]
+            nodes.extend(children)
+            seen.update(child.id for child in children)
+            frontier = [child.id for child in children]
+        return nodes
 
     def bulk_set_customers(
         self,
