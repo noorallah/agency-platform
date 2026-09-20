@@ -24,6 +24,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ValidationError
 from app.sales.models import (
     SalesTerritoryNode,
@@ -78,7 +79,7 @@ def resolve_sales_scope(
     resolved_salesman = (
         _validated_salesman(session, resolved_territory, salesman_id)
         if salesman_id is not None
-        else _derived_salesman(session, resolved_territory)
+        else _derived_salesman(session, firm_id, resolved_territory)
     )
     return ResolvedSalesScope(
         territory_id=resolved_territory,
@@ -262,17 +263,32 @@ def _validated_salesman(
     return salesman_id
 
 
-def _derived_salesman(session: Session, territory_id: UUID | None) -> UUID | None:
-    """Derive the territory's salesperson, when there is one obvious answer."""
+def _derived_salesman(
+    session: Session, firm_id: UUID, territory_id: UUID | None
+) -> UUID | None:
+    """Derive the territory's salesperson, when there is one obvious answer.
+
+    Only among the firm's **active members**. Deleting a user or ending a
+    membership touches no firm store, so `territory_salesman_assignments`
+    keeps them, and an order used to be created and approved in the name of
+    somebody who had left -- its delivery note, which does check, was then
+    refused (D-TER-11). A person who has gone is skipped here as though
+    their row were retired: the round's other assignee, or the inheriting
+    manager, or nobody.
+    """
     if territory_id is None:
         return None
-    direct = list(
-        session.scalars(
-            select(TerritorySalesmanAssignment).where(
-                TerritorySalesmanAssignment.territory_id == territory_id,
-                TerritorySalesmanAssignment.is_deleted.is_(False),
+    direct = _still_here(
+        session,
+        firm_id,
+        list(
+            session.scalars(
+                select(TerritorySalesmanAssignment).where(
+                    TerritorySalesmanAssignment.territory_id == territory_id,
+                    TerritorySalesmanAssignment.is_deleted.is_(False),
+                )
             )
-        )
+        ),
     )
     primary = [row for row in direct if row.is_primary]
     if len(primary) == 1:
@@ -283,20 +299,42 @@ def _derived_salesman(session: Session, territory_id: UUID | None) -> UUID | Non
         # Two people share the round with neither marked primary. Same reasoning
         # as the territory above: name nobody rather than the wrong one.
         return None
-    return _inherited_salesman(session, territory_id)
+    return _inherited_salesman(session, firm_id, territory_id)
 
 
-def _inherited_salesman(session: Session, territory_id: UUID) -> UUID | None:
+def _still_here(
+    session: Session, firm_id: UUID, rows: list[TerritorySalesmanAssignment]
+) -> list[TerritorySalesmanAssignment]:
+    """Keep only the assignments whose person is still an active member.
+
+    Through `FirmMetadataReader`, because `users` and `user_firms` live only
+    in the platform store and a tenant session cannot see them.
+    """
+    if not rows:
+        return rows
+    members = {
+        member.user_id for member in FirmMetadataReader(session).active_members(firm_id)
+    }
+    return [row for row in rows if row.user_id in members]
+
+
+def _inherited_salesman(
+    session: Session, firm_id: UUID, territory_id: UUID
+) -> UUID | None:
     """Walk up for an ancestor whose salesperson covers their children."""
     for ancestor_id in _ancestors(session, territory_id):
-        covering = list(
-            session.scalars(
-                select(TerritorySalesmanAssignment).where(
-                    TerritorySalesmanAssignment.territory_id == ancestor_id,
-                    TerritorySalesmanAssignment.include_children.is_(True),
-                    TerritorySalesmanAssignment.is_deleted.is_(False),
+        covering = _still_here(
+            session,
+            firm_id,
+            list(
+                session.scalars(
+                    select(TerritorySalesmanAssignment).where(
+                        TerritorySalesmanAssignment.territory_id == ancestor_id,
+                        TerritorySalesmanAssignment.include_children.is_(True),
+                        TerritorySalesmanAssignment.is_deleted.is_(False),
+                    )
                 )
-            )
+            ),
         )
         primary = [row for row in covering if row.is_primary]
         if len(primary) == 1:

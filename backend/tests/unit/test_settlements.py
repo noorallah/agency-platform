@@ -1295,3 +1295,37 @@ def test_returns_and_credit_notes_against_a_bill_come_off_what_it_owes() -> None
             "1000.00",
             [SettlementAllocationWrite(invoice_id=bill.id, amount=Decimal("1000.00"))],
         )
+
+
+def test_an_allocation_is_dated_by_the_day_it_met_the_bill() -> None:
+    """D-TER-6: with the money, the receipt's day; applied later, the bill's.
+
+    The commission report and the target walk date a collection by this and
+    not by the receipt, so an advance taken in April and applied to a May
+    bill is May's collection rather than April's.
+    """
+    books = _Books(_session_factory()())
+    books.owe_us("300.00")
+    first = books.sales_invoice("SI-1", "300.00")
+    settlement = _receipt(
+        books,
+        "500.00",
+        [SettlementAllocationWrite(invoice_id=first.id, amount=Decimal("300.00"))],
+    )
+    books.session.commit()
+    books.owe_us("200.00")
+    later = books.sales_invoice("SI-2", "200.00", when=date(2026, 5, 19))
+    service = ReceiptService(books.session)
+    service.allocate(
+        settlement.id,
+        invoice_id=later.id,
+        amount=Decimal("200.00"),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+
+    dated = {
+        row.sales_invoice_id: row.allocated_on
+        for row in service.allocations_for(settlement.id)
+    }
+    assert dated == {first.id: WHEN, later.id: date(2026, 5, 19)}

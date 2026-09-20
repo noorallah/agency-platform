@@ -29,7 +29,7 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import Select, select
+from sqlalchemy import ColumnElement, Select, func, select
 from sqlalchemy.orm import Session
 
 from app.core.utils.money import ZERO
@@ -145,11 +145,17 @@ def collected_net(
     payout already made on them is corrected by the shortfall it leaves, not
     by rewriting which receipt it was.
 
+    **A collection is dated by when the money met the bill**, which is the
+    allocation's own date and not the receipt's. They are the same day for a
+    receipt allocated as it arrived, and differ for an advance applied to a
+    bill raised since: that is the bill's day, or the period it was counted
+    in would be one whose payout may already have been paid (D-TER-6).
+
     Args:
         session: The firm's session.
         firm_id: The owning firm.
-        from_date: First settlement date to include, inclusive.
-        to_date: Last settlement date to include, inclusive.
+        from_date: First allocation date to include, inclusive.
+        to_date: Last allocation date to include, inclusive.
         salesman_id: Restrict to bills tagged to one person.
 
     Returns:
@@ -157,8 +163,8 @@ def collected_net(
 
     """
     statement = _allocations(firm_id).where(
-        Settlement.settlement_date >= from_date,
-        Settlement.settlement_date <= to_date,
+        _allocated_on() >= from_date,
+        _allocated_on() <= to_date,
     )
     if salesman_id is not None:
         statement = statement.where(SalesInvoice.salesman_id == salesman_id)
@@ -181,10 +187,21 @@ def collected_net(
 
 
 #: One allocation as the walk below reads it: salesman, territory, invoice,
-#: settlement date, allocation id, amount, when it was recorded, bill total.
+#: the day the money met the bill, allocation id, amount, when it was
+#: recorded, bill total.
 _AllocationRow = tuple[
     UUID | None, UUID | None, UUID, date, UUID, Decimal, datetime, Decimal
 ]
+
+
+def _allocated_on() -> ColumnElement[date]:
+    """Return the day an allocation met its bill, as the walk dates it.
+
+    The allocation's own date where it has one; the settlement's where it
+    does not, which is every row written before the column existed and is
+    what the backfill wrote for them, so the fallback changes no answer.
+    """
+    return func.coalesce(SettlementAllocation.allocated_on, Settlement.settlement_date)
 
 
 def _allocations(firm_id: UUID) -> Select[_AllocationRow]:
@@ -194,7 +211,7 @@ def _allocations(firm_id: UUID) -> Select[_AllocationRow]:
             SalesInvoice.salesman_id,
             SalesInvoice.territory_id,
             SalesInvoice.id,
-            Settlement.settlement_date,
+            _allocated_on(),
             SettlementAllocation.id,
             SettlementAllocation.amount,
             SettlementAllocation.created_at,

@@ -1836,9 +1836,11 @@ class HistoryBuilder:
         service = CommissionPayoutService(self._session)
         year_start = years_in_scope[-1]
         period_start = year_start
+        # Yesterday at the latest: a period is accrued only once its last day
+        # is over (D-TER-6), and the seeder is not let off the rule.
         period_end = min(
             date(year_start.year, 6, 30) if year_start.month == 4 else year_start,
-            self._today,
+            self._today - timedelta(days=1),
         )
         if period_end <= period_start:
             return

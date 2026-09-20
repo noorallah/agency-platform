@@ -72,14 +72,45 @@ class CommissionPayoutUpdate(PayoutSchema):
     notes: str | None = None
 
 
+class CommissionPaymentMethodEnum(StrEnum):
+    """How the money left: the firm's cash box or its bank."""
+
+    CASH = "CASH"
+    BANK = "BANK"
+
+
 class CommissionPayoutPay(PayoutSchema):
-    """Record that an approved payout has been paid."""
+    """Record that an approved payout has been paid.
+
+    Commission leaves through the firm's **cash or bank** account -- the ones
+    it nominated under `firm_control_accounts`, exactly as a receipt or a
+    payment resolves its own. Say which with `method`, or name the account
+    with `money_account_id`; either way it has to be one of those two, so a
+    payment can no longer land on Trade Receivables, on Sales, or on
+    Commission Payable itself (D-TER-5).
+    """
 
     paid_on: date
-    #: The cash or bank account the money left. Named per payment rather than
-    #: mapped once, because a firm pays some people from the bank and hands
-    #: others cash.
-    money_account_id: UUID
+    #: CASH or BANK, resolved through the firm's control accounts.
+    method: CommissionPaymentMethodEnum | None = None
+    #: The cash or bank account the money left, for a client that names it.
+    #: It must be the firm's CASH or BANK control account.
+    money_account_id: UUID | None = None
+
+    @model_validator(mode="after")
+    def _says_where_the_money_left(self) -> "CommissionPayoutPay":
+        """Require exactly one of the two ways of saying it.
+
+        Returns:
+            The validated payload.
+
+        Raises:
+            ValueError: If neither or both are given.
+
+        """
+        if (self.method is None) == (self.money_account_id is None):
+            raise ValueError("Give either method (CASH or BANK) or money_account_id.")
+        return self
 
 
 class CommissionPayoutResponse(PayoutSchema):
@@ -117,6 +148,7 @@ class CommissionPayoutResponse(PayoutSchema):
 
 
 __all__ = [
+    "CommissionPaymentMethodEnum",
     "CommissionPayoutAccrue",
     "CommissionPayoutPay",
     "CommissionPayoutResponse",

@@ -90,6 +90,24 @@ declare `sqlite_where` beside it. And **two pending inserts of one key do not
 race in PostgreSQL**, the second waits on the first, so a probe that inserts
 both before committing either hangs rather than conflicting.
 
+**A period is accrued once it has ended, and a collection belongs to the
+day the money met the bill (D-TER-6).** `accrue` accepted a period still
+running -- September was accrued on the 19th with `accrued_on` 2026-09-30 --
+and because the payout holds the whole period against a second accrual and a
+PAID one cannot be cancelled, everything collected from the 20th belonged to
+no payout. Now `period_end` must be before today in UTC (`utc_now().date()`,
+never the server clock), `accrued_on` may not precede `period_end` nor fall
+in the future, and `period_start <= period_end`; any *length* of period is
+still allowed, because the overlap key already refuses the same day being
+paid twice. The same hole opened backwards: `POST /receipts/{id}/allocate`
+adds a later application to the original receipt, and the walk dated it by
+`settlement_date`, so an advance of 2026-08-15 applied to a bill of
+2026-09-19 was August's collection. `settlement_allocations.allocated_on`
+(`20260920_0152`, backfilled from the settlement's date) is the day the money
+met the bill -- the settlement's for an allocation made with it, the bill's
+for an advance applied since -- and `net_sales.collected_net` reads it, so
+the report, the clawback re-read and the target achievement move together.
+
 ## A commission payout is snapshotted, and it posts
 
 **A commission payout is snapshotted, and it posts.** `commission_payouts`

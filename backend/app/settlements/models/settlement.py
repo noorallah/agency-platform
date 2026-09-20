@@ -191,6 +191,16 @@ class SettlementAllocation(BaseEntity):
         UUIDType(), ForeignKey("purchase_invoices.id", ondelete="RESTRICT")
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    #: The day the money met the bill. For an allocation made with the
+    #: settlement it is the settlement's own date; for an advance applied to a
+    #: bill raised since (`allocate`) it is the day the bill existed to be
+    #: settled, which is later. Commission and sales targets count a
+    #: collection in the period of this date, not the settlement's: an
+    #: advance taken in August and applied to a September bill is September's
+    #: collection (D-TER-6). Nullable because rows written before the column
+    #: existed carry nothing; readers fall back to the settlement date, which
+    #: is what the backfill wrote.
+    allocated_on: Mapped[date | None] = mapped_column(Date)
 
 
 class SupplierCreditApplication(BaseEntity):

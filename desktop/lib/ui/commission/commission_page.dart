@@ -11,7 +11,6 @@ import '../../core/security/permission_service.dart';
 import '../../models/commission.dart';
 import '../../models/firm_member.dart';
 import '../../models/entities.dart';
-import '../../models/finance.dart';
 import '../../models/product.dart';
 import '../workspace/desktop_framework.dart';
 import 'payout_dialogs.dart';
@@ -77,7 +76,6 @@ class _CommissionPageState extends State<CommissionPage> {
   List<ProductCategoryRecord> _goodsCategories = const <ProductCategoryRecord>[];
 
   List<CommissionPayoutRecord> _payouts = const [];
-  List<LedgerAccount> _moneyAccounts = const [];
   String? _payoutsError;
   bool _loadingPayouts = false;
 
@@ -192,18 +190,9 @@ class _CommissionPageState extends State<CommissionPage> {
           await fetchAllPages<CommissionPayoutRecord>(
         (page) => widget.api.commissionPayouts(page: page),
       );
-      // Only the accounts money can actually leave from. Offering the whole
-      // chart would invite a payment posted against revenue.
-      final List<LedgerAccount> accounts = _mayPay
-          ? (await widget.api.ledgerAccounts(isActive: true))
-              .items
-              .where((account) => account.accountType == 'ASSET')
-              .toList()
-          : const <LedgerAccount>[];
       if (!mounted) return;
       setState(() {
         _payouts = rows;
-        _moneyAccounts = accounts;
         _loadingPayouts = false;
       });
     } on ApiException catch (error) {
@@ -251,10 +240,7 @@ class _CommissionPageState extends State<CommissionPage> {
   Future<void> _pay(CommissionPayoutRecord payout) async {
     final Json? details = await showDialog<Json>(
       context: context,
-      builder: (context) => CommissionPaymentDialog(
-        payout: payout,
-        accounts: _moneyAccounts,
-      ),
+      builder: (context) => CommissionPaymentDialog(payout: payout),
     );
     if (details == null) return;
     await _payoutAction(

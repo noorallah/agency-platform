@@ -13,7 +13,6 @@ import '../../core/api/concurrency.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../models/commission.dart';
-import '../../models/finance.dart';
 import '../workspace/desktop_framework.dart';
 import 'commission_page.dart' show CommissionDateField, isoDate, parseIsoDate;
 
@@ -164,18 +163,19 @@ class _CommissionAccrualDialogState extends State<CommissionAccrualDialog> {
 }
 
 /// Record that an approved payout has been paid.
+///
+/// Commission leaves through the firm's cash or bank account -- the ones it
+/// nominated under its control accounts, as a receipt or a payment does --
+/// so the form asks which of the two rather than offering a chart of
+/// accounts. A picker of ASSET accounts used to let a payment land on Trade
+/// Receivables (D-TER-5); the API now refuses anything but the two.
 class CommissionPaymentDialog extends StatefulWidget {
   const CommissionPaymentDialog({
     super.key,
     required this.payout,
-    required this.accounts,
   });
 
   final CommissionPayoutRecord payout;
-
-  /// Only accounts money can leave from. Offering the whole chart would
-  /// invite a payment posted against revenue.
-  final List<LedgerAccount> accounts;
 
   @override
   State<CommissionPaymentDialog> createState() =>
@@ -185,8 +185,7 @@ class CommissionPaymentDialog extends StatefulWidget {
 class _CommissionPaymentDialogState extends State<CommissionPaymentDialog> {
   late final TextEditingController _paidOn =
       TextEditingController(text: isoDate(DateTime.now()));
-  late String _accountId =
-      widget.accounts.isEmpty ? '' : widget.accounts.first.id;
+  String _method = 'BANK';
   String? _error;
 
   @override
@@ -201,13 +200,9 @@ class _CommissionPaymentDialogState extends State<CommissionPaymentDialog> {
       setState(() => _error = 'Enter the date the money left as YYYY-MM-DD.');
       return;
     }
-    if (_accountId.isEmpty) {
-      setState(() => _error = 'Choose the account the money left.');
-      return;
-    }
     Navigator.of(context).pop(<String, dynamic>{
       'paid_on': isoDate(paidOn),
-      'money_account_id': _accountId,
+      'method': _method,
     });
   }
 
@@ -234,31 +229,21 @@ class _CommissionPaymentDialogState extends State<CommissionPaymentDialog> {
               label: 'Paid on',
             ),
             const SizedBox(height: AppSpacing.md),
-            if (widget.accounts.isEmpty)
-              Text(
-                'This firm has no cash or bank account to pay from. Add one '
-                'to the chart of accounts first.',
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: theme.colorScheme.error),
-              )
-            else
-              DropdownButtonFormField<String>(
-                isExpanded: true,
-                initialValue: _accountId,
-                decoration: const InputDecoration(labelText: 'Paid from'),
-                items: [
-                  for (final LedgerAccount account in widget.accounts)
-                    DropdownMenuItem<String>(
-                      value: account.id,
-                      child: Text(
-                        '${account.code} — ${account.name}',
-                        overflow: TextOverflow.ellipsis,
-                      ),
-                    ),
-                ],
-                onChanged: (value) =>
-                    setState(() => _accountId = value ?? _accountId),
+            DropdownButtonFormField<String>(
+              isExpanded: true,
+              initialValue: _method,
+              decoration: const InputDecoration(
+                labelText: 'Paid from',
+                helperText: "The firm's bank or cash account, as set under "
+                    'its control accounts.',
               ),
+              items: const [
+                DropdownMenuItem<String>(value: 'BANK', child: Text('Bank')),
+                DropdownMenuItem<String>(value: 'CASH', child: Text('Cash')),
+              ],
+              onChanged: (value) =>
+                  setState(() => _method = value ?? _method),
+            ),
             if (_error != null) ...[
               const SizedBox(height: AppSpacing.lg),
               Text(
@@ -276,7 +261,7 @@ class _CommissionPaymentDialogState extends State<CommissionPaymentDialog> {
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: widget.accounts.isEmpty ? null : _submit,
+          onPressed: _submit,
           child: const Text('Record payment'),
         ),
       ],
