@@ -59,6 +59,41 @@ class SalesTargetWrite(SalesTargetSchema):
         return self
 
 
+class SalesTargetUpdate(SalesTargetSchema):
+    """Change some of one target.
+
+    Every field is optional and none has a default, and the service dumps
+    this with ``exclude_unset=True``: **absent means leave alone, and an
+    explicit ``null`` still clears.** The write model above was used for
+    updates until D-TER-8, and its defaults -- ``None``, ``None``, MONTHLY,
+    INVOICED, ACTIVE -- turned every omission into an instruction: a PUT
+    naming only the dates and the amount cleared the person the target was
+    for, made it the firm's own number, and stopped their bonus.
+
+    Only the three nullable columns -- the person, the round and the notes
+    -- can be cleared by ``null``; the service refuses ``null`` for the
+    rest, because a target with no period, basis or amount is not a target.
+    The period is checked for order on the **merged** row, since a body
+    moving only the end date has nothing of its own to compare against.
+
+    ``status`` stays writable here. It is a plain flag -- in force or not --
+    with no transition endpoint of its own and nothing that reads it but the
+    achievement report, and the desktop's editor sends it on every save.
+    """
+
+    salesman_id: UUID | None = None
+    territory_id: UUID | None = None
+    period_start: date | None = None
+    period_end: date | None = None
+    period_type: SalesTargetPeriod | None = None
+    basis: SalesTargetBasis | None = None
+    target_amount: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=2
+    )
+    notes: str | None = None
+    status: str | None = Field(default=None, max_length=20)
+
+
 class SalesTargetResponse(SalesTargetSchema):
     """Expose one stored target."""
 
