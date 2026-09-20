@@ -114,6 +114,19 @@ never be paid; and `JournalEntryEngine._load_accounts` already scopes
 accounts to the firm, so a second check in the calling service changes no
 outcome and was removed.
 
+**The role split is not enough on its own; the service judges the person
+(D-TER-4).** A user holding ACCOUNTANT beside SALES_EXECUTIVE accrued his own
+payout, adjusted it by 5,000 with reason "because", approved it and paid it --
+five audit rows with his own id as actor -- because `approve` and `pay` looked
+at the status and at nothing else. Now nobody approves or pays a payout whose
+`salesman_id` is their own; the accruer (`created_by`) cannot approve; and the
+payer cannot be the approver. Each refusal is a 403 naming why. The row
+carries `approved_by`, `approved_at` and `paid_by` (`20260920_0151`) so the
+record and the trail agree, and cancelling clears none of them. The history
+seeder signs as three people (`ACTOR`, `PAYOUT_APPROVER`, `PAYOUT_PAYER`)
+rather than being let off the rule. A ceiling on a positive adjustment is an
+owner decision still outstanding.
+
 ## Commission is a ladder, a basis and a ceiling, not one rate
 
 **Commission is a ladder, a basis and a ceiling, not one rate.**

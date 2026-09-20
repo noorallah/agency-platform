@@ -1,6 +1,6 @@
 """Commission payout request and response schemas."""
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID
@@ -101,6 +101,13 @@ class CommissionPayoutResponse(PayoutSchema):
     payable_amount: Decimal
     status: CommissionPayoutStatusEnum
     accrued_on: date
+    #: Who accrued it, who approved it and when, and who paid it -- three
+    #: different people by rule (D-TER-4), and the row says so rather than
+    #: leaving the audit trail as the only place that could.
+    accrued_by: UUID | None
+    approved_by: UUID | None
+    approved_at: datetime | None
+    paid_by: UUID | None
     paid_on: date | None
     money_account_id: UUID | None
     journal_entry_id: UUID | None

@@ -23,7 +23,7 @@ through `firm_control_accounts`, because which account a firm books its
 commission to is its accountant's decision and not something to guess.
 """
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID
@@ -31,6 +31,7 @@ from uuid import UUID
 from sqlalchemy import (
     CheckConstraint,
     Date,
+    DateTime,
     ForeignKey,
     Index,
     Numeric,
@@ -161,6 +162,17 @@ class CommissionPayout(BaseEntity):
     )
     #: The date the accrual is booked on, and the date the journal carries.
     accrued_on: Mapped[date] = mapped_column(Date, nullable=False)
+    #: Who recognised the debt, and when. `created_by` is who accrued it, and
+    #: the two must differ (D-TER-4): a payout is stated by one person and
+    #: agreed by another, and neither may be the person it pays. Held on the
+    #: row rather than only in the audit trail because the payment check reads
+    #: it, and a check that has to search the trail is one that quietly stops
+    #: being made. Cancelling clears nothing here -- what was recorded happened.
+    #: No foreign key: `users` lives only in the platform schema.
+    approved_by: Mapped[UUID | None] = mapped_column(UUIDType())
+    approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: Who recorded the money leaving. Must differ from `approved_by`.
+    paid_by: Mapped[UUID | None] = mapped_column(UUIDType())
     paid_on: Mapped[date | None] = mapped_column(Date)
     #: Which cash or bank account the money left. Null until paid.
     money_account_id: Mapped[UUID | None] = mapped_column(
