@@ -38,6 +38,7 @@ from app.sales.schemas import (
 )
 from app.sales.schemas.territory import (
     BeatPlanCreate,
+    BeatPlanCustomerStopInput,
     BeatPlanType,
     BeatPlanUpdate,
     RouteProfileInput,
@@ -690,6 +691,67 @@ def test_two_stops_can_swap_places() -> None:
 
     assert place([first.id, second.id]) == [first.id, second.id]
     assert place([second.id, first.id]) == [second.id, first.id]
+
+
+def test_an_edit_that_leaves_out_the_stops_keeps_them() -> None:
+    """D-TER-7: a PUT without `customer_stops` cleared the plan's outlets.
+
+    Omitted keeps them; an empty list is the instruction to clear them. The
+    other fields read the same way -- a rename leaves the weekday, the
+    window and the active flag exactly as they were.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "BPU")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    route = _route(service, firm.id, actor, "RT07")
+    shop = _customer(session, firm.id, "SHOP-7")
+    created = service.create_beat_plan(
+        BeatPlanCreate(
+            code="TUE-EAST",
+            name="Tuesday East",
+            territory_id=route,
+            plan_type=BeatPlanType.WEEKLY,
+            weekday=2,
+            starts_on=date(2026, 4, 1),
+            ends_on=date(2027, 3, 31),
+            customer_stops=[
+                BeatPlanCustomerStopInput(customer_id=shop.id, stop_order=1)
+            ],
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    assert len(created.customer_stops) == 1
+
+    renamed = service.update_beat_plan(
+        created.id,
+        BeatPlanUpdate(name="Tuesday East Round"),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+
+    assert renamed.name == "Tuesday East Round"
+    assert renamed.weekday == 2
+    assert renamed.starts_on == date(2026, 4, 1)
+    assert renamed.is_active is True
+    assert len(renamed.customer_stops) == 1
+
+    cleared = service.update_beat_plan(
+        created.id,
+        BeatPlanUpdate(customer_stops=[]),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    assert cleared.customer_stops == []
+
+    with pytest.raises(ValidationError):
+        service.update_beat_plan(
+            created.id,
+            BeatPlanUpdate(ends_on=date(2026, 3, 1)),
+            firm_scope=firm.id,
+            actor_id=actor,
+        )
 
 
 def test_a_shop_can_go_back_on_a_round_it_was_once_primary_on() -> None:

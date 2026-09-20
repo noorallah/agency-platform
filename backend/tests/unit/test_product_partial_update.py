@@ -247,6 +247,7 @@ def test_a_caller_who_cannot_see_the_cost_cannot_clear_it() -> None:
     assert save(blind, purchase_price=None).purchase_price == Decimal("60")
     assert save(blind, purchase_price="1").purchase_price == Decimal("60")
 
-    sighted = blind | {"PRODUCT_VIEW_COST_PRICE"}
+    # Changing a price is also the pricing duty (D-MST-10).
+    sighted = blind | {"PRODUCT_VIEW_COST_PRICE", "PRODUCT_PRICING_MANAGE"}
     assert save(sighted, purchase_price="75").purchase_price == Decimal("75")
     assert save(sighted, purchase_price=None).purchase_price is None

@@ -20,7 +20,7 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.commission.models import CommissionPayoutStatus
+from app.commission.models import CommissionPayoutStatus, CommissionRule
 from app.commission.schemas import CommissionRuleCreate
 from app.commission.schemas.payout import (
     CommissionPayoutAccrue,
@@ -30,6 +30,7 @@ from app.commission.schemas.payout import (
 from app.commission.services import CommissionPayoutService, CommissionService
 from app.core.database.base import Base
 from app.core.exceptions import ConflictError, ValidationError
+from app.credit_note.models import CreditNote
 from app.customers.models import Customer
 from app.finance.models import JournalEntry, JournalLine, LedgerAccount
 from app.finance.services.control_accounts import ControlAccountPurpose
@@ -153,6 +154,45 @@ class _Books:
                         invoice_id=invoice.id, amount=Decimal(amount)
                     )
                 ],
+            ),
+            firm_id=self.firm.id,
+            actor_id=self.actor_id,
+        )
+        self.session.commit()
+
+    def credit(self, number: str, amount: str, when: date) -> None:
+        """Credit part of one of Asha's bills, as an approved credit note."""
+        invoice = self.session.scalars(
+            select(SalesInvoice).where(SalesInvoice.invoice_number == number)
+        ).one()
+        self.session.add(
+            CreditNote(
+                firm_id=self.firm.id,
+                customer_id=self.customer.id,
+                branch_id=self.branch_id,
+                sales_invoice_id=invoice.id,
+                credit_note_number=f"CN-{number}-{amount}",
+                credit_note_date=when,
+                status="APPROVED",
+                taxable_amount=Decimal(amount),
+                tax_amount=Decimal("0"),
+                total_amount=Decimal(amount),
+                created_by=self.actor_id,
+                updated_by=self.actor_id,
+            )
+        )
+        self.session.commit()
+
+    def settle(self, payout_id: UUID, *, paid_on: date = date(2026, 5, 5)) -> None:
+        """Approve and pay one payout."""
+        service = CommissionPayoutService(self.session)
+        service.approve(payout_id, firm_id=self.firm.id, actor_id=self.actor_id)
+        self.session.commit()
+        service.pay(
+            payout_id,
+            CommissionPayoutPay(
+                paid_on=paid_on,
+                money_account_id=self.account(ControlAccountPurpose.CASH),
             ),
             firm_id=self.firm.id,
             actor_id=self.actor_id,
@@ -602,3 +642,110 @@ def test_the_seeded_chart_nominates_both_commission_accounts() -> None:
         account = books.session.get(LedgerAccount, books.account(purpose))
         assert account is not None
         assert account.code == code
+
+
+JUNE = (date(2026, 6, 1), date(2026, 6, 30))
+
+
+def test_a_credit_after_payment_is_clawed_back_on_the_next_accrual() -> None:
+    """D-TER-3: the paid row is never rewritten; the next accrual carries it.
+
+    April: 5,000 collected, 500 earned, paid. Then 2,000 of that bill is
+    credited back, so April is worth 300 and was overpaid by 200. May earns
+    300 on its own sales; its payout carries the 200 and owes 100. April
+    still reads exactly what was paid on it, and June does not recover the
+    same 200 a second time.
+    """
+    books = _ready()
+    [april] = books.accrue()
+    books.settle(april.id)
+    books.credit("SI-1", "2000.00", when=date(2026, 5, 10))
+    books.collect("SI-2", "3000.00", when=date(2026, 5, 20))
+
+    [may] = books.accrue(MAY)
+
+    assert may.earned_amount == Decimal("300.00")
+    assert may.clawback_amount == Decimal("200.00")
+    assert may.payable_amount == Decimal("100.00")
+    reread = CommissionPayoutService(books.session).get_payout(
+        april.id, firm_id=books.firm.id
+    )
+    assert reread.earned_amount == Decimal("500.00")
+    assert reread.payable_amount == Decimal("500.00")
+    assert reread.status == CommissionPayoutStatus.PAID.value
+
+    books.settle(may.id, paid_on=date(2026, 6, 5))
+    books.collect("SI-3", "1000.00", when=date(2026, 6, 20))
+    [june] = books.accrue(JUNE)
+    assert june.clawback_amount == Decimal("0.00")
+    assert june.payable_amount == Decimal("100.00")
+
+
+def test_what_one_period_cannot_recover_waits_for_the_next() -> None:
+    """A payout cannot take money back, so the clawback stops at what was earned.
+
+    April paid 500; the whole bill comes back, so April is short by 500. May
+    earns 300: all of it is taken and May owes nothing. June earns 100: the
+    remaining 200 is taken as far as it goes, and 100 still waits.
+    """
+    books = _ready()
+    [april] = books.accrue()
+    books.settle(april.id)
+    books.credit("SI-1", "5000.00", when=date(2026, 5, 10))
+    books.collect("SI-2", "3000.00", when=date(2026, 5, 20))
+
+    [may] = books.accrue(MAY)
+    assert may.clawback_amount == Decimal("300.00")
+    assert may.payable_amount == Decimal("0.00")
+    # Nothing owed and nothing posted, but approving and paying it is what
+    # makes the recovery final.
+    books.settle(may.id, paid_on=date(2026, 6, 5))
+    settled = CommissionPayoutService(books.session).get_payout(
+        may.id, firm_id=books.firm.id
+    )
+    assert settled.status == CommissionPayoutStatus.PAID.value
+    assert settled.journal_entry_id is None
+    assert settled.payment_journal_entry_id is None
+
+    books.collect("SI-3", "1000.00", when=date(2026, 6, 20))
+    [june] = books.accrue(JUNE)
+    assert june.clawback_amount == Decimal("100.00")
+    assert june.payable_amount == Decimal("0.00")
+
+
+def test_cancelling_the_carrying_payout_releases_what_it_recovered() -> None:
+    """The recovery lives on the carrier, so withdrawing it puts it back."""
+    books = _ready()
+    [april] = books.accrue()
+    books.settle(april.id)
+    books.credit("SI-1", "2000.00", when=date(2026, 5, 10))
+    books.collect("SI-2", "3000.00", when=date(2026, 5, 20))
+    [may] = books.accrue(MAY)
+    assert may.clawback_amount == Decimal("200.00")
+
+    service = CommissionPayoutService(books.session)
+    service.cancel(may.id, firm_id=books.firm.id, actor_id=books.actor_id)
+    books.session.commit()
+
+    [again] = books.accrue(MAY)
+    assert again.clawback_amount == Decimal("200.00")
+    assert again.payable_amount == Decimal("100.00")
+
+
+def test_a_period_only_worth_more_now_is_not_paid_again() -> None:
+    """Only a shortfall is carried: nothing about a paid period was owed."""
+    books = _ready()
+    [april] = books.accrue()
+    books.settle(april.id)
+    # The rate goes up afterwards, so April re-read is worth 2,500 against
+    # the 500 paid on it. Nothing is carried either way.
+    rule = books.session.scalars(select(CommissionRule)).one()
+    rule.percentage = Decimal("50")
+    books.session.commit()
+    books.collect("SI-2", "3000.00", when=date(2026, 5, 20))
+
+    [may] = books.accrue(MAY)
+
+    assert may.clawback_amount == Decimal("0.00")
+    assert may.earned_amount == Decimal("1500.00")
+    assert may.payable_amount == Decimal("1500.00")

@@ -17,13 +17,14 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.branches.models import Branch
 from app.core.database.base import Base
 from app.core.exceptions import ConflictError
+from app.credit_note.models import CreditNote
 from app.customers.models import Customer
 from app.firms.models import Firm
 from app.identity.models import identity as _identity_models  # noqa: F401
@@ -376,6 +377,53 @@ def test_one_firm_s_targets_never_read_another_firm_s_sales() -> None:
     )
 
     assert answer.achieved_amount == Decimal("0.00")
+
+
+def test_a_credit_note_takes_the_sale_off_the_target() -> None:
+    """D-TER-3: a bill credited in full still met its target.
+
+    9,000 billed against a 10,000 target, then 2,000 credited back: the
+    achievement is 7,000. The credit note is written to the table with what
+    `credited_against` reads, which is the one derivation of what a bill has
+    had taken off it.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    customer = _customer(session, firm_id=firm.id)
+    service = SalesTargetService(session)
+    _target(service, firm_id=firm.id, amount="10000")
+    _invoice(
+        session,
+        firm_id=firm.id,
+        customer_id=customer.id,
+        branch_id=branch.id,
+        on=date(2026, 4, 10),
+        total="9000",
+    )
+    invoice = session.scalars(select(SalesInvoice)).one()
+    session.add(
+        CreditNote(
+            firm_id=firm.id,
+            customer_id=customer.id,
+            branch_id=branch.id,
+            sales_invoice_id=invoice.id,
+            credit_note_number="CN-1",
+            credit_note_date=date(2026, 5, 3),
+            status="APPROVED",
+            taxable_amount=Decimal("2000"),
+            tax_amount=Decimal("0"),
+            total_amount=Decimal("2000"),
+        )
+    )
+    session.commit()
+
+    [answer] = service.achievement(
+        firm_scope=firm.id, from_date=APRIL[0], to_date=APRIL[1]
+    )
+
+    assert answer.achieved_amount == Decimal("7000.00")
+    assert answer.shortfall_amount == Decimal("3000.00")
 
 
 def test_a_target_overlapping_another_on_the_same_basis_is_refused() -> None:

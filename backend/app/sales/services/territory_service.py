@@ -95,6 +95,7 @@ from app.sales.schemas import (
     TerritoryTreeNodeResponse,
     TerritoryUpdate,
 )
+from app.sales.schemas.territory import TerritoryStatus
 from app.sales.services.scope_resolution import route_profile_in_force
 from app.tax.models import TaxCountryMapping, TaxRule, TaxSystem
 from app.vendors.models import Vendor, VendorAddress
@@ -1443,39 +1444,57 @@ class SalesTerritoryService:
         actor_id: UUID,
         expected_version: int | None = None,
     ) -> TerritoryResponse:
+        """Change part of a territory node.
+
+        The payload is dumped with ``exclude_unset``, so a field the caller
+        did not mention keeps the stored value. `route_profile` is read from
+        `model_fields_set`: omitted leaves the round alone, an explicit null
+        retires it. Everything is validated on the merged values, because a
+        move may name a new parent while keeping the level, or the reverse.
+        """
         row = self._territory(territory_id, firm_scope, include_deleted=True)
         assert_version(row.version, expected_version)
-        self._assert_unique_code(firm_scope, data.code, current_id=row.id)
+        values = data.model_dump(exclude_unset=True)
+        code = values.get("code") or row.code
+        name = (values.get("name") or row.name).strip()
+        level_id = values.get("hierarchy_level_id") or row.hierarchy_level_id
+        parent_id = values.get("parent_id", row.parent_id)
+        before = self._territory_snapshot(row)
+        self._assert_unique_code(firm_scope, code, current_id=row.id)
         self._assert_unique_name_under_parent(
             firm_scope=firm_scope,
-            parent_id=data.parent_id,
-            name=data.name,
+            parent_id=parent_id,
+            name=name,
             current_id=row.id,
         )
-        level = self._level(data.hierarchy_level_id)
-        parent = self._parent(firm_scope, data.parent_id)
+        level = self._level(level_id)
+        parent = self._parent(firm_scope, parent_id)
         if parent is not None and parent.id == row.id:
             raise ValidationError("A territory cannot be its own parent.")
         if parent is not None:
             self._assert_not_descendant(parent.id, row.path)
         self._validate_level_parent(level, parent)
         before_path = row.path
-        row.hierarchy_level_id = data.hierarchy_level_id
-        row.parent_id = data.parent_id
-        row.code = data.code
-        row.name = data.name.strip()
-        row.description = data.description
-        row.status = data.status.value
-        row.sort_order = data.sort_order
+        row.hierarchy_level_id = level_id
+        row.parent_id = parent_id
+        row.code = code
+        row.name = name
+        if "description" in values:
+            row.description = values["description"]
+        if values.get("status") is not None:
+            row.status = TerritoryStatus(values["status"]).value
+        if values.get("sort_order") is not None:
+            row.sort_order = values["sort_order"]
         row.updated_by = actor_id
-        row.path = data.code if parent is None else f"{parent.path}/{data.code}"
+        row.path = code if parent is None else f"{parent.path}/{code}"
         if row.path != before_path:
             self._repath_descendants(row.id, before_path, row.path, actor_id)
-        self._upsert_route_profile(
-            territory_id=row.id,
-            data=data.route_profile,
-            actor_id=actor_id,
-        )
+        if "route_profile" in data.model_fields_set:
+            self._upsert_route_profile(
+                territory_id=row.id,
+                data=data.route_profile,
+                actor_id=actor_id,
+            )
         record_audit(
             self._session,
             action="sales_territory.updated",
@@ -1483,11 +1502,30 @@ class SalesTerritoryService:
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
-            before_data={"code": row.code, "path": before_path},
-            after_data={"code": data.code, "path": row.path},
+            before_data=before,
+            after_data=self._territory_snapshot(row),
         )
         self._commit()
         return self.get_territory(row.id, firm_scope=firm_scope, include_deleted=True)
+
+    def _territory_snapshot(self, row: SalesTerritoryNode) -> dict[str, object]:
+        """Describe a node for the audit trail, including whether it is a route."""
+        profile = self._session.scalar(
+            select(TerritoryRouteProfile.id).where(
+                TerritoryRouteProfile.territory_id == row.id,
+                TerritoryRouteProfile.is_deleted.is_(False),
+            )
+        )
+        return {
+            "code": row.code,
+            "name": row.name,
+            "path": row.path,
+            "parent_id": str(row.parent_id) if row.parent_id else None,
+            "hierarchy_level_id": str(row.hierarchy_level_id),
+            "status": row.status,
+            "sort_order": row.sort_order,
+            "is_route": profile is not None,
+        }
 
     def delete_territory(
         self, territory_id: UUID, *, firm_scope: UUID, actor_id: UUID
@@ -2202,24 +2240,43 @@ class SalesTerritoryService:
         actor_id: UUID,
         expected_version: int | None = None,
     ) -> BeatPlanResponse:
+        """Change part of a beat plan.
+
+        Dumped with ``exclude_unset``: an omitted field keeps the stored
+        value, and `customer_stops` is replaced only when the caller named
+        it -- an empty list clears the outlets, an omission keeps them. The
+        window is checked on the merged values (D-TER-7).
+        """
         row = self._beat_plan(beat_plan_id, firm_scope, include_deleted=True)
         assert_version(row.version, expected_version)
-        self._assert_unique_beat_code(firm_scope, data.code, current_id=row.id)
-        self._assert_is_a_route(self._territory(data.territory_id, firm_scope))
-        row.territory_id = data.territory_id
-        row.code = data.code
-        row.name = data.name
-        row.plan_type = data.plan_type.value
-        row.weekday = data.weekday
-        row.week_of_month = data.week_of_month
-        row.starts_on = data.starts_on
-        row.ends_on = data.ends_on
-        row.is_active = data.is_active
-        row.notes = data.notes
+        values = data.model_dump(exclude_unset=True)
+        code = values.get("code") or row.code
+        territory_id = values.get("territory_id") or row.territory_id
+        before = self._beat_plan_snapshot(row)
+        self._assert_unique_beat_code(firm_scope, code, current_id=row.id)
+        self._assert_is_a_route(self._territory(territory_id, firm_scope))
+        row.territory_id = territory_id
+        row.code = code
+        if values.get("name") is not None:
+            row.name = values["name"]
+        if values.get("plan_type") is not None:
+            row.plan_type = BeatPlanType(values["plan_type"]).value
+        for column in ("weekday", "week_of_month", "starts_on", "ends_on", "notes"):
+            if column in values:
+                setattr(row, column, values[column])
+        if values.get("is_active") is not None:
+            row.is_active = values["is_active"]
+        if (
+            row.starts_on is not None
+            and row.ends_on is not None
+            and row.starts_on > row.ends_on
+        ):
+            raise ValidationError("starts_on must not be after ends_on.")
         row.updated_by = actor_id
-        self._replace_beat_customer_stops(
-            row.id, data.customer_stops, firm_scope, actor_id
-        )
+        if "customer_stops" in data.model_fields_set:
+            self._replace_beat_customer_stops(
+                row.id, data.customer_stops or [], firm_scope, actor_id
+            )
         record_audit(
             self._session,
             action="sales_territory.beat_plan.updated",
@@ -2227,6 +2284,8 @@ class SalesTerritoryService:
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+            before_data=before,
+            after_data=self._beat_plan_snapshot(row),
         )
         self._commit()
         return self.get_beat_plan(row.id, firm_scope=firm_scope, include_deleted=True)
@@ -3992,6 +4051,21 @@ class SalesTerritoryService:
                     updated_by=actor_id,
                 )
             )
+
+    def _beat_plan_snapshot(self, row: BeatPlan) -> dict[str, object]:
+        """Describe a plan for the audit trail."""
+        return {
+            "code": row.code,
+            "name": row.name,
+            "territory_id": str(row.territory_id),
+            "plan_type": row.plan_type,
+            "weekday": row.weekday,
+            "week_of_month": row.week_of_month,
+            "starts_on": row.starts_on.isoformat() if row.starts_on else None,
+            "ends_on": row.ends_on.isoformat() if row.ends_on else None,
+            "is_active": row.is_active,
+            "customer_stops": len(self._beat_customer_stops(row.id)),
+        }
 
     def _beat_customer_stops(self, beat_plan_id: UUID) -> list[BeatPlanCustomerStop]:
         return list(
