@@ -1631,6 +1631,11 @@ class SalesTerritoryService:
         # other territories are none of this call's business; the loop below
         # already retires the ones that belong to this territory and were
         # dropped from the list.
+        # Who was on the round when this call began. A row retired here and
+        # revived below is a re-save and keeps its flag and its stop; a row
+        # that was already retired is a shop *rejoining*, which is decided
+        # afresh (D-TER-10).
+        previously_live: set[UUID] = set()
         for assignment in self._session.scalars(
             select(TerritoryCustomerAssignment).where(
                 TerritoryCustomerAssignment.territory_id == territory.id,
@@ -1638,6 +1643,7 @@ class SalesTerritoryService:
                 TerritoryCustomerAssignment.is_deleted.is_(False),
             )
         ):
+            previously_live.add(assignment.customer_id)
             assignment.is_deleted = True
             assignment.deleted_at = utc_now()
             assignment.deleted_by = actor_id
@@ -1675,6 +1681,16 @@ class SalesTerritoryService:
         for customer_id in requested:
             row = existing.get(customer_id)
             entry = entry_by_customer.get(customer_id)
+            if entry is not None and entry.is_primary:
+                # Naming this round primary for a shop moves the flag here
+                # from wherever it was: one primary per shop is what the key
+                # holds, and a caller who says "primary" has said which one.
+                # Refusing instead made the caller demote the other round
+                # first, and the bare 409 that greeted anyone who did not
+                # know that named no round at all. Done before this shop's
+                # row is written, because the key is checked per statement
+                # and a query below would flush the new flag first.
+                self._demote_elsewhere(customer_id, territory.id, actor_id)
             if row is None:
                 self._session.add(
                     TerritoryCustomerAssignment(
@@ -1706,6 +1722,24 @@ class SalesTerritoryService:
                     )
                 )
             elif row.is_deleted:
+                if customer_id not in previously_live:
+                    # A shop rejoining a round it once left: its flag and its
+                    # stop are decided the way a new row's are, not read back
+                    # from the day it left. It used to keep the primary flag
+                    # it was retired with, and if the shop had become primary
+                    # elsewhere meanwhile the save tripped
+                    # `UQ_territory_customer_assignments_primary_active` and
+                    # answered the bare 409 -- from the picker, which sends
+                    # no flag at all (D-TER-10). The stop number is released
+                    # for the same reason: another shop may hold it by now.
+                    # Decided while the row is still retired, so the query
+                    # does not flush a flag the key would refuse.
+                    row.is_primary = (
+                        entry.is_primary
+                        if entry is not None and entry.is_primary is not None
+                        else not self._has_primary_elsewhere(customer_id, territory.id)
+                    )
+                    row.visit_sequence = None
                 row.is_deleted = False
                 row.deleted_at = None
                 row.deleted_by = None
@@ -1738,6 +1772,24 @@ class SalesTerritoryService:
         else:
             self._session.flush()
         return self.customers(territory_id, firm_scope=firm_scope)
+
+    def _demote_elsewhere(
+        self, customer_id: UUID, territory_id: UUID, actor_id: UUID
+    ) -> None:
+        """Take the primary flag off this shop's other rounds."""
+        for other in self._session.scalars(
+            select(TerritoryCustomerAssignment).where(
+                TerritoryCustomerAssignment.customer_id == customer_id,
+                TerritoryCustomerAssignment.territory_id != territory_id,
+                TerritoryCustomerAssignment.is_primary.is_(True),
+                TerritoryCustomerAssignment.is_deleted.is_(False),
+            )
+        ):
+            other.is_primary = False
+            other.updated_by = actor_id
+        # Flushed before the row that takes the flag is written, because the
+        # key is checked per statement and cannot be deferred.
+        self._session.flush()
 
     def _has_primary_elsewhere(self, customer_id: UUID, territory_id: UUID) -> bool:
         """Whether this shop is already the primary of some other round."""
