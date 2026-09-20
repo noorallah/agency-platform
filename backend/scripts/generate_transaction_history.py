@@ -205,7 +205,9 @@ RESET_ORDER: tuple[str, ...] = (
     # return raised against it.
     # Commission payouts before anything else: they reference the journal
     # entries the history clears, and a payout that outlives its journal is a
-    # debt the books can no longer explain.
+    # debt the books can no longer explain. A clawback links two payouts and
+    # RESTRICTs both, so it goes first.
+    "commission_clawbacks",
     "commission_payouts",
     # Targets go with the history and not with the masters, unlike commission
     # rules. A rule is an arrangement that outlives any particular year; a
