@@ -42,6 +42,7 @@ from app.proforma.schemas import (
     ProformaUpdate,
 )
 from app.sales_order.models import SalesOrder, SalesOrderLine
+from app.settlements.models import Settlement, SettlementDirection, SettlementStatus
 
 #: Orders a proforma may state. A draft is not a deal and a cancelled one has
 #: been called off; everything from approval onwards is a real commitment, and
@@ -709,9 +710,14 @@ class ProformaService(TransactionalDocumentService):
 
         Superseded ones are left out -- a revision replaced them, and a buyer
         holding two figures for one order is the confusion `supersedes_id`
-        exists to prevent. An expired one is reported with a negative
-        `days_to_expiry` rather than dropped: a figure somebody is still
-        acting on is exactly the one worth knowing has lapsed.
+        exists to prevent. So are the ones whose job is done: a proforma is
+        never moved after issue (§11.18), so "still arranging payment" is
+        read off its order -- posted receipts naming the order that cover
+        the proforma's total, or a live tax invoice raised for the order,
+        settle it. Every issued proforma ever was listed before, paid and
+        billed ones included (D-RPT-11). An expired one is reported with a
+        negative `days_to_expiry` rather than dropped: a figure somebody is
+        still acting on is exactly the one worth knowing has lapsed.
         """
         superseded = {
             row
@@ -736,27 +742,134 @@ class ProformaService(TransactionalDocumentService):
             ).all()
             if row.id not in superseded
         ]
+        order_ids = {row.sales_order_id for row in rows}
+        received = self._received_against(firm_scope=firm_scope, order_ids=order_ids)
+        billed = self._orders_billed(firm_scope=firm_scope, order_ids=order_ids)
+        rows = [
+            row
+            for row in rows
+            if row.sales_order_id not in billed
+            and received.get(row.sales_order_id, ZERO) < quantize_money(row.grand_total)
+        ]
         names = self._customer_names({row.customer_id for row in rows})
-        orders = self._order_numbers({row.sales_order_id for row in rows})
+        orders = self._orders({row.sales_order_id for row in rows})
         # Today in UTC: everything stored here is UTC, and the server's own
         # date is already tomorrow, or still yesterday, for part of every day.
         today = utc_now().date()
-        return [
-            ProformaOutstandingRecord(
-                proforma_id=row.id,
-                proforma_number=row.proforma_number,
-                proforma_date=row.proforma_date,
-                valid_until=row.valid_until,
-                days_to_expiry=(
-                    None if row.valid_until is None else (row.valid_until - today).days
-                ),
-                customer_id=row.customer_id,
-                customer_name=names.get(row.customer_id, str(row.customer_id)),
-                sales_order_number=orders.get(row.sales_order_id, ""),
-                grand_total=row.grand_total,
+        records: list[ProformaOutstandingRecord] = []
+        for row in rows:
+            order = orders.get(row.sales_order_id)
+            got = received.get(row.sales_order_id, ZERO)
+            records.append(
+                ProformaOutstandingRecord(
+                    proforma_id=row.id,
+                    proforma_number=row.proforma_number,
+                    proforma_date=row.proforma_date,
+                    valid_until=row.valid_until,
+                    days_to_expiry=(
+                        None
+                        if row.valid_until is None
+                        else (row.valid_until - today).days
+                    ),
+                    customer_id=row.customer_id,
+                    customer_name=names.get(row.customer_id, str(row.customer_id)),
+                    sales_order_number=order.order_number if order else "",
+                    sales_order_status=order.status if order else "",
+                    grand_total=row.grand_total,
+                    received_amount=got,
+                    balance_due=quantize_money(row.grand_total) - got,
+                )
             )
-            for row in rows
-        ]
+        return records
+
+    def _received_against(
+        self, *, firm_scope: UUID, order_ids: set[UUID]
+    ) -> dict[UUID, Decimal]:
+        """Sum the posted receipts that name each order, in one read.
+
+        A receipt names the order the money came in against; that is the
+        only trace a payment against a proforma leaves, since the proforma
+        itself posts nothing.
+        """
+        if not order_ids:
+            return {}
+        rows = self._session.execute(
+            select(Settlement.sales_order_id, func.sum(Settlement.amount))
+            .where(
+                Settlement.firm_id == firm_scope,
+                Settlement.is_deleted.is_(False),
+                Settlement.direction == SettlementDirection.RECEIPT.value,
+                Settlement.status == SettlementStatus.POSTED.value,
+                Settlement.sales_order_id.in_(list(order_ids)),
+            )
+            .group_by(Settlement.sales_order_id)
+        ).all()
+        return {
+            order_id: quantize_money(Decimal(str(total)))
+            for order_id, total in rows
+            if order_id is not None
+        }
+
+    def _orders_billed(self, *, firm_scope: UUID, order_ids: set[UUID]) -> set[UUID]:
+        """Return the orders a live tax invoice has been raised for.
+
+        Straight from the order, or from a delivery note of the order; a
+        cancelled invoice billed nothing. Imported here: the invoice and
+        delivery-note modules import this module's neighbours.
+        """
+        from app.delivery_note.models import DeliveryNote
+        from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
+
+        if not order_ids:
+            return set()
+        live_line = (
+            select(SalesInvoiceLine)
+            .join(SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id)
+            .where(
+                SalesInvoice.firm_id == firm_scope,
+                SalesInvoice.is_deleted.is_(False),
+                SalesInvoice.status != "CANCELLED",
+                SalesInvoiceLine.is_deleted.is_(False),
+            )
+        )
+        from_orders = {
+            row
+            for row in self._session.scalars(
+                live_line.with_only_columns(SalesInvoiceLine.source_document_id).where(
+                    SalesInvoiceLine.source_document_type == "SALES_ORDER",
+                    SalesInvoiceLine.source_document_id.in_(list(order_ids)),
+                )
+            ).all()
+        }
+        from_notes = {
+            row
+            for row in self._session.scalars(
+                select(DeliveryNote.sales_order_id).where(
+                    DeliveryNote.firm_id == firm_scope,
+                    DeliveryNote.is_deleted.is_(False),
+                    DeliveryNote.sales_order_id.in_(list(order_ids)),
+                    DeliveryNote.id.in_(
+                        live_line.with_only_columns(
+                            SalesInvoiceLine.source_document_id
+                        ).where(
+                            SalesInvoiceLine.source_document_type == "DELIVERY_NOTE"
+                        )
+                    ),
+                )
+            ).all()
+        }
+        return {row for row in from_orders | from_notes if row is not None}
+
+    def _orders(self, ids: set[UUID]) -> dict[UUID, SalesOrder]:
+        """Read the orders named, in one query."""
+        if not ids:
+            return {}
+        return {
+            order.id: order
+            for order in self._session.scalars(
+                select(SalesOrder).where(SalesOrder.id.in_(list(ids)))
+            ).all()
+        }
 
     def _customer_names(self, ids: set[UUID]) -> dict[UUID, str]:
         """Read the names in one query rather than one per row."""
