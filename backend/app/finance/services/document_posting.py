@@ -28,8 +28,10 @@ from app.finance.models import (
     VoucherType,
 )
 from app.finance.services.control_accounts import (
+    PURPOSE_LABELS,
     ControlAccountPurpose,
     ControlAccountService,
+    input_tax_purpose,
 )
 from app.finance.services.journal_engine import (
     COVERING_PERIOD_ORDER,
@@ -243,6 +245,55 @@ class DocumentPostingService:
             accounting_period_id=period_id,
         )
 
+    def _input_tax_legs(
+        self,
+        *,
+        firm_id: UUID,
+        ledger_tax: Decimal,
+        tax_by_component: dict[str, Decimal] | None,
+        describe: str,
+        credit: bool = False,
+    ) -> list[JournalLineData]:
+        """Return the input-tax legs of a purchase posting, one per GST head.
+
+        With a component map -- what `purchase_invoice_line_taxes` recorded --
+        each head is posted to its own account (`input_tax_purpose`), so GSTR-3B
+        can read the credit it claims per head straight off the books
+        (D-CMP-20). Without one -- a bill written before the rows existed, or
+        a tax system this does not split -- the whole amount posts to
+        `INPUT_TAX` as it always did.
+
+        Rounding the sum is not rounding the parts: each head is quantized to
+        the ledger's two decimals and the residual against ``ledger_tax`` goes
+        on the largest head, so the legs sum to exactly what the document's
+        tax leg must be.
+        """
+        if ledger_tax == ZERO:
+            return []
+        by_purpose: dict[ControlAccountPurpose, Decimal] = {}
+        for code, amount in (tax_by_component or {}).items():
+            purpose = input_tax_purpose(code)
+            by_purpose[purpose] = by_purpose.get(purpose, ZERO) + quantize_ledger(
+                quantize_money(amount)
+            )
+        by_purpose = {p: a for p, a in by_purpose.items() if a != ZERO}
+        if not by_purpose:
+            by_purpose = {ControlAccountPurpose.INPUT_TAX: ledger_tax}
+        residual = ledger_tax - sum(by_purpose.values(), ZERO)
+        if residual != ZERO:
+            largest = max(by_purpose, key=lambda p: by_purpose[p])
+            by_purpose[largest] += residual
+        accounts = self._require_mapping(firm_id, tuple(by_purpose))
+        return [
+            JournalLineData(
+                ledger_account_id=accounts[purpose],
+                debit_amount=ZERO if credit else amount,
+                credit_amount=amount if credit else ZERO,
+                description=f"{PURPOSE_LABELS[purpose]} {describe}",
+            )
+            for purpose, amount in by_purpose.items()
+        ]
+
     def _require_mapping(
         self, firm_id: UUID, purposes: tuple[ControlAccountPurpose, ...]
     ) -> dict[ControlAccountPurpose, UUID]:
@@ -362,6 +413,7 @@ class DocumentPostingService:
         tax_amount: Decimal,
         total_amount: Decimal,
         actor_id: UUID,
+        tax_by_component: dict[str, Decimal] | None = None,
     ) -> JournalEntry:
         """Post goods going back to a supplier.
 
@@ -387,6 +439,9 @@ class DocumentPostingService:
             tax_amount: Input tax being reversed.
             total_amount: What the supplier credits, tax included.
             actor_id: The user completing the return.
+            tax_by_component: The tax per component as the bill the goods came
+                off recorded it, so each head's credit is reversed through its
+                own account (D-CMP-20). None credits `INPUT_TAX` as a whole.
 
         Returns:
             The posted journal entry.
@@ -419,14 +474,15 @@ class DocumentPostingService:
                 description=f"Goods returned on {return_number}",
             ),
         ]
-        if ledger_tax != ZERO:
-            lines.append(
-                JournalLineData(
-                    ledger_account_id=accounts[ControlAccountPurpose.INPUT_TAX],
-                    credit_amount=ledger_tax,
-                    description=f"Input tax reversed on {return_number}",
-                )
+        lines.extend(
+            self._input_tax_legs(
+                firm_id=firm_id,
+                ledger_tax=ledger_tax,
+                tax_by_component=tax_by_component,
+                describe=f"reversed on {return_number}",
+                credit=True,
             )
+        )
         if variance != ZERO:
             lines.append(
                 JournalLineData(
@@ -1769,6 +1825,7 @@ class DocumentPostingService:
         total_amount: Decimal,
         actor_id: UUID,
         accrued_amount: Decimal | None = None,
+        tax_by_component: dict[str, Decimal] | None = None,
     ) -> JournalEntry:
         """Turn a supplier invoice into a payable and clear the receipt accrual.
 
@@ -1795,6 +1852,9 @@ class DocumentPostingService:
             accrued_amount: What the receipt actually accrued, when it differs
                 from what the supplier billed. Defaults to the invoice's own
                 goods value, which posts no variance.
+            tax_by_component: The tax per component code as the bill's lines
+                recorded it, so each GST head is claimed through its own
+                account (D-CMP-20). None posts the total to `INPUT_TAX`.
 
         Returns:
             The posted journal entry.
@@ -1846,15 +1906,16 @@ class DocumentPostingService:
                 description=f"Supplier invoice {invoice_number}",
             ),
         ]
-        if ledger_tax != ZERO:
-            lines.insert(
-                1,
-                JournalLineData(
-                    ledger_account_id=accounts[ControlAccountPurpose.INPUT_TAX],
-                    debit_amount=ledger_tax,
-                    description=f"Input tax on {invoice_number}",
-                ),
-            )
+        for offset, leg in enumerate(
+            self._input_tax_legs(
+                firm_id=firm_id,
+                ledger_tax=ledger_tax,
+                tax_by_component=tax_by_component,
+                describe=f"on {invoice_number}",
+            ),
+            start=1,
+        ):
+            lines.insert(offset, leg)
         if variance != ZERO:
             lines.append(
                 JournalLineData(

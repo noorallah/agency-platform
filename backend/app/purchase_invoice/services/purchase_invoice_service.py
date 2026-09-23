@@ -494,6 +494,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             tax_amount=self._q(row.tax_total),
             total_amount=self._q(row.grand_total),
             actor_id=actor_id,
+            tax_by_component=self._tax_by_component(row.id),
         )
         self._record_event(
             firm_id=firm_scope,
@@ -1462,6 +1463,36 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 raise ValidationError(
                     "Every invoice line must reference a selected source document."
                 )
+
+    def _tax_by_component(self, invoice_id: UUID) -> dict[str, Decimal]:
+        """Sum the bill's tax per component code, off the rows its lines keep.
+
+        What the posting splits the input tax by, one account per GST head
+        (D-CMP-20). Empty for a bill whose lines carry no rows -- one written
+        before they existed -- and the posting then books the total as it
+        always did.
+        """
+        totals: dict[str, Decimal] = {}
+        for code, amount in self._session.execute(
+            select(
+                PurchaseInvoiceLineTax.component_code,
+                func.coalesce(func.sum(PurchaseInvoiceLineTax.amount), 0),
+            )
+            .join(
+                PurchaseInvoiceLine,
+                PurchaseInvoiceLine.id
+                == PurchaseInvoiceLineTax.purchase_invoice_line_id,
+            )
+            .where(
+                PurchaseInvoiceLine.purchase_invoice_id == invoice_id,
+                PurchaseInvoiceLine.is_deleted.is_(False),
+                PurchaseInvoiceLineTax.is_deleted.is_(False),
+                PurchaseInvoiceLineTax.included_in_price.is_(False),
+            )
+            .group_by(PurchaseInvoiceLineTax.component_code)
+        ).all():
+            totals[code] = self._q(Decimal(str(amount)))
+        return totals
 
     def _delete_line_taxes(self, invoice_id: UUID) -> None:
         """Take the tax components off every line of one invoice.

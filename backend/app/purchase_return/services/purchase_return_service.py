@@ -17,6 +17,7 @@ from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
+from app.core.utils.money import quantize_money
 from app.core.utils.pricing import LineDiscount, resolve_line_discount
 from app.document_framework.models import (
     DocumentLifecycleEvent,
@@ -591,6 +592,7 @@ class PurchaseReturnService(TransactionalDocumentService):
             tax_amount=row.tax_total,
             total_amount=row.grand_total,
             actor_id=actor_id,
+            tax_by_component=self._tax_by_component(row.id),
         )
         before = row.status
         row.status = PurchaseReturnStatus.COMPLETED.value
@@ -1143,6 +1145,10 @@ class PurchaseReturnService(TransactionalDocumentService):
             )
             for product_id, quantity in quantities.items()
         ]
+
+    def _tax_by_component(self, return_id: UUID) -> dict[str, Decimal]:
+        """See `return_tax_by_component`; the posting and GSTR-3B share it."""
+        return return_tax_by_component(self._session, return_id)
 
     def _report_lines(
         self, *, firm_scope: UUID
@@ -2136,3 +2142,53 @@ class PurchaseReturnService(TransactionalDocumentService):
             created_at=row.created_at,
             updated_at=row.updated_at,
         )
+
+
+def return_tax_by_component(session: Session, return_id: UUID) -> dict[str, Decimal]:
+    """Split a return's tax by component, in the proportions its bill charged.
+
+    A return raised off a bill's lines reverses the credit that bill claimed,
+    head by head: each return line's tax is split in the same proportions as
+    the bill line's `purchase_invoice_line_taxes` rows (D-CMP-20). A return
+    raised off a receipt or an order names no bill, and its tax reverses
+    `INPUT_TAX` as a whole, which is where a bill with no rows put it. The
+    ledger posting and GSTR-3B's reversal table both read this.
+    """
+    from app.purchase_invoice.models import PurchaseInvoiceLineTax
+
+    lines = session.scalars(
+        select(PurchaseReturnLine).where(
+            PurchaseReturnLine.purchase_return_id == return_id,
+            PurchaseReturnLine.is_deleted.is_(False),
+            PurchaseReturnLine.source_document_type
+            == PurchaseReturnSourceType.PURCHASE_INVOICE.value,
+        )
+    ).all()
+    if not lines:
+        return {}
+    shares: dict[UUID, list[tuple[str, Decimal]]] = {}
+    for line_id, code, amount in session.execute(
+        select(
+            PurchaseInvoiceLineTax.purchase_invoice_line_id,
+            PurchaseInvoiceLineTax.component_code,
+            PurchaseInvoiceLineTax.amount,
+        ).where(
+            PurchaseInvoiceLineTax.purchase_invoice_line_id.in_(
+                [line.source_document_line_id for line in lines]
+            ),
+            PurchaseInvoiceLineTax.is_deleted.is_(False),
+            PurchaseInvoiceLineTax.included_in_price.is_(False),
+        )
+    ).all():
+        shares.setdefault(line_id, []).append((code, Decimal(str(amount))))
+    totals: dict[str, Decimal] = {}
+    for line in lines:
+        parts = shares.get(line.source_document_line_id, [])
+        charged = sum((amount for _, amount in parts), ZERO)
+        if charged <= ZERO:
+            continue
+        for code, amount in parts:
+            totals[code] = totals.get(code, ZERO) + quantize_money(
+                Decimal(str(line.tax_amount)) * amount / charged
+            )
+    return totals
