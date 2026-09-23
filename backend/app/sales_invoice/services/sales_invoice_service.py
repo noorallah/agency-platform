@@ -1480,40 +1480,69 @@ class SalesInvoiceService(TransactionalDocumentService):
     def reconciliation_report(
         self, *, firm_scope: UUID
     ) -> list[SalesInvoiceReconciliationRecord]:
-        """Return the reconciliation report for the visible firm scope."""
+        """Say what is billed against each delivered line, and what is left.
+
+        One row per source line, summed over the invoices that still stand:
+        a cancelled invoice billed nothing, a draft has not billed yet
+        (D-RPT-13). Most recently billed first.
+        """
         rows = list(
-            self._session.scalars(
-                select(SalesInvoiceLine)
+            self._session.execute(
+                select(SalesInvoiceLine, SalesInvoice)
                 .join(
                     SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id
                 )
                 .where(
                     SalesInvoice.firm_id == firm_scope,
                     SalesInvoice.is_deleted.is_(False),
+                    SalesInvoice.status != SalesInvoiceStatus.CANCELLED.value,
                     SalesInvoiceLine.is_deleted.is_(False),
+                )
+                .order_by(
+                    SalesInvoice.invoice_date.desc(), SalesInvoice.created_at.desc()
                 )
             ).all()
         )
+        grouped: dict[UUID, list[tuple[SalesInvoiceLine, SalesInvoice]]] = {}
+        for line, invoice in rows:
+            grouped.setdefault(line.source_document_line_id, []).append((line, invoice))
         result: list[SalesInvoiceReconciliationRecord] = []
-        for row in rows:
-            pending = self._q(
-                row.delivered_quantity
-                - row.already_invoiced_quantity
-                - row.current_invoice_quantity
+        for lines in grouped.values():
+            newest, _ = lines[0]
+            billed = sum(
+                (
+                    line.current_invoice_quantity
+                    for line, invoice in lines
+                    if invoice.status != SalesInvoiceStatus.DRAFT.value
+                ),
+                ZERO,
             )
+            drafted = sum(
+                (
+                    line.current_invoice_quantity
+                    for line, invoice in lines
+                    if invoice.status == SalesInvoiceStatus.DRAFT.value
+                ),
+                ZERO,
+            )
+            pending = self._q(newest.delivered_quantity - billed - drafted)
             result.append(
                 SalesInvoiceReconciliationRecord(
                     source_document_type=SalesInvoiceSourceType(
-                        row.source_document_type
+                        newest.source_document_type
                     ),
-                    source_document_id=row.source_document_id,
-                    source_document_number=row.source_document_number,
-                    source_document_line_id=row.source_document_line_id,
-                    source_document_line_number=row.source_document_line_number,
-                    delivered_quantity=row.delivered_quantity,
-                    already_invoiced_quantity=row.already_invoiced_quantity,
-                    current_invoice_quantity=row.current_invoice_quantity,
+                    source_document_id=newest.source_document_id,
+                    source_document_number=newest.source_document_number,
+                    source_document_line_id=newest.source_document_line_id,
+                    source_document_line_number=newest.source_document_line_number,
+                    product_id=newest.product_id,
+                    delivered_quantity=newest.delivered_quantity,
+                    invoiced_quantity=self._q(billed),
+                    draft_quantity=self._q(drafted),
                     pending_quantity=pending if pending >= ZERO else ZERO,
+                    invoice_numbers=", ".join(
+                        invoice.invoice_number for _, invoice in lines
+                    ),
                 )
             )
         return result
