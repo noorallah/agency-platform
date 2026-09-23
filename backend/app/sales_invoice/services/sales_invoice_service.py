@@ -1463,7 +1463,12 @@ class SalesInvoiceService(TransactionalDocumentService):
     def outstanding_report(
         self, *, firm_scope: UUID
     ) -> list[SalesInvoiceCustomerOutstandingRecord]:
-        """Return the outstanding report for the visible firm scope."""
+        """Return the outstanding report for the visible firm scope.
+
+        The customer is named by `display_name`, as every other report names
+        one: this read `name`, the legal name, so the same customer appeared
+        under two names on two screens (D-RPT-19).
+        """
         rows = list(
             self._session.scalars(
                 select(Customer).where(
@@ -1481,7 +1486,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         return [
             SalesInvoiceCustomerOutstandingRecord(
                 customer_id=customer.id,
-                customer_name=customer.name,
+                customer_name=customer.display_name,
                 outstanding_amount=self._q(customer.current_outstanding),
                 invoice_count=counts[customer.id],
             )

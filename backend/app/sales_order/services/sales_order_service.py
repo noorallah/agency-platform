@@ -26,6 +26,7 @@ from app.core.utils.pricing import (
     resolve_bill_discount,
     resolve_line_discount,
 )
+from app.core.utils.report_labels import UNASSIGNED
 from app.customers.models import Customer, CustomerGroup
 from app.customers.services import CreditAssessment, CreditControlService
 from app.customers.services.trading_status import (
@@ -1287,7 +1288,14 @@ class SalesOrderService(TransactionalDocumentService):
     def orders_by_customer(
         self, *, firm_scope: UUID
     ) -> list[SalesOrderByCustomerRecord]:
-        """Total order value and count per customer, cancellations excluded."""
+        """Total order value and count per customer, cancellations excluded.
+
+        One read for the names rather than one per customer, and the name is
+        `display_name` -- what the customer's account is called and what every
+        other report shows. This read `Customer.name`, the legal name, which
+        differs for most trading businesses, so the same customer was one name
+        here and another on the credit-note and return reports (D-RPT-19).
+        """
         rows = list(
             self._session.scalars(
                 select(SalesOrder).where(
@@ -1299,17 +1307,15 @@ class SalesOrderService(TransactionalDocumentService):
         )
         totals: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
         counts: dict[UUID, int] = defaultdict(int)
-        names: dict[UUID, str] = {}
         for row in rows:
             totals[row.customer_id] += row.grand_total
             counts[row.customer_id] += 1
-            if row.customer_id not in names:
-                customer = self._session.scalar(
-                    select(Customer).where(Customer.id == row.customer_id)
-                )
-                names[row.customer_id] = (
-                    customer.name if customer is not None else str(row.customer_id)
-                )
+        names = {
+            customer.id: customer.display_name
+            for customer in self._session.scalars(
+                select(Customer).where(Customer.id.in_(list(totals)))
+            ).all()
+        }
         return [
             SalesOrderByCustomerRecord(
                 customer_id=customer_id,
@@ -1347,80 +1353,88 @@ class SalesOrderService(TransactionalDocumentService):
     def orders_by_salesman(
         self, *, firm_scope: UUID
     ) -> list[SalesOrderBySalesmanRecord]:
-        """Total order value and count per salesman, cancellations excluded."""
+        """Total order value and count per salesman, cancellations excluded.
+
+        An order nobody is credited with falls in an **Unassigned** bucket
+        rather than out of the report: the delivery-note by-* reports have
+        always said "Unassigned", and a total that silently drops the
+        unattributed orders cannot be reconciled against the register
+        (D-RPT-19).
+        """
         rows = list(
             self._session.scalars(
                 select(SalesOrder).where(
                     SalesOrder.firm_id == firm_scope,
                     SalesOrder.is_deleted.is_(False),
                     SalesOrder.status != SalesOrderStatus.CANCELLED.value,
-                    SalesOrder.salesman_id.is_not(None),
                 )
             ).all()
         )
-        totals: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
-        counts: dict[UUID, int] = defaultdict(int)
-        names: dict[UUID, str] = {}
+        totals: dict[UUID | None, Decimal] = defaultdict(lambda: ZERO)
+        counts: dict[UUID | None, int] = defaultdict(int)
         for row in rows:
-            if row.salesman_id is None:
-                continue
             totals[row.salesman_id] += row.grand_total
             counts[row.salesman_id] += 1
         # One read for every salesman rather than one per row, and against the
         # platform store rather than this firm's.
-        names = self._salesman_names(set(totals))
+        labels: dict[UUID | None, str] = {None: UNASSIGNED}
+        for person, name in self._salesman_names(
+            {key for key in totals if key is not None}
+        ).items():
+            labels[person] = name
         return [
             SalesOrderBySalesmanRecord(
                 salesman_id=salesman_id,
-                salesman_name=names.get(salesman_id, str(salesman_id)),
+                salesman_name=labels.get(salesman_id, str(salesman_id)),
                 order_count=counts[salesman_id],
                 total_value=self._q(totals[salesman_id]),
             )
             for salesman_id in sorted(
-                totals.keys(), key=lambda item: names.get(item, str(item))
+                totals.keys(), key=lambda item: labels.get(item, str(item))
             )
         ]
 
     def orders_by_territory(
         self, *, firm_scope: UUID
     ) -> list[SalesOrderByTerritoryRecord]:
-        """Total order value and count per territory, cancellations excluded."""
+        """Total order value and count per territory, cancellations excluded.
+
+        An order placed on no territory falls in an **Unassigned** bucket
+        rather than out of the report, for the same reason as the by-salesman
+        one, and the names are read in one query rather than one per node
+        (D-RPT-19).
+        """
         rows = list(
             self._session.scalars(
                 select(SalesOrder).where(
                     SalesOrder.firm_id == firm_scope,
                     SalesOrder.is_deleted.is_(False),
                     SalesOrder.status != SalesOrderStatus.CANCELLED.value,
-                    SalesOrder.territory_id.is_not(None),
                 )
             ).all()
         )
-        totals: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
-        counts: dict[UUID, int] = defaultdict(int)
-        names: dict[UUID, str] = {}
+        totals: dict[UUID | None, Decimal] = defaultdict(lambda: ZERO)
+        counts: dict[UUID | None, int] = defaultdict(int)
         for row in rows:
-            if row.territory_id is None:
-                continue
             totals[row.territory_id] += row.grand_total
             counts[row.territory_id] += 1
-            if row.territory_id not in names:
-                territory = self._session.scalar(
-                    select(SalesTerritoryNode).where(
-                        SalesTerritoryNode.id == row.territory_id
-                    )
-                )
-                names[row.territory_id] = (
-                    territory.name if territory is not None else str(row.territory_id)
-                )
+        labels: dict[UUID | None, str] = {None: UNASSIGNED}
+        # One read for every node named, rather than one query per node.
+        for node in self._session.scalars(
+            select(SalesTerritoryNode).where(
+                SalesTerritoryNode.id.in_([key for key in totals if key is not None])
+            )
+        ).all():
+            labels[node.id] = node.name
         return [
             SalesOrderByTerritoryRecord(
                 territory_id=territory_id,
-                territory_name=names.get(territory_id, str(territory_id)),
+                territory_name=labels.get(territory_id, str(territory_id)),
                 order_count=counts[territory_id],
                 total_value=self._q(totals[territory_id]),
             )
             for territory_id in sorted(
-                totals.keys(), key=lambda item: names.get(item, str(item))
+                totals.keys(), key=lambda item: labels.get(item, str(item))
             )
         ]
 

@@ -1272,6 +1272,12 @@ class LoyaltyService:
         spent. Two copies of that arithmetic would agree until the day
         somebody fixed one of them.
 
+        A batch already past its date and not yet swept is **kept**, with
+        `awaiting_sweep` true and a negative `days_remaining`: its points are
+        still spendable and still counted in the balance, so hiding the row
+        would understate what the firm owes and say nothing about the sweep
+        being overdue. The row is the notice that it has not run (D-RPT-19).
+
         Args:
             firm_scope: The owning firm.
             within_days: How far ahead to look.
@@ -1317,6 +1323,7 @@ class LoyaltyService:
                         earned_on=batch.earned_on,
                         expires_on=batch.expires_on,
                         days_remaining=(batch.expires_on - today).days,
+                        awaiting_sweep=batch.expires_on < today,
                     )
                 )
         return sorted(rows, key=lambda row: (row.expires_on, row.customer_name))

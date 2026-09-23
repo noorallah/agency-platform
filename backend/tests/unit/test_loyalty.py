@@ -18,7 +18,7 @@ The rest follows:
   cannot take the same points twice.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import uuid4
 
@@ -31,6 +31,7 @@ from sqlalchemy.pool import StaticPool
 from app.branches.models import Branch
 from app.core.database.base import Base
 from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.utils.dates import utc_now
 from app.customers.models import Customer
 from app.finance.models import JournalEntry, JournalLine, LedgerAccount
 from app.finance.services.control_accounts import (
@@ -750,6 +751,30 @@ def test_a_batch_already_spent_is_not_warned_about() -> None:
     )
 
     assert warned == []
+
+
+def test_a_batch_past_its_date_and_unswept_says_so() -> None:
+    """D-RPT-19: it was listed with a negative `days_remaining` and no reason.
+
+    The points are still spendable and still in the balance until the sweep
+    runs, so dropping the row would understate what the firm owes and say
+    nothing about the sweep being overdue. The row stays and carries
+    `awaiting_sweep`, which is what explains the negative number beside it.
+    """
+    books = _Books(_session_factory()())
+    books.batch("100", earned_on=date(2026, 6, 1), expires_on=date(2026, 7, 1))
+    later = utc_now().date() + timedelta(days=30)
+    books.batch("50", earned_on=utc_now().date(), expires_on=later)
+
+    lapsed, standing = LoyaltyService(books.session).expiring_report(
+        firm_scope=books.firm.id, within_days=3650
+    )
+
+    assert (lapsed.points, lapsed.awaiting_sweep) == (Decimal("100.0000"), True)
+    assert lapsed.days_remaining < 0
+    assert (standing.points, standing.awaiting_sweep) == (Decimal("50.0000"), False)
+    assert standing.days_remaining == 30
+    assert books.points() == Decimal("150.0000"), "still held until the sweep runs"
 
 
 def test_balances_leave_out_a_customer_holding_nothing() -> None:

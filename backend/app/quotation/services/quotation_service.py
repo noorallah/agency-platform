@@ -1482,7 +1482,14 @@ class QuotationService(TransactionalDocumentService):
     # ---- reports -------------------------------------------------------
 
     def register_report(self, *, firm_scope: UUID) -> list[QuotationRegisterRecord]:
-        """Every quotation raised, with what became of it."""
+        """Every quotation raised, with what became of it.
+
+        `is_expired` rides beside the status because expiry is a date rather
+        than a status: a SENT offer past `valid_until` still reads SENT, and
+        the register had nothing to say whether its prices still stood
+        (D-RPT-19). Derived by `is_expired`, the same rule the document's own
+        response and the conversion report use.
+        """
         return [
             QuotationRegisterRecord(
                 quotation_id=row.id,
@@ -1491,6 +1498,7 @@ class QuotationService(TransactionalDocumentService):
                 quotation_date=row.quotation_date,
                 valid_until=row.valid_until,
                 status=QuotationStatus(row.status),
+                is_expired=self.is_expired(row),
                 grand_total=row.grand_total,
                 converted_sales_order_number=row.converted_sales_order_number,
             )

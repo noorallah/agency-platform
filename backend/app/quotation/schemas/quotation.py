@@ -332,6 +332,11 @@ class QuotationRegisterRecord(QuotationSchema):
     quotation_date: date
     valid_until: date
     status: QuotationStatus
+    #: Expiry is a date, not a status: a SENT offer past `valid_until` still
+    #: reads SENT, so the register said nothing about whether the prices
+    #: still stood. Derived the way the document's own response derives it,
+    #: from `is_expired` (D-RPT-19).
+    is_expired: bool
     grand_total: Decimal
     converted_sales_order_number: str | None
 

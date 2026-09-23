@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError as PydanticValidationError
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -2353,6 +2353,68 @@ def test_the_delivery_reports_count_what_left_the_warehouse() -> None:
     service.dispatch_note(note.id, firm_scope=firm.id, actor_id=actor_id)
     assert warehouse_row() == (1, Decimal("4.0000"))
     assert progress() == (Decimal("4.0000"), Decimal("6.0000"), "PARTIAL")
+
+
+def test_the_by_dimension_reports_name_their_keys_in_one_read() -> None:
+    """D-RPT-19: the route and warehouse labels cost one query per key.
+
+    Only the salesperson names were batched; a route was looked up by joining
+    its territory once per distinct route and a warehouse once per distinct
+    warehouse, inside the row loop. The rows answered are the same either
+    way, so only the statements the session runs can tell them apart.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+    _stock(session, firm=firm, branch=branch, warehouse=warehouse, product=product)
+    order, order_line = _approved_order(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+        quantity=Decimal("4"),
+        actor_id=actor_id,
+    )
+    service = DeliveryNoteService(session)
+    note = _approved_note(
+        session,
+        firm=firm,
+        order=order,
+        order_line=order_line,
+        quantity=Decimal("4"),
+        actor_id=actor_id,
+    )
+    service.dispatch_note(note.id, firm_scope=firm.id, actor_id=actor_id)
+
+    statements: list[str] = []
+
+    def _record(
+        conn: object,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: bool,  # noqa: FBT001 - SQLAlchemy's own signature
+    ) -> None:
+        """Keep every statement the engine is handed."""
+        statements.append(statement)
+
+    event.listen(session.get_bind(), "before_cursor_execute", _record)
+    [row] = service.by_warehouse_report(firm_scope=firm.id)
+
+    assert (row.dimension_id, row.dimension_name) == (warehouse.id, warehouse.name)
+    assert not [text for text in statements if "warehouses.id = " in text]
+    assert len([text for text in statements if "warehouses.id IN " in text]) == 1
+    # A note with no route falls in the bucket the sales-order reports now
+    # share with these (D-RPT-19).
+    [by_route] = service.by_route_report(firm_scope=firm.id)
+    assert (by_route.dimension_id, by_route.dimension_name) == (None, "Unassigned")
 
 
 def test_a_back_order_is_a_live_shortfall_on_an_open_order() -> None:

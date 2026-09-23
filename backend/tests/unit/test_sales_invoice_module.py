@@ -448,6 +448,16 @@ def test_sales_invoice_timeline_and_outstanding_endpoints_resolve() -> None:
     assert outstanding.data[0].invoice_count == 1
     assert outstanding.data[0].outstanding_amount > Decimal("0")
 
+    # D-RPT-19: this named the customer by `name`, the legal name, where
+    # every other report names one by `display_name` -- so the same customer
+    # read differently on two screens.
+    customer = session.scalar(select(Customer).where(Customer.firm_id == firm.id))
+    assert customer is not None
+    customer.display_name = "Alpha Traders"
+    session.commit()
+    renamed = get_customer_outstanding(scope=scope, db=session)
+    assert renamed.data[0].customer_name == "Alpha Traders"
+
 
 def test_sales_invoice_cancel_endpoint_passes_the_reason_through() -> None:
     """``cancel`` forwards its reason as a keyword, not as a positional UUID."""
