@@ -126,6 +126,47 @@ shortfall it leaves is collected on the next receipt. Both fall out of
 stand and dated on or before the receipt, exactly as the consideration is
 summed from the receipts.
 
+## Input tax is claimed head by head
+
+**A bill's input tax posts one leg per GST head, and a return reverses the
+same heads in the same proportions.** Purchase input tax posted to `1300
+Input Tax` as one total until 2026-09-24, so GSTR-3B's credit -- claimed per
+head, IGST against IGST and CGST and SGST each against their own -- could not
+be derived from the books (D-CMP-20). Four things changed, in four PRs:
+
+- **A bill line keeps the components it was charged** in
+  `purchase_invoice_line_taxes` (#607), the mirror of
+  `sales_invoice_line_taxes`: code, label, rate, base, amount, `recoverable`,
+  `included_in_price`, written at pricing from the engine's answer and
+  rebuilt on every edit. The line's `tax_profile_id` is the profile actually
+  resolved.
+- **Each head has an account** (#608): `INPUT_TAX_IGST` (1310),
+  `INPUT_TAX_CGST` (1320), `INPUT_TAX_SGST` (1330) beside `INPUT_TAX` (1300),
+  seeded with the chart for a new firm and by `20260924_0156` for every
+  existing one. `input_tax_purpose(component_code)` in
+  `app/finance/services/control_accounts.py` names the account a component
+  is claimed through; UTGST goes with the state head; anything it does not
+  name -- cess, another tax system -- goes to 1300.
+- **The posting splits** (#609): `post_purchase_invoice` and
+  `post_purchase_return` take `tax_by_component` and post one leg per head
+  through `_input_tax_legs`, each head quantized to the ledger and the
+  rounding residual on the largest, so the legs sum to the document's tax
+  leg exactly. The bill sums its own rows; a return raised off a bill splits
+  its tax in the bill line's proportions (`return_tax_by_component`, shared
+  with 3B); a return off a receipt or an order names no bill and reverses
+  1300 as a whole. **Without a map the total posts to 1300 as it always
+  did** -- a bill approved before the rows existed keeps its posting and is
+  not backfilled, because re-running the tax engine on old dates can answer
+  differently from what the supplier charged.
+- **3B reads the rows** (#610): table 4A(5) per head from the period's
+  approved and closed bills, 4B(2) from completed returns off them, net ITC
+  the difference; `unplaced_reversals` and `bills_without_components` say
+  what could not be placed rather than zeroing it.
+
+Cancelling an approved bill mirrors its journal leg for leg, so the split
+reverses itself. Nothing on the sales side changed: output tax has always
+carried its components and 3B's outward half has always read them.
+
 ## A return is a view of the documents
 
 **A return is a view of the documents, and a supply is placed by the tax it
@@ -246,4 +287,4 @@ declared tax.
 ## `app/finance` and automatic GL posting
 
 `app/finance/` was rewritten on 2026-08-09 and is live at `/api/v1/finance` (migration `20260809_0042`). It uses the seeded `accounting` / `financial_year` permission codes rather than a `FINANCE_*` namespace. The prior `accounting_event_consumer.py`, which guessed accounts by name, was removed — see git history if you want its posting rules.
-**Automatic GL posting is built, and this line said for months that it was not.** It claimed the feature needed "a per-firm control-account mapping design" -- which is exactly what `firm_control_accounts` is, and it carries 24 purposes per firm (`ACCOUNTS_RECEIVABLE`, `INVENTORY`, `OUTPUT_TAX`, `PURCHASE_PRICE_VARIANCE`, `LOYALTY_PAYABLE`, `COMMISSION_PAYABLE`, `TCS_PAYABLE` and the rest). **Eleven modules post through `DocumentPostingService`**: `delivery_note`, `sales_invoice`, `sales_return`, `credit_note`, `goods_receipt`, `purchase_invoice`, `purchase_return`, `settlements`, `loyalty`, `tcs` and `commission`. WHOLE01 alone holds 337 journal entries, and `verify_sample_data.py` fails the run if any approved invoice has not posted. A stale line like this is worse than no line: it talks the next reader out of checking, and it survived precisely because nobody re-derived it. Correct one when you find it rather than working around it.
+**Automatic GL posting is built, and this line said for months that it was not.** It claimed the feature needed "a per-firm control-account mapping design" -- which is exactly what `firm_control_accounts` is, and it carries 27 purposes per firm (`ACCOUNTS_RECEIVABLE`, `INVENTORY`, `OUTPUT_TAX`, `INPUT_TAX_IGST`, `PURCHASE_PRICE_VARIANCE`, `LOYALTY_PAYABLE`, `COMMISSION_PAYABLE`, `TCS_PAYABLE` and the rest). **Eleven modules post through `DocumentPostingService`**: `delivery_note`, `sales_invoice`, `sales_return`, `credit_note`, `goods_receipt`, `purchase_invoice`, `purchase_return`, `settlements`, `loyalty`, `tcs` and `commission`. WHOLE01 alone holds 337 journal entries, and `verify_sample_data.py` fails the run if any approved invoice has not posted. A stale line like this is worse than no line: it talks the next reader out of checking, and it survived precisely because nobody re-derived it. Correct one when you find it rather than working around it.

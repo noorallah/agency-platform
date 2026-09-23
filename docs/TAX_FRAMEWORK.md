@@ -318,6 +318,21 @@ first two; the **split** changes, and the split is what the GST return needs.
   three JSON documents per document line. Nothing prunes it automatically;
   `scripts/purge_retention.py` does, across every firm store.
 
+## Input tax credit on GSTR-3B
+
+**The inward half of 3B is derived, since 2026-09-24, from what each bill's
+lines recorded** (`purchase_invoice_line_taxes`, D-CMP-20): table 4A(5) is
+the recoverable, non-inclusive components of the period's approved and
+closed bills summed per head, 4B(2) the tax on completed purchase returns
+raised off those bills split in the bill line's proportions, and net ITC the
+difference. Two figures say what the module cannot place rather than zeroing
+it: `unplaced_reversals` (returns raised off a receipt or an order, which
+name no bill) and `bills_without_components` (bills approved before the rows
+existed, which are not backfilled). The ledger claims the same heads through
+their own accounts (`docs/LEDGER_POSTING_RULES.md`, "Input tax is claimed
+head by head"), so the return and the trial balance can be reconciled per
+head.
+
 ## Where the code is
 
 | Concern | File |

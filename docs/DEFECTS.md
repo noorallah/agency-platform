@@ -119,7 +119,6 @@ from the documents, not from GSTR-1.
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
-| D-CMP-20 | Medium | Purchase input tax posts to the ledger as one total; nothing splits IGST input from CGST/SGST input, so GSTR-3B's ITC split cannot be derived from the books. | Code |
 | D-CMP-21 | Low | `scripts/generate_sample_data.py` seeds its own older rule set with no interstate rules on either side; and nothing reports TCS charged versus due per buyer after an over-collection. | Code |
 | D-CMP-17 | Low | The GSTR-1 HSN summary is not netted of credit notes and returns. | Code |
 | D-CMP-18 | Low | A bill cancelled after its month's GSTR-1 was due credits back only its taxed lines in the month of cancellation, so 3B 3.1(c) is not reduced by its nil-rated or exempt lines (follow-on to D-CMP-10/11). | Code |
@@ -303,6 +302,7 @@ or invoiced (D-RPT-11).
 
 | Id | Fixed | Summary | PR | Guard |
 | --- | --- | --- | --- | --- |
+| D-CMP-20 | 2026-09-24 | Purchase input tax posted as one total, so 3B's ITC split could not be derived. Bill lines keep their components (`purchase_invoice_line_taxes`), each GST head has an input-tax account (1310/1320/1330), bills and returns post one leg per head, and 3B table 4 reads the rows. Decided by Claude, industry standard (owner confirmed 2026-09-23): UTGST under the state head, cess on 1300, no backfill of old bills, unplaced figures said rather than zeroed. | #607, #608, #609, #610 | `test_a_bill_line_keeps_the_tax_it_was_charged_component_by_component`, `test_input_tax_posts_one_leg_per_gst_head_and_reverses_the_same_way`, `test_the_summary_claims_the_credit_it_can_read_and_says_what_it_cannot` |
 | D-TER-20 | 2026-09-23 | A payee could adjust their own draft payout and the adjuster could approve the number they wrote; no ceiling. `adjusted_by` (migration `20260923_0153`): the payee cannot adjust, the adjuster cannot approve, and an adjustment may not exceed what the period earned. Decided by Claude, industry standard (maker-checker on the adjustment). | #602 | `test_the_payee_cannot_adjust_their_own_payout_and_the_adjuster_cannot_approve`, `test_an_adjustment_cannot_exceed_what_the_period_earned` |
 | D-SELL-36 | 2026-09-23 | A note or bill raised from an order carried none of the order's freight. Where the caller says nothing, the note inherits each line's freight share pro-rated by the quantity leaving and the bill its source line's share by the quantity billed; an explicit 0 waives it. Decided by Claude, industry standard: freight agreed on the order is billed with the goods. | #603 | `test_a_note_and_a_bill_inherit_the_orders_freight` |
 | D-IDN-11 | 2026-09-23 | `_assert_storage_unclaimed` filtered the mapping's `is_deleted` while saying a deleted firm's store still counts; a mapping retired by hand would have handed its store to the next firm. The filter is gone. | #604 | `test_a_retired_mapping_row_still_holds_its_store` |
