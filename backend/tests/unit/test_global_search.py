@@ -28,6 +28,7 @@ from app.firms.models import Firm
 from app.identity.models import Permission, Role, User, UserFirm
 from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.products.models import product as _product_models  # noqa: F401
+from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales.models import territory as _sales_models  # noqa: F401
 from app.search.api.router import global_search
 from app.search.services import SearchService
@@ -603,3 +604,46 @@ def test_storage_areas_are_searched_within_the_firm() -> None:
     ]
     nobody = _principal(uuid4(), permissions={"STORAGE_AREA_MANAGE"})
     assert _search_titles(session, nobody, "storage_areas", "Bin A1") == []
+
+
+def test_a_territory_node_is_listed_once_under_the_label_it_earns() -> None:
+    """A route is a node with a route profile; a territory is one without.
+
+    `territories` and `routes` were two definitions over `SalesTerritoryNode`
+    with the same filter, so every node was listed twice, once under each
+    label -- WHOLE01's six nodes answered twelve hits (D-RPT-6).
+    """
+    session = _session_factory()()
+    firm = _firm(session, "TERR")
+    region = SalesTerritoryNode(
+        firm_id=firm.id,
+        hierarchy_level_id=uuid4(),
+        code="N",
+        name="North Zone",
+        path="N",
+    )
+    route = SalesTerritoryNode(
+        firm_id=firm.id,
+        hierarchy_level_id=uuid4(),
+        code="N-R1",
+        name="North Beat",
+        path="N/N-R1",
+    )
+    session.add_all([region, route])
+    session.flush()
+    session.add(TerritoryRouteProfile(territory_id=route.id))
+    session.commit()
+
+    principal = _principal(uuid4(), permissions={"TERRITORY_VIEW"}, firm_id=firm.id)
+    hits = SearchService(session).search(
+        query="North",
+        principal=principal,
+        category="organization",
+        page=1,
+        page_size=20,
+        entity_types={"territories", "routes"},
+    )
+    assert sorted((item.entity_type, item.title) for item in hits.results) == [
+        ("routes", "North Beat"),
+        ("territories", "North Zone"),
+    ]
