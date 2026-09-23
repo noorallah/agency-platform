@@ -1520,6 +1520,10 @@ class QuotationService(TransactionalDocumentService):
         converted_count: dict[UUID, int] = defaultdict(int)
         converted_value: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
         declined_count: dict[UUID, int] = defaultdict(int)
+        expired_count: dict[UUID, int] = defaultdict(int)
+        # Expiry is a date, not a status (see `summary`): a sent offer past
+        # its date has lapsed, and the catalogue promises to say how many.
+        today = utc_now().date()
         for row in rows:
             quoted_count[row.customer_id] += 1
             quoted_value[row.customer_id] += row.grand_total
@@ -1528,6 +1532,8 @@ class QuotationService(TransactionalDocumentService):
                 converted_value[row.customer_id] += row.grand_total
             elif row.status == QuotationStatus.DECLINED.value:
                 declined_count[row.customer_id] += 1
+            elif row.valid_until < today:
+                expired_count[row.customer_id] += 1
         names = {
             customer.id: customer.display_name
             for customer in self._session.scalars(
@@ -1543,6 +1549,11 @@ class QuotationService(TransactionalDocumentService):
                 converted_count=converted_count[customer_id],
                 converted_value=self._q(converted_value[customer_id]),
                 declined_count=declined_count[customer_id],
+                expired_count=expired_count[customer_id],
+                open_count=count
+                - converted_count[customer_id]
+                - declined_count[customer_id]
+                - expired_count[customer_id],
             )
             for customer_id, count in quoted_count.items()
         ]
