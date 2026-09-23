@@ -2,6 +2,7 @@
 
 import inspect
 import re
+from contextlib import nullcontext
 from datetime import date
 from pathlib import Path
 from typing import get_args
@@ -13,6 +14,7 @@ from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.branches.models import Warehouse, WarehouseStorageNode
 from app.business.models import BusinessProfile
 from app.common.scope import FirmScope, OptionalFirmScope, optional_firm_scope
 from app.core.database.base import Base
@@ -29,6 +31,7 @@ from app.products.models import product as _product_models  # noqa: F401
 from app.sales.models import territory as _sales_models  # noqa: F401
 from app.search.api.router import global_search
 from app.search.services import SearchService
+from app.search.services import search_service as search_service_module
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
 from app.uom.models import uom as _uom_models  # noqa: F401
 from app.vendors.models import vendor as _vendor_models  # noqa: F401
@@ -346,6 +349,12 @@ def test_no_service_resolves_firms_on_a_tenant_session() -> None:
         # and its memberships, the firm's own store for everything else --
         # and its routes are platform paths under /api/v1/firms.
         "app/firms/services/readiness.py",
+        # Reads `users` and `user_firms` for its people definition, and only
+        # ever through `platform_reader()` or on a platform session --
+        # `test_search_platform_store.py` compares its `platform_store` flags
+        # with `_PLATFORM_TABLES`, and
+        # `test_a_firm_caller_searches_only_the_firms_own_people` is the read.
+        "app/search/services/search_service.py",
     }
     # Known offenders, kept empty. Five instances of this defect shipped before
     # the guard existed; all are fixed. Anything added here needs a fix, not a
@@ -438,3 +447,159 @@ def test_global_search_never_crosses_firms_even_for_a_platform_admin() -> None:
     assert _titles(None) == []
     assert _titles(firms[0].id) == ["Shared Name ALPHA"]
     assert _titles(firms[1].id) == ["Shared Name BETA"]
+
+
+def _firm(session: Session, code: str) -> Firm:
+    """Add one firm to search inside."""
+    firm = Firm(
+        name=f"Firm {code}",
+        code=code,
+        country="IN",
+        currency_code="INR",
+        financial_year_start=date(2026, 4, 1),
+    )
+    session.add(firm)
+    session.commit()
+    return firm
+
+
+def _user(session: Session, email: str, name: str, *firms: Firm) -> User:
+    """Add a user holding an active membership in each firm named."""
+    actor = uuid4()
+    user = User(
+        email=email,
+        full_name=name,
+        password_hash="x",
+        created_by=actor,
+        updated_by=actor,
+    )
+    session.add(user)
+    session.flush()
+    for firm in firms:
+        session.add(
+            UserFirm(
+                user_id=user.id,
+                firm_id=firm.id,
+                is_active=True,
+                created_by=actor,
+                updated_by=actor,
+            )
+        )
+    session.commit()
+    return user
+
+
+def _search_titles(
+    session: Session, principal: Principal, entity_type: str, query: str
+) -> list[str]:
+    page = SearchService(session).search(
+        query=query,
+        principal=principal,
+        category="all",
+        page=1,
+        page_size=50,
+        entity_types={entity_type},
+    )
+    return sorted(item.title for item in page.results)
+
+
+def test_a_firm_caller_searches_only_the_firms_own_people(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ctrl+K narrows people to the firm's members, as the users list does.
+
+    The `users` definition had no firm column, so a firm administrator --
+    every one holds `USER_VIEW` -- searched every user on the platform by name
+    and email, where `GET /api/v1/users` narrows them to their own members
+    (D-IDN-7). TEST01's administrator listed 37 people and searched 100
+    (D-RPT-1).
+    """
+    session = _session_factory()()
+    # A firm-scoped search reads `users` on the platform store; here that is
+    # the one SQLite schema the test built.
+    monkeypatch.setattr(
+        search_service_module, "platform_reader", lambda: nullcontext(session)
+    )
+    ours, theirs = _firm(session, "OURS"), _firm(session, "THEIRS")
+    _user(session, "asha@ours.example", "Asha Searchable", ours)
+    _user(session, "bala@theirs.example", "Bala Searchable", theirs)
+    _user(session, "chitra@both.example", "Chitra Searchable", ours, theirs)
+    _user(session, "dev@platform.example", "Dev Searchable")
+    left = _user(session, "esha@ours.example", "Esha Searchable", ours)
+    session.execute(
+        UserFirm.__table__.update()
+        .where(UserFirm.user_id == left.id)
+        .values(is_active=False)
+    )
+    session.commit()
+
+    firm_admin = _principal(uuid4(), permissions={"USER_VIEW"}, firm_id=ours.id)
+    assert _search_titles(session, firm_admin, "users", "Searchable") == [
+        "Asha Searchable",
+        "Chitra Searchable",
+    ]
+
+    # Without a firm in scope a firm caller is told nothing, as the users list
+    # refuses them; naming a firm is what a person is entitled to ask about.
+    unscoped = _principal(uuid4(), permissions={"USER_VIEW"})
+    assert _search_titles(session, unscoped, "users", "Searchable") == []
+
+    # A platform administrator acts platform-wide and still sees everyone.
+    # The designation is its own claim, never a role name.
+    admin_id = uuid4()
+    platform = Principal(
+        subject=admin_id,
+        roles=frozenset(),
+        permissions=frozenset({"USER_VIEW"}),
+        claims=TokenClaims(
+            sub=str(admin_id),
+            type=TokenType.ACCESS,
+            iat=1,
+            exp=4_102_444_800,
+            roles=[],
+            permissions=["USER_VIEW"],
+            platform_admin=True,
+        ),
+        firm_id=None,
+    )
+    assert len(_search_titles(session, platform, "users", "Searchable")) == 5
+
+
+def test_storage_areas_are_searched_within_the_firm() -> None:
+    """A shelf belongs to a warehouse, and the warehouse to a firm.
+
+    `warehouse_storage_nodes` has no firm column and the definition declared
+    none, so it was never narrowed: in the SHARED store MEDI01 searched
+    FOOD01's three shelves beside its own, and the reverse (D-RPT-1).
+    """
+    session = _session_factory()()
+    ours, theirs = _firm(session, "OURS"), _firm(session, "THEIRS")
+    for firm in (ours, theirs):
+        warehouse = Warehouse(
+            firm_id=firm.id,
+            branch_id=uuid4(),
+            code="MAIN",
+            name="Main",
+            display_name="Main",
+        )
+        session.add(warehouse)
+        session.flush()
+        session.add(
+            WarehouseStorageNode(
+                warehouse_id=warehouse.id,
+                node_type="BIN",
+                code="A1",
+                name=f"Bin A1 {firm.code}",
+                path="A1",
+            )
+        )
+    session.commit()
+
+    ours_only = _principal(
+        uuid4(), permissions={"STORAGE_AREA_MANAGE"}, firm_id=ours.id
+    )
+    assert _search_titles(session, ours_only, "storage_areas", "Bin A1") == [
+        "Bin A1 OURS"
+    ]
+    nobody = _principal(uuid4(), permissions={"STORAGE_AREA_MANAGE"})
+    assert _search_titles(session, nobody, "storage_areas", "Bin A1") == []

@@ -18,7 +18,7 @@ from app.customers.models import Customer
 from app.delivery_note.models import DeliveryNote
 from app.firms.models import Firm
 from app.goods_receipt.models import GoodsReceipt
-from app.identity.models import Permission, Role, User
+from app.identity.models import Permission, Role, User, UserFirm
 from app.inventory.models import InventoryRecord, OpeningStockBatch, StockLedgerEntry
 from app.products.models import Product, ProductCategory
 from app.purchase.models import PurchaseOrder
@@ -67,6 +67,21 @@ class SearchDefinition:
     #: `test_search_reads_platform_tables_on_the_platform_store` compares this
     #: flag against it.
     platform_store: bool = False
+    #: The rows belong to a firm through another table rather than by a column
+    #: of their own: `(related model, join condition)`, and `related.firm_id`
+    #: is what the firm filter narrows on. `warehouse_storage_nodes` is the
+    #: case -- keyed by warehouse, and a warehouse is the firm's -- and without
+    #: this it was not narrowed at all, so in a SHARED store MEDI01 searched
+    #: FOOD01's shelves and the reverse (D-RPT-1).
+    firm_through: tuple[Any, Any] | None = None
+    #: The rows are people, and a firm's people are the ones holding an active
+    #: membership in it. `users` has no firm column and used to be searched
+    #: unfiltered, so every firm administrator read every user on the platform
+    #: by name and email, where `GET /api/v1/users` narrows them to their own
+    #: members (D-IDN-7, D-RPT-1). With no firm in scope a firm caller gets
+    #: nothing, as the users list refuses them; a platform administrator, who
+    #: acts platform-wide, still sees everyone.
+    membership_scoped: bool = False
 
 
 _DEFINITIONS: tuple[SearchDefinition, ...] = (
@@ -82,6 +97,7 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
         ("full_name", "email"),
         category="organization",
         platform_store=True,
+        membership_scoped=True,
     ),
     SearchDefinition(
         "roles",
@@ -439,6 +455,7 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
         ("name", "code", "path"),
         status_column="is_active",
         category="organization",
+        firm_through=(Warehouse, WarehouseStorageNode.warehouse_id == Warehouse.id),
     ),
     SearchDefinition(
         "inventory",
@@ -766,6 +783,22 @@ class SearchService:
                 if firm_id is None
                 else or_(column == firm_id, column.is_(None))
             )
+        if definition.firm_through is not None:
+            related, condition = definition.firm_through
+            statement = statement.join(related, condition).where(
+                related.firm_id.is_(None)
+                if principal.firm_id is None
+                else related.firm_id == principal.firm_id
+            )
+        if definition.membership_scoped and not principal.is_platform_admin:
+            if principal.firm_id is None:
+                return []
+            members = select(UserFirm.user_id).where(
+                UserFirm.firm_id == principal.firm_id,
+                UserFirm.is_active.is_(True),
+                UserFirm.is_deleted.is_(False),
+            )
+            statement = statement.where(getattr(model, "id").in_(members))  # noqa: B009
         if query:
             search_conditions = []
             for field in (*definition.title_columns, *definition.subtitle_columns):
