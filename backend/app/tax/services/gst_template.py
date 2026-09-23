@@ -291,14 +291,24 @@ def _interstate_rule(
                 TaxRuleConditionOperator.EQUALS,
                 PURCHASE_INTERSTATE if inward else SALES_INTERSTATE,
             ),
+            # The group, never the profile's id: a profile is versioned and a
+            # rate change mints a new id under the same group, so a rule
+            # written against the id stops matching the moment a rate
+            # changes -- silently. `20260809_0049` rewrote the rules seeded
+            # before it; this template went on writing ids (D-CMP-19).
             (
-                "tax_profile_id",
+                "tax_profile_group_code",
                 TaxRuleConditionOperator.EQUALS,
-                str(profiles[f"GST_{slab}_LOCAL"].id),
+                _group_code(profiles[f"GST_{slab}_LOCAL"]),
             ),
         ],
         actions,
     )
+
+
+def _group_code(profile: TaxProfile) -> str:
+    """Return the version-stable name of a profile, its group code."""
+    return profile.group_code or profile.code
 
 
 def _create_rules(
@@ -338,9 +348,9 @@ def _create_rules(
             20,
             [
                 (
-                    "tax_profile_id",
+                    "tax_profile_group_code",
                     TaxRuleConditionOperator.EQUALS,
-                    str(profiles["EXEMPT"].id),
+                    _group_code(profiles["EXEMPT"]),
                 )
             ],
             [TaxRuleActionWrite(sequence=1, action_type=TaxRuleActionType.EXEMPT_TAX)],
