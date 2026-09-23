@@ -33,6 +33,7 @@ from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.money import quantize_money
 from app.sales.models import SalesTerritoryNode
+from app.sales.services.territory_tree import covered_territory_ids
 from app.sales_targets.models import SalesTarget
 from app.sales_targets.schemas import (
     SalesTargetAchievement,
@@ -486,30 +487,12 @@ class SalesTargetService:
     def _covered_by(self, territory_id: UUID, firm_scope: UUID) -> frozenset[UUID]:
         """Return the territory and every live descendant, as ids.
 
-        Breadth-first down `parent_id`, which is the relation the tree is
-        built on, bounded by the ids seen so a cycle in a plain column cannot
-        walk for ever. Not a `path LIKE '<prefix>%'`: that also took a
-        sibling whose code merely started the same way (`T-N` and `T-N2`)
-        and read `_` in a code as a wildcard. Only rows that are not deleted
-        count as live; a node the target names is always its own.
+        The walk itself is `app/sales/services/territory_tree.py`, shared with
+        `SalesTerritoryService`, which had the same one (D-TER-18).
         """
-        covered = {territory_id}
-        frontier = [territory_id]
-        while frontier:
-            children = [
-                child
-                for child in self._session.scalars(
-                    select(SalesTerritoryNode.id).where(
-                        SalesTerritoryNode.firm_id == firm_scope,
-                        SalesTerritoryNode.parent_id.in_(frontier),
-                        SalesTerritoryNode.is_deleted.is_(False),
-                    )
-                ).all()
-                if child not in covered
-            ]
-            covered.update(children)
-            frontier = children
-        return frozenset(covered)
+        return covered_territory_ids(
+            self._session, firm_id=firm_scope, root_id=territory_id
+        )
 
     def territory_labels(
         self, territory_ids: set[UUID], firm_scope: UUID

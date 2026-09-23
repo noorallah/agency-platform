@@ -97,6 +97,7 @@ from app.sales.schemas import (
 )
 from app.sales.schemas.territory import TerritoryStatus
 from app.sales.services.scope_resolution import route_profile_in_force
+from app.sales.services.territory_tree import live_subtree
 from app.tax.models import TaxCountryMapping, TaxRule, TaxSystem
 from app.vendors.models import Vendor, VendorAddress
 
@@ -2902,34 +2903,10 @@ class SalesTerritoryService:
     ) -> list[SalesTerritoryNode]:
         """Return the source and every live descendant, parents before children.
 
-        Breadth-first over `parent_id`, which is the relation the tree is
-        built on; bounded by the nodes seen so a cycle in `parent_id` -- a
-        plain column -- cannot walk for ever.
+        The walk itself is `app/sales/services/territory_tree.py`, shared with
+        `SalesTargetService`, which had a second copy of it (D-TER-18).
         """
-        nodes = [source]
-        seen = {source.id}
-        frontier = [source.id]
-        while frontier:
-            children = [
-                child
-                for child in self._session.scalars(
-                    select(SalesTerritoryNode)
-                    .where(
-                        SalesTerritoryNode.firm_id == firm_scope,
-                        SalesTerritoryNode.parent_id.in_(frontier),
-                        SalesTerritoryNode.is_deleted.is_(False),
-                    )
-                    .order_by(
-                        SalesTerritoryNode.sort_order.asc(),
-                        SalesTerritoryNode.code.asc(),
-                    )
-                )
-                if child.id not in seen
-            ]
-            nodes.extend(children)
-            seen.update(child.id for child in children)
-            frontier = [child.id for child in children]
-        return nodes
+        return live_subtree(self._session, firm_id=firm_scope, root=source)
 
     def bulk_set_customers(
         self,
