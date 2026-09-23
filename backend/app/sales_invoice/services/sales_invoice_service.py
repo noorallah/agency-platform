@@ -83,6 +83,7 @@ from app.sales_invoice.schemas import (
     SalesInvoiceListFilters,
     SalesInvoiceNoteResponse,
     SalesInvoiceNoteWrite,
+    SalesInvoiceOverdueRecord,
     SalesInvoiceReconciliationRecord,
     SalesInvoiceRegisterRecord,
     SalesInvoiceResponse,
@@ -95,6 +96,7 @@ from app.sales_invoice.services.sales_chain_service import SalesChainService
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_order.schemas import SalesOrderStatus
 from app.sales_order.services.workflow_settings_service import SalesWorkflowService
+from app.settlements.schemas import OutstandingInvoiceRecord
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
@@ -295,14 +297,9 @@ class SalesInvoiceService(TransactionalDocumentService):
                 )
             ).all()
         )
-        overdue = sum(
-            1
-            for row in rows
-            if row.due_date is not None
-            and row.due_date < utc_now().date()
-            and row.status
-            not in {SalesInvoiceStatus.CANCELLED.value, SalesInvoiceStatus.CLOSED.value}
-        )
+        # The tile and the overdue report must agree, so the tile counts the
+        # report's rows: invoices past due that still owe something (D-RPT-3).
+        overdue = len(self.overdue_report(firm_scope=firm_scope))
         return SalesInvoiceSummary(
             total=len(rows),
             draft=sum(
@@ -1348,28 +1345,79 @@ class SalesInvoiceService(TransactionalDocumentService):
             ).all()
         )
 
-    def overdue_invoices(self, *, firm_scope: UUID) -> list[SalesInvoice]:
-        """List live invoices past their due date.
+    def _owing(self, *, firm_scope: UUID) -> list[OutstandingInvoiceRecord]:
+        """Every invoice of the firm still owing something, as Record Receipt sees it.
 
-        Cancelled and closed invoices are excluded: neither is still owing.
+        One derivation -- ``settled_against``: money allocated from posted
+        receipts, points spent, returns and credit notes against the bill --
+        shared with Record Receipt and the ageing, so a report cannot disagree
+        with either (D-RPT-3). Imported here because the settlement service
+        imports this module's models.
+        """
+        from app.settlements.services.settlement_service import ReceiptService
+
+        return ReceiptService(self._session).outstanding_invoices(
+            firm_id=firm_scope, party_id=None
+        )
+
+    def overdue_report(self, *, firm_scope: UUID) -> list[SalesInvoiceOverdueRecord]:
+        """List the invoices past their due date that still owe something.
+
+        Judged on what is owed rather than on status: a collected invoice
+        stays APPROVED, so it used to be overdue for ever, and a DRAFT with a
+        due date was listed although it never posted (D-RPT-3; 5 of WHOLE01's
+        23 were paid in full).
         """
         today = utc_now().date()
-        return list(
-            self._session.scalars(
-                select(SalesInvoice).where(
-                    SalesInvoice.firm_id == firm_scope,
-                    SalesInvoice.is_deleted.is_(False),
-                    SalesInvoice.due_date.is_not(None),
-                    SalesInvoice.due_date < today,
-                    SalesInvoice.status.not_in(
-                        [
-                            SalesInvoiceStatus.CANCELLED.value,
-                            SalesInvoiceStatus.CLOSED.value,
-                        ]
-                    ),
+        owing = [
+            record
+            for record in self._owing(firm_scope=firm_scope)
+            if record.due_date is not None and record.due_date < today
+        ]
+        invoices: dict[UUID, SalesInvoice] = {}
+        if owing:
+            invoices = {
+                row.id: row
+                for row in self._session.scalars(
+                    select(SalesInvoice).where(
+                        SalesInvoice.id.in_([item.invoice_id for item in owing])
+                    )
+                ).all()
+            }
+        names = self._customer_names({row.customer_id for row in invoices.values()})
+        records: list[SalesInvoiceOverdueRecord] = []
+        for record in owing:
+            row = invoices[record.invoice_id]
+            if record.due_date is None:  # pragma: no cover - filtered above
+                continue
+            records.append(
+                SalesInvoiceOverdueRecord(
+                    invoice_id=row.id,
+                    invoice_number=row.invoice_number,
+                    customer_invoice_number=row.customer_invoice_number,
+                    customer_id=row.customer_id,
+                    customer_name=names.get(row.customer_id, str(row.customer_id)),
+                    invoice_date=row.invoice_date,
+                    due_date=record.due_date,
+                    days_overdue=(today - record.due_date).days,
+                    grand_total=row.grand_total,
+                    settled_amount=record.allocated_amount,
+                    outstanding_amount=record.outstanding_amount,
                 )
+            )
+        records.sort(key=lambda item: (item.due_date, item.invoice_number))
+        return records
+
+    def _customer_names(self, customer_ids: set[UUID]) -> dict[UUID, str]:
+        """Read the display names of the customers named, in one query."""
+        if not customer_ids:
+            return {}
+        return {
+            customer.id: customer.display_name
+            for customer in self._session.scalars(
+                select(Customer).where(Customer.id.in_(list(customer_ids)))
             ).all()
-        )
+        }
 
     def register_report(self, *, firm_scope: UUID) -> list[SalesInvoiceRegisterRecord]:
         """Return the register report for the visible firm scope."""
@@ -1412,15 +1460,12 @@ class SalesInvoiceService(TransactionalDocumentService):
                 )
             ).all()
         )
+        # Bills still owing something, by the derivation Record Receipt uses;
+        # every APPROVED invoice used to count, settled ones included (D-RPT-3).
         counts: dict[UUID, int] = defaultdict(int)
-        for row in self._session.scalars(
-            select(SalesInvoice).where(
-                SalesInvoice.firm_id == firm_scope,
-                SalesInvoice.is_deleted.is_(False),
-                SalesInvoice.status == SalesInvoiceStatus.APPROVED.value,
-            )
-        ):
-            counts[row.customer_id] += 1
+        for record in self._owing(firm_scope=firm_scope):
+            if record.party_id is not None:
+                counts[record.party_id] += 1
         return [
             SalesInvoiceCustomerOutstandingRecord(
                 customer_id=customer.id,

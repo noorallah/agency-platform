@@ -532,9 +532,40 @@ class SalesInvoiceReconciliationRecord(SalesInvoiceSchema):
 
 
 class SalesInvoiceCustomerOutstandingRecord(SalesInvoiceSchema):
-    """One row of the sales invoice customer outstanding report."""
+    """One row of the sales invoice customer outstanding report.
+
+    ``outstanding_amount`` is the customer's running balance -- the figure
+    their statement shows, which opening balances, credit notes and returns
+    move as well as invoices and receipts. ``invoice_count`` is the number of
+    bills still owing something by the derivation Record Receipt uses; it
+    used to count every APPROVED invoice, paid ones included, so "2 invoices,
+    590.00" was one paid bill and one open (D-RPT-3).
+    """
 
     customer_id: UUID
     customer_name: str
     outstanding_amount: Decimal
     invoice_count: int
+
+
+class SalesInvoiceOverdueRecord(SalesInvoiceSchema):
+    """One invoice past its due date and still owing something.
+
+    A flat row rather than the whole document (D-RPT-16). ``outstanding_amount``
+    is derived as Record Receipt and the ageing derive it -- money allocated,
+    points spent, returns and credit notes against the bill -- so an invoice
+    collected in full leaves the list the day the receipt posts, and a DRAFT,
+    which never posted, was never on it (D-RPT-3).
+    """
+
+    invoice_id: UUID
+    invoice_number: str
+    customer_invoice_number: str | None
+    customer_id: UUID
+    customer_name: str
+    invoice_date: date
+    due_date: date
+    days_overdue: int
+    grand_total: Decimal
+    settled_amount: Decimal
+    outstanding_amount: Decimal
