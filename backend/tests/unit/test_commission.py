@@ -13,6 +13,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import create_engine, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -935,3 +936,51 @@ def test_a_credit_on_an_unpaid_bill_takes_nothing_off_the_money_received() -> No
     books.credit(invoice, "500.00")
 
     assert books.report()[books.asha] == (Decimal("300.00"), Decimal("30.00"))
+
+
+def _raw_rule(
+    books: "_Books",
+    *,
+    salesman_id: UUID | None = None,
+    status: str = "ACTIVE",
+) -> CommissionRule:
+    """Insert one rule straight to the table, past the service's own check."""
+    row = CommissionRule(
+        firm_id=books.firm.id,
+        salesman_id=salesman_id,
+        percentage=Decimal("5"),
+        effective_from=date(2026, 4, 1),
+        status=status,
+    )
+    books.session.add(row)
+    books.session.flush()
+    return row
+
+
+def test_the_key_refuses_a_second_live_rule_for_the_same_scope_and_start() -> None:
+    """The overlap guard was a read followed by an insert with no key behind it.
+
+    Two requests that both check before either commits both pass, and two
+    live rules over one person's days leave the rate to whichever row a query
+    returns first -- the shape of defect that only surfaces once somebody has
+    been underpaid (D-TER-16). The firm-wide default, which names nobody, is
+    the case a plain key could never have held: neither dialect equates two
+    NULLs.
+    """
+    books = _Books(_session_factory()())
+    _raw_rule(books)
+
+    with pytest.raises(IntegrityError):
+        _raw_rule(books)
+        books.session.flush()
+
+
+def test_the_key_leaves_an_inactive_rule_and_another_person_alone() -> None:
+    """An INACTIVE rule resolves to nothing, so it is free to overlap."""
+    books = _Books(_session_factory()())
+    _raw_rule(books, salesman_id=books.asha)
+    _raw_rule(books, salesman_id=books.asha, status="INACTIVE")
+    _raw_rule(books, salesman_id=books.bala)
+    books.session.commit()
+
+    assert len(books.session.scalars(select(CommissionRule)).all()) == 3

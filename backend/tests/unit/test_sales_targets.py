@@ -23,7 +23,9 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine, select
+from pydantic import ValidationError as PydanticValidationError
+from sqlalchemy import create_engine, func, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -37,6 +39,7 @@ from app.firms.models import Firm
 from app.identity.models import identity as _identity_models  # noqa: F401
 from app.sales.models import SalesTerritoryNode
 from app.sales_invoice.models import SalesInvoice
+from app.sales_targets.models import SalesTarget
 from app.sales_targets.schemas import (
     SalesTargetBasis,
     SalesTargetPeriod,
@@ -858,6 +861,92 @@ def test_an_edit_that_changes_nothing_writes_nothing() -> None:
             select(AuditLog).where(AuditLog.action == "sales_target.updated")
         ).first()
         is None
+    )
+
+
+def test_a_status_the_report_cannot_read_is_refused_at_the_door() -> None:
+    """`status` was free text, and only ACTIVE is measured.
+
+    `PAUSED` was accepted and stored, and the achievement report reads
+    `status == "ACTIVE"`, so the target simply vanished from the one screen
+    it exists for, with nothing to say why (D-TER-16).
+    """
+    with pytest.raises(PydanticValidationError):
+        SalesTargetWrite(
+            period_start=APRIL[0],
+            period_end=APRIL[1],
+            target_amount=Decimal("1"),
+            status="PAUSED",  # type: ignore[arg-type]
+        )
+    with pytest.raises(PydanticValidationError):
+        SalesTargetUpdate(status="PAUSED")  # type: ignore[arg-type]
+
+
+def _raw_target(
+    session: Session,
+    *,
+    firm_id: UUID,
+    basis: str = "INVOICED",
+    salesman_id: UUID | None = None,
+    start: date = APRIL[0],
+) -> SalesTarget:
+    """Insert one target straight to the table, past the service's own check."""
+    row = SalesTarget(
+        firm_id=firm_id,
+        salesman_id=salesman_id,
+        period_start=start,
+        period_end=APRIL[1],
+        basis=basis,
+        target_amount=Decimal("1000"),
+    )
+    session.add(row)
+    session.flush()
+    return row
+
+
+def test_the_key_holds_a_scope_that_names_nobody() -> None:
+    """The old key was plain over two nullable columns, so it held nothing.
+
+    Neither dialect equates two NULLs, so a firm's own number for a period --
+    both scopes blank -- could be written twice however many times anybody
+    asked. `_assert_free` reads and then the insert writes, so two requests
+    that both check before either commits both passed (D-TER-16).
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    _raw_target(session, firm_id=firm.id)
+
+    with pytest.raises(IntegrityError):
+        _raw_target(session, firm_id=firm.id)
+        session.flush()
+
+
+def test_the_key_leaves_the_other_basis_and_a_withdrawn_target_alone() -> None:
+    """Two things the old key got wrong in the other direction.
+
+    It left `basis` out, while the service deliberately allows one INVOICED
+    and one COLLECTED target over the same days -- different numbers a firm
+    may set both of. And it covered deleted rows, so a withdrawn target kept
+    its period for ever (D-TER-16).
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    first = _raw_target(session, firm_id=firm.id, basis="INVOICED")
+    _raw_target(session, firm_id=firm.id, basis="COLLECTED")
+    session.commit()
+
+    first.is_deleted = True
+    session.commit()
+    _raw_target(session, firm_id=firm.id, basis="INVOICED")
+    session.commit()
+
+    assert (
+        session.scalar(
+            select(func.count())
+            .select_from(SalesTarget)
+            .where(SalesTarget.firm_id == firm.id)
+        )
+        == 3
     )
 
 

@@ -6178,10 +6178,19 @@ seen in a live row)* was read off the code only.
   `UQ_territory_salesman_assignments_territory_user` are **plain**, so a
   deleted territory or plan keeps its code for ever while the service's own
   check filters `is_deleted` — the refusal then arrives as the bare 409.
-  `UQ_sales_targets_scope_period` is plain over
-  (`firm_id`, `salesman_id`, `territory_id`, `period_start`), and since
-  PostgreSQL never equates two NULLs it holds nothing for any target that
-  leaves either scope blank — which is nearly all of them (D-TER-16).
+  `UQ_sales_targets_scope_period` was plain over
+  (`firm_id`, `salesman_id`, `territory_id`, `period_start`): since neither
+  dialect equates two NULLs it held nothing for a target that left either
+  scope blank — nearly all of them — it covered deleted rows, and it left
+  `basis` out while the service allows one INVOICED and one COLLECTED target
+  over the same days. `UQ_sales_targets_scope_period_active` replaces it
+  (`20260924_0157`), partial on live rows, with both scopes `coalesce`d onto
+  the nil UUID and `basis` in the key.
+  `UQ_commission_rules_scope_start_active` is the same shape for a rule's
+  scope and start date, partial on live ACTIVE rows, and is what the overlap
+  read had nothing behind it (D-TER-16). Neither expresses an **overlapping**
+  window, only a shared start; the service checks stay authoritative for that,
+  as they do beside `UQ_commission_payouts_period_active`.
 - **Concurrency.** Territories, route types, beat plans, commission rules,
   payouts and targets publish `version` as an `ETag` and on the body, and take
   `If-Match`. The two whole-list replaces — a round's customers and a node's
@@ -6516,7 +6525,9 @@ from its order. It writes three columns on the document and nothing else.
   start at 0, has a gap or an overlap, or is open-ended below the top; a second
   ACTIVE rule over the same person, goods and days — "Another active rule
   already covers part of that period for the same scope (from …)." That last
-  check is a read followed by an insert with **no key behind it** (D-TER-16).
+  check was a read followed by an insert with no key behind it;
+  `UQ_commission_rules_scope_start_active` (`20260924_0157`) is the backstop
+  for two requests that both read before either commits (D-TER-16).
 - **Not checked:** that `salesman_id` is anybody at all — an unknown id is
   saved and listed as "Former member"; an unknown `product_id` reaches the
   foreign key and answers the bare 409 (D-TER-15).
@@ -6719,8 +6730,10 @@ all `COMMISSION_MANAGE`, `If-Match` optional.
 
 - **Create** inserts one `sales_targets` row: a person, a node, both or
   neither; the period's own dates; `period_type` a label; `basis` INVOICED or
-  COLLECTED; `status` **free text** — only `ACTIVE` is ever reported, and
-  `PAUSED` is accepted as readily as `INACTIVE` (D-TER-16).
+  COLLECTED; `status` ACTIVE or INACTIVE. It was **free text** and only
+  `ACTIVE` is ever reported, so `PAUSED` was accepted, stored, and vanished
+  from the one screen a target exists for; it is an enum since `20260924_0157`
+  (D-TER-16). The desktop's editor sends `ACTIVE` and nothing else.
 - **The edit is a whole replace** with the create schema: every column is
   assigned from the body, so a PUT that leaves out `salesman_id` turns a
   person's target into **the firm's**, one that leaves out `basis` makes it

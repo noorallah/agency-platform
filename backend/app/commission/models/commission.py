@@ -25,6 +25,7 @@ from sqlalchemy import (
     Integer,
     Numeric,
     String,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -64,6 +65,36 @@ class CommissionRule(BaseEntity):
         Index("IX_commission_rules_firm_salesman", "firm_id", "salesman_id"),
         Index("IX_commission_rules_firm_product", "firm_id", "product_id"),
         Index("IX_commission_rules_firm_status", "firm_id", "status"),
+        # One live ACTIVE rule per scope per start date. `_assert_window_is_
+        # free` reads and then the insert writes, so two requests that both
+        # check before either commits both pass -- the same shape of hole
+        # `UQ_commission_payouts_period_active` was added to close, and the
+        # one that leaves a payout to whichever row a query happens to return
+        # first (D-TER-16).
+        #
+        # All three scope columns are nullable and neither dialect equates two
+        # NULLs, so a plain key would hold nothing for the firm-wide default
+        # -- which is the rule most firms have. `coalesce` onto the nil UUID
+        # gives them a value to compare.
+        #
+        # It cannot express an **overlapping** window, only a shared start,
+        # and it deliberately does not: the service check stays authoritative
+        # for that and for the message. INACTIVE rules resolve to nothing and
+        # are free to overlap, so they are outside the index.
+        Index(
+            "UQ_commission_rules_scope_start_active",
+            "firm_id",
+            text("coalesce(salesman_id, '00000000-0000-0000-0000-000000000000')"),
+            text("coalesce(product_id, '00000000-0000-0000-0000-000000000000')"),
+            text(
+                "coalesce(product_category_id, "
+                "'00000000-0000-0000-0000-000000000000')"
+            ),
+            "effective_from",
+            unique=True,
+            postgresql_where=text("NOT is_deleted AND status = 'ACTIVE'"),
+            sqlite_where=text("NOT is_deleted AND status = 'ACTIVE'"),
+        ),
     )
 
     #: No foreign key: `firms` lives only in the platform schema and this table

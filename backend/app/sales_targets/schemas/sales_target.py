@@ -38,6 +38,25 @@ class SalesTargetBasis(StrEnum):
     COLLECTED = "COLLECTED"
 
 
+class SalesTargetStatus(StrEnum):
+    """Whether a target is in force.
+
+    Free text until D-TER-16: `PAUSED` was accepted and stored, and the
+    achievement report reads `status == "ACTIVE"`, so anything else simply
+    vanished from the one screen a target exists for -- a target set, saved
+    and reported nowhere, with nothing to say why. Two values, because a
+    target is either being measured or it is not; a firm that wants a third
+    has a lifecycle, which belongs in the document framework rather than in a
+    free-text column.
+
+    The desktop's editor sends `ACTIVE` and nothing else, so nothing in the
+    shipped client changes.
+    """
+
+    ACTIVE = "ACTIVE"
+    INACTIVE = "INACTIVE"
+
+
 class SalesTargetWrite(SalesTargetSchema):
     """Set one target."""
 
@@ -49,7 +68,7 @@ class SalesTargetWrite(SalesTargetSchema):
     basis: SalesTargetBasis = SalesTargetBasis.INVOICED
     target_amount: Decimal = Field(ge=0, max_digits=18, decimal_places=2)
     notes: str | None = None
-    status: str = Field(default="ACTIVE", max_length=20)
+    status: SalesTargetStatus = SalesTargetStatus.ACTIVE
 
     @model_validator(mode="after")
     def _period_is_ordered(self) -> "SalesTargetWrite":
@@ -91,7 +110,7 @@ class SalesTargetUpdate(SalesTargetSchema):
         default=None, ge=0, max_digits=18, decimal_places=2
     )
     notes: str | None = None
-    status: str | None = Field(default=None, max_length=20)
+    status: SalesTargetStatus | None = None
 
 
 class SalesTargetResponse(SalesTargetSchema):
