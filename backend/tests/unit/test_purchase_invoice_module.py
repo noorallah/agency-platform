@@ -19,6 +19,7 @@ from app.core.database.base import Base
 from app.core.exceptions import ValidationError
 from app.customers.models import customer as _customer_models  # noqa: F401
 from app.document_framework.models import DocumentTypeDefinition
+from app.finance.models import JournalEntry, JournalLine, LedgerAccount
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
@@ -38,6 +39,12 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceStatus,
 )
 from app.purchase_invoice.services import PurchaseInvoiceService
+from app.purchase_return.schemas import (
+    PurchaseReturnCreate,
+    PurchaseReturnLineWrite,
+    PurchaseReturnSourceType,
+)
+from app.purchase_return.services import PurchaseReturnService
 from app.sales.models import GeoCountry
 from app.sales.models import territory as _sales_models  # noqa: F401
 from app.tax.models import TaxProfile
@@ -1013,3 +1020,166 @@ def test_a_bill_line_keeps_the_tax_it_was_charged_component_by_component() -> No
     assert sum(row.amount for row in _stored_components(session, invoice)) == Decimal(
         "36.0000"
     )
+
+
+def _postings(
+    session: Session, *, module: str, source_id: UUID
+) -> dict[str, tuple[Decimal, Decimal]]:
+    """Return (debit, credit) per ledger account code for one document's journal."""
+    rows = session.execute(
+        select(LedgerAccount.code, JournalLine.debit_amount, JournalLine.credit_amount)
+        .join(JournalEntry, JournalEntry.id == JournalLine.journal_entry_id)
+        .join(LedgerAccount, LedgerAccount.id == JournalLine.ledger_account_id)
+        .where(
+            JournalEntry.source_module == module,
+            JournalEntry.source_id == source_id,
+            JournalEntry.is_deleted.is_(False),
+            JournalEntry.reversal_of_id.is_(None),
+        )
+    ).all()
+    totals: dict[str, tuple[Decimal, Decimal]] = {}
+    for code, debit, credit in rows:
+        d, c = totals.get(code, (Decimal("0"), Decimal("0")))
+        totals[code] = (d + Decimal(str(debit)), c + Decimal(str(credit)))
+    return totals
+
+
+def _bill_of(
+    receipt: GoodsReceipt,
+    receipt_line: GoodsReceiptLine,
+    *,
+    number: str,
+    quantity: str,
+    on: date,
+) -> PurchaseInvoiceCreate:
+    """Bill `quantity` of the received line at 100 each, naming no profile."""
+    return PurchaseInvoiceCreate(
+        supplier_invoice_number=number,
+        supplier_invoice_date=on,
+        invoice_date=on,
+        source_documents=[
+            {
+                "source_document_type": PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                "source_document_id": receipt.id,
+            }
+        ],
+        lines=[
+            PurchaseInvoiceLineWrite(
+                source_document_type=PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                source_document_id=receipt.id,
+                source_document_line_id=receipt_line.id,
+                line_number=1,
+                current_invoice_quantity=Decimal(quantity),
+                unit_price=Decimal("100"),
+            )
+        ],
+    )
+
+
+def test_input_tax_posts_one_leg_per_gst_head_and_reverses_the_same_way() -> None:
+    """The ledger claims the credit head by head, as GSTR-3B does (D-CMP-20).
+
+    A bill's input tax posted to 1300 as one total, so the IGST claimed could
+    not be told from the CGST and SGST. Each component now posts to its own
+    head through `input_tax_purpose`; a return raised off the bill reverses
+    the same heads in the bill line's proportions; a bill whose lines kept no
+    rows -- one written before they existed -- still posts the total to 1300.
+    """
+    session = _session_factory()()
+    actor_id = uuid4()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    vendor = _vendor(session, firm_id=firm.id)
+    order = _purchase_order(
+        session,
+        firm_id=firm.id,
+        vendor_id=vendor.id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+    )
+    po_line = session.scalar(
+        select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+    )
+    assert po_line is not None
+    receipt, receipt_line = _received(session, po_line)
+    _gst_profile(session, firm=firm, actor_id=actor_id)
+    product = session.get(Product, po_line.product_id)
+    assert product is not None
+    product.tax_profile_group_code = "GST_18_LOCAL"
+    session.commit()
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=actor_id
+    )
+    bills = PurchaseInvoiceService(session)
+    bill = bills.create_invoice(
+        _bill_of(
+            receipt, receipt_line, number="SUP-HEADS", quantity="4", on=date(2026, 8, 2)
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    bills.approve_invoice(bill.id, firm_scope=firm.id, actor_id=actor_id)
+    session.commit()
+
+    posted = _postings(session, module="purchase_invoice", source_id=bill.id)
+    assert posted["1320"] == (Decimal("36.00"), Decimal("0.00")), "CGST to its head"
+    assert posted["1330"] == (Decimal("36.00"), Decimal("0.00")), "SGST to its head"
+    assert "1300" not in posted, "nothing left on the undivided account"
+    assert posted["2100"][1] == Decimal("472.00")
+
+    # Two of the four go back, off the bill's line: half of each head reversed.
+    bill_line = session.scalars(
+        select(PurchaseInvoiceLine).where(
+            PurchaseInvoiceLine.purchase_invoice_id == bill.id
+        )
+    ).one()
+    returns = PurchaseReturnService(session)
+    sent_back = returns.create_return(
+        PurchaseReturnCreate(
+            return_date=date(2026, 8, 3),
+            warehouse_id=warehouse.id,
+            source_documents=[
+                {
+                    "source_document_type": PurchaseReturnSourceType.PURCHASE_INVOICE,
+                    "source_document_id": bill.id,
+                }
+            ],
+            lines=[
+                PurchaseReturnLineWrite(
+                    source_document_type=PurchaseReturnSourceType.PURCHASE_INVOICE,
+                    source_document_id=bill.id,
+                    source_document_line_id=bill_line.id,
+                    line_number=1,
+                    current_return_quantity=Decimal("2"),
+                    warehouse_id=warehouse.id,
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    returns.approve_return(sent_back.id, firm_scope=firm.id, actor_id=actor_id)
+    returns.complete_return(sent_back.id, firm_scope=firm.id, actor_id=actor_id)
+    session.commit()
+    reversed_ = _postings(session, module="purchase_return", source_id=sent_back.id)
+    assert reversed_["1320"] == (Decimal("0.00"), Decimal("18.00"))
+    assert reversed_["1330"] == (Decimal("0.00"), Decimal("18.00"))
+    assert "1300" not in reversed_
+
+    # A bill whose lines kept no rows still posts its total to 1300.
+    second = bills.create_invoice(
+        _bill_of(
+            receipt, receipt_line, number="SUP-OLD", quantity="2", on=date(2026, 8, 4)
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    bills._delete_line_taxes(second.id)
+    session.commit()
+    bills.approve_invoice(second.id, firm_scope=firm.id, actor_id=actor_id)
+    session.commit()
+    undivided = _postings(session, module="purchase_invoice", source_id=second.id)
+    assert undivided["1300"] == (Decimal("36.00"), Decimal("0.00"))
+    assert "1320" not in undivided
+    assert "1330" not in undivided
