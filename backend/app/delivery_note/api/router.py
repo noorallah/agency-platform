@@ -383,18 +383,22 @@ def delivery_note_register(
     )
 
 
-@router.get("/reports/pending", response_model=ApiResponse[list[DeliveryNoteResponse]])
+@router.get(
+    "/reports/pending", response_model=ApiResponse[list[DeliveryNoteRegisterRecord]]
+)
 def pending_delivery_notes(
     scope: DeliveryNoteReportScope,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[DeliveryNoteResponse]]:
-    """List notes still open: draft or approved, not yet dispatched."""
-    service = DeliveryNoteService(db)
+) -> ApiResponse[list[DeliveryNoteRegisterRecord]]:
+    """List the notes raised and not yet sent out, one flat row each."""
     return ApiResponse(
-        data=[
-            service.note_response(item)
-            for item in service.pending_notes(firm_scope=scope.firm_id)
-        ]
+        data=DeliveryNoteService(db).register_report(
+            firm_scope=scope.firm_id,
+            statuses=(
+                DeliveryNoteStatus.DRAFT.value,
+                DeliveryNoteStatus.APPROVED.value,
+            ),
+        )
     )
 
 

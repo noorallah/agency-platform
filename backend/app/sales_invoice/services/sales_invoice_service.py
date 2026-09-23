@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from decimal import Decimal
@@ -1419,14 +1420,25 @@ class SalesInvoiceService(TransactionalDocumentService):
             ).all()
         }
 
-    def register_report(self, *, firm_scope: UUID) -> list[SalesInvoiceRegisterRecord]:
-        """Return the register report for the visible firm scope."""
+    def register_report(
+        self, *, firm_scope: UUID, statuses: Sequence[str] | None = None
+    ) -> list[SalesInvoiceRegisterRecord]:
+        """Return the register report, optionally narrowed to some statuses.
+
+        The pending report answers this shape too, rather than whole
+        documents (D-RPT-16).
+        """
         rows = list(
             self._session.scalars(
                 select(SalesInvoice)
                 .where(
                     SalesInvoice.firm_id == firm_scope,
                     SalesInvoice.is_deleted.is_(False),
+                    *(
+                        ()
+                        if statuses is None
+                        else (SalesInvoice.status.in_(list(statuses)),)
+                    ),
                 )
                 .order_by(
                     SalesInvoice.invoice_date.desc(), SalesInvoice.created_at.desc()

@@ -46,6 +46,7 @@ from app.goods_receipt.schemas import (
     GoodsReceiptNoteResponse,
     GoodsReceiptNoteWrite,
     GoodsReceiptPurchaseOrderReport,
+    GoodsReceiptRegisterRecord,
     GoodsReceiptResponse,
     GoodsReceiptStatus,
     GoodsReceiptSummary,
@@ -797,13 +798,17 @@ class GoodsReceiptService(TransactionalDocumentService):
         return rows
 
     def pending_receipts(self, *, firm_scope: UUID) -> list[GoodsReceipt]:
-        """Return receipts."""
+        """Return the receipts still in draft, newest first."""
         return list(
             self._session.scalars(
-                select(GoodsReceipt).where(
+                select(GoodsReceipt)
+                .where(
                     GoodsReceipt.firm_id == firm_scope,
                     GoodsReceipt.status == GoodsReceiptStatus.DRAFT.value,
                     GoodsReceipt.is_deleted.is_(False),
+                )
+                .order_by(
+                    GoodsReceipt.receipt_date.desc(), GoodsReceipt.created_at.desc()
                 )
             ).all()
         )
@@ -817,6 +822,40 @@ class GoodsReceiptService(TransactionalDocumentService):
         GoodsReceiptStatus.COMPLETED.value,
         GoodsReceiptStatus.CLOSED.value,
     )
+
+    def register_rows(
+        self, rows: list[GoodsReceipt]
+    ) -> list[GoodsReceiptRegisterRecord]:
+        """Flatten receipts to one row each, naming the vendor in one read."""
+        names = (
+            {
+                vendor.id: vendor.display_name
+                for vendor in self._session.scalars(
+                    select(Vendor).where(Vendor.id.in_({row.vendor_id for row in rows}))
+                ).all()
+            }
+            if rows
+            else {}
+        )
+        return [
+            GoodsReceiptRegisterRecord(
+                receipt_id=row.id,
+                grn_number=row.grn_number,
+                receipt_date=row.receipt_date,
+                purchase_order_id=row.purchase_order_id,
+                purchase_order_number=row.purchase_order_number,
+                vendor_id=row.vendor_id,
+                vendor_name=names.get(row.vendor_id, str(row.vendor_id)),
+                warehouse_id=row.warehouse_id,
+                status=row.status,
+                total_current_receipt_quantity=row.total_current_receipt_quantity,
+                total_accepted_quantity=row.total_accepted_quantity,
+                total_rejected_quantity=row.total_rejected_quantity,
+                total_damaged_quantity=row.total_damaged_quantity,
+                grand_total=row.grand_total,
+            )
+            for row in rows
+        ]
 
     def completed_receipts(self, *, firm_scope: UUID) -> list[GoodsReceipt]:
         """Return the receipts whose goods are in stock: completed, or closed after."""

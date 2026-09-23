@@ -315,19 +315,18 @@ def purchase_invoice_history(
 
 
 @router.get(
-    "/reports/pending", response_model=ApiResponse[list[PurchaseInvoiceResponse]]
+    "/reports/pending",
+    response_model=ApiResponse[list[PurchaseInvoiceRegisterRecord]],
 )
 def pending_purchase_invoices(
     scope: PurchaseInvoiceReportScope,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[PurchaseInvoiceResponse]]:
-    """List invoices still in draft, not yet approved."""
-    service = PurchaseInvoiceService(db)
+) -> ApiResponse[list[PurchaseInvoiceRegisterRecord]]:
+    """List the bills still in draft, one flat row each."""
     return ApiResponse(
-        data=[
-            service.invoice_response(item)
-            for item in service.pending_invoices(firm_scope=scope.firm_id)
-        ]
+        data=PurchaseInvoiceService(db).register_report(
+            firm_scope=scope.firm_id, statuses=(PurchaseInvoiceStatus.DRAFT.value,)
+        )
     )
 
 

@@ -101,16 +101,12 @@ const List<ReportDefinition> reportCatalog = [
     path: '/api/v1/delivery-notes/reports/pending',
     permission: 'SALES_VIEW',
     area: ReportArea.operational,
-    // The endpoint answers with whole documents, so the columns are
-    // named rather than derived from forty fields of one record.
+    // A flat register row since D-RPT-16; named so the order comes first.
     columns: [
       ReportColumn(key: 'delivery_note_number', label: 'Delivery note number'),
       ReportColumn(key: 'delivery_date', label: 'Delivery date'),
+      ReportColumn(key: 'sales_order_number', label: 'Sales order'),
       ReportColumn(key: 'status', label: 'Status'),
-      ReportColumn(
-          key: 'total_current_delivery_quantity',
-          label: 'Total current delivery quantity',
-          numeric: true),
       ReportColumn(key: 'grand_total', label: 'Grand total', numeric: true),
     ],
   ),

@@ -247,6 +247,30 @@ class GoodsReceiptListFilters(GoodsReceiptSchema):
     include_deleted: bool = False
 
 
+class GoodsReceiptRegisterRecord(GoodsReceiptSchema):
+    """One receipt as a flat row: the header, and whose order it received.
+
+    The pending and completed reports used to answer whole documents --
+    lines, attachments, notes and a duplicate-check query per receipt --
+    while the desktop showed six columns of them (D-RPT-16).
+    """
+
+    receipt_id: UUID
+    grn_number: str
+    receipt_date: date
+    purchase_order_id: UUID
+    purchase_order_number: str
+    vendor_id: UUID
+    vendor_name: str
+    warehouse_id: UUID
+    status: str
+    total_current_receipt_quantity: Decimal
+    total_accepted_quantity: Decimal
+    total_rejected_quantity: Decimal
+    total_damaged_quantity: Decimal
+    grand_total: Decimal
+
+
 class GoodsReceiptSummary(GoodsReceiptSchema):
     """Goods Receipt Summary contract."""
 
