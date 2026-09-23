@@ -2283,3 +2283,114 @@ def test_orders_not_yet_delivered_are_the_ones_still_owing_stock() -> None:
         actor_id=actor_id,
     )
     assert orders.pending_orders(firm_scope=firm.id) == []
+
+
+def test_a_back_order_is_a_live_shortfall_on_an_open_order() -> None:
+    """Judged on today's stock and the order's life, not on the day it was typed.
+
+    The report joined lines of every status and compared the reservable
+    quantity with the `available_stock` snapshot written at save, so a
+    cancelled draft for 45 against 40 on hand stayed "5 short" for ever, and a
+    receipt landing later changed nothing (D-RPT-8; WHOLE01's five rows sat on
+    CLOSED, CANCELLED, DELIVERED and DRAFT orders).
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+    _stock(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        product=product,
+        quantity=Decimal("50"),
+    )
+    orders = SalesOrderService(session)
+
+    def shortfalls() -> list[tuple[str, Decimal, Decimal, Decimal]]:
+        return [
+            (
+                row.order_number,
+                row.reserved_quantity,
+                row.available_stock,
+                row.back_order_quantity,
+            )
+            for row in orders.back_orders(firm_scope=firm.id)
+        ]
+
+    # A draft reserves nothing and is not the warehouse's problem yet.
+    orders.create_order(
+        SalesOrderCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            order_date=date(2026, 8, 3),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=product.id,
+                    quantity=Decimal("100"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    assert shortfalls() == []
+
+    # An approved order for 60 against 50 on hand: ten short.
+    order, _ = _approved_order(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+        quantity=Decimal("60"),
+        actor_id=actor_id,
+    )
+    assert shortfalls() == [
+        (order.order_number, Decimal("60.0000"), Decimal("50.0000"), Decimal("10.0000"))
+    ]
+
+    # Stock arriving closes it without anybody touching the order.
+    _stock(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        product=product,
+        quantity=Decimal("20"),
+    )
+    assert shortfalls() == []
+
+    # A second order for 40 against the 10 left once the first has taken its
+    # 60: thirty short, and the first stays whole. Cancelling it makes it
+    # nobody's shortfall, whatever the stock.
+    second, _ = _approved_order(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+        quantity=Decimal("40"),
+        actor_id=actor_id,
+    )
+    assert shortfalls() == [
+        (
+            second.order_number,
+            Decimal("40.0000"),
+            Decimal("70.0000"),
+            Decimal("30.0000"),
+        )
+    ]
+    orders.cancel_order(
+        second.id, firm_scope=firm.id, actor_id=actor_id, reason="D-RPT-8"
+    )
+    assert shortfalls() == []
