@@ -506,7 +506,17 @@ class TerritoryAssignCustomersRequest(TerritorySchema):
 
 
 class SalesmanAssignmentInput(TerritorySchema):
-    """One salesperson assignment entry for a territory node."""
+    """One salesperson assignment entry for a territory node.
+
+    **`is_primary` defaults to false, so a client that omits it demotes.**
+    Deliberate, and the opposite of the customer assignment's, which decides
+    a blank from what the shop is already on: a round may have several
+    people, and "primary" is the one a document is attributed to, so a save
+    that said nothing about it cannot be read as "promote whoever is first
+    in the list". `PUT /{id}/salesmen` replaces the list whole, so every
+    entry carries the answer or takes the default -- send the flag on every
+    entry you mean to keep primary (D-TER-16).
+    """
 
     user_id: UUID
     include_children: bool = False

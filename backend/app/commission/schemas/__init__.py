@@ -96,7 +96,15 @@ class CommissionRuleCreate(CommissionSchema):
     """
 
     salesman_id: UUID | None = None
-    percentage: Decimal = Field(ge=0, le=100, max_digits=9, decimal_places=4)
+    #: The flat rate. Defaulted to zero rather than required, because a rule
+    #: **with slabs ignores it entirely** and a per-unit rule pays
+    #: `per_unit_amount`: asking for a number that the rule will not use
+    #: invites somebody to type the ladder's top rate into it, and the one
+    #: place it is then read is a screen that shows it as the arrangement
+    #: (D-TER-16). Zero is what a ladder rule already stores.
+    percentage: Decimal = Field(
+        default=Decimal("0"), ge=0, le=100, max_digits=9, decimal_places=4
+    )
     effective_from: date
     effective_to: date | None = None
     status: CommissionRuleStatusEnum = CommissionRuleStatusEnum.ACTIVE

@@ -6143,11 +6143,12 @@ seen in a live row)* was read off the code only.
   `commission.payout.accrued` / `.updated` / `.approved` / `.paid` /
   `.cancelled`, `sales_target.created` / `.updated` / `.deleted`. The payout
   rows carry a full before and after; a rule row its whole shape **except
-  `measure`**; `customers_set` and `salesmen_set` carry only a count;
-  `sales_territory.updated` carries the code and path and nothing about the
-  route profile; `.deleted`, `.restored`, the hierarchy row and every
-  `beat_plan.*` row carry nothing at all; a target row carries only the
-  amount (D-TER-16). Query them:
+  `measure`**. Since #615 `customers_set` and `salesmen_set` carry the ids on
+  both sides plus `added` and `removed`; `.deleted` and `.restored` carry the
+  node; the hierarchy row carries the four settings and the levels; every
+  `beat_plan.*` row carries the plan; and a target row carries the whole
+  target (D-TER-16). `sales_territory.updated` still carries the code and path
+  and nothing about the route profile. Query them:
   ```sql
   select created_at, action, entity_type, entity_id, actor_id,
          before_data::jsonb - '_meta' as before, after_data::jsonb - '_meta' as after
@@ -6176,8 +6177,11 @@ seen in a live row)* was read off the code only.
   `UQ_commission_payouts_period_active` on live, un-cancelled rows.
   `UQ_sales_territories_firm_code`, `UQ_sales_beat_plans_firm_code` and
   `UQ_territory_salesman_assignments_territory_user` are **plain**, so a
-  deleted territory or plan keeps its code for ever while the service's own
-  check filters `is_deleted` — the refusal then arrives as the bare 409.
+  deleted territory or plan keeps its code for ever. The service's own check
+  filtered `is_deleted` and the refusal then arrived as the bare 409; since
+  #615 both checks look at retired rows too and name where the code went --
+  "A deleted territory holds the code RT01. Restore it, or use another code."
+  (D-TER-16).
   `UQ_sales_targets_scope_period` is plain over
   (`firm_id`, `salesman_id`, `territory_id`, `period_start`), and since
   PostgreSQL never equates two NULLs it holds nothing for any target that
@@ -6200,7 +6204,9 @@ seen in a live row)* was read off the code only.
 - **A save** rewrites the four settings (`max_levels`,
   `allow_multi_route_per_salesman`, `allow_multi_salesman_per_route`,
   `enforce_customer_leaf_assignment`) and replaces the levels; audit
-  `sales_territory.hierarchy.updated`, empty on both sides.
+  `sales_territory.hierarchy.updated`, which was empty on both sides and
+  since #615 carries the four settings and the levels by order, code and
+  display name (D-TER-16).
 - **A route type** is one `sales_route_types` row; delete is refused while a
   live route profile names it — "<n> route(s) still use this route type.
   Reassign them before deleting it."
@@ -6230,8 +6236,8 @@ seen in a live row)* was read off the code only.
   not level 1; `max_nodes_per_parent` reached.
 - **Not checked:** that `hierarchy_level_id` is one of **this firm's** levels
   (`_level` filters on the id alone), nor that `route_type_id` is this firm's
-  route type (D-TER-15). A code a **deleted** node holds passes the service and
-  is refused by `UQ_sales_territories_firm_code` as a bare 409.
+  route type (D-TER-15). A code a **deleted** node holds is refused by name
+  since #615 (D-TER-16).
 - **Check:**
   ```sql
   select t.path, t.status, t.is_deleted, l.display_name as level,
@@ -6324,9 +6330,11 @@ is either `customer_ids` (membership only) or `entries`
   deleted — "One or more customers do not belong to the active firm."; two
   entries on one stop number (422, naming the numbers); a node that is not a
   leaf when `enforce_customer_leaf_assignment` is on.
-- **Audit:** one `sales_territory.customers_set` on the **territory**, carrying
-  `customer_count` and nothing else — who joined, who left and what order they
-  are in is on no trail.
+- **Audit:** one `sales_territory.customers_set` on the **territory**. It
+  carried `customer_count` and nothing else, so who joined or left a round was
+  on no trail at all; since #615 it also carries the ids on both sides and the
+  `added` / `removed` lists (D-TER-16). The call **order** is still not
+  recorded.
 - **Check:**
   ```sql
   select t.code as round, c.code as shop, a.visit_sequence, a.is_primary,
@@ -6349,6 +6357,10 @@ is either `customer_ids` (membership only) or `entries`
   inserted or un-deleted, and `include_children` and `is_primary` are written
   from the body every time — `is_primary` defaults to **false**, so a client
   that omits it demotes (the customer list's "leave alone" has no twin here).
+  Deliberate, and said so on the schema since #615: a round may have several
+  people and "primary" is the one a document is attributed to, so a save that
+  said nothing about it cannot be read as "promote whoever is first in the
+  list" (D-TER-16).
 - **Checked through the platform store**: every `user_id` must be an active
   member of this firm (`FirmMetadataReader.active_member_count`) — "One or more
   salesmen are not active firm members." The two hierarchy settings are
@@ -6357,7 +6369,9 @@ is either `customer_ids` (membership only) or `entries`
 - **Nothing takes somebody off a round when they leave the firm.** Deleting a
   user, or ending their membership, touches no firm store, so the assignment
   stays live and goes on being derived on to new orders (§17.8, D-TER-11).
-- **Audit:** `sales_territory.salesmen_set` with `salesman_count`.
+- **Audit:** `sales_territory.salesmen_set`. It carried `salesman_count`
+  alone and since #615 also carries the ids on both sides and the `added` /
+  `removed` lists (D-TER-16).
 - **Check** (the platform join works where the firm's store is in
   `agency_platform`):
   ```sql
@@ -6388,8 +6402,9 @@ is either `customer_ids` (membership only) or `entries`
 - **The edit is a whole replace**, stops included: they are all soft-deleted
   and re-inserted from the body, so a PUT that leaves `customer_stops` out
   clears them (D-TER-7). It too loads with `include_deleted=True`.
-- **Audit:** `sales_territory.beat_plan.created` / `.updated` / `.deleted`,
-  each with **nothing on either side**.
+- **Audit:** `sales_territory.beat_plan.created` / `.updated` / `.deleted`.
+  `.updated` always carried both sides; since #615 `.created` and `.deleted`
+  carry the plan too (D-TER-16).
 - **Check:**
   ```sql
   select b.code, t.code as route, t.is_deleted as route_gone, b.plan_type, b.weekday,
@@ -6729,13 +6744,16 @@ all `COMMISSION_MANAGE`, `If-Match` optional.
   quarterly target from the 1st is refused because the monthly one starts that
   day, while a second target from the 2nd — overlapping the first entirely — is
   accepted (D-TER-2).
-- **Delete** sets `is_deleted` and nothing else: `deleted_at` and `deleted_by`
-  stay NULL *(not seen in a live row — no store holds a deleted target)*.
+- **Delete** fills `is_deleted`, `deleted_at` and `deleted_by` since #615; it
+  used to set the first alone, so the row said it had gone and neither when
+  nor at whose hand (D-TER-16).
 - **Not checked:** the salesperson or the territory, which may be anybody's or
   nobody's (D-TER-15).
-- **Audit:** `sales_target.created` (start date and amount), `.updated` and
-  `.deleted` (the amount) — a changed person, node, period or basis is on no
-  trail.
+- **Audit:** `sales_target.created`, `.updated` and `.deleted`. The first
+  carried the start date and the amount and the last the amount alone, so
+  neither said whose number it was or over what period; since #615 both carry
+  every column the update may touch, rendered the way `.updated` renders them
+  (D-TER-16).
 - **Check:**
   ```sql
   select g.status, g.salesman_id, t.code as territory, g.period_start, g.period_end,

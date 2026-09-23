@@ -935,3 +935,41 @@ def test_a_credit_on_an_unpaid_bill_takes_nothing_off_the_money_received() -> No
     books.credit(invoice, "500.00")
 
     assert books.report()[books.asha] == (Decimal("300.00"), Decimal("30.00"))
+
+
+def test_a_ladder_rule_needs_no_flat_rate() -> None:
+    """`percentage` was required on a rule that ignores it entirely.
+
+    A rule with slabs pays the ladder, so asking for a flat rate invites
+    somebody to type the ladder's top rate into a column the arrangement
+    never reads -- and the rules screen then shows it as the rate
+    (D-TER-16). It defaults to zero, which is what a ladder rule already
+    stored.
+    """
+    books = _Books(_session_factory()())
+
+    rule = CommissionService(books.session).create_rule(
+        CommissionRuleCreate(
+            salesman_id=books.asha,
+            effective_from=date(2026, 4, 1),
+            slabs=[
+                CommissionSlabWrite(
+                    from_amount=Decimal("0"),
+                    to_amount=Decimal("1000"),
+                    percentage=Decimal("2"),
+                ),
+                CommissionSlabWrite(
+                    from_amount=Decimal("1000"), percentage=Decimal("4")
+                ),
+            ],
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+
+    assert rule.percentage == Decimal("0")
+    _collect(books, "SI-1", "2000.00", books.asha)
+    # 2% of the first 1,000 and 4% of the next, which is the ladder and not
+    # the column.
+    assert _earned(books, books.asha) == Decimal("60.00")

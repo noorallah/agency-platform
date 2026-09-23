@@ -132,6 +132,41 @@ _TAX_COUNTRY_USES: tuple[
 )
 
 
+def _membership_audit(
+    *, was: set[UUID], now: set[UUID], count_key: str
+) -> tuple[dict[str, object], dict[str, object]]:
+    """Describe a replaced membership list as who joined and who left.
+
+    `PUT /{id}/customers` and `PUT /{id}/salesmen` replace the whole list, and
+    both audit rows recorded only how many were on it afterwards -- so who
+    joined or left a round was on no trail at all, which is the one question
+    anybody asks of a round three months later (D-TER-16). The ids are sorted
+    as strings so two runs of the same change produce the same row.
+
+    Args:
+        was: Who was on the round before the call.
+        now: Who is on it after.
+        count_key: What to call the tally, kept from the rows already written
+            so a reader of the old ones is not reading a different shape.
+
+    Returns:
+        The `before_data` and `after_data` the audit row carries.
+
+    """
+    return (
+        {
+            count_key: len(was),
+            "ids": sorted(str(item) for item in was),
+        },
+        {
+            count_key: len(now),
+            "ids": sorted(str(item) for item in now),
+            "added": sorted(str(item) for item in now - was),
+            "removed": sorted(str(item) for item in was - now),
+        },
+    )
+
+
 def _name_use(uses: list[str], count: int, nouns: tuple[str, str]) -> None:
     """Add "3 customer addresses" to ``uses`` when ``count`` is not zero."""
     if count:
@@ -187,6 +222,10 @@ class SalesTerritoryService:
         payload: HierarchyUpdateRequest,
     ) -> HierarchyResponse:
         config = self._ensure_hierarchy_config(firm_scope, actor_id)
+        # Taken before anything is assigned: the audit row carried nothing on
+        # either side, so the one screen that renames a firm's levels left no
+        # record of what they had been called (D-TER-16).
+        before = self._hierarchy_snapshot(config)
         config.max_levels = payload.max_levels
         config.allow_multi_route_per_salesman = payload.allow_multi_route_per_salesman
         config.allow_multi_salesman_per_route = payload.allow_multi_salesman_per_route
@@ -202,9 +241,44 @@ class SalesTerritoryService:
             entity_id=config.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+            before_data=before,
+            after_data=self._hierarchy_snapshot(config),
         )
         self._commit()
         return self.get_hierarchy(firm_scope=firm_scope, actor_id=actor_id)
+
+    def _hierarchy_snapshot(self, config: SalesHierarchyConfig) -> dict[str, object]:
+        """Describe a firm's hierarchy for the audit trail.
+
+        The levels by order, code and display name, because renaming them is
+        the commonest thing this endpoint is used for and a row saying only
+        that the hierarchy changed says nothing anybody can act on.
+
+        Args:
+            config: The firm's hierarchy configuration.
+
+        Returns:
+            The settings and the levels, JSON-safe.
+
+        """
+        return {
+            "max_levels": config.max_levels,
+            "allow_multi_route_per_salesman": config.allow_multi_route_per_salesman,
+            "allow_multi_salesman_per_route": config.allow_multi_salesman_per_route,
+            "enforce_customer_leaf_assignment": (
+                config.enforce_customer_leaf_assignment
+            ),
+            "levels": [
+                {
+                    "level_order": level.level_order,
+                    "level_code": level.level_code,
+                    "display_name": level.display_name,
+                    "is_enabled": level.is_enabled,
+                    "is_mandatory": level.is_mandatory,
+                }
+                for level in self._levels(config.id)
+            ],
+        }
 
     def list_route_types(self, *, firm_scope: UUID) -> list[RouteTypeResponse]:
         return [
@@ -1559,6 +1633,10 @@ class SalesTerritoryService:
             raise ValidationError(
                 "Cannot delete a territory that has assigned salesmen."
             )
+        # Taken before the row is retired: `.deleted` carried nothing on
+        # either side, so the trail said a node had gone and not which one
+        # (D-TER-16).
+        before = self._territory_snapshot(row)
         row.is_deleted = True
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
@@ -1570,6 +1648,7 @@ class SalesTerritoryService:
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+            before_data=before,
         )
         self._commit()
 
@@ -1590,6 +1669,8 @@ class SalesTerritoryService:
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+            before_data={"is_deleted": True},
+            after_data=self._territory_snapshot(row),
         )
         self._commit()
         return self.get_territory(row.id, firm_scope=firm_scope)
@@ -1635,6 +1716,17 @@ class SalesTerritoryService:
         # revived below is a re-save and keeps its flag and its stop; a row
         # that was already retired is a shop *rejoining*, which is decided
         # afresh (D-TER-10).
+        # Everybody on the round before this call, so the audit row can name
+        # who joined and who left. It recorded a count, which says a round
+        # changed and not how (D-TER-16).
+        live_before = set(
+            self._session.scalars(
+                select(TerritoryCustomerAssignment.customer_id).where(
+                    TerritoryCustomerAssignment.territory_id == territory.id,
+                    TerritoryCustomerAssignment.is_deleted.is_(False),
+                )
+            )
+        )
         previously_live: set[UUID] = set()
         for assignment in self._session.scalars(
             select(TerritoryCustomerAssignment).where(
@@ -1756,6 +1848,9 @@ class SalesTerritoryService:
                 row.deleted_at = utc_now()
                 row.deleted_by = actor_id
                 row.updated_by = actor_id
+        moved_before, moved_after = _membership_audit(
+            was=live_before, now=set(requested), count_key="customer_count"
+        )
         record_audit(
             self._session,
             action="sales_territory.customers_set",
@@ -1763,7 +1858,8 @@ class SalesTerritoryService:
             entity_id=territory.id,
             actor_id=actor_id,
             firm_id=firm_scope,
-            after_data={"customer_count": len(customer_ids)},
+            before_data=moved_before,
+            after_data=moved_after,
         )
         # A bulk caller commits once for the whole batch instead, so a run that
         # fails on its fifth territory does not leave the first four written.
@@ -2078,6 +2174,11 @@ class SalesTerritoryService:
                 )
             )
         }
+        # Who was on the round before this call (D-TER-16), for the same
+        # reason `set_customers` keeps it.
+        live_before = {
+            user_id for user_id, row in existing.items() if not row.is_deleted
+        }
         requested = {item.user_id: item for item in payload.assignments}
         for user_id, item in requested.items():
             row = existing.get(user_id)
@@ -2106,6 +2207,11 @@ class SalesTerritoryService:
                 row.deleted_at = utc_now()
                 row.deleted_by = actor_id
                 row.updated_by = actor_id
+        moved_before, moved_after = _membership_audit(
+            was=live_before,
+            now=set(requested_user_ids),
+            count_key="salesman_count",
+        )
         record_audit(
             self._session,
             action="sales_territory.salesmen_set",
@@ -2113,7 +2219,8 @@ class SalesTerritoryService:
             entity_id=territory.id,
             actor_id=actor_id,
             firm_id=firm_scope,
-            after_data={"salesman_count": len(requested_user_ids)},
+            before_data=moved_before,
+            after_data=moved_after,
         )
         # See `set_customers`: a bulk caller owns the transaction so the batch
         # is all-or-nothing.
@@ -2178,6 +2285,7 @@ class SalesTerritoryService:
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+            after_data=self._beat_plan_snapshot(row),
         )
         self._commit()
         return self.get_beat_plan(row.id, firm_scope=firm_scope)
@@ -2294,6 +2402,7 @@ class SalesTerritoryService:
         self, beat_plan_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> None:
         row = self._beat_plan(beat_plan_id, firm_scope)
+        before = self._beat_plan_snapshot(row)
         row.is_deleted = True
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
@@ -2305,6 +2414,7 @@ class SalesTerritoryService:
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+            before_data=before,
         )
         self._commit()
 
@@ -3846,17 +3956,46 @@ class SalesTerritoryService:
     def _assert_unique_code(
         self, firm_id: UUID, code: str, current_id: UUID | None = None
     ) -> None:
-        statement = select(SalesTerritoryNode.id).where(
+        """Refuse a code another node holds, retired ones included.
+
+        `UQ_sales_territories_firm_code` covers deleted rows and this check
+        did not, so reusing the code of a node in the bin passed the service
+        and came back as the database's bare 409 -- which names neither the
+        column nor the node holding it (D-TER-16). The refusal says where
+        the code went and what the two ways out are.
+
+        Args:
+            firm_id: The owning firm.
+            code: The code about to be written.
+            current_id: The node being edited, which may of course keep its
+                own code.
+
+        Raises:
+            ConflictError: If another node, live or retired, holds the code.
+
+        """
+        statement = select(SalesTerritoryNode).where(
             SalesTerritoryNode.firm_id == firm_id,
             SalesTerritoryNode.code == code,
-            SalesTerritoryNode.is_deleted.is_(False),
         )
         if current_id is not None:
             statement = statement.where(SalesTerritoryNode.id != current_id)
-        if self._session.scalar(statement) is not None:
-            raise ConflictError("A territory with this code already exists.")
+        clash = self._session.scalar(statement)
+        if clash is None:
+            return
+        if clash.is_deleted:
+            raise ConflictError(
+                f"A deleted territory holds the code {code}. Restore it, or "
+                "use another code."
+            )
+        raise ConflictError("A territory with this code already exists.")
 
     def _next_available_code(self, firm_id: UUID, base_code: str) -> str:
+        """Find a free code, skipping the ones retired nodes still hold.
+
+        `UQ_sales_territories_firm_code` covers deleted rows, so a code this
+        skipped would be handed out and then refused by the key.
+        """
         candidate = base_code.strip().upper()
         counter = 1
         while True:
@@ -3864,7 +4003,6 @@ class SalesTerritoryService:
                 select(SalesTerritoryNode.id).where(
                     SalesTerritoryNode.firm_id == firm_id,
                     SalesTerritoryNode.code == candidate,
-                    SalesTerritoryNode.is_deleted.is_(False),
                 )
             )
             if exists is None:
@@ -4023,15 +4161,38 @@ class SalesTerritoryService:
     def _assert_unique_beat_code(
         self, firm_id: UUID, code: str, current_id: UUID | None = None
     ) -> None:
-        statement = select(BeatPlan.id).where(
+        """Refuse a code another plan holds, retired ones included.
+
+        `UQ_sales_beat_plans_firm_code` covers deleted rows and this check
+        did not, so reusing the code of a plan in the bin passed the service
+        and came back as the database's bare 409 (D-TER-16). It is named
+        here instead, with what to do about it.
+
+        Args:
+            firm_id: The owning firm.
+            code: The code about to be written.
+            current_id: The plan being edited, which may of course keep its
+                own code.
+
+        Raises:
+            ConflictError: If another plan, live or retired, holds the code.
+
+        """
+        statement = select(BeatPlan).where(
             BeatPlan.firm_id == firm_id,
             BeatPlan.code == code,
-            BeatPlan.is_deleted.is_(False),
         )
         if current_id is not None:
             statement = statement.where(BeatPlan.id != current_id)
-        if self._session.scalar(statement) is not None:
-            raise ConflictError("A beat plan with this code already exists.")
+        clash = self._session.scalar(statement)
+        if clash is None:
+            return
+        if clash.is_deleted:
+            raise ConflictError(
+                f"A deleted beat plan holds the code {code}. Restore it, or "
+                "use another code."
+            )
+        raise ConflictError("A beat plan with this code already exists.")
 
     def _repath_descendants(
         self, node_id: UUID, old_prefix: str, new_prefix: str, actor_id: UUID
