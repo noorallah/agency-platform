@@ -4,9 +4,10 @@ from __future__ import annotations
 
 from datetime import date
 from decimal import Decimal
+from typing import Any
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import ColumnElement, Select, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.batch_serial.services import BatchSerialService
@@ -805,48 +806,71 @@ class GoodsReceiptService(TransactionalDocumentService):
             ).all()
         )
 
+    #: The states in which a receipt's goods have been taken into stock.
+    #: Closing follows completing and takes nothing back out, so a closed
+    #: receipt is as received as a completed one -- and "completed" used to
+    #: mean the status alone, so the report shrank as the firm tidied up
+    #: (D-RPT-15). `_received_quantities_for_po` counts the same pair.
+    _RECEIVED_STATUSES = (
+        GoodsReceiptStatus.COMPLETED.value,
+        GoodsReceiptStatus.CLOSED.value,
+    )
+
     def completed_receipts(self, *, firm_scope: UUID) -> list[GoodsReceipt]:
-        """Return receipts."""
+        """Return the receipts whose goods are in stock: completed, or closed after."""
         return list(
             self._session.scalars(
-                select(GoodsReceipt).where(
+                select(GoodsReceipt)
+                .where(
                     GoodsReceipt.firm_id == firm_scope,
-                    GoodsReceipt.status == GoodsReceiptStatus.COMPLETED.value,
+                    GoodsReceipt.status.in_(self._RECEIVED_STATUSES),
                     GoodsReceipt.is_deleted.is_(False),
+                )
+                .order_by(
+                    GoodsReceipt.receipt_date.desc(), GoodsReceipt.created_at.desc()
                 )
             ).all()
         )
 
+    def _received_lines_where(
+        self, firm_scope: UUID, *clauses: ColumnElement[bool]
+    ) -> Select[Any]:
+        """Lines of receipts whose goods arrived, narrowed by ``clauses``.
+
+        A DRAFT has booked nothing in and a CANCELLED receipt took its stock
+        back out, so damage or rejection on either is not something that
+        happened at the gate; both used to be listed (D-RPT-15: a receipt with
+        1 damaged and 1 rejected stayed in both reports after cancellation).
+        """
+        return (
+            select(GoodsReceiptLine)
+            .join(GoodsReceipt, GoodsReceipt.id == GoodsReceiptLine.goods_receipt_id)
+            .where(
+                GoodsReceipt.firm_id == firm_scope,
+                GoodsReceipt.status.in_(self._RECEIVED_STATUSES),
+                GoodsReceipt.is_deleted.is_(False),
+                GoodsReceiptLine.is_deleted.is_(False),
+                *clauses,
+            )
+            .order_by(GoodsReceipt.receipt_date.desc(), GoodsReceiptLine.line_number)
+        )
+
     def rejected_items(self, *, firm_scope: UUID) -> list[GoodsReceiptLine]:
-        """Return items."""
+        """Return the lines rejected on a receipt whose goods arrived."""
         return list(
             self._session.scalars(
-                select(GoodsReceiptLine)
-                .join(
-                    GoodsReceipt, GoodsReceipt.id == GoodsReceiptLine.goods_receipt_id
-                )
-                .where(
-                    GoodsReceipt.firm_id == firm_scope,
-                    GoodsReceiptLine.rejected_quantity > ZERO,
-                    GoodsReceiptLine.is_deleted.is_(False),
-                    GoodsReceipt.is_deleted.is_(False),
+                self._received_lines_where(
+                    firm_scope, GoodsReceiptLine.rejected_quantity > ZERO
                 )
             ).all()
         )
 
     def damaged_items(self, *, firm_scope: UUID) -> list[GoodsReceiptLine]:
-        """Return items."""
+        """Return the lines damaged on a receipt whose goods arrived."""
         return list(
             self._session.scalars(
-                select(GoodsReceiptLine)
-                .join(
-                    GoodsReceipt, GoodsReceipt.id == GoodsReceiptLine.goods_receipt_id
-                )
-                .where(
-                    GoodsReceipt.firm_id == firm_scope,
-                    GoodsReceiptLine.damaged_quantity > ZERO,
-                    GoodsReceiptLine.is_deleted.is_(False),
-                    GoodsReceipt.is_deleted.is_(False),
+                self._received_lines_where(
+                    firm_scope, GoodsReceiptLine.damaged_quantity > ZERO
                 )
             ).all()
         )

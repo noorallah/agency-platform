@@ -1698,3 +1698,61 @@ def test_a_closed_receipt_still_counts_as_received() -> None:
             actor_id=fixture.actor_id,
         )
     assert _order_status(session, fixture.order.id) == "RECEIVED"
+
+
+def test_the_receipt_reports_follow_the_receipts_life() -> None:
+    """Closing keeps a receipt completed; a cancelled receipt's damage did not happen.
+
+    "Receipts completed" kept COMPLETED alone, so closing -- the step after
+    completing -- removed a receipt from it: TEST01's dropped from 2 to 1.
+    "Damaged on receipt" and "Rejected on receipt" filtered the line and never
+    the receipt, so a DRAFT's damage was reported before the goods were booked
+    in and a CANCELLED receipt's stayed after its stock was taken back out
+    (GRN-TEST01-HO-2026-2027-000035; D-RPT-15).
+    """
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN9")
+    service = GoodsReceiptService(session)
+    payload = fixture.receipt_payload("4")
+    payload.lines[0].damaged_quantity = Decimal("1")
+    payload.lines[0].rejected_quantity = Decimal("1")
+
+    def seen() -> tuple[int, int, int]:
+        return (
+            len(service.completed_receipts(firm_scope=fixture.firm.id)),
+            len(service.damaged_items(firm_scope=fixture.firm.id)),
+            len(service.rejected_items(firm_scope=fixture.firm.id)),
+        )
+
+    draft = service.create_receipt(
+        payload, firm_id=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    assert seen() == (0, 0, 0), "a draft has booked nothing in"
+
+    service.complete_receipt(
+        draft.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    assert seen() == (1, 1, 1)
+
+    service.close_receipt(
+        draft.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id, reason="done"
+    )
+    assert seen() == (1, 1, 1), "closing takes nothing back out"
+
+    again = fixture.receipt_payload("2")
+    again.lines[0].damaged_quantity = Decimal("1")
+    again.lines[0].rejected_quantity = Decimal("1")
+    second = service.create_receipt(
+        again, firm_id=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    service.complete_receipt(
+        second.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    assert seen() == (2, 2, 2)
+    service.cancel_receipt(
+        second.id,
+        firm_scope=fixture.firm.id,
+        actor_id=fixture.actor_id,
+        reason="wrong delivery",
+    )
+    assert seen() == (1, 1, 1), "a cancelled receipt's damage did not happen"
