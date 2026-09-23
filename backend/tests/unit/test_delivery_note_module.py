@@ -2199,3 +2199,87 @@ def test_a_note_approved_before_the_hold_does_not_ship() -> None:
         )
         is None
     )
+
+
+def test_orders_not_yet_delivered_are_the_ones_still_owing_stock() -> None:
+    """The report follows what left the warehouse, as the order's status does.
+
+    It held DRAFT and APPROVED alone, so a PARTIALLY_DELIVERED order -- the one
+    that most literally still owed stock -- was absent, an unapproved draft was
+    in, and `pending_value` was the whole total whatever had gone (D-RPT-7:
+    SO-2026-2027-000017, 4 of 10 dispatched, missing from the report).
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+    _stock(session, firm=firm, branch=branch, warehouse=warehouse, product=product)
+    orders = SalesOrderService(session)
+
+    draft = orders.create_order(
+        SalesOrderCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            order_date=date(2026, 8, 3),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=product.id,
+                    quantity=Decimal("3"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    order, order_line = _approved_order(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+        quantity=Decimal("10"),
+        actor_id=actor_id,
+    )
+    session.refresh(order)
+    whole = order.grand_total
+
+    [row] = orders.pending_orders(firm_scope=firm.id)
+    assert row.order_id == order.id, "the draft reserves nothing and owes nothing"
+    assert (row.ordered_quantity, row.pending_quantity) == (10, 10)
+    assert row.pending_value == whole.quantize(Decimal("0.01"))
+    assert row.customer_name == customer.display_name
+    assert draft.status == SalesOrderStatus.DRAFT.value
+
+    _dispatch(
+        session,
+        firm=firm,
+        order=order,
+        order_line=order_line,
+        quantity=Decimal("4"),
+        on=date(2026, 8, 4),
+        actor_id=actor_id,
+    )
+    session.refresh(order)
+    assert order.status == SalesOrderStatus.PARTIALLY_DELIVERED.value
+    [row] = orders.pending_orders(firm_scope=firm.id)
+    assert row.status == SalesOrderStatus.PARTIALLY_DELIVERED
+    assert (row.delivered_quantity, row.pending_quantity) == (4, 6)
+    assert row.pending_value == (whole * Decimal("0.6")).quantize(Decimal("0.01"))
+
+    _dispatch(
+        session,
+        firm=firm,
+        order=order,
+        order_line=order_line,
+        quantity=Decimal("6"),
+        on=date(2026, 8, 5),
+        actor_id=actor_id,
+    )
+    assert orders.pending_orders(firm_scope=firm.id) == []

@@ -32,6 +32,7 @@ from app.customers.services.trading_status import (
     assert_customer_takes_new_documents,
 )
 from app.delivery_note.models import DeliveryNote
+from app.delivery_note.rules import delivered_by_order_line
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentTypeDefinition,
@@ -1094,29 +1095,80 @@ class SalesOrderService(TransactionalDocumentService):
         ]
 
     def pending_orders(self, *, firm_scope: UUID) -> list[SalesOrderPendingRecord]:
-        """List orders still open: draft or approved, not yet closed."""
-        rows = list(
+        """List the orders still owing stock: approved, and not yet fully out.
+
+        APPROVED and PARTIALLY_DELIVERED, with what is still to go summed from
+        the notes whose goods left -- the derivation the order's own status
+        follows. A DRAFT reserves nothing and owes nothing yet; a DELIVERED
+        order owes nothing more (D-RPT-7). Oldest delivery date first.
+        """
+        orders = list(
             self._session.scalars(
                 select(SalesOrder).where(
                     SalesOrder.firm_id == firm_scope,
                     SalesOrder.is_deleted.is_(False),
                     SalesOrder.status.in_(
-                        [SalesOrderStatus.DRAFT.value, SalesOrderStatus.APPROVED.value]
+                        [
+                            SalesOrderStatus.APPROVED.value,
+                            SalesOrderStatus.PARTIALLY_DELIVERED.value,
+                        ]
                     ),
                 )
             ).all()
         )
-        return [
-            SalesOrderPendingRecord(
-                order_id=row.id,
-                order_number=row.order_number,
-                customer_id=row.customer_id,
-                delivery_date=row.delivery_date,
-                status=SalesOrderStatus(row.status),
-                pending_value=row.grand_total,
+        if not orders:
+            return []
+        order_ids = [order.id for order in orders]
+        lines = self._session.scalars(
+            select(SalesOrderLine).where(
+                SalesOrderLine.sales_order_id.in_(order_ids),
+                SalesOrderLine.is_deleted.is_(False),
             )
-            for row in rows
+        ).all()
+        delivered = delivered_by_order_line(
+            self._session, firm_id=firm_scope, sales_order_ids=order_ids
+        )
+        names = {
+            customer.id: customer.display_name
+            for customer in self._session.scalars(
+                select(Customer).where(
+                    Customer.id.in_({order.customer_id for order in orders})
+                )
+            ).all()
+        }
+        ordered: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
+        sent: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
+        value: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
+        for line in lines:
+            line_sent = min(delivered.get(line.id, ZERO), line.reservable_quantity)
+            ordered[line.sales_order_id] += line.reservable_quantity
+            sent[line.sales_order_id] += line_sent
+            if line.reservable_quantity > ZERO:
+                share = (
+                    line.reservable_quantity - line_sent
+                ) / line.reservable_quantity
+                value[line.sales_order_id] += line.net_amount * share
+        records = [
+            SalesOrderPendingRecord(
+                order_id=order.id,
+                order_number=order.order_number,
+                customer_id=order.customer_id,
+                customer_name=names.get(order.customer_id, str(order.customer_id)),
+                delivery_date=order.delivery_date,
+                status=SalesOrderStatus(order.status),
+                is_on_hold=bool(order.is_on_hold),
+                ordered_quantity=self._q(ordered[order.id]),
+                delivered_quantity=self._q(sent[order.id]),
+                pending_quantity=self._q(ordered[order.id] - sent[order.id]),
+                pending_value=self._q(value[order.id]),
+            )
+            for order in orders
+            if ordered[order.id] - sent[order.id] > ZERO
         ]
+        records.sort(
+            key=lambda item: (item.delivery_date or date.max, item.order_number)
+        )
+        return records
 
     def back_orders(self, *, firm_scope: UUID) -> list[SalesOrderBackOrderRecord]:
         """List order lines whose requested quantity exceeds free stock."""

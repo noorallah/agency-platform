@@ -1,9 +1,14 @@
 """Rules other modules apply to a delivery note they are about to build on."""
 
-from sqlalchemy import ColumnElement, and_
+from collections.abc import Iterable
+from decimal import Decimal
+from uuid import UUID
+
+from sqlalchemy import ColumnElement, and_, func, select
+from sqlalchemy.orm import Session
 
 from app.core.exceptions import ValidationError
-from app.delivery_note.models import DeliveryNote
+from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 
 #: The states a note can be in once its goods have left. A note is completed
 #: or closed from here, so all three can mean the goods are with the customer.
@@ -26,6 +31,49 @@ def goods_have_left_clause() -> ColumnElement[bool]:
         DeliveryNote.status.in_(sorted(SHIPPED_STATES)),
         DeliveryNote.dispatched_at.is_not(None),
     )
+
+
+def delivered_by_order_line(
+    session: Session, *, firm_id: UUID, sales_order_ids: Iterable[UUID]
+) -> dict[UUID, Decimal]:
+    """Sum what has actually left the warehouse against each order line.
+
+    One grouped read for a set of orders, over the notes whose goods went out
+    (`goods_have_left_clause`), which is the derivation the order's own status
+    follows (`_resync_order_status`). The reports used to count what was
+    typed instead -- a DRAFT note's quantity in the by-warehouse total, an
+    APPROVED note as delivered in the progress report, and an order still
+    owing stock left out of "not yet delivered" because only DRAFT and
+    APPROVED were asked for (D-RPT-7, D-RPT-9).
+
+    Args:
+        session: The firm's session.
+        firm_id: The owning firm.
+        sales_order_ids: The orders whose lines to sum for.
+
+    Returns:
+        Delivered quantity per `sales_order_line_id`, for lines with any.
+
+    """
+    ids = list(sales_order_ids)
+    if not ids:
+        return {}
+    rows = session.execute(
+        select(
+            DeliveryNoteLine.sales_order_line_id,
+            func.coalesce(func.sum(DeliveryNoteLine.delivered_quantity), 0),
+        )
+        .join(DeliveryNote, DeliveryNote.id == DeliveryNoteLine.delivery_note_id)
+        .where(
+            DeliveryNoteLine.firm_id == firm_id,
+            DeliveryNote.sales_order_id.in_(ids),
+            DeliveryNoteLine.is_deleted.is_(False),
+            DeliveryNote.is_deleted.is_(False),
+            goods_have_left_clause(),
+        )
+        .group_by(DeliveryNoteLine.sales_order_line_id)
+    ).all()
+    return {line_id: Decimal(str(total)) for line_id, total in rows if line_id}
 
 
 def require_dispatched_note(note: DeliveryNote, verb: str) -> None:

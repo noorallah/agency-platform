@@ -369,13 +369,26 @@ class SalesOrderRegisterRecord(SalesOrderSchema):
 
 
 class SalesOrderPendingRecord(SalesOrderSchema):
-    """One row of the sales order pending report."""
+    """One order still owing stock to its customer.
+
+    APPROVED or PARTIALLY_DELIVERED -- an order with a reservation standing
+    and goods not yet out. The report used to hold DRAFT and APPROVED alone,
+    so the order that most literally still owed stock was absent and an
+    unapproved draft was in, and `pending_value` was the whole total whatever
+    had left (D-RPT-7). `pending_value` is now each line's worth, tax in,
+    pro-rated by what is still to go.
+    """
 
     order_id: UUID
     order_number: str
     customer_id: UUID
+    customer_name: str
     delivery_date: date | None
     status: SalesOrderStatus
+    is_on_hold: bool
+    ordered_quantity: Decimal
+    delivered_quantity: Decimal
+    pending_quantity: Decimal
     pending_value: Decimal
 
 
