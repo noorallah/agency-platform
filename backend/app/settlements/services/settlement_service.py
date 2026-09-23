@@ -269,7 +269,7 @@ class SettlementService(TransactionalDocumentService):
     # ------------------------------------------------------------------
 
     def outstanding_invoices(
-        self, *, firm_id: UUID, party_id: UUID
+        self, *, firm_id: UUID, party_id: UUID | None
     ) -> list[OutstandingInvoiceRecord]:
         """Return the party's invoices that still owe something.
 
@@ -277,6 +277,12 @@ class SettlementService(TransactionalDocumentService):
         computed here rather than stored. A paid-to-date column on the invoice
         would be a second copy of the allocations, and the copy is wrong the
         first time anything writes one without going through this service.
+
+        ``party_id`` of None answers for every party in the firm. The vendor
+        outstanding and overdue purchase-invoice reports summed ``grand_total``
+        of every non-cancelled bill and never read an allocation, so a bill
+        paid in full was owed and overdue for ever (D-RPT-2); they read this
+        now, so Record Payment and the reports cannot disagree.
 
         Totals are rounded to the two decimals money moves in. A document is
         consistent at its own four -- the seeded invoices carry totals like
@@ -317,7 +323,7 @@ class SettlementService(TransactionalDocumentService):
             .outerjoin(allocated, allocated.c.invoice_id == invoice.id)
             .where(
                 invoice.firm_id == firm_id,
-                party_column == party_id,
+                *(() if party_id is None else (party_column == party_id,)),
                 invoice.is_deleted.is_(False),
                 invoice.status.in_(SETTLEABLE_INVOICE_STATES),
             )
@@ -374,6 +380,8 @@ class SettlementService(TransactionalDocumentService):
                     invoice_total=total,
                     allocated_amount=already,
                     outstanding_amount=outstanding,
+                    party_id=row.customer_id if is_receipt else row.vendor_id,
+                    due_date=row.due_date,
                 )
             )
         return records

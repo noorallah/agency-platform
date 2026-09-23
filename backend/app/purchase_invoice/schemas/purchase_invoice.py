@@ -345,9 +345,40 @@ class PurchaseInvoiceReconciliationRecord(PurchaseInvoiceSchema):
 
 
 class PurchaseInvoiceVendorOutstandingRecord(PurchaseInvoiceSchema):
-    """One row of the purchase invoice vendor outstanding report."""
+    """One row of the purchase invoice vendor outstanding report.
+
+    ``outstanding_amount`` is what the supplier's bills still owe once every
+    posted payment, completed return and applied credit is taken off -- the
+    same derivation Record Payment offers -- and ``invoice_count`` counts only
+    the bills still owing anything. The report used to sum ``grand_total`` of
+    every non-cancelled bill and count them all, so a supplier paid in full was
+    owed the whole bill for ever (D-RPT-2).
+    """
 
     vendor_id: UUID
     vendor_name: str
     outstanding_amount: Decimal
     invoice_count: int
+
+
+class PurchaseInvoiceOverdueRecord(PurchaseInvoiceSchema):
+    """One bill past its due date and still owing something.
+
+    A flat row rather than the whole document: the desktop showed six columns
+    of it and the endpoint answered forty fields, lines, attachments and notes
+    per bill (D-RPT-16). ``outstanding_amount`` is derived as Record Payment
+    derives it, so a bill paid in full leaves the list the day it is paid, and
+    a DRAFT -- not yet a debt -- was never on it.
+    """
+
+    invoice_id: UUID
+    invoice_number: str
+    supplier_invoice_number: str | None
+    vendor_id: UUID
+    vendor_name: str
+    invoice_date: date
+    due_date: date
+    days_overdue: int
+    grand_total: Decimal
+    allocated_amount: Decimal
+    outstanding_amount: Decimal

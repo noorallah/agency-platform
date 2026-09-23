@@ -30,6 +30,7 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceCreate,
     PurchaseInvoiceImportRequest,
     PurchaseInvoiceListFilters,
+    PurchaseInvoiceOverdueRecord,
     PurchaseInvoiceReconciliationRecord,
     PurchaseInvoiceRegisterRecord,
     PurchaseInvoiceResponse,
@@ -322,19 +323,16 @@ def pending_purchase_invoices(
 
 
 @router.get(
-    "/reports/overdue", response_model=ApiResponse[list[PurchaseInvoiceResponse]]
+    "/reports/overdue",
+    response_model=ApiResponse[list[PurchaseInvoiceOverdueRecord]],
 )
 def overdue_purchase_invoices(
     scope: PurchaseInvoiceViewScope,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[PurchaseInvoiceResponse]]:
-    """List live invoices whose due date has passed, cancelled and closed excluded."""
-    service = PurchaseInvoiceService(db)
+) -> ApiResponse[list[PurchaseInvoiceOverdueRecord]]:
+    """List the bills past their due date that still owe something."""
     return ApiResponse(
-        data=[
-            service.invoice_response(item)
-            for item in service.overdue_invoices(firm_scope=scope.firm_id)
-        ]
+        data=PurchaseInvoiceService(db).overdue_report(firm_scope=scope.firm_id)
     )
 
 

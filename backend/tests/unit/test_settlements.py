@@ -44,6 +44,7 @@ from app.finance.services.general_ledger_service import GeneralLedgerService
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
 from app.purchase_invoice.models import PurchaseInvoice
+from app.purchase_invoice.services import PurchaseInvoiceService
 from app.sales_invoice.models import SalesInvoice
 from app.settlements.models import Settlement
 from app.settlements.schemas import (
@@ -1329,3 +1330,61 @@ def test_an_allocation_is_dated_by_the_day_it_met_the_bill() -> None:
         for row in service.allocations_for(settlement.id)
     }
     assert dated == {first.id: WHEN, later.id: date(2026, 5, 19)}
+
+
+def test_the_vendor_reports_read_what_a_bill_still_owes() -> None:
+    """Vendor outstanding and overdue purchase invoices follow the payment.
+
+    Both summed ``grand_total`` of every non-cancelled bill and never read an
+    allocation, so a supplier paid in full was owed the whole bill for ever and
+    a paid bill past due stayed overdue until somebody closed it; a DRAFT with a
+    past due date was overdue before it was a debt (D-RPT-2: PI-2026-2027-000013,
+    708.00, paid in full and still reported owed; WHOLE01 435,349.20 reported
+    against 421,189.20 owed).
+    """
+    books = _Books(_session_factory()())
+    session = books.session
+    overdue_bill = books.purchase_invoice("PI-1", "700.00")
+    overdue_bill.due_date = WHEN
+    current_bill = books.purchase_invoice("PI-2", "300.00")
+    current_bill.due_date = date(2099, 1, 1)
+    draft = books.purchase_invoice("PI-3", "500.00")
+    draft.status = "DRAFT"
+    draft.due_date = WHEN
+    session.commit()
+    service = PurchaseInvoiceService(session)
+
+    # Before any money moves: the two live bills owe 1,000.00 between them,
+    # the draft is not a debt, and only the bill due on WHEN is overdue.
+    [row] = service.outstanding_report(firm_scope=books.firm.id)
+    assert (row.outstanding_amount, row.invoice_count) == (Decimal("1000.00"), 2)
+    overdue = service.overdue_report(firm_scope=books.firm.id)
+    assert [item.invoice_number for item in overdue] == ["PI-1"]
+    assert overdue[0].outstanding_amount == Decimal("700.00")
+    assert overdue[0].vendor_name == books.vendor.display_name
+
+    PaymentService(session).create(
+        SettlementCreate(
+            party_id=books.vendor.id,
+            settlement_date=WHEN,
+            amount=Decimal("750.00"),
+            method=SettlementMethodEnum.BANK,
+            allocations=[
+                SettlementAllocationWrite(
+                    invoice_id=overdue_bill.id, amount=Decimal("700.00")
+                ),
+                SettlementAllocationWrite(
+                    invoice_id=current_bill.id, amount=Decimal("50.00")
+                ),
+            ],
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    session.commit()
+
+    # The paid bill is gone from both; the part-paid one owes the rest.
+    [row] = service.outstanding_report(firm_scope=books.firm.id)
+    assert (row.outstanding_amount, row.invoice_count) == (Decimal("250.00"), 1)
+    assert service.overdue_report(firm_scope=books.firm.id) == []
+    assert service.summary(firm_scope=books.firm.id).overdue_invoices == 0
