@@ -2871,3 +2871,34 @@ def test_a_bill_line_names_the_product_it_sold() -> None:
     assert line.description is None, "the premise: nothing fills this in"
     assert line.product_name == setup.product.name
     assert line.product_code == setup.product.code
+
+
+def test_the_reconciliation_counts_the_invoices_that_still_stand() -> None:
+    """A cancelled invoice billed nothing against its delivery (D-RPT-13).
+
+    The report carried each invoice line's snapshotted quantities, so the
+    `invoiced` fixture's cancelled invoice for 5 reported 5 billed beside the
+    live one, with the older `pending` stale.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=uuid4()
+    )
+    service, invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)
+
+    [row] = service.reconciliation_report(firm_scope=firm.id)
+    assert (row.invoiced_quantity, row.draft_quantity, row.pending_quantity) == (
+        Decimal("0.00"),
+        Decimal("4.00"),
+        Decimal("0.00"),
+    )
+    service.approve_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+    [row] = service.reconciliation_report(firm_scope=firm.id)
+    assert (row.invoiced_quantity, row.draft_quantity) == (
+        Decimal("4.00"),
+        Decimal("0.00"),
+    )
+
+    service.cancel_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
+    assert service.reconciliation_report(firm_scope=firm.id) == []
