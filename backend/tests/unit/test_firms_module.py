@@ -323,6 +323,29 @@ def test_a_deleted_firms_schema_is_not_handed_to_its_replacement() -> None:
         service.create(_create_payload(deployment_mode="SCHEMA"), _ACTOR)
 
 
+def test_a_retired_mapping_row_still_holds_its_store() -> None:
+    """A store is claimed until somebody drops it, and nothing here drops one.
+
+    The guard filtered `is_deleted` on the mapping while its docstring said a
+    deleted firm's store still counts (D-IDN-11). `delete` never retires the
+    mapping row, which is why the test above passes; this retires it by hand,
+    as a purge or a later change might, and the store must stay claimed.
+    """
+    session = _session()
+    service = FirmService(session)
+    firm = service.create(_create_payload(deployment_mode="SCHEMA"), _ACTOR)
+    service.delete(firm.id, _ACTOR)
+    mapping = session.scalar(
+        select(FirmStorageMapping).where(FirmStorageMapping.firm_id == firm.id)
+    )
+    assert mapping is not None
+    mapping.is_deleted = True
+    session.commit()
+
+    with pytest.raises(ConflictError, match="already uses"):
+        service.create(_create_payload(deployment_mode="SCHEMA"), _ACTOR)
+
+
 def test_update_rejects_a_stale_if_match_version() -> None:
     """An update aimed at a version the firm has moved past is a conflict."""
     session = _session()
