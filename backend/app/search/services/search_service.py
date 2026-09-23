@@ -31,6 +31,7 @@ from app.sales.models import (
     GeoLocality,
     GeoState,
     SalesTerritoryNode,
+    TerritoryRouteProfile,
 )
 from app.sales_invoice.models import SalesInvoice
 from app.sales_order.models import SalesOrder
@@ -82,6 +83,13 @@ class SearchDefinition:
     #: nothing, as the users list refuses them; a platform administrator, who
     #: acts platform-wide, still sees everyone.
     membership_scoped: bool = False
+    #: A clause of the model's own that every hit must satisfy, for two
+    #: definitions over one table that mean different things. `territories`
+    #: and `routes` are both `SalesTerritoryNode`, and with no clause between
+    #: them every node was listed twice -- WHOLE01's six nodes as twelve hits
+    #: (D-RPT-6). A route is a node with a `territory_route_profiles` row
+    #: (§17.0); a territory is one without.
+    only: Any = None
 
 
 _DEFINITIONS: tuple[SearchDefinition, ...] = (
@@ -403,6 +411,11 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
         ("name", "code", "path"),
         status_column="status",
         category="organization",
+        only=SalesTerritoryNode.id.not_in(
+            select(TerritoryRouteProfile.territory_id).where(
+                TerritoryRouteProfile.is_deleted.is_(False)
+            )
+        ),
     ),
     SearchDefinition(
         "routes",
@@ -413,9 +426,14 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
         "TERRITORY_VIEW",
         False,
         "firm_id",
-        ("name", "code"),
+        ("name", "code", "path"),
         status_column="status",
         category="organization",
+        only=SalesTerritoryNode.id.in_(
+            select(TerritoryRouteProfile.territory_id).where(
+                TerritoryRouteProfile.is_deleted.is_(False)
+            )
+        ),
     ),
     SearchDefinition(
         "branches",
@@ -783,6 +801,8 @@ class SearchService:
                 if firm_id is None
                 else or_(column == firm_id, column.is_(None))
             )
+        if definition.only is not None:
+            statement = statement.where(definition.only)
         if definition.firm_through is not None:
             related, condition = definition.firm_through
             statement = statement.join(related, condition).where(
