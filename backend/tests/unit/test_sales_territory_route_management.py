@@ -3,6 +3,7 @@
 # ruff: noqa: D103
 
 from datetime import date
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
@@ -34,6 +35,8 @@ from app.sales.schemas import (
     TerritoryUpdate,
 )
 from app.sales.schemas.territory import (
+    BeatPlanCreate,
+    BeatPlanType,
     HierarchyLevelInput,
     HierarchyUpdateRequest,
     RouteProfileInput,
@@ -42,6 +45,7 @@ from app.sales.schemas.territory import (
     VisitFrequency,
 )
 from app.sales.services import SalesTerritoryService
+from app.sales_targets.models import SalesTarget
 
 
 def _firm_scope(
@@ -724,3 +728,111 @@ def test_a_copy_refused_partway_writes_nothing(
 
     assert len(calls) == 3
     assert _count_nodes(session, firm.id) == before
+
+
+def _route_node(
+    service: SalesTerritoryService, firm_id: UUID, actor: UUID, code: str
+) -> UUID:
+    """Create one top-level node that is a round, so a plan may target it."""
+    hierarchy = service.get_hierarchy(firm_scope=firm_id, actor_id=actor)
+    created = service.create_territory(
+        TerritoryCreate(
+            code=code,
+            name=f"{code} node",
+            hierarchy_level_id=hierarchy.levels[0].id,
+            route_profile=RouteProfileInput(visit_frequency=VisitFrequency.WEEKLY),
+        ),
+        firm_scope=firm_id,
+        actor_id=actor,
+    )
+    return created.id
+
+
+def test_a_route_cannot_be_deleted_under_a_live_beat_plan() -> None:
+    """`delete_territory` looked for children, customers and salespeople only.
+
+    A round went into the bin with its plan still live, and the call list went
+    on reporting the plan as running (D-TER-14). The refusal names the plan,
+    because "cannot delete" without saying what is holding it is a dead end.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "DELPLAN")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    route = _route_node(service, firm.id, actor, "RT01")
+    service.create_beat_plan(
+        BeatPlanCreate(
+            code="BP01",
+            name="Monday round",
+            territory_id=route,
+            plan_type=BeatPlanType.WEEKLY,
+            weekday=1,
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+
+    with pytest.raises(ValidationError, match="BP01"):
+        service.delete_territory(route, firm_scope=firm.id, actor_id=actor)
+
+    session.rollback()
+    node = session.get(SalesTerritoryNode, route)
+    assert node is not None
+    assert node.is_deleted is False
+
+
+def test_a_route_cannot_be_deleted_under_a_live_sales_target() -> None:
+    """A target naming the node stayed in the achievement report (D-TER-14)."""
+    session = _session_factory()()
+    firm = _firm(session, "DELTGT")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    route = _route_node(service, firm.id, actor, "RT01")
+    session.add(
+        SalesTarget(
+            firm_id=firm.id,
+            territory_id=route,
+            period_start=date(2026, 4, 1),
+            period_end=date(2026, 4, 30),
+            target_amount=Decimal("1000"),
+            created_by=actor,
+            updated_by=actor,
+        )
+    )
+    session.commit()
+
+    with pytest.raises(ValidationError, match="2026-04-01 to 2026-04-30"):
+        service.delete_territory(route, firm_scope=firm.id, actor_id=actor)
+
+    session.rollback()
+    node = session.get(SalesTerritoryNode, route)
+    assert node is not None
+    assert node.is_deleted is False
+
+
+def test_a_territory_in_the_bin_refuses_to_be_renamed() -> None:
+    """`update_territory` loaded with ``include_deleted=True`` and then wrote.
+
+    A PUT renamed a node that was in the recycle bin and left it there, so the
+    new name reached no screen and the old one was gone (D-TER-14).
+    """
+    session = _session_factory()()
+    firm = _firm(session, "DELEDIT")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    node_id = _route_node(service, firm.id, actor, "RT01")
+    service.delete_territory(node_id, firm_scope=firm.id, actor_id=actor)
+
+    with pytest.raises(ValidationError, match="Restore it"):
+        service.update_territory(
+            node_id,
+            TerritoryUpdate(code="RT02"),
+            firm_scope=firm.id,
+            actor_id=actor,
+        )
+
+    session.rollback()
+    node = session.get(SalesTerritoryNode, node_id)
+    assert node is not None
+    assert node.code == "RT01"
+    assert node.is_deleted is True

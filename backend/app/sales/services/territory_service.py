@@ -97,6 +97,7 @@ from app.sales.schemas import (
 )
 from app.sales.schemas.territory import TerritoryStatus
 from app.sales.services.scope_resolution import route_profile_in_force
+from app.sales_targets.models import SalesTarget
 from app.tax.models import TaxCountryMapping, TaxRule, TaxSystem
 from app.vendors.models import Vendor, VendorAddress
 
@@ -1527,6 +1528,7 @@ class SalesTerritoryService:
         move may name a new parent while keeping the level, or the reverse.
         """
         row = self._territory(territory_id, firm_scope, include_deleted=True)
+        self._assert_not_retired(row, "Territory")
         assert_version(row.version, expected_version)
         values = data.model_dump(exclude_unset=True)
         code = values.get("code") or row.code
@@ -1633,6 +1635,7 @@ class SalesTerritoryService:
             raise ValidationError(
                 "Cannot delete a territory that has assigned salesmen."
             )
+        self._assert_nothing_plans_or_targets(row, firm_scope)
         # Taken before the row is retired: `.deleted` carried nothing on
         # either side, so the trail said a node had gone and not which one
         # (D-TER-16).
@@ -1651,6 +1654,83 @@ class SalesTerritoryService:
             before_data=before,
         )
         self._commit()
+
+    def _assert_nothing_plans_or_targets(
+        self, row: SalesTerritoryNode, firm_scope: UUID
+    ) -> None:
+        """Refuse to retire a node a live beat plan or sales target still names.
+
+        Both reference the node by a plain column that a soft delete never
+        reaches, so the node went into the bin and its plan went on being
+        reported as running while a target naming it stayed in the achievement
+        report (D-TER-14). The refusal names what is holding it, because
+        "cannot delete" without saying what to retire first is a dead end.
+
+        Args:
+            row: The node about to be retired.
+            firm_scope: The owning firm.
+
+        Raises:
+            ValidationError: If a live plan or target names the node.
+
+        """
+        plan_codes = list(
+            self._session.scalars(
+                select(BeatPlan.code)
+                .where(
+                    BeatPlan.territory_id == row.id,
+                    BeatPlan.is_deleted.is_(False),
+                )
+                .order_by(BeatPlan.code.asc())
+            )
+        )
+        if plan_codes:
+            raise ValidationError(
+                "Cannot delete a territory a beat plan still runs on: "
+                + ", ".join(plan_codes)
+                + ". Retire the plan first."
+            )
+        periods = [
+            f"{start.isoformat()} to {end.isoformat()}"
+            for start, end in self._session.execute(
+                select(SalesTarget.period_start, SalesTarget.period_end)
+                .where(
+                    SalesTarget.firm_id == firm_scope,
+                    SalesTarget.territory_id == row.id,
+                    SalesTarget.is_deleted.is_(False),
+                )
+                .order_by(SalesTarget.period_start.asc())
+            ).all()
+        ]
+        if periods:
+            raise ValidationError(
+                "Cannot delete a territory a sales target still names: "
+                + "; ".join(periods)
+                + ". Withdraw the target first."
+            )
+
+    @staticmethod
+    def _assert_not_retired(row: SalesTerritoryNode | BeatPlan, noun: str) -> None:
+        """Refuse to change a row that is already in the bin.
+
+        `update_territory`, `update_beat_plan`, `bulk_status_change` and
+        `bulk_move` all load with ``include_deleted=True`` so that they can
+        report a stale id honestly, and every one of them then went on to
+        write: a PUT renamed a node that was in the bin and left it there
+        (D-TER-14). Restoring is the endpoint for bringing one back.
+
+        Args:
+            row: The row about to be changed.
+            noun: What to call it in the message.
+
+        Raises:
+            ValidationError: If the row is soft-deleted.
+
+        """
+        if row.is_deleted:
+            raise ValidationError(
+                f"{noun} {row.code} is deleted. Restore it before changing it."
+            )
 
     def restore_territory(
         self, territory_id: UUID, *, firm_scope: UUID, actor_id: UUID
@@ -2356,6 +2436,7 @@ class SalesTerritoryService:
         window is checked on the merged values (D-TER-7).
         """
         row = self._beat_plan(beat_plan_id, firm_scope, include_deleted=True)
+        self._assert_not_retired(row, "Beat plan")
         assert_version(row.version, expected_version)
         values = data.model_dump(exclude_unset=True)
         code = values.get("code") or row.code
@@ -2450,7 +2531,11 @@ class SalesTerritoryService:
         for plan in plans:
             territory = self._session.scalar(
                 select(SalesTerritoryNode).where(
-                    SalesTerritoryNode.id == plan.territory_id
+                    SalesTerritoryNode.id == plan.territory_id,
+                    # A retired round calls nobody. The node was read without
+                    # this, so a route deleted from under its plan went on
+                    # being reported as running (D-TER-14).
+                    SalesTerritoryNode.is_deleted.is_(False),
                 )
             )
             if territory is None:
@@ -3110,6 +3195,7 @@ class SalesTerritoryService:
         affected = 0
         for territory_id in payload.territory_ids:
             row = self._territory(territory_id, firm_scope, include_deleted=True)
+            self._assert_not_retired(row, "Territory")
             before = row.status
             row.status = payload.status.value
             row.updated_by = actor_id
@@ -3140,6 +3226,7 @@ class SalesTerritoryService:
         affected = 0
         for territory_id in payload.territory_ids:
             row = self._territory(territory_id, firm_scope, include_deleted=True)
+            self._assert_not_retired(row, "Territory")
             if new_parent is not None and new_parent.id == row.id:
                 raise ValidationError("A territory cannot be moved under itself.")
             if new_parent is not None:

@@ -6278,16 +6278,19 @@ seen in a live row)* was read off the code only.
   is still called (D-TER-16).
 - **Delete** is soft (`is_deleted`, `deleted_at`, `deleted_by`), audit
   `sales_territory.deleted` with nothing on either side, and is refused while
-  the node has live children, customers or salespeople. **It does not look at
-  beat plans or targets**: the plans stay live and the call list goes on
-  reporting the deleted round as running, and a target on it stays in the
-  achievement report (D-TER-14). The route profile and its working days are
-  left as they are.
-- **The edit reaches a deleted node**: `update_territory` loads with
-  `include_deleted=True`, so a PUT renames a territory that is in the bin and
-  leaves it there (D-TER-14). Restore clears the three columns, audits
-  `sales_territory.restored`, and re-checks neither the code nor that the
-  parent is still live.
+  the node has live children, customers or salespeople -- **and, since #612,
+  while a live beat plan or a live sales target names it**, the refusal
+  listing the plan codes or the target periods so the caller knows what to
+  retire first (D-TER-14). The call list also skips a plan whose round is in
+  the bin, for the rows retired before the guard existed. The route profile
+  and its working days are left as they are.
+- **A node in the bin refuses to be changed.** `update_territory`,
+  `update_beat_plan`, `bulk_status_change` and `bulk_move` all load with
+  `include_deleted=True` so that they can report a stale id honestly, and
+  every one of them then wrote: a PUT renamed a territory that was in the bin
+  and left it there (D-TER-14, #612). Restore is the endpoint for bringing one
+  back; it clears the three columns, audits `sales_territory.restored`, and
+  re-checks neither the code nor that the parent is still live.
 - **Check:** §17.2's query, and the plans and targets a node still carries:
   ```sql
   select t.code, t.is_deleted,
