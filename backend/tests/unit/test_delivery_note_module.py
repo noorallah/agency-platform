@@ -835,6 +835,9 @@ def test_delivery_by_route_labels_the_route_without_crashing() -> None:
     )
     session.commit()
     assert note.route_id == profile.id
+    # Only a dispatched note has delivered anything (D-RPT-9).
+    service.approve_note(note.id, firm_scope=firm.id, actor_id=actor_id)
+    service.dispatch_note(note.id, firm_scope=firm.id, actor_id=actor_id)
 
     rows = service.by_route_report(firm_scope=firm.id)
 
@@ -2283,3 +2286,64 @@ def test_orders_not_yet_delivered_are_the_ones_still_owing_stock() -> None:
         actor_id=actor_id,
     )
     assert orders.pending_orders(firm_scope=firm.id) == []
+
+
+def test_the_delivery_reports_count_what_left_the_warehouse() -> None:
+    """A note has delivered nothing until it is dispatched.
+
+    The by-route, by-salesman and by-warehouse reports summed every
+    non-cancelled note, so a DRAFT's typed quantity raised the warehouse's
+    delivered total; the progress report counted an APPROVED note as
+    delivered, so an order whose note was approved and never dispatched read
+    4 delivered, 6 pending while nothing had moved (D-RPT-9, driven on
+    DN-TEST01-HO-2026-2027-000010).
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+    _stock(session, firm=firm, branch=branch, warehouse=warehouse, product=product)
+    order, order_line = _approved_order(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+        quantity=Decimal("10"),
+        actor_id=actor_id,
+    )
+    service = DeliveryNoteService(session)
+
+    def warehouse_row() -> tuple[int, Decimal]:
+        rows = service.by_warehouse_report(firm_scope=firm.id)
+        mine = [row for row in rows if row.dimension_id == warehouse.id]
+        if not mine:
+            return (0, Decimal("0"))
+        return (mine[0].note_count, mine[0].delivered_quantity)
+
+    def progress() -> tuple[Decimal, Decimal, str]:
+        [row] = [
+            row
+            for row in service.partially_delivered_orders(firm_scope=firm.id)
+            if row.sales_order_id == order.id
+        ]
+        return row.delivered_quantity, row.pending_quantity, row.status
+
+    note = _approved_note(
+        session,
+        firm=firm,
+        order=order,
+        order_line=order_line,
+        quantity=Decimal("4"),
+        actor_id=actor_id,
+    )
+    assert warehouse_row() == (0, Decimal("0")), "an approved note delivered nothing"
+    assert progress() == (Decimal("0"), Decimal("10"), "PENDING")
+
+    service.dispatch_note(note.id, firm_scope=firm.id, actor_id=actor_id)
+    assert warehouse_row() == (1, Decimal("4.0000"))
+    assert progress() == (Decimal("4.0000"), Decimal("6.0000"), "PARTIAL")
