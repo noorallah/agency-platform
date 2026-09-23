@@ -87,8 +87,12 @@ def _enforced_permission_codes() -> dict[str, str]:
         # `_permission_scope(` as well as `_permission(`: `firm_permission_scope`
         # is how most of this codebase enforces a code, and matching only the
         # shorter name left 138 of 157 enforced codes invisible to this guard.
-        for match in re.finditer(r'_permission(?:_scope)?\(\s*"([^"]*)"\s*\)', source):
-            used.setdefault(match.group(1), str(path))
+        # `firm_any_permission_scope("A", "B")` carries several literals.
+        for match in re.finditer(
+            r'_permission(?:_scope)?\(\s*((?:"[^"]*"\s*,?\s*)+)\)', source
+        ):
+            for code in re.findall(r'"([^"]*)"', match.group(1)):
+                used.setdefault(code, str(path))
     return used
 
 

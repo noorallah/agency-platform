@@ -18,7 +18,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    ResolvedFirmScope,
+    firm_any_permission_scope,
+    firm_permission_scope,
+)
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
@@ -60,6 +64,11 @@ class ActionReasonRequest(BaseModel):
 
 
 SalesOrderViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("SALES_VIEW")]
+#: A report opens to whoever may read the module or holds `REPORT_VIEW`
+#: (D-RPT-4).
+SalesOrderReportScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("SALES_VIEW", "REPORT_VIEW")
+]
 SalesOrderCreateScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("SALES_CREATE")
 ]
@@ -419,7 +428,7 @@ def sales_order_history(
     "/reports/register", response_model=ApiResponse[list[SalesOrderRegisterRecord]]
 )
 def sales_order_register(
-    scope: SalesOrderViewScope,
+    scope: SalesOrderReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SalesOrderRegisterRecord]]:
     """Return the sales order register report for the visible firm scope."""
@@ -432,7 +441,7 @@ def sales_order_register(
     "/reports/pending", response_model=ApiResponse[list[SalesOrderPendingRecord]]
 )
 def pending_sales_orders(
-    scope: SalesOrderViewScope,
+    scope: SalesOrderReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SalesOrderPendingRecord]]:
     """List orders still open: draft or approved, not yet closed."""
@@ -445,7 +454,7 @@ def pending_sales_orders(
     "/reports/back-orders", response_model=ApiResponse[list[SalesOrderBackOrderRecord]]
 )
 def back_order_report(
-    scope: SalesOrderViewScope,
+    scope: SalesOrderReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SalesOrderBackOrderRecord]]:
     """Return the back order report for the visible firm scope."""
@@ -456,7 +465,7 @@ def back_order_report(
     "/reports/by-customer", response_model=ApiResponse[list[SalesOrderByCustomerRecord]]
 )
 def orders_by_customer(
-    scope: SalesOrderViewScope,
+    scope: SalesOrderReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SalesOrderByCustomerRecord]]:
     """Total order value and count per customer, cancellations excluded."""
@@ -469,7 +478,7 @@ def orders_by_customer(
     "/reports/by-salesman", response_model=ApiResponse[list[SalesOrderBySalesmanRecord]]
 )
 def orders_by_salesman(
-    scope: SalesOrderViewScope,
+    scope: SalesOrderReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SalesOrderBySalesmanRecord]]:
     """Total order value and count per salesman, cancellations excluded."""
@@ -483,7 +492,7 @@ def orders_by_salesman(
     response_model=ApiResponse[list[SalesOrderByTerritoryRecord]],
 )
 def orders_by_territory(
-    scope: SalesOrderViewScope,
+    scope: SalesOrderReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SalesOrderByTerritoryRecord]]:
     """Total order value and count per territory, cancellations excluded."""

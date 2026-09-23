@@ -54,13 +54,19 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
     super.dispose();
   }
 
-  bool get _canView => widget.permissions.hasPermission('REPORT_VIEW');
+  /// `REPORT_VIEW` opens every report; a module's own view code opens that
+  /// module's (D-RPT-4).
+  bool _canRead(ReportDefinition report) =>
+      widget.permissions.hasPermission('REPORT_VIEW') ||
+      widget.permissions.hasPermission(report.permission);
+
+  bool get _canView => reportCatalog.any(_canRead);
 
   ReportArea get _area => widget.tabId == 'financial'
       ? ReportArea.financial
       : ReportArea.operational;
 
-  List<ReportDefinition> get _reports => reportsFor(_area);
+  List<ReportDefinition> get _reports => reportsFor(_area, canRead: _canRead);
 
   @override
   void initState() {
@@ -86,7 +92,7 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
 
   Future<void> _load() async {
     final ReportDefinition? report = _selected;
-    if (report == null || !widget.hasActiveFirm || !_canView) return;
+    if (report == null || !widget.hasActiveFirm || !_canRead(report)) return;
     setState(() {
       _loading = true;
       _error = null;

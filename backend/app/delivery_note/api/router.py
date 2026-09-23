@@ -18,7 +18,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    ResolvedFirmScope,
+    firm_any_permission_scope,
+    firm_permission_scope,
+)
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
@@ -59,6 +63,11 @@ class ActionReasonRequest(BaseModel):
 
 DeliveryNoteViewScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("SALES_VIEW")
+]
+#: A report opens to whoever may read the module or holds `REPORT_VIEW`
+#: (D-RPT-4).
+DeliveryNoteReportScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("SALES_VIEW", "REPORT_VIEW")
 ]
 DeliveryNoteCreateScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("SALES_CREATE")
@@ -365,7 +374,7 @@ def delivery_note_history(
     "/reports/register", response_model=ApiResponse[list[DeliveryNoteRegisterRecord]]
 )
 def delivery_note_register(
-    scope: DeliveryNoteViewScope,
+    scope: DeliveryNoteReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DeliveryNoteRegisterRecord]]:
     """Return the delivery note register report for the visible firm scope."""
@@ -376,7 +385,7 @@ def delivery_note_register(
 
 @router.get("/reports/pending", response_model=ApiResponse[list[DeliveryNoteResponse]])
 def pending_delivery_notes(
-    scope: DeliveryNoteViewScope,
+    scope: DeliveryNoteReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DeliveryNoteResponse]]:
     """List notes still open: draft or approved, not yet dispatched."""
@@ -394,7 +403,7 @@ def pending_delivery_notes(
     response_model=ApiResponse[list[DeliveryNoteOrderProgressRecord]],
 )
 def partial_delivery_report(
-    scope: DeliveryNoteViewScope,
+    scope: DeliveryNoteReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DeliveryNoteOrderProgressRecord]]:
     """Return the partial delivery report for the visible firm scope."""
@@ -409,7 +418,7 @@ def partial_delivery_report(
     "/reports/by-route", response_model=ApiResponse[list[DeliveryNoteByDimensionRecord]]
 )
 def delivery_by_route(
-    scope: DeliveryNoteViewScope,
+    scope: DeliveryNoteReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DeliveryNoteByDimensionRecord]]:
     """Total delivered value and count per route."""
@@ -423,7 +432,7 @@ def delivery_by_route(
     response_model=ApiResponse[list[DeliveryNoteByDimensionRecord]],
 )
 def delivery_by_salesman(
-    scope: DeliveryNoteViewScope,
+    scope: DeliveryNoteReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DeliveryNoteByDimensionRecord]]:
     """Total delivered value and count per salesman."""
@@ -437,7 +446,7 @@ def delivery_by_salesman(
     response_model=ApiResponse[list[DeliveryNoteByDimensionRecord]],
 )
 def delivery_by_warehouse(
-    scope: DeliveryNoteViewScope,
+    scope: DeliveryNoteReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[DeliveryNoteByDimensionRecord]]:
     """Total delivered value and count per warehouse."""

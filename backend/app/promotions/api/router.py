@@ -6,7 +6,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    ResolvedFirmScope,
+    firm_any_permission_scope,
+    firm_permission_scope,
+)
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
@@ -40,6 +44,11 @@ router = APIRouter(
 
 PromotionViewScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("PROMOTION_VIEW")
+]
+#: A report opens to whoever may read the module or holds `REPORT_VIEW`
+#: (D-RPT-4).
+PromotionReportScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("PROMOTION_VIEW", "REPORT_VIEW")
 ]
 PromotionManageScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("PROMOTION_MANAGE")
@@ -199,7 +208,7 @@ def delete_coupon(
     response_model=ApiResponse[list[PromotionPerformanceRecord]],
 )
 def promotion_performance(
-    scope: PromotionViewScope,
+    scope: PromotionReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PromotionPerformanceRecord]]:
     """Return what each offer was claimed, and what it cost."""
@@ -213,7 +222,7 @@ def promotion_performance(
     response_model=ApiResponse[list[PromotionRedemptionRecord]],
 )
 def promotion_redemptions(
-    scope: PromotionViewScope,
+    scope: PromotionReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PromotionRedemptionRecord]]:
     """Return every claim on an offer, newest first."""
@@ -227,7 +236,7 @@ def promotion_redemptions(
     response_model=ApiResponse[list[PromotionCouponPerformanceRecord]],
 )
 def promotion_coupon_performance(
-    scope: PromotionViewScope,
+    scope: PromotionReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PromotionCouponPerformanceRecord]]:
     """Return what each coupon code was claimed, and what it cost."""

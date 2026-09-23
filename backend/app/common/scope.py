@@ -23,6 +23,7 @@ from app.core.exceptions import AuthorizationError
 from app.core.security.authorization import (
     Principal,
     get_current_principal,
+    require_any_permission,
     require_permission,
 )
 from app.firms.models import Firm
@@ -184,6 +185,41 @@ def firm_permission_scope(code: str) -> object:
     # this codebase enforces were invisible to the guard written to catch an
     # unseeded one. A test can now ask the routes instead of the files.
     dependency.permission_code = code  # type: ignore[attr-defined]
+    return Depends(dependency)
+
+
+def firm_any_permission_scope(*codes: str) -> object:
+    """Compose an any-of permission check with firm-scope resolution.
+
+    `firm_permission_scope` for a route that more than one code may open. The
+    reports are the case: each is gated on its module's view code, and the
+    desktop's Reports screen on `REPORT_VIEW`, a seeded code no route enforced
+    -- so `ACCOUNTANT`, holding the `report` group and none of the module
+    codes, was offered the screen and refused every entry on it (D-RPT-4). A
+    report now opens to whoever may read the module it is about *or* holds
+    `REPORT_VIEW`, which is what that code is for.
+
+    Args:
+        codes: The permission codes of which the caller must hold at least one.
+
+    Returns:
+        A FastAPI dependency yielding the resolved firm scope.
+
+    """
+    if not codes:
+        raise ValueError("At least one permission code is required.")
+
+    def dependency(
+        _: Annotated[Principal, Depends(require_any_permission(*codes))],
+        scope: Annotated[ResolvedFirmScope, Depends(required_firm_scope)],
+    ) -> ResolvedFirmScope:
+        return scope
+
+    # Readable from the built application, as `firm_permission_scope` is:
+    # the first code is the module's own and names the route in the guards
+    # that key on one; the tuple is the whole answer.
+    dependency.permission_code = codes[0]  # type: ignore[attr-defined]
+    dependency.permission_codes = codes  # type: ignore[attr-defined]
     return Depends(dependency)
 
 

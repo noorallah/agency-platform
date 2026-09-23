@@ -11,7 +11,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    ResolvedFirmScope,
+    firm_any_permission_scope,
+    firm_permission_scope,
+)
 from app.core.concurrency import ExpectedVersion, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
@@ -37,6 +41,11 @@ router = APIRouter(
 
 CreditNoteViewScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("CREDIT_NOTE_VIEW")
+]
+#: A report opens to whoever may read the module or holds `REPORT_VIEW`
+#: (D-RPT-4).
+CreditNoteReportScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("CREDIT_NOTE_VIEW", "REPORT_VIEW")
 ]
 CreditNoteManageScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("CREDIT_NOTE_MANAGE")
@@ -98,7 +107,7 @@ def create_credit_note(
     response_model=ApiResponse[list[CreditNoteRegisterRecord]],
 )
 def credit_note_register(
-    scope: CreditNoteViewScope,
+    scope: CreditNoteReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[CreditNoteRegisterRecord]]:
     """Every credit note raised, with the invoice it credits."""
@@ -112,7 +121,7 @@ def credit_note_register(
     response_model=ApiResponse[list[CreditNoteByCustomerRecord]],
 )
 def credit_notes_by_customer(
-    scope: CreditNoteViewScope,
+    scope: CreditNoteReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[CreditNoteByCustomerRecord]]:
     """Credited value and count per customer, cancelled notes excluded."""
@@ -126,7 +135,7 @@ def credit_notes_by_customer(
     response_model=ApiResponse[list[CreditNoteByReasonRecord]],
 )
 def credit_notes_by_reason(
-    scope: CreditNoteViewScope,
+    scope: CreditNoteReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[CreditNoteByReasonRecord]]:
     """Report what the firm is crediting for, and how much of it."""

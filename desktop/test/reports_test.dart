@@ -74,6 +74,7 @@ void main() {
       description: 'what it answers',
       path: '/api/v1/x',
       area: ReportArea.operational,
+      permission: 'REPORT_VIEW',
     );
 
     test('identifiers are left out', () {
@@ -86,8 +87,7 @@ void main() {
     });
 
     test('a column is named in words', () {
-      final List<ReportColumn> columns =
-          columnsFor(plain, [
+      final List<ReportColumn> columns = columnsFor(plain, [
         {'grand_total': '10.00'}
       ]);
       expect(columns.single.label, 'Grand total');
@@ -111,9 +111,14 @@ void main() {
         description: 'what it answers',
         path: '/api/v1/x',
         area: ReportArea.operational,
+        permission: 'REPORT_VIEW',
         columns: [ReportColumn(key: 'invoice_id', label: 'Reference')],
       );
-      expect(columnsFor(named, [{'invoice_id': 'abc'}]).single.label, 'Reference');
+      expect(
+          columnsFor(named, [
+            {'invoice_id': 'abc'}
+          ]).single.label,
+          'Reference');
     });
 
     test('a nested value is not a cell', () {
@@ -180,7 +185,8 @@ void main() {
       ]);
       await _pump(tester, api);
 
-      expect(api.requested.single, reportsFor(ReportArea.operational).first.path);
+      expect(
+          api.requested.single, reportsFor(ReportArea.operational).first.path);
       expect(find.text('SI-1'), findsOneWidget);
       expect(find.text('1 row(s)'), findsOneWidget);
     });
@@ -257,8 +263,41 @@ void main() {
       expect(find.text('value 0.13'), findsOneWidget);
     });
 
-    testWidgets('without REPORT_VIEW there is nothing to show', (tester) async {
-      await _pump(tester, _ReportApi(), perms: const ['SALES_VIEW']);
+    testWidgets('a module code alone opens its own reports and no other',
+        (tester) async {
+      // The screen used to be offered on REPORT_VIEW alone while every route
+      // took its module's code, so an accountant holding REPORT_VIEW was
+      // refused every entry and a sales manager without it saw no screen
+      // (D-RPT-4). Now either opens a report, and the picker lists only what
+      // the caller can read -- asserted on what the workspace asks the server
+      // for, because the picker is a lazy list.
+      bool purchaseOnly(ReportDefinition r) => r.permission == 'PURCHASE_VIEW';
+      final List<ReportDefinition> purchase =
+          reportsFor(ReportArea.operational, canRead: purchaseOnly);
+      expect(purchase, isNotEmpty);
+      expect(purchase.every(purchaseOnly), isTrue);
+      expect(
+          purchase.length, lessThan(reportsFor(ReportArea.operational).length));
+
+      final _ReportApi api = _ReportApi();
+      await _pump(tester, api, perms: const ['PURCHASE_VIEW']);
+      expect(api.requested.single, purchase.first.path);
+      // Once in the picker and once as the open report's title.
+      expect(find.text(purchase.first.label), findsNWidgets(2));
+      expect(find.text('Sales order register'), findsNothing);
+    });
+
+    testWidgets('REPORT_VIEW alone opens every report', (tester) async {
+      final _ReportApi api = _ReportApi();
+      await _pump(tester, api, perms: const ['REPORT_VIEW']);
+      expect(
+          api.requested.single, reportsFor(ReportArea.operational).first.path);
+      expect(find.text('Sales order register'), findsOneWidget);
+    });
+
+    testWidgets('with no report-backing code there is nothing to show',
+        (tester) async {
+      await _pump(tester, _ReportApi(), perms: const ['CUSTOMER_VIEW']);
       expect(find.textContaining('do not have permission'), findsOneWidget);
     });
   });

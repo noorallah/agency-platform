@@ -18,7 +18,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    ResolvedFirmScope,
+    firm_any_permission_scope,
+    firm_permission_scope,
+)
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
@@ -55,6 +59,11 @@ class ActionReasonRequest(BaseModel):
 
 GoodsReceiptViewScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("PURCHASE_VIEW")
+]
+#: A report opens to whoever may read the module or holds `REPORT_VIEW`
+#: (D-RPT-4).
+GoodsReceiptReportScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("PURCHASE_VIEW", "REPORT_VIEW")
 ]
 GoodsReceiptCreateScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("PURCHASE_CREATE")
@@ -302,7 +311,7 @@ def goods_receipt_history(
 
 @router.get("/reports/pending", response_model=ApiResponse[list[GoodsReceiptResponse]])
 def pending_goods_receipts(
-    scope: GoodsReceiptViewScope,
+    scope: GoodsReceiptReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GoodsReceiptResponse]]:
     """Return goods receipts."""
@@ -319,7 +328,7 @@ def pending_goods_receipts(
     "/reports/completed", response_model=ApiResponse[list[GoodsReceiptResponse]]
 )
 def completed_goods_receipts(
-    scope: GoodsReceiptViewScope,
+    scope: GoodsReceiptReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GoodsReceiptResponse]]:
     """Return goods receipts."""
@@ -336,7 +345,7 @@ def completed_goods_receipts(
     "/reports/rejected", response_model=ApiResponse[list[GoodsReceiptLineResponse]]
 )
 def rejected_goods_receipt_items(
-    scope: GoodsReceiptViewScope,
+    scope: GoodsReceiptReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GoodsReceiptLineResponse]]:
     """Return goods receipt items."""
@@ -351,7 +360,7 @@ def rejected_goods_receipt_items(
     "/reports/damaged", response_model=ApiResponse[list[GoodsReceiptLineResponse]]
 )
 def damaged_goods_receipt_items(
-    scope: GoodsReceiptViewScope,
+    scope: GoodsReceiptReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GoodsReceiptLineResponse]]:
     """Return goods receipt items."""
@@ -367,7 +376,7 @@ def damaged_goods_receipt_items(
     response_model=ApiResponse[list[GoodsReceiptPurchaseOrderReport]],
 )
 def partial_purchase_orders(
-    scope: GoodsReceiptViewScope,
+    scope: GoodsReceiptReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GoodsReceiptPurchaseOrderReport]]:
     """Partial purchase orders."""

@@ -955,7 +955,20 @@ abstract final class ModuleCatalog {
       icon: Icons.bar_chart_outlined,
       description: 'Reporting workspace.',
       workspaceTemplate: WorkspaceTemplateType.report,
-      requiredPermissions: ['REPORT_VIEW'],
+      // A report opens to whoever may read the module it is about, or holds
+      // `REPORT_VIEW`; the screen was offered on the latter alone and every
+      // entry then answered 403 to an accountant (D-RPT-4). Which entries
+      // the picker shows is `reportsFor`, per entry.
+      requiredPermissions: [
+        'REPORT_VIEW',
+        'SALES_VIEW',
+        'PURCHASE_VIEW',
+        'CREDIT_NOTE_VIEW',
+        'PROFORMA_VIEW',
+        'LOYALTY_VIEW',
+        'PROMOTION_VIEW',
+      ],
+      requiresAnyPermission: true,
       tabs: [
         ModuleTabDefinition(id: 'operational', label: 'Operational Reports'),
         ModuleTabDefinition(id: 'financial', label: 'Financial Reports'),

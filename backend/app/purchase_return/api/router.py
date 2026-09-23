@@ -18,7 +18,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    ResolvedFirmScope,
+    firm_any_permission_scope,
+    firm_permission_scope,
+)
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
@@ -55,6 +59,11 @@ class ActionReasonRequest(BaseModel):
 
 PurchaseReturnViewScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("PURCHASE_VIEW")
+]
+#: A report opens to whoever may read the module or holds `REPORT_VIEW`
+#: (D-RPT-4).
+PurchaseReturnReportScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("PURCHASE_VIEW", "REPORT_VIEW")
 ]
 PurchaseReturnCreateScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("PURCHASE_CREATE")
@@ -315,7 +324,7 @@ def purchase_return_history(
     "/reports/register", response_model=ApiResponse[list[PurchaseReturnRegisterRecord]]
 )
 def purchase_return_register(
-    scope: PurchaseReturnViewScope,
+    scope: PurchaseReturnReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseReturnRegisterRecord]]:
     """Return the purchase return register report for the visible firm scope."""
@@ -329,7 +338,7 @@ def purchase_return_register(
     response_model=ApiResponse[list[PurchaseReturnByVendorRecord]],
 )
 def returns_by_vendor(
-    scope: PurchaseReturnViewScope,
+    scope: PurchaseReturnReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseReturnByVendorRecord]]:
     """Total returned value and count per vendor."""
@@ -343,7 +352,7 @@ def returns_by_vendor(
     response_model=ApiResponse[list[PurchaseReturnByProductRecord]],
 )
 def returns_by_product(
-    scope: PurchaseReturnViewScope,
+    scope: PurchaseReturnReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseReturnByProductRecord]]:
     """Total returned quantity and value per product."""
@@ -357,7 +366,7 @@ def returns_by_product(
     response_model=ApiResponse[list[PurchaseReturnReconciliationRecord]],
 )
 def purchase_return_reconciliation(
-    scope: PurchaseReturnViewScope,
+    scope: PurchaseReturnReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseReturnReconciliationRecord]]:
     """Return lines set against the receipts they came from."""
@@ -371,7 +380,7 @@ def purchase_return_reconciliation(
     response_model=ApiResponse[list[PurchaseReturnReconciliationRecord]],
 )
 def damaged_goods_report(
-    scope: PurchaseReturnViewScope,
+    scope: PurchaseReturnReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseReturnReconciliationRecord]]:
     """Lines returned because the goods were damaged."""
@@ -387,7 +396,7 @@ def damaged_goods_report(
     response_model=ApiResponse[list[PurchaseReturnReconciliationRecord]],
 )
 def expired_goods_report(
-    scope: PurchaseReturnViewScope,
+    scope: PurchaseReturnReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseReturnReconciliationRecord]]:
     """Lines returned because the stock was past its date."""

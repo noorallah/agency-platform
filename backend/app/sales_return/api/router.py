@@ -10,7 +10,11 @@ from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.batch_serial.schemas import ReturnableSerials
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    ResolvedFirmScope,
+    firm_any_permission_scope,
+    firm_permission_scope,
+)
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
@@ -56,6 +60,11 @@ class ActionReasonRequest(BaseModel):
 # for exactly this document. Raising a return is the act it names, so it gates
 # creation while the ordinary sales codes gate the rest.
 SalesReturnViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("SALES_VIEW")]
+#: A report opens to whoever may read the module or holds `REPORT_VIEW`
+#: (D-RPT-4).
+SalesReturnReportScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("SALES_VIEW", "REPORT_VIEW")
+]
 SalesReturnCreateScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("SALES_RETURN")
 ]
@@ -166,7 +175,7 @@ def get_sales_return_summary(
     response_model=ApiResponse[list[SalesReturnRegisterRecord]],
 )
 def sales_return_register(
-    scope: SalesReturnViewScope,
+    scope: SalesReturnReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SalesReturnRegisterRecord]]:
     """Every sales return raised, with what it was worth."""
@@ -180,7 +189,7 @@ def sales_return_register(
     response_model=ApiResponse[list[SalesReturnByCustomerRecord]],
 )
 def sales_returns_by_customer(
-    scope: SalesReturnViewScope,
+    scope: SalesReturnReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SalesReturnByCustomerRecord]]:
     """Total returned value and count per customer."""
@@ -194,7 +203,7 @@ def sales_returns_by_customer(
     response_model=ApiResponse[list[SalesReturnByProductRecord]],
 )
 def sales_returns_by_product(
-    scope: SalesReturnViewScope,
+    scope: SalesReturnReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SalesReturnByProductRecord]]:
     """Total returned quantity and value per product."""
@@ -208,7 +217,7 @@ def sales_returns_by_product(
     response_model=ApiResponse[list[SalesReturnReconciliationRecord]],
 )
 def sales_return_reconciliation(
-    scope: SalesReturnViewScope,
+    scope: SalesReturnReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[SalesReturnReconciliationRecord]]:
     """Return lines set against the documents they were dispatched on."""
