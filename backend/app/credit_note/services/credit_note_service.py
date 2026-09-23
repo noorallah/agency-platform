@@ -825,13 +825,19 @@ class CreditNoteService(TransactionalDocumentService):
         ]
 
     def _live_notes(self, firm_scope: UUID) -> list[CreditNote]:
-        """Every note that still stands, cancelled ones left out."""
+        """Every note that was actually given: APPROVED, and nothing else.
+
+        Only approval posts the journal and moves the customer's balance; a
+        DRAFT has given the customer nothing and a CANCELLED one gave nothing
+        that stands. Cancelled alone used to be left out, so the by-customer
+        and by-reason reports summed drafts as credited (D-RPT-10).
+        """
         return list(
             self._session.scalars(
                 select(CreditNote).where(
                     CreditNote.firm_id == firm_scope,
                     CreditNote.is_deleted.is_(False),
-                    CreditNote.status != CreditNoteStatus.CANCELLED.value,
+                    CreditNote.status == CreditNoteStatus.APPROVED.value,
                 )
             ).all()
         )

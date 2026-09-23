@@ -33,6 +33,7 @@ from app.sales_invoice.schemas import (
     SalesInvoiceCustomerOutstandingRecord,
     SalesInvoiceImportRequest,
     SalesInvoiceListFilters,
+    SalesInvoiceOverdueRecord,
     SalesInvoiceReconciliationRecord,
     SalesInvoiceRegisterRecord,
     SalesInvoiceResponse,
@@ -333,17 +334,17 @@ def get_pending_invoices(
 
 @router.get(
     "/reports/overdue",
-    response_model=ApiResponse[list[SalesInvoiceResponse]],
+    response_model=ApiResponse[list[SalesInvoiceOverdueRecord]],
     status_code=status.HTTP_200_OK,
 )
 def get_overdue_invoices(
     scope: SalesInvoiceReportScope,
     db: Annotated[Session, Depends(get_db)],
-) -> ApiResponse[list[SalesInvoiceResponse]]:
-    """Get overdue sales invoices."""
-    service = SalesInvoiceService(db)
-    rows = service.overdue_invoices(firm_scope=scope.firm_id)
-    return ApiResponse(data=[service.invoice_response(row) for row in rows])
+) -> ApiResponse[list[SalesInvoiceOverdueRecord]]:
+    """List the invoices past their due date that still owe something."""
+    return ApiResponse(
+        data=SalesInvoiceService(db).overdue_report(firm_scope=scope.firm_id)
+    )
 
 
 @router.get(

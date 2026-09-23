@@ -149,7 +149,12 @@ class ProformaOutstandingRecord(ProformaSchema):
 
     Superseded ones are left out: a revision replaced them, and a buyer
     holding two figures for one order is the confusion the `supersedes_id`
-    chain exists to prevent.
+    chain exists to prevent. So are the ones whose job is done: nothing ever
+    moves a proforma after issue, so "still arranging payment" is read off
+    the order -- money received against it (`received_amount`, from posted
+    receipts naming the order) and whether a tax invoice has since been
+    raised for it. The list used to hold every issued proforma ever, paid and
+    billed ones included (D-RPT-11: 16 of WHOLE01's 18 on delivered orders).
 
     `days_to_expiry` goes negative once the stated prices have run out --
     reported rather than filtered away, because a figure somebody is still
@@ -164,4 +169,7 @@ class ProformaOutstandingRecord(ProformaSchema):
     customer_id: UUID
     customer_name: str
     sales_order_number: str
+    sales_order_status: str
     grand_total: Decimal
+    received_amount: Decimal
+    balance_due: Decimal

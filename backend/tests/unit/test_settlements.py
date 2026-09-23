@@ -46,6 +46,7 @@ from app.firms.models import Firm
 from app.purchase_invoice.models import PurchaseInvoice
 from app.purchase_invoice.services import PurchaseInvoiceService
 from app.sales_invoice.models import SalesInvoice
+from app.sales_invoice.services import SalesInvoiceService
 from app.settlements.models import Settlement
 from app.settlements.schemas import (
     SettlementAllocationWrite,
@@ -1388,3 +1389,53 @@ def test_the_vendor_reports_read_what_a_bill_still_owes() -> None:
     assert (row.outstanding_amount, row.invoice_count) == (Decimal("250.00"), 1)
     assert service.overdue_report(firm_scope=books.firm.id) == []
     assert service.summary(firm_scope=books.firm.id).overdue_invoices == 0
+
+
+def test_the_customer_reports_read_what_a_bill_still_owes() -> None:
+    """Overdue sales invoices and customer outstanding follow the receipt.
+
+    Overdue tested status and due date alone, and a collected invoice stays
+    APPROVED, so a bill paid in full past due was overdue for ever and a DRAFT
+    with a due date was listed although it never posted; customer outstanding
+    counted every APPROVED invoice beside a balance that excluded the settled
+    ones (D-RPT-3: SI-2026-2027-000014 collected in full by RC-2026-2027-000004
+    and still overdue; 5 of WHOLE01's 23).
+    """
+    books = _Books(_session_factory()())
+    session = books.session
+    overdue_bill = books.sales_invoice("SI-1", "700.00")
+    overdue_bill.due_date = WHEN
+    current_bill = books.sales_invoice("SI-2", "300.00")
+    current_bill.due_date = date(2099, 1, 1)
+    draft = books.sales_invoice("SI-3", "500.00")
+    draft.status = "DRAFT"
+    draft.due_date = WHEN
+    session.commit()
+    books.owe_us("1000.00")
+    service = SalesInvoiceService(session)
+
+    overdue = service.overdue_report(firm_scope=books.firm.id)
+    assert [item.invoice_number for item in overdue] == ["SI-1"]
+    assert overdue[0].outstanding_amount == Decimal("700.00")
+    assert overdue[0].customer_name == books.customer.display_name
+    [row] = service.outstanding_report(firm_scope=books.firm.id)
+    assert (row.outstanding_amount, row.invoice_count) == (Decimal("1000.00"), 2)
+
+    _receipt(
+        books,
+        "750.00",
+        [
+            SettlementAllocationWrite(
+                invoice_id=overdue_bill.id, amount=Decimal("700.00")
+            ),
+            SettlementAllocationWrite(
+                invoice_id=current_bill.id, amount=Decimal("50.00")
+            ),
+        ],
+    )
+    session.commit()
+
+    assert service.overdue_report(firm_scope=books.firm.id) == []
+    assert service.summary(firm_scope=books.firm.id).overdue_invoices == 0
+    [row] = service.outstanding_report(firm_scope=books.firm.id)
+    assert (row.outstanding_amount, row.invoice_count) == (Decimal("250.00"), 1)

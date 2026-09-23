@@ -1262,3 +1262,38 @@ def test_a_return_raised_on_the_bill_reverses_its_tax_too() -> None:
         ("CGST", Decimal("9.0000")),
         ("SGST", Decimal("9.0000")),
     ]
+
+
+def test_a_return_not_yet_completed_has_returned_nothing() -> None:
+    """Only completing brings the goods back, so only completed returns count.
+
+    `_SPENT_STATUSES` is CANCELLED alone -- rightly, for the claim a draft
+    holds on the source line -- and the three reports read it, so a DRAFT
+    return was reported as returned and its `restock_quantity` as back on the
+    shelf while the goods were still with the customer (SR-2026-2027-000001,
+    DRAFT: 2 returned, 2 restocked; D-RPT-10).
+    """
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    service = SalesReturnService(session)
+    row = service.create_return(
+        setup.payload(quantity=Decimal("2")),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+
+    assert service.by_customer_report(firm_scope=setup.firm.id) == []
+    assert service.by_product_report(firm_scope=setup.firm.id) == []
+    assert service.reconciliation_report(firm_scope=setup.firm.id) == []
+    # It still holds its claim on the dispatched line, so a second return of
+    # the same goods is refused -- that is the claim, not the report.
+    assert len(service.register_report(firm_scope=setup.firm.id)) == 1
+
+    service.approve_return(row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id)
+    assert service.by_product_report(firm_scope=setup.firm.id) == []
+
+    service.complete_return(row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id)
+    [product] = service.by_product_report(firm_scope=setup.firm.id)
+    assert product.return_quantity == Decimal("2.0000")
+    assert service.by_customer_report(firm_scope=setup.firm.id)[0].return_count == 1
+    assert len(service.reconciliation_report(firm_scope=setup.firm.id)) == 1

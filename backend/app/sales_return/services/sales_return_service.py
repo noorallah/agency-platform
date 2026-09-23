@@ -112,6 +112,16 @@ SourceLine = DeliveryNoteLine | SalesInvoiceLine
 #: Statuses that no longer hold a claim on the source document's quantity.
 _SPENT_STATUSES = (SalesReturnStatus.CANCELLED.value,)
 
+#: Statuses in which the goods have actually come back: only completing a
+#: return moves stock and posts (§11.16), and closing follows completing. A
+#: DRAFT or APPROVED return still holds its claim on the source line -- which
+#: is what `_SPENT_STATUSES` is for -- but has returned nothing yet, and the
+#: reports used to count it as returned and restocked (D-RPT-10).
+_RETURNED_STATUSES = (
+    SalesReturnStatus.COMPLETED.value,
+    SalesReturnStatus.CLOSED.value,
+)
+
 
 def _optional_uuid(value: object) -> UUID | None:
     """Read a UUID out of an untyped line spec."""
@@ -2160,13 +2170,13 @@ class SalesReturnService(TransactionalDocumentService):
     def by_customer_report(
         self, *, firm_scope: UUID
     ) -> list[SalesReturnByCustomerRecord]:
-        """Total returned value and count per customer."""
+        """Total returned value and count per customer, completed returns only."""
         rows = list(
             self._session.scalars(
                 select(SalesReturn).where(
                     SalesReturn.firm_id == firm_scope,
                     SalesReturn.is_deleted.is_(False),
-                    SalesReturn.status.not_in(_SPENT_STATUSES),
+                    SalesReturn.status.in_(_RETURNED_STATUSES),
                 )
             ).all()
         )
@@ -2281,10 +2291,13 @@ class SalesReturnService(TransactionalDocumentService):
     def _report_lines(
         self, *, firm_scope: UUID
     ) -> list[tuple[SalesReturnLine, SalesReturn]]:
-        """Every live return line in scope, with the return it belongs to.
+        """Every completed return line in scope, with the return it belongs to.
 
-        Cancelled returns are left out: a cancelled return did not happen, and
-        counting its lines overstates every line report against the header ones.
+        Only a completed return has brought goods back, so only those lines are
+        reported as returned and restocked; a draft's `restock_quantity` is
+        stock still with the customer (D-RPT-10). Cancelled ones did not happen
+        at all, and counting their lines overstated every line report against
+        the header ones.
         """
         return [
             (line, header)
@@ -2294,7 +2307,7 @@ class SalesReturnService(TransactionalDocumentService):
                 .where(
                     SalesReturn.firm_id == firm_scope,
                     SalesReturn.is_deleted.is_(False),
-                    SalesReturn.status.not_in(_SPENT_STATUSES),
+                    SalesReturn.status.in_(_RETURNED_STATUSES),
                     SalesReturnLine.is_deleted.is_(False),
                 )
             ).all()

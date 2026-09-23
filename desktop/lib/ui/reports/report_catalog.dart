@@ -407,14 +407,18 @@ const List<ReportDefinition> reportCatalog = [
     path: '/api/v1/sales-invoices/reports/overdue',
     permission: 'SALES_VIEW',
     area: ReportArea.financial,
-    // The endpoint answers with whole documents, so the columns are
-    // named rather than derived from forty fields of one record.
+    // A flat row since D-RPT-3: the bill, whose it is, how late, and what it
+    // still owes once receipts, points, returns and credits are taken off.
     columns: [
       ReportColumn(key: 'invoice_number', label: 'Invoice number'),
+      ReportColumn(key: 'customer_name', label: 'Customer'),
       ReportColumn(key: 'invoice_date', label: 'Invoice date'),
       ReportColumn(key: 'due_date', label: 'Due date'),
-      ReportColumn(key: 'status', label: 'Status'),
+      ReportColumn(key: 'days_overdue', label: 'Days overdue', numeric: true),
       ReportColumn(key: 'grand_total', label: 'Grand total', numeric: true),
+      ReportColumn(key: 'settled_amount', label: 'Settled', numeric: true),
+      ReportColumn(
+          key: 'outstanding_amount', label: 'Still owed', numeric: true),
     ],
   ),
   ReportDefinition(

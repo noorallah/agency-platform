@@ -351,3 +351,11 @@ class QuotationConversionRecord(QuotationSchema):
     converted_count: int
     converted_value: Decimal
     declined_count: int
+    #: Offers whose prices lapsed before anyone answered -- past `valid_until`
+    #: and neither converted, declined nor cancelled. Expiry is a date rather
+    #: than a status, so it is counted here as the summary tile counts it;
+    #: the report used to call every such offer "quoted" and nothing else,
+    #: and "how many lapsed" could not be answered (D-RPT-12).
+    expired_count: int
+    #: Still open: quoted, not yet won, lost or lapsed.
+    open_count: int

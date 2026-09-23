@@ -188,6 +188,15 @@ class _Books:
         self.session.commit()
         return row
 
+    def approved(self, taxable: str = "100", **kwargs: object) -> CreditNote:
+        """Raise and approve one credit note, so the customer actually holds it."""
+        row = self.note(taxable, **kwargs)  # type: ignore[arg-type]
+        CreditNoteService(self.session).approve_note(
+            row.id, firm_scope=self.firm.id, actor_id=self.actor_id
+        )
+        self.session.commit()
+        return row
+
     def account(self, purpose: ControlAccountPurpose) -> UUID:
         """Resolve one of the firm's control accounts."""
         from app.finance.models import FirmControlAccount
@@ -603,8 +612,8 @@ def test_by_customer_leaves_out_a_cancelled_note() -> None:
     """
     books = _Books(_session_factory()())
     service = CreditNoteService(books.session)
-    kept = books.note(taxable="100")
-    dropped = books.note(taxable="250")
+    kept = books.approved(taxable="100")
+    dropped = books.approved(taxable="250")
     service.cancel_note(dropped.id, firm_scope=books.firm.id, actor_id=books.actor_id)
 
     by_customer = service.by_customer_report(firm_scope=books.firm.id)
@@ -624,12 +633,35 @@ def test_by_reason_groups_what_the_credit_was_for() -> None:
     problems, fixed by different people.
     """
     books = _Books(_session_factory()())
-    books.note(taxable="100", reason=CreditNoteReasonEnum.RATE_DIFFERENCE)
-    books.note(taxable="40", reason=CreditNoteReasonEnum.RATE_DIFFERENCE)
-    books.note(taxable="30", reason=CreditNoteReasonEnum.POST_SALE_DISCOUNT)
+    books.approved(taxable="100", reason=CreditNoteReasonEnum.RATE_DIFFERENCE)
+    books.approved(taxable="40", reason=CreditNoteReasonEnum.RATE_DIFFERENCE)
+    books.approved(taxable="30", reason=CreditNoteReasonEnum.POST_SALE_DISCOUNT)
 
     rows = CreditNoteService(books.session).by_reason_report(firm_scope=books.firm.id)
 
     counts = {row.reason: row.note_count for row in rows}
     assert counts[CreditNoteReasonEnum.RATE_DIFFERENCE] == 2
     assert counts[CreditNoteReasonEnum.POST_SALE_DISCOUNT] == 1
+
+
+def test_a_draft_credit_is_not_yet_given() -> None:
+    """Only approval posts and moves the balance, so only approval counts.
+
+    Cancelled alone was left out of `_live_notes`, so the by-customer and
+    by-reason reports summed a draft as credited -- CN-2026-2027-000001, DRAFT,
+    reported 118.00 given to the customer (D-RPT-10).
+    """
+    books = _Books(_session_factory()())
+    service = CreditNoteService(books.session)
+    draft = books.note(taxable="100")
+
+    assert service.by_customer_report(firm_scope=books.firm.id) == []
+    assert service.by_reason_report(firm_scope=books.firm.id) == []
+    # The register lists everything, drafts included: it is the document list.
+    assert len(service.register_report(firm_scope=books.firm.id)) == 1
+
+    service.approve_note(draft.id, firm_scope=books.firm.id, actor_id=books.actor_id)
+    [row] = service.by_customer_report(firm_scope=books.firm.id)
+    assert (row.note_count, row.taxable_amount) == (1, Decimal("100.00"))
+    [reason] = service.by_reason_report(firm_scope=books.firm.id)
+    assert reason.note_count == 1
