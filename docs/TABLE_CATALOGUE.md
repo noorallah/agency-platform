@@ -289,6 +289,7 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `purchase_invoice_accounting_events` | firm store ¹ | Store reusable accounting placeholder events. | `purchase_invoices`, `firms` |
 | `purchase_invoice_attachments` | firm store ¹ | Store purchase invoice attachments. | `purchase_invoices`, `firms` |
+| `purchase_invoice_line_taxes` | firm store ¹ | Store the tax components one bill line was actually charged, so input credit is claimed and filed per head (D-CMP-20). | `purchase_invoice_lines` |
 | `purchase_invoice_lines` | firm store ¹ | Store one purchase invoice line. | `purchase_invoices`, `firms`, `products`, `tax_profiles`, `packaging_types`, `uoms`, `warehouses`, `warehouse_storage_nodes` |
 | `purchase_invoice_notes` | firm store ¹ | Store purchase invoice notes. | `purchase_invoices`, `firms` |
 | `purchase_invoice_sources` | firm store ¹ | Store supplier invoice source document references. | `purchase_invoices`, `firms`, `vendors`, `branches` |
