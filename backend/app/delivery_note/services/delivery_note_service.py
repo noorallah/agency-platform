@@ -26,6 +26,7 @@ from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader, platform_reader
+from app.common.report_names import branch_names, customer_names, warehouse_names
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.pricing import (
@@ -871,6 +872,10 @@ class DeliveryNoteService(TransactionalDocumentService):
         The pending report answers this shape too: it used to answer whole
         documents -- lines, attachments and notes per row -- while the desktop
         showed five columns of them (D-RPT-16).
+
+        Every id carries its name, in one read per table for the whole report
+        rather than one per row; the grid derives its columns from the row, so
+        a register of ids alone read as UUIDs (D-RPT-17).
         """
         rows = list(
             self._session.scalars(
@@ -889,6 +894,9 @@ class DeliveryNoteService(TransactionalDocumentService):
                 )
             ).all()
         )
+        customers = customer_names(self._session, (row.customer_id for row in rows))
+        branches = branch_names(self._session, (row.branch_id for row in rows))
+        warehouses = warehouse_names(self._session, (row.warehouse_id for row in rows))
         return [
             DeliveryNoteRegisterRecord(
                 delivery_note_id=row.id,
@@ -897,8 +905,11 @@ class DeliveryNoteService(TransactionalDocumentService):
                 sales_order_id=row.sales_order_id,
                 sales_order_number=row.sales_order_reference,
                 customer_id=row.customer_id,
+                customer_name=customers.get(row.customer_id, str(row.customer_id)),
                 branch_id=row.branch_id,
+                branch_name=branches.get(row.branch_id, str(row.branch_id)),
                 warehouse_id=row.warehouse_id,
+                warehouse_name=warehouses.get(row.warehouse_id, str(row.warehouse_id)),
                 status=DeliveryNoteStatus(row.status),
                 grand_total=row.grand_total,
             )
