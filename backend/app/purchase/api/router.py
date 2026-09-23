@@ -18,7 +18,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    ResolvedFirmScope,
+    firm_any_permission_scope,
+    firm_permission_scope,
+)
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
@@ -62,6 +66,11 @@ class ActionReasonRequest(BaseModel):
 
 
 PurchaseViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("PURCHASE_VIEW")]
+#: A report opens to whoever may read the module or holds `REPORT_VIEW`
+#: (D-RPT-4).
+PurchaseReportScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("PURCHASE_VIEW", "REPORT_VIEW")
+]
 PurchaseCreateScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("PURCHASE_CREATE")
 ]
@@ -288,7 +297,7 @@ def print_purchase_order(
     response_model=ApiResponse[list[PurchaseOrderRegisterRecord]],
 )
 def purchase_order_register(
-    scope: PurchaseViewScope,
+    scope: PurchaseReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseOrderRegisterRecord]]:
     """Return the purchase order register for the visible firm scope."""
@@ -302,7 +311,7 @@ def purchase_order_register(
     response_model=ApiResponse[list[PurchaseOrderPendingRecord]],
 )
 def pending_purchase_orders(
-    scope: PurchaseViewScope,
+    scope: PurchaseReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseOrderPendingRecord]]:
     """Return orders the vendor still owes goods against."""
@@ -316,7 +325,7 @@ def pending_purchase_orders(
     response_model=ApiResponse[list[PurchaseOrderOverdueRecord]],
 )
 def overdue_purchase_orders(
-    scope: PurchaseViewScope,
+    scope: PurchaseReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseOrderOverdueRecord]]:
     """Return orders whose goods were expected and have not all arrived."""
@@ -330,7 +339,7 @@ def overdue_purchase_orders(
     response_model=ApiResponse[list[PurchaseOrderByVendorRecord]],
 )
 def purchase_orders_by_vendor(
-    scope: PurchaseViewScope,
+    scope: PurchaseReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseOrderByVendorRecord]]:
     """Return ordered value and count per vendor."""
@@ -344,7 +353,7 @@ def purchase_orders_by_vendor(
     response_model=ApiResponse[list[PurchaseOrderByBuyerRecord]],
 )
 def purchase_orders_by_buyer(
-    scope: PurchaseViewScope,
+    scope: PurchaseReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseOrderByBuyerRecord]]:
     """Return ordered value and count per buyer."""
@@ -358,7 +367,7 @@ def purchase_orders_by_buyer(
     response_model=ApiResponse[list[PurchaseOrderByProductRecord]],
 )
 def purchase_orders_by_product(
-    scope: PurchaseViewScope,
+    scope: PurchaseReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseOrderByProductRecord]]:
     """Return what the firm is buying, by quantity and by value."""

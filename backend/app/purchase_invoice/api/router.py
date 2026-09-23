@@ -18,7 +18,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    ResolvedFirmScope,
+    firm_any_permission_scope,
+    firm_permission_scope,
+)
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
@@ -54,6 +58,11 @@ class ActionReasonRequest(BaseModel):
 
 PurchaseInvoiceViewScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("PURCHASE_VIEW")
+]
+#: A report opens to whoever may read the module or holds `REPORT_VIEW`
+#: (D-RPT-4).
+PurchaseInvoiceReportScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("PURCHASE_VIEW", "REPORT_VIEW")
 ]
 PurchaseInvoiceCreateScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("PURCHASE_CREATE")
@@ -308,7 +317,7 @@ def purchase_invoice_history(
     "/reports/pending", response_model=ApiResponse[list[PurchaseInvoiceResponse]]
 )
 def pending_purchase_invoices(
-    scope: PurchaseInvoiceViewScope,
+    scope: PurchaseInvoiceReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseInvoiceResponse]]:
     """List invoices still in draft, not yet approved."""
@@ -325,7 +334,7 @@ def pending_purchase_invoices(
     "/reports/overdue", response_model=ApiResponse[list[PurchaseInvoiceResponse]]
 )
 def overdue_purchase_invoices(
-    scope: PurchaseInvoiceViewScope,
+    scope: PurchaseInvoiceReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseInvoiceResponse]]:
     """List live invoices whose due date has passed, cancelled and closed excluded."""
@@ -342,7 +351,7 @@ def overdue_purchase_invoices(
     "/reports/register", response_model=ApiResponse[list[PurchaseInvoiceRegisterRecord]]
 )
 def purchase_invoice_register(
-    scope: PurchaseInvoiceViewScope,
+    scope: PurchaseInvoiceReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseInvoiceRegisterRecord]]:
     """Return the purchase invoice register report for the visible firm scope."""
@@ -356,7 +365,7 @@ def purchase_invoice_register(
     response_model=ApiResponse[list[PurchaseInvoiceVendorOutstandingRecord]],
 )
 def vendor_outstanding_placeholder(
-    scope: PurchaseInvoiceViewScope,
+    scope: PurchaseInvoiceReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseInvoiceVendorOutstandingRecord]]:
     """Report the balance still owing per vendor."""
@@ -370,7 +379,7 @@ def vendor_outstanding_placeholder(
     response_model=ApiResponse[list[PurchaseInvoiceReconciliationRecord]],
 )
 def invoice_reconciliation_report(
-    scope: PurchaseInvoiceViewScope,
+    scope: PurchaseInvoiceReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[PurchaseInvoiceReconciliationRecord]]:
     """Return the invoice reconciliation report for the visible firm scope."""

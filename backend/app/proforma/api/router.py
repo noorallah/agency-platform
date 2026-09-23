@@ -6,7 +6,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    ResolvedFirmScope,
+    firm_any_permission_scope,
+    firm_permission_scope,
+)
 from app.core.concurrency import ExpectedVersion, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
@@ -30,6 +34,11 @@ router = APIRouter(
 )
 
 ProformaViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("PROFORMA_VIEW")]
+#: A report opens to whoever may read the module or holds `REPORT_VIEW`
+#: (D-RPT-4).
+ProformaReportScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("PROFORMA_VIEW", "REPORT_VIEW")
+]
 ProformaManageScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("PROFORMA_MANAGE")
 ]
@@ -94,7 +103,7 @@ def create_proforma(
     response_model=ApiResponse[list[ProformaRegisterRecord]],
 )
 def proforma_register(
-    scope: ProformaViewScope,
+    scope: ProformaReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[ProformaRegisterRecord]]:
     """Every proforma raised, with the order it states."""
@@ -108,7 +117,7 @@ def proforma_register(
     response_model=ApiResponse[list[ProformaOutstandingRecord]],
 )
 def proformas_outstanding(
-    scope: ProformaViewScope,
+    scope: ProformaReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[ProformaOutstandingRecord]]:
     """Issued proformas a customer is still arranging payment against."""

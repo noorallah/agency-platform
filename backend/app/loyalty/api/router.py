@@ -6,7 +6,11 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    ResolvedFirmScope,
+    firm_any_permission_scope,
+    firm_permission_scope,
+)
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
@@ -32,6 +36,11 @@ router = APIRouter(
 )
 
 LoyaltyViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("LOYALTY_VIEW")]
+#: A report opens to whoever may read the module or holds `REPORT_VIEW`
+#: (D-RPT-4).
+LoyaltyReportScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("LOYALTY_VIEW", "REPORT_VIEW")
+]
 
 #: Spending a customer's credit settles a bill with money the firm owes them,
 #: so it is its own authority rather than part of reading a balance.
@@ -163,7 +172,7 @@ def expire(
     response_model=ApiResponse[list[LoyaltyBalanceRecord]],
 )
 def loyalty_balances(
-    scope: LoyaltyViewScope,
+    scope: LoyaltyReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[LoyaltyBalanceRecord]]:
     """Report what every customer holds, and what it is worth today."""
@@ -177,7 +186,7 @@ def loyalty_balances(
     response_model=ApiResponse[list[LoyaltyMovementRecord]],
 )
 def loyalty_movements(
-    scope: LoyaltyViewScope,
+    scope: LoyaltyReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[LoyaltyMovementRecord]]:
     """Every movement of credit: earned, spent, adjusted and lapsed."""
@@ -191,7 +200,7 @@ def loyalty_movements(
     response_model=ApiResponse[list[LoyaltyExpiringRecord]],
 )
 def loyalty_expiring(
-    scope: LoyaltyViewScope,
+    scope: LoyaltyReportScope,
     within_days: Annotated[int, Query(ge=1, le=730)] = 90,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[LoyaltyExpiringRecord]]:

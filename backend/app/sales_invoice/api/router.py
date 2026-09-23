@@ -15,7 +15,11 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    ResolvedFirmScope,
+    firm_any_permission_scope,
+    firm_permission_scope,
+)
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
@@ -55,6 +59,11 @@ class ActionReasonRequest(BaseModel):
 
 SalesInvoiceViewScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("SALES_VIEW")
+]
+#: A report opens to whoever may read the module or holds `REPORT_VIEW`
+#: (D-RPT-4).
+SalesInvoiceReportScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("SALES_VIEW", "REPORT_VIEW")
 ]
 SalesInvoiceCreateScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("SALES_CREATE")
@@ -313,7 +322,7 @@ def get_sales_invoice_timeline(
     status_code=status.HTTP_200_OK,
 )
 def get_pending_invoices(
-    scope: SalesInvoiceViewScope,
+    scope: SalesInvoiceReportScope,
     db: Annotated[Session, Depends(get_db)],
 ) -> ApiResponse[list[SalesInvoiceResponse]]:
     """Get pending (draft) sales invoices."""
@@ -328,7 +337,7 @@ def get_pending_invoices(
     status_code=status.HTTP_200_OK,
 )
 def get_overdue_invoices(
-    scope: SalesInvoiceViewScope,
+    scope: SalesInvoiceReportScope,
     db: Annotated[Session, Depends(get_db)],
 ) -> ApiResponse[list[SalesInvoiceResponse]]:
     """Get overdue sales invoices."""
@@ -343,7 +352,7 @@ def get_overdue_invoices(
     status_code=status.HTTP_200_OK,
 )
 def get_sales_invoice_summary(
-    scope: SalesInvoiceViewScope,
+    scope: SalesInvoiceReportScope,
     db: Annotated[Session, Depends(get_db)],
 ) -> ApiResponse[SalesInvoiceSummary]:
     """Get sales invoice summary."""
@@ -357,7 +366,7 @@ def get_sales_invoice_summary(
     status_code=status.HTTP_200_OK,
 )
 def get_sales_invoice_register(
-    scope: SalesInvoiceViewScope,
+    scope: SalesInvoiceReportScope,
     db: Annotated[Session, Depends(get_db)],
 ) -> ApiResponse[list[SalesInvoiceRegisterRecord]]:
     """Get sales invoice register report."""
@@ -371,7 +380,7 @@ def get_sales_invoice_register(
     status_code=status.HTTP_200_OK,
 )
 def get_customer_outstanding(
-    scope: SalesInvoiceViewScope,
+    scope: SalesInvoiceReportScope,
     db: Annotated[Session, Depends(get_db)],
 ) -> ApiResponse[list[SalesInvoiceCustomerOutstandingRecord]]:
     """Get customer outstanding amounts report."""
@@ -385,7 +394,7 @@ def get_customer_outstanding(
     status_code=status.HTTP_200_OK,
 )
 def get_sales_invoice_reconciliation(
-    scope: SalesInvoiceViewScope,
+    scope: SalesInvoiceReportScope,
     db: Annotated[Session, Depends(get_db)],
 ) -> ApiResponse[list[SalesInvoiceReconciliationRecord]]:
     """Get sales invoice vs delivery note reconciliation report."""

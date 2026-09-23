@@ -8,7 +8,11 @@ from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile,
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    ResolvedFirmScope,
+    firm_any_permission_scope,
+    firm_permission_scope,
+)
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
@@ -47,6 +51,11 @@ router = APIRouter(
 # SALES_MANAGER and SALES_EXECUTIVE, since the identity seed was written and
 # enforced nowhere: it was reserved for exactly this document.
 QuotationViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("SALES_VIEW")]
+#: A report opens to whoever may read the module or holds `REPORT_VIEW`
+#: (D-RPT-4).
+QuotationReportScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("SALES_VIEW", "REPORT_VIEW")
+]
 QuotationCreateScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("SALES_QUOTATION_CREATE")
 ]
@@ -163,7 +172,7 @@ def get_quotation_summary(
     response_model=ApiResponse[list[QuotationRegisterRecord]],
 )
 def quotation_register(
-    scope: QuotationViewScope,
+    scope: QuotationReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[QuotationRegisterRecord]]:
     """Every quotation raised, with what became of it."""
@@ -177,7 +186,7 @@ def quotation_register(
     response_model=ApiResponse[list[QuotationConversionRecord]],
 )
 def quotation_conversion(
-    scope: QuotationViewScope,
+    scope: QuotationReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[QuotationConversionRecord]]:
     """How many quotations turned into orders, per customer."""

@@ -2,7 +2,8 @@ import 'entities.dart';
 
 /// One column of a report grid.
 class ReportColumn {
-  const ReportColumn({required this.key, required this.label, this.numeric = false});
+  const ReportColumn(
+      {required this.key, required this.label, this.numeric = false});
 
   final String key;
   final String label;
@@ -33,6 +34,7 @@ class ReportDefinition {
     required this.description,
     required this.path,
     required this.area,
+    required this.permission,
     this.columns = const [],
   });
 
@@ -44,6 +46,11 @@ class ReportDefinition {
   final String description;
   final String path;
   final ReportArea area;
+
+  /// The module's own view code, which the server accepts beside
+  /// `REPORT_VIEW` (D-RPT-4). The picker offers an entry to whoever holds
+  /// either; without this the screen listed reports the server refused.
+  final String permission;
 
   /// The columns worth showing, when the defaults are not enough. Left empty,
   /// the grid derives them from the rows themselves.
@@ -67,7 +74,9 @@ List<ReportColumn> columnsFor(
   if (rows.isEmpty) return const [];
   return [
     for (final MapEntry<String, dynamic> entry in rows.first.entries)
-      if (!_isIdentifier(entry.key) && entry.value is! List && entry.value is! Map)
+      if (!_isIdentifier(entry.key) &&
+          entry.value is! List &&
+          entry.value is! Map)
         ReportColumn(
           key: entry.key,
           label: _humanise(entry.key),
@@ -82,7 +91,9 @@ bool _isIdentifier(String key) => key == 'id' || key.endsWith('_id');
 /// Turn `grand_total` into `Grand total`.
 String _humanise(String key) {
   final String spaced = key.replaceAll('_', ' ');
-  return spaced.isEmpty ? spaced : spaced[0].toUpperCase() + spaced.substring(1);
+  return spaced.isEmpty
+      ? spaced
+      : spaced[0].toUpperCase() + spaced.substring(1);
 }
 
 /// Whether a value should sit against the right edge like money does.
