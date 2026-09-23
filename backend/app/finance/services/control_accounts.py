@@ -33,6 +33,11 @@ from app.finance.models import (
     LedgerAccount,
 )
 
+#: The input-tax account each GST component is claimed through. A component
+#: not named here -- cess, or any other tax system's -- posts to `INPUT_TAX`,
+#: which is what every purchase posted to before the split (D-CMP-20).
+INPUT_TAX_PURPOSE_BY_COMPONENT: dict[str, "ControlAccountPurpose"] = {}
+
 
 class ControlAccountPurpose(StrEnum):
     """What a posting line means, independent of the account it lands in."""
@@ -44,7 +49,15 @@ class ControlAccountPurpose(StrEnum):
     PURCHASE_EXPENSE = "PURCHASE_EXPENSE"
     PURCHASE_RETURNS = "PURCHASE_RETURNS"
     OUTPUT_TAX = "OUTPUT_TAX"
+    #: Input tax as one total: the fallback for a component the three below
+    #: do not name (cess, a tax system that is not GST), and where every
+    #: purchase posted before D-CMP-20. GSTR-3B claims credit per head --
+    #: IGST against IGST, CGST and SGST each against their own -- and one
+    #: total cannot be split back into them, so each head has an account.
     INPUT_TAX = "INPUT_TAX"
+    INPUT_TAX_IGST = "INPUT_TAX_IGST"
+    INPUT_TAX_CGST = "INPUT_TAX_CGST"
+    INPUT_TAX_SGST = "INPUT_TAX_SGST"
     INVENTORY = "INVENTORY"
     GOODS_RECEIVED_NOT_INVOICED = "GOODS_RECEIVED_NOT_INVOICED"
     COST_OF_GOODS_SOLD = "COST_OF_GOODS_SOLD"
@@ -71,6 +84,26 @@ class ControlAccountPurpose(StrEnum):
     BANK = "BANK"
 
 
+INPUT_TAX_PURPOSE_BY_COMPONENT.update(
+    {
+        "IGST": ControlAccountPurpose.INPUT_TAX_IGST,
+        "CGST": ControlAccountPurpose.INPUT_TAX_CGST,
+        "SGST": ControlAccountPurpose.INPUT_TAX_SGST,
+        # A union territory's share is claimed under the state head on 3B.
+        "UTGST": ControlAccountPurpose.INPUT_TAX_SGST,
+    }
+)
+
+
+def input_tax_purpose(component_code: str | None) -> ControlAccountPurpose:
+    """Return the input-tax account a component is claimed through."""
+    if component_code is None:
+        return ControlAccountPurpose.INPUT_TAX
+    return INPUT_TAX_PURPOSE_BY_COMPONENT.get(
+        component_code.upper(), ControlAccountPurpose.INPUT_TAX
+    )
+
+
 # The account classification each purpose must resolve to. Posting revenue to an
 # expense account is a configuration mistake worth refusing at mapping time
 # rather than discovering in a trial balance.
@@ -83,6 +116,9 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     ControlAccountPurpose.PURCHASE_RETURNS: frozenset({"EXPENSE", "INCOME"}),
     ControlAccountPurpose.OUTPUT_TAX: frozenset({"LIABILITY", "CONTROL"}),
     ControlAccountPurpose.INPUT_TAX: frozenset({"ASSET", "CONTROL"}),
+    ControlAccountPurpose.INPUT_TAX_IGST: frozenset({"ASSET", "CONTROL"}),
+    ControlAccountPurpose.INPUT_TAX_CGST: frozenset({"ASSET", "CONTROL"}),
+    ControlAccountPurpose.INPUT_TAX_SGST: frozenset({"ASSET", "CONTROL"}),
     ControlAccountPurpose.INVENTORY: frozenset({"ASSET"}),
     ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED: frozenset(
         {"LIABILITY", "CONTROL"}
@@ -144,6 +180,9 @@ PURPOSE_LABELS: dict[ControlAccountPurpose, str] = {
     ControlAccountPurpose.PURCHASE_RETURNS: "Purchase returns",
     ControlAccountPurpose.OUTPUT_TAX: "Output tax",
     ControlAccountPurpose.INPUT_TAX: "Input tax",
+    ControlAccountPurpose.INPUT_TAX_IGST: "Input IGST",
+    ControlAccountPurpose.INPUT_TAX_CGST: "Input CGST",
+    ControlAccountPurpose.INPUT_TAX_SGST: "Input SGST",
     ControlAccountPurpose.INVENTORY: "Inventory",
     ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED: "Goods received not invoiced",
     ControlAccountPurpose.COST_OF_GOODS_SOLD: "Cost of goods sold",

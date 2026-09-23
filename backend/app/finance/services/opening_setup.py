@@ -93,6 +93,29 @@ CHART: tuple[SeedAccount, ...] = (
         "CA",
         ControlAccountPurpose.INPUT_TAX,
     ),
+    # One account per GST head, so the credit 3B claims per head can be read
+    # off the books (D-CMP-20); 1300 stays for cess and everything else.
+    SeedAccount(
+        "1310",
+        "Input IGST",
+        AccountTypeEnum.ASSET,
+        "CA",
+        ControlAccountPurpose.INPUT_TAX_IGST,
+    ),
+    SeedAccount(
+        "1320",
+        "Input CGST",
+        AccountTypeEnum.ASSET,
+        "CA",
+        ControlAccountPurpose.INPUT_TAX_CGST,
+    ),
+    SeedAccount(
+        "1330",
+        "Input SGST",
+        AccountTypeEnum.ASSET,
+        "CA",
+        ControlAccountPurpose.INPUT_TAX_SGST,
+    ),
     SeedAccount(
         "2100",
         "Trade Payables",
