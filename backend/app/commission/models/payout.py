@@ -138,6 +138,11 @@ class CommissionPayout(BaseEntity):
         Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
     )
     adjustment_reason: Mapped[str | None] = mapped_column(Text)
+    #: Who last changed the adjustment. A fourth signature beside the three of
+    #: D-TER-4: whoever adjusted a payout cannot approve it, and the payee
+    #: cannot adjust their own (D-TER-20). Cleared when the adjustment goes
+    #: back to zero, since there is then nothing to have signed.
+    adjusted_by: Mapped[UUID | None] = mapped_column(UUIDType())
     #: What this payout recovers from earlier PAID payouts whose periods
     #: are now worth less than was paid on them -- a credit note or a return
     #: against a bill already commissioned. Which payouts, and how much from

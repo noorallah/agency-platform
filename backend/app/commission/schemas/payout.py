@@ -136,6 +136,7 @@ class CommissionPayoutResponse(PayoutSchema):
     #: different people by rule (D-TER-4), and the row says so rather than
     #: leaving the audit trail as the only place that could.
     accrued_by: UUID | None
+    adjusted_by: UUID | None
     approved_by: UUID | None
     approved_at: datetime | None
     paid_by: UUID | None
