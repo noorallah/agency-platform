@@ -1405,7 +1405,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 - **Fixture:** `selling-paid`
 - **Steps:** Reports → **Operational Reports** and **Financial Reports**: open every entry.
 - **Expect:** each renders with `N row(s)` in the header, or — when empty — "Nothing to report / This firm has nothing matching it yet." rather than a blank grid. The sales order register, delivery note register and invoice reports hold the fixture's documents; the purchase reports are empty (this store bought nothing).
-- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §12.9 (the financial reports) and §9.13 (the purchasing ones) — each reads its tables and writes nothing, not even an audit row.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §18 (every catalogued report and what it reads), §12.9 (the financial statements) and §9.13 (the purchasing ones) — each reads its tables and writes nothing, not even an audit row.
 - **Leaves:** unchanged.
 
 ### TC-FIN-006 — Ctrl+K finds a product and lands on its screen
@@ -1414,7 +1414,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 - **Fixture:** `product-master`
 - **Steps:** as the fixture's **Firm admin**, type in any search box, move to another screen, press **Ctrl+K**, type `<SUFFIX>-PM` → Search; select the result → **Open Details**.
 - **Expect:** the dialog opens wherever focus is; one result, **Slot Check <suffix>** (a product), "1 result found."; Open Details closes the search and lands on **Masters → Products**. **(HTTP)** `GET /api/v1/search?query=<SUFFIX>-PM` → 200 (the parameter is `query`; `q` answers 422).
-- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §12.13 — the search reads and writes nothing; landing on a screen can leave only the last-screen `user_preferences.updated` on the platform (§3).
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §18.7 (and §12.13) — the search reads and writes nothing; landing on a screen can leave only the last-screen `user_preferences.updated` on the platform (§3).
 - **Leaves:** unchanged.
 
 ### TC-FIN-007 — Cost and profit centres, and an account that demands one
@@ -1466,7 +1466,7 @@ own with a fresh chart (1000 Cash, 5000 Purchases, and no 9999).
 - **Fixture:** `platform-admin`
 - **Steps:** sign in on the desktop, end **agency_desktop** in Task Manager, start it again and sign in as the fixture's **Platform admin** (the queued report is sent then). Settings → **Diagnostics** → Source **Desktop** → Search; open the **UnexpectedTermination** group's first occurrence. Then Source **Server**, any group's first occurrence.
 - **Expect:** Desktop: the UnexpectedTermination count one higher than before; occurrences / first seen / last seen / versions chips; the newest occurrence shows Firm, User and "Leading up to it" breadcrumbs ("Previous session started at … ended without a clean exit…") — no Request and no stack trace. Server: **Request <request_id>** and the stack trace.
-- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §12.13 — one `platform.error_reports` row per report, `source` CLIENT for the desktop (the screen's Desktop) and SERVER for the server, no audit row; its query counts them by source and type.
+- **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §18.8 (and §12.13) — one `platform.error_reports` row per report, `source` CLIENT for the desktop (the screen's Desktop) and SERVER for the server, no audit row; its query counts them by source and type.
 - **Leaves:** one more crash report.
 
 ---
