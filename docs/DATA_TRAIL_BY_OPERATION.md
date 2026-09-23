@@ -69,7 +69,13 @@ route and salesperson, commission rules and their ladders, the report, a
 payout from accrual to approval, payment and cancellation with the journal
 each posts, and sales targets and their achievement — read off `app/sales`,
 `app/commission` and `app/sales_targets`, checked against every store on the
-server, then driven on a `commission-firm` run (§17.18). The rest follow.
+server, then driven on a `commission-firm` run (§17.18). **Reports, the
+dashboard, global search and diagnostics closed the pass on 2026-09-23
+(§18)**: the fifty-seven catalogued reports and what each reads, the Reports
+workspace, the platform dashboard, Ctrl+K and its forty-one definitions, the
+error reports and the health probes — read off twelve services and the
+desktop, checked against WHOLE01, the shared store and `platform`, then
+driven on TEST01 (§18.11).
 
 ---
 
@@ -6841,3 +6847,354 @@ all `COMMISSION_MANAGE`, `If-Match` optional.
   a bulk move; a deleted target; the two hierarchy settings switched off; a
   plan with outlet stops of its own; another firm's level or route type on a
   node in `firm_shared`.
+
+---
+
+## 18. Reports, the dashboard, global search and diagnostics — what the firm reads about itself, and what the product reads about its own faults (TC-FIN-005, TC-FIN-006, TC-FIN-011, TC-ISO-003, TC-BUY-007)
+
+Read on 2026-09-23 off the report methods of the twelve document services
+(`quotation_service.py`, `sales_order_service.py`, `delivery_note_service.py`,
+`sales_invoice_service.py`, `credit_note_service.py`, `sales_return_service.py`,
+`proforma_service.py`, `goods_receipt_service.py`, `purchase_invoice_service.py`,
+`purchase_return_service.py`, `loyalty_service.py`,
+`promotions/services/report_service.py`), `app/api/routers/dashboard.py`,
+`app/api/routers/health.py`, `app/search/services/search_service.py` and
+`app/diagnostics`, and off the desktop's `reports_workspace.dart`,
+`report_catalog.dart`, `dashboard_page.dart`, `global_search.dart` and
+`diagnostics_page.dart`. The seven purchase-order reports are §9.13, the
+finance statements §12.9, the customer statement and ageing §12.10 and the
+commission report §17.11, and none is repeated here.
+
+Checked read-only against WHOLE01, the shared store and `platform`, and driven
+against the running backend on TEST01 (fixtures `accountant` `t0923zemi` and
+`firm-admin` `t0923gcby`) and, read only, on WHOLE01, MEDI01 and FOOD01 as a
+platform administrator. §18.11 says which claims a live row confirmed.
+
+### 18.0 Before you look
+
+- **Nothing in this section writes a row.** Not one report, the dashboard,
+  a search or a health probe writes a business row *or an audit row*; the only
+  table anything here inserts into is `platform.error_reports` (§18.7). The
+  one row a report *can* leave is the `user_preferences.updated` of the last
+  screen, on the platform (§3).
+- **Every report is the whole history.** Fifty-seven catalogued report routes
+  and **not one takes a date range or a page** — `loyalty/reports/expiring`
+  takes `within_days` (1–730, default 90) and that is the only parameter
+  anywhere. Each answers `ApiResponse[list[...]]` holding every matching row
+  the firm has ever written, and the desktop's `DataTable` is not virtualised
+  (D-RPT-18).
+- **"Today" is `utc_now().date()`** everywhere a report needs one — the
+  overdue lists, the proforma's `days_to_expiry`, the loyalty horizon. No
+  report reads the server clock.
+- **The gate on the screen is not the gate on the route.** The Reports module
+  and workspace are offered on `REPORT_VIEW` (`module_catalog.dart`,
+  `reports_workspace.dart:57`) — a seeded code that **no backend route
+  enforces** (`grep -rn REPORT_VIEW app/` finds only the seed). Each route
+  takes its module's own view code: `SALES_VIEW` for quotations, orders, notes,
+  invoices and returns; `CREDIT_NOTE_VIEW`; `PROFORMA_VIEW`; `PURCHASE_VIEW`
+  for receipts, supplier invoices and purchase returns; `LOYALTY_VIEW`;
+  `PROMOTION_VIEW`. `ACCOUNTANT` holds the `report` group and none of the
+  operational codes, so it is offered the screen and refused every operational
+  entry on it (D-RPT-4).
+- **Names.** The credit-note and proforma registers, every `by-*` report and
+  the loyalty and promotion reports resolve names in one `IN (...)` read on
+  the firm store. **The five other registers carry ids and no name at all**
+  (D-RPT-17). The salesperson's name comes from `platform.users` through
+  `platform_reader()` — one read for the set in the sales-order reports, and
+  **one platform connection per person** in the delivery-note one (D-RPT-19).
+  Two reports name the customer by `Customer.name`, the rest by
+  `display_name` (D-RPT-19).
+- **What a bill still owes is `settlement_allocations` (§9.11, §12.12), and
+  four money reports never read it**: sales-invoice overdue and
+  customer-outstanding's count, purchase-invoice overdue and vendor
+  outstanding (D-RPT-2, D-RPT-3). A DRAFT is counted as given, returned or
+  credited by the credit-note, sales-return and delivery `by-*` reports
+  (D-RPT-8, D-RPT-9).
+- **Where to query.** Every table a report reads is firm-owned and lives in
+  the firm's store: TEST01 is `test_fixtures`, WHOLE01 `wholesale_hub`, MEDI01
+  and FOOD01 `firm_shared` (filter on `firm_id`), ELEC01 `electrolink_ops`.
+  The dashboard, search's `users` / `roles` / `permissions` / `firms`
+  definitions and every error report read or write `platform`.
+
+### 18.1 The Reports workspace — Reports → Operational Reports, Financial Reports (TC-FIN-005)
+
+`reports_workspace.dart` is a picker and a grid. The catalogue
+(`report_catalog.dart`, 57 entries, `ReportArea.operational` or `.financial`)
+is data; choosing an entry calls `ApiClient.reportRows(path)`, a bare `GET` of
+the entry's path with the `X-Firm-ID` header and **no query string**, and the
+grid derives its columns from the first rows unless the entry names them
+(three do, because their endpoints answer whole documents). The header says
+`N row(s)`; an empty list reads "Nothing to report"; an `ApiException` — the
+403 of D-RPT-4 included — is a banner. There is no filter, no export and no
+paging on the screen, and nothing about opening a report is recorded anywhere.
+`tests/unit/test_reports_have_a_screen.py` fails the build on a `/reports/`
+route with no catalogue entry, and the reverse.
+
+### 18.2 Quotations, orders and delivery notes (scope `SALES_VIEW`)
+
+| Report | Route | Reads | Notes |
+| --- | --- | --- | --- |
+| Quotation register | `/api/v1/quotations/reports/register` | `sales_quotations`, every status, CANCELLED in; `quotation_date DESC` | `quotation_number, customer_id, quotation_date, valid_until, status, grand_total, converted_sales_order_number`. No customer name; `status` is the stored one, so a SENT quote past `valid_until` still reads SENT although the document's own response carries `is_expired` (D-RPT-19) |
+| Quotation conversion | `/api/v1/quotations/reports/conversion` | `sales_quotations` not CANCELLED, per customer; `customers.display_name` | `quoted_count` / `quoted_value` (every non-cancelled quote, DRAFT in), `converted_*` (CONVERTED), `declined_count` (DECLINED). **Nothing counts a lapsed quote** — a SENT quote past its date is "quoted" and nothing else, although the catalogue promises "how many lapsed" (D-RPT-12). Unordered |
+| Sales order register | `/api/v1/sales-orders/reports/register` | `sales_orders`, every status; `order_date DESC, created_at DESC` | `order_number, order_date, customer_id, salesman_id, territory_id, branch_id, warehouse_id, status, grand_total` — five ids, no name for any |
+| Orders not yet delivered | `/api/v1/sales-orders/reports/pending` | `sales_orders` in **DRAFT or APPROVED** only | `pending_value` is the **whole `grand_total`**. A **PARTIALLY_DELIVERED** order — the one that most literally still owes stock — is left out, and a DRAFT nobody has approved is in; `is_on_hold` is not read (D-RPT-7) |
+| Back orders | `/api/v1/sales-orders/reports/back-orders` | `sales_order_lines` joined to their order, **every status** — DELIVERED, CLOSED and CANCELLED in; one `select(SalesOrder)` per line | A line qualifies when `reservable_quantity − available_stock > 0`, and **`available_stock` is the snapshot written when the line was saved**, never refreshed: it says what was short the day the order was typed (D-RPT-8). No product name |
+| Orders by customer | `/api/v1/sales-orders/reports/by-customer` | `sales_orders` not CANCELLED (DRAFT in); Σ `grand_total` and a count per customer; one `select(Customer)` per customer; `Customer.name` | sorted by name |
+| Orders by salesman | `/api/v1/sales-orders/reports/by-salesman` | the same, `salesman_id IS NOT NULL`; names from `platform.users` in one `platform_reader()` read | an order with nobody is absent rather than "Unassigned" (D-RPT-19) |
+| Orders by territory | `/api/v1/sales-orders/reports/by-territory` | the same, `territory_id IS NOT NULL`; one `select(SalesTerritoryNode)` per node | keyed on the **node** (`sales_orders.territory_id` is a node id, §17.0) — right; no roll-up to the parent |
+| Delivery note register | `/api/v1/delivery-notes/reports/register` | `delivery_notes`, every status; `delivery_date DESC, created_at DESC` | `delivery_note_number, delivery_date, sales_order_id, sales_order_number` (the stored `sales_order_reference`), `customer_id, branch_id, warehouse_id, status, grand_total`. No names |
+| Dispatches not yet completed | `/api/v1/delivery-notes/reports/pending` | `delivery_notes` in DRAFT or APPROVED | answers **whole `DeliveryNoteResponse` documents**, which is why the catalogue names its five columns (D-RPT-16). Unordered |
+| Delivery progress by order | `/api/v1/delivery-notes/reports/partial` | **every** `sales_orders` row not CANCELLED (DELIVERED and CLOSED in); per order a `select(SalesOrderLine)`, per line a summed `delivery_note_lines` read | `ordered` = Σ `reservable_quantity` (base units, free goods in); `delivered` = Σ `delivered_quantity` on notes that are **APPROVED**, DISPATCHED, COMPLETED or CLOSED — so an approved note that has not left the warehouse counts as delivered and its order reads COMPLETED, unlike the service's own `_already_delivered_quantity`, which starts at DISPATCHED (D-RPT-9) |
+| Deliveries by route / by salesman / by warehouse | `/api/v1/delivery-notes/reports/by-route`, `/by-salesman`, `/by-warehouse` | `delivery_notes` not CANCELLED — **DRAFT and APPROVED in**; keyed on `route_id` (a `territory_route_profiles.id`, named through the node — right per §17.0), `salesman_id` (**one platform connection per person**), `warehouse_id` (one `select(Warehouse)` per key) | `dimension_id, dimension_name` (`None` → "Unassigned"), `note_count, delivered_quantity, total_value`; `delivered_quantity` is Σ `delivery_note_lines.delivered_quantity` of every non-cancelled note, one `select(DeliveryNoteLine)` per note — a draft's typed quantity is "delivered" (D-RPT-9) |
+
+`grand_total` on every one of these is **with tax**, and a DRAFT order counts
+in every `by-*` total.
+
+### 18.3 Sales invoices, credit notes, sales returns and proformas
+
+Scope `SALES_VIEW` for invoices and returns, `CREDIT_NOTE_VIEW`,
+`PROFORMA_VIEW`. `/api/v1/sales-invoices/reports/summary` also exists: it is
+the invoice screen's dashboard tile, not a catalogue report.
+
+| Report | Route | Reads | Notes |
+| --- | --- | --- | --- |
+| Invoices not yet approved | `/api/v1/sales-invoices/reports/pending` | `sales_invoices` in DRAFT | whole `SalesInvoiceResponse` documents (D-RPT-16). Honest: "pending" means unapproved |
+| Overdue invoices | `/api/v1/sales-invoices/reports/overdue` | `sales_invoices` with `due_date < today` and status **not CANCELLED and not CLOSED** | whole documents. **Status is the only test of "still owing"**, and a paid invoice stays APPROVED (§9.14's rule holds for sales too), so a **fully-collected invoice past its due date is listed as overdue**, and so is a DRAFT with a due date, which never posted — WHOLE01 lists 23, 5 of them paid in full (D-RPT-3). `due_date` is filled from `customers.payment_terms_days` when the caller sends none |
+| Sales invoice register | `/api/v1/sales-invoices/reports/register` | `sales_invoices`, every status; `invoice_date DESC, created_at DESC` | `invoice_number, customer_invoice_number, customer_id, branch_id, invoice_date, due_date, grand_total, status`. No names, nothing about what is paid |
+| Customer outstanding | `/api/v1/sales-invoices/reports/customer-outstanding` | `customers` of the firm with `current_outstanding > 0`; `invoice_count` = number of **APPROVED** invoices per customer, paid or not | `outstanding_amount` is **`customers.current_outstanding`**, the running balance `post_receivable_transaction` keeps — the statement's figure (§12.10), which credit notes, returns and opening balances move and allocations do not, so it legitimately differs from a sum over invoices (WHOLE01: 41,134.24 against 78,697.14 owed by invoices alone). `invoice_count` counts settled bills too, so "1 invoice, 1,200.00" may be one paid bill and an opening balance; a customer in advance (negative) is dropped (D-RPT-3) |
+| Invoice reconciliation | `/api/v1/sales-invoices/reports/reconciliation` | `sales_invoice_lines` joined to their invoice, **every status** — DRAFT and CANCELLED in | one row **per invoice line**; `delivered_quantity, already_invoiced_quantity, current_invoice_quantity, pending_quantity` are the **snapshot stored on that line when written**, so a source line billed twice appears twice with the older row's `pending` stale, and a cancelled invoice's line still claims its quantity billed — WHOLE01 holds one (D-RPT-13). No product, no customer |
+| Credit note register | `/api/v1/credit-notes/reports/register` | `credit_notes`, every status; `customers.display_name` and `sales_invoices.invoice_number` in one read each; `credit_note_date DESC, created_at DESC` | `credit_note_number, credit_note_date, customer_id, customer_name, sales_invoice_id, sales_invoice_number, reason, taxable_amount, tax_amount, total_amount, status` — the one register that names everything |
+| Credits by customer / by reason | `/api/v1/credit-notes/reports/by-customer`, `/by-reason` | `_live_notes`: status **≠ CANCELLED** — **DRAFT in**; Σ `taxable_amount`, Σ `tax_amount` per customer (`quantize_ledger`, taxable desc) and Σ `total_amount` per `reason` | a draft credit — not given, posted nothing — is counted as credited (D-RPT-10) |
+| Sales return register | `/api/v1/sales-returns/reports/register` | `sales_returns`, every status; `return_date DESC` | `return_number, customer_return_number, customer_id, branch_id, warehouse_id, return_date, grand_total, status`. No names |
+| Returns by customer | `/api/v1/sales-returns/reports/by-customer` | `sales_returns` with status not in `_SPENT_STATUSES = (CANCELLED,)` — **DRAFT and APPROVED in**; Σ `grand_total`; `customers.display_name` | only COMPLETED moves stock and posts (§11.16); a draft return is counted as returned value (D-RPT-10) |
+| Returns by product | `/api/v1/sales-returns/reports/by-product` | `_report_lines`: live lines of non-cancelled returns; Σ `current_return_quantity`, Σ **`restock_quantity`**, Σ `net_amount` (with tax) per product; `products` in one read | `restock_quantity` is summed off DRAFT lines whose stock has not come back (D-RPT-10) |
+| Return reconciliation | `/api/v1/sales-returns/reports/reconciliation` | the same lines with their header; `products.name` in one read | `return_number, return_date, source_document_type/id/number, source_document_line_id/number, product_id, product_name, dispatched_quantity, already_returned_quantity, current_return_quantity, pending_quantity, restock_quantity, reason_code, is_damaged, is_expired` — the three quantities the line's own snapshot, one row per return line, drafts in (D-RPT-10) |
+| Proforma register | `/api/v1/proforma-invoices/reports/register` | `proforma_invoices`, every status; `customers.display_name` and `sales_orders.order_number` in one read each; `proforma_date DESC, created_at DESC` | `proforma_number, proforma_date, valid_until, customer_id, customer_name, sales_order_id, sales_order_number, grand_total, status`. A superseded proforma still reads ISSUED — superseding writes `supersedes_id` on the new row and moves nothing on the old |
+| Proformas awaiting payment | `/api/v1/proforma-invoices/reports/outstanding` | `proforma_invoices` in **ISSUED** whose id is no row's `supersedes_id`; `proforma_date ASC`; `days_to_expiry = valid_until − today`, negative once lapsed | **nothing outside `app/proforma` ever touches a proforma** (§11.18), so one stays ISSUED after its order is delivered, billed and paid: WHOLE01 lists 18, **16 on delivered or closed orders, 12 of them billed** (D-RPT-11) |
+
+### 18.4 Goods receipts, supplier invoices and purchase returns (scope `PURCHASE_VIEW`)
+
+Vendor, product and customer names come from the firm's own store in one
+`IN (...)` read; none of these reads a platform table.
+
+| Report | Route | Reads | Notes |
+| --- | --- | --- | --- |
+| Receipts awaiting completion | `/api/v1/goods-receipts/reports/pending` | `goods_receipts` in **DRAFT**; then per receipt its live lines, attachments, notes and a duplicate check | whole `GoodsReceiptResponse` documents — four extra queries per receipt, no ordering (D-RPT-16) |
+| Receipts completed | `/api/v1/goods-receipts/reports/completed` | `goods_receipts` in **COMPLETED** only; the same per-row reads | **CLOSED receipts are left out**, although closing is the step after completing (`close_receipt`, COMPLETED → CLOSED): the report shrinks as the firm tidies up (D-RPT-15). No live store holds a CLOSED receipt yet |
+| Rejected on receipt / Damaged on receipt | `/api/v1/goods-receipts/reports/rejected`, `/damaged` | `goods_receipt_lines` joined to `goods_receipts`, `rejected_quantity > 0` / `damaged_quantity > 0`, both not deleted | **no receipt status filter**: lines of DRAFT and CANCELLED receipts included, so a cancelled receipt's damage is reported as having happened (D-RPT-15). Bare `GoodsReceiptLineResponse` — `product_id`, no product name, no receipt number or date. No ordering |
+| Orders part received | `/api/v1/goods-receipts/reports/partial` | every live `purchase_orders` row of the firm, **any status**; its live lines; per line a `SUM(current_receipt_quantity)` of `goods_receipt_lines` on receipts in **COMPLETED** only; a count of COMPLETED receipts | keeps an order when `0 < received < ordered` summed over the order; `status` is always the literal `PARTIAL`; ids only. Counts COMPLETED receipts where the order's own derivation (`_received_quantities_for_po`) counts COMPLETED **and CLOSED** — close one receipt and the report says part received while the order reads RECEIVED; a CANCELLED or CLOSED order with a partial receipt is listed (D-RPT-14). One query per order plus one per line |
+| Purchase invoice register | `/api/v1/purchase-invoices/reports/register` | `purchase_invoices`, every status; `invoice_date DESC, created_at DESC` | `invoice_number, supplier_invoice_number, vendor_id, branch_id, invoice_date, due_date, grand_total, status`. Ids, no vendor name |
+| Supplier invoices not yet approved | `/api/v1/purchase-invoices/reports/pending` | `purchase_invoices` in **DRAFT**; then per invoice its sources, lines, attachments, notes, accounting events and a duplicate check | whole documents; five extra queries per row; no ordering (D-RPT-16) |
+| Overdue purchase invoices | `/api/v1/purchase-invoices/reports/overdue` | `purchase_invoices` with `due_date IS NOT NULL AND due_date < today`, status **not in (CANCELLED, CLOSED)** | so **DRAFT and APPROVED** are in. `due_date` is a request field, never derived from `payment_terms` — WHOLE01's 30 bills carry none, so none is ever overdue there. **Never reads `settlement_allocations`**: a bill paid in full stays overdue until somebody closes it (D-RPT-2). Whole documents |
+| Vendor outstanding | `/api/v1/purchase-invoices/reports/outstanding` | `purchase_invoices` not deleted, status **≠ CANCELLED**; `vendors.display_name` | `SUM(grand_total)` and a count per vendor. **Nothing is subtracted**: not payments, not returns raised on the bill's lines, not CLOSED; DRAFT bills count as owed. `SettlementService.outstanding_invoices` already derives the real figure — total less POSTED allocations less returns, over `SETTLEABLE_INVOICE_STATES` — and this report ignores it: WHOLE01 reports 435,349.20 where 421,189.20 is owed (D-RPT-2) |
+| Purchase invoice reconciliation | `/api/v1/purchase-invoices/reports/reconciliation` | `purchase_invoice_lines` joined to live `purchase_invoices`, **every status** | per line `received_quantity, already_invoiced_quantity, current_invoice_quantity` as **snapshotted at create**, `pending` floored at 0. A CANCELLED invoice's line still reports its quantity as billed (D-RPT-13). No product, vendor or invoice number — only the source document's type, id, number and line |
+| Purchase return register | `/api/v1/purchase-returns/reports/register` | `purchase_returns`, every status; `return_date DESC, created_at DESC` | `return_number, supplier_return_number, vendor_id, branch_id, warehouse_id, return_date, grand_total, status`. Ids only |
+| Returns by vendor | `/api/v1/purchase-returns/reports/by-vendor` | `purchase_returns` not CANCELLED (DRAFT in); `vendors.display_name` | `SUM(grand_total)` (tax in) and count per vendor |
+| Purchase returns by product | `/api/v1/purchase-returns/reports/by-product` | live `purchase_return_lines` of returns not CANCELLED; `products.code`, `.name` | `SUM(current_return_quantity)`, `SUM(net_amount)` (tax in) and a line count per product |
+| Purchase return reconciliation / Expired stock returned | `/api/v1/purchase-returns/reports/reconciliation`, `/expired` | the same lines with their header (`_report_lines`, CANCELLED out, DRAFT in); `products.name`; `/expired` keeps `is_expired` lines only | per line the three snapshotted quantities, `pending` floored at 0, `reason_code, is_damaged, is_expired`, source type / id / number / line. `/damaged` (§9.13) is the `is_damaged` twin |
+
+### 18.5 Loyalty and promotions (scope `LOYALTY_VIEW`, `PROMOTION_VIEW`)
+
+The loyalty balance is a **sum over `loyalty_entries`**, never a column, and
+what it is worth is walked batch by batch (`_allocate`, `_held_worth`) — the
+allocation the expiry sweep itself uses (§11.19). All three promotion reports
+key an offer by **`version_group_id`** and read every version, so a claim
+naming a superseded row still counts against its campaign; a claim counts only
+when `status == CLAIMED`, written at approval — PENDING while the document is a
+draft, REVERSED on cancellation (§11.5).
+
+| Report | Route | Reads | Notes |
+| --- | --- | --- | --- |
+| Loyalty balances | `/api/v1/loyalty/reports/balances` | every live `loyalty_entries` row of the firm in `earned_on, id` order; `loyalty_settings.amount_per_point`; `customers.display_name` | `SUM(points)` per customer, only customers **above zero**; `amount` = what the unspent batches are worth at each batch's own rate. Largest holding first |
+| Loyalty movements | `/api/v1/loyalty/reports/movements` | every live entry, `earned_on DESC, id DESC`; `customers.display_name`; `sales_invoices.invoice_number` where named | one row per entry: `kind`, signed `points`, `amount`, `earned_on`, `expires_on`, `sales_invoice_number`, `remarks` |
+| Points about to lapse | `/api/v1/loyalty/reports/expiring?within_days=90` | customers with an EARNED entry whose `expires_on <= today + within_days`; then `unspent_batches` per customer, one ledger read each | one row per batch still holding points: `points` = what is **left** of the batch, `amount` at its rate, `days_remaining`; sorted by `expires_on`, then name. A batch already past its date and not yet swept is listed with a **negative** `days_remaining` — WHOLE01 holds 10 (D-RPT-19) |
+| Promotion performance | `/api/v1/promotions/reports/performance` | live `promotions` (every version); live `promotion_redemptions` | one row per group, the **latest version's** code / name / status / `max_redemptions`; `claimed_count, pending_count, reversed_count`, distinct `customer_count`, `benefit_amount` (CLAIMED only), `remaining_redemptions` = cap − claimed floored at 0, `None` when uncapped. Offers with no claim still appear. Costliest first |
+| Promotion claims | `/api/v1/promotions/reports/redemptions` | live `promotion_redemptions`, `redeemed_on DESC, created_at DESC`; `promotions` for code and name; `promotion_coupons.code`; `customers.display_name` | every row **including PENDING and REVERSED**, labelled by `status`; `document_type, document_id, document_number, benefit_amount` |
+| Coupon performance | `/api/v1/promotions/reports/coupons` | live `promotion_coupons`; `promotions`; live redemptions with a `coupon_id` and `status == CLAIMED` | per coupon `code, promotion_code, status, claimed_count, customer_count, benefit_amount, max_redemptions, remaining_redemptions`. Costliest first |
+
+### 18.6 The dashboard — the first screen a platform administrator sees
+
+`GET /api/v1/dashboard` (`app/api/routers/dashboard.py`) is a **platform
+path**: `require_platform_admin()` by designation, always the platform session.
+It answers four counts of live (`is_deleted = false`) rows — `firms` (inactive
+firms included), `users`, `roles`, `permissions` — each `null` when the caller
+lacks `FIRM_VIEW` / `USER_VIEW` / `ROLE_VIEW` / `PERMISSION_VIEW` in the token's
+`permissions` claim. Nothing else: `DashboardSummary` forbids extra fields.
+On 2026-09-23 the platform held 46 firms, 161 users, 20 roles and 189
+permissions. The desktop page (`dashboard_page.dart`) shows the four cards,
+each hidden without its code, and **two panels the server has never filled** —
+"Recent Firms" reads `recent_firms` and "System Activity" `system_activity`,
+neither of which any response carries, so both have always said "No recent …
+activity available" (D-RPT-20). The module is offered on `requiresPlatformAdmin`,
+not on the four codes; an `ACCOUNTANT` in a firm gets 403 from the route and
+never sees the tab.
+
+### 18.7 Global search — Ctrl+K (TC-FIN-006)
+
+`GET /api/v1/search?query=…` takes `category` (`all`, `masters`, `inventory`,
+`tax`, `organization`), `page`, `page_size` (1–100), `entity_types` (a
+comma-separated subset) and `include_deleted`; `scope` is `OptionalFirmScope`,
+so **a firm named in `X-Firm-ID` is checked for active membership before any
+query runs**, and no header means the platform session. `query` may be empty,
+which lists everything.
+
+- **Forty-one definitions over thirty-eight models** (`_DEFINITIONS`), each
+  naming its entity type, module and tab (the desktop's, guarded by
+  `test_search_navigation_targets`), the permission it takes, its firm column,
+  the columns matched (`ILIKE '%query%'` on each, cast to text) and the
+  status column. `users`, `roles`, `permissions` and `firms` are flagged
+  `platform_store` and read through one `platform_reader()` session opened
+  once per search **only when the request is firm-scoped** — on the platform
+  session the tables are in hand already; `test_search_reads_platform_tables_on_the_platform_store`
+  compares the flag with `_PLATFORM_TABLES`.
+- **The firm filter is the firm column.** A definition with one is narrowed to
+  `firm_id = <scope> OR firm_id IS NULL` (a NULL firm is a platform row —
+  roles are the case that matters), and to `IS NULL` alone with no firm. A
+  definition with **none is not narrowed at all**, which is right for `uom`,
+  `packaging`, `permissions` and the five geography ladders, which are
+  firm-wide or platform-wide by design — and **wrong for two**: `users` has
+  no firm column, so a firm caller holding `USER_VIEW` (every `FIRM_ADMIN`)
+  reads **every user on the platform by name and email**, where
+  `GET /api/v1/users` narrows them to their own members (§15.3, D-IDN-7) —
+  TEST01's admin lists 37 people and searches 100 (D-RPT-1); and
+  `storage_areas` is keyed by warehouse, not firm, so in a SHARED store a
+  MEDI01 search returns FOOD01's shelves and the reverse — six hits for three
+  (D-RPT-1). `firms` is safe by accident: `FIRM_VIEW` is a platform code no
+  firm role holds.
+- **`territories` and `routes` are two definitions over `SalesTerritoryNode`
+  with the same filter**, so every node is listed twice, once under each label
+  — WHOLE01's six nodes are twelve hits (D-RPT-6).
+- **Pagination is over an in-memory list.** Each definition contributes at
+  most `max(page_size, 20)` rows, newest `updated_at` first then `id DESC` (a
+  tie-break, since every row one request wrote shares a timestamp); the hits
+  are concatenated in definition order and sliced. `total` is therefore the
+  size of that capped list, never the count of matches (D-RPT-20). `inventory`
+  is matched on `storage_locator` alone and `opening_stock` on
+  `reference_number`, so stock cannot be found by product.
+- **The desktop dialog offers fourteen category chips and the server accepts
+  five.** `_searchCategoryWire` sends `modules`, `customers`, `vendors`,
+  `documents`, `transactions` and `reports` as typed, and the route's
+  `SearchCategory` literal answers **422** "Input should be 'all', 'masters',
+  'inventory', 'tax' or 'organization'" (D-RPT-5); `products` maps to
+  `masters` and `warehouses` / `branches` to `organization`, which are wider
+  than the chip promises.
+- A search writes nothing; a result opened lands on the module and tab the
+  definition names, and only the last-screen preference can follow (§3).
+
+### 18.8 Diagnostics — crash and error reports (TC-FIN-011)
+
+`platform.error_reports` is **not** a `BaseEntity` and is **not** per store:
+no soft delete, no version, no actor columns, and every firm's reports in one
+platform table, because a fault split across stores cannot be counted.
+`/api/v1/diagnostics` is a platform path, so `X-Firm-ID` never changes the
+session; the header's value is recorded as data.
+
+| Action | Route / caller | Writes |
+| --- | --- | --- |
+| A desktop flushes its queue | `POST /api/v1/diagnostics/client-errors` — any **authenticated** caller, a batch of 1–50 | one row per report: `source = 'CLIENT'`, the client's own `fingerprint`, `error_type`, `message` (≤ 8,000), `stack_trace` (≤ 20,000), `app_version`, `build_number`, `platform_info`, `context_label`, `request_id`, `breadcrumbs` (≤ 300 lines of ≤ 500), `occurred_at`, `received_at = utc_now()`; **`firm_id` and `user_id` are taken from the caller**, never from the payload. One commit per report. No audit row |
+| The server fails a request | `app/core/exceptions/handlers.py` → `record_server_error` | `source = 'SERVER'`, `fingerprint` = SHA-256 of the error type and the **last five application frames** (file and function, no line numbers), `error_type`, `message`, `stack_trace`, `request_id`, `context_label` = method and path; **no `firm_id` or `user_id`**. Wrapped so that its own failure is swallowed — a diagnostics write must never replace the 500 it is recording |
+| Settings → Diagnostics | `GET /api/v1/diagnostics/errors` (`DIAGNOSTICS_VIEW`; `page`, `page_size ≤ 100`, `search` on message or type, `source`) | reads only: groups by `fingerprint`, newest `last_seen` first, `occurrences`, `first_seen`, up to ten distinct `app_versions` (one extra query per group) |
+| Open a group | `GET /api/v1/diagnostics/errors/{fingerprint}` | reads only: up to 50 occurrences, newest first |
+| Retention | `purge_retention.py` / the `retention` compose profile → `purge_before` | **physically deletes** rows older than the cutoff — the only delete in this section |
+
+`DIAGNOSTICS_VIEW` is held by `PLATFORM_ADMIN`, `SUPPORT_ADMIN` and
+`SYSTEM_AUDITOR` and deliberately **not** by `FIRM_ADMIN`. The desktop queues
+`UnexpectedTermination` (the previous session ended without a clean exit, with
+the last 100 log lines as breadcrumbs and no `occurred_at`) and each captured
+error (with `occurred_at` in UTC) to disk, and sends the queue after the next
+sign-in. Query the table:
+
+```sql
+select source, error_type, count(*), max(received_at),
+       count(request_id) as with_request, count(stack_trace) as with_stack,
+       count(firm_id) as with_firm, count(user_id) as with_user
+from   platform.error_reports
+group  by source, error_type
+order  by 3 desc;
+```
+
+### 18.9 Health
+
+`GET /health` (no authentication) answers `status`, `environment` and the
+running build's `version` — the honest answer to "what is installed here",
+since the client's own version is a JSON file beside the exe. `GET
+/health/database` runs `SELECT 1` on the platform session and answers 503
+"Database unavailable" if it fails. Neither writes anything.
+
+### 18.10 What these do not write, and is often looked for
+
+| You might expect | What actually happens |
+| --- | --- |
+| A row saying who ran which report, when | None — not an audit row, not a preference. The screen is a `GET` |
+| A stored report, snapshot or export | None; every report is recomputed on the read and nothing can be exported |
+| A report bounded to a period | None takes a date; the whole history every time (D-RPT-18) |
+| An overdue or outstanding figure that a receipt or payment moves | Never on the invoice reports: they read `status` and `due_date`, or the customer's running balance; allocations are §9.11 and §12.12 (D-RPT-2, D-RPT-3) |
+| A search that remembers what was typed | Recent and saved searches are the desktop's local preference file, not the server |
+| An audit row for a crash report | None; `error_reports` is telemetry and carries its own actor columns |
+| A firm-side copy of an error report | None; every report is in `platform` whatever store the firm lives in |
+| A server fault carrying its firm or user | Never: only client reports carry `firm_id` and `user_id` |
+| The dashboard's recent firms and activity | Never sent; the two panels have been empty since they were built (D-RPT-20) |
+| `REPORT_VIEW` refusing a route | Nothing enforces it; it decides only whether the screen is offered (D-RPT-4) |
+
+### 18.11 Checked against live rows, and not
+
+- **Confirmed by driving** (2026-09-23, 15:55–17:10 IST, TEST01, fixtures
+  `accountant` `t0923zemi`, `firm-admin` `t0923gcby`, `po-invoiced`
+  `t0923vm0u`, `po-received` `t09233p7o`, `po-approved` `t092343ic` and
+  `invoiced` `t092359jg`; WHOLE01, MEDI01 and FOOD01 read as `master.ops`):
+  the accountant refused (403) on the sales order, sales invoice, purchase
+  invoice, loyalty and credit-note reports and the dashboard, holding
+  `REPORT_VIEW`; `category=customers` answering 422 naming the five values;
+  TEST01's firm admin listing 37 users through `/api/v1/users` and 100 through
+  `/api/v1/search?entity_types=users`, the WHOLE01 administrator among them by
+  name, whom the users list does not know; WHOLE01's six territory nodes as
+  twelve hits; MEDI01 and FOOD01 each searching six storage areas, three of
+  them the other firm's (Cold Chain Distribution Center against Temperature
+  Controlled Grocery Warehouse); PI-2026-2027-000013 (708.00) paid in full by
+  PY-2026-2027-000003 and Vendor outstanding still 708.00, 1 invoice; a DRAFT
+  bill due yesterday in the overdue list, then approved, cancelled, and still
+  claiming its 4 billed with 0 pending in the reconciliation; GRN-…-000033
+  closed, "Receipts completed" falling from 2 to 1 and "Orders part received"
+  listing the order as 6 of 10 while the order read RECEIVED; GRN-…-000035
+  with 1 damaged and 1 rejected in both reports while COMPLETED and after
+  CANCEL; SI-2026-2027-000014 due 2026-09-22, approved, collected in full by
+  RC-2026-2027-000004, still overdue, the customer's row saying 2 invoices,
+  590.00; CN-2026-2027-000001 DRAFT credited 118.00 in both credit-note
+  reports; SR-2026-2027-000001 DRAFT returning and restocking 2 in by-product;
+  PF-2026-2027-000001 issued on a DELIVERED, billed, collected order and
+  "awaiting payment"; SO-2026-2027-000016 for 45 against 40 on hand 5 short
+  as a DRAFT and still after cancellation; DN-…-000010 for 4 raising the
+  warehouse's delivered quantity while DRAFT, and reading 4 delivered, 6
+  pending once approved and not dispatched; SO-2026-2027-000017
+  PARTIALLY_DELIVERED and absent from "Orders not yet delivered"; the backend
+  answering `/health` with `1.0.0`, `development`. **What the drives left** in
+  `test_fixtures`: PY-2026-2027-000003; PI-2026-2027-000014 CANCELLED;
+  GRN-…-000033 CLOSED; GRN-…-000035 CANCELLED; SI-2026-2027-000014 APPROVED
+  and settled by RC-2026-2027-000004; CN-2026-2027-000001 and
+  SR-2026-2027-000001 DRAFT; PF-2026-2027-000001 ISSUED; SO-2026-2027-000016
+  CANCELLED; SO-2026-2027-000017 PARTIALLY_DELIVERED with DN-…-000010
+  DISPATCHED. Nothing was written to a demo firm.
+- **Confirmed from the tables** (read only, WHOLE01, `firm_shared`,
+  `platform`): 23 sales invoices in WHOLE01's overdue list of which 5 are
+  settled in full by POSTED allocations and none is a draft; vendor
+  outstanding 435,349.20 against 421,189.20 owed once allocations are taken
+  off; WHOLE01's 30 purchase invoices carrying no `due_date` and no CLOSED
+  purchase invoice or goods receipt in any store before this pass;
+  `customers.current_outstanding` summing to 41,134.24 against 78,697.14 owed
+  by APPROVED invoices; five back-order rows of which one CLOSED, one
+  CANCELLED, one DELIVERED and two DRAFT; one cancelled invoice's line in the
+  reconciliation; 18 ISSUED proformas, 16 on delivered or closed orders, 12 of
+  those billed; every WHOLE01 delivery note DISPATCHED, every credit note
+  APPROVED, every sales return COMPLETED or CANCELLED — so D-RPT-9 and 10 have
+  not yet bitten a demo store; no SENT quotation past its date (the write
+  refuses one); 10 EARNED loyalty batches past `expires_on` and unswept; 62
+  CLAIMED and 2 REVERSED redemptions; 294 error reports in 3 groups — 263
+  CLIENT `UnexpectedTermination` (186 with a firm, all with a user, none with
+  `occurred_at`) and 31 SERVER `ValidationError` (all with a stack, 3 with a
+  request id, none with a firm), the largest server group still spanning four
+  `context_label`s because its rows were fingerprinted before the frame rule
+  changed; the dashboard's four counts.
+- **Not seen in a live row:** a CLOSED supplier invoice; an expired SENT
+  quotation (D-RPT-12 is read off the code alone); a search from a firm on
+  another server; an error report purged by retention; a client report
+  carrying a `request_id`; the `-REV` of anything, since nothing here posts.
