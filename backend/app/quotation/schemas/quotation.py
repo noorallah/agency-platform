@@ -329,6 +329,9 @@ class QuotationRegisterRecord(QuotationSchema):
     quotation_id: UUID
     quotation_number: str
     customer_id: UUID
+    #: Beside the id, because the grid derives its columns from the row and a
+    #: register of UUIDs is a register nobody can read (D-RPT-17).
+    customer_name: str
     quotation_date: date
     valid_until: date
     status: QuotationStatus

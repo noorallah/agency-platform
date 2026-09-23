@@ -1838,3 +1838,69 @@ def test_a_receipt_row_carries_what_the_screen_shows() -> None:
     assert row.status == "DRAFT"
     assert service.register_rows([]) == []
     assert row.receipt_id == receipt.id
+    # The warehouse was an id alone, and the grid derives its columns from
+    # the row, so the screen showed a UUID (D-RPT-17).
+    assert (row.warehouse_id, row.warehouse_name) == (
+        fixture.warehouse.id,
+        fixture.warehouse.name,
+    )
+
+
+def test_the_damage_and_rejection_reports_name_the_product() -> None:
+    """D-RPT-17: a line report carrying only `product_id` shows a UUID.
+
+    Both reports answer goods-receipt lines, which name the product by id
+    alone, so the screen had nothing a person could read. The names come from
+    one read per table however long the report is.
+    """
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-NAMES")
+    service = GoodsReceiptService(session)
+    payload = fixture.receipt_payload("4")
+    payload.lines[0].damaged_quantity = Decimal("1")
+    payload.lines[0].rejected_quantity = Decimal("1")
+    receipt = service.create_receipt(
+        payload, firm_id=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    service.complete_receipt(
+        receipt.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+
+    for lines in (
+        service.damaged_items(firm_scope=fixture.firm.id),
+        service.rejected_items(firm_scope=fixture.firm.id),
+    ):
+        [row] = service.line_report_rows(lines)
+        assert row.product_id == fixture.product.id
+        assert (row.product_code, row.product_name) == (
+            fixture.product.code,
+            fixture.product.name,
+        )
+        assert row.warehouse_name == fixture.warehouse.name
+    assert service.line_report_rows([]) == []
+
+
+def test_orders_part_received_name_the_supplier_branch_and_warehouse() -> None:
+    """The report answered a branch and a warehouse as UUIDs (D-RPT-17)."""
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-PARTNAMES")
+    _approve(fixture)
+    service = GoodsReceiptService(session)
+    receipt = service.create_receipt(
+        fixture.receipt_payload("4"), firm_id=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    service.complete_receipt(
+        receipt.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+
+    [row] = service.partially_received_purchase_orders(firm_scope=fixture.firm.id)
+
+    assert row.vendor_name == fixture.vendor.display_name
+    assert (row.branch_id, row.branch_name) == (
+        fixture.branch.id,
+        fixture.branch.name,
+    )
+    assert (row.warehouse_id, row.warehouse_name) == (
+        fixture.warehouse.id,
+        fixture.warehouse.name,
+    )

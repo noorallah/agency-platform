@@ -2902,3 +2902,33 @@ def test_the_reconciliation_counts_the_invoices_that_still_stand() -> None:
 
     service.cancel_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
     assert service.reconciliation_report(firm_scope=firm.id) == []
+
+
+def test_the_register_and_reconciliation_name_what_they_identify() -> None:
+    """D-RPT-17: the grid derives its columns from the row.
+
+    The register answered `customer_id` and `branch_id`, and the
+    reconciliation `product_id`, with nothing to read any of them by -- so
+    both screens showed UUIDs where a name belongs.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=uuid4()
+    )
+    service, _invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)
+    customer = session.scalar(select(Customer).where(Customer.firm_id == firm.id))
+    branch = session.scalar(select(Branch).where(Branch.firm_id == firm.id))
+    product = session.scalar(select(Product).where(Product.firm_id == firm.id))
+    assert customer is not None and branch is not None and product is not None
+
+    [record] = service.register_report(firm_scope=firm.id)
+    assert (record.customer_id, record.customer_name) == (
+        customer.id,
+        customer.display_name,
+    )
+    assert (record.branch_id, record.branch_name) == (branch.id, branch.name)
+
+    [row] = service.reconciliation_report(firm_scope=firm.id)
+    assert row.product_id == product.id
+    assert (row.product_code, row.product_name) == (product.code, product.name)

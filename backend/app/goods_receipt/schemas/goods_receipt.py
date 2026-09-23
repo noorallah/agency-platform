@@ -155,6 +155,13 @@ class GoodsReceiptLineResponse(GoodsReceiptSchema):
     purchase_order_line_id: UUID
     purchase_order_line_number: int
     product_id: UUID
+    #: Filled by the rejected and damaged reports, which answer these lines
+    #: and had no column a person could read the product by (D-RPT-17). A
+    #: whole receipt names its products on its own lines, so they stay
+    #: optional rather than forcing a read on every document response.
+    product_code: str | None = None
+    product_name: str | None = None
+    warehouse_name: str | None = None
     ordered_quantity: Decimal
     previously_received_quantity: Decimal
     current_receipt_quantity: Decimal
@@ -263,6 +270,9 @@ class GoodsReceiptRegisterRecord(GoodsReceiptSchema):
     vendor_id: UUID
     vendor_name: str
     warehouse_id: UUID
+    #: Named as well as identified, in the same read that names the vendor:
+    #: the grid derives its columns from the row (D-RPT-17).
+    warehouse_name: str
     status: str
     total_current_receipt_quantity: Decimal
     total_accepted_quantity: Decimal
@@ -292,7 +302,11 @@ class GoodsReceiptPurchaseOrderReport(GoodsReceiptSchema):
     vendor_id: UUID
     vendor_name: str
     branch_id: UUID
+    #: The branch and the warehouse named as well as identified, one read
+    #: each for the whole report (D-RPT-17).
+    branch_name: str
     warehouse_id: UUID
+    warehouse_name: str
     ordered_quantity: Decimal
     received_quantity: Decimal
     pending_quantity: Decimal

@@ -853,3 +853,120 @@ def test_an_order_remembers_the_delivery_charge_an_offer_waived() -> None:
 
     assert edited.freight_amount == Decimal("150.0000")
     assert edited.freight_waived_amount == Decimal("0.0000")
+
+
+def test_the_register_names_every_id_it_carries() -> None:
+    """D-RPT-17: the grid derives its columns from the row.
+
+    The register answered `customer_id`, `salesman_id`, `territory_id`,
+    `branch_id` and `warehouse_id` and nothing to read any of them by, so the
+    screen showed five columns of UUIDs. The salespeople are read from the
+    store holding `users`, which is the platform one outside SQLite.
+    """
+    from app.identity.models import User, UserFirm
+    from app.sales.models import SalesTerritoryNode
+
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    service = SalesOrderService(session)
+
+    seller = User(
+        email="asha@register.example.com",
+        full_name="Asha Rao",
+        password_hash="x",
+        is_active=True,
+    )
+    session.add(seller)
+    session.flush()
+    session.add(UserFirm(user_id=seller.id, firm_id=firm.id, is_active=True))
+    territory = SalesTerritoryNode(
+        firm_id=firm.id,
+        hierarchy_level_id=uuid4(),
+        code="RT-01",
+        name="North City Route",
+        path="RT-01",
+    )
+    session.add(territory)
+    session.commit()
+
+    row = service.create_order(
+        SalesOrderCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            order_date=date(2026, 9, 21),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=product.id,
+                    quantity=Decimal("1"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+    row.salesman_id = seller.id
+    row.territory_id = territory.id
+    session.commit()
+
+    register = service.register_report(firm_scope=firm.id)
+
+    assert len(register) == 1
+    record = register[0]
+    assert (record.customer_id, record.customer_name) == (
+        customer.id,
+        customer.display_name,
+    )
+    assert (record.salesman_id, record.salesman_name) == (seller.id, "Asha Rao")
+    assert (record.territory_id, record.territory_name) == (
+        territory.id,
+        "North City Route",
+    )
+    assert (record.branch_id, record.branch_name) == (branch.id, branch.name)
+    assert (record.warehouse_id, record.warehouse_name) == (
+        warehouse.id,
+        warehouse.name,
+    )
+
+
+def test_the_register_leaves_an_unassigned_order_unnamed() -> None:
+    """A name is ``None`` only where the id itself is (D-RPT-17)."""
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    service = SalesOrderService(session)
+
+    service.create_order(
+        SalesOrderCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            order_date=date(2026, 9, 21),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=product.id,
+                    quantity=Decimal("1"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+    session.commit()
+
+    record = service.register_report(firm_scope=firm.id)[0]
+
+    assert (record.salesman_id, record.salesman_name) == (None, None)
+    assert (record.territory_id, record.territory_name) == (None, None)
+    assert record.customer_name == customer.display_name

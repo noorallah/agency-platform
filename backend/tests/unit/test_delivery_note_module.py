@@ -2355,6 +2355,52 @@ def test_the_delivery_reports_count_what_left_the_warehouse() -> None:
     assert progress() == (Decimal("4.0000"), Decimal("6.0000"), "PARTIAL")
 
 
+def test_the_register_names_the_customer_branch_and_warehouse() -> None:
+    """D-RPT-17: the grid derives its columns from the row.
+
+    The register answered `customer_id`, `branch_id` and `warehouse_id` with
+    nothing to read them by, so the screen showed three columns of UUIDs.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+    _stock(session, firm=firm, branch=branch, warehouse=warehouse, product=product)
+    order, order_line = _approved_order(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+        quantity=Decimal("4"),
+        actor_id=actor_id,
+    )
+    _approved_note(
+        session,
+        firm=firm,
+        order=order,
+        order_line=order_line,
+        quantity=Decimal("4"),
+        actor_id=actor_id,
+    )
+
+    [record] = DeliveryNoteService(session).register_report(firm_scope=firm.id)
+
+    assert (record.customer_id, record.customer_name) == (
+        customer.id,
+        customer.display_name,
+    )
+    assert (record.branch_id, record.branch_name) == (branch.id, branch.name)
+    assert (record.warehouse_id, record.warehouse_name) == (
+        warehouse.id,
+        warehouse.name,
+    )
+
+
 def test_a_back_order_is_a_live_shortfall_on_an_open_order() -> None:
     """Judged on today's stock and the order's life, not on the day it was typed.
 

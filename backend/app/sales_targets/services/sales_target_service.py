@@ -31,6 +31,7 @@ from sqlalchemy.orm import Session
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
+from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_money
 from app.sales.models import SalesTerritoryNode
 from app.sales_targets.models import SalesTarget
@@ -103,6 +104,25 @@ _REQUIRED: frozenset[str] = frozenset(
 def _audit_value(value: object) -> object:
     """Render one column for the audit row: JSON-safe, and ``None`` as itself."""
     return None if value is None else str(value)
+
+
+def _snapshot(row: SalesTarget) -> dict[str, object]:
+    """Describe a whole target for the audit trail.
+
+    `.created` recorded the start date and the amount and `.deleted` the
+    amount alone, so neither said whose number it was, over what period or on
+    what basis -- and a target is nothing but its scope, its period and its
+    number (D-TER-16). The columns and the renderer are the update's, so the
+    three rows read the same way.
+
+    Args:
+        row: The target.
+
+    Returns:
+        Every column an update may touch, JSON-safe.
+
+    """
+    return {field: _audit_value(getattr(row, field)) for field in _COLUMNS}
 
 
 def _optional_uuid(value: object) -> UUID | None:
@@ -202,10 +222,7 @@ class SalesTargetService:
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_id,
-            after_data={
-                "period_start": str(row.period_start),
-                "target_amount": str(row.target_amount),
-            },
+            after_data=_snapshot(row),
         )
         self._session.commit()
         return row
@@ -299,9 +316,19 @@ class SalesTargetService:
     def delete_target(
         self, target_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> None:
-        """Withdraw one target without forgetting it was set."""
+        """Withdraw one target without forgetting it was set.
+
+        `deleted_at` and `deleted_by` were left NULL, which every other soft
+        delete on this platform fills: the row said it had gone and neither
+        when nor at whose hand (D-TER-16). The audit row carries the whole
+        target for the same reason -- the amount alone does not say whose
+        number it was or over what period.
+        """
         row = self.get_target(target_id, firm_scope=firm_scope)
+        before = _snapshot(row)
         row.is_deleted = True
+        row.deleted_at = utc_now()
+        row.deleted_by = actor_id
         row.updated_by = actor_id
         record_audit(
             self._session,
@@ -310,7 +337,7 @@ class SalesTargetService:
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
-            before_data={"target_amount": str(row.target_amount)},
+            before_data=before,
         )
         self._session.commit()
 

@@ -304,3 +304,63 @@ def test_a_bulk_assignment_refuses_a_customer_from_another_firm() -> None:
         )
         is None
     )
+
+
+def _retire(session: Session, territory_id: UUID) -> None:
+    """Put one node in the bin the way `delete_territory` leaves it."""
+    node = session.get(SalesTerritoryNode, territory_id)
+    assert node is not None
+    node.is_deleted = True
+    session.commit()
+
+
+def test_a_bulk_status_change_refuses_a_territory_in_the_bin() -> None:
+    """Both bulk writers loaded with ``include_deleted=True`` and then wrote.
+
+    A node in the recycle bin was restatused and reparented by the batch and
+    left deleted, so the change reached nothing anybody could see (D-TER-14).
+    """
+    session = _session_factory()()
+    firm = _firm(session, "BULK9")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    route = _node(service, firm.id, actor, "RT01")
+    _retire(session, route)
+
+    with pytest.raises(ValidationError, match="Restore it"):
+        service.bulk_status_change(
+            TerritoryBulkStatusRequest(
+                territory_ids=[route], status=TerritoryStatus.INACTIVE
+            ),
+            firm_scope=firm.id,
+            actor_id=actor,
+        )
+
+    session.rollback()
+    node = session.get(SalesTerritoryNode, route)
+    assert node is not None
+    assert node.status == TerritoryStatus.ACTIVE.value
+
+
+def test_a_bulk_move_refuses_a_territory_in_the_bin() -> None:
+    """A move that leaves the node in the bin is a move nobody can see."""
+    session = _session_factory()()
+    firm = _firm(session, "BULK10")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    region = _node(service, firm.id, actor, "RG01")
+    child = _node(service, firm.id, actor, "RT01", level=1, parent_id=region)
+    other = _node(service, firm.id, actor, "RG02")
+    _retire(session, child)
+
+    with pytest.raises(ValidationError, match="Restore it"):
+        service.bulk_move(
+            TerritoryBulkMoveRequest(territory_ids=[child], new_parent_id=other),
+            firm_scope=firm.id,
+            actor_id=actor,
+        )
+
+    session.rollback()
+    node = session.get(SalesTerritoryNode, child)
+    assert node is not None
+    assert node.parent_id == region

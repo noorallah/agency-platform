@@ -3,6 +3,7 @@
 # ruff: noqa: D103
 
 from datetime import date
+from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
@@ -20,6 +21,7 @@ from app.core.database.base import Base
 from app.core.enums import TokenType
 from app.core.exceptions import (
     AuthorizationError,
+    ConflictError,
     ResourceNotFoundError,
     ValidationError,
 )
@@ -38,6 +40,8 @@ from app.sales.schemas import (
     TerritoryUpdate,
 )
 from app.sales.schemas.territory import (
+    BeatPlanCreate,
+    BeatPlanType,
     HierarchyLevelInput,
     HierarchyUpdateRequest,
     RouteProfileInput,
@@ -47,6 +51,7 @@ from app.sales.schemas.territory import (
     VisitFrequency,
 )
 from app.sales.services import SalesTerritoryService
+from app.sales_targets.models import SalesTarget
 
 
 def _firm_scope(
@@ -385,6 +390,163 @@ def test_territory_hierarchy_update_reuses_existing_levels() -> None:
         "CIRCLE",
         "ROUTE",
     ]
+    # The row carried nothing on either side, so the one screen that renames
+    # a firm's levels left no record of what they had been called (D-TER-16).
+    audit = session.scalars(
+        select(AuditLog).where(AuditLog.action == "sales_territory.hierarchy.updated")
+    ).one()
+    assert audit.before_data is not None
+    assert [level["level_code"] for level in audit.before_data["levels"]] == [
+        "REGION",
+        "TERRITORY",
+        "ROUTE",
+    ]
+    assert audit.after_data is not None
+    assert [level["level_code"] for level in audit.after_data["levels"]] == [
+        "STATE",
+        "CITY",
+        "CIRCLE",
+        "ROUTE",
+    ]
+
+
+def test_the_trail_names_the_node_that_was_renamed_deleted_and_restored() -> None:
+    """Three rows that used to say a node had changed and not which one.
+
+    `.updated` records the code it had, `.deleted` the whole node as it
+    stood, and `.restored` what came back (D-TER-16).
+    """
+    session = _session_factory()()
+    firm = _firm(session, "TRAIL")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    hierarchy = service.get_hierarchy(firm_scope=firm.id, actor_id=actor)
+    node = service.create_territory(
+        TerritoryCreate(
+            code="OLD", name="Old", hierarchy_level_id=hierarchy.levels[0].id
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+
+    service.update_territory(
+        node.id, TerritoryUpdate(code="NEW"), firm_scope=firm.id, actor_id=actor
+    )
+    service.delete_territory(node.id, firm_scope=firm.id, actor_id=actor)
+    service.restore_territory(node.id, firm_scope=firm.id, actor_id=actor)
+
+    def one(action: str) -> AuditLog:
+        return session.scalars(select(AuditLog).where(AuditLog.action == action)).one()
+
+    renamed = one("sales_territory.updated")
+    assert renamed.before_data is not None
+    assert renamed.before_data["code"] == "OLD"
+    assert renamed.after_data is not None
+    assert renamed.after_data["code"] == "NEW"
+    deleted = one("sales_territory.deleted")
+    assert deleted.before_data is not None
+    assert deleted.before_data["code"] == "NEW"
+    restored = one("sales_territory.restored")
+    assert restored.before_data == {"is_deleted": True}
+    assert restored.after_data is not None
+    assert restored.after_data["code"] == "NEW"
+
+
+def test_a_code_a_retired_node_still_holds_is_refused_by_name() -> None:
+    """`UQ_sales_territories_firm_code` covers deleted rows; the check did not.
+
+    Reusing the code of a node in the bin passed the service and came back as
+    the database's bare 409, naming neither the column nor the node holding
+    it (D-TER-16).
+    """
+    session = _session_factory()()
+    firm = _firm(session, "RECODE")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    hierarchy = service.get_hierarchy(firm_scope=firm.id, actor_id=actor)
+    node = service.create_territory(
+        TerritoryCreate(
+            code="RT01", name="One", hierarchy_level_id=hierarchy.levels[0].id
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    service.delete_territory(node.id, firm_scope=firm.id, actor_id=actor)
+
+    with pytest.raises(ConflictError, match="A deleted territory holds the code"):
+        service.create_territory(
+            TerritoryCreate(
+                code="RT01", name="Two", hierarchy_level_id=hierarchy.levels[0].id
+            ),
+            firm_scope=firm.id,
+            actor_id=actor,
+        )
+
+
+def test_the_assignment_rows_name_who_joined_and_who_left() -> None:
+    """Both recorded a count, so who moved was on no trail at all (D-TER-16)."""
+    session = _session_factory()()
+    firm = _firm(session, "WHOMOVED")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    hierarchy = service.get_hierarchy(firm_scope=firm.id, actor_id=actor)
+    route = service.create_territory(
+        TerritoryCreate(
+            code="RT01", name="Round", hierarchy_level_id=hierarchy.levels[0].id
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    first = Customer(
+        firm_id=firm.id,
+        code="C1",
+        customer_type="BUSINESS",
+        name="One",
+        display_name="One",
+        currency_code="INR",
+        status="ACTIVE",
+    )
+    second = Customer(
+        firm_id=firm.id,
+        code="C2",
+        customer_type="BUSINESS",
+        name="Two",
+        display_name="Two",
+        currency_code="INR",
+        status="ACTIVE",
+    )
+    session.add_all([first, second])
+    session.commit()
+
+    service.set_customers(
+        route.id,
+        TerritoryAssignCustomersRequest(customer_ids=[first.id]),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    service.set_customers(
+        route.id,
+        TerritoryAssignCustomersRequest(customer_ids=[second.id]),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+
+    rows = list(
+        session.scalars(
+            select(AuditLog)
+            .where(AuditLog.action == "sales_territory.customers_set")
+            .order_by(AuditLog.created_at.asc(), AuditLog.id.asc())
+        )
+    )
+    swapped = next(
+        row
+        for row in rows
+        if row.after_data is not None and row.after_data["added"] == [str(second.id)]
+    )
+    assert swapped.after_data is not None
+    assert swapped.after_data["removed"] == [str(first.id)]
+    assert swapped.before_data is not None
+    assert swapped.before_data["ids"] == [str(first.id)]
 
 
 def test_bulk_territory_changes_are_audited_per_territory() -> None:
@@ -627,3 +789,111 @@ def test_a_copy_refused_partway_writes_nothing(
 
     assert len(calls) == 3
     assert _count_nodes(session, firm.id) == before
+
+
+def _route_node(
+    service: SalesTerritoryService, firm_id: UUID, actor: UUID, code: str
+) -> UUID:
+    """Create one top-level node that is a round, so a plan may target it."""
+    hierarchy = service.get_hierarchy(firm_scope=firm_id, actor_id=actor)
+    created = service.create_territory(
+        TerritoryCreate(
+            code=code,
+            name=f"{code} node",
+            hierarchy_level_id=hierarchy.levels[0].id,
+            route_profile=RouteProfileInput(visit_frequency=VisitFrequency.WEEKLY),
+        ),
+        firm_scope=firm_id,
+        actor_id=actor,
+    )
+    return created.id
+
+
+def test_a_route_cannot_be_deleted_under_a_live_beat_plan() -> None:
+    """`delete_territory` looked for children, customers and salespeople only.
+
+    A round went into the bin with its plan still live, and the call list went
+    on reporting the plan as running (D-TER-14). The refusal names the plan,
+    because "cannot delete" without saying what is holding it is a dead end.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "DELPLAN")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    route = _route_node(service, firm.id, actor, "RT01")
+    service.create_beat_plan(
+        BeatPlanCreate(
+            code="BP01",
+            name="Monday round",
+            territory_id=route,
+            plan_type=BeatPlanType.WEEKLY,
+            weekday=1,
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+
+    with pytest.raises(ValidationError, match="BP01"):
+        service.delete_territory(route, firm_scope=firm.id, actor_id=actor)
+
+    session.rollback()
+    node = session.get(SalesTerritoryNode, route)
+    assert node is not None
+    assert node.is_deleted is False
+
+
+def test_a_route_cannot_be_deleted_under_a_live_sales_target() -> None:
+    """A target naming the node stayed in the achievement report (D-TER-14)."""
+    session = _session_factory()()
+    firm = _firm(session, "DELTGT")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    route = _route_node(service, firm.id, actor, "RT01")
+    session.add(
+        SalesTarget(
+            firm_id=firm.id,
+            territory_id=route,
+            period_start=date(2026, 4, 1),
+            period_end=date(2026, 4, 30),
+            target_amount=Decimal("1000"),
+            created_by=actor,
+            updated_by=actor,
+        )
+    )
+    session.commit()
+
+    with pytest.raises(ValidationError, match="2026-04-01 to 2026-04-30"):
+        service.delete_territory(route, firm_scope=firm.id, actor_id=actor)
+
+    session.rollback()
+    node = session.get(SalesTerritoryNode, route)
+    assert node is not None
+    assert node.is_deleted is False
+
+
+def test_a_territory_in_the_bin_refuses_to_be_renamed() -> None:
+    """`update_territory` loaded with ``include_deleted=True`` and then wrote.
+
+    A PUT renamed a node that was in the recycle bin and left it there, so the
+    new name reached no screen and the old one was gone (D-TER-14).
+    """
+    session = _session_factory()()
+    firm = _firm(session, "DELEDIT")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    node_id = _route_node(service, firm.id, actor, "RT01")
+    service.delete_territory(node_id, firm_scope=firm.id, actor_id=actor)
+
+    with pytest.raises(ValidationError, match="Restore it"):
+        service.update_territory(
+            node_id,
+            TerritoryUpdate(code="RT02"),
+            firm_scope=firm.id,
+            actor_id=actor,
+        )
+
+    session.rollback()
+    node = session.get(SalesTerritoryNode, node_id)
+    assert node is not None
+    assert node.code == "RT01"
+    assert node.is_deleted is True
