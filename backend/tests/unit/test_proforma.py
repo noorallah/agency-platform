@@ -33,7 +33,9 @@ from app.products.models import Product
 from app.proforma.models import ProformaInvoice, ProformaStatus
 from app.proforma.schemas import ProformaCreate, ProformaUpdate
 from app.proforma.services import ProformaService
+from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_order.models import SalesOrder, SalesOrderLine
+from app.settlements.models import Settlement
 
 # Fixtures here type their document numbers; see conftest (D-CFG-2).
 pytestmark = pytest.mark.typed_document_numbers
@@ -524,3 +526,113 @@ def test_an_expired_proforma_is_reported_rather_than_dropped() -> None:
     assert len(outstanding) == 1
     assert outstanding[0].days_to_expiry is not None
     assert outstanding[0].days_to_expiry < 0
+
+
+def _receipt_against(books: _Books, order: SalesOrder, amount: str) -> None:
+    """Record a posted receipt naming the order, as Record Receipt does."""
+    books.session.add(
+        Settlement(
+            firm_id=books.firm.id,
+            direction="RECEIPT",
+            customer_id=books.customer.id,
+            settlement_number=f"RC-{uuid4().hex[:6].upper()}",
+            settlement_date=WHEN,
+            amount=Decimal(amount),
+            allocated_amount=Decimal("0"),
+            unallocated_amount=Decimal(amount),
+            method="BANK",
+            ledger_account_id=uuid4(),
+            journal_entry_id=uuid4(),
+            status="POSTED",
+            sales_order_id=order.id,
+            created_by=books.actor_id,
+            updated_by=books.actor_id,
+        )
+    )
+    books.session.commit()
+
+
+def _invoice_for(books: _Books, order: SalesOrder, status: str) -> SalesInvoice:
+    """Raise a tax invoice straight off the order, in the status given."""
+    invoice = SalesInvoice(
+        firm_id=books.firm.id,
+        customer_id=books.customer.id,
+        branch_id=books.branch.id,
+        invoice_number=f"SI-{uuid4().hex[:6].upper()}",
+        invoice_date=WHEN,
+        status=status,
+        grand_total=Decimal("1003"),
+        created_by=books.actor_id,
+        updated_by=books.actor_id,
+    )
+    books.session.add(invoice)
+    books.session.flush()
+    line = books.session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
+    )
+    assert line is not None
+    books.session.add(
+        SalesInvoiceLine(
+            sales_invoice_id=invoice.id,
+            firm_id=books.firm.id,
+            line_number=1,
+            source_document_type="SALES_ORDER",
+            source_document_id=order.id,
+            source_document_number=order.order_number,
+            source_document_line_id=line.id,
+            source_document_line_number=1,
+            product_id=books.product.id,
+            delivered_quantity=Decimal("10"),
+            already_invoiced_quantity=Decimal("0"),
+            current_invoice_quantity=Decimal("10"),
+            unit_price=Decimal("100"),
+            created_by=books.actor_id,
+            updated_by=books.actor_id,
+        )
+    )
+    books.session.commit()
+    return invoice
+
+
+def test_a_proforma_awaits_payment_until_its_order_is_paid_or_billed() -> None:
+    """Nothing moves a proforma after issue, so its order says whether it is done.
+
+    Every issued, un-superseded proforma ever was listed as awaiting payment,
+    paid and billed ones included -- 16 of WHOLE01's 18 on delivered orders,
+    and PF-2026-2027-000001 on a collected order (D-RPT-11). A posted receipt
+    naming the order that covers the total, or a live tax invoice for the
+    order, settles it; a cancelled invoice and a part payment do not.
+    """
+    books = _Books(_session_factory()())
+    service = ProformaService(books.session)
+    row = books.raise_proforma()
+    service.issue_proforma(row.id, firm_scope=books.firm.id, actor_id=books.actor_id)
+    books.session.refresh(row)
+    [pending] = service.outstanding_report(firm_scope=books.firm.id)
+    assert (pending.received_amount, pending.balance_due) == (
+        Decimal("0.00"),
+        row.grand_total.quantize(Decimal("0.01")),
+    )
+    assert pending.sales_order_status == "APPROVED"
+
+    _receipt_against(books, books.order, "500.00")
+    [pending] = service.outstanding_report(firm_scope=books.firm.id)
+    assert pending.received_amount == Decimal("500.00")
+    assert pending.balance_due == row.grand_total.quantize(Decimal("0.01")) - 500
+
+    cancelled = _invoice_for(books, books.order, "CANCELLED")
+    assert len(service.outstanding_report(firm_scope=books.firm.id)) == 1
+    assert cancelled.status == "CANCELLED"
+
+    _receipt_against(books, books.order, "600.00")
+    assert service.outstanding_report(firm_scope=books.firm.id) == []
+
+    # And a billed order settles its proforma on its own, money or not.
+    other = books._order()
+    second = books.raise_proforma(sales_order_id=other.id)
+    service.issue_proforma(second.id, firm_scope=books.firm.id, actor_id=books.actor_id)
+    assert [
+        r.proforma_id for r in service.outstanding_report(firm_scope=books.firm.id)
+    ] == [second.id]
+    _invoice_for(books, other, "APPROVED")
+    assert service.outstanding_report(firm_scope=books.firm.id) == []
