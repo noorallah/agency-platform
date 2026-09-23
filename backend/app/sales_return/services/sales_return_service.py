@@ -37,6 +37,7 @@ from app.batch_serial.services.serial_trail_service import (
 from app.branches.models import Warehouse
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
+from app.common.report_names import branch_names, customer_names, warehouse_names
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger
@@ -2144,20 +2145,14 @@ class SalesReturnService(TransactionalDocumentService):
     # ---- reports -------------------------------------------------------
 
     def register_report(self, *, firm_scope: UUID) -> list[SalesReturnRegisterRecord]:
-        """Every sales return raised, with what it was worth."""
-        return [
-            SalesReturnRegisterRecord(
-                return_id=row.id,
-                return_number=row.return_number,
-                customer_return_number=row.customer_return_number,
-                customer_id=row.customer_id,
-                branch_id=row.branch_id,
-                warehouse_id=row.warehouse_id,
-                return_date=row.return_date,
-                grand_total=row.grand_total,
-                status=SalesReturnStatus(row.status),
-            )
-            for row in self._session.scalars(
+        """Every sales return raised, with what it was worth.
+
+        Each id carries its name, in one read per table for the whole report:
+        the grid derives its columns from the row, so a register of ids alone
+        read as UUIDs (D-RPT-17).
+        """
+        rows = list(
+            self._session.scalars(
                 select(SalesReturn)
                 .where(
                     SalesReturn.firm_id == firm_scope,
@@ -2165,6 +2160,26 @@ class SalesReturnService(TransactionalDocumentService):
                 )
                 .order_by(SalesReturn.return_date.desc())
             ).all()
+        )
+        customers = customer_names(self._session, (row.customer_id for row in rows))
+        branches = branch_names(self._session, (row.branch_id for row in rows))
+        warehouses = warehouse_names(self._session, (row.warehouse_id for row in rows))
+        return [
+            SalesReturnRegisterRecord(
+                return_id=row.id,
+                return_number=row.return_number,
+                customer_return_number=row.customer_return_number,
+                customer_id=row.customer_id,
+                customer_name=customers.get(row.customer_id, str(row.customer_id)),
+                branch_id=row.branch_id,
+                branch_name=branches.get(row.branch_id, str(row.branch_id)),
+                warehouse_id=row.warehouse_id,
+                warehouse_name=warehouses.get(row.warehouse_id, str(row.warehouse_id)),
+                return_date=row.return_date,
+                grand_total=row.grand_total,
+                status=SalesReturnStatus(row.status),
+            )
+            for row in rows
         ]
 
     def by_customer_report(

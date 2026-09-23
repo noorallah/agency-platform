@@ -346,11 +346,10 @@ def rejected_goods_receipt_items(
     scope: GoodsReceiptReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GoodsReceiptLineResponse]]:
-    """Return goods receipt items."""
+    """Return the lines refused at the door, product and warehouse named."""
     service = GoodsReceiptService(db)
-    rows = service.rejected_items(firm_scope=scope.firm_id)
     return ApiResponse(
-        data=[GoodsReceiptLineResponse.model_validate(item) for item in rows]
+        data=service.line_report_rows(service.rejected_items(firm_scope=scope.firm_id))
     )
 
 
@@ -361,11 +360,10 @@ def damaged_goods_receipt_items(
     scope: GoodsReceiptReportScope,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[GoodsReceiptLineResponse]]:
-    """Return goods receipt items."""
+    """Return the lines damaged on arrival, product and warehouse named."""
     service = GoodsReceiptService(db)
-    rows = service.damaged_items(firm_scope=scope.firm_id)
     return ApiResponse(
-        data=[GoodsReceiptLineResponse.model_validate(item) for item in rows]
+        data=service.line_report_rows(service.damaged_items(firm_scope=scope.firm_id))
     )
 
 

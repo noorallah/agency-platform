@@ -324,8 +324,14 @@ class DeliveryNoteRegisterRecord(DeliveryNoteSchema):
     sales_order_id: UUID
     sales_order_number: str
     customer_id: UUID
+    #: Each id keeps a name beside it: the grid derives its columns from the
+    #: row, so a register of ids alone showed three columns of UUIDs
+    #: (D-RPT-17).
+    customer_name: str
     branch_id: UUID
+    branch_name: str
     warehouse_id: UUID
+    warehouse_name: str
     status: DeliveryNoteStatus
     grand_total: Decimal
 
