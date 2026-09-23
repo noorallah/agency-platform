@@ -551,6 +551,42 @@ def test_the_conversion_report_joins_what_was_offered_to_what_was_sold() -> None
     assert rows[0].converted_count == 1
     assert rows[0].converted_value == Decimal("400.0000")
     assert rows[0].declined_count == 1
+    assert (rows[0].expired_count, rows[0].open_count) == (0, 0)
+
+
+def test_the_conversion_report_counts_what_lapsed() -> None:
+    """An offer nobody answered before its date is lost too, and is counted.
+
+    The report called every non-cancelled quotation "quoted" and counted only
+    CONVERTED and DECLINED, so a SENT offer past `valid_until` was "quoted" and
+    nothing else and "how many lapsed" -- the catalogue's own description --
+    had no answer; the summary tile has counted it all along (D-RPT-12). A
+    past date is refused at write, so it is set on the row here.
+    """
+    session = _session_factory()()
+    setup = _Setup(session)
+    lapsed = setup.service.create_quotation(
+        setup.payload(quantity=Decimal("2")),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+    setup.service.send_quotation(
+        lapsed.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+    )
+    lapsed.valid_until = date(2026, 1, 1)
+    still_open = setup.service.create_quotation(
+        setup.payload(quantity=Decimal("3")),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+    session.commit()
+
+    [row] = setup.service.conversion_report(firm_scope=setup.firm.id)
+
+    assert row.quoted_count == 2
+    assert (row.expired_count, row.open_count) == (1, 1)
+    assert (row.converted_count, row.declined_count) == (0, 0)
+    assert still_open.valid_until > date(2026, 1, 1)
 
 
 def test_the_register_says_what_became_of_each_offer() -> None:
