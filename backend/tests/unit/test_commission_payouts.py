@@ -1065,3 +1065,78 @@ def test_an_advance_is_collected_the_day_it_meets_the_bill() -> None:
     [may] = books.accrue(MAY)
     assert may.measured_amount == Decimal("5000.00")
     assert may.earned_amount == Decimal("500.00")
+
+
+def test_the_payee_cannot_adjust_their_own_payout_and_the_adjuster_cannot_approve() -> (
+    None
+):
+    """The adjustment is the fourth signature (D-TER-20).
+
+    #580 stopped the payee approving or paying their own payout, but the
+    +5,000.00 "because" was still theirs to write, and the person who wrote
+    an adjustment could approve the number they had written.
+    """
+    books = _ready()
+    [payout] = books.accrue()
+    service = CommissionPayoutService(books.session)
+    change = CommissionPayoutUpdate(
+        adjustment_amount=Decimal("10.00"), adjustment_reason="rounding agreed"
+    )
+
+    with pytest.raises(AuthorizationError, match="your own"):
+        service.update_payout(
+            payout.id, change, firm_id=books.firm.id, actor_id=books.asha
+        )
+    books.session.rollback()
+
+    adjusted = service.update_payout(
+        payout.id, change, firm_id=books.firm.id, actor_id=books.approver_id
+    )
+    books.session.commit()
+    assert adjusted.adjusted_by == books.approver_id
+    with pytest.raises(AuthorizationError, match="adjusted"):
+        service.approve(payout.id, firm_id=books.firm.id, actor_id=books.approver_id)
+    books.session.rollback()
+
+    # Taking the adjustment back to zero withdraws the signature, and the
+    # same person may then approve the untouched number.
+    service.update_payout(
+        payout.id,
+        CommissionPayoutUpdate(adjustment_amount=Decimal("0")),
+        firm_id=books.firm.id,
+        actor_id=books.approver_id,
+    )
+    books.session.commit()
+    assert payout.adjusted_by is None
+    approved = service.approve(
+        payout.id, firm_id=books.firm.id, actor_id=books.approver_id
+    )
+    assert approved.status == CommissionPayoutStatus.APPROVED.value
+
+
+def test_an_adjustment_cannot_exceed_what_the_period_earned() -> None:
+    """A correction larger than what it corrects is a bonus, not a correction."""
+    books = _ready()
+    [payout] = books.accrue()
+    service = CommissionPayoutService(books.session)
+    earned = Decimal(str(payout.earned_amount))
+    assert earned > 0
+
+    with pytest.raises(ValidationError, match="exceeds"):
+        service.update_payout(
+            payout.id,
+            CommissionPayoutUpdate(
+                adjustment_amount=earned + Decimal("0.01"), adjustment_reason="bonus"
+            ),
+            firm_id=books.firm.id,
+            actor_id=books.approver_id,
+        )
+    books.session.rollback()
+
+    capped = service.update_payout(
+        payout.id,
+        CommissionPayoutUpdate(adjustment_amount=earned, adjustment_reason="doubled"),
+        firm_id=books.firm.id,
+        actor_id=books.approver_id,
+    )
+    assert Decimal(str(capped.payable_amount)) == (earned * 2).quantize(Decimal("0.01"))
