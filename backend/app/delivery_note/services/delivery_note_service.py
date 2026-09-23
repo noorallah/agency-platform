@@ -35,6 +35,7 @@ from app.core.utils.pricing import (
     resolve_bill_discount,
     resolve_line_discount,
 )
+from app.core.utils.report_labels import UNASSIGNED
 from app.customers.models import Customer
 from app.delivery_note.models import (
     DeliveryNote,
@@ -2453,7 +2454,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         quantities: dict[UUID | None, Decimal] = defaultdict(lambda: ZERO)
         values: dict[UUID | None, Decimal] = defaultdict(lambda: ZERO)
         counts: dict[UUID | None, int] = defaultdict(int)
-        labels: dict[UUID | None, str] = {None: "Unassigned"}
+        labels: dict[UUID | None, str] = {None: UNASSIGNED}
         # One grouped read of the quantities, not one per note.
         delivered_by_note: dict[UUID, Decimal] = {}
         if rows:
@@ -2471,39 +2472,38 @@ class DeliveryNoteService(TransactionalDocumentService):
                     .group_by(DeliveryNoteLine.delivery_note_id)
                 ).all()
             }
+        # Every name in one read for the whole report, whichever dimension it
+        # is grouped by: the route and warehouse labels used to cost one query
+        # per distinct key (D-RPT-19).
+        keys = {getattr(row, attr) for row in rows} - {None}
         if dimension == "salesman":
-            people = {getattr(row, attr) for row in rows} - {None}
-            for person, name in self._salesman_names(people).items():
-                labels[person] = name
+            for person, person_name in self._salesman_names(keys).items():
+                labels[person] = person_name
+        elif dimension == "route":
+            # A route profile has no name of its own -- it is a one-to-one
+            # extension of a territory, and the territory carries the name.
+            # Reading ``profile.name`` raised AttributeError for every firm
+            # that ran this report with a route on any note.
+            for profile_id, route_name in self._session.execute(
+                select(TerritoryRouteProfile.id, SalesTerritoryNode.name)
+                .join(
+                    SalesTerritoryNode,
+                    TerritoryRouteProfile.territory_id == SalesTerritoryNode.id,
+                )
+                .where(TerritoryRouteProfile.id.in_(keys))
+            ).all():
+                if route_name:
+                    labels[profile_id] = route_name
+        else:
+            for warehouse in self._session.scalars(
+                select(Warehouse).where(Warehouse.id.in_(keys))
+            ).all():
+                labels[warehouse.id] = warehouse.name
         for row in rows:
             key = getattr(row, attr)
             counts[key] += 1
             values[key] += row.grand_total
             quantities[key] += delivered_by_note.get(row.id, ZERO)
-            if key not in labels:
-                if dimension == "route":
-                    # A route profile has no name of its own -- it is a
-                    # one-to-one extension of a territory, and the territory
-                    # carries the name. Reading ``profile.name`` raised
-                    # AttributeError for every firm that ran this report with a
-                    # route on any note.
-                    route_name = self._session.scalar(
-                        select(SalesTerritoryNode.name)
-                        .join(
-                            TerritoryRouteProfile,
-                            TerritoryRouteProfile.territory_id == SalesTerritoryNode.id,
-                        )
-                        .where(TerritoryRouteProfile.id == key)
-                    )
-                    labels[key] = route_name or str(key)
-                elif dimension == "salesman":
-                    # Named above in one read; a departed member gets the id.
-                    labels[key] = str(key)
-                else:
-                    warehouse = self._session.scalar(
-                        select(Warehouse).where(Warehouse.id == key)
-                    )
-                    labels[key] = warehouse.name if warehouse is not None else str(key)
         return [
             DeliveryNoteByDimensionRecord(
                 dimension_id=key,

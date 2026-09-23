@@ -433,18 +433,27 @@ class SalesOrderByCustomerRecord(SalesOrderSchema):
 
 
 class SalesOrderBySalesmanRecord(SalesOrderSchema):
-    """One row of the sales order by salesman report."""
+    """One row of the sales order by salesman report.
 
-    salesman_id: UUID
+    ``salesman_id`` is ``None`` for the **Unassigned** bucket: an order
+    nobody is credited with used to fall out of the report altogether, so the
+    total could not be reconciled against the register (D-RPT-19).
+    """
+
+    salesman_id: UUID | None
     salesman_name: str
     order_count: int
     total_value: Decimal
 
 
 class SalesOrderByTerritoryRecord(SalesOrderSchema):
-    """One row of the sales order by territory report."""
+    """One row of the sales order by territory report.
 
-    territory_id: UUID
+    ``territory_id`` is ``None`` for the **Unassigned** bucket, for the same
+    reason as the by-salesman report (D-RPT-19).
+    """
+
+    territory_id: UUID | None
     territory_name: str
     order_count: int
     total_value: Decimal

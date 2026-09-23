@@ -1488,6 +1488,12 @@ class QuotationService(TransactionalDocumentService):
         The customer is named as well as identified: the grid derives its
         columns from the row, so a register carrying only ids showed a screen
         of UUIDs (D-RPT-17). One read for the whole report.
+
+        `is_expired` rides beside the status because expiry is a date rather
+        than a status: a SENT offer past `valid_until` still reads SENT, and
+        the register had nothing to say whether its prices still stood
+        (D-RPT-19). Derived by `is_expired`, the same rule the document's own
+        response and the conversion report use.
         """
         rows = list(
             self._session.scalars(
@@ -1509,6 +1515,7 @@ class QuotationService(TransactionalDocumentService):
                 quotation_date=row.quotation_date,
                 valid_until=row.valid_until,
                 status=QuotationStatus(row.status),
+                is_expired=self.is_expired(row),
                 grand_total=row.grand_total,
                 converted_sales_order_number=row.converted_sales_order_number,
             )

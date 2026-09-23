@@ -618,6 +618,29 @@ def test_the_register_names_the_customer_it_quoted() -> None:
     assert register[0].customer_name == setup.customer.display_name
 
 
+def test_the_register_says_whether_the_prices_still_stand() -> None:
+    """D-RPT-19: expiry is a date, and the register only showed the status.
+
+    A SENT offer past `valid_until` still reads SENT, so the register said
+    nothing about whether it could still be acted on -- the one question a
+    list of live offers is read to answer. `is_expired` rides beside the
+    status, derived the way the document's own response derives it.
+    """
+    session = _session_factory()()
+    setup = _Setup(session)
+    row = setup.accepted()
+
+    [record] = setup.service.register_report(firm_scope=setup.firm.id)
+    assert record.is_expired is False
+
+    row.valid_until = utc_now().date() - timedelta(days=1)
+    session.commit()
+
+    [lapsed] = setup.service.register_report(firm_scope=setup.firm.id)
+    assert lapsed.is_expired is True
+    assert lapsed.status == QuotationStatus.ACCEPTED, "the stored status is untouched"
+
+
 def test_the_response_answers_whether_it_can_still_be_converted() -> None:
     """Answered by the server so a client cannot disagree with it."""
     session = _session_factory()()

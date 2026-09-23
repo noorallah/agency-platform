@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi import Response
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, event, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -855,6 +855,37 @@ def test_an_order_remembers_the_delivery_charge_an_offer_waived() -> None:
     assert edited.freight_waived_amount == Decimal("0.0000")
 
 
+def _statements(session: Session) -> list[str]:
+    """Record every SQL statement this session's engine runs from now on.
+
+    The guard the by-* reports need is about **how many** reads a report
+    costs, which no assertion on its rows can express: the N+1 version
+    answered exactly the same rows (D-RPT-19).
+    """
+    seen: list[str] = []
+
+    def _record(
+        conn: object,
+        cursor: object,
+        statement: str,
+        parameters: object,
+        context: object,
+        executemany: bool,  # noqa: FBT001 - SQLAlchemy's own signature
+    ) -> None:
+        """Keep every statement the engine is handed."""
+        seen.append(statement)
+
+    event.listen(session.get_bind(), "before_cursor_execute", _record)
+    return seen
+
+
+def _lookups(statements: list[str], table: str) -> tuple[int, int]:
+    """Return how many reads of ``table`` are by one id, and how many by a set."""
+    one = sum(1 for text in statements if f"{table}.id = " in text)
+    many = sum(1 for text in statements if f"{table}.id IN " in text)
+    return one, many
+
+
 def test_the_register_names_every_id_it_carries() -> None:
     """D-RPT-17: the grid derives its columns from the row.
 
@@ -970,3 +1001,200 @@ def test_the_register_leaves_an_unassigned_order_unnamed() -> None:
     assert (record.salesman_id, record.salesman_name) == (None, None)
     assert (record.territory_id, record.territory_name) == (None, None)
     assert record.customer_name == customer.display_name
+
+
+def test_orders_by_customer_reads_the_names_once_and_by_display_name() -> None:
+    """D-RPT-19: one query per customer, and the wrong one of the two names.
+
+    The report looked a customer up inside the row loop -- one `select` per
+    distinct customer -- and read `Customer.name`, the legal name, where the
+    credit-note, return and loyalty reports all read `display_name`. The same
+    customer therefore appeared under two names on two screens.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    product = _product(session, firm_id=firm.id)
+    service = SalesOrderService(session)
+
+    first = _customer(session, firm_id=firm.id)
+    first.display_name = "Alpha Traders"
+    second = Customer(
+        firm_id=firm.id,
+        code="CUS-002",
+        customer_type="RETAIL",
+        name="Customer CUS-002",
+        display_name="Beta Stores",
+        currency_code="INR",
+        status="ACTIVE",
+        credit_limit=Decimal("50000"),
+        opening_balance=Decimal("0"),
+    )
+    session.add(second)
+    session.commit()
+
+    for customer in (first, second):
+        service.create_order(
+            SalesOrderCreate(
+                customer_id=customer.id,
+                branch_id=branch.id,
+                warehouse_id=warehouse.id,
+                order_date=date(2026, 9, 21),
+                lines=[
+                    SalesOrderLineWrite(
+                        line_number=1,
+                        product_id=product.id,
+                        quantity=Decimal("1"),
+                        unit_price=Decimal("100"),
+                    )
+                ],
+            ),
+            firm_id=firm.id,
+            actor_id=uuid4(),
+        )
+    session.commit()
+
+    statements = _statements(session)
+    rows = service.orders_by_customer(firm_scope=firm.id)
+
+    assert [row.customer_name for row in rows] == ["Alpha Traders", "Beta Stores"]
+    assert _lookups(statements, "customers") == (0, 1), "one read, not one per customer"
+
+
+def test_orders_with_nobody_credited_are_unassigned_rather_than_absent() -> None:
+    """D-RPT-19: the by-* reports must total to the register.
+
+    The order reports filtered `salesman_id IS NOT NULL` and
+    `territory_id IS NOT NULL`, so an order nobody is credited with fell out
+    of the report altogether and the totals could not be reconciled. The
+    delivery-note by-* reports have always said "Unassigned".
+    """
+    from app.identity.models import User, UserFirm
+    from app.sales.models import SalesTerritoryNode
+
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    service = SalesOrderService(session)
+
+    seller = User(
+        email="asha@buckets.example.com",
+        full_name="Asha Rao",
+        password_hash="x",
+        is_active=True,
+    )
+    session.add(seller)
+    session.flush()
+    session.add(UserFirm(user_id=seller.id, firm_id=firm.id, is_active=True))
+    territory = SalesTerritoryNode(
+        firm_id=firm.id,
+        hierarchy_level_id=uuid4(),
+        code="RT-01",
+        name="North City Route",
+        path="RT-01",
+    )
+    session.add(territory)
+    session.commit()
+
+    def _order(value: str) -> SalesOrder:
+        return service.create_order(
+            SalesOrderCreate(
+                customer_id=customer.id,
+                branch_id=branch.id,
+                warehouse_id=warehouse.id,
+                order_date=date(2026, 9, 21),
+                lines=[
+                    SalesOrderLineWrite(
+                        line_number=1,
+                        product_id=product.id,
+                        quantity=Decimal("1"),
+                        unit_price=Decimal(value),
+                    )
+                ],
+            ),
+            firm_id=firm.id,
+            actor_id=uuid4(),
+        )
+
+    credited = _order("100")
+    credited.salesman_id = seller.id
+    credited.territory_id = territory.id
+    _order("40")
+    session.commit()
+
+    by_salesman = {
+        row.salesman_name: row for row in service.orders_by_salesman(firm_scope=firm.id)
+    }
+    by_territory = {
+        row.territory_name: row
+        for row in service.orders_by_territory(firm_scope=firm.id)
+    }
+
+    assert set(by_salesman) == {"Asha Rao", "Unassigned"}
+    assert by_salesman["Unassigned"].salesman_id is None
+    assert by_salesman["Unassigned"].order_count == 1
+    assert set(by_territory) == {"North City Route", "Unassigned"}
+    assert by_territory["Unassigned"].territory_id is None
+    # Both reports now total to what the register holds.
+    assert sum(row.order_count for row in by_salesman.values()) == 2
+    assert sum(row.total_value for row in by_territory.values()) == sum(
+        record.grand_total for record in service.register_report(firm_scope=firm.id)
+    )
+
+
+def test_orders_by_territory_reads_its_names_once() -> None:
+    """One query per node is one query too many (D-RPT-19)."""
+    from app.sales.models import SalesTerritoryNode
+
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    service = SalesOrderService(session)
+
+    nodes = []
+    for index in (1, 2):
+        node = SalesTerritoryNode(
+            firm_id=firm.id,
+            hierarchy_level_id=uuid4(),
+            code=f"RT-0{index}",
+            name=f"Route {index}",
+            path=f"RT-0{index}",
+        )
+        session.add(node)
+        nodes.append(node)
+    session.commit()
+
+    for node in nodes:
+        row = service.create_order(
+            SalesOrderCreate(
+                customer_id=customer.id,
+                branch_id=branch.id,
+                warehouse_id=warehouse.id,
+                order_date=date(2026, 9, 21),
+                lines=[
+                    SalesOrderLineWrite(
+                        line_number=1,
+                        product_id=product.id,
+                        quantity=Decimal("1"),
+                        unit_price=Decimal("100"),
+                    )
+                ],
+            ),
+            firm_id=firm.id,
+            actor_id=uuid4(),
+        )
+        row.territory_id = node.id
+    session.commit()
+
+    statements = _statements(session)
+    rows = service.orders_by_territory(firm_scope=firm.id)
+
+    assert [row.territory_name for row in rows] == ["Route 1", "Route 2"]
+    assert _lookups(statements, "sales_territories") == (0, 1), "one read, not one each"
