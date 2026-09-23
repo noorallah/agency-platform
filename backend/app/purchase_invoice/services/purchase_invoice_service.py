@@ -6,6 +6,7 @@ import csv
 import io
 from collections import defaultdict
 from collections.abc import Sequence
+from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -44,6 +45,7 @@ from app.purchase_invoice.models import (
     PurchaseInvoiceAccountingEvent,
     PurchaseInvoiceAttachment,
     PurchaseInvoiceLine,
+    PurchaseInvoiceLineTax,
     PurchaseInvoiceNote,
     PurchaseInvoiceSource,
 )
@@ -55,6 +57,7 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceCreate,
     PurchaseInvoiceImportRequest,
     PurchaseInvoiceLineResponse,
+    PurchaseInvoiceLineTaxResponse,
     PurchaseInvoiceListFilters,
     PurchaseInvoiceNoteResponse,
     PurchaseInvoiceNoteWrite,
@@ -92,6 +95,29 @@ def _optional_uuid(value: object) -> UUID | None:
 def _required_uuid(value: object) -> UUID:
     """Read a UUID the line spec must carry."""
     return value if isinstance(value, UUID) else UUID(str(value))
+
+
+@dataclass(frozen=True, slots=True)
+class _LineTaxComponent:
+    """One tax component charged on one line, as the engine reported it."""
+
+    tax_component_id: UUID | None
+    code: str
+    label: str
+    percentage: Decimal
+    base_amount: Decimal
+    amount: Decimal
+    included_in_price: bool
+    recoverable: bool
+
+
+@dataclass(frozen=True, slots=True)
+class _LineTax:
+    """What the rule engine decided for one line, kept rather than discarded."""
+
+    profile_id: UUID | None
+    total: Decimal
+    components: list[_LineTaxComponent]
 
 
 class PurchaseInvoiceService(TransactionalDocumentService):
@@ -637,6 +663,22 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 .order_by(PurchaseInvoiceLine.line_number.asc())
             ).all()
         )
+        # Read for the whole invoice rather than per line: a bill with thirty
+        # lines would otherwise be thirty queries, the shape `values_for_many`
+        # exists to avoid.
+        taxes: dict[UUID, list[PurchaseInvoiceLineTax]] = defaultdict(list)
+        if lines:
+            for component in self._session.scalars(
+                select(PurchaseInvoiceLineTax)
+                .where(
+                    PurchaseInvoiceLineTax.purchase_invoice_line_id.in_(
+                        [item.id for item in lines]
+                    ),
+                    PurchaseInvoiceLineTax.is_deleted.is_(False),
+                )
+                .order_by(PurchaseInvoiceLineTax.sequence.asc())
+            ):
+                taxes[component.purchase_invoice_line_id].append(component)
         attachments = list(
             self._session.scalars(
                 select(PurchaseInvoiceAttachment).where(
@@ -700,7 +742,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             is_deleted=row.is_deleted,
             created_at=row.created_at,
             updated_at=row.updated_at,
-            lines=[self._line_response(item) for item in lines],
+            lines=[self._line_response(item, taxes[item.id]) for item in lines],
             sources=[self._source_response(item) for item in sources],
             attachments=[self._attachment_response(item) for item in attachments],
             notes=[self._note_response(item) for item in notes],
@@ -1037,6 +1079,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         business_profile_id: UUID | None,
         actor_id: UUID,
     ) -> dict[str, Decimal]:
+        self._delete_line_taxes(row.id)
         self._session.query(PurchaseInvoiceLine).filter(
             PurchaseInvoiceLine.purchase_invoice_id == row.id
         ).delete(synchronize_session=False)
@@ -1118,7 +1161,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 spec=spec, source_line=source_line, gross=gross_amount
             )
             discount_amount = line_discount.amount
-            tax_amount = self._tax_amount(
+            line_tax = self._resolve_tax(
                 invoice_date=invoice_date,
                 firm_id=firm_id,
                 business_profile_id=business_profile_id,
@@ -1135,6 +1178,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 ),
                 actor_id=actor_id,
             )
+            tax_amount = line_tax.total
             net_amount = self._q(
                 gross_amount - discount_amount + charges_amount + tax_amount
             )
@@ -1157,7 +1201,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 discount_amount=discount_amount,
                 charges_amount=charges_amount,
                 gross_amount=gross_amount,
-                tax_profile_id=_optional_uuid(spec.get("tax_profile_id")),
+                tax_profile_id=line_tax.profile_id,
                 tax_amount=tax_amount,
                 net_amount=net_amount,
                 packaging_type_id=spec.get("packaging_type_id"),
@@ -1176,6 +1220,29 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 updated_by=actor_id,
             )
             self._session.add(line)
+            # Flushed here so the components have a line id to hang from. The
+            # lines are rebuilt on every edit; `_delete_line_taxes` takes the
+            # components off first, because the bulk delete below bypasses the
+            # ORM cascade and SQLite enforces none.
+            self._session.flush()
+            for sequence, component in enumerate(line_tax.components, start=1):
+                self._session.add(
+                    PurchaseInvoiceLineTax(
+                        purchase_invoice_line_id=line.id,
+                        firm_id=firm_id,
+                        sequence=sequence,
+                        tax_component_id=component.tax_component_id,
+                        component_code=component.code,
+                        component_label=component.label,
+                        percentage=component.percentage,
+                        base_amount=component.base_amount,
+                        amount=component.amount,
+                        included_in_price=component.included_in_price,
+                        recoverable=component.recoverable,
+                        created_by=actor_id,
+                        updated_by=actor_id,
+                    )
+                )
             totals["total_source_quantity"] += source_quantity
             totals["total_already_invoiced_quantity"] += already_invoiced
             totals["total_current_invoice_quantity"] += invoice_quantity
@@ -1396,10 +1463,27 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                     "Every invoice line must reference a selected source document."
                 )
 
+    def _delete_line_taxes(self, invoice_id: UUID) -> None:
+        """Take the tax components off every line of one invoice.
+
+        The lines are removed with a bulk `query().delete()`, which never
+        loads them, so the ORM cascade does not fire; PostgreSQL's
+        `ondelete="CASCADE"` would take the components anyway, but SQLite
+        enforces no foreign keys under the unit suite and would leave them
+        orphaned. Deleting them by name first is the same on both.
+        """
+        line_ids = select(PurchaseInvoiceLine.id).where(
+            PurchaseInvoiceLine.purchase_invoice_id == invoice_id
+        )
+        self._session.query(PurchaseInvoiceLineTax).filter(
+            PurchaseInvoiceLineTax.purchase_invoice_line_id.in_(line_ids)
+        ).delete(synchronize_session=False)
+
     def _delete_children(self, invoice_id: UUID) -> None:
         self._session.query(PurchaseInvoiceAccountingEvent).filter(
             PurchaseInvoiceAccountingEvent.purchase_invoice_id == invoice_id
         ).delete(synchronize_session=False)
+        self._delete_line_taxes(invoice_id)
         self._session.query(PurchaseInvoiceLine).filter(
             PurchaseInvoiceLine.purchase_invoice_id == invoice_id
         ).delete(synchronize_session=False)
@@ -1413,7 +1497,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             PurchaseInvoiceNote.purchase_invoice_id == invoice_id
         ).delete(synchronize_session=False)
 
-    def _tax_amount(
+    def _resolve_tax(
         self,
         *,
         invoice_date: date,
@@ -1426,9 +1510,17 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         product_id: UUID,
         tax_profile_id: UUID | None,
         invoice_value: Decimal,
-    ) -> Decimal:
+    ) -> _LineTax:
+        """Work out the line's tax, and keep everything that decided it.
+
+        This used to return one number and discard the rest, which is why a
+        bill line recorded `tax_amount` and a NULL `tax_profile_id` -- the
+        profile it resolved was thrown away along with the component breakup.
+        The input-tax ledger and GSTR-3B need the breakup (D-CMP-20), so both
+        are returned and stored.
+        """
         if invoice_value <= ZERO:
-            return ZERO
+            return _LineTax(profile_id=tax_profile_id, total=ZERO, components=[])
         # A product names a tax group, not a version, so the rate is decided by
         # the document date. An explicitly named profile must also have been in
         # force then, or the document would carry a rate that never applied.
@@ -1443,7 +1535,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 else None
             )
             if resolved is None:
-                return ZERO
+                return _LineTax(profile_id=None, total=ZERO, components=[])
             tax_profile_id = resolved.id
         else:
             tax_service.assert_profile_effective_on(
@@ -1472,7 +1564,25 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             },
         )
         response = self._tax.simulate(request, firm_scope=firm_id, actor_id=actor_id)
-        return self._q(response.total_tax_amount)
+        return _LineTax(
+            # The resolved profile, not the one the caller sent: a client that
+            # names none still gets the product's, and the line should say so.
+            profile_id=response.applied_tax_profile_id or tax_profile_id,
+            total=self._q(response.total_tax_amount),
+            components=[
+                _LineTaxComponent(
+                    tax_component_id=component.tax_component_id,
+                    code=component.code,
+                    label=component.label,
+                    percentage=self._q(component.percentage),
+                    base_amount=self._q(response.base_amount),
+                    amount=self._q(component.amount),
+                    included_in_price=component.included_in_price,
+                    recoverable=component.recoverable,
+                )
+                for component in response.applied_components
+            ],
+        )
 
     def _source_quantity(
         self, spec: dict[str, object], source_line: SourceLine
@@ -1967,7 +2077,11 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             updated_at=row.updated_at,
         )
 
-    def _line_response(self, row: PurchaseInvoiceLine) -> PurchaseInvoiceLineResponse:
+    def _line_response(
+        self,
+        row: PurchaseInvoiceLine,
+        taxes: list[PurchaseInvoiceLineTax] | None = None,
+    ) -> PurchaseInvoiceLineResponse:
         return PurchaseInvoiceLineResponse(
             id=row.id,
             purchase_invoice_id=row.purchase_invoice_id,
@@ -2002,6 +2116,21 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             manufacturing_date=row.manufacturing_date,
             remarks=row.remarks,
             accounting_event_reference=row.accounting_event_reference,
+            taxes=[
+                PurchaseInvoiceLineTaxResponse(
+                    id=component.id,
+                    sequence=component.sequence,
+                    tax_component_id=component.tax_component_id,
+                    component_code=component.component_code,
+                    component_label=component.component_label,
+                    percentage=component.percentage,
+                    base_amount=component.base_amount,
+                    amount=component.amount,
+                    included_in_price=component.included_in_price,
+                    recoverable=component.recoverable,
+                )
+                for component in (taxes or [])
+            ],
             created_at=row.created_at,
             updated_at=row.updated_at,
         )

@@ -5,6 +5,7 @@ from app.purchase_invoice.models.purchase_invoice import (
     PurchaseInvoiceAccountingEvent,
     PurchaseInvoiceAttachment,
     PurchaseInvoiceLine,
+    PurchaseInvoiceLineTax,
     PurchaseInvoiceNote,
     PurchaseInvoiceSource,
 )
@@ -14,6 +15,7 @@ __all__ = [
     "PurchaseInvoiceAccountingEvent",
     "PurchaseInvoiceAttachment",
     "PurchaseInvoiceLine",
+    "PurchaseInvoiceLineTax",
     "PurchaseInvoiceNote",
     "PurchaseInvoiceSource",
 ]

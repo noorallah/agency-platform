@@ -205,6 +205,26 @@ class PurchaseInvoiceAccountingEventResponse(PurchaseInvoiceSchema):
     updated_at: datetime
 
 
+class PurchaseInvoiceLineTaxResponse(PurchaseInvoiceSchema):
+    """One tax component the line was charged, as it was charged.
+
+    Read from the bill rather than recomputed: rules are effective-dated, so
+    asking the engine again a year later can answer differently from what the
+    supplier charged, and the input credit claimed against it.
+    """
+
+    id: UUID
+    sequence: int
+    tax_component_id: UUID | None
+    component_code: str
+    component_label: str
+    percentage: Decimal
+    base_amount: Decimal
+    amount: Decimal
+    included_in_price: bool
+    recoverable: bool
+
+
 class PurchaseInvoiceLineResponse(PurchaseInvoiceSchema):
     """Return one purchase invoice line."""
 
@@ -241,6 +261,7 @@ class PurchaseInvoiceLineResponse(PurchaseInvoiceSchema):
     manufacturing_date: date | None
     remarks: str | None
     accounting_event_reference: str | None
+    taxes: list[PurchaseInvoiceLineTaxResponse] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
