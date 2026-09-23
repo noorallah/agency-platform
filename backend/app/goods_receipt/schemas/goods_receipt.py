@@ -266,10 +266,14 @@ class GoodsReceiptPurchaseOrderReport(GoodsReceiptSchema):
     purchase_order_id: UUID
     purchase_order_number: str
     vendor_id: UUID
+    vendor_name: str
     branch_id: UUID
     warehouse_id: UUID
     ordered_quantity: Decimal
     received_quantity: Decimal
     pending_quantity: Decimal
     receipt_count: int
+    #: The order's own status, which is PARTIALLY_RECEIVED for every row here
+    #: -- the report reads the orders the receiving side has moved there, so
+    #: it cannot disagree with them (D-RPT-14).
     status: str
