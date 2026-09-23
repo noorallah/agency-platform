@@ -18,10 +18,12 @@ stands on its own.
 
 import re
 from pathlib import Path
+from typing import get_args
 
 import pytest
 
-from app.search.services.search_service import _DEFINITIONS
+from app.search.schemas import SearchCategory
+from app.search.services.search_service import _CATEGORY_ENTITY_TYPES, _DEFINITIONS
 
 _CATALOG = (
     Path(__file__).resolve().parents[3]
@@ -30,6 +32,12 @@ _CATALOG = (
     / "ui"
     / "workspace"
     / "module_catalog.dart"
+)
+_SEARCH_DIALOG = _CATALOG.with_name("global_search.dart")
+#: One arm of the chip table: `(category: 'masters', entityTypes: const [...])`.
+_WIRE = re.compile(
+    r"\(\s*category:\s*'([^']+)',\s*entityTypes:\s*const\s*\[([^\]]*)\]",
+    re.DOTALL,
 )
 
 #: `id: AppModule.purchases,` opens each module block.
@@ -100,3 +108,32 @@ def test_a_purchase_order_result_opens_the_purchase_order_list() -> None:
     )
     assert definition.module == "purchases"
     assert definition.tab == "purchase-orders"
+
+
+@pytest.mark.skipif(not _SEARCH_DIALOG.exists(), reason="desktop tree not present")
+def test_search_chips_name_categories_the_server_accepts() -> None:
+    """Every chip the Ctrl+K dialog offers is a question this route answers.
+
+    The dialog offered fourteen chips and sent six of them -- Modules,
+    Customers, Vendors, Documents, Transactions, Reports -- as typed, which
+    `SearchCategory` refused with 422; the shell then fell back to an
+    inventory search, so "Customers" quietly answered with stock rows
+    (D-RPT-5). This reads the chip table and asks the schema and the
+    definitions about every value it sends.
+    """
+    wires = _WIRE.findall(_SEARCH_DIALOG.read_text(encoding="utf-8"))
+    assert len(wires) >= 5, "the chip table was not found in global_search.dart"
+    accepted = set(get_args(SearchCategory))
+    known_types = {definition.entity_type for definition in _DEFINITIONS}
+    for category, raw_types in wires:
+        assert category in accepted, f"chip sends category {category!r}"
+        types = {
+            item.strip().strip("'") for item in raw_types.split(",") if item.strip()
+        }
+        unknown = types - known_types
+        assert not unknown, f"chip names entity types nothing defines: {unknown}"
+        outside = types - _CATEGORY_ENTITY_TYPES[category]  # type: ignore[index]
+        assert not outside, (
+            f"chip narrows {category!r} to types the category does not hold, "
+            f"so the server would answer nothing: {outside}"
+        )
