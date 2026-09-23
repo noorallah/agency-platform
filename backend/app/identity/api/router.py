@@ -1,5 +1,6 @@
 """FastAPI routes for authentication, RBAC, user, and membership management."""
 
+from collections.abc import Callable
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -10,7 +11,7 @@ from app.api.dependencies.settings import get_request_settings
 from app.common.scope import FirmScope, optional_firm_scope
 from app.core.config.settings import Settings
 from app.core.constants import MAX_PAGE_SIZE
-from app.core.database.dependencies import get_db
+from app.core.database.dependencies import firm_store_session, get_db
 from app.core.exceptions import AuthorizationError, ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
@@ -56,6 +57,7 @@ from app.identity.schemas import (
     UserUpdate,
 )
 from app.identity.services import IdentityService
+from app.sales.services.assignment_lifecycle import retire_salesman_assignments
 
 router = APIRouter(prefix="/api/v1", responses=STANDARD_ERROR_RESPONSES)
 UserViewPrincipal = Annotated[Principal, Depends(require_permission("USER_VIEW"))]
@@ -94,6 +96,42 @@ def _actor_id(principal: Principal) -> UUID:
     if not isinstance(principal.subject, UUID):
         raise RuntimeError("Platform administration requires a user principal.")
     return principal.subject
+
+
+def _departure_handler(
+    request: Request, user_id: UUID, actor_id: UUID
+) -> Callable[[UUID], None]:
+    """Return what to run in a firm's own store when somebody leaves it.
+
+    `territory_salesman_assignments` lives in every firm's store and names the
+    person by a plain column no membership change reaches, so a departed
+    assignee stayed on the round's Salespeople tab and in the coverage report
+    (D-TER-17). The read side already skipped them (#575); this retires the
+    rows.
+
+    It lives in the router because only the transport layer can open another
+    firm's store -- `firm_store_session` needs the live request's tenancy
+    services -- and the service that ends the membership runs on the platform
+    session.
+
+    Args:
+        request: The live request, for the tenancy services.
+        user_id: The person leaving.
+        actor_id: Who ended the membership.
+
+    Returns:
+        A callable taking the firm they have left.
+
+    """
+
+    def retire(firm_id: UUID) -> None:
+        """Retire the person's rounds in one firm's store."""
+        with firm_store_session(request, firm_id) as store:
+            retire_salesman_assignments(
+                store, firm_id=firm_id, user_id=user_id, actor_id=actor_id
+            )
+
+    return retire
 
 
 def _firms_the_caller_may_staff(principal: Principal) -> frozenset[UUID] | None:
@@ -584,14 +622,19 @@ def update_user(
 )
 def delete_user(
     user_id: UUID,
+    request: Request,
     principal: UserDeletePrincipal,
     caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> Response:
     """Soft delete a user and revoke active refresh tokens."""
+    actor_id = _actor_id(principal)
     _service(db, settings).delete_user(
-        user_id, _actor_id(principal), _firm_scope(principal, caller_scope)
+        user_id,
+        actor_id,
+        _firm_scope(principal, caller_scope),
+        _departure_handler(request, user_id, actor_id),
     )
     return Response(status_code=status.HTTP_204_NO_CONTENT)
 
@@ -803,6 +846,7 @@ def list_user_firms(
 def set_user_firms(
     user_id: UUID,
     data: UserFirmAssignments,
+    request: Request,
     # `USER_UPDATE`, not the platform designation. It was the designation, on
     # the reasoning that which firms a person belongs to is a cross-firm fact
     # -- true, and it does not follow that only a platform administrator may
@@ -815,11 +859,13 @@ def set_user_firms(
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[list[UserFirmResponse]]:
     """Set a user's memberships among the firms this caller may staff."""
+    actor_id = _actor_id(principal)
     rows = _service(db, settings).set_user_firms(
         user_id,
         data.assignments,
-        _actor_id(principal),
+        actor_id,
         _firms_the_caller_may_staff(principal),
+        _departure_handler(request, user_id, actor_id),
     )
     return ApiResponse(data=[UserFirmResponse.model_validate(row) for row in rows])
 

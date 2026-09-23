@@ -6354,9 +6354,18 @@ is either `customer_ids` (membership only) or `entries`
   salesmen are not active firm members." The two hierarchy settings are
   applied: "… may have only one salesperson." and "A salesperson here is
   already on …".
-- **Nothing takes somebody off a round when they leave the firm.** Deleting a
-  user, or ending their membership, touches no firm store, so the assignment
-  stays live and goes on being derived on to new orders (§17.8, D-TER-11).
+- **Leaving the firm takes them off its rounds since #618.** `PUT
+  /users/{id}/firms` and `DELETE /users/{id}` open each departed firm's own
+  store (`firm_store_session`) and retire the person's
+  `territory_salesman_assignments` there, one
+  `sales_territory.salesman_retired` audit row per round in that firm's trail.
+  A membership switched off in place counts as much as one removed, because
+  `active_member_count` filters both. Until then the rows stayed live: #575
+  had fixed only the **read**, so a departed assignee was no longer derived on
+  to new orders (§17.8, D-TER-11) but the round's Salespeople tab went on
+  listing them (D-TER-17). The two writes are not one transaction and cannot
+  be -- they are different databases -- so the platform fact is committed
+  first and the firm stores follow it.
 - **Audit:** `sales_territory.salesmen_set` with `salesman_count`.
 - **Check** (the platform join works where the firm's store is in
   `agency_platform`):
