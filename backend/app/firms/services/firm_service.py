@@ -483,7 +483,11 @@ class FirmService:
 
         Nothing else stops it: the only uniqueness on ``firm_storage_mappings``
         is one row per firm, so two firms could name the same schema and read
-        each other's rows. Soft-deleted firms count — their data is still there.
+        each other's rows. Soft-deleted firms count -- their data is still
+        there -- and so do soft-deleted mapping rows: the check used to filter
+        ``is_deleted`` while saying the opposite, so a mapping retired by hand
+        would have handed its store to the next firm (D-IDN-11). Nothing here
+        drops a store, so nothing here may forget one.
         """
         schema_name = storage_payload["schema_name"]
         database_name = storage_payload["database_name"]
@@ -492,7 +496,6 @@ class FirmService:
         statement = select(FirmStorageMapping.id).where(
             FirmStorageMapping.schema_name == schema_name,
             FirmStorageMapping.database_name == database_name,
-            FirmStorageMapping.is_deleted.is_(False),
         )
         if current_firm_id is not None:
             statement = statement.where(FirmStorageMapping.firm_id != current_firm_id)
