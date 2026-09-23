@@ -58,6 +58,7 @@ from app.inventory.models import InventoryRecord
 from app.inventory.services import InventoryService, LineConversion
 from app.pricing.services.price_list_service import PriceListResolver
 from app.products.models import Product
+from app.products.services.trading_status import assert_product_takes_new_lines
 from app.promotions.schemas import (
     PromotionEvaluationRequest,
     PromotionEvaluationResponse,
@@ -318,8 +319,9 @@ class SalesOrderService(TransactionalDocumentService):
         """Create one sales order without committing it.
 
         ``raised_as`` is what the person is actually raising, for the refusal a
-        customer who is not ACTIVE gets: a firm that bills without typing an
-        order is raising a bill, and should be told so (D-MST-6).
+        customer who is not ACTIVE gets, and for the one a product that is not
+        ACTIVE gets: a firm that bills without typing an order is raising a
+        bill, and should be told so (D-MST-6, D-MST-12).
 
         Split out so a caller composing several documents -- an import, or a
         firm whose configuration says this stage is synthesised -- can write
@@ -401,6 +403,7 @@ class SalesOrderService(TransactionalDocumentService):
             bill_percent=data.bill_discount_percent,
             bill_amount=data.bill_discount_amount,
             freight_amount=data.freight_amount,
+            raised_as=raised_as,
             actor_id=actor_id,
         )
         row.line_discount_total = totals["line_discount_total"]
@@ -1739,6 +1742,7 @@ class SalesOrderService(TransactionalDocumentService):
         bill_percent: Decimal | None,
         bill_amount: Decimal | None,
         freight_amount: Decimal | None = None,
+        raised_as: str = "sales order",
         actor_id: UUID,
     ) -> dict[str, Decimal]:
         # Lines are matched on their line number and updated in place. Deleting
@@ -1791,6 +1795,12 @@ class SalesOrderService(TransactionalDocumentService):
             )
             if product is None:
                 raise ValidationError("Product not found for sales order line.")
+            # A product withdrawn from sale is not ordered (D-MST-12). These
+            # lines were typed -- by the form, by an import, by a converted
+            # quotation or by the chain turning a bare bill into an order --
+            # so none of them is a line inherited from a document already
+            # agreed, and the refusal names what is actually being raised.
+            assert_product_takes_new_lines(product, document=raised_as)
             grosses.append(self._q(self._q(item.quantity) * self._q(item.unit_price)))
 
         # Promotions are read once the grosses are known and before anything is
