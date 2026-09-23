@@ -40,6 +40,12 @@ from app.sales.models import (
     TerritoryRouteProfile,
 )
 from app.sales.models import territory as _sales_models  # noqa: F401
+from app.sales_invoice.models import SalesInvoiceLine
+from app.sales_invoice.schemas import (
+    SalesInvoiceCreate,
+    SalesInvoiceLineWrite,
+    SalesInvoiceSourceType,
+)
 from app.sales_invoice.services import SalesInvoiceService
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_order.schemas import (
@@ -2458,3 +2464,119 @@ def test_a_back_order_is_a_live_shortfall_on_an_open_order() -> None:
         second.id, firm_scope=firm.id, actor_id=actor_id, reason="D-RPT-8"
     )
     assert shortfalls() == []
+
+
+def test_a_note_and_a_bill_inherit_the_orders_freight() -> None:
+    """The delivery charge agreed on the order reaches the note and the bill.
+
+    Neither inherited it: a note raised from an order with 100.00 of freight
+    carried none, and the bill raised on the note none either, so the charge
+    the customer agreed to was never billed (D-SELL-36). Inherited by the
+    share shipped and then the share billed -- the rule every other inherited
+    amount follows -- and an explicit 0 still waives it.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+    _stock(session, firm=firm, branch=branch, warehouse=warehouse, product=product)
+
+    orders = SalesOrderService(session)
+    order = orders.create_order(
+        SalesOrderCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            order_date=date(2026, 8, 3),
+            freight_amount=Decimal("100"),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=product.id,
+                    quantity=Decimal("10"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    orders.approve_order(order.id, firm_scope=firm.id, actor_id=actor_id)
+    order_line = session.scalar(
+        select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
+    )
+    assert order_line is not None
+    assert order_line.freight_amount == Decimal("100.0000")
+
+    # Four of ten leave: 40.00 of the freight goes with them.
+    note = _dispatch(
+        session,
+        firm=firm,
+        order=order,
+        order_line=order_line,
+        quantity=Decimal("4"),
+        on=date(2026, 8, 4),
+        actor_id=actor_id,
+    )
+    assert note.freight_amount == Decimal("40.0000")
+    note_line = session.scalar(
+        select(DeliveryNoteLine).where(DeliveryNoteLine.delivery_note_id == note.id)
+    )
+    assert note_line is not None
+    assert note_line.freight_amount == Decimal("40.0000")
+
+    # Two of the four are billed: 20.00 of the note's freight is charged.
+    invoices = SalesInvoiceService(session)
+    invoice = invoices.create_invoice(
+        SalesInvoiceCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            invoice_date=date(2026, 8, 5),
+            source_documents=[
+                {
+                    "source_document_type": SalesInvoiceSourceType.DELIVERY_NOTE,
+                    "source_document_id": note.id,
+                }
+            ],
+            lines=[
+                SalesInvoiceLineWrite(
+                    source_document_type=SalesInvoiceSourceType.DELIVERY_NOTE,
+                    source_document_id=note.id,
+                    source_document_line_id=note_line.id,
+                    line_number=1,
+                    current_invoice_quantity=Decimal("2"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    assert invoice.freight_amount == Decimal("20.0000")
+    invoice_line = session.scalar(
+        select(SalesInvoiceLine).where(SalesInvoiceLine.sales_invoice_id == invoice.id)
+    )
+    assert invoice_line is not None
+    assert invoice_line.freight_amount == Decimal("20.0000")
+
+    # An explicit zero waives it -- silence and zero are different answers.
+    waived = DeliveryNoteService(session).create_note(
+        DeliveryNoteCreate(
+            sales_order_id=order.id,
+            delivery_date=date(2026, 8, 6),
+            freight_amount=Decimal("0"),
+            lines=[
+                DeliveryNoteLineWrite(
+                    sales_order_line_id=order_line.id,
+                    line_number=1,
+                    current_delivery_quantity=Decimal("3"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    assert waived.freight_amount == Decimal("0.0000")

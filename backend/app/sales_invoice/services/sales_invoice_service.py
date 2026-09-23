@@ -1640,6 +1640,29 @@ class SalesInvoiceService(TransactionalDocumentService):
             )
             self._session.add(source)
 
+    def _inherited_freight(self, priced: list[_PricedInvoiceLine]) -> Decimal:
+        """Return the freight a bill charges when the caller says nothing.
+
+        The source line's own share of its document's freight, pro-rated by
+        the share being billed -- from the note where the bill is raised on
+        one, from the order where it is raised straight off the order. A bill
+        carried none of it, so the delivery charge agreed on the order was
+        never billed (D-SELL-36). Zero waives it, as every amount here does.
+        """
+        total = ZERO
+        for item in priced:
+            source = item.source_line
+            basis = self._source_quantity(item.spec, source)
+            if basis <= ZERO:
+                continue
+            billed = self._q(Decimal(str(item.spec["current_invoice_quantity"])))
+            total += (
+                self._q(getattr(source, "freight_amount", ZERO) or ZERO)
+                * billed
+                / basis
+            )
+        return self._q(total)
+
     def _freight_shares(
         self,
         row: object,
@@ -1846,6 +1869,8 @@ class SalesInvoiceService(TransactionalDocumentService):
                 and hasattr(item.source_line, "delivery_note_id")
             }
         )
+        if freight_amount is None:
+            freight_amount = self._inherited_freight(priced)
         freight = self._freight_shares(
             row,
             freight=freight_amount,
