@@ -1172,6 +1172,33 @@ class DeliveryNoteService(TransactionalDocumentService):
             return None
         return self._q(customer.default_discount_percent)
 
+    def _inherited_freight(
+        self,
+        lines: list[DeliveryNoteLineWrite],
+        source_lines: dict[UUID, SalesOrderLine],
+    ) -> Decimal:
+        """Return the freight a note ships under when the caller says nothing.
+
+        The order's charge, pro-rated by the share of each line leaving on
+        this note -- the rule every other inherited amount follows here (a
+        rate as itself, an amount by the share shipped). A note raised from an
+        order carried none of the order's freight at all, so the charge a
+        customer agreed to on the order vanished from the note and then from
+        the bill raised on it (D-SELL-36). Zero remains an answer: a caller
+        that sends 0 waives it, as with every other amount here.
+        """
+        total = ZERO
+        for item in lines:
+            source = source_lines.get(item.sales_order_line_id)
+            if source is None or self._q(source.quantity) <= ZERO:
+                continue
+            total += (
+                self._q(source.freight_amount)
+                * self._q(item.current_delivery_quantity)
+                / self._q(source.quantity)
+            )
+        return self._q(total)
+
     def _freight_shares(
         self,
         row: object,
@@ -1305,6 +1332,8 @@ class DeliveryNoteService(TransactionalDocumentService):
                 for item, price, line in zip(lines, prices, priced, strict=True)
             ],
         )
+        if freight_amount is None:
+            freight_amount = self._inherited_freight(lines, source_lines)
         freight = self._freight_shares(
             row,
             freight=freight_amount,
