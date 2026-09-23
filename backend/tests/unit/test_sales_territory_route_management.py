@@ -19,7 +19,7 @@ from app.common.scope import (
 )
 from app.core.database.base import Base
 from app.core.enums import TokenType
-from app.core.exceptions import AuthorizationError, ValidationError
+from app.core.exceptions import AuthorizationError, ConflictError, ValidationError
 from app.core.security.authorization import Principal, require_permission
 from app.core.security.jwt import TokenClaims
 from app.customers.models import Customer
@@ -329,6 +329,163 @@ def test_territory_hierarchy_update_reuses_existing_levels() -> None:
         "CIRCLE",
         "ROUTE",
     ]
+    # The row carried nothing on either side, so the one screen that renames
+    # a firm's levels left no record of what they had been called (D-TER-16).
+    audit = session.scalars(
+        select(AuditLog).where(AuditLog.action == "sales_territory.hierarchy.updated")
+    ).one()
+    assert audit.before_data is not None
+    assert [level["level_code"] for level in audit.before_data["levels"]] == [
+        "REGION",
+        "TERRITORY",
+        "ROUTE",
+    ]
+    assert audit.after_data is not None
+    assert [level["level_code"] for level in audit.after_data["levels"]] == [
+        "STATE",
+        "CITY",
+        "CIRCLE",
+        "ROUTE",
+    ]
+
+
+def test_the_trail_names_the_node_that_was_renamed_deleted_and_restored() -> None:
+    """Three rows that used to say a node had changed and not which one.
+
+    `.updated` records the code it had, `.deleted` the whole node as it
+    stood, and `.restored` what came back (D-TER-16).
+    """
+    session = _session_factory()()
+    firm = _firm(session, "TRAIL")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    hierarchy = service.get_hierarchy(firm_scope=firm.id, actor_id=actor)
+    node = service.create_territory(
+        TerritoryCreate(
+            code="OLD", name="Old", hierarchy_level_id=hierarchy.levels[0].id
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+
+    service.update_territory(
+        node.id, TerritoryUpdate(code="NEW"), firm_scope=firm.id, actor_id=actor
+    )
+    service.delete_territory(node.id, firm_scope=firm.id, actor_id=actor)
+    service.restore_territory(node.id, firm_scope=firm.id, actor_id=actor)
+
+    def one(action: str) -> AuditLog:
+        return session.scalars(select(AuditLog).where(AuditLog.action == action)).one()
+
+    renamed = one("sales_territory.updated")
+    assert renamed.before_data is not None
+    assert renamed.before_data["code"] == "OLD"
+    assert renamed.after_data is not None
+    assert renamed.after_data["code"] == "NEW"
+    deleted = one("sales_territory.deleted")
+    assert deleted.before_data is not None
+    assert deleted.before_data["code"] == "NEW"
+    restored = one("sales_territory.restored")
+    assert restored.before_data == {"is_deleted": True}
+    assert restored.after_data is not None
+    assert restored.after_data["code"] == "NEW"
+
+
+def test_a_code_a_retired_node_still_holds_is_refused_by_name() -> None:
+    """`UQ_sales_territories_firm_code` covers deleted rows; the check did not.
+
+    Reusing the code of a node in the bin passed the service and came back as
+    the database's bare 409, naming neither the column nor the node holding
+    it (D-TER-16).
+    """
+    session = _session_factory()()
+    firm = _firm(session, "RECODE")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    hierarchy = service.get_hierarchy(firm_scope=firm.id, actor_id=actor)
+    node = service.create_territory(
+        TerritoryCreate(
+            code="RT01", name="One", hierarchy_level_id=hierarchy.levels[0].id
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    service.delete_territory(node.id, firm_scope=firm.id, actor_id=actor)
+
+    with pytest.raises(ConflictError, match="A deleted territory holds the code"):
+        service.create_territory(
+            TerritoryCreate(
+                code="RT01", name="Two", hierarchy_level_id=hierarchy.levels[0].id
+            ),
+            firm_scope=firm.id,
+            actor_id=actor,
+        )
+
+
+def test_the_assignment_rows_name_who_joined_and_who_left() -> None:
+    """Both recorded a count, so who moved was on no trail at all (D-TER-16)."""
+    session = _session_factory()()
+    firm = _firm(session, "WHOMOVED")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    hierarchy = service.get_hierarchy(firm_scope=firm.id, actor_id=actor)
+    route = service.create_territory(
+        TerritoryCreate(
+            code="RT01", name="Round", hierarchy_level_id=hierarchy.levels[0].id
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    first = Customer(
+        firm_id=firm.id,
+        code="C1",
+        customer_type="BUSINESS",
+        name="One",
+        display_name="One",
+        currency_code="INR",
+        status="ACTIVE",
+    )
+    second = Customer(
+        firm_id=firm.id,
+        code="C2",
+        customer_type="BUSINESS",
+        name="Two",
+        display_name="Two",
+        currency_code="INR",
+        status="ACTIVE",
+    )
+    session.add_all([first, second])
+    session.commit()
+
+    service.set_customers(
+        route.id,
+        TerritoryAssignCustomersRequest(customer_ids=[first.id]),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    service.set_customers(
+        route.id,
+        TerritoryAssignCustomersRequest(customer_ids=[second.id]),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+
+    rows = list(
+        session.scalars(
+            select(AuditLog)
+            .where(AuditLog.action == "sales_territory.customers_set")
+            .order_by(AuditLog.created_at.asc(), AuditLog.id.asc())
+        )
+    )
+    swapped = next(
+        row
+        for row in rows
+        if row.after_data is not None and row.after_data["added"] == [str(second.id)]
+    )
+    assert swapped.after_data is not None
+    assert swapped.after_data["removed"] == [str(first.id)]
+    assert swapped.before_data is not None
+    assert swapped.before_data["ids"] == [str(first.id)]
 
 
 def test_bulk_territory_changes_are_audited_per_territory() -> None:

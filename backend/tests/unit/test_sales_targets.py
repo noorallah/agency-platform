@@ -37,6 +37,7 @@ from app.firms.models import Firm
 from app.identity.models import identity as _identity_models  # noqa: F401
 from app.sales.models import SalesTerritoryNode
 from app.sales_invoice.models import SalesInvoice
+from app.sales_targets.models import SalesTarget
 from app.sales_targets.schemas import (
     SalesTargetBasis,
     SalesTargetPeriod,
@@ -859,6 +860,53 @@ def test_an_edit_that_changes_nothing_writes_nothing() -> None:
         ).first()
         is None
     )
+
+
+def test_a_targets_create_and_delete_rows_carry_the_whole_target() -> None:
+    """`.created` recorded the start date and the amount, `.deleted` the amount.
+
+    Neither said whose number it was, over what period or on what basis --
+    and a target is nothing but its scope, its period and its number
+    (D-TER-16). `delete_target` also left `deleted_at` and `deleted_by` NULL,
+    which every other soft delete on this platform fills.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor = uuid4()
+    service = SalesTargetService(session)
+    created = service.create_target(
+        SalesTargetWrite(
+            period_start=APRIL[0],
+            period_end=APRIL[1],
+            period_type=SalesTargetPeriod.MONTHLY,
+            basis=SalesTargetBasis.COLLECTED,
+            target_amount=Decimal("10000"),
+            notes="Q1 push",
+        ),
+        firm_id=firm.id,
+        actor_id=actor,
+    )
+
+    service.delete_target(created.id, firm_scope=firm.id, actor_id=actor)
+
+    born = session.scalars(
+        select(AuditLog).where(AuditLog.action == "sales_target.created")
+    ).one()
+    assert born.after_data is not None
+    assert born.after_data["basis"] == "COLLECTED"
+    assert born.after_data["period_end"] == "2026-04-30"
+    assert born.after_data["notes"] == "Q1 push"
+    withdrawn = session.scalars(
+        select(AuditLog).where(AuditLog.action == "sales_target.deleted")
+    ).one()
+    assert withdrawn.before_data is not None
+    assert withdrawn.before_data["target_amount"] == "10000"
+    assert withdrawn.before_data["basis"] == "COLLECTED"
+    row = session.get(SalesTarget, created.id)
+    assert row is not None
+    assert row.is_deleted is True
+    assert row.deleted_at is not None
+    assert row.deleted_by == actor
 
 
 _EDITOR = (
