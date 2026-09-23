@@ -18,6 +18,7 @@ from app.core.database.base import Base
 from app.core.exceptions import ValidationError
 from app.customers.models import customer as _customer_models  # noqa: F401
 from app.document_framework.models import DocumentTypeDefinition
+from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.identity.models import identity as _identity_models  # noqa: F401
@@ -692,3 +693,81 @@ def test_a_bill_line_cannot_front_for_another_receipts_line() -> None:
     session.commit()
     with pytest.raises(ValidationError, match="GRN-2026-000001 has no line"):
         service.approve_invoice(saved.id, firm_scope=firm.id, actor_id=uuid4())
+
+
+def test_the_reconciliation_counts_the_bills_that_still_stand() -> None:
+    """One row per received line over live bills; a cancelled bill billed nothing.
+
+    The report answered one row per invoice line carrying the quantities
+    snapshotted when the line was written, so a receipt billed twice appeared
+    twice with the older `pending` stale, and a cancelled bill's line still
+    claimed its quantity billed with `pending` 0 -- PI-2026-2027-000014,
+    cancelled, still 4 billed, 0 pending on TEST01 (D-RPT-13).
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    vendor = _vendor(session, firm_id=firm.id)
+    order = _purchase_order(
+        session,
+        firm_id=firm.id,
+        vendor_id=vendor.id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+    )
+    po_line = session.scalar(
+        select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+    )
+    assert po_line is not None
+    receipt, receipt_line = _received(session, po_line)
+    service = PurchaseInvoiceService(session)
+
+    def bill(number: str, quantity: str) -> PurchaseInvoice:
+        return service.create_invoice(
+            PurchaseInvoiceCreate(
+                supplier_invoice_number=number,
+                supplier_invoice_date=date(2026, 8, 2),
+                invoice_date=date(2026, 8, 2),
+                source_documents=[
+                    {
+                        "source_document_type": PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                        "source_document_id": receipt.id,
+                    }
+                ],
+                lines=[
+                    PurchaseInvoiceLineWrite(
+                        source_document_type=PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                        source_document_id=receipt.id,
+                        source_document_line_id=receipt_line.id,
+                        line_number=1,
+                        current_invoice_quantity=Decimal(quantity),
+                    )
+                ],
+            ),
+            firm_id=firm.id,
+            actor_id=uuid4(),
+        )
+
+    def row() -> tuple[Decimal, Decimal, Decimal, int]:
+        [record] = service.reconciliation_report(firm_scope=firm.id)
+        return (
+            record.invoiced_quantity,
+            record.draft_quantity,
+            record.pending_quantity,
+            len(record.invoice_numbers.split(", ")),
+        )
+
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=uuid4()
+    )
+    received = receipt_line.current_receipt_quantity
+    first = bill("SUP-1", "3")
+    second = bill("SUP-2", "2")
+    assert row() == (Decimal("0.00"), Decimal("5.00"), received - 5, 2)
+
+    service.approve_invoice(first.id, firm_scope=firm.id, actor_id=uuid4())
+    assert row() == (Decimal("3.00"), Decimal("2.00"), received - 5, 2)
+
+    service.cancel_invoice(second.id, firm_scope=firm.id, actor_id=uuid4())
+    assert row() == (Decimal("3.00"), Decimal("0.00"), received - 3, 1)

@@ -1758,6 +1758,61 @@ def test_the_receipt_reports_follow_the_receipts_life() -> None:
     assert seen() == (1, 1, 1), "a cancelled receipt's damage did not happen"
 
 
+def test_orders_part_received_agree_with_the_order() -> None:
+    """The report and the order derive "received" the same way.
+
+    The report walked orders of every status and counted COMPLETED receipts
+    alone, where the order's own status counts COMPLETED and CLOSED: closing
+    the receipt of 4 made the report say 6 of 10 received while
+    `GET /purchases/{id}` read RECEIVED (PO-TEST01-HO-2026-2027-000018,
+    D-RPT-14). It now reads the orders the receiving side has moved to
+    PARTIALLY_RECEIVED, through `_received_quantities_for_po`.
+    """
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-RPT14")
+    _approve(fixture)
+    service = GoodsReceiptService(session)
+
+    def report() -> list[tuple[str, Decimal, Decimal, int]]:
+        return [
+            (
+                row.purchase_order_number,
+                row.received_quantity,
+                row.pending_quantity,
+                row.receipt_count,
+            )
+            for row in service.partially_received_purchase_orders(
+                firm_scope=fixture.firm.id
+            )
+        ]
+
+    assert report() == [], "nothing received yet"
+    first = service.create_receipt(
+        fixture.receipt_payload("4"), firm_id=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    service.complete_receipt(
+        first.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    [(number, received, pending, count)] = report()
+    assert (received, pending, count) == (Decimal("4"), Decimal("6"), 1)
+    assert number == fixture.order.po_number
+    assert _order_status(session, fixture.order.id) == "PARTIALLY_RECEIVED"
+
+    service.close_receipt(
+        first.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id, reason="done"
+    )
+    assert report()[0][1:] == (Decimal("4"), Decimal("6"), 1), "closing changes nothing"
+
+    second = service.create_receipt(
+        fixture.receipt_payload("6"), firm_id=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    service.complete_receipt(
+        second.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+    )
+    assert _order_status(session, fixture.order.id) == "RECEIVED"
+    assert report() == [], "fully received is not part received"
+
+
 def test_a_receipt_row_carries_what_the_screen_shows() -> None:
     """The flat receipt row names the vendor and carries the header's totals.
 

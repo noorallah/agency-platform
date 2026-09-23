@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections import defaultdict
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -918,81 +919,89 @@ class GoodsReceiptService(TransactionalDocumentService):
     def partially_received_purchase_orders(
         self, *, firm_scope: UUID
     ) -> list[GoodsReceiptPurchaseOrderReport]:
-        """Return received purchase orders."""
-        reports: list[GoodsReceiptPurchaseOrderReport] = []
+        """List the orders part received: some goods in, some still to come.
+
+        Read off the orders the receiving side has moved to PARTIALLY_RECEIVED,
+        with the quantities summed the way the order's own status is --
+        `_received_quantities_for_po`, COMPLETED and CLOSED receipts alike --
+        so the report and the order cannot disagree. It used to walk orders of
+        every status and count COMPLETED receipts alone: close one receipt and
+        the order read RECEIVED while the report said 6 of 10 (D-RPT-14). Names
+        are read in one query each.
+        """
         purchase_orders = list(
             self._session.scalars(
-                select(PurchaseOrder).where(
+                select(PurchaseOrder)
+                .where(
                     PurchaseOrder.firm_id == firm_scope,
                     PurchaseOrder.is_deleted.is_(False),
+                    PurchaseOrder.status
+                    == PurchaseOrderStatus.PARTIALLY_RECEIVED.value,
+                )
+                .order_by(
+                    PurchaseOrder.purchase_date.asc(), PurchaseOrder.po_number.asc()
                 )
             ).all()
         )
-        for purchase_order in purchase_orders:
-            lines = list(
-                self._session.scalars(
-                    select(PurchaseOrderLine).where(
-                        PurchaseOrderLine.purchase_order_id == purchase_order.id,
-                        PurchaseOrderLine.is_deleted.is_(False),
-                    )
-                ).all()
+        if not purchase_orders:
+            return []
+        order_ids = [order.id for order in purchase_orders]
+        lines_by_order: dict[UUID, list[PurchaseOrderLine]] = defaultdict(list)
+        for line in self._session.scalars(
+            select(PurchaseOrderLine).where(
+                PurchaseOrderLine.purchase_order_id.in_(order_ids),
+                PurchaseOrderLine.is_deleted.is_(False),
             )
+        ).all():
+            lines_by_order[line.purchase_order_id].append(line)
+        receipt_counts: dict[UUID, int] = {
+            order_id: int(count)
+            for order_id, count in self._session.execute(
+                select(GoodsReceipt.purchase_order_id, func.count())
+                .where(
+                    GoodsReceipt.firm_id == firm_scope,
+                    GoodsReceipt.purchase_order_id.in_(order_ids),
+                    GoodsReceipt.status.in_(self._RECEIVED_STATUSES),
+                    GoodsReceipt.is_deleted.is_(False),
+                )
+                .group_by(GoodsReceipt.purchase_order_id)
+            ).all()
+        }
+        vendor_names = {
+            vendor.id: vendor.display_name
+            for vendor in self._session.scalars(
+                select(Vendor).where(
+                    Vendor.id.in_({order.vendor_id for order in purchase_orders})
+                )
+            ).all()
+        }
+        reports: list[GoodsReceiptPurchaseOrderReport] = []
+        for purchase_order in purchase_orders:
+            lines = lines_by_order.get(purchase_order.id, [])
             if not lines:
                 continue
-            ordered = sum((line.ordered_quantity for line in lines), ZERO)
-            received = sum(
-                (
-                    self._session.scalar(
-                        select(
-                            func.coalesce(
-                                func.sum(GoodsReceiptLine.current_receipt_quantity), 0
-                            )
-                        )
-                        .join(
-                            GoodsReceipt,
-                            GoodsReceipt.id == GoodsReceiptLine.goods_receipt_id,
-                        )
-                        .where(
-                            GoodsReceipt.firm_id == firm_scope,
-                            GoodsReceipt.purchase_order_id == purchase_order.id,
-                            GoodsReceipt.status == GoodsReceiptStatus.COMPLETED.value,
-                            GoodsReceipt.is_deleted.is_(False),
-                            GoodsReceiptLine.purchase_order_line_id == line.id,
-                            GoodsReceiptLine.is_deleted.is_(False),
-                        )
-                    )
-                    or ZERO
-                )
-                for line in lines
+            taken = self._received_quantities_for_po(
+                purchase_order.id, firm_id=firm_scope
             )
-            if ZERO < received < ordered:
-                reports.append(
-                    GoodsReceiptPurchaseOrderReport(
-                        purchase_order_id=purchase_order.id,
-                        purchase_order_number=purchase_order.po_number,
-                        vendor_id=purchase_order.vendor_id,
-                        branch_id=purchase_order.branch_id,
-                        warehouse_id=purchase_order.warehouse_id,
-                        ordered_quantity=self._q(ordered),
-                        received_quantity=self._q(received),
-                        pending_quantity=self._q(ordered - received),
-                        receipt_count=int(
-                            self._session.scalar(
-                                select(func.count())
-                                .select_from(GoodsReceipt)
-                                .where(
-                                    GoodsReceipt.firm_id == firm_scope,
-                                    GoodsReceipt.purchase_order_id == purchase_order.id,
-                                    GoodsReceipt.status
-                                    == GoodsReceiptStatus.COMPLETED.value,
-                                    GoodsReceipt.is_deleted.is_(False),
-                                )
-                            )
-                            or 0
-                        ),
-                        status="PARTIAL",
-                    )
+            ordered = sum((line.ordered_quantity for line in lines), ZERO)
+            received = sum((taken.get(line.id, ZERO) for line in lines), ZERO)
+            reports.append(
+                GoodsReceiptPurchaseOrderReport(
+                    purchase_order_id=purchase_order.id,
+                    purchase_order_number=purchase_order.po_number,
+                    vendor_id=purchase_order.vendor_id,
+                    vendor_name=vendor_names.get(
+                        purchase_order.vendor_id, str(purchase_order.vendor_id)
+                    ),
+                    branch_id=purchase_order.branch_id,
+                    warehouse_id=purchase_order.warehouse_id,
+                    ordered_quantity=self._q(ordered),
+                    received_quantity=self._q(received),
+                    pending_quantity=self._q(ordered - received),
+                    receipt_count=receipt_counts.get(purchase_order.id, 0),
+                    status=purchase_order.status,
                 )
+            )
         return reports
 
     def import_receipts(

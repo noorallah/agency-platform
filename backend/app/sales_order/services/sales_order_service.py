@@ -1171,35 +1171,115 @@ class SalesOrderService(TransactionalDocumentService):
         return records
 
     def back_orders(self, *, firm_scope: UUID) -> list[SalesOrderBackOrderRecord]:
-        """List order lines whose requested quantity exceeds free stock."""
+        """List the open order lines the warehouse cannot fill today.
+
+        A back order is a live shortfall. The stock on hand of each product in
+        each warehouse is handed to the open orders -- APPROVED or
+        PARTIALLY_DELIVERED -- oldest first, each line taking what it still
+        owes (reservable less what left) out of what remains; whatever a line
+        cannot take is its back order. The report used to join lines of every
+        status -- DELIVERED, CLOSED and CANCELLED in -- and compare
+        `reservable_quantity` with the `available_stock` snapshot written when
+        the line was saved, so it said what was short the day the order was
+        typed, for ever (D-RPT-8: five WHOLE01 rows on one CLOSED, one
+        CANCELLED, one DELIVERED and two DRAFT orders; a cancelled draft for 45
+        against 40 still listed 5 short).
+        """
         rows = list(
-            self._session.scalars(
-                select(SalesOrderLine)
+            self._session.execute(
+                select(SalesOrderLine, SalesOrder)
                 .join(SalesOrder, SalesOrder.id == SalesOrderLine.sales_order_id)
                 .where(
-                    SalesOrder.firm_id == firm_scope, SalesOrder.is_deleted.is_(False)
+                    SalesOrder.firm_id == firm_scope,
+                    SalesOrder.is_deleted.is_(False),
+                    SalesOrder.status.in_(
+                        [
+                            SalesOrderStatus.APPROVED.value,
+                            SalesOrderStatus.PARTIALLY_DELIVERED.value,
+                        ]
+                    ),
+                    SalesOrderLine.is_deleted.is_(False),
+                )
+                .order_by(
+                    SalesOrder.order_date.asc(),
+                    SalesOrder.created_at.asc(),
+                    SalesOrderLine.line_number.asc(),
                 )
             ).all()
         )
-        result: list[SalesOrderBackOrderRecord] = []
-        for row in rows:
-            back_qty = self._q(row.reservable_quantity - row.available_stock)
-            if back_qty <= ZERO:
-                continue
-            order = self._session.scalar(
-                select(SalesOrder).where(SalesOrder.id == row.sales_order_id)
+        if not rows:
+            return []
+        delivered = delivered_by_order_line(
+            self._session,
+            firm_id=firm_scope,
+            sales_order_ids={order.id for _, order in rows},
+        )
+        # Physical stock per product per warehouse, one grouped read; a
+        # reservation is a claim on it rather than a subtraction from it, so
+        # the allocation below is what says whose claim the stock meets.
+        on_hand: dict[tuple[UUID, UUID | None], Decimal] = {}
+        for product_id, warehouse_id, total in self._session.execute(
+            select(
+                InventoryRecord.product_id,
+                InventoryRecord.warehouse_id,
+                func.coalesce(func.sum(InventoryRecord.current_quantity), 0),
             )
-            if order is None:
+            .where(
+                InventoryRecord.firm_id == firm_scope,
+                InventoryRecord.is_deleted.is_(False),
+                InventoryRecord.product_id.in_({line.product_id for line, _ in rows}),
+            )
+            .group_by(InventoryRecord.product_id, InventoryRecord.warehouse_id)
+        ).all():
+            on_hand[(product_id, warehouse_id)] = self._q(Decimal(str(total)))
+        products = {
+            product.id: product
+            for product in self._session.scalars(
+                select(Product).where(
+                    Product.id.in_({line.product_id for line, _ in rows})
+                )
+            ).all()
+        }
+        customers = {
+            customer.id: customer.display_name
+            for customer in self._session.scalars(
+                select(Customer).where(
+                    Customer.id.in_({order.customer_id for _, order in rows})
+                )
+            ).all()
+        }
+        remaining = dict(on_hand)
+        result: list[SalesOrderBackOrderRecord] = []
+        for line, order in rows:
+            sent = min(delivered.get(line.id, ZERO), line.reservable_quantity)
+            owed = self._q(line.reservable_quantity - sent)
+            if owed <= ZERO:
                 continue
+            key = (line.product_id, line.warehouse_id or order.warehouse_id)
+            left = remaining.get(key, ZERO)
+            taken = min(owed, left) if left > ZERO else ZERO
+            remaining[key] = left - taken
+            short = self._q(owed - taken)
+            if short <= ZERO:
+                continue
+            product = products.get(line.product_id)
             result.append(
                 SalesOrderBackOrderRecord(
                     order_id=order.id,
                     order_number=order.order_number,
-                    line_id=row.id,
-                    product_id=row.product_id,
-                    requested_quantity=row.reservable_quantity,
-                    available_stock=row.available_stock,
-                    back_order_quantity=back_qty,
+                    customer_name=customers.get(
+                        order.customer_id, str(order.customer_id)
+                    ),
+                    warehouse_id=key[1],
+                    line_id=line.id,
+                    product_id=line.product_id,
+                    product_code=product.code if product else "",
+                    product_name=product.name if product else str(line.product_id),
+                    requested_quantity=owed,
+                    delivered_quantity=self._q(sent),
+                    reserved_quantity=self._q(line.reserved_quantity),
+                    available_stock=on_hand.get(key, ZERO),
+                    back_order_quantity=short,
                 )
             )
         return result

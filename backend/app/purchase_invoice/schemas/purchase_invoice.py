@@ -331,17 +331,28 @@ class PurchaseInvoiceRegisterRecord(PurchaseInvoiceSchema):
 
 
 class PurchaseInvoiceReconciliationRecord(PurchaseInvoiceSchema):
-    """One row of the purchase invoice reconciliation report."""
+    """One source line and what has been billed against it.
+
+    One row per goods-receipt line, not per invoice line: the quantities are
+    summed over the live invoices that bill it -- `invoiced_quantity` from
+    APPROVED and CLOSED ones, `draft_quantity` from DRAFT -- and `pending` is
+    what is left. The report used to answer one row per invoice line carrying
+    the three quantities snapshotted on that line when it was written, so a
+    source billed twice appeared twice with the older `pending` stale, and a
+    cancelled invoice's line still claimed its quantity billed (D-RPT-13).
+    """
 
     source_document_type: PurchaseInvoiceSourceType
     source_document_id: UUID
     source_document_number: str
     source_document_line_id: UUID
     source_document_line_number: int
+    product_id: UUID
     received_quantity: Decimal
-    already_invoiced_quantity: Decimal
-    current_invoice_quantity: Decimal
+    invoiced_quantity: Decimal
+    draft_quantity: Decimal
     pending_quantity: Decimal
+    invoice_numbers: str
 
 
 class PurchaseInvoiceVendorOutstandingRecord(PurchaseInvoiceSchema):

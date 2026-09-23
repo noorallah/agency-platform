@@ -883,10 +883,15 @@ class PurchaseInvoiceService(TransactionalDocumentService):
     def reconciliation_report(
         self, *, firm_scope: UUID
     ) -> list[PurchaseInvoiceReconciliationRecord]:
-        """Return the reconciliation report for the visible firm scope."""
+        """Say what is billed against each received line, and what is left.
+
+        One row per source line, summed over the bills that still stand: a
+        cancelled bill billed nothing, a draft has not billed yet (D-RPT-13).
+        Most recently billed first.
+        """
         rows = list(
-            self._session.scalars(
-                select(PurchaseInvoiceLine)
+            self._session.execute(
+                select(PurchaseInvoiceLine, PurchaseInvoice)
                 .join(
                     PurchaseInvoice,
                     PurchaseInvoice.id == PurchaseInvoiceLine.purchase_invoice_id,
@@ -894,30 +899,55 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 .where(
                     PurchaseInvoice.firm_id == firm_scope,
                     PurchaseInvoice.is_deleted.is_(False),
+                    PurchaseInvoice.status != PurchaseInvoiceStatus.CANCELLED.value,
                     PurchaseInvoiceLine.is_deleted.is_(False),
+                )
+                .order_by(
+                    PurchaseInvoice.invoice_date.desc(),
+                    PurchaseInvoice.created_at.desc(),
                 )
             ).all()
         )
+        grouped: dict[UUID, list[tuple[PurchaseInvoiceLine, PurchaseInvoice]]] = {}
+        for line, invoice in rows:
+            grouped.setdefault(line.source_document_line_id, []).append((line, invoice))
         result: list[PurchaseInvoiceReconciliationRecord] = []
-        for row in rows:
-            pending = self._q(
-                row.received_quantity
-                - row.already_invoiced_quantity
-                - row.current_invoice_quantity
+        for lines in grouped.values():
+            newest, _ = lines[0]
+            billed = sum(
+                (
+                    line.current_invoice_quantity
+                    for line, invoice in lines
+                    if invoice.status != PurchaseInvoiceStatus.DRAFT.value
+                ),
+                ZERO,
             )
+            drafted = sum(
+                (
+                    line.current_invoice_quantity
+                    for line, invoice in lines
+                    if invoice.status == PurchaseInvoiceStatus.DRAFT.value
+                ),
+                ZERO,
+            )
+            pending = self._q(newest.received_quantity - billed - drafted)
             result.append(
                 PurchaseInvoiceReconciliationRecord(
                     source_document_type=PurchaseInvoiceSourceType(
-                        row.source_document_type
+                        newest.source_document_type
                     ),
-                    source_document_id=row.source_document_id,
-                    source_document_number=row.source_document_number,
-                    source_document_line_id=row.source_document_line_id,
-                    source_document_line_number=row.source_document_line_number,
-                    received_quantity=row.received_quantity,
-                    already_invoiced_quantity=row.already_invoiced_quantity,
-                    current_invoice_quantity=row.current_invoice_quantity,
+                    source_document_id=newest.source_document_id,
+                    source_document_number=newest.source_document_number,
+                    source_document_line_id=newest.source_document_line_id,
+                    source_document_line_number=newest.source_document_line_number,
+                    product_id=newest.product_id,
+                    received_quantity=newest.received_quantity,
+                    invoiced_quantity=self._q(billed),
+                    draft_quantity=self._q(drafted),
                     pending_quantity=pending if pending >= ZERO else ZERO,
+                    invoice_numbers=", ".join(
+                        invoice.invoice_number for _, invoice in lines
+                    ),
                 )
             )
         return result

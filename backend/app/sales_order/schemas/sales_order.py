@@ -397,10 +397,21 @@ class SalesOrderBackOrderRecord(SalesOrderSchema):
 
     order_id: UUID
     order_number: str
+    customer_name: str
+    warehouse_id: UUID | None
     line_id: UUID
     product_id: UUID
+    product_code: str
+    product_name: str
+    #: What the line still owes: reservable less what left the warehouse.
     requested_quantity: Decimal
+    delivered_quantity: Decimal
+    #: Held for this line by its reservation, and on hand in the warehouse now.
+    reserved_quantity: Decimal
     available_stock: Decimal
+    #: What is owed beyond what the warehouse's stock can meet once the older
+    #: open orders have taken theirs -- the shortfall as it stands today, not
+    #: as it stood the day the order was typed (D-RPT-8).
     back_order_quantity: Decimal
 
 
