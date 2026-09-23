@@ -6133,7 +6133,11 @@ seen in a live row)* was read off the code only.
   pruned from a firm store, so the constraint is never built. The only keys on
   these tables are to products, product categories, territories, ledger
   accounts and journal entries. What the service does not check, nothing
-  checks (D-TER-15).
+  checks -- so since #613 the rule and the target both check it themselves,
+  through `FirmMetadataReader`, which reads the **platform** store
+  (D-TER-15). `commission_payouts.salesman_id` still names whoever the
+  accrual found, which is right: a payout is a record of what somebody
+  earned while they were here.
 - **The audit rows are the firm's own, every one carries its firm, and most
   say very little.** `sales_territory.created` / `.updated` / `.deleted` /
   `.restored` / `.moved` / `.status_changed` / `.customers_set` /
@@ -6228,10 +6232,12 @@ seen in a live row)* was read off the code only.
   sibling holds; a level that is not exactly one below the parent's — "Territory
   level must be exactly one level below its parent."; a top-level node that is
   not level 1; `max_nodes_per_parent` reached.
-- **Not checked:** that `hierarchy_level_id` is one of **this firm's** levels
-  (`_level` filters on the id alone), nor that `route_type_id` is this firm's
-  route type (D-TER-15). A code a **deleted** node holds passes the service and
-  is refused by `UQ_sales_territories_firm_code` as a bare 409.
+- **Whose masters they are is checked since #613.** `_level` takes the firm
+  wherever the id came off a request body, and `_upsert_route_profile` resolves
+  `route_type_id` through `_route_type`, which is firm-scoped: both live in the
+  shared store, where a key is satisfied by another firm's row (D-TER-15). A
+  code a **deleted** node holds still passes the service and is refused by
+  `UQ_sales_territories_firm_code` as a bare 409.
 - **Check:**
   ```sql
   select t.path, t.status, t.is_deleted, l.display_name as level,
@@ -6443,11 +6449,14 @@ from its order. It writes three columns on the document and nothing else.
   exists, not that it is this firm's, the customer's, the territory's or in
   force, so an order is tagged to a round that ended in June, or to somebody
   else's (D-TER-9).
-- **Membership is checked where the caller names a person, and only on three
-  documents.** Order, delivery note and invoice ask `active_member_count`
-  through the platform store — "Salesman is not an active member of this
-  firm."; **quotation and return do not**, so with no territory to check
-  against any id at all is stored (D-TER-15). A **derived** person is never
+- **Membership is checked wherever the caller names a person.** Order,
+  delivery note and invoice each ask `active_member_count` through the
+  platform store in their own service — "Salesman is not an active member of
+  this firm." — and since #613 `_validated_salesman` asks it too, before
+  coverage and whether or not there is a territory, which is what closes
+  quotation and sales return: they had no check of their own, so with no
+  territory to check against any id at all was stored (D-TER-15). A
+  **derived** person is never
   checked, so somebody who has left the firm is put on the order, the order
   approves and reserves stock, and the delivery note — which does check — is
   refused (D-TER-11).
@@ -6517,9 +6526,11 @@ from its order. It writes three columns on the document and nothing else.
   ACTIVE rule over the same person, goods and days — "Another active rule
   already covers part of that period for the same scope (from …)." That last
   check is a read followed by an insert with **no key behind it** (D-TER-16).
-- **Not checked:** that `salesman_id` is anybody at all — an unknown id is
-  saved and listed as "Former member"; an unknown `product_id` reaches the
-  foreign key and answers the bare 409 (D-TER-15).
+- **Who and what the rule names is checked since #613.** `salesman_id` must be
+  an active member, read through the platform store — an unknown id used to be
+  saved and listed as "Former member"; `product_id` and `product_category_id`
+  must be **this firm's** live rows, answered as "not found" rather than as the
+  bare 409 the foreign key gave (D-TER-15).
 - **Audit:** `commission.rule.created` / `.updated` / `.deleted` with the whole
   rule and its ladder, `measure` excepted.
 - **Check:**
@@ -6731,8 +6742,12 @@ all `COMMISSION_MANAGE`, `If-Match` optional.
   accepted (D-TER-2).
 - **Delete** sets `is_deleted` and nothing else: `deleted_at` and `deleted_by`
   stay NULL *(not seen in a live row — no store holds a deleted target)*.
-- **Not checked:** the salesperson or the territory, which may be anybody's or
-  nobody's (D-TER-15).
+- **Who and where the target is for is checked since #613.** `salesman_id` must
+  be an active member, read through the platform store, and `territory_id` a
+  live node of **this firm** -- `sales_territories` lives in the shared store,
+  where a key is satisfied by another firm's node (D-TER-15). Both null is
+  still the firm's own number and is checked against nothing. The update runs
+  the check on the merged row, as the overlap check does.
 - **Audit:** `sales_target.created` (start date and amount), `.updated` and
   `.deleted` (the amount) — a changed person, node, period or basis is on no
   trail.

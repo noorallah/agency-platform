@@ -1346,7 +1346,7 @@ class SalesTerritoryService:
             name=data.name,
         )
         profile_id = self._profile_id(firm_scope)
-        level = self._level(data.hierarchy_level_id)
+        level = self._level(data.hierarchy_level_id, firm_scope)
         parent = self._parent(firm_scope, data.parent_id)
         self._validate_level_parent(level, parent)
         self._assert_room_under_parent(firm_scope, level, parent)
@@ -1371,6 +1371,7 @@ class SalesTerritoryService:
             territory_id=row.id,
             data=data.route_profile,
             actor_id=actor_id,
+            firm_scope=firm_scope,
         )
         record_audit(
             self._session,
@@ -1467,7 +1468,7 @@ class SalesTerritoryService:
             name=name,
             current_id=row.id,
         )
-        level = self._level(level_id)
+        level = self._level(level_id, firm_scope)
         parent = self._parent(firm_scope, parent_id)
         if parent is not None and parent.id == row.id:
             raise ValidationError("A territory cannot be its own parent.")
@@ -1494,6 +1495,7 @@ class SalesTerritoryService:
                 territory_id=row.id,
                 data=data.route_profile,
                 actor_id=actor_id,
+                firm_scope=firm_scope,
             )
         record_audit(
             self._session,
@@ -3809,14 +3811,44 @@ class SalesTerritoryService:
             raise ResourceNotFoundError("Territory not found.")
         return row
 
-    def _level(self, level_id: UUID) -> SalesHierarchyLevel:
-        row = self._session.scalar(
-            select(SalesHierarchyLevel).where(
-                SalesHierarchyLevel.id == level_id,
-                SalesHierarchyLevel.is_deleted.is_(False),
-                SalesHierarchyLevel.is_enabled.is_(True),
-            )
+    def _level(
+        self, level_id: UUID, firm_id: UUID | None = None
+    ) -> SalesHierarchyLevel:
+        """Resolve one enabled hierarchy level, optionally within a firm.
+
+        `firm_id` is passed wherever the id came off a request body: the
+        levels live in the shared store, so an id was accepted from any firm
+        that happened to have one enabled (D-TER-15). It is left off where
+        the id was read from a row this firm already owns -- checking the
+        firm of a level that a node of this firm is already sitting on would
+        only ever refuse data already written.
+
+        Args:
+            level_id: The level to resolve.
+            firm_id: The firm it must belong to, when the caller sent it.
+
+        Returns:
+            The level.
+
+        Raises:
+            ValidationError: If it is missing, retired, disabled, or another
+                firm's.
+
+        """
+        statement = select(SalesHierarchyLevel).where(
+            SalesHierarchyLevel.id == level_id,
+            SalesHierarchyLevel.is_deleted.is_(False),
+            SalesHierarchyLevel.is_enabled.is_(True),
         )
+        if firm_id is not None:
+            statement = statement.join(
+                SalesHierarchyConfig,
+                SalesHierarchyConfig.id == SalesHierarchyLevel.config_id,
+            ).where(
+                SalesHierarchyConfig.firm_id == firm_id,
+                SalesHierarchyConfig.is_deleted.is_(False),
+            )
+        row = self._session.scalar(statement)
         if row is None:
             raise ValidationError("Configured hierarchy level is not active.")
         return row
@@ -3927,7 +3959,24 @@ class SalesTerritoryService:
         territory_id: UUID,
         data: RouteProfileInput | None,
         actor_id: UUID,
+        firm_scope: UUID,
     ) -> None:
+        """Write, replace or retire the round a node is.
+
+        `route_type_id` comes straight off the request body and reached the
+        row unchecked: the masters live in the shared store, so one firm's
+        round could be typed as another firm's route type (D-TER-15).
+        `_route_type` answers 404 for anything that is not this firm's.
+
+        Args:
+            territory_id: The node the profile belongs to.
+            data: The round, or None to retire it.
+            actor_id: Who is writing.
+            firm_scope: The owning firm, for the route type.
+
+        """
+        if data is not None and data.route_type_id is not None:
+            self._route_type(data.route_type_id, firm_scope)
         profile = self._session.scalar(
             select(TerritoryRouteProfile).where(
                 TerritoryRouteProfile.territory_id == territory_id

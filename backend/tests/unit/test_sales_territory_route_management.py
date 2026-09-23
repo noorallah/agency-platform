@@ -18,7 +18,11 @@ from app.common.scope import (
 )
 from app.core.database.base import Base
 from app.core.enums import TokenType
-from app.core.exceptions import AuthorizationError, ValidationError
+from app.core.exceptions import (
+    AuthorizationError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.core.security.authorization import Principal, require_permission
 from app.core.security.jwt import TokenClaims
 from app.customers.models import Customer
@@ -37,6 +41,7 @@ from app.sales.schemas.territory import (
     HierarchyLevelInput,
     HierarchyUpdateRequest,
     RouteProfileInput,
+    RouteTypeWrite,
     TerritoryBulkStatusRequest,
     TerritoryStatus,
     VisitFrequency,
@@ -182,6 +187,61 @@ def test_territory_service_rejects_invalid_level_parent() -> None:
             firm_scope=firm.id,
             actor_id=uuid4(),
         )
+
+
+def test_a_territory_refuses_another_firms_level_and_route_type() -> None:
+    """Both masters live in the shared store, where an id is only an id.
+
+    `create_territory` asked whether the level was enabled and whether the
+    route type existed, and never whose they were: in a shared store one
+    firm's round could be built on another firm's hierarchy and typed with
+    another firm's route type (D-TER-15).
+    """
+    session = _session_factory()()
+    firm = _firm(session, "MINE")
+    other = _firm(session, "THEIRS")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    mine = service.get_hierarchy(firm_scope=firm.id, actor_id=actor)
+    theirs = service.get_hierarchy(firm_scope=other.id, actor_id=actor)
+    their_type = service.create_route_type(
+        RouteTypeWrite(code="SALES", name="Sales Route"),
+        firm_scope=other.id,
+        actor_id=actor,
+    )
+
+    with pytest.raises(ValidationError, match="hierarchy level"):
+        service.create_territory(
+            TerritoryCreate(
+                code="RT01", name="Theirs", hierarchy_level_id=theirs.levels[0].id
+            ),
+            firm_scope=firm.id,
+            actor_id=actor,
+        )
+    with pytest.raises(ResourceNotFoundError, match="Route type not found"):
+        service.create_territory(
+            TerritoryCreate(
+                code="RT01",
+                name="Mine",
+                hierarchy_level_id=mine.levels[0].id,
+                route_profile=RouteProfileInput(
+                    route_type_id=their_type.id,
+                    visit_frequency=VisitFrequency.WEEKLY,
+                ),
+            ),
+            firm_scope=firm.id,
+            actor_id=actor,
+        )
+
+    session.rollback()
+    assert (
+        session.scalar(
+            select(func.count())
+            .select_from(SalesTerritoryNode)
+            .where(SalesTerritoryNode.firm_id == firm.id)
+        )
+        == 0
+    )
 
 
 def test_territory_api_scope_and_permissions() -> None:

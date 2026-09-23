@@ -28,7 +28,11 @@ from app.commission.schemas import (
 from app.commission.services import CommissionService
 from app.common.audit.models import AuditLog
 from app.core.database.base import Base
-from app.core.exceptions import ConflictError, ValidationError
+from app.core.exceptions import (
+    ConflictError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.credit_note.models import CreditNote
 from app.customers.models import Customer
 from app.finance.services.opening_setup import seed_finance_setup
@@ -935,3 +939,48 @@ def test_a_credit_on_an_unpaid_bill_takes_nothing_off_the_money_received() -> No
     books.credit(invoice, "500.00")
 
     assert books.report()[books.asha] == (Decimal("300.00"), Decimal("30.00"))
+
+
+def test_a_rule_refuses_a_salesman_who_is_not_a_member() -> None:
+    """No store carries a key from a rule to a person, and nothing asked.
+
+    Any UUID at all was accepted as the scope of a rule, and the rules list
+    then showed the rate against "Former member" -- a rate nobody could
+    attach to anybody (D-TER-15). Membership is read through
+    `FirmMetadataReader`, which goes to the platform store: `users` and
+    `user_firms` are invisible to a tenant session.
+    """
+    books = _Books(_session_factory()())
+
+    with pytest.raises(ValidationError, match="not an active member"):
+        books.rule("5", salesman_id=uuid4())
+
+    books.session.rollback()
+    assert books.session.scalars(select(CommissionRule)).all() == []
+
+
+def test_a_rule_refuses_goods_that_are_not_the_firms() -> None:
+    """An unknown product reached the key and came back as a bare 409.
+
+    In the shared store the key is also satisfied by another firm's row, so
+    the check is on the firm rather than on the key. It answers "not found",
+    which names what was wrong with the request.
+    """
+    books = _Books(_session_factory()())
+    service = CommissionService(books.session)
+
+    for field in ("product_id", "product_category_id"):
+        with pytest.raises(ResourceNotFoundError, match="not found"):
+            service.create_rule(
+                CommissionRuleCreate(
+                    salesman_id=books.asha,
+                    percentage=Decimal("5"),
+                    effective_from=date(2026, 4, 1),
+                    **{field: uuid4()},
+                ),
+                firm_id=books.firm.id,
+                actor_id=books.actor_id,
+            )
+        books.session.rollback()
+
+    assert books.session.scalars(select(CommissionRule)).all() == []
