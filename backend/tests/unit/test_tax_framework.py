@@ -30,6 +30,7 @@ from app.tax.models import (
     TaxMigrationMapping,
     TaxProfile,
     TaxRule,
+    TaxRuleCondition,
     TaxRuleExecutionLog,
     TaxSettings,
     TaxSystem,
@@ -2015,3 +2016,42 @@ def test_every_inward_document_asks_where_its_supply_comes_from() -> None:
                 if "inward_transaction_type(" not in chunk[:400]:
                     offenders.append(f"{module}/{path.name}")
     assert offenders == []
+
+
+def test_the_template_matches_on_the_group_and_survives_a_rate_change() -> None:
+    """No template rule names a profile's id (D-CMP-19).
+
+    `20260809_0049` rewrote the seeded rules onto `tax_profile_group_code`
+    because a profile id is one version and a rate change mints a new one;
+    the template kept writing ids, so every firm set up afterwards had the
+    fragile shape again.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    gst_template.apply_india_gst_template(session, firm_id=firm.id, actor_id=uuid4())
+    session.commit()
+
+    keys = Counter(
+        session.scalars(
+            select(TaxRuleCondition.field_key).where(
+                TaxRuleCondition.firm_id == firm.id
+            )
+        ).all()
+    )
+    assert keys["tax_profile_id"] == 0
+    # Six interstate rules and the exempt rule name a group each.
+    assert keys["tax_profile_group_code"] == 7
+    named = set(
+        session.scalars(
+            select(TaxRuleCondition.value_text).where(
+                TaxRuleCondition.firm_id == firm.id,
+                TaxRuleCondition.field_key == "tax_profile_group_code",
+            )
+        ).all()
+    )
+    assert named == {
+        "GST_5_LOCAL",
+        "GST_12_LOCAL",
+        "GST_18_LOCAL",
+        "EXEMPT",
+    }
