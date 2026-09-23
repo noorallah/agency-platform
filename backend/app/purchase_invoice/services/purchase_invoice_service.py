@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -809,15 +810,24 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         return records
 
     def register_report(
-        self, *, firm_scope: UUID
+        self, *, firm_scope: UUID, statuses: Sequence[str] | None = None
     ) -> list[PurchaseInvoiceRegisterRecord]:
-        """Return the register report for the visible firm scope."""
+        """Return the register report, optionally narrowed to some statuses.
+
+        The pending report answers this shape too, rather than whole
+        documents with their five extra reads per row (D-RPT-16).
+        """
         rows = list(
             self._session.scalars(
                 select(PurchaseInvoice)
                 .where(
                     PurchaseInvoice.firm_id == firm_scope,
                     PurchaseInvoice.is_deleted.is_(False),
+                    *(
+                        ()
+                        if statuses is None
+                        else (PurchaseInvoice.status.in_(list(statuses)),)
+                    ),
                 )
                 .order_by(
                     PurchaseInvoice.invoice_date.desc(),

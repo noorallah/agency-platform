@@ -37,6 +37,7 @@ from app.goods_receipt.schemas import (
     GoodsReceiptLineResponse,
     GoodsReceiptListFilters,
     GoodsReceiptPurchaseOrderReport,
+    GoodsReceiptRegisterRecord,
     GoodsReceiptResponse,
     GoodsReceiptStatus,
     GoodsReceiptSummary,
@@ -309,35 +310,32 @@ def goods_receipt_history(
     )
 
 
-@router.get("/reports/pending", response_model=ApiResponse[list[GoodsReceiptResponse]])
+@router.get(
+    "/reports/pending", response_model=ApiResponse[list[GoodsReceiptRegisterRecord]]
+)
 def pending_goods_receipts(
     scope: GoodsReceiptReportScope,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[GoodsReceiptResponse]]:
-    """Return goods receipts."""
+) -> ApiResponse[list[GoodsReceiptRegisterRecord]]:
+    """List the receipts still in draft, one flat row each."""
     service = GoodsReceiptService(db)
     return ApiResponse(
-        data=[
-            service.receipt_response(item)
-            for item in service.pending_receipts(firm_scope=scope.firm_id)
-        ]
+        data=service.register_rows(service.pending_receipts(firm_scope=scope.firm_id))
     )
 
 
 @router.get(
-    "/reports/completed", response_model=ApiResponse[list[GoodsReceiptResponse]]
+    "/reports/completed",
+    response_model=ApiResponse[list[GoodsReceiptRegisterRecord]],
 )
 def completed_goods_receipts(
     scope: GoodsReceiptReportScope,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[GoodsReceiptResponse]]:
-    """Return goods receipts."""
+) -> ApiResponse[list[GoodsReceiptRegisterRecord]]:
+    """List the receipts whose goods are in stock, one flat row each."""
     service = GoodsReceiptService(db)
     return ApiResponse(
-        data=[
-            service.receipt_response(item)
-            for item in service.completed_receipts(firm_scope=scope.firm_id)
-        ]
+        data=service.register_rows(service.completed_receipts(firm_scope=scope.firm_id))
     )
 
 

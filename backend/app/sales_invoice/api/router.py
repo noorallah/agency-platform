@@ -319,17 +319,19 @@ def get_sales_invoice_timeline(
 
 @router.get(
     "/reports/pending",
-    response_model=ApiResponse[list[SalesInvoiceResponse]],
+    response_model=ApiResponse[list[SalesInvoiceRegisterRecord]],
     status_code=status.HTTP_200_OK,
 )
 def get_pending_invoices(
     scope: SalesInvoiceReportScope,
     db: Annotated[Session, Depends(get_db)],
-) -> ApiResponse[list[SalesInvoiceResponse]]:
-    """Get pending (draft) sales invoices."""
-    service = SalesInvoiceService(db)
-    rows = service.pending_invoices(firm_scope=scope.firm_id)
-    return ApiResponse(data=[service.invoice_response(row) for row in rows])
+) -> ApiResponse[list[SalesInvoiceRegisterRecord]]:
+    """List the invoices not yet approved, one flat row each."""
+    return ApiResponse(
+        data=SalesInvoiceService(db).register_report(
+            firm_scope=scope.firm_id, statuses=(SalesInvoiceStatus.DRAFT.value,)
+        )
+    )
 
 
 @router.get(

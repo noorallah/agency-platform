@@ -5,6 +5,7 @@ from __future__ import annotations
 import csv
 import io
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -862,14 +863,26 @@ class DeliveryNoteService(TransactionalDocumentService):
             sort_direction=True,
         )
 
-    def register_report(self, *, firm_scope: UUID) -> list[DeliveryNoteRegisterRecord]:
-        """Return the register report for the visible firm scope."""
+    def register_report(
+        self, *, firm_scope: UUID, statuses: Sequence[str] | None = None
+    ) -> list[DeliveryNoteRegisterRecord]:
+        """Return the register report, optionally narrowed to some statuses.
+
+        The pending report answers this shape too: it used to answer whole
+        documents -- lines, attachments and notes per row -- while the desktop
+        showed five columns of them (D-RPT-16).
+        """
         rows = list(
             self._session.scalars(
                 select(DeliveryNote)
                 .where(
                     DeliveryNote.firm_id == firm_scope,
                     DeliveryNote.is_deleted.is_(False),
+                    *(
+                        ()
+                        if statuses is None
+                        else (DeliveryNote.status.in_(list(statuses)),)
+                    ),
                 )
                 .order_by(
                     DeliveryNote.delivery_date.desc(), DeliveryNote.created_at.desc()

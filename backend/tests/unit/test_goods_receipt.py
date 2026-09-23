@@ -1756,3 +1756,30 @@ def test_the_receipt_reports_follow_the_receipts_life() -> None:
         reason="wrong delivery",
     )
     assert seen() == (1, 1, 1), "a cancelled receipt's damage did not happen"
+
+
+def test_a_receipt_row_carries_what_the_screen_shows() -> None:
+    """The flat receipt row names the vendor and carries the header's totals.
+
+    The pending and completed reports answered whole documents (D-RPT-16).
+    """
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-ROWS")
+    service = GoodsReceiptService(session)
+    payload = fixture.receipt_payload("4")
+    payload.lines[0].damaged_quantity = Decimal("1")
+    receipt = service.create_receipt(
+        payload, firm_id=fixture.firm.id, actor_id=fixture.actor_id
+    )
+
+    [row] = service.register_rows(service.pending_receipts(firm_scope=fixture.firm.id))
+    assert row.grn_number == receipt.grn_number
+    assert row.vendor_name == fixture.vendor.display_name
+    assert row.purchase_order_number == fixture.order.po_number
+    assert (row.total_current_receipt_quantity, row.total_damaged_quantity) == (
+        Decimal("4"),
+        Decimal("1"),
+    )
+    assert row.status == "DRAFT"
+    assert service.register_rows([]) == []
+    assert row.receipt_id == receipt.id
