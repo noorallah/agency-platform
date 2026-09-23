@@ -57,6 +57,7 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceListFilters,
     PurchaseInvoiceNoteResponse,
     PurchaseInvoiceNoteWrite,
+    PurchaseInvoiceOverdueRecord,
     PurchaseInvoiceReconciliationRecord,
     PurchaseInvoiceRegisterRecord,
     PurchaseInvoiceResponse,
@@ -66,6 +67,7 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceSummary,
     PurchaseInvoiceVendorOutstandingRecord,
 )
+from app.settlements.schemas import OutstandingInvoiceRecord
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
@@ -202,17 +204,9 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 )
             ).all()
         )
-        overdue = sum(
-            1
-            for row in rows
-            if row.due_date is not None
-            and row.due_date < utc_now().date()
-            and row.status
-            not in {
-                PurchaseInvoiceStatus.CANCELLED.value,
-                PurchaseInvoiceStatus.CLOSED.value,
-            }
-        )
+        # The tile and the overdue report must agree, so the tile counts the
+        # report's rows: bills past due that still owe something (D-RPT-2).
+        overdue = len(self.overdue_report(firm_scope=firm_scope))
         return PurchaseInvoiceSummary(
             total=len(rows),
             draft=sum(
@@ -739,28 +733,80 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             ).all()
         )
 
-    def overdue_invoices(self, *, firm_scope: UUID) -> list[PurchaseInvoice]:
-        """List live invoices past their due date.
+    def _owing(self, *, firm_scope: UUID) -> list[OutstandingInvoiceRecord]:
+        """Every bill of the firm still owing something, as Record Payment sees it.
 
-        Cancelled and closed invoices are excluded: neither is still owing.
+        One derivation for what a bill owes -- total less posted payments,
+        completed returns off its lines and applied supplier credit, over the
+        states that are debts at all -- so a report and the payment screen
+        cannot disagree (D-RPT-2). Imported here because the settlement service
+        imports this module's models.
+        """
+        from app.settlements.services.settlement_service import PaymentService
+
+        return PaymentService(self._session).outstanding_invoices(
+            firm_id=firm_scope, party_id=None
+        )
+
+    def _vendor_names(self, vendor_ids: set[UUID]) -> dict[UUID, str]:
+        """Read the display names of the vendors named, in one query."""
+        if not vendor_ids:
+            return {}
+        return {
+            vendor.id: vendor.display_name
+            for vendor in self._session.scalars(
+                select(Vendor).where(Vendor.id.in_(list(vendor_ids)))
+            ).all()
+        }
+
+    def overdue_report(self, *, firm_scope: UUID) -> list[PurchaseInvoiceOverdueRecord]:
+        """List the bills past their due date that still owe something.
+
+        Judged on what is owed rather than on status: a bill paid in full used
+        to stay here until somebody closed it by hand, and a DRAFT with a past
+        due date was listed before it was approved (D-RPT-2). A bill entered
+        without a due date is never overdue -- nothing derives one from the
+        payment terms.
         """
         today = utc_now().date()
-        return list(
-            self._session.scalars(
-                select(PurchaseInvoice).where(
-                    PurchaseInvoice.firm_id == firm_scope,
-                    PurchaseInvoice.is_deleted.is_(False),
-                    PurchaseInvoice.due_date.is_not(None),
-                    PurchaseInvoice.due_date < today,
-                    PurchaseInvoice.status.not_in(
-                        [
-                            PurchaseInvoiceStatus.CANCELLED.value,
-                            PurchaseInvoiceStatus.CLOSED.value,
-                        ]
-                    ),
+        owing = [
+            record
+            for record in self._owing(firm_scope=firm_scope)
+            if record.due_date is not None and record.due_date < today
+        ]
+        bills: dict[UUID, PurchaseInvoice] = {}
+        if owing:
+            bills = {
+                row.id: row
+                for row in self._session.scalars(
+                    select(PurchaseInvoice).where(
+                        PurchaseInvoice.id.in_([item.invoice_id for item in owing])
+                    )
+                ).all()
+            }
+        names = self._vendor_names({row.vendor_id for row in bills.values()})
+        records: list[PurchaseInvoiceOverdueRecord] = []
+        for record in owing:
+            row = bills[record.invoice_id]
+            if record.due_date is None:  # pragma: no cover - filtered above
+                continue
+            records.append(
+                PurchaseInvoiceOverdueRecord(
+                    invoice_id=row.id,
+                    invoice_number=row.invoice_number,
+                    supplier_invoice_number=row.supplier_invoice_number,
+                    vendor_id=row.vendor_id,
+                    vendor_name=names.get(row.vendor_id, str(row.vendor_id)),
+                    invoice_date=row.invoice_date,
+                    due_date=record.due_date,
+                    days_overdue=(today - record.due_date).days,
+                    grand_total=row.grand_total,
+                    allocated_amount=record.allocated_amount,
+                    outstanding_amount=record.outstanding_amount,
                 )
-            ).all()
-        )
+            )
+        records.sort(key=lambda item: (item.due_date, item.invoice_number))
+        return records
 
     def register_report(
         self, *, firm_scope: UUID
@@ -797,38 +843,32 @@ class PurchaseInvoiceService(TransactionalDocumentService):
     def outstanding_report(
         self, *, firm_scope: UUID
     ) -> list[PurchaseInvoiceVendorOutstandingRecord]:
-        """Return the outstanding report for the visible firm scope."""
-        rows = list(
-            self._session.scalars(
-                select(PurchaseInvoice).where(
-                    PurchaseInvoice.firm_id == firm_scope,
-                    PurchaseInvoice.is_deleted.is_(False),
-                    PurchaseInvoice.status != PurchaseInvoiceStatus.CANCELLED.value,
-                )
-            ).all()
-        )
+        """Report what is still owed to each supplier, and on how many bills.
+
+        Summed from the same per-bill derivation Record Payment offers, so a
+        supplier paid in full drops off the day the payment posts; it used to
+        sum ``grand_total`` of every non-cancelled bill, drafts included, and
+        never read an allocation (D-RPT-2). Largest debt first.
+        """
         totals: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
         counts: dict[UUID, int] = defaultdict(int)
-        vendor_names: dict[UUID, str] = {}
-        for row in rows:
-            totals[row.vendor_id] += row.grand_total
-            counts[row.vendor_id] += 1
-        vendors = list(
-            self._session.scalars(
-                select(Vendor).where(Vendor.id.in_(list(totals.keys())))
-            ).all()
-        )
-        for vendor in vendors:
-            vendor_names[vendor.id] = vendor.display_name
-        return [
+        for record in self._owing(firm_scope=firm_scope):
+            if record.party_id is None:  # pragma: no cover - always set
+                continue
+            totals[record.party_id] += record.outstanding_amount
+            counts[record.party_id] += 1
+        names = self._vendor_names(set(totals))
+        records = [
             PurchaseInvoiceVendorOutstandingRecord(
                 vendor_id=vendor_id,
-                vendor_name=vendor_names.get(vendor_id, str(vendor_id)),
+                vendor_name=names.get(vendor_id, str(vendor_id)),
                 outstanding_amount=self._q(amount),
                 invoice_count=counts[vendor_id],
             )
             for vendor_id, amount in totals.items()
         ]
+        records.sort(key=lambda item: (-item.outstanding_amount, item.vendor_name))
+        return records
 
     def reconciliation_report(
         self, *, firm_scope: UUID

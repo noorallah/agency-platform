@@ -512,16 +512,20 @@ const List<ReportDefinition> reportCatalog = [
     description: 'What the firm owes and should already have paid.',
     path: '/api/v1/purchase-invoices/reports/overdue',
     area: ReportArea.financial,
-    // The endpoint answers with whole documents, so the columns are
-    // named rather than derived from forty fields of one record.
+    // A flat row since D-RPT-2: the bill, whose it is, how late, and what it
+    // still owes once payments, returns and credits are taken off.
     columns: [
       ReportColumn(key: 'invoice_number', label: 'Invoice number'),
       ReportColumn(
           key: 'supplier_invoice_number', label: 'Supplier invoice number'),
+      ReportColumn(key: 'vendor_name', label: 'Supplier'),
       ReportColumn(key: 'invoice_date', label: 'Invoice date'),
       ReportColumn(key: 'due_date', label: 'Due date'),
-      ReportColumn(key: 'status', label: 'Status'),
+      ReportColumn(key: 'days_overdue', label: 'Days overdue', numeric: true),
       ReportColumn(key: 'grand_total', label: 'Grand total', numeric: true),
+      ReportColumn(key: 'allocated_amount', label: 'Paid', numeric: true),
+      ReportColumn(
+          key: 'outstanding_amount', label: 'Still owed', numeric: true),
     ],
   ),
   ReportDefinition(

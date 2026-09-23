@@ -140,6 +140,11 @@ class OutstandingInvoiceRecord(SettlementSchema):
     invoice_total: Decimal
     allocated_amount: Decimal
     outstanding_amount: Decimal
+    #: Whose bill it is, and when it fell due. Both were absent while the
+    #: list was only ever asked about one party; the vendor outstanding and
+    #: overdue reports ask about every party at once (D-RPT-2).
+    party_id: UUID | None = None
+    due_date: date | None = None
 
 
 class SettlementPartyRecord(SettlementSchema):
