@@ -787,15 +787,19 @@ class _DesktopShellState extends State<DesktopShell> {
   Future<GlobalSearchResponse> _executeGlobalSearch(
     GlobalSearchRequest request,
   ) async {
-    final String category = _searchCategoryWire(request.category);
+    final SearchWire wire = request.category.wire;
     try {
       final Map<String, dynamic> payload =
           await widget.session.api.globalSearch(
         query: request.query,
-        category: category,
+        category: wire.category,
         page: request.page,
         pageSize: request.pageSize,
-        entityTypes: request.entityTypes,
+        // The advanced box, when used, says exactly which types; otherwise
+        // the chip's own narrowing.
+        entityTypes: request.entityTypes.isNotEmpty
+            ? request.entityTypes
+            : wire.entityTypes,
       );
       final List<dynamic> rows = payload['results'] is List
           ? payload['results'] as List<dynamic>
@@ -866,10 +870,7 @@ class _DesktopShellState extends State<DesktopShell> {
           addRecords(_searchInventoryByBranch(request.query)),
         ]);
         break;
-      case GlobalSearchCategory.modules:
       case GlobalSearchCategory.documents:
-      case GlobalSearchCategory.transactions:
-      case GlobalSearchCategory.reports:
       case GlobalSearchCategory.customers:
       case GlobalSearchCategory.vendors:
       case GlobalSearchCategory.inventory:
@@ -917,24 +918,6 @@ class _DesktopShellState extends State<DesktopShell> {
       );
     }
   }
-
-  String _searchCategoryWire(GlobalSearchCategory category) =>
-      switch (category) {
-        GlobalSearchCategory.all => 'all',
-        GlobalSearchCategory.modules => 'modules',
-        GlobalSearchCategory.customers => 'customers',
-        GlobalSearchCategory.vendors => 'vendors',
-        GlobalSearchCategory.documents => 'documents',
-        GlobalSearchCategory.transactions => 'transactions',
-        GlobalSearchCategory.reports => 'reports',
-        GlobalSearchCategory.masters => 'masters',
-        GlobalSearchCategory.inventory => 'inventory',
-        GlobalSearchCategory.tax => 'tax',
-        GlobalSearchCategory.organization => 'organization',
-        GlobalSearchCategory.products => 'masters',
-        GlobalSearchCategory.warehouses => 'organization',
-        GlobalSearchCategory.branches => 'organization',
-      };
 
   IconData _searchIcon(String icon) => switch (icon) {
         'user' => Icons.person_outline,

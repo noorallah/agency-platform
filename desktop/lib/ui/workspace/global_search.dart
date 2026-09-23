@@ -2,32 +2,82 @@ import 'package:flutter/material.dart';
 
 import '../workspace/desktop_framework.dart';
 
+/// The chips the search dialog offers.
+///
+/// Every one of these is a question the server can answer: a category it
+/// accepts, narrowed by entity types where the chip is finer than a category.
+/// There were fourteen, and six of them (Modules, Customers, Vendors,
+/// Documents, Transactions, Reports) were sent as typed and refused with 422;
+/// the shell then quietly fell back to an inventory search, so "Customers"
+/// answered with stock rows (D-RPT-5). A chip the server has no notion of is
+/// not offered.
 enum GlobalSearchCategory {
   all,
-  modules,
   customers,
   vendors,
+  products,
   documents,
-  transactions,
-  reports,
   masters,
   inventory,
   tax,
   organization,
-  products,
   warehouses,
   branches,
 }
 
+/// What a chip sends: a `category` the server accepts and, where the chip is
+/// finer than a category, the `entity_types` that narrow it.
+typedef SearchWire = ({String category, List<String> entityTypes});
+
 extension GlobalSearchCategoryDetails on GlobalSearchCategory {
+  /// The server's `category` and `entity_types` for this chip.
+  ///
+  /// `category` must be one of the values `SearchCategory` in
+  /// `backend/app/search/schemas.py` accepts; the backend's
+  /// `test_search_chips_name_categories_the_server_accepts` reads this table
+  /// and fails the build on the next value the server does not know.
+  SearchWire get wire => switch (this) {
+        GlobalSearchCategory.all => (category: 'all', entityTypes: const []),
+        GlobalSearchCategory.customers =>
+          (category: 'masters', entityTypes: const ['customers']),
+        GlobalSearchCategory.vendors =>
+          (category: 'masters', entityTypes: const ['vendors']),
+        GlobalSearchCategory.products => (
+            category: 'masters',
+            entityTypes: const ['products', 'product_categories']
+          ),
+        GlobalSearchCategory.documents => (
+            category: 'masters',
+            entityTypes: const [
+              'sales_orders',
+              'delivery_notes',
+              'sales_invoices',
+              'purchase_orders',
+              'goods_receipts',
+              'purchase_invoices',
+              'purchase_returns',
+            ]
+          ),
+        GlobalSearchCategory.masters =>
+          (category: 'masters', entityTypes: const []),
+        GlobalSearchCategory.inventory =>
+          (category: 'inventory', entityTypes: const []),
+        GlobalSearchCategory.tax => (category: 'tax', entityTypes: const []),
+        GlobalSearchCategory.organization =>
+          (category: 'organization', entityTypes: const []),
+        GlobalSearchCategory.warehouses => (
+            category: 'organization',
+            entityTypes: const ['warehouses', 'storage_areas']
+          ),
+        GlobalSearchCategory.branches =>
+          (category: 'organization', entityTypes: const ['branches']),
+      };
+
   String get label => switch (this) {
         GlobalSearchCategory.all => 'All',
-        GlobalSearchCategory.modules => 'Modules',
         GlobalSearchCategory.customers => 'Customers',
         GlobalSearchCategory.vendors => 'Vendors',
         GlobalSearchCategory.documents => 'Documents',
-        GlobalSearchCategory.transactions => 'Transactions',
-        GlobalSearchCategory.reports => 'Reports',
         GlobalSearchCategory.masters => 'Masters',
         GlobalSearchCategory.inventory => 'Inventory',
         GlobalSearchCategory.tax => 'Tax',
@@ -39,12 +89,9 @@ extension GlobalSearchCategoryDetails on GlobalSearchCategory {
 
   IconData get icon => switch (this) {
         GlobalSearchCategory.all => Icons.apps_outlined,
-        GlobalSearchCategory.modules => Icons.grid_view_outlined,
         GlobalSearchCategory.customers => Icons.groups_outlined,
         GlobalSearchCategory.vendors => Icons.local_shipping_outlined,
         GlobalSearchCategory.documents => Icons.description_outlined,
-        GlobalSearchCategory.transactions => Icons.swap_horiz_outlined,
-        GlobalSearchCategory.reports => Icons.bar_chart_outlined,
         GlobalSearchCategory.masters => Icons.folder_copy_outlined,
         GlobalSearchCategory.inventory => Icons.inventory_2_outlined,
         GlobalSearchCategory.tax => Icons.receipt_long_outlined,
