@@ -42,6 +42,7 @@ from app.delivery_note.models import (
 )
 from app.delivery_note.rules import (
     SHIPPED_STATES,
+    delivered_by_order_line,
     goods_have_left,
     goods_have_left_clause,
 )
@@ -911,7 +912,15 @@ class DeliveryNoteService(TransactionalDocumentService):
     def partially_delivered_orders(
         self, *, firm_scope: UUID
     ) -> list[DeliveryNoteOrderProgressRecord]:
-        """Show how much of each sales order has actually been delivered."""
+        """Show how much of each sales order has actually been delivered.
+
+        "Delivered" is what left the warehouse -- the notes that dispatched,
+        summed by `delivered_by_order_line`, which is the derivation the
+        order's own status follows. An APPROVED note used to count here, so an
+        order whose note was approved and never dispatched read 4 delivered
+        while nothing had moved (D-RPT-9). One grouped read for the lines and
+        one for the deliveries, rather than one query per line.
+        """
         order_rows = list(
             self._session.scalars(
                 select(SalesOrder).where(
@@ -921,29 +930,28 @@ class DeliveryNoteService(TransactionalDocumentService):
                 )
             ).all()
         )
+        if not order_rows:
+            return []
+        order_ids = [order.id for order in order_rows]
+        lines_by_order: dict[UUID, list[SalesOrderLine]] = defaultdict(list)
+        for line in self._session.scalars(
+            select(SalesOrderLine).where(
+                SalesOrderLine.sales_order_id.in_(order_ids),
+                SalesOrderLine.is_deleted.is_(False),
+            )
+        ).all():
+            lines_by_order[line.sales_order_id].append(line)
+        sent = delivered_by_order_line(
+            self._session, firm_id=firm_scope, sales_order_ids=order_ids
+        )
         result: list[DeliveryNoteOrderProgressRecord] = []
         for order in order_rows:
-            lines = list(
-                self._session.scalars(
-                    select(SalesOrderLine).where(
-                        SalesOrderLine.sales_order_id == order.id
-                    )
-                ).all()
-            )
+            lines = lines_by_order.get(order.id, [])
             ordered = self._q(sum((line.reservable_quantity for line in lines), ZERO))
             delivered = self._q(
                 sum(
                     (
-                        self._already_delivered_quantity(
-                            firm_id=firm_scope,
-                            sales_order_line_id=line.id,
-                            include_statuses={
-                                DeliveryNoteStatus.APPROVED.value,
-                                DeliveryNoteStatus.DISPATCHED.value,
-                                DeliveryNoteStatus.COMPLETED.value,
-                                DeliveryNoteStatus.CLOSED.value,
-                            },
-                        )
+                        min(sent.get(line.id, ZERO), line.reservable_quantity)
                         for line in lines
                     ),
                     ZERO,
@@ -966,53 +974,53 @@ class DeliveryNoteService(TransactionalDocumentService):
             )
         return result
 
-    def by_route_report(
-        self, *, firm_scope: UUID
-    ) -> list[DeliveryNoteByDimensionRecord]:
-        """Return the by route report for the visible firm scope."""
-        rows = list(
+    def _shipped_notes(self, *, firm_scope: UUID) -> list[DeliveryNote]:
+        """Every note whose goods actually left the warehouse.
+
+        The by-route, by-salesman and by-warehouse reports say "delivered",
+        and used to sum every non-cancelled note -- a DRAFT's typed quantity
+        raised the warehouse's delivered total (D-RPT-9). Only a dispatched
+        note has delivered anything, and `goods_have_left_clause` is the one
+        test of that (D-SELL-4).
+        """
+        return list(
             self._session.scalars(
                 select(DeliveryNote).where(
                     DeliveryNote.firm_id == firm_scope,
                     DeliveryNote.is_deleted.is_(False),
-                    DeliveryNote.status != DeliveryNoteStatus.CANCELLED.value,
+                    goods_have_left_clause(),
                 )
             ).all()
         )
-        return self._aggregate_dimension(rows=rows, attr="route_id", dimension="route")
+
+    def by_route_report(
+        self, *, firm_scope: UUID
+    ) -> list[DeliveryNoteByDimensionRecord]:
+        """Deliveries per route: dispatched notes only."""
+        return self._aggregate_dimension(
+            rows=self._shipped_notes(firm_scope=firm_scope),
+            attr="route_id",
+            dimension="route",
+        )
 
     def by_salesman_report(
         self, *, firm_scope: UUID
     ) -> list[DeliveryNoteByDimensionRecord]:
-        """Return the by salesman report for the visible firm scope."""
-        rows = list(
-            self._session.scalars(
-                select(DeliveryNote).where(
-                    DeliveryNote.firm_id == firm_scope,
-                    DeliveryNote.is_deleted.is_(False),
-                    DeliveryNote.status != DeliveryNoteStatus.CANCELLED.value,
-                )
-            ).all()
-        )
+        """Deliveries per salesperson: dispatched notes only."""
         return self._aggregate_dimension(
-            rows=rows, attr="salesman_id", dimension="salesman"
+            rows=self._shipped_notes(firm_scope=firm_scope),
+            attr="salesman_id",
+            dimension="salesman",
         )
 
     def by_warehouse_report(
         self, *, firm_scope: UUID
     ) -> list[DeliveryNoteByDimensionRecord]:
-        """Return the by warehouse report for the visible firm scope."""
-        rows = list(
-            self._session.scalars(
-                select(DeliveryNote).where(
-                    DeliveryNote.firm_id == firm_scope,
-                    DeliveryNote.is_deleted.is_(False),
-                    DeliveryNote.status != DeliveryNoteStatus.CANCELLED.value,
-                )
-            ).all()
-        )
+        """Deliveries per warehouse: dispatched notes only."""
         return self._aggregate_dimension(
-            rows=rows, attr="warehouse_id", dimension="warehouse"
+            rows=self._shipped_notes(firm_scope=firm_scope),
+            attr="warehouse_id",
+            dimension="warehouse",
         )
 
     def export_notes_csv(self, *, firm_scope: UUID, search: str | None = None) -> str:
@@ -2393,24 +2401,32 @@ class DeliveryNoteService(TransactionalDocumentService):
         values: dict[UUID | None, Decimal] = defaultdict(lambda: ZERO)
         counts: dict[UUID | None, int] = defaultdict(int)
         labels: dict[UUID | None, str] = {None: "Unassigned"}
+        # One grouped read of the quantities, not one per note.
+        delivered_by_note: dict[UUID, Decimal] = {}
+        if rows:
+            delivered_by_note = {
+                note_id: self._q(Decimal(str(total)))
+                for note_id, total in self._session.execute(
+                    select(
+                        DeliveryNoteLine.delivery_note_id,
+                        func.coalesce(func.sum(DeliveryNoteLine.delivered_quantity), 0),
+                    )
+                    .where(
+                        DeliveryNoteLine.delivery_note_id.in_([row.id for row in rows]),
+                        DeliveryNoteLine.is_deleted.is_(False),
+                    )
+                    .group_by(DeliveryNoteLine.delivery_note_id)
+                ).all()
+            }
+        if dimension == "salesman":
+            people = {getattr(row, attr) for row in rows} - {None}
+            for person, name in self._salesman_names(people).items():
+                labels[person] = name
         for row in rows:
             key = getattr(row, attr)
             counts[key] += 1
             values[key] += row.grand_total
-            delivered = self._q(
-                sum(
-                    (
-                        line.delivered_quantity
-                        for line in self._session.scalars(
-                            select(DeliveryNoteLine).where(
-                                DeliveryNoteLine.delivery_note_id == row.id
-                            )
-                        ).all()
-                    ),
-                    ZERO,
-                )
-            )
-            quantities[key] += delivered
+            quantities[key] += delivered_by_note.get(row.id, ZERO)
             if key not in labels:
                 if dimension == "route":
                     # A route profile has no name of its own -- it is a
@@ -2428,7 +2444,8 @@ class DeliveryNoteService(TransactionalDocumentService):
                     )
                     labels[key] = route_name or str(key)
                 elif dimension == "salesman":
-                    labels[key] = self._salesman_names({key}).get(key, str(key))
+                    # Named above in one read; a departed member gets the id.
+                    labels[key] = str(key)
                 else:
                     warehouse = self._session.scalar(
                         select(Warehouse).where(Warehouse.id == key)
