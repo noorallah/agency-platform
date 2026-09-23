@@ -31,6 +31,12 @@ from app.firms.models import Firm
 from app.gst_returns.services import GstReturnService
 from app.gst_returns.services.gstr_service import b2cl_threshold
 from app.products.models import Product
+from app.purchase_invoice.models import (
+    PurchaseInvoice,
+    PurchaseInvoiceLine,
+    PurchaseInvoiceLineTax,
+)
+from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
 from app.sales_invoice.models import (
     SalesInvoice,
     SalesInvoiceLine,
@@ -449,12 +455,167 @@ def test_the_summary_return_matches_the_detail() -> None:
     assert outward["integrated_tax"] == 0.0
 
 
-def test_the_summary_says_it_does_not_know_the_inward_side() -> None:
-    """A zero would read as "no input credit", which is a different claim."""
+def _bill_with_components(
+    books: _Books, *, number: str, on: date, components: dict[str, str]
+) -> PurchaseInvoiceLine:
+    """Write one approved bill whose line recorded `components` (code -> amount)."""
+    vendor_id = uuid4()
+    tax = sum((Decimal(v) for v in components.values()), Decimal("0"))
+    bill = PurchaseInvoice(
+        firm_id=books.firm.id,
+        vendor_id=vendor_id,
+        branch_id=books.branch.id,
+        invoice_number=number,
+        invoice_date=on,
+        supplier_invoice_number=f"S-{number}",
+        supplier_invoice_date=on,
+        status="APPROVED",
+        tax_total=tax,
+        grand_total=Decimal("400") + tax,
+    )
+    books.session.add(bill)
+    books.session.flush()
+    line = PurchaseInvoiceLine(
+        purchase_invoice_id=bill.id,
+        firm_id=books.firm.id,
+        line_number=1,
+        source_document_type="GOODS_RECEIPT",
+        source_document_id=uuid4(),
+        source_document_number="GRN-1",
+        source_document_line_id=uuid4(),
+        source_document_line_number=1,
+        product_id=books.product.id,
+        received_quantity=Decimal("4"),
+        already_invoiced_quantity=Decimal("0"),
+        current_invoice_quantity=Decimal("4"),
+        unit_price=Decimal("100"),
+        tax_amount=tax,
+    )
+    books.session.add(line)
+    books.session.flush()
+    for sequence, (code, amount) in enumerate(components.items(), start=1):
+        books.session.add(
+            PurchaseInvoiceLineTax(
+                purchase_invoice_line_id=line.id,
+                firm_id=books.firm.id,
+                sequence=sequence,
+                component_code=code,
+                component_label=code,
+                percentage=Decimal("9"),
+                base_amount=Decimal("400"),
+                amount=Decimal(amount),
+            )
+        )
+    books.session.commit()
+    return line
+
+
+def _completed_return(
+    books: _Books,
+    *,
+    number: str,
+    on: date,
+    tax: str,
+    off_bill_line: PurchaseInvoiceLine | None,
+) -> None:
+    """Write one completed return, off a bill's line or off a receipt."""
+    sent = PurchaseReturn(
+        firm_id=books.firm.id,
+        vendor_id=uuid4(),
+        branch_id=books.branch.id,
+        warehouse_id=uuid4(),
+        return_number=number,
+        return_date=on,
+        status="COMPLETED",
+        tax_total=Decimal(tax),
+        grand_total=Decimal("200") + Decimal(tax),
+    )
+    books.session.add(sent)
+    books.session.flush()
+    books.session.add(
+        PurchaseReturnLine(
+            purchase_return_id=sent.id,
+            firm_id=books.firm.id,
+            line_number=1,
+            source_document_type=(
+                "PURCHASE_INVOICE" if off_bill_line is not None else "GOODS_RECEIPT"
+            ),
+            source_document_id=(
+                off_bill_line.purchase_invoice_id if off_bill_line else uuid4()
+            ),
+            source_document_number="SRC-1",
+            source_document_line_id=(off_bill_line.id if off_bill_line else uuid4()),
+            source_document_line_number=1,
+            product_id=books.product.id,
+            received_quantity=Decimal("4"),
+            already_returned_quantity=Decimal("0"),
+            current_return_quantity=Decimal("2"),
+            tax_amount=Decimal(tax),
+        )
+    )
+    books.session.commit()
+
+
+def test_the_summary_claims_the_credit_it_can_read_and_says_what_it_cannot() -> None:
+    """Table 4 of 3B comes off the components the bills recorded (D-CMP-20).
+
+    "Not derived" was the honest answer while a bill kept one tax total. Now
+    4A(5) is summed per head from `purchase_invoice_line_taxes`, 4B(2) from
+    completed returns raised off those bills in the same proportions, and
+    what still cannot be placed -- a return off a receipt, a bill written
+    before the rows -- is said rather than zeroed.
+    """
     books = _Books(_session_factory()())
     books.invoice("SI-1")
+    line = _bill_with_components(
+        books,
+        number="PI-1",
+        on=date(2026, 4, 5),
+        components={"CGST": "36.00", "SGST": "36.00"},
+    )
+    _bill_with_components(
+        books, number="PI-2", on=date(2026, 4, 6), components={"IGST": "72.00"}
+    )
+    # Half of PI-1 goes back off its line; another return names only a receipt.
+    _completed_return(
+        books, number="PR-1", on=date(2026, 4, 7), tax="36.00", off_bill_line=line
+    )
+    _completed_return(
+        books, number="PR-2", on=date(2026, 4, 8), tax="9.00", off_bill_line=None
+    )
+    # A bill from before the rows existed: counted, not silently zero.
+    old = _bill_with_components(
+        books, number="PI-0", on=date(2026, 4, 1), components={}
+    )
+    old_bill = books.session.get(PurchaseInvoice, old.purchase_invoice_id)
+    assert old_bill is not None
+    old_bill.tax_total = Decimal("18.00")
+    books.session.commit()
 
-    assert "Not derived" in str(books.gstr3b()["inward_supplies"])
+    summary = books.gstr3b()
+    assert "inward_supplies" not in summary
+    assert summary["eligible_itc"] == {
+        "integrated_tax": 72.0,
+        "central_tax": 36.0,
+        "state_tax": 36.0,
+        "cess": 0.0,
+        "bill_count": 2,
+        "bills_without_components": 1,
+    }
+    assert summary["itc_reversed"] == {
+        "integrated_tax": 0.0,
+        "central_tax": 18.0,
+        "state_tax": 18.0,
+        "cess": 0.0,
+        "unplaced_reversals": 9.0,
+        "unplaced_return_count": 1,
+    }
+    assert summary["net_itc"] == {
+        "integrated_tax": 72.0,
+        "central_tax": 18.0,
+        "state_tax": 18.0,
+        "cess": 0.0,
+    }
 
 
 def test_a_firm_with_no_gstin_has_no_return_to_file() -> None:
