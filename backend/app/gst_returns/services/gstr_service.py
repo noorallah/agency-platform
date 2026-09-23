@@ -44,7 +44,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select, true
 from sqlalchemy.orm import Session
 
 from app.common.firm_metadata import FirmMetadataReader
@@ -60,12 +60,31 @@ from app.sales_invoice.models import (
 )
 from app.sales_return.models import SalesReturn, SalesReturnLine, SalesReturnLineTax
 from app.tax.services.gst_buckets import (
+    CESS,
+    CGST,
+    IGST,
+    SGST,
     GstBuckets,
     TaxComponent,
     intra_state_halves,
     settle_to_ledger,
     split_components,
 )
+
+
+def _bucket(component_code: str, amount: Decimal) -> GstBuckets:
+    """Place one component's amount under the head a return files it in."""
+    code = (component_code or "").strip().upper()
+    amount = quantize_money(amount)
+    if CGST in code:
+        return GstBuckets(cgst=amount)
+    if SGST in code:
+        return GstBuckets(sgst=amount)
+    if IGST in code:
+        return GstBuckets(igst=amount)
+    if CESS in code:
+        return GstBuckets(cess=amount)
+    return GstBuckets()
 
 
 def _filed(value: Decimal) -> float:
@@ -394,9 +413,12 @@ class GstReturnService:
         own answer: parsing a report back out of its own JSON is how a summary
         drifts from the detail it is supposed to summarise.
 
-        Only the outward half. Inward supplies and input tax credit are the
-        purchase side, and declaring a figure this module cannot derive would
-        be worse than leaving the box for somebody who can.
+        And, since D-CMP-20, the credit half: table 4A(5) is summed from the
+        components each approved bill's lines recorded, per head, and 4B(2)
+        from the completed returns raised off those bills, split in the same
+        proportions. A return raised off a receipt or an order names no bill,
+        so its tax cannot be placed under a head and is reported as such rather
+        than guessed at.
 
         Credit notes are **subtracted** rather than listed: 3B is a summary of
         what is payable, and a credit note reduces it.
@@ -488,10 +510,128 @@ class GstReturnService:
                 "taxable_value": _filed(credited),
                 "tax": _filed(credit_igst + credit_cgst + credit_sgst + credit_cess),
             },
-            # Said rather than left blank: a zero here would read as "no input
-            # credit", which is a different claim from "this module does not
-            # know".
-            "inward_supplies": "Not derived: the purchase side files this.",
+            **self._input_tax_credit(
+                firm_scope=firm_scope, from_date=from_date, to_date=to_date
+            ),
+        }
+
+    def _input_tax_credit(
+        self, *, firm_scope: UUID, from_date: date, to_date: date
+    ) -> dict[str, object]:
+        """Return table 4 of GSTR-3B: the credit claimed, reversed, and net.
+
+        4A(5), "all other ITC", is the recoverable tax the period's approved
+        and closed bills recorded component by component
+        (`purchase_invoice_line_taxes`, D-CMP-20 part 1), bucketed by head the
+        way the outward side is. 4B(2), "other reversals", is the tax on the
+        period's completed purchase returns, split by head in the proportions
+        of the bill each return line came off; a return raised off a receipt or
+        an order names no bill, and its tax is counted under
+        ``unplaced_reversals`` rather than put under a head it may not belong
+        to. Bills written before the rows existed contribute nothing here and
+        are counted under ``bills_without_components``: said, not silently
+        zero.
+        """
+        from app.purchase_invoice.models import (
+            PurchaseInvoice,
+            PurchaseInvoiceLine,
+            PurchaseInvoiceLineTax,
+        )
+        from app.purchase_return.models import PurchaseReturn
+        from app.purchase_return.services.purchase_return_service import (
+            return_tax_by_component,
+        )
+
+        claimed = GstBuckets()
+        billed_ids: set[UUID] = set()
+        for invoice_id, code, amount in self._session.execute(
+            select(
+                PurchaseInvoice.id,
+                PurchaseInvoiceLineTax.component_code,
+                PurchaseInvoiceLineTax.amount,
+            )
+            .join(
+                PurchaseInvoiceLine,
+                PurchaseInvoiceLine.id
+                == PurchaseInvoiceLineTax.purchase_invoice_line_id,
+            )
+            .join(
+                PurchaseInvoice,
+                PurchaseInvoice.id == PurchaseInvoiceLine.purchase_invoice_id,
+            )
+            .where(
+                PurchaseInvoice.firm_id == firm_scope,
+                PurchaseInvoice.is_deleted.is_(False),
+                PurchaseInvoice.status.in_(("APPROVED", "CLOSED")),
+                PurchaseInvoice.invoice_date >= from_date,
+                PurchaseInvoice.invoice_date <= to_date,
+                PurchaseInvoiceLine.is_deleted.is_(False),
+                PurchaseInvoiceLineTax.is_deleted.is_(False),
+                PurchaseInvoiceLineTax.recoverable.is_(True),
+                PurchaseInvoiceLineTax.included_in_price.is_(False),
+            )
+        ).all():
+            billed_ids.add(invoice_id)
+            claimed = claimed.plus(_bucket(code, Decimal(str(amount))))
+        without_rows = self._session.scalar(
+            select(func.count())
+            .select_from(PurchaseInvoice)
+            .where(
+                PurchaseInvoice.firm_id == firm_scope,
+                PurchaseInvoice.is_deleted.is_(False),
+                PurchaseInvoice.status.in_(("APPROVED", "CLOSED")),
+                PurchaseInvoice.invoice_date >= from_date,
+                PurchaseInvoice.invoice_date <= to_date,
+                PurchaseInvoice.tax_total > ZERO,
+                (PurchaseInvoice.id.not_in(list(billed_ids)) if billed_ids else true()),
+            )
+        )
+
+        reversed_ = GstBuckets()
+        unplaced = ZERO
+        unplaced_count = 0
+        for purchase_return in self._session.scalars(
+            select(PurchaseReturn).where(
+                PurchaseReturn.firm_id == firm_scope,
+                PurchaseReturn.is_deleted.is_(False),
+                PurchaseReturn.status.in_(("COMPLETED", "CLOSED")),
+                PurchaseReturn.return_date >= from_date,
+                PurchaseReturn.return_date <= to_date,
+            )
+        ).all():
+            split = return_tax_by_component(self._session, purchase_return.id)
+            placed = ZERO
+            for code, amount in split.items():
+                reversed_ = reversed_.plus(_bucket(code, amount))
+                placed += amount
+            rest = quantize_money(Decimal(str(purchase_return.tax_total)) - placed)
+            if rest > ZERO:
+                unplaced += rest
+                unplaced_count += 1
+
+        return {
+            "eligible_itc": {
+                "integrated_tax": _filed(claimed.igst),
+                "central_tax": _filed(claimed.cgst),
+                "state_tax": _filed(claimed.sgst),
+                "cess": _filed(claimed.cess),
+                "bill_count": len(billed_ids),
+                "bills_without_components": int(without_rows or 0),
+            },
+            "itc_reversed": {
+                "integrated_tax": _filed(reversed_.igst),
+                "central_tax": _filed(reversed_.cgst),
+                "state_tax": _filed(reversed_.sgst),
+                "cess": _filed(reversed_.cess),
+                "unplaced_reversals": _filed(unplaced),
+                "unplaced_return_count": unplaced_count,
+            },
+            "net_itc": {
+                "integrated_tax": _filed(claimed.igst - reversed_.igst),
+                "central_tax": _filed(claimed.cgst - reversed_.cgst),
+                "state_tax": _filed(claimed.sgst - reversed_.sgst),
+                "cess": _filed(claimed.cess - reversed_.cess),
+            },
         }
 
     # ---- reading -------------------------------------------------------
