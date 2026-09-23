@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
+from app.common.report_names import customer_names
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.pricing import (
@@ -1484,25 +1485,18 @@ class QuotationService(TransactionalDocumentService):
     def register_report(self, *, firm_scope: UUID) -> list[QuotationRegisterRecord]:
         """Every quotation raised, with what became of it.
 
+        The customer is named as well as identified: the grid derives its
+        columns from the row, so a register carrying only ids showed a screen
+        of UUIDs (D-RPT-17). One read for the whole report.
+
         `is_expired` rides beside the status because expiry is a date rather
         than a status: a SENT offer past `valid_until` still reads SENT, and
         the register had nothing to say whether its prices still stood
         (D-RPT-19). Derived by `is_expired`, the same rule the document's own
         response and the conversion report use.
         """
-        return [
-            QuotationRegisterRecord(
-                quotation_id=row.id,
-                quotation_number=row.quotation_number,
-                customer_id=row.customer_id,
-                quotation_date=row.quotation_date,
-                valid_until=row.valid_until,
-                status=QuotationStatus(row.status),
-                is_expired=self.is_expired(row),
-                grand_total=row.grand_total,
-                converted_sales_order_number=row.converted_sales_order_number,
-            )
-            for row in self._session.scalars(
+        rows = list(
+            self._session.scalars(
                 select(SalesQuotation)
                 .where(
                     SalesQuotation.firm_id == firm_scope,
@@ -1510,6 +1504,22 @@ class QuotationService(TransactionalDocumentService):
                 )
                 .order_by(SalesQuotation.quotation_date.desc())
             ).all()
+        )
+        customers = customer_names(self._session, (row.customer_id for row in rows))
+        return [
+            QuotationRegisterRecord(
+                quotation_id=row.id,
+                quotation_number=row.quotation_number,
+                customer_id=row.customer_id,
+                customer_name=customers.get(row.customer_id, str(row.customer_id)),
+                quotation_date=row.quotation_date,
+                valid_until=row.valid_until,
+                status=QuotationStatus(row.status),
+                is_expired=self.is_expired(row),
+                grand_total=row.grand_total,
+                converted_sales_order_number=row.converted_sales_order_number,
+            )
+            for row in rows
         ]
 
     def conversion_report(self, *, firm_scope: UUID) -> list[QuotationConversionRecord]:

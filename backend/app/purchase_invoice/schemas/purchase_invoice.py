@@ -344,7 +344,11 @@ class PurchaseInvoiceRegisterRecord(PurchaseInvoiceSchema):
     invoice_number: str
     supplier_invoice_number: str
     vendor_id: UUID
+    #: Each id keeps a name beside it: the grid derives its columns from the
+    #: row, so a register of ids alone showed two columns of UUIDs (D-RPT-17).
+    vendor_name: str
     branch_id: UUID
+    branch_name: str
     invoice_date: date
     due_date: date | None
     grand_total: Decimal
@@ -369,6 +373,11 @@ class PurchaseInvoiceReconciliationRecord(PurchaseInvoiceSchema):
     source_document_line_id: UUID
     source_document_line_number: int
     product_id: UUID
+    #: The product named as well as identified, in one read for the report
+    #: (D-RPT-17): a reconciliation whose only product column is a UUID
+    #: cannot be read against the receipt it reconciles.
+    product_code: str
+    product_name: str
     received_quantity: Decimal
     invoiced_quantity: Decimal
     draft_quantity: Decimal

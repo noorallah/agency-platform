@@ -815,6 +815,30 @@ def test_a_reconciliation_row_names_the_product_that_was_returned() -> None:
     assert record.return_date == date(2026, 8, 2)
 
 
+def test_the_register_names_the_supplier_branch_and_warehouse() -> None:
+    """D-RPT-17: the grid derives its columns from the row.
+
+    The register answered `vendor_id`, `branch_id` and `warehouse_id` with
+    nothing to read them by, so the screen showed three columns of UUIDs.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    service, _row, _ = _approved_return(session, firm_id=firm.id)
+    vendor = session.scalar(select(Vendor).where(Vendor.firm_id == firm.id))
+    branch = session.scalar(select(Branch).where(Branch.firm_id == firm.id))
+    warehouse = session.scalar(select(Warehouse).where(Warehouse.firm_id == firm.id))
+    assert vendor is not None and branch is not None and warehouse is not None
+
+    [record] = service.register_report(firm_scope=firm.id)
+
+    assert (record.vendor_id, record.vendor_name) == (vendor.id, vendor.display_name)
+    assert (record.branch_id, record.branch_name) == (branch.id, branch.name)
+    assert (record.warehouse_id, record.warehouse_name) == (
+        warehouse.id,
+        warehouse.name,
+    )
+
+
 def test_the_by_vendor_report_totals_what_was_returned() -> None:
     """Named for what it holds: returned value, not a balance still owing."""
     session = _session_factory()()

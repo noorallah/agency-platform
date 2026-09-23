@@ -349,8 +349,14 @@ class PurchaseReturnRegisterRecord(PurchaseReturnSchema):
     return_number: str
     supplier_return_number: str | None
     vendor_id: UUID
+    #: Each id keeps a name beside it: the grid derives its columns from the
+    #: row, so a register of ids alone showed three columns of UUIDs
+    #: (D-RPT-17).
+    vendor_name: str
     branch_id: UUID
+    branch_name: str
     warehouse_id: UUID
+    warehouse_name: str
     return_date: date
     grand_total: Decimal
     status: PurchaseReturnStatus

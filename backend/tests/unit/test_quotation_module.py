@@ -606,6 +606,18 @@ def test_the_register_says_what_became_of_each_offer() -> None:
     assert register[0].status == QuotationStatus.CONVERTED
 
 
+def test_the_register_names_the_customer_it_quoted() -> None:
+    """A register of ids alone shows a screen of UUIDs (D-RPT-17)."""
+    session = _session_factory()()
+    setup = _Setup(session)
+    setup.accepted()
+
+    register = setup.service.register_report(firm_scope=setup.firm.id)
+
+    assert register[0].customer_id == setup.customer.id
+    assert register[0].customer_name == setup.customer.display_name
+
+
 def test_the_register_says_whether_the_prices_still_stand() -> None:
     """D-RPT-19: expiry is a date, and the register only showed the status.
 
