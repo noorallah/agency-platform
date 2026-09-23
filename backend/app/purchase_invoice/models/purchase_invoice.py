@@ -240,6 +240,62 @@ class PurchaseInvoiceLine(BaseEntity):
     accounting_event_reference: Mapped[str | None] = mapped_column(String(120))
 
 
+class PurchaseInvoiceLineTax(BaseEntity):
+    """Store the tax components one bill line was actually charged.
+
+    A line has always carried a single `tax_amount`, which is what the supplier
+    billed and is useless to the return: GSTR-3B claims input credit under
+    IGST separately from CGST and SGST, and the ledger has to carry each
+    component to its own input-tax account (D-CMP-20). That breakup was
+    computed by the rule engine at save time and then thrown away, surviving
+    only in `tax_rule_execution_logs`, which the retention job prunes. Rules
+    are effective-dated, so re-deriving it later can disagree with what the
+    supplier charged; the only honest answer is to keep what was charged, on
+    the document that charged it -- exactly as `SalesInvoiceLineTax` does for
+    the outward side.
+
+    `tax_component_id` carries no foreign key on purpose. It says which
+    catalogue row produced this line at the time, and the catalogue moves on --
+    a RESTRICT would stop a firm ever retiring a component, and a CASCADE would
+    erase the evidence. The code, label and percentage beside it are the record.
+    """
+
+    __tablename__ = "purchase_invoice_line_taxes"
+    __table_args__ = (
+        Index("IX_purchase_invoice_line_taxes_line", "purchase_invoice_line_id"),
+        Index("IX_purchase_invoice_line_taxes_firm", "firm_id"),
+    )
+
+    purchase_invoice_line_id: Mapped[UUID] = mapped_column(
+        UUIDType(),
+        ForeignKey("purchase_invoice_lines.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    sequence: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    tax_component_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    component_code: Mapped[str] = mapped_column(String(40), nullable=False)
+    component_label: Mapped[str] = mapped_column(String(120), nullable=False)
+    percentage: Mapped[Decimal] = mapped_column(
+        Numeric(9, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    base_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: Tax already inside the price, which the bill shows but does not add.
+    included_in_price: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    #: Whether the firm may claim it as input credit.
+    recoverable: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+
+
 class PurchaseInvoiceAttachment(BaseEntity):
     """Store purchase invoice attachments."""
 

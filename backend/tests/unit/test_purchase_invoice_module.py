@@ -12,6 +12,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.batch_serial.models import batch_serial as _batch_serial_models  # noqa: F401
 from app.branches.models import Branch, Warehouse
+from app.business.models import BusinessProfile
 from app.business.models import framework as _business_models  # noqa: F401
 from app.common.audit.models import AuditLog
 from app.core.database.base import Base
@@ -25,7 +26,11 @@ from app.identity.models import identity as _identity_models  # noqa: F401
 from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
-from app.purchase_invoice.models import PurchaseInvoice, PurchaseInvoiceLine
+from app.purchase_invoice.models import (
+    PurchaseInvoice,
+    PurchaseInvoiceLine,
+    PurchaseInvoiceLineTax,
+)
 from app.purchase_invoice.schemas import (
     PurchaseInvoiceCreate,
     PurchaseInvoiceLineWrite,
@@ -33,8 +38,18 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceStatus,
 )
 from app.purchase_invoice.services import PurchaseInvoiceService
+from app.sales.models import GeoCountry
 from app.sales.models import territory as _sales_models  # noqa: F401
+from app.tax.models import TaxProfile
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
+from app.tax.schemas import (
+    TaxComponentWrite,
+    TaxProfileWrite,
+    TaxRuleWrite,
+    TaxSystemWrite,
+)
+from app.tax.services.tax_framework_service import TaxFrameworkService
+from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.models import uom as _uom_models  # noqa: F401
 from app.vendors.models import Vendor
 
@@ -771,3 +786,230 @@ def test_the_reconciliation_counts_the_bills_that_still_stand() -> None:
 
     service.cancel_invoice(second.id, firm_scope=firm.id, actor_id=uuid4())
     assert row() == (Decimal("3.00"), Decimal("0.00"), received - 3, 1)
+
+
+def _gst_profile(session: Session, *, firm: Firm, actor_id: UUID) -> TaxProfile:
+    """Return an 18% tax split into two 9% components, the way GST is charged."""
+    country = GeoCountry(
+        code="IN",
+        name="India",
+        iso2="IN",
+        iso3="IND",
+        phone_code="+91",
+        is_active=True,
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    business_profile = BusinessProfile(
+        code="GENERIC",
+        name="Generic",
+        industry_type="GENERIC",
+        status="ACTIVE",
+        is_default=True,
+        created_by=actor_id,
+        updated_by=actor_id,
+        default_settings={},
+    )
+    session.add_all([country, business_profile])
+    session.commit()
+
+    framework = TaxFrameworkService(session)
+    system = framework.create_system(
+        TaxSystemWrite(
+            country_id=country.id, code="GST", name="Goods and Services Tax"
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    components = [
+        framework.create_component(
+            TaxComponentWrite(
+                tax_system_id=system.id,
+                code=code,
+                name=name,
+                label=name,
+                percentage="9",
+            ),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+        for code, name in (("CGST", "Central GST"), ("SGST", "State GST"))
+    ]
+    profile = framework.create_profile(
+        TaxProfileWrite(
+            tax_system_id=system.id,
+            business_profile_id=business_profile.id,
+            code="GST_18_LOCAL",
+            name="GST 18 local",
+            components=[
+                {
+                    "tax_component_id": component.id,
+                    "percentage": "9",
+                    "calculation_order": order,
+                    # Input GST is claimable, and the bill has to say so per
+                    # component: that flag is what the ITC split will read.
+                    "recoverable": True,
+                }
+                for order, component in enumerate(components, start=1)
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    TaxRuleService(session).create_rule(
+        TaxRuleWrite(
+            country_id=country.id,
+            business_profile_id=business_profile.id,
+            code="PURCHASE_DEFAULT",
+            name="Purchase default",
+            priority=50,
+            status="ACTIVE",
+            actions=[
+                {
+                    "sequence": 1,
+                    "action_type": "APPLY_TAX_PROFILE",
+                    "target_tax_profile_id": profile.id,
+                }
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    return profile
+
+
+def _stored_components(
+    session: Session, invoice: PurchaseInvoice
+) -> list[PurchaseInvoiceLineTax]:
+    """Return every tax component row hanging off the bill's lines, in order."""
+    return list(
+        session.scalars(
+            select(PurchaseInvoiceLineTax)
+            .join(
+                PurchaseInvoiceLine,
+                PurchaseInvoiceLine.id
+                == PurchaseInvoiceLineTax.purchase_invoice_line_id,
+            )
+            .where(PurchaseInvoiceLine.purchase_invoice_id == invoice.id)
+            .order_by(PurchaseInvoiceLineTax.sequence.asc())
+        ).all()
+    )
+
+
+def test_a_bill_line_keeps_the_tax_it_was_charged_component_by_component() -> None:
+    """One `tax_amount` cannot be split into IGST against CGST and SGST.
+
+    D-CMP-20: GSTR-3B claims input credit per head and the ledger carries each
+    component to its own input-tax account, and neither can be derived from
+    one total. The breakup the rule engine computed was discarded at save
+    time, surviving only in `tax_rule_execution_logs`, which the retention
+    job prunes -- and rules are effective-dated, so asking the engine again
+    later can answer differently from what the supplier charged. The sales
+    invoice keeps its breakup in `sales_invoice_line_taxes`; the bill keeps
+    its own the same way, and an edit rebuilds it rather than orphaning it.
+    """
+    session = _session_factory()()
+    actor_id = uuid4()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    vendor = _vendor(session, firm_id=firm.id)
+    order = _purchase_order(
+        session,
+        firm_id=firm.id,
+        vendor_id=vendor.id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+    )
+    po_line = session.scalar(
+        select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+    )
+    assert po_line is not None
+    receipt, receipt_line = _received(session, po_line)
+    profile = _gst_profile(session, firm=firm, actor_id=actor_id)
+    # The product names the group; the line names nothing, so the profile the
+    # bill records is the one the service resolved rather than one it was sent.
+    product = session.get(Product, po_line.product_id)
+    assert product is not None
+    product.tax_profile_group_code = "GST_18_LOCAL"
+    session.commit()
+
+    def _bill(quantity: Decimal) -> PurchaseInvoiceCreate:
+        """Bill `quantity` of the received line at 100 each, naming no profile."""
+        return PurchaseInvoiceCreate(
+            supplier_invoice_number="SUP-GST-1",
+            supplier_invoice_date=date(2026, 8, 2),
+            invoice_date=date(2026, 8, 2),
+            source_documents=[
+                {
+                    "source_document_type": PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                    "source_document_id": receipt.id,
+                }
+            ],
+            lines=[
+                PurchaseInvoiceLineWrite(
+                    source_document_type=PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                    source_document_id=receipt.id,
+                    source_document_line_id=receipt_line.id,
+                    line_number=1,
+                    current_invoice_quantity=quantity,
+                    unit_price=Decimal("100"),
+                )
+            ],
+        )
+
+    service = PurchaseInvoiceService(session)
+    invoice = service.create_invoice(
+        _bill(Decimal("4")), firm_id=firm.id, actor_id=actor_id
+    )
+
+    stored = _stored_components(session, invoice)
+    assert [row.component_code for row in stored] == ["CGST", "SGST"]
+    assert [row.percentage for row in stored] == [Decimal("9.0000"), Decimal("9.0000")]
+    assert [row.amount for row in stored] == [Decimal("36.0000"), Decimal("36.0000")]
+    assert {row.base_amount for row in stored} == {Decimal("400.0000")}
+    assert all(row.recoverable for row in stored)
+    assert all(row.firm_id == firm.id for row in stored)
+    line = session.scalar(
+        select(PurchaseInvoiceLine).where(
+            PurchaseInvoiceLine.purchase_invoice_id == invoice.id
+        )
+    )
+    assert line is not None
+    assert sum(row.amount for row in stored) == line.tax_amount == Decimal("72.0000")
+    assert invoice.tax_total == Decimal("72.0000")
+    assert line.tax_profile_id == profile.id, (
+        "the line records the profile that produced the tax, though the "
+        "caller named none"
+    )
+
+    response = service.invoice_response(invoice)
+    assert response.lines[0].tax_amount == Decimal("72.0000")
+    assert [item.component_code for item in response.lines[0].taxes] == [
+        "CGST",
+        "SGST",
+    ]
+    assert sum(item.amount for item in response.lines[0].taxes) == Decimal("72.0000")
+
+    # An edit rebuilds the lines; the old components must go with them rather
+    # than linger against a line id nothing references any more.
+    service.update_invoice(
+        invoice.id, _bill(Decimal("2")), firm_scope=firm.id, actor_id=actor_id
+    )
+    every_component = list(session.scalars(select(PurchaseInvoiceLineTax)).all())
+    live_line_ids = set(
+        session.scalars(
+            select(PurchaseInvoiceLine.id).where(
+                PurchaseInvoiceLine.purchase_invoice_id == invoice.id
+            )
+        ).all()
+    )
+    assert len(live_line_ids) == 1
+    assert {row.purchase_invoice_line_id for row in every_component} == live_line_ids
+    assert sorted(row.amount for row in every_component) == [
+        Decimal("18.0000"),
+        Decimal("18.0000"),
+    ]
+    assert sum(row.amount for row in _stored_components(session, invoice)) == Decimal(
+        "36.0000"
+    )
