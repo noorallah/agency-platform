@@ -430,7 +430,7 @@ def repair_every_store(
             actor = session.scalar(
                 select(PlatformAdmin.user_id)
                 .where(PlatformAdmin.is_deleted.is_(False))
-                .order_by(PlatformAdmin.created_at.asc())
+                .order_by(PlatformAdmin.created_at.asc(), PlatformAdmin.id.asc())
                 .limit(1)
             )
         rows = session.execute(
