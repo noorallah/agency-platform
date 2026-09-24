@@ -34,6 +34,7 @@ from app.core.exceptions import ConflictError, ResourceNotFoundError, Validation
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_money
 from app.sales.models import SalesTerritoryNode
+from app.sales.services.territory_tree import covered_territory_ids
 from app.sales_targets.models import SalesTarget
 from app.sales_targets.schemas import (
     SalesTargetAchievement,
@@ -186,6 +187,11 @@ class SalesTargetService:
         self, data: SalesTargetWrite, *, firm_id: UUID, actor_id: UUID
     ) -> SalesTarget:
         """Set one target."""
+        self._assert_scope_is_the_firms(
+            firm_id=firm_id,
+            salesman_id=data.salesman_id,
+            territory_id=data.territory_id,
+        )
         self._assert_free(
             firm_id=firm_id,
             basis=data.basis.value,
@@ -204,7 +210,7 @@ class SalesTargetService:
             basis=data.basis.value,
             target_amount=data.target_amount,
             notes=data.notes,
-            status=data.status,
+            status=data.status.value,
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -260,7 +266,7 @@ class SalesTargetService:
         merged: dict[str, object] = {
             field: changes.get(field, getattr(row, field)) for field in _COLUMNS
         }
-        for field in ("period_type", "basis"):
+        for field in ("period_type", "basis", "status"):
             label = merged[field]
             if isinstance(label, StrEnum):
                 merged[field] = label.value
@@ -268,6 +274,11 @@ class SalesTargetService:
         assert isinstance(period_start, date) and isinstance(period_end, date)
         if period_end < period_start:
             raise ValidationError("A target cannot end before it starts.")
+        self._assert_scope_is_the_firms(
+            firm_id=firm_scope,
+            salesman_id=_optional_uuid(merged["salesman_id"]),
+            territory_id=_optional_uuid(merged["territory_id"]),
+        )
         self._assert_free(
             firm_id=firm_scope,
             basis=str(merged["basis"]),
@@ -513,30 +524,12 @@ class SalesTargetService:
     def _covered_by(self, territory_id: UUID, firm_scope: UUID) -> frozenset[UUID]:
         """Return the territory and every live descendant, as ids.
 
-        Breadth-first down `parent_id`, which is the relation the tree is
-        built on, bounded by the ids seen so a cycle in a plain column cannot
-        walk for ever. Not a `path LIKE '<prefix>%'`: that also took a
-        sibling whose code merely started the same way (`T-N` and `T-N2`)
-        and read `_` in a code as a wildcard. Only rows that are not deleted
-        count as live; a node the target names is always its own.
+        The walk itself is `app/sales/services/territory_tree.py`, shared with
+        `SalesTerritoryService`, which had the same one (D-TER-18).
         """
-        covered = {territory_id}
-        frontier = [territory_id]
-        while frontier:
-            children = [
-                child
-                for child in self._session.scalars(
-                    select(SalesTerritoryNode.id).where(
-                        SalesTerritoryNode.firm_id == firm_scope,
-                        SalesTerritoryNode.parent_id.in_(frontier),
-                        SalesTerritoryNode.is_deleted.is_(False),
-                    )
-                ).all()
-                if child not in covered
-            ]
-            covered.update(children)
-            frontier = children
-        return frozenset(covered)
+        return covered_territory_ids(
+            self._session, firm_id=firm_scope, root_id=territory_id
+        )
 
     def territory_labels(
         self, territory_ids: set[UUID], firm_scope: UUID
@@ -619,6 +612,52 @@ class SalesTargetService:
             status=row.status,
             version=row.version,
         )
+
+    def _assert_scope_is_the_firms(
+        self,
+        *,
+        firm_id: UUID,
+        salesman_id: UUID | None,
+        territory_id: UUID | None,
+    ) -> None:
+        """Refuse a target set for somebody, or somewhere, that is not the firm's.
+
+        Neither id was checked: `users` is a platform table so no firm store
+        can carry a key to it, and `sales_territories` lives in the **shared**
+        store where a key is satisfied by another firm's node. A target was
+        accepted for any UUID at all and then reported for ever against a
+        person nobody could name (D-TER-15). The membership is read through
+        `FirmMetadataReader`, which goes to the platform store, because a
+        tenant session cannot see `users` or `user_firms`.
+
+        Both null is the firm's own number for the period and is checked
+        against nothing, which is the point of it.
+
+        Args:
+            firm_id: The owning firm.
+            salesman_id: The person the target is for, if anyone.
+            territory_id: The round or region it is for, if any.
+
+        Raises:
+            ValidationError: If the salesman is not an active member.
+            ResourceNotFoundError: If the territory is not a live node of
+                this firm.
+
+        """
+        if salesman_id is not None and not FirmMetadataReader(
+            self._session
+        ).active_member_count(firm_id, [salesman_id]):
+            raise ValidationError(
+                "That salesperson is not an active member of this firm."
+            )
+        if territory_id is not None and not self._session.scalar(
+            select(SalesTerritoryNode.id).where(
+                SalesTerritoryNode.id == territory_id,
+                SalesTerritoryNode.firm_id == firm_id,
+                SalesTerritoryNode.is_deleted.is_(False),
+            )
+        ):
+            raise ResourceNotFoundError("Territory not found.")
 
     def _assert_free(
         self,

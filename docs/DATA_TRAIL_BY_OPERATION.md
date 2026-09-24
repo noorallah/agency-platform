@@ -6133,7 +6133,11 @@ seen in a live row)* was read off the code only.
   pruned from a firm store, so the constraint is never built. The only keys on
   these tables are to products, product categories, territories, ledger
   accounts and journal entries. What the service does not check, nothing
-  checks (D-TER-15).
+  checks -- so since #614 the rule and the target both check it themselves,
+  through `FirmMetadataReader`, which reads the **platform** store
+  (D-TER-15). `commission_payouts.salesman_id` still names whoever the
+  accrual found, which is right: a payout is a record of what somebody
+  earned while they were here.
 - **The audit rows are the firm's own, every one carries its firm, and most
   say very little.** `sales_territory.created` / `.updated` / `.deleted` /
   `.restored` / `.moved` / `.status_changed` / `.customers_set` /
@@ -6182,10 +6186,19 @@ seen in a live row)* was read off the code only.
   #615 both checks look at retired rows too and name where the code went --
   "A deleted territory holds the code RT01. Restore it, or use another code."
   (D-TER-16).
-  `UQ_sales_targets_scope_period` is plain over
-  (`firm_id`, `salesman_id`, `territory_id`, `period_start`), and since
-  PostgreSQL never equates two NULLs it holds nothing for any target that
-  leaves either scope blank — which is nearly all of them (D-TER-16).
+  `UQ_sales_targets_scope_period` was plain over
+  (`firm_id`, `salesman_id`, `territory_id`, `period_start`): since neither
+  dialect equates two NULLs it held nothing for a target that left either
+  scope blank — nearly all of them — it covered deleted rows, and it left
+  `basis` out while the service allows one INVOICED and one COLLECTED target
+  over the same days. `UQ_sales_targets_scope_period_active` replaces it
+  (`20260924_0157`), partial on live rows, with both scopes `coalesce`d onto
+  the nil UUID and `basis` in the key.
+  `UQ_commission_rules_scope_start_active` is the same shape for a rule's
+  scope and start date, partial on live ACTIVE rows, and is what the overlap
+  read had nothing behind it (D-TER-16). Neither expresses an **overlapping**
+  window, only a shared start; the service checks stay authoritative for that,
+  as they do beside `UQ_commission_payouts_period_active`.
 - **Concurrency.** Territories, route types, beat plans, commission rules,
   payouts and targets publish `version` as an `ETag` and on the body, and take
   `If-Match`. The two whole-list replaces — a round's customers and a node's
@@ -6234,10 +6247,11 @@ seen in a live row)* was read off the code only.
   sibling holds; a level that is not exactly one below the parent's — "Territory
   level must be exactly one level below its parent."; a top-level node that is
   not level 1; `max_nodes_per_parent` reached.
-- **Not checked:** that `hierarchy_level_id` is one of **this firm's** levels
-  (`_level` filters on the id alone), nor that `route_type_id` is this firm's
-  route type (D-TER-15). A code a **deleted** node holds is refused by name
-  since #615 (D-TER-16).
+- **Whose masters they are is checked since #614.** `_level` takes the firm
+  wherever the id came off a request body, and `_upsert_route_profile` resolves
+  `route_type_id` through `_route_type`, which is firm-scoped: both live in the
+  shared store, where a key is satisfied by another firm's row (D-TER-15). A
+  code a **deleted** node holds is refused by name since #615 (D-TER-16).
 - **Check:**
   ```sql
   select t.path, t.status, t.is_deleted, l.display_name as level,
@@ -6369,9 +6383,18 @@ is either `customer_ids` (membership only) or `entries`
   salesmen are not active firm members." The two hierarchy settings are
   applied: "… may have only one salesperson." and "A salesperson here is
   already on …".
-- **Nothing takes somebody off a round when they leave the firm.** Deleting a
-  user, or ending their membership, touches no firm store, so the assignment
-  stays live and goes on being derived on to new orders (§17.8, D-TER-11).
+- **Leaving the firm takes them off its rounds since #618.** `PUT
+  /users/{id}/firms` and `DELETE /users/{id}` open each departed firm's own
+  store (`firm_store_session`) and retire the person's
+  `territory_salesman_assignments` there, one
+  `sales_territory.salesman_retired` audit row per round in that firm's trail.
+  A membership switched off in place counts as much as one removed, because
+  `active_member_count` filters both. Until then the rows stayed live: #575
+  had fixed only the **read**, so a departed assignee was no longer derived on
+  to new orders (§17.8, D-TER-11) but the round's Salespeople tab went on
+  listing them (D-TER-17). The two writes are not one transaction and cannot
+  be -- they are different databases -- so the platform fact is committed
+  first and the firm stores follow it.
 - **Audit:** `sales_territory.salesmen_set`. It carried `salesman_count`
   alone and since #615 also carries the ids on both sides and the `added` /
   `removed` lists (D-TER-16).
@@ -6461,11 +6484,14 @@ from its order. It writes three columns on the document and nothing else.
   exists, not that it is this firm's, the customer's, the territory's or in
   force, so an order is tagged to a round that ended in June, or to somebody
   else's (D-TER-9).
-- **Membership is checked where the caller names a person, and only on three
-  documents.** Order, delivery note and invoice ask `active_member_count`
-  through the platform store — "Salesman is not an active member of this
-  firm."; **quotation and return do not**, so with no territory to check
-  against any id at all is stored (D-TER-15). A **derived** person is never
+- **Membership is checked wherever the caller names a person.** Order,
+  delivery note and invoice each ask `active_member_count` through the
+  platform store in their own service — "Salesman is not an active member of
+  this firm." — and since #614 `_validated_salesman` asks it too, before
+  coverage and whether or not there is a territory, which is what closes
+  quotation and sales return: they had no check of their own, so with no
+  territory to check against any id at all was stored (D-TER-15). A
+  **derived** person is never
   checked, so somebody who has left the firm is put on the order, the order
   approves and reserves stock, and the delivery note — which does check — is
   refused (D-TER-11).
@@ -6534,10 +6560,14 @@ from its order. It writes three columns on the document and nothing else.
   start at 0, has a gap or an overlap, or is open-ended below the top; a second
   ACTIVE rule over the same person, goods and days — "Another active rule
   already covers part of that period for the same scope (from …)." That last
-  check is a read followed by an insert with **no key behind it** (D-TER-16).
-- **Not checked:** that `salesman_id` is anybody at all — an unknown id is
-  saved and listed as "Former member"; an unknown `product_id` reaches the
-  foreign key and answers the bare 409 (D-TER-15).
+  check was a read followed by an insert with no key behind it;
+  `UQ_commission_rules_scope_start_active` (`20260924_0157`) is the backstop
+  for two requests that both read before either commits (D-TER-16).
+- **Who and what the rule names is checked since #614.** `salesman_id` must be
+  an active member, read through the platform store — an unknown id used to be
+  saved and listed as "Former member"; `product_id` and `product_category_id`
+  must be **this firm's** live rows, answered as "not found" rather than as the
+  bare 409 the foreign key gave (D-TER-15).
 - **Audit:** `commission.rule.created` / `.updated` / `.deleted` with the whole
   rule and its ladder, `measure` excepted.
 - **Check:**
@@ -6737,8 +6767,10 @@ all `COMMISSION_MANAGE`, `If-Match` optional.
 
 - **Create** inserts one `sales_targets` row: a person, a node, both or
   neither; the period's own dates; `period_type` a label; `basis` INVOICED or
-  COLLECTED; `status` **free text** — only `ACTIVE` is ever reported, and
-  `PAUSED` is accepted as readily as `INACTIVE` (D-TER-16).
+  COLLECTED; `status` ACTIVE or INACTIVE. It was **free text** and only
+  `ACTIVE` is ever reported, so `PAUSED` was accepted, stored, and vanished
+  from the one screen a target exists for; it is an enum since `20260924_0157`
+  (D-TER-16). The desktop's editor sends `ACTIVE` and nothing else.
 - **The edit is a whole replace** with the create schema: every column is
   assigned from the body, so a PUT that leaves out `salesman_id` turns a
   person's target into **the firm's**, one that leaves out `basis` makes it
@@ -6750,8 +6782,12 @@ all `COMMISSION_MANAGE`, `If-Match` optional.
 - **Delete** fills `is_deleted`, `deleted_at` and `deleted_by` since #615; it
   used to set the first alone, so the row said it had gone and neither when
   nor at whose hand (D-TER-16).
-- **Not checked:** the salesperson or the territory, which may be anybody's or
-  nobody's (D-TER-15).
+- **Who and where the target is for is checked since #614.** `salesman_id` must
+  be an active member, read through the platform store, and `territory_id` a
+  live node of **this firm** -- `sales_territories` lives in the shared store,
+  where a key is satisfied by another firm's node (D-TER-15). Both null is
+  still the firm's own number and is checked against nothing. The update runs
+  the check on the merged row, as the overlap check does.
 - **Audit:** `sales_target.created`, `.updated` and `.deleted`. The first
   carried the start date and the amount and the last the amount alone, so
   neither said whose number it was or over what period; since #615 both carry

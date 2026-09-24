@@ -21,6 +21,7 @@ from app.core.enums import TokenType
 from app.core.exceptions import ConflictError, ValidationError
 from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
+from app.core.utils.dates import utc_now
 from app.customers.models import Customer
 from app.document_framework.models import DocumentTypeDefinition
 from app.firms.models import Firm
@@ -1198,3 +1199,126 @@ def test_orders_by_territory_reads_its_names_once() -> None:
 
     assert [row.territory_name for row in rows] == ["Route 1", "Route 2"]
     assert _lookups(statements, "sales_territories") == (0, 1), "one read, not one each"
+
+
+def _order_for(
+    *,
+    customer_id: UUID,
+    branch_id: UUID,
+    warehouse_id: UUID,
+    product_id: UUID,
+) -> SalesOrderCreate:
+    """Build a one-line sales order naming the given product."""
+    return SalesOrderCreate(
+        customer_id=customer_id,
+        branch_id=branch_id,
+        warehouse_id=warehouse_id,
+        order_date=utc_now().date(),
+        lines=[
+            SalesOrderLineWrite(
+                line_number=1,
+                product_id=product_id,
+                quantity=Decimal("1"),
+                unit_price=Decimal("100"),
+            )
+        ],
+    )
+
+
+@pytest.mark.parametrize(
+    ("status", "words"),
+    [
+        ("INACTIVE", "is inactive"),
+        ("DRAFT", "is still a draft"),
+        ("ARCHIVED", "is archived"),
+    ],
+)
+def test_a_product_that_is_not_active_is_not_ordered(status: str, words: str) -> None:
+    """D-MST-12: the product half of the rule #562 gave the customer.
+
+    ``products.status`` was unread on the sales side, so an order was raised
+    for a product the firm had withdrawn. Refused by code and name, with
+    nothing written.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    product.status = status
+    session.commit()
+
+    with pytest.raises(ValidationError) as refused:
+        SalesOrderService(session).create_order(
+            _order_for(
+                customer_id=customer.id,
+                branch_id=branch.id,
+                warehouse_id=warehouse.id,
+                product_id=product.id,
+            ),
+            firm_id=firm.id,
+            actor_id=uuid4(),
+        )
+    session.rollback()
+
+    assert product.code in str(refused.value)
+    assert words in str(refused.value)
+    assert "new sales order" in str(refused.value)
+    assert session.scalar(select(SalesOrder.id)) is None
+
+
+def test_a_draft_order_is_edited_but_takes_no_withdrawn_product() -> None:
+    """The rule is about a line being typed, so it bites on an edit too."""
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    service = SalesOrderService(session)
+    draft = service.create_order(
+        _order_for(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            product_id=product.id,
+        ),
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+    withdrawn = Product(
+        firm_id=firm.id,
+        code="SKU-GONE",
+        name="Withdrawn",
+        product_type="STOCK_ITEM",
+        status="INACTIVE",
+    )
+    session.add(withdrawn)
+    session.commit()
+
+    kept = service.update_order(
+        draft.id,
+        _order_for(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            product_id=product.id,
+        ),
+        firm_scope=firm.id,
+        actor_id=uuid4(),
+    )
+    assert kept.id == draft.id
+
+    with pytest.raises(ValidationError, match="is inactive"):
+        service.update_order(
+            draft.id,
+            _order_for(
+                customer_id=customer.id,
+                branch_id=branch.id,
+                warehouse_id=warehouse.id,
+                product_id=withdrawn.id,
+            ),
+            firm_scope=firm.id,
+            actor_id=uuid4(),
+        )

@@ -104,6 +104,8 @@ from app.tax.services.place_of_supply import place_of_supply_label
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.models import uom as _uom_models  # noqa: F401
+from tests.unit.test_sales_chain_synthesis import _Firm as _ChainFirm
+from tests.unit.test_sales_chain_synthesis import _session_factory as _chain_session
 
 # Fixtures here type their document numbers; see conftest (D-CFG-2).
 pytestmark = pytest.mark.typed_document_numbers
@@ -2942,3 +2944,45 @@ def test_the_register_and_reconciliation_name_what_they_identify() -> None:
     [row] = service.reconciliation_report(firm_scope=firm.id)
     assert row.product_id == product.id
     assert (row.product_code, row.product_name) == (product.code, product.name)
+
+
+def test_a_bare_bill_for_a_withdrawn_product_is_refused_as_a_bill() -> None:
+    """D-MST-12: a counter sale is where a bill's product line is typed.
+
+    The bare lines of a bill raised with no order behind it are new lines, so
+    the product's status is read -- and the refusal says "bill", because that
+    is what the person was raising rather than the order the chain would have
+    synthesised for them.
+    """
+    setup = _ChainFirm(_chain_session()())
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    setup.product.status = "INACTIVE"
+    setup.session.commit()
+
+    with pytest.raises(ValidationError) as refused:
+        SalesInvoiceService(setup.session).create_invoice(
+            setup.bare_bill(), firm_id=setup.firm.id, actor_id=uuid4()
+        )
+    setup.session.rollback()
+
+    assert setup.product.code in str(refused.value)
+    assert "is inactive" in str(refused.value)
+    assert "new bill" in str(refused.value)
+    assert setup.session.scalar(select(SalesInvoice.id)) is None
+    assert setup.session.scalar(select(SalesOrder.id)) is None
+
+
+def test_goods_already_dispatched_are_billed_though_the_product_is_withdrawn() -> None:
+    """What left the warehouse is still billed (D-MST-12).
+
+    The line is inherited from a delivery note, not typed, so withdrawing the
+    product stops the next sale rather than abandoning the one already made.
+    """
+    setup = _Billing(_session_factory()())
+    note = _dispatched_note(setup)
+    setup.product.status = "INACTIVE"
+    setup.session.commit()
+
+    billed = _bill_note(setup, note, Decimal("4"))
+
+    assert billed.grand_total > Decimal("0")

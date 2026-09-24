@@ -1299,3 +1299,72 @@ def test_a_converted_order_finds_the_quoted_offers_again() -> None:
         )
     ).all()
     assert sorted(row.status for row in staged) == ["PENDING"] * 3
+
+
+@pytest.mark.parametrize(
+    ("status", "words"),
+    [
+        ("INACTIVE", "is inactive"),
+        ("DRAFT", "is still a draft"),
+        ("ARCHIVED", "is archived"),
+    ],
+)
+def test_a_product_that_is_not_active_is_not_quoted(status: str, words: str) -> None:
+    """D-MST-12: the product half of the rule #562 gave the customer.
+
+    Nothing on the sales side read ``products.status``, so a product withdrawn
+    from sale was still offered. It is refused by code and name, and no offer
+    is written.
+    """
+    session = _session_factory()()
+    setup = _Setup(session)
+    setup.product.status = status
+    session.commit()
+
+    with pytest.raises(ValidationError) as refused:
+        setup.service.create_quotation(
+            setup.payload(), firm_id=setup.firm.id, actor_id=setup.actor_id
+        )
+    session.rollback()
+
+    assert setup.product.code in str(refused.value)
+    assert words in str(refused.value)
+    assert "new quotation" in str(refused.value)
+    assert session.scalar(select(SalesQuotation.id)) is None
+
+
+def test_an_offer_already_made_is_edited_but_takes_no_withdrawn_line() -> None:
+    """An edit keeping the product saves; one adding a withdrawn one does not."""
+    session = _session_factory()()
+    setup = _Setup(session)
+    quotation = setup.service.create_quotation(
+        setup.payload(), firm_id=setup.firm.id, actor_id=setup.actor_id
+    )
+    withdrawn = Product(
+        firm_id=setup.firm.id,
+        code="SKU-GONE",
+        name="Withdrawn",
+        product_type="STOCK_ITEM",
+        status="INACTIVE",
+    )
+    session.add(withdrawn)
+    session.commit()
+
+    kept = setup.service.update_quotation(
+        quotation.id, setup.payload(), firm_scope=setup.firm.id, actor_id=uuid4()
+    )
+    assert kept.id == quotation.id
+
+    payload = setup.payload()
+    payload.lines.append(
+        QuotationLineWrite(
+            line_number=2,
+            product_id=withdrawn.id,
+            quantity=Decimal("1"),
+            unit_price=PRICE,
+        )
+    )
+    with pytest.raises(ValidationError, match="is inactive"):
+        setup.service.update_quotation(
+            quotation.id, payload, firm_scope=setup.firm.id, actor_id=uuid4()
+        )

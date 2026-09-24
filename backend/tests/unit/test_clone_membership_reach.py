@@ -11,9 +11,11 @@ the clone's two memberships it had just created).
 
 from datetime import date
 from types import SimpleNamespace
+from typing import cast
 from uuid import UUID, uuid4
 
 import pytest
+from fastapi import Request
 from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
@@ -128,6 +130,11 @@ def test_a_direct_membership_write_refuses_a_platform_operator() -> None:
                     UserFirmAssignment(firm_id=firm.id, is_primary=True, is_active=True)
                 ]
             ),
+            # The handler needs the live request to open a departed firm's own
+            # store and retire the person's rounds there (D-TER-17). Nothing
+            # departs here -- the call is refused before it writes -- so a
+            # stand-in with no tenancy services is enough.
+            request=cast(Request, SimpleNamespace()),
             principal=_principal("PLATFORM", {}),
             db=session,
             settings=Settings(),

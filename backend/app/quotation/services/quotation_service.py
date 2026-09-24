@@ -48,6 +48,7 @@ from app.document_framework.services.transactional_document_service import (
 )
 from app.pricing.services.price_list_service import PriceListResolver
 from app.products.models import Product
+from app.products.services.trading_status import assert_product_takes_new_lines
 from app.promotions.schemas import (
     PromotionEvaluationRequest,
     PromotionLineRequest,
@@ -1046,6 +1047,10 @@ class QuotationService(TransactionalDocumentService):
             )
             if product is None:
                 raise ValidationError("Product not found for quotation line.")
+            # A product withdrawn from sale is not quoted (D-MST-12). Every
+            # line here was typed by somebody -- a quotation inherits nothing
+            # -- so there is no already-agreed line to spare.
+            assert_product_takes_new_lines(product, document="quotation")
             products.append(product)
             grosses.append(self._q(self._q(item.quantity) * self._q(item.unit_price)))
         # The firm's live offers and the customer's segment, asked once for the
