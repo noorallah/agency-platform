@@ -123,8 +123,10 @@ exits non-zero if any failed.
 binary both call. `scripts/` does not reach a customer — a released build is
 compiled and has no interpreter to hand a `.py` to — so **anything an installed
 copy has to do belongs in `app/` and is exposed as a subcommand of
-`app/cli.py`** (`serve`, `create-database`, `migrate-all`, `purge-retention`,
-`where`, `--version`). `tests/unit/test_cli_entry_point.py` fails the build when
+`app/cli.py`** (`serve`, `create-database`, `migrate-all`, `firm-count`,
+`purge-retention`, `where`, `--version`). With no firm registered, `migrate-all`
+migrates and prunes the platform store alone; `firm_shared` is built with the
+first SHARED firm (`docs/TENANCY_AND_STORES.md`). `tests/unit/test_cli_entry_point.py` fails the build when
 a shipped `.ps1` reaches for `-m alembic`, `-m uvicorn` or a script by path
 again; `docs/RELEASE_BUILD.md` is the reference.
 

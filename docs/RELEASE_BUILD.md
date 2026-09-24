@@ -164,7 +164,7 @@ the subprocess, was the actual problem, and it must not come back.
 
 **2. There is now one entry point, `backend/app/cli.py`.** Everything an
 installed copy does is a subcommand of it — `serve`, `create-database`,
-`migrate-all`, `purge-retention`, `where`, `--version` — so there is one thing
+`migrate-all`, `firm-count`, `purge-retention`, `where`, `--version` — so there is one thing
 to compile rather than seventeen scripts. `install.ps1` used to hold a Python
 program in a here-string and pipe it into the interpreter on stdin, which
 cannot work where there is no interpreter; that program is now
@@ -183,6 +183,40 @@ That is acceptable and worth stating plainly: a migration is schema DDL, and
 the customer's own PostgreSQL exposes that same schema to anyone who looks at
 it. `sourceless = true` would allow `.pyc` instead — bytecode, trivially
 decompiled, and not worth the fragility.
+
+---
+
+## What an install creates
+
+**In the database: the platform store and nothing else.** A fresh install runs
+`create-database` then `migrate-all --yes`, and with no firm registered
+`migrate-all` migrates the `platform` schema alone and prunes it down to the
+platform tables, `alembic_version` and `audit_logs` (whose append-only trigger
+stays). There is no `firm_shared` schema and no firm. The platform seed -- the
+system permissions and roles, the bootstrap administrator, the job templates --
+is written by the migrations into platform tables and is all there.
+
+`firm_shared` is built when the first SHARED firm is created (or provisioned),
+through the same path that builds a dedicated firm's store; that is also when
+the business profiles, units and other reference data reach it, because they
+are firm-store seed. An **upgrade** -- a database that already holds firms --
+migrates every store, as it always did.
+
+`agency-server firm-count` prints the number of live firms and exits 0; it
+prints 0 on a database whose platform schema has not been migrated yet, and
+exits 2 rather than printing anything when the server cannot be read. The
+installer uses it to refuse a fresh install onto a database that already holds
+firms. `docs/TENANCY_AND_STORES.md` has the detail.
+
+**On disk: one log folder.** The installer sets `AGENCY_LOG_DIRECTORY` to
+`C:\ProgramData\Agency Platform\logs`, and the server writes to its `server`
+subfolder: `server-YYYY-MM-DD.log` and `errors-YYYY-MM-DD.log` (WARNING and
+above), a new file each midnight and a numbered part at 50 MB within a day.
+Files from before yesterday are gzipped, server logs are kept 30 days and error
+logs 90 (`AGENCY_LOG_RETENTION_DAYS`, `AGENCY_LOG_ERROR_RETENTION_DAYS`), and the
+whole folder is capped at 1 GB (`AGENCY_LOG_MAX_TOTAL_MB`), oldest files first.
+The server applies that at startup and hourly, and `purge-retention --yes` does
+too. `docs/LOGGING.md` has the detail.
 
 ---
 

@@ -6,11 +6,12 @@ checkout. What this adds is a **single** thing to compile: a customer machine
 gets ``agency-server.exe`` and no Python, so anything the product does there has
 to be reachable without an interpreter and without a ``.py`` file.
 
-Four subcommands, which are the four things an installed copy actually does::
+The subcommands are the things an installed copy actually does::
 
     agency-server serve --host 0.0.0.0 --port 8000
     agency-server create-database
     agency-server migrate-all --yes
+    agency-server firm-count
     agency-server purge-retention --dry-run
     agency-server --version
 
@@ -98,10 +99,40 @@ def _migrate_all(args: argparse.Namespace) -> int:
     return upgrade_every_store(dry_run=args.dry_run)
 
 
+def _firm_count(args: argparse.Namespace) -> int:
+    """Print how many live firms the registry holds.
+
+    The installer runs this to tell a fresh install from an upgrade: a fresh
+    install must find 0. A platform store that has not been migrated yet holds
+    no firm and prints 0 too. A database that cannot be reached is an error,
+    not a zero -- "could not tell" must never read as "fresh".
+    """
+    from app.core.database.engine import DatabaseManager
+    from app.core.tenancy.migrations import count_firms
+
+    platform = DatabaseManager.from_settings(Settings())
+    try:
+        count = count_firms(platform)
+    except Exception as error:  # noqa: BLE001 - the message is the whole point
+        print(f"error:{error}", file=sys.stderr)
+        return 2
+    finally:
+        platform.dispose()
+    print(count or 0)
+    return 0
+
+
 def _purge_retention(args: argparse.Namespace) -> int:
-    """Apply every retention rule across every store."""
+    """Apply every retention rule across every store, then the log files."""
+    from app.core.logging.retention import purge_log_files
     from app.core.tenancy.retention import RetentionPolicy, purge_every_store
 
+    if not args.dry_run:
+        logs = purge_log_files(Settings())
+        print(
+            f"logs: {len(logs.compressed)} compressed, {len(logs.expired)} "
+            f"expired, {len(logs.capped)} deleted to meet the size cap"
+        )
     return purge_every_store(
         dry_run=args.dry_run,
         policy=RetentionPolicy(
@@ -171,6 +202,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     migrate_mode.add_argument("--yes", action="store_true", help="Apply the upgrades.")
     migrate.set_defaults(handler=_migrate_all)
+
+    firm_count = subcommands.add_parser(
+        "firm-count",
+        help="Print the number of live firms; 0 on a fresh install.",
+    )
+    firm_count.set_defaults(handler=_firm_count)
 
     purge = subcommands.add_parser(
         "purge-retention", help="Apply retention rules across every store."

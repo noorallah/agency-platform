@@ -59,6 +59,9 @@ class LoggingSettings(BaseModel):
     max_bytes: int
     backup_count: int
     file_enabled: bool
+    retention_days: int = 30
+    error_retention_days: int = 90
+    max_total_mb: int = 1024
 
 
 class SecuritySettings(BaseModel):
@@ -123,10 +126,17 @@ class Settings(BaseSettings):
     debug: bool = False
     log_level: str = "INFO"
     log_directory: Path = Path("logs")
+    #: Retired: the server writes `server/server-YYYY-MM-DD.log` now. Still
+    #: accepted so an existing `.env` that names it keeps loading.
     log_file_name: str = "application.log"
-    log_max_bytes: int = Field(default=10 * 1024 * 1024, gt=0)
+    #: The size at which a day's log file is rolled over within the day.
+    log_max_bytes: int = Field(default=50 * 1024 * 1024, gt=0)
+    #: Retired: log files are kept by age (`log_retention_days`) now.
     log_backup_count: int = Field(default=5, ge=0)
     log_file_enabled: bool = True
+    log_retention_days: int = Field(default=30, ge=1)
+    log_error_retention_days: int = Field(default=90, ge=1)
+    log_max_total_mb: int = Field(default=1024, ge=1)
     database_url: str | None = Field(default=None)
     database_dialect: DatabaseDialect = DatabaseDialect.POSTGRESQL
     database_host: str = "localhost"
@@ -221,6 +231,9 @@ class Settings(BaseSettings):
             max_bytes=self.log_max_bytes,
             backup_count=self.log_backup_count,
             file_enabled=self.log_file_enabled,
+            retention_days=self.log_retention_days,
+            error_retention_days=self.log_error_retention_days,
+            max_total_mb=self.log_max_total_mb,
         )
 
     @property

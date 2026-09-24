@@ -125,7 +125,7 @@ the values in `config/.env`; do not commit that file.
 | Group | Settings | Notes |
 | --- | --- | --- |
 | Application | `APP_NAME`, `APP_VERSION`, `ENVIRONMENT`, `DEBUG` | Environments: `development`, `testing`, `staging`, `production` |
-| Logging | `LOG_LEVEL`, `LOG_DIRECTORY`, `LOG_FILE_NAME`, `LOG_MAX_BYTES`, `LOG_BACKUP_COUNT`, `LOG_FILE_ENABLED` | Console and optionally rotating-file logging |
+| Logging | `LOG_LEVEL`, `LOG_DIRECTORY`, `LOG_MAX_BYTES`, `LOG_FILE_ENABLED`, `LOG_RETENTION_DAYS`, `LOG_ERROR_RETENTION_DAYS`, `LOG_MAX_TOTAL_MB` | Console and day-named files under `LOG_DIRECTORY\server`; see `docs/LOGGING.md` |
 | Database | `DATABASE_DIALECT`, `DATABASE_HOST`, `DATABASE_PORT`, `DATABASE_NAME`, `DATABASE_USERNAME`, `DATABASE_PASSWORD` | Supported dialects: `postgresql` and `mysql` |
 | Database pool | `DATABASE_POOL_SIZE`, `DATABASE_MAX_OVERFLOW`, `DATABASE_POOL_RECYCLE_SECONDS`, `DATABASE_SCHEMA` | Optional connection-pool and default-schema controls |
 | Database URL | `DATABASE_URL` | Overrides individual database fields; its dialect must match `DATABASE_DIALECT` |
@@ -285,7 +285,7 @@ and mappings, see the
 | Request fails with `401` | Sign in again or refresh the session. Access tokens are short lived and the client retries a refresh once. |
 | Request fails with `403` | The account lacks platform authority, an active selected-firm membership, or the required scoped permission. Check `X-Firm-ID`, role, permission, and membership assignments. |
 | Request fails with `422` | Inspect the `error.details` response field and the OpenAPI schema at `/docs`. |
-| Need to correlate a client error with logs | Use the `X-Request-ID` response header. Logs are written to `AGENCY_LOG_DIRECTORY\AGENCY_LOG_FILE_NAME` when file logging is enabled. |
+| Need to correlate a client error with logs | Use the `X-Request-ID` response header. Logs are written to `AGENCY_LOG_DIRECTORY\server\server-YYYY-MM-DD.log` (and `errors-YYYY-MM-DD.log` for warnings and errors) when file logging is enabled. |
 
 ## Validation
 

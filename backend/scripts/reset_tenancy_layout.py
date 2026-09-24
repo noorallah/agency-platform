@@ -16,8 +16,8 @@ from alembic import command
 from app.api.dependencies.settings import get_settings
 from app.core.database.engine import DatabaseManager
 from app.core.tenancy.lifecycle import (
-    _PLATFORM_TABLES,
     _safe_identifier,
+    prune_firm_objects,
     prune_platform_objects,
 )
 
@@ -265,30 +265,11 @@ def _prune_platform_tables(platform_url: URL, schema_name: str) -> None:
 
 
 def _prune_non_platform_tables(platform_url: URL, schema_name: str) -> None:
-    schema = _safe_identifier(schema_name, "schema name")
-    keep_tables = {"alembic_version", "audit_logs", *_PLATFORM_TABLES}
-    engine = create_engine(
-        platform_url.render_as_string(hide_password=False), pool_pre_ping=True
+    # The same prune a fresh install's `migrate-all` applies.
+    prune_firm_objects(
+        database_url=platform_url.render_as_string(hide_password=False),
+        schema_name=schema_name,
     )
-    try:
-        with engine.begin() as connection:
-            rows = connection.execute(
-                text(
-                    "SELECT table_name FROM information_schema.tables "
-                    "WHERE table_schema = :schema_name AND table_type = 'BASE TABLE'"
-                ),
-                {"schema_name": schema},
-            )
-            drop_tables = sorted(
-                table_name for (table_name,) in rows if table_name not in keep_tables
-            )
-            for table_name in drop_tables:
-                table = _safe_identifier(table_name, "table name")
-                connection.execute(
-                    text(f'DROP TABLE IF EXISTS "{schema}"."{table}" CASCADE')
-                )
-    finally:
-        engine.dispose()
 
 
 @contextmanager

@@ -12,13 +12,34 @@ and driven entirely by settings — nothing calls `basicConfig`.
 | Setting | Default | Meaning |
 |---|---|---|
 | `AGENCY_LOG_LEVEL` | `INFO` | Root level |
-| `AGENCY_LOG_DIRECTORY` | `logs` | Folder, created at startup |
-| `AGENCY_LOG_FILE_NAME` | `application.log` | Live file |
-| `AGENCY_LOG_MAX_BYTES` | `10485760` | Rotate at 10 MB |
-| `AGENCY_LOG_BACKUP_COUNT` | `5` | Generations kept |
+| `AGENCY_LOG_DIRECTORY` | `logs` | The one log folder; the installer sets `C:\ProgramData\Agency Platform\logs` |
+| `AGENCY_LOG_MAX_BYTES` | `52428800` | Roll a day's file over within the day at 50 MB |
+| `AGENCY_LOG_RETENTION_DAYS` | `30` | Days a `server-*` file is kept |
+| `AGENCY_LOG_ERROR_RETENTION_DAYS` | `90` | Days an `errors-*` file is kept |
+| `AGENCY_LOG_MAX_TOTAL_MB` | `1024` | Cap on the whole log folder; oldest files go first |
 | `AGENCY_LOG_FILE_ENABLED` | `true` | Console only when false |
+| `AGENCY_LOG_FILE_NAME`, `AGENCY_LOG_BACKUP_COUNT` | | Retired; still accepted, ignored |
 
-`RotatingFileHandler` keeps `application.log` plus `.1`…`.5`. Every line carries
+The server writes to `<AGENCY_LOG_DIRECTORY>\server\`:
+
+```
+server-2026-09-24.log        today, everything at AGENCY_LOG_LEVEL
+server-2026-09-24.1.log      today's first 50 MB, rolled over within the day
+errors-2026-09-24.log        today, WARNING and above
+server-2026-09-22.log.gz     a finished day, compressed
+```
+
+`DailyRotatingFileHandler` (`app/core/logging/rotation.py`) opens a new file at
+the server's local midnight -- nothing is renamed at midnight -- and renames a
+full file to the next free `.<n>.log`. The date in the name is the local day,
+because `asctime` in every line is local too. `app/core/logging/retention.py`
+gzips files from before yesterday, deletes files past their retention, then
+deletes the oldest files anywhere under the log folder until it is within
+`AGENCY_LOG_MAX_TOTAL_MB` (today's two open files are never deleted). It runs at
+startup and hourly on a daemon thread of the serving process, and in
+`agency-server purge-retention --yes`.
+
+Every line carries
 `request_id`, injected by `RequestContextFilter` from the request context — the
 same id returned to the client as `ApiResponse.requestId`, so a user's screenshot
 joins straight to the server's account of that request.
