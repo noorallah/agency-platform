@@ -256,6 +256,18 @@ def test_audit_filters_and_pagination() -> None:
     )
     assert by_type.pagination.total_records == 5
 
+    # A part of the name is enough, whatever its case (BL-31.17): the box
+    # hinted `customer.created` and found nothing for `customer`.
+    by_part = list_audit_logs(scope, action="ARCHIVED", db=session, platform_db=session)
+    assert [row.action for row in by_part.data] == ["product.archived"]
+    by_type_part = list_audit_logs(
+        scope, entity_type="prod", db=session, platform_db=session
+    )
+    assert by_type_part.pagination.total_records == 2
+    # A wildcard typed is a character, not a wildcard.
+    literal = list_audit_logs(scope, action="%", db=session, platform_db=session)
+    assert literal.pagination.total_records == 0
+
     by_actor = list_audit_logs(
         scope, actor_id=other_actor, db=session, platform_db=session
     )
