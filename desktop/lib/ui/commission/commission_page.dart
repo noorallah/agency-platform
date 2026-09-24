@@ -489,8 +489,11 @@ class _CommissionPageState extends State<CommissionPage> {
       ],
       onSelect: (_) {},
       onPageChanged: (_) {},
-      cellBuilder: (columnIndex, value, row) =>
-          columnIndex == 5 ? _payoutActions(row) : Text(value),
+      cellBuilder: (columnIndex, value, row) => columnIndex == 5
+          ? _payoutActions(row)
+          : columnIndex == 4
+              ? _payoutStatus(row, value)
+              : Text(value),
     );
   }
 
@@ -523,6 +526,57 @@ class _CommissionPageState extends State<CommissionPage> {
   /// a working action until the moment somebody needs it. Paying is gated on
   /// its own code, because whoever states a debt should not be the one who
   /// moves the cash.
+  /// The status, and under it who signed for it.
+  ///
+  /// `approved_by`, `approved_at` and `paid_by` were in the response and on
+  /// no screen (D-TER-19), so the maker-checker rule the server enforces
+  /// could not be seen holding. A caption line rather than a column: at
+  /// 1366 an eighth column pushed the actions off the right edge.
+  Widget _payoutStatus(CommissionPayoutRecord row, String value) {
+    final String signed = _signatures(row);
+    if (signed.isEmpty) return Text(value, overflow: TextOverflow.ellipsis);
+    return Tooltip(
+      message: signed,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(value, overflow: TextOverflow.ellipsis),
+          Text(
+            signed,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodySmall,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// "approved by Ravi Menon on 2026-05-02 · paid by Asha Rao on 2026-05-03",
+  /// each part only where somebody has signed.
+  String _signatures(CommissionPayoutRecord row) {
+    final List<String> parts = <String>[
+      if (row.adjustedBy.isNotEmpty) 'adjusted by ${_memberName(row.adjustedBy)}',
+      if (row.approvedBy.isNotEmpty)
+        'approved by ${_memberName(row.approvedBy)}'
+            '${row.approvedAt.length >= 10 ? ' on ${row.approvedAt.substring(0, 10)}' : ''}',
+      if (row.paidBy.isNotEmpty)
+        'paid by ${_memberName(row.paidBy)}'
+            '${row.paidOn.isEmpty ? '' : ' on ${row.paidOn}'}',
+    ];
+    return parts.join(' · ');
+  }
+
+  /// A member's name, or the id where they are no longer a member.
+  String _memberName(String userId) {
+    for (final FirmMember person in _people) {
+      if (person.userId == userId && person.fullName.isNotEmpty) {
+        return person.fullName;
+      }
+    }
+    return userId;
+  }
+
   Widget _payoutActions(CommissionPayoutRecord row) {
     return Row(
       mainAxisSize: MainAxisSize.min,

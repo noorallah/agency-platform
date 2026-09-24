@@ -185,6 +185,17 @@ Json _draftPayout() => <String, dynamic>{
       'version': 3,
     };
 
+/// One period paid out: approved by one person, paid by another.
+Json _paidPayout() => <String, dynamic>{
+      ..._draftPayout(),
+      'id': 'p-2',
+      'status': 'PAID',
+      'approved_by': 'user-9',
+      'approved_at': '2026-05-02T10:15:00Z',
+      'paid_by': 'user-7',
+      'paid_on': '2026-05-03',
+    };
+
 /// The firm-wide default: a rate belonging to nobody in particular.
 Json _firmWideRule() => <String, dynamic>{
       'id': 'rule-firm',
@@ -1172,5 +1183,27 @@ void main() {
     });
 
     expect(rule.rateLabel, '4%');
+  });
+
+  testWidgets('a payout says who approved it and who paid it', (tester) async {
+    // `approved_by`, `approved_at` and `paid_by` were in the response and on
+    // no screen (D-TER-19); a former member is shown by id.
+    final _CommissionApi api = _CommissionApi(
+      payouts: <Json>[_paidPayout()],
+      salesmen: <Json>[
+        <String, dynamic>{
+          'user_id': 'user-9',
+          'full_name': 'Ravi Menon',
+          'email': 'ravi@firm.local',
+        },
+      ],
+    );
+    await _pump(tester, api);
+    await _showPayouts(tester);
+
+    expect(
+      find.text('approved by Ravi Menon on 2026-05-02 · paid by user-7 on 2026-05-03'),
+      findsOneWidget,
+    );
   });
 }

@@ -413,6 +413,11 @@ class CommissionPayoutRecord {
     this.adjustmentReason = '',
     this.status = 'DRAFT',
     this.accruedOn = '',
+    this.accruedBy = '',
+    this.adjustedBy = '',
+    this.approvedBy = '',
+    this.approvedAt = '',
+    this.paidBy = '',
     this.paidOn = '',
     this.moneyAccountId = '',
     this.journalEntryId = '',
@@ -438,6 +443,17 @@ class CommissionPayoutRecord {
   final String payableAmount;
   final String status;
   final String accruedOn;
+
+  /// Who accrued, adjusted, approved and paid it -- different people by
+  /// rule (D-TER-4), and the row says so (D-TER-19). User ids; the screen
+  /// names them from the firm's members.
+  final String accruedBy;
+  final String adjustedBy;
+  final String approvedBy;
+
+  /// When it was approved, as the server sent it.
+  final String approvedAt;
+  final String paidBy;
   final String paidOn;
   final String moneyAccountId;
   final String journalEntryId;
@@ -497,6 +513,11 @@ class CommissionPayoutRecord {
             ? 'DRAFT'
             : stringValue(json['status']),
         accruedOn: stringValue(json['accrued_on']),
+        accruedBy: stringValue(json['accrued_by']),
+        adjustedBy: stringValue(json['adjusted_by']),
+        approvedBy: stringValue(json['approved_by']),
+        approvedAt: stringValue(json['approved_at']),
+        paidBy: stringValue(json['paid_by']),
         paidOn: stringValue(json['paid_on']),
         moneyAccountId: stringValue(json['money_account_id']),
         journalEntryId: stringValue(json['journal_entry_id']),

@@ -498,13 +498,18 @@ class _SettlementsPageState extends State<SettlementsPage> {
     }
   }
 
+  /// "SI-… on 2026-05-19": the bill, and the day the money met it, which
+  /// is what a statement's running balance is dated by (D-TER-19).
+  static String _allocationLabel(SettlementAllocation a) =>
+      a.allocatedOn.isEmpty ? a.invoiceNumber : '${a.invoiceNumber} on ${a.allocatedOn}';
+
   Widget _tile(BuildContext context, Settlement row) {
     // A reversed settlement still names what it had cleared: that is the
     // first thing anybody asks when a correction is queried.
     final String cleared = row.allocations.isEmpty
         ? 'Not applied to any invoice'
         : '${row.isReversed ? 'Had cleared' : 'Cleared'} '
-            '${row.allocations.map((a) => a.invoiceNumber).join(', ')}';
+            '${row.allocations.map(_allocationLabel).join(', ')}';
     return ListTile(
       title: Text(
         '${row.settlementNumber}  ·  ${row.settlementDate}  ·  '
