@@ -33,6 +33,7 @@ import '../../models/tax_framework.dart';
 import '../../models/uom_packaging.dart';
 import '../../models/inventory.dart';
 import '../../models/vendor.dart';
+import '../../models/report.dart';
 import '../preferences/desktop_preferences_service.dart';
 import '../preferences/user_preferences.dart';
 
@@ -2340,7 +2341,7 @@ class ApiClient {
   ///
   /// `rowsKey` reads the rows out of an endpoint that answers with one object
   /// (the commission report); `query` carries a period where one is required.
-  Future<List<Json>> reportRows(
+  Future<ReportPage> reportRows(
     String path, {
     Map<String, String>? query,
     String? rowsKey,
@@ -2349,10 +2350,22 @@ class ApiClient {
     final dynamic envelope = response['data'];
     final dynamic data =
         rowsKey != null && envelope is Map ? envelope[rowsKey] : envelope;
-    return [
+    final List<Json> rows = [
       for (final dynamic row in data is List ? data : const [])
         if (row is Map) Map<String, dynamic>.from(row),
     ];
+    // A dated report says how many matched in all (D-RPT-18): beside the
+    // page in `pagination`, or beside `rows` where the report is one object.
+    final dynamic pagination = response['pagination'];
+    final dynamic total = pagination is Map
+        ? pagination['total_records']
+        : envelope is Map
+            ? envelope['total_records']
+            : null;
+    return ReportPage(
+      rows: rows,
+      total: total is num ? total.toInt() : rows.length,
+    );
   }
 
   /// Move stock between warehouses. Returns both movements, out and in.

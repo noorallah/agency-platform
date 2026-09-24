@@ -23,8 +23,9 @@ PermissionService _permissionsFor(List<String> perms) {
 }
 
 class _ReportApi extends ApiClient {
-  _ReportApi({this.rows = const []})
-      : super(
+  _ReportApi({this.rows = const [], int? total})
+      : total = total ?? rows.length,
+        super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
           refreshAccessToken: () async => false,
@@ -32,12 +33,15 @@ class _ReportApi extends ApiClient {
         );
 
   final List<Json> rows;
+
+  /// How many the window holds in all; the rows are one page of it.
+  final int total;
   final List<String> requested = [];
   final List<Map<String, String>?> queries = [];
   final List<String?> rowsKeys = [];
 
   @override
-  Future<List<Json>> reportRows(
+  Future<ReportPage> reportRows(
     String path, {
     Map<String, String>? query,
     String? rowsKey,
@@ -45,7 +49,7 @@ class _ReportApi extends ApiClient {
     requested.add(path);
     queries.add(query);
     rowsKeys.add(rowsKey);
-    return rows;
+    return ReportPage(rows: rows, total: total);
   }
 }
 
@@ -196,7 +200,7 @@ void main() {
       expect(
           api.requested.single, reportsFor(ReportArea.operational).first.path);
       expect(find.text('SI-1'), findsOneWidget);
-      expect(find.text('1 row(s)'), findsOneWidget);
+      expect(find.text('1–1 of 1'), findsOneWidget);
     });
 
     testWidgets('choosing another report reads it', (tester) async {
@@ -321,7 +325,47 @@ void main() {
       await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pumpAndSettle();
       expect(api.queries.last,
-          {'from_date': '2026-04-01', 'to_date': '2026-06-30'});
+          containsPair('from_date', '2026-04-01'));
+      expect(api.queries.last, containsPair('to_date', '2026-06-30'));
+    });
+
+    testWidgets('a dated report is paged a hundred at a time', (tester) async {
+      // The whole history used to arrive at once (D-RPT-18): the first
+      // report of the tab is a register, so it is dated and paged.
+      final _ReportApi api = _ReportApi(
+        rows: <Json>[
+          for (int i = 0; i < 100; i++)
+            <String, dynamic>{'quotation_number': 'QT-$i'},
+        ],
+        total: 250,
+      );
+      await _pump(tester, api);
+      expect(api.queries.single, containsPair('page', '1'));
+      expect(api.queries.single, containsPair('page_size', '100'));
+      expect(find.text('1–100 of 250'), findsOneWidget);
+
+      await tester.tap(find.byTooltip('Next page'));
+      await tester.pumpAndSettle();
+
+      expect(api.queries.last, containsPair('page', '2'));
+      expect(find.text('101–200 of 250'), findsOneWidget);
+    });
+
+    testWidgets('a snapshot report is neither dated nor paged',
+        (tester) async {
+      // Pending, overdue, outstanding: a window would hide the old item
+      // the report exists to show, so the route takes nothing.
+      final _ReportApi api = _ReportApi(rows: const <Json>[]);
+      await _pump(tester, api);
+      final ReportDefinition snapshot = reportsFor(ReportArea.operational)
+          .firstWhere((report) => !report.needsPeriod);
+      await tester.ensureVisible(find.text(snapshot.label));
+      await tester.tap(find.text(snapshot.label));
+      await tester.pumpAndSettle();
+
+      expect(api.requested.last, snapshot.path);
+      expect(api.queries.last, isNull);
+      expect(find.byKey(const ValueKey<String>('report-from')), findsNothing);
     });
 
     testWidgets('the commission report reads its rows out of the object',

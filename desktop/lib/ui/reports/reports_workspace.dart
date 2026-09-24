@@ -38,6 +38,12 @@ class ReportsWorkspace extends StatefulWidget {
 class _ReportsWorkspaceState extends State<ReportsWorkspace> {
   ReportDefinition? _selected;
   List<Json> _rows = const [];
+
+  /// A dated report is paged a hundred rows at a time (D-RPT-18): the page
+  /// on screen, and how many rows the window holds in all.
+  static const int _pageSize = 100;
+  int _page = 1;
+  int _total = 0;
   bool _loading = false;
   String? _error;
 
@@ -104,7 +110,7 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
     if (_selected != null) unawaited(_load());
   }
 
-  Future<void> _load() async {
+  Future<void> _load({int page = 1}) async {
     final ReportDefinition? report = _selected;
     if (report == null || !widget.hasActiveFirm || !_canRead(report)) return;
     setState(() {
@@ -112,15 +118,24 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
       _error = null;
     });
     try {
-      final List<Json> rows = await widget.api.reportRows(
+      final ReportPage result = await widget.api.reportRows(
         report.path,
         query: report.needsPeriod
-            ? {'from_date': _from.text.trim(), 'to_date': _to.text.trim()}
+            ? {
+                'from_date': _from.text.trim(),
+                'to_date': _to.text.trim(),
+                'page': '$page',
+                'page_size': '$_pageSize',
+              }
             : null,
         rowsKey: report.rowsKey,
       );
       if (!mounted) return;
-      setState(() => _rows = rows);
+      setState(() {
+        _rows = result.rows;
+        _total = result.total;
+        _page = page;
+      });
     } on ApiException catch (exception) {
       if (!mounted) return;
       setState(() {
@@ -182,6 +197,34 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
         },
       );
 
+  /// "1–100 of 2,340" with Previous and Next, for a dated report. The whole
+  /// history used to arrive at once into a `DataTable` that is not
+  /// virtualised (D-RPT-18); a hundred rows a page is what the server caps
+  /// at, and the window above narrows it further.
+  List<Widget> _pager(BuildContext context) {
+    final int first = _total == 0 ? 0 : (_page - 1) * _pageSize + 1;
+    final int last = (_page - 1) * _pageSize + _rows.length;
+    final bool hasNext = last < _total;
+    return [
+      Text('$first–$last of $_total',
+          style: Theme.of(context).textTheme.bodySmall),
+      IconButton(
+        tooltip: 'Previous page',
+        onPressed: _loading || _page <= 1
+            ? null
+            : () => unawaited(_load(page: _page - 1)),
+        icon: const Icon(Icons.chevron_left),
+      ),
+      IconButton(
+        tooltip: 'Next page',
+        onPressed: _loading || !hasNext
+            ? null
+            : () => unawaited(_load(page: _page + 1)),
+        icon: const Icon(Icons.chevron_right),
+      ),
+    ];
+  }
+
   Widget _report(BuildContext context) {
     final ReportDefinition? report = _selected;
     if (report == null) {
@@ -233,8 +276,9 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
               ),
               const SizedBox(width: AppSpacing.md),
             ],
-            Text('${_rows.length} row(s)',
-                style: Theme.of(context).textTheme.bodySmall),
+            if (report.needsPeriod) ..._pager(context) else
+              Text('${_rows.length} row(s)',
+                  style: Theme.of(context).textTheme.bodySmall),
             const SizedBox(width: AppSpacing.md),
             IconButton(
               tooltip: 'Refresh',
