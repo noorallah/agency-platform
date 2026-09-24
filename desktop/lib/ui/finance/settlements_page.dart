@@ -526,19 +526,28 @@ class _SettlementsPageState extends State<SettlementsPage> {
         // was a declared transaction type nothing could reach.
         // A supplier advance too, since D-BUY-8; a refund holds nothing to
         // apply, it is money handed back.
+        // Labelled, not bare icons: what a checklist icon and an undo arrow
+        // do to money is not obvious at a glance (BL-31.14). The tooltip
+        // stays as the address a test and a hover both use.
         if (_canCreate && row.isOnAccount && row.direction != 'REFUND')
-          IconButton(
-            tooltip: row.direction == 'RECEIPT'
+          Tooltip(
+            message: row.direction == 'RECEIPT'
                 ? 'Apply to an invoice'
                 : 'Apply to a bill',
-            icon: const Icon(Icons.playlist_add_check),
-            onPressed: () => unawaited(_apply(row)),
+            child: TextButton.icon(
+              icon: const Icon(Icons.playlist_add_check),
+              label: const Text('Apply'),
+              onPressed: () => unawaited(_apply(row)),
+            ),
           ),
         if (_canCreate && !row.isReversed)
-          IconButton(
-            tooltip: 'Reverse',
-            icon: const Icon(Icons.undo),
-            onPressed: () => unawaited(_reverse(row)),
+          Tooltip(
+            message: 'Reverse',
+            child: TextButton.icon(
+              icon: const Icon(Icons.undo),
+              label: const Text('Reverse'),
+              onPressed: () => unawaited(_reverse(row)),
+            ),
           ),
         if (row.isReversed)
           const StatusBadge(label: 'Reversed')
