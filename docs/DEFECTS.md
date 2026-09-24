@@ -276,7 +276,7 @@ or invoiced (D-RPT-11).
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
-| D-RPT-18 | Low | **No report takes a date range or a page**, and the desktop `DataTable` is not virtualised; every report is the firm's whole history. WHOLE01 has two years. (API done in #PRNUM; the desktop From/To and pager are the rest) | Code |
+| D-RPT-18 | Low | **No report takes a date range or a page**, and the desktop `DataTable` is not virtualised; every report is the firm's whole history. WHOLE01 has two years. (API done in #632; the desktop From/To and pager are the rest) | Code |
 
 ### Found in manual testing and not yet fixed -- `docs/BACKLOG.md` §31
 
