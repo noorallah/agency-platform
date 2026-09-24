@@ -3449,3 +3449,52 @@ margcompusoft.com (distribution software, eOrder app);
 zoho.com/us/inventory/kb/general-overview/zom-feature-list.html;
 zoho.com/in/books; patronaccounting.com (Zoho Books India guide);
 massistcrm.com (DMS); deltasalesapp.com (DMS features).
+
+## 43. Telling people an update is out, and applying it within the licence -- later
+
+Asked for by the owner on 2026-09-24, to be built **after** the installer and
+licensing (see the "Windows installer, logs and licensing design" doc, rule
+L-E3 and phase 2). Nothing here exists yet.
+
+**What it is.** The server learns that a newer Sutra ERP version has been
+released, tells the firm's administrators inside the app, and -- when the
+licence still covers updates -- downloads and applies it by itself at a quiet
+hour. When the licence does not cover it, the notice says so and offers
+renewal instead; the installed version keeps working either way.
+
+**Rules, to be agreed when it is picked up:**
+
+1. **One release feed**, a small signed file listing each version, its build
+   date, its download address, its size and its SHA-256 hash. The server
+   reads it once a day when the PC has internet, and never waits on it.
+2. **Covered or not is decided by the licence**: a version whose build date is
+   on or before the licence's *updates until* date is covered (L-E3). A
+   licence past its end date gets no automatic update at all.
+3. **Covered updates apply automatically**, by default overnight outside
+   business hours and never while anyone is signed in, using the installer's
+   upgrade path: backup every store first, migrate, check health, and put the
+   old version back if anything fails (the design doc's upgrade section).
+4. **The administrator decides the mode**: automatic (default), notify only,
+   or off; plus the hour it may run. Choosing "notify only" is the right
+   setting for a firm that wants to install updates itself.
+5. **Nothing unverified is installed**: the downloaded Setup.exe must match the
+   feed's hash and carry the Sutra Softworks code signature, or it is deleted
+   and the failure logged.
+6. **Client PCs update from their own server**, not from the internet: the
+   server keeps the matching desktop installer, and a desktop app older than
+   its server offers the update at sign-in. A LAN with one internet-connected
+   server is enough.
+7. **Offline customers lose nothing**: with no internet nothing is checked, and
+   an update is the same Setup.exe sent by hand.
+8. **The notice** shows version, date, what changed in a few lines, whether the
+   licence covers it, and when it will be applied; administrators only, once
+   per version, dismissible.
+9. **What leaves the PC** is only what licensing phase 2 already sends
+   (licence id, machine code, version); no business data.
+10. **Everything is logged** in the platform audit trail and the install log:
+    checked, found, downloaded, verified, applied, rolled back, skipped because
+    not covered.
+
+**Depends on:** the installer's upgrade and rollback path, licensing (the
+*updates until* date), code signing, and somewhere to host the release feed
+and installers (the same place as the phase 2 licence service).
