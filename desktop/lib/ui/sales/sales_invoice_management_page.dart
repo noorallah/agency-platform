@@ -293,6 +293,7 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
           quantity: '${item['current_invoice_quantity'] ?? '0'}',
           unitPrice: '${item['unit_price'] ?? '0'}',
           discount: '${item['discount_amount'] ?? '0'}',
+          discountPercent: '${item['discount_percent'] ?? ''}',
           taxProfile: _labels.taxProfile('${item['tax_profile_id'] ?? ''}'),
           amount: '${item['gross_amount'] ?? '0'}',
           netAmount: '${item['net_amount'] ?? '0'}',

@@ -10,6 +10,7 @@ class DocumentHeaderSnapshot {
     this.party = '',
     this.partyLabel = 'Party',
     this.reference = '',
+    this.coupon = '',
     this.branch = '',
     this.warehouse = '',
     this.firm = '',
@@ -31,6 +32,9 @@ class DocumentHeaderSnapshot {
   final String party;
   final String partyLabel;
   final String reference;
+
+  /// The coupon presented on the document, where its type takes one.
+  final String coupon;
   final String branch;
   final String warehouse;
   final String firm;
@@ -52,6 +56,7 @@ class DocumentHeaderSnapshot {
             ? 'Party'
             : stringValue(json['party_label']),
         reference: stringValue(json['reference']),
+        coupon: stringValue(json['coupon']),
         branch: stringValue(json['branch']),
         warehouse: stringValue(json['warehouse']),
         firm: stringValue(json['firm']),
@@ -76,6 +81,7 @@ class DocumentLineSnapshot {
     this.freeQuantity = '',
     this.unitPrice = '',
     this.discount = '',
+    this.discountPercent = '',
     this.taxProfile = '',
     this.amount = '',
     this.netAmount = '',
@@ -91,6 +97,10 @@ class DocumentLineSnapshot {
   final String freeQuantity;
   final String unitPrice;
   final String discount;
+
+  /// The rate the server resolved, beside the amount it came to. Empty or
+  /// zero where no rate applied.
+  final String discountPercent;
   final String taxProfile;
   final String amount;
   final String netAmount;
@@ -106,6 +116,7 @@ class DocumentLineSnapshot {
         freeQuantity: stringValue(json['free_quantity']),
         unitPrice: stringValue(json['unit_price']),
         discount: stringValue(json['discount']),
+        discountPercent: stringValue(json['discount_percent']),
         taxProfile: stringValue(json['tax_profile']),
         amount: stringValue(json['amount']),
         netAmount: stringValue(json['net_amount']),

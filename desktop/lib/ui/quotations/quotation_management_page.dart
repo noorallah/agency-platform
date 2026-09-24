@@ -23,6 +23,14 @@ import 'quotation_editor_dialog.dart';
 /// prominently, is how long each offer stands: an expired quotation is the one
 /// thing here that quietly stops being worth anything, and a list that showed
 /// only its status would look identical the day before and the day after.
+/// " less 10.00%" where a rate was resolved, nothing where none was: the
+/// card printed `qty × price` and the totals, so the only way to read the
+/// rate a line got was Revise (BL-31.14).
+String _lessRate(String percent) {
+  final double rate = double.tryParse(percent) ?? 0;
+  return rate == 0 ? '' : ' less $percent%';
+}
+
 class QuotationManagementPage extends StatefulWidget {
   const QuotationManagementPage({
     super.key,
@@ -406,7 +414,8 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 2),
                       child: Text(
-                        '${line.quantity} × ${line.unitPrice} — '
+                        '${line.quantity} × ${line.unitPrice}'
+                        '${_lessRate(line.discountPercent)} — '
                         '${line.description.isEmpty ? "line ${line.lineNumber}" : line.description}',
                         style: Theme.of(context).textTheme.bodySmall,
                       ),

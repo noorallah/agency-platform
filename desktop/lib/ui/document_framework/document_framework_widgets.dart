@@ -143,6 +143,11 @@ class EnterpriseDocumentHeader extends StatelessWidget {
                     _headerField(header.partyLabel, header.party),
                   _headerField('Document date', header.documentDate),
                   _headerField('Reference', header.reference),
+                  // Only where one was presented: most document types take
+                  // none, and a '-' under Coupon on every bill would read as
+                  // an omission (BL-31.14).
+                  if (header.coupon.isNotEmpty)
+                    _headerField('Coupon', header.coupon),
                   _headerField('Branch', header.branch),
                   _headerField('Warehouse', header.warehouse),
                   _headerField('Firm', header.firm),
@@ -176,6 +181,19 @@ class EnterpriseDocumentHeader extends StatelessWidget {
           ],
         ),
       );
+}
+
+/// The Discount cell of a saved document: the amount, and beside it the
+/// rate the server resolved, where one applied.
+///
+/// The amount alone answered "how much" but not "what did this line get":
+/// the only way to read the rate was to reopen the editor, which an approved
+/// order no longer offers (BL-31.14). A rate of zero, or none, shows the
+/// amount alone, so a line with no arrangement does not say "(0.00%)".
+String discountCell(DocumentLineSnapshot line) {
+  final String amount = line.discount.isEmpty ? '0' : line.discount;
+  final double rate = double.tryParse(line.discountPercent) ?? 0;
+  return rate == 0 ? amount : '$amount (${line.discountPercent}%)';
 }
 
 /// A sideways scroll with a scrollbar that is always visible.
@@ -301,8 +319,7 @@ class EnterpriseDocumentLines extends StatelessWidget {
                                 : line.freeQuantity)),
                             DataCell(Text(
                                 line.unitPrice.isEmpty ? '0' : line.unitPrice)),
-                            DataCell(Text(
-                                line.discount.isEmpty ? '0' : line.discount)),
+                            DataCell(Text(discountCell(line))),
                             DataCell(Text(line.taxProfile.isEmpty
                                 ? '-'
                                 : line.taxProfile)),
