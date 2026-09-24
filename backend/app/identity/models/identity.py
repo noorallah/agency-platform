@@ -130,8 +130,32 @@ class Role(BaseEntity):
     """Represent a configurable collection of permissions."""
 
     __tablename__ = "roles"
+    __table_args__ = (
+        # A role code is unique among live roles in its own scope (D-IDN-9):
+        # the platform-wide roles, system ones included, share one namespace
+        # and each firm has its own. A deleted role gives its code back, and
+        # one firm's `cashier` does not stop another's. Two indexes because
+        # PostgreSQL treats NULL firm ids as distinct. A firm role may still
+        # never take a system role's code -- `IdentityService.create_role`
+        # refuses that, since code elsewhere recognises a seeded role by it.
+        Index(
+            "UQ_roles_platform_code_active",
+            "code",
+            unique=True,
+            postgresql_where=text("firm_id IS NULL AND is_deleted = false"),
+            sqlite_where=text("firm_id IS NULL AND is_deleted = 0"),
+        ),
+        Index(
+            "UQ_roles_firm_code_active",
+            "firm_id",
+            "code",
+            unique=True,
+            postgresql_where=text("firm_id IS NOT NULL AND is_deleted = false"),
+            sqlite_where=text("firm_id IS NOT NULL AND is_deleted = 0"),
+        ),
+    )
 
-    code: Mapped[str] = mapped_column(String(100), unique=True, nullable=False)
+    code: Mapped[str] = mapped_column(String(100), nullable=False)
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     description: Mapped[str | None] = mapped_column(Text)
     is_active: Mapped[bool] = mapped_column(

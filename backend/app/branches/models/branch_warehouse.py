@@ -28,8 +28,22 @@ class BranchType(BaseEntity):
 
     __tablename__ = "branch_types"
     __table_args__ = (
-        UniqueConstraint("firm_id", "code", name="UQ_branch_types_firm_code"),
-        UniqueConstraint("firm_id", "name", name="UQ_branch_types_firm_name"),
+        Index(
+            "UQ_branch_types_firm_code_active",
+            "firm_id",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
+        Index(
+            "UQ_branch_types_firm_name_active",
+            "firm_id",
+            "name",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
     )
 
     firm_id: Mapped[UUID] = mapped_column(
@@ -48,7 +62,14 @@ class Branch(BaseEntity):
 
     __tablename__ = "branches"
     __table_args__ = (
-        UniqueConstraint("firm_id", "code", name="UQ_branches_firm_code"),
+        Index(
+            "UQ_branches_firm_code_active",
+            "firm_id",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
         Index("IX_branches_firm_name", "firm_id", "name"),
         Index("IX_branches_firm_status", "firm_id", "status"),
         # A firm has one default branch. Nothing enforced it, so every branch
@@ -137,8 +158,22 @@ class WarehouseType(BaseEntity):
 
     __tablename__ = "warehouse_types"
     __table_args__ = (
-        UniqueConstraint("firm_id", "code", name="UQ_warehouse_types_firm_code"),
-        UniqueConstraint("firm_id", "name", name="UQ_warehouse_types_firm_name"),
+        Index(
+            "UQ_warehouse_types_firm_code_active",
+            "firm_id",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
+        Index(
+            "UQ_warehouse_types_firm_name_active",
+            "firm_id",
+            "name",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
     )
 
     firm_id: Mapped[UUID] = mapped_column(
@@ -157,7 +192,14 @@ class Warehouse(BaseEntity):
 
     __tablename__ = "warehouses"
     __table_args__ = (
-        UniqueConstraint("firm_id", "code", name="UQ_warehouses_firm_code"),
+        Index(
+            "UQ_warehouses_firm_code_active",
+            "firm_id",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
         Index("IX_warehouses_firm_name", "firm_id", "name"),
         Index("IX_warehouses_branch_status", "branch_id", "status"),
         # One default warehouse per branch, for the same reason.
@@ -266,16 +308,22 @@ class WarehouseStorageNode(BaseEntity):
 
     __tablename__ = "warehouse_storage_nodes"
     __table_args__ = (
-        UniqueConstraint(
+        Index(
+            "UQ_warehouse_storage_nodes_warehouse_code_active",
             "warehouse_id",
             "code",
-            name="UQ_warehouse_storage_nodes_warehouse_code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
         ),
-        UniqueConstraint(
+        Index(
+            "UQ_warehouse_storage_nodes_warehouse_name_parent_active",
             "warehouse_id",
             "name",
             "parent_id",
-            name="UQ_warehouse_storage_nodes_warehouse_name_parent",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
         ),
         Index(
             "IX_warehouse_storage_nodes_warehouse_parent", "warehouse_id", "parent_id"

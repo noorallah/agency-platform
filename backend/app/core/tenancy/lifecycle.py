@@ -33,6 +33,11 @@ _PLATFORM_TABLES = (
     "firm_storage_mappings",
     "user_firms",
     "user_preferences",
+    # Job templates are identity: `IdentityService` reads them on the platform
+    # session only. Absent from this list, every firm store kept a copy of
+    # the seeded eleven that nothing read (D-IDN-10).
+    "user_template_roles",
+    "user_templates",
     # Crash and server-error reports are deliberately platform-only: support
     # reads one trail, and a report is written before any firm is resolved.
     # Listed here so a firm store never keeps a stray copy, and so the platform

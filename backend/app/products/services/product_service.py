@@ -2,6 +2,8 @@
 
 # ruff: noqa: D102, D107
 
+import csv
+import io
 from collections.abc import Callable, Iterable
 from decimal import Decimal, InvalidOperation
 from functools import partial
@@ -14,6 +16,7 @@ from sqlalchemy import String, case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql import Select
+from sqlalchemy.sql.elements import ColumnElement
 
 from app.business.gating import (
     assert_feature_fields,
@@ -26,14 +29,16 @@ from app.business.models import (
     BusinessProfile,
 )
 from app.business.services import AttributeInput, AttributeService
-from app.common.audit.services import record_audit
+from app.common.audit.services import record_audit, record_change, row_state
 from app.common.firm_metadata import FirmMetadataReader
+from app.common.master_codes import assert_codes_free
 from app.common.open_documents import (
     describe_documents,
     describe_stock,
     find_open_documents,
     find_stock_holdings,
 )
+from app.core.concurrency import assert_version
 from app.core.exceptions import (
     ApplicationError,
     AuthorizationError,
@@ -111,8 +116,6 @@ class ProductService:
         """
         self._session = session
         self._withheld_duties = withheld_duties
-        # Scoped to this request; the service is constructed per call.
-        self._attribute_match_cache: dict[tuple[UUID, str], frozenset[UUID]] = {}
 
     def list_products(
         self,
@@ -143,27 +146,49 @@ class ProductService:
             .where(Product.firm_id == firm_scope)
         )
         statement, count = self._apply_filters(statement, count, filters=filters)
-        ordering = columns[sort_by].desc() if descending else columns[sort_by].asc()
-        rows = list(self._session.scalars(statement.order_by(ordering)).all())
-        if search or filters.attribute_query:
-            term = f"%{search.strip()}%" if search else None
-            attr_term = (
-                f"%{filters.attribute_query.strip()}%"
-                if filters.attribute_query
-                else None
-            )
-            filtered = [
-                row
-                for row in rows
-                if self._matches_search(
-                    row=row, search_term=term, attribute_term=attr_term
+        # The search runs in the database, and so does the page (D-MST-11).
+        # This loaded every product of the firm, matched in Python and sliced
+        # the list, so a page of twenty cost the whole catalogue.
+        matches: list[ColumnElement[bool]] = []
+        if search and search.strip():
+            needle = f"%{search.strip().lower()}%"
+            matches.append(
+                or_(
+                    *(
+                        func.lower(column).like(needle)
+                        for column in (
+                            Product.code,
+                            Product.barcode,
+                            Product.qr_code,
+                            Product.name,
+                            Product.short_name,
+                            Product.brand,
+                            Product.hsn_sac,
+                        )
+                    )
                 )
-            ]
-            total = len(filtered)
-            start = (page - 1) * page_size
-            return filtered[start : start + page_size], total
-        start = (page - 1) * page_size
-        return rows[start : start + page_size], int(self._session.scalar(count) or 0)
+            )
+        if filters.attribute_query and filters.attribute_query.strip():
+            matches.append(
+                Product.id.in_(
+                    self._attribute_match_select(
+                        firm_scope, filters.attribute_query.strip().lower()
+                    )
+                )
+            )
+        if matches:
+            statement = statement.where(or_(*matches))
+            count = count.where(or_(*matches))
+        ordering = columns[sort_by].desc() if descending else columns[sort_by].asc()
+        rows = list(
+            self._session.scalars(
+                # The id breaks ties, so a page boundary is stable.
+                statement.order_by(ordering, Product.id.asc())
+                .offset((page - 1) * page_size)
+                .limit(page_size)
+            ).all()
+        )
+        return rows, int(self._session.scalar(count) or 0)
 
     def summary(
         self, *, firm_scope: UUID, filters: ProductListFilters
@@ -380,6 +405,7 @@ class ProductService:
         )
         if not product.is_deleted:
             return product
+        self._assert_restorable(product)
         product.is_deleted = False
         product.deleted_at = None
         product.deleted_by = None
@@ -458,6 +484,7 @@ class ProductService:
             )
             if not product.is_deleted:
                 continue
+            self._assert_restorable(product)
             product.is_deleted = False
             product.deleted_at = None
             product.deleted_by = None
@@ -685,6 +712,9 @@ class ProductService:
         self, data: ProductCategoryCreate, *, firm_id: UUID, actor_id: UUID
     ) -> ProductCategory:
         parent = self._validate_category_reference(firm_id, data.parent_id)
+        self._assert_category_free(
+            firm_id, code=data.code, name=data.name, parent_id=data.parent_id
+        )
         level = 0 if parent is None else parent.level + 1
         path = data.code if parent is None else f"{parent.path}/{data.code}"
         row = ProductCategory(
@@ -700,6 +730,15 @@ class ProductService:
         )
         self._session.add(row)
         self._session.flush()
+        # A category's create and edit left no trail (D-MST-11).
+        record_change(
+            self._session,
+            action="product.category.created",
+            entity_type="product_category",
+            row=row,
+            actor_id=actor_id,
+            firm_id=firm_id,
+        )
         self._commit()
         return row
 
@@ -731,9 +770,37 @@ class ProductService:
         *,
         firm_scope: UUID,
         actor_id: UUID,
+        expected_version: int | None = None,
     ) -> ProductCategory:
+        """Edit a category, moving its whole subtree with it (D-MST-11).
+
+        A category could be put under its own child -- a loop no tree can draw
+        -- and a move or a new code rewrote this row's path and left every
+        descendant's pointing at where it used to be.
+        """
         row = self.get_category(category_id, firm_scope=firm_scope)
+        assert_version(row.version, expected_version)
         parent = self._validate_category_reference(firm_scope, data.parent_id)
+        if parent is not None and (
+            parent.id == row.id or self._is_descendant(parent, of=row)
+        ):
+            what = (
+                "the category itself"
+                if parent.id == row.id
+                else "one of its own sub-categories"
+            )
+            raise ValidationError(
+                f"{row.code} cannot be placed under {parent.code}: it is {what}."
+            )
+        self._assert_category_free(
+            firm_scope,
+            code=data.code,
+            name=data.name,
+            parent_id=data.parent_id,
+            excluding_id=row.id,
+        )
+        before = row_state(row)
+        old_path = row.path
         row.code = data.code
         row.name = data.name
         row.parent_id = data.parent_id
@@ -741,22 +808,135 @@ class ProductService:
         row.path = data.code if parent is None else f"{parent.path}/{data.code}"
         row.is_active = data.is_active
         row.updated_by = actor_id
+        if row.path != old_path:
+            self._repath_category_descendants(row)
+        record_change(
+            self._session,
+            action="product.category.updated",
+            entity_type="product_category",
+            row=row,
+            actor_id=actor_id,
+            before=before,
+            firm_id=firm_scope,
+        )
         self._commit()
         return row
+
+    def _category_descendants(self, row: ProductCategory) -> list[ProductCategory]:
+        """Return every live category below ``row``, walked by parent id.
+
+        Walked rather than matched on the path, because a path is exactly what
+        an older move left stale.
+        """
+        found: list[ProductCategory] = []
+        frontier = [row.id]
+        while frontier:
+            children = list(
+                self._session.scalars(
+                    select(ProductCategory).where(
+                        ProductCategory.firm_id == row.firm_id,
+                        ProductCategory.parent_id.in_(frontier),
+                        ProductCategory.is_deleted.is_(False),
+                    )
+                ).all()
+            )
+            children = [child for child in children if child not in found]
+            found.extend(children)
+            frontier = [child.id for child in children]
+        return found
+
+    def _is_descendant(
+        self, candidate: ProductCategory, *, of: ProductCategory
+    ) -> bool:
+        """Return whether ``candidate`` sits somewhere below ``of``."""
+        return any(item.id == candidate.id for item in self._category_descendants(of))
+
+    def _repath_category_descendants(self, row: ProductCategory) -> None:
+        """Rebuild each descendant's path and level from its new ancestor.
+
+        Rebuilt down the parent chain rather than string-replaced, so a path
+        an older move left stale is corrected too.
+        """
+        paths = {row.id: row.path}
+        levels = {row.id: row.level}
+        for child in self._category_descendants(row):
+            if child.parent_id is None or child.parent_id not in paths:
+                continue
+            child.path = f"{paths[child.parent_id]}/{child.code}"
+            child.level = levels[child.parent_id] + 1
+            paths[child.id], levels[child.id] = child.path, child.level
+
+    def _assert_category_free(
+        self,
+        firm_id: UUID,
+        *,
+        code: str,
+        name: str,
+        parent_id: UUID | None,
+        excluding_id: UUID | None = None,
+    ) -> None:
+        """Refuse a code the firm, or a name the parent, already uses."""
+        assert_codes_free(
+            self._session,
+            ProductCategory,
+            scope={"firm_id": firm_id},
+            values={"code": code},
+            excluding_id=excluding_id,
+            message="A product category with this code already exists.",
+        )
+        assert_codes_free(
+            self._session,
+            ProductCategory,
+            scope={"firm_id": firm_id, "parent_id": parent_id},
+            values={"name": name},
+            excluding_id=excluding_id,
+            message="A product category with this name already exists at this level.",
+        )
+
+    def _assert_restorable(self, product: Product) -> None:
+        """Refuse a restore into a code or barcode a live product now holds."""
+        assert_codes_free(
+            self._session,
+            Product,
+            scope={"firm_id": product.firm_id},
+            values={"code": product.code, "barcode": product.barcode},
+            excluding_id=product.id,
+            message=(
+                f"{product.code} cannot be restored: a live product now holds "
+                "its code or barcode."
+            ),
+        )
 
     def delete_category(
         self, category_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> None:
         row = self.get_category(category_id, firm_scope=firm_scope)
+        # A sub-category is a category too, and a live child would be left
+        # hanging from a parent no list shows (D-MST-11): this looked only at
+        # `category_id`.
         has_products = self._session.scalar(
             select(Product.id).where(
                 Product.firm_id == firm_scope,
-                Product.category_id == row.id,
+                or_(
+                    Product.category_id == row.id,
+                    Product.sub_category_id == row.id,
+                ),
                 Product.is_deleted.is_(False),
             )
         )
         if has_products is not None:
             raise ValidationError("Categories used by products cannot be deleted.")
+        has_children = self._session.scalar(
+            select(ProductCategory.id).where(
+                ProductCategory.firm_id == firm_scope,
+                ProductCategory.parent_id == row.id,
+                ProductCategory.is_deleted.is_(False),
+            )
+        )
+        if has_children is not None:
+            raise ValidationError(
+                f"{row.code} has sub-categories. Move or delete them first."
+            )
         row.is_deleted = True
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
@@ -783,22 +963,26 @@ class ProductService:
             sort_by="code",
             descending=False,
         )
-        output = ["Code,Name,Type,Brand,HSN,SellingPrice,Status"]
+        # Written by the csv module (D-MST-11): a plain join put a name like
+        # "Rice, basmati" across two columns and shifted every one after it.
+        buffer = io.StringIO()
+        writer = csv.writer(buffer, lineterminator="\n")
+        writer.writerow(
+            ["Code", "Name", "Type", "Brand", "HSN", "SellingPrice", "Status"]
+        )
         for item in rows:
-            output.append(
-                ",".join(
-                    [
-                        item.code,
-                        item.name,
-                        item.product_type,
-                        item.brand or "",
-                        item.hsn_sac or "",
-                        str(item.selling_price or ""),
-                        item.status,
-                    ]
-                )
+            writer.writerow(
+                [
+                    item.code,
+                    item.name,
+                    item.product_type,
+                    item.brand or "",
+                    item.hsn_sac or "",
+                    str(item.selling_price or ""),
+                    item.status,
+                ]
             )
-        return "\n".join(output)
+        return buffer.getvalue().rstrip("\n")
 
     def export_products_xlsx(self, *, firm_scope: UUID, search: str | None) -> bytes:
         try:
@@ -873,9 +1057,6 @@ class ProductService:
     def import_products_csv(
         self, csv_content: str, *, firm_scope: UUID, actor_id: UUID
     ) -> list[Product]:
-        import csv
-        import io
-
         reader = csv.DictReader(io.StringIO(csv_content))
         records = [
             self._import_record(number, row.get)
@@ -1393,63 +1574,23 @@ class ProductService:
             updated_by=actor_id,
         )
 
-    def _matches_search(
-        self, *, row: Product, search_term: str | None, attribute_term: str | None
-    ) -> bool:
-        """Return whether a product matches the free-text or attribute search."""
-        if search_term:
-            search_text = search_term.strip("%").lower()
-            haystacks = [
-                row.code,
-                row.barcode,
-                row.qr_code,
-                row.name,
-                row.short_name,
-                row.brand,
-                row.hsn_sac,
-            ]
-            if any(
-                value is not None and value.lower().find(search_text) >= 0
-                for value in haystacks
-                if value is not None
-            ):
-                return True
-        if attribute_term:
-            attr_text = attribute_term.strip("%").lower()
-            if row.id in self._products_matching_attribute(row.firm_id, attr_text):
-                return True
-        return False
-
-    def _products_matching_attribute(
-        self, firm_id: UUID, needle: str
-    ) -> frozenset[UUID]:
-        """Return every product in a firm whose attributes contain the text.
-
-        Resolved once per search rather than per candidate row: the previous
-        per-row lookup issued one query for every product being filtered.
-        """
-        cached = self._attribute_match_cache.get((firm_id, needle))
-        if cached is not None:
-            return cached
+    @staticmethod
+    def _attribute_match_select(firm_id: UUID, needle: str) -> Select[tuple[UUID]]:
+        """Select every product in a firm whose custom fields contain the text."""
         pattern = f"%{needle}%"
-        rows = self._session.scalars(
-            select(ProductAttributeValue.product_id).where(
-                ProductAttributeValue.firm_id == firm_id,
-                ProductAttributeValue.is_deleted.is_(False),
-                or_(
-                    func.lower(ProductAttributeValue.value_text).like(pattern),
-                    func.lower(
-                        func.cast(ProductAttributeValue.value_number, String)
-                    ).like(pattern),
-                    func.lower(
-                        func.cast(ProductAttributeValue.value_date, String)
-                    ).like(pattern),
+        return select(ProductAttributeValue.product_id).where(
+            ProductAttributeValue.firm_id == firm_id,
+            ProductAttributeValue.is_deleted.is_(False),
+            or_(
+                func.lower(ProductAttributeValue.value_text).like(pattern),
+                func.lower(func.cast(ProductAttributeValue.value_number, String)).like(
+                    pattern
                 ),
-            )
-        ).all()
-        matched = frozenset(rows)
-        self._attribute_match_cache[(firm_id, needle)] = matched
-        return matched
+                func.lower(func.cast(ProductAttributeValue.value_date, String)).like(
+                    pattern
+                ),
+            ),
+        )
 
     def _reconcile_media(
         self, product: Product, inputs: list[ProductMediaInput], actor_id: UUID

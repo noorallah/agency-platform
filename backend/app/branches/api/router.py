@@ -951,6 +951,7 @@ def list_branch_types(
 def create_branch_type(
     data: BranchTypeWrite,
     scope: BranchUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> ApiResponse[BranchTypeResponse]:
     """Add a branch type."""
@@ -961,6 +962,7 @@ def create_branch_type(
         firm_id=scope.firm_id,
         actor_id=scope.actor_id,
     )
+    set_etag(response, row)
     return ApiResponse(data=BranchTypeResponse.model_validate(row))
 
 
@@ -971,6 +973,8 @@ def update_branch_type(
     branch_type_id: UUID,
     data: BranchTypeWrite,
     scope: BranchUpdateScope,
+    response: Response,
+    expected_version: ExpectedVersion = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[BranchTypeResponse]:
     """Change a branch type."""
@@ -981,7 +985,9 @@ def update_branch_type(
         data,
         firm_id=scope.firm_id,
         actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    set_etag(response, row)
     return ApiResponse(data=BranchTypeResponse.model_validate(row))
 
 
@@ -1028,6 +1034,7 @@ def list_warehouse_types(
 def create_warehouse_type(
     data: WarehouseTypeWrite,
     scope: WarehouseUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> ApiResponse[WarehouseTypeResponse]:
     """Add a warehouse type."""
@@ -1038,6 +1045,7 @@ def create_warehouse_type(
         firm_id=scope.firm_id,
         actor_id=scope.actor_id,
     )
+    set_etag(response, row)
     return ApiResponse(data=WarehouseTypeResponse.model_validate(row))
 
 
@@ -1049,6 +1057,8 @@ def update_warehouse_type(
     warehouse_type_id: UUID,
     data: WarehouseTypeWrite,
     scope: WarehouseUpdateScope,
+    response: Response,
+    expected_version: ExpectedVersion = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[WarehouseTypeResponse]:
     """Change a warehouse type."""
@@ -1059,7 +1069,9 @@ def update_warehouse_type(
         data,
         firm_id=scope.firm_id,
         actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    set_etag(response, row)
     return ApiResponse(data=WarehouseTypeResponse.model_validate(row))
 
 
@@ -1096,10 +1108,11 @@ class BranchWarehouseSettingsResponse(BranchWarehouseSchema):
     batch_tracking_ready: bool = True
     serial_number_ready: bool = True
     expiry_ready: bool = True
-    # No transfer service or endpoint exists: TRANSFER_IN/TRANSFER_OUT are enum
-    # members and `in_transit_quantity` is an unused column.
-    stock_transfer_ready: bool = False
-    inter_branch_transfer_ready: bool = False
+    # `POST /api/v1/inventory/transfers` moves stock between warehouses, and
+    # the destination's branch is read off its warehouse, so a transfer may
+    # cross branches (D-MST-11: both flags still said no after it shipped).
+    stock_transfer_ready: bool = True
+    inter_branch_transfer_ready: bool = True
     purchase_receipt_ready: bool = True
     sales_dispatch_ready: bool = True
     barcode_ready: bool = True

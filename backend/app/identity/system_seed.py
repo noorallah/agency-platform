@@ -3,6 +3,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.core.utils.dates import utc_now
 from app.identity.models import (
     Permission,
     Role,
@@ -321,6 +322,36 @@ PERMISSION_GROUPS = {
 SYSTEM_PERMISSION_CODES = tuple(
     code for codes in PERMISSION_GROUPS.values() for code in codes
 )
+#: Codes that name an act only the platform designation performs, so no role
+#: may hold them (D-IDN-10). Each is seeded and read by no route: the firm
+#: routes and the permission catalogue's writes are `require_platform_admin()`,
+#: which makes any code on them grant nothing; setting somebody else's
+#: password is the designation's for the reason `test_platform_only_routes.py`
+#: records; and a lockout lifts itself after `AGENCY_SECURITY_LOCKOUT_MINUTES`
+#: while switching an account off is `USER_UPDATE`. Granting one to a role
+#: therefore promised a power it did not confer.
+#:
+#: Decided by Claude, industry standard: tenant lifecycle and the capability
+#: catalogue are operator (superuser) actions, not grantable permissions. The
+#: codes stay in the catalogue because the designation's `permissions` claim
+#: carries them and the desktop gates the Firms and Permissions buttons on
+#: them; they are stripped from every role (`20260924_0161`) and refused by
+#: `set_role_permissions`, and a firm is not shown them.
+DESIGNATION_ONLY_PERMISSION_CODES = frozenset(
+    {
+        "FIRM_CREATE",
+        "FIRM_UPDATE",
+        "FIRM_DELETE",
+        "FIRM_ACTIVATE",
+        "FIRM_DEACTIVATE",
+        "PERMISSION_CREATE",
+        "PERMISSION_UPDATE",
+        "PERMISSION_DELETE",
+        "USER_RESET_PASSWORD",
+        "USER_LOCK",
+        "USER_UNLOCK",
+    }
+)
 PLATFORM_ROLE_CODES = frozenset(
     {"PLATFORM_ADMIN", "SUPPORT_ADMIN", "LICENSE_ADMIN", "SYSTEM_AUDITOR"}
 )
@@ -405,7 +436,7 @@ _all_read_permissions = frozenset(
     code for code in SYSTEM_PERMISSION_CODES if code.endswith("_VIEW")
 )
 
-ROLE_PERMISSION_CODES = {
+_SEEDED_ROLE_PERMISSION_CODES = {
     "PLATFORM_ADMIN": _all_permissions,
     "SUPPORT_ADMIN": _all_permissions,
     "LICENSE_ADMIN": frozenset({"LICENSE_MANAGE", "FIRM_VIEW", "REPORT_VIEW"}),
@@ -533,6 +564,13 @@ ROLE_PERMISSION_CODES = {
     ),
 }
 
+#: What each seeded role grants: the table above, less the designation-only
+#: codes, which no role holds.
+ROLE_PERMISSION_CODES = {
+    role: codes - DESIGNATION_ONLY_PERMISSION_CODES
+    for role, codes in _SEEDED_ROLE_PERMISSION_CODES.items()
+}
+
 
 #: Platform-provided job templates: a name a firm already uses, and the roles
 #: that job needs. `firm_id` is NULL, so every firm is offered them.
@@ -639,6 +677,15 @@ def seed_system_rbac(session: Session) -> None:
                 assignment.is_deleted = False
                 assignment.deleted_at = None
                 assignment.deleted_by = None
+    # No role holds a designation-only code, custom roles included; a row
+    # written before the rule is retired rather than left promising a power.
+    designation_only = {
+        permissions[code].id for code in DESIGNATION_ONLY_PERMISSION_CODES
+    }
+    for (_, permission_id), assignment in assignments.items():
+        if permission_id in designation_only and not assignment.is_deleted:
+            assignment.is_deleted = True
+            assignment.deleted_at = utc_now()
     _seed_user_templates(session, roles)
 
 

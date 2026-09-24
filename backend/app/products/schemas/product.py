@@ -69,6 +69,8 @@ class ProductCategoryResponse(ProductSchema):
     is_active: bool
     created_at: datetime
     updated_at: datetime
+    #: The concurrency counter, echoed as `If-Match` on the next edit.
+    version: int
 
 
 class ProductAttributeInput(ProductSchema):

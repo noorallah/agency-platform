@@ -19,6 +19,7 @@ failing when the list omits one catches the sixth.
 # ruff: noqa: D103
 
 from app.identity.system_seed import (
+    DESIGNATION_ONLY_PERMISSION_CODES,
     PERMISSION_GROUPS,
     PLATFORM_PERMISSION_CODES,
     ROLE_PERMISSION_CODES,
@@ -88,9 +89,11 @@ def test_a_firm_manager_holds_the_same_less_the_administration() -> None:
     """
     admin = ROLE_PERMISSION_CODES["FIRM_ADMIN"]
     manager = ROLE_PERMISSION_CODES["FIRM_MANAGER"]
+    # Less the codes no role holds (D-IDN-10): they belong to the platform
+    # designation, so neither role is given them.
     administration = {
         code for group in _FIRM_ADMINISTRATION for code in PERMISSION_GROUPS[group]
-    }
+    } - DESIGNATION_ONLY_PERMISSION_CODES
 
     assert manager <= admin
     assert not manager & administration

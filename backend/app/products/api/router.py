@@ -275,11 +275,13 @@ def list_categories(
 def create_category(
     data: ProductCategoryCreate,
     scope: ProductUpdateScope,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> ApiResponse[ProductCategoryResponse]:
     row = ProductService(db).create_category(
         data, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
+    set_etag(response, row)
     return ApiResponse(data=ProductCategoryResponse.model_validate(row))
 
 
@@ -290,11 +292,18 @@ def update_category(
     category_id: UUID,
     data: ProductCategoryUpdate,
     scope: ProductUpdateScope,
+    response: Response,
+    expected_version: ExpectedVersion = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[ProductCategoryResponse]:
     row = ProductService(db).update_category(
-        category_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
+        category_id,
+        data,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    set_etag(response, row)
     return ApiResponse(data=ProductCategoryResponse.model_validate(row))
 
 

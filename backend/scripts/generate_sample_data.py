@@ -2856,10 +2856,6 @@ def _seed_vendors(
                     mobile=_phone(context_index * 100 + index + 401),
                     remarks=f"Preferred for {context.profile.code.lower()} "
                     f"development scenarios.",
-                    business_attributes={
-                        "segment": category_code,
-                        "credit_days": 30 + (index % 4) * 15,
-                    },
                     contacts=[
                         VendorContactInput(
                             name=_person_name(index),

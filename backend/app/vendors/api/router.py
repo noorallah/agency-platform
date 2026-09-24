@@ -354,6 +354,7 @@ def list_vendor_categories(
 def create_vendor_category(
     data: VendorCategoryWrite,
     scope: VendorCategoryManageScope,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> ApiResponse[VendorCategoryResponse]:
     """Create vendor category."""
@@ -364,6 +365,7 @@ def create_vendor_category(
         firm_id=scope.firm_id,
         actor_id=scope.actor_id,
     )
+    set_etag(response, row)
     return ApiResponse(data=VendorCategoryResponse.model_validate(row))
 
 
@@ -374,6 +376,8 @@ def update_vendor_category(
     category_id: UUID,
     data: VendorCategoryWrite,
     scope: VendorCategoryManageScope,
+    response: Response,
+    expected_version: ExpectedVersion = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[VendorCategoryResponse]:
     """Change vendor category."""
@@ -384,7 +388,9 @@ def update_vendor_category(
         data,
         firm_id=scope.firm_id,
         actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    set_etag(response, row)
     return ApiResponse(data=VendorCategoryResponse.model_validate(row))
 
 
@@ -439,6 +445,7 @@ def list_vendor_types(
 def create_vendor_type(
     data: VendorTypeWrite,
     scope: VendorCategoryManageScope,
+    response: Response,
     db: Session = Depends(get_db),
 ) -> ApiResponse[VendorTypeResponse]:
     """Create vendor type."""
@@ -449,6 +456,7 @@ def create_vendor_type(
         firm_id=scope.firm_id,
         actor_id=scope.actor_id,
     )
+    set_etag(response, row)
     return ApiResponse(data=VendorTypeResponse.model_validate(row))
 
 
@@ -457,6 +465,8 @@ def update_vendor_type(
     type_id: UUID,
     data: VendorTypeWrite,
     scope: VendorCategoryManageScope,
+    response: Response,
+    expected_version: ExpectedVersion = None,
     db: Session = Depends(get_db),
 ) -> ApiResponse[VendorTypeResponse]:
     """Change vendor type."""
@@ -467,7 +477,9 @@ def update_vendor_type(
         data,
         firm_id=scope.firm_id,
         actor_id=scope.actor_id,
+        expected_version=expected_version,
     )
+    set_etag(response, row)
     return ApiResponse(data=VendorTypeResponse.model_validate(row))
 
 

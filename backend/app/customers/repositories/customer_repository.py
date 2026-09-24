@@ -74,8 +74,12 @@ class CustomerRepository:
             conditions.append(Customer.gst_number == gst_number)
         if pan_number:
             conditions.append(Customer.pan_number == pan_number)
+        # Live rows only (D-MST-11): a deleted customer releases its code,
+        # GST and PAN, as the partial keys do.
         statement = select(Customer.id).where(
-            Customer.firm_id == firm_id, or_(*conditions)
+            Customer.firm_id == firm_id,
+            Customer.is_deleted.is_(False),
+            or_(*conditions),
         )
         if excluding_id is not None:
             statement = statement.where(Customer.id != excluding_id)

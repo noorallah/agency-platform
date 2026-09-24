@@ -225,6 +225,11 @@ def test_refresh_token_reuse_revokes_every_session() -> None:
     first = service.login(user.email, PASSWORD, client_ip=None, user_agent=None)
     second = service.refresh(first.refresh_token)
     version_before = session.get(User, user.id).authorization_version
+    # Rotated a minute ago: past the grace window a racing refresh is given.
+    session.query(RefreshToken).filter(RefreshToken.replaced_by_id.is_not(None)).update(
+        {"revoked_at": utc_now() - timedelta(minutes=1)}
+    )
+    session.commit()
 
     # Replaying the already-rotated token must not merely fail.
     with pytest.raises(AuthenticationError):

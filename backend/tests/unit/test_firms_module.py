@@ -377,8 +377,17 @@ def test_update_audits_both_sides_of_the_change() -> None:
     assert len(updated) == 1
     # Only the fields that moved, each with both sides (D-IDN-5) -- the code
     # did not change and is not restated.
-    assert updated[0].before_data == {"is_active": True, "name": "Acme Distributors"}
-    assert updated[0].after_data == {"is_active": False, "name": "Renamed"}
+    # `status` mirrors the active flag (D-IDN-10), so it moves with it.
+    assert updated[0].before_data == {
+        "is_active": True,
+        "name": "Acme Distributors",
+        "status": "ACTIVE",
+    }
+    assert updated[0].after_data == {
+        "is_active": False,
+        "name": "Renamed",
+        "status": "INACTIVE",
+    }
 
 
 def test_delete_refuses_an_assigned_firm_and_audits_the_soft_delete() -> None:

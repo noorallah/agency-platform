@@ -12,13 +12,16 @@ from app.business.gating import assert_feature_fields
 from app.business.models import BusinessProfile
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.business.services import AttributeInput, AttributeService
-from app.common.audit.services import record_audit
+from app.common.audit.services import record_audit, record_change, row_state
+from app.common.display_names import display_name_after_edit
+from app.common.master_codes import assert_codes_free
 from app.common.master_references import (
     MasterReferences,
     assert_master_reference,
     assert_master_references,
 )
 from app.common.open_documents import describe_documents, find_open_documents
+from app.core.concurrency import assert_version
 from app.core.database.entity import BaseEntity
 from app.core.exceptions import (
     AuthorizationError,
@@ -166,9 +169,16 @@ class VendorService:
             firm_id=vendor.firm_id,
             current=vendor,
         )
+        previous_name = vendor.name
         for field, value in values.items():
             setattr(vendor, field, value)
-        vendor.display_name = data.display_name or data.name
+        vendor.display_name = display_name_after_edit(
+            current=vendor.display_name,
+            previous_name=previous_name,
+            name=vendor.name,
+            sent=data.display_name,
+            was_sent="display_name" in data.model_fields_set,
+        )
         vendor.updated_by = actor_id
         # Only the collections the caller actually sent. An absent one is left
         # exactly as it is, because this update replaces rather than merges and
@@ -336,6 +346,7 @@ class VendorService:
         vendor = self.get(vendor_id, firm_scope=firm_scope, include_deleted=True)
         if not vendor.is_deleted:
             return vendor
+        self._assert_restorable(vendor)
         vendor.is_deleted = False
         vendor.deleted_at = None
         vendor.deleted_by = None
@@ -438,6 +449,7 @@ class VendorService:
             vendor = self.get(vendor_id, firm_scope=firm_scope, include_deleted=True)
             if not vendor.is_deleted:
                 continue
+            self._assert_restorable(vendor)
             vendor.is_deleted = False
             vendor.deleted_at = None
             vendor.deleted_by = None
@@ -535,7 +547,7 @@ class VendorService:
         duplicate = Vendor(
             firm_id=source.firm_id,
             **payload,
-            code=f"{source.code}-COPY",
+            code=self._next_duplicate_code(source.firm_id, source.code),
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -555,8 +567,53 @@ class VendorService:
             for item in source.contacts
         ]
         self._repository.add(duplicate)
+        self._session.flush()
+        # A duplicate is a create, and was the one vendor write with no trail
+        # (D-MST-11).
+        record_audit(
+            self._session,
+            action="vendor.duplicated",
+            entity_type="vendor",
+            entity_id=duplicate.id,
+            actor_id=actor_id,
+            firm_id=duplicate.firm_id,
+            before_data={"source_vendor_id": str(source.id), "code": source.code},
+            after_data=self._audit_snapshot(duplicate),
+        )
         self._commit_unique()
         return duplicate
+
+    def _next_duplicate_code(self, firm_id: UUID, code: str) -> str:
+        """Count up from ``-COPY`` the way a product duplicate does (D-MST-11).
+
+        A second duplicate of the same vendor was refused 409, because the
+        copy's code was always ``<code>-COPY``.
+        """
+        base = f"{code}-COPY"
+        candidate, index = base, 1
+        while (
+            self._repository.duplicate_id(firm_id, code=candidate, gstin=None)
+            is not None
+        ):
+            candidate = f"{base}-{index}"
+            index += 1
+        return candidate
+
+    def _assert_restorable(self, vendor: Vendor) -> None:
+        """Refuse a restore into a code or GSTIN a live vendor now holds."""
+        if (
+            self._repository.duplicate_id(
+                vendor.firm_id,
+                code=vendor.code,
+                gstin=vendor.gstin,
+                excluding_id=vendor.id,
+            )
+            is not None
+        ):
+            raise ConflictError(
+                f"{vendor.code} cannot be restored: a live vendor now holds its "
+                "code or GSTIN."
+            )
 
     def list_categories(
         self,
@@ -580,6 +637,7 @@ class VendorService:
         self, data: VendorCategoryWrite, *, firm_id: UUID, actor_id: UUID
     ) -> VendorCategory:
         """Add a vendor category."""
+        self._assert_master_free(VendorCategory, data, firm_id=firm_id)
         category = VendorCategory(
             firm_id=firm_id,
             code=data.code,
@@ -590,6 +648,15 @@ class VendorService:
             updated_by=actor_id,
         )
         self._repository.add_category(category)
+        self._session.flush()
+        record_change(
+            self._session,
+            action="vendor_category.created",
+            entity_type="vendor_category",
+            row=category,
+            actor_id=actor_id,
+            firm_id=firm_id,
+        )
         self._commit_unique()
         return category
 
@@ -600,21 +667,37 @@ class VendorService:
         *,
         firm_id: UUID,
         actor_id: UUID,
+        expected_version: int | None = None,
     ) -> VendorCategory:
-        """Change a vendor category."""
+        """Change a live vendor category.
+
+        A retired one is not found (D-MST-11): this loaded deleted rows too and
+        cleared the flag, so an edit silently brought a category back.
+        """
         category = self._repository.get_category(
-            category_id, firm_id, include_deleted=True
+            category_id, firm_id, include_deleted=False
         )
         if category is None:
             raise ResourceNotFoundError("Vendor category not found.")
+        assert_version(category.version, expected_version)
+        self._assert_master_free(
+            VendorCategory, data, firm_id=firm_id, excluding_id=category.id
+        )
+        before = row_state(category)
         category.code = data.code
         category.name = data.name
         category.description = data.description
         category.is_active = data.is_active
         category.updated_by = actor_id
-        category.is_deleted = False
-        category.deleted_at = None
-        category.deleted_by = None
+        record_change(
+            self._session,
+            action="vendor_category.updated",
+            entity_type="vendor_category",
+            row=category,
+            actor_id=actor_id,
+            before=before,
+            firm_id=firm_id,
+        )
         self._commit_unique()
         return category
 
@@ -632,6 +715,14 @@ class VendorService:
         category.deleted_at = utc_now()
         category.deleted_by = actor_id
         category.updated_by = actor_id
+        record_change(
+            self._session,
+            action="vendor_category.deleted",
+            entity_type="vendor_category",
+            row=category,
+            actor_id=actor_id,
+            firm_id=firm_id,
+        )
         self._session.commit()
 
     def list_types(
@@ -656,6 +747,7 @@ class VendorService:
         self, data: VendorTypeWrite, *, firm_id: UUID, actor_id: UUID
     ) -> VendorType:
         """Create type."""
+        self._assert_master_free(VendorType, data, firm_id=firm_id)
         vendor_type = VendorType(
             firm_id=firm_id,
             code=data.code,
@@ -666,6 +758,15 @@ class VendorService:
             updated_by=actor_id,
         )
         self._repository.add_type(vendor_type)
+        self._session.flush()
+        record_change(
+            self._session,
+            action="vendor_type.created",
+            entity_type="vendor_type",
+            row=vendor_type,
+            actor_id=actor_id,
+            firm_id=firm_id,
+        )
         self._commit_unique()
         return vendor_type
 
@@ -676,19 +777,31 @@ class VendorService:
         *,
         firm_id: UUID,
         actor_id: UUID,
+        expected_version: int | None = None,
     ) -> VendorType:
-        """Change type."""
-        vendor_type = self._repository.get_type(type_id, firm_id, include_deleted=True)
+        """Change a live vendor type; a retired one is not brought back."""
+        vendor_type = self._repository.get_type(type_id, firm_id, include_deleted=False)
         if vendor_type is None:
             raise ResourceNotFoundError("Vendor type not found.")
+        assert_version(vendor_type.version, expected_version)
+        self._assert_master_free(
+            VendorType, data, firm_id=firm_id, excluding_id=vendor_type.id
+        )
+        before = row_state(vendor_type)
         vendor_type.code = data.code
         vendor_type.name = data.name
         vendor_type.description = data.description
         vendor_type.is_active = data.is_active
         vendor_type.updated_by = actor_id
-        vendor_type.is_deleted = False
-        vendor_type.deleted_at = None
-        vendor_type.deleted_by = None
+        record_change(
+            self._session,
+            action="vendor_type.updated",
+            entity_type="vendor_type",
+            row=vendor_type,
+            actor_id=actor_id,
+            before=before,
+            firm_id=firm_id,
+        )
         self._commit_unique()
         return vendor_type
 
@@ -702,7 +815,39 @@ class VendorService:
         vendor_type.deleted_at = utc_now()
         vendor_type.deleted_by = actor_id
         vendor_type.updated_by = actor_id
+        record_change(
+            self._session,
+            action="vendor_type.deleted",
+            entity_type="vendor_type",
+            row=vendor_type,
+            actor_id=actor_id,
+            firm_id=firm_id,
+        )
         self._session.commit()
+
+    def _assert_master_free(
+        self,
+        model: type[VendorCategory] | type[VendorType],
+        data: VendorCategoryWrite | VendorTypeWrite,
+        *,
+        firm_id: UUID,
+        excluding_id: UUID | None = None,
+    ) -> None:
+        """Refuse a code or name a live category or type already holds.
+
+        Asked before the write, so the refusal names what clashed instead of
+        the bare 409 the unique key used to produce (D-MST-11).
+        """
+        label = "vendor category" if model is VendorCategory else "vendor type"
+        for column, value in (("code", data.code), ("name", data.name)):
+            assert_codes_free(
+                self._session,
+                model,
+                scope={"firm_id": firm_id},
+                values={column: value},
+                excluding_id=excluding_id,
+                message=f"A {label} with this {column} already exists.",
+            )
 
     def _assert_master_unused(
         self,
@@ -916,9 +1061,15 @@ class VendorService:
         )
         if "status" in values:
             values["status"] = data.status.value
-        # `name` is required by the schema, so a partial update always carries
-        # one to derive from.
-        values["display_name"] = data.display_name or data.name
+        # The untyped blob is retired (D-MST-11): custom data is the typed
+        # custom fields. Still accepted, so an older desktop's save succeeds,
+        # and never written.
+        values.pop("business_attributes", None)
+        # On an update the edit decides the display name itself, so a custom
+        # one survives a save that did not send it.
+        values.pop("display_name", None)
+        if not partial:
+            values["display_name"] = data.display_name or data.name
         return values
 
     @staticmethod
@@ -1198,7 +1349,6 @@ class VendorService:
             "phone": vendor.phone,
             "mobile": vendor.mobile,
             "remarks": vendor.remarks,
-            "business_attributes": dict(vendor.business_attributes),
         }
 
     @staticmethod
