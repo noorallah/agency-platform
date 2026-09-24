@@ -273,6 +273,16 @@ whole folder is capped at 1 GB (`AGENCY_LOG_MAX_TOTAL_MB`), oldest files first.
 The server applies that at startup and hourly, and `purge-retention --yes` does
 too. `docs/LOGGING.md` has the detail.
 
+**The customer guide travels with the installer.** Staging renders
+`docs/INSTALL_GUIDE.md` -- the one source, which the guard tests also read --
+into `Installation guide.html` with `packaging/render_guide.py` (the `markdown`
+package, from the `build` group). It is staged at the root of the payload rather
+than under `docs\`, because the release check treats a `docs` folder as
+repository-only; Setup gives it a Start menu entry, and the build copies it to
+`dist\windows\` beside `Setup.exe` so the two are handed on together. Links
+between repository documents are reduced to their text, since nothing they
+point at is beside a customer's copy.
+
 ---
 
 ## The release check

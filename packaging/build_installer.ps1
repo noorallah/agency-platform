@@ -397,6 +397,23 @@ Copy-Item -Path (Join-Path $root 'install\install.ps1') -Destination $packagingT
 Copy-Item -Path (Join-Path $PSScriptRoot 'server_setup.ps1') -Destination $packagingTo -Force
 Write-Done 'configure step staged'
 
+# The customer's installation guide, rendered from docs\INSTALL_GUIDE.md --
+# the one source, which the repository's guard tests also read. It is staged
+# at the root, not under docs\, because the release check treats a docs
+# folder as repository-only. It lands in the Start menu of an installed copy
+# and, at the end, beside Setup.exe so the two travel together.
+$guideName = 'Installation guide.html'
+$guideSource = Join-Path $root 'docs\INSTALL_GUIDE.md'
+$guideStaged = Join-Path $staging $guideName
+$guidePython = Join-Path $root 'backend\.venv\Scripts\python.exe'
+if (-not (Test-Path $guideSource)) { Stop-Build "Missing $guideSource." }
+& $guidePython (Join-Path $PSScriptRoot 'render_guide.py') $guideSource $guideStaged
+if ($LASTEXITCODE -ne 0 -or -not (Test-Path $guideStaged)) {
+  Stop-Build 'The installation guide could not be rendered.' `
+    "It needs the markdown package from the build group:`n    cd backend; uv sync --group build"
+}
+Write-Done 'installation guide staged'
+
 # The private PostgreSQL. Only what a server needs to run: pgAdmin,
 # StackBuilder, the documentation, the debug symbols and the C headers are
 # roughly two thirds of the zip and none of them is used on a customer machine.
@@ -492,6 +509,10 @@ $setup = Join-Path $output "AgencyPlatform-$Version-Setup.exe"
 if (-not (Test-Path $setup)) { Stop-Build "Inno Setup reported success but $setup is not there." }
 
 $setupSize = [math]::Round((Get-Item $setup).Length / 1MB, 1)
+# The guide beside the installer, so whoever hands Setup.exe on can hand the
+# instructions on with it. The installed copy carries its own.
+Copy-Item -Path $guideStaged -Destination (Join-Path $output $guideName) -Force
 Write-Step 'Done'
 Write-Host "   $setup" -ForegroundColor Green
 Write-Host "   $setupSize MB -- this is the only file a customer needs."
+Write-Host "   $(Join-Path $output $guideName) -- the guide to send with it."

@@ -45,6 +45,9 @@ build = [
     # assuming: the plan allowed for building the release against 3.13 if it
     # turned out not to be ready.
     "nuitka>=4.2,<5.0",
+    # Renders docs/INSTALL_GUIDE.md into the HTML page that ships beside
+    # Setup.exe and in the installed copy's Start menu (packaging/render_guide.py).
+    "markdown>=3.7,<4.0",
 ]
 
 [tool.black]

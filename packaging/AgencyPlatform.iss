@@ -149,6 +149,8 @@ Source: "{#RedistDir}\vc_redist.x64.exe"; DestDir: "{tmp}"; \
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExeName}"; WorkingDir: "{app}"
 Name: "{group}\{#AppName} logs"; Filename: "{commonappdata}\{#AppName}\logs"
+; The customer guide, rendered from docs\INSTALL_GUIDE.md by the build.
+Name: "{group}\Installation guide"; Filename: "{app}\Installation guide.html"
 Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; \
   WorkingDir: "{app}"; Tasks: desktopicon
