@@ -14,10 +14,11 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi import Response
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.common.audit.models import AuditLog
 from app.common.scope import (
     ResolvedFirmScope,
     optional_firm_scope,
@@ -842,3 +843,73 @@ def test_naming_a_round_primary_moves_the_flag_there() -> None:
     assert [
         row.is_primary for row in service.customers(collection, firm_scope=firm.id)
     ] == [True]
+
+
+def test_the_beat_plan_trail_carries_the_plan_on_both_sides() -> None:
+    """`beat_plan.created` and `.deleted` carried nothing at all (D-TER-16).
+
+    A plan's schedule is the whole of what it is, so a row saying only that
+    one had been written says nothing anybody can reconstruct it from.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "BPTRAIL")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    route = _route(service, firm.id, actor, "RT01")
+    plan = service.create_beat_plan(
+        BeatPlanCreate(
+            code="BP01",
+            name="Monday round",
+            territory_id=route,
+            plan_type=BeatPlanType.WEEKLY,
+            weekday=1,
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    service.delete_beat_plan(plan.id, firm_scope=firm.id, actor_id=actor)
+
+    def one(action: str) -> AuditLog:
+        return session.scalars(select(AuditLog).where(AuditLog.action == action)).one()
+
+    created = one("sales_territory.beat_plan.created")
+    assert created.after_data is not None
+    assert created.after_data["code"] == "BP01"
+    assert created.after_data["weekday"] == 1
+    deleted = one("sales_territory.beat_plan.deleted")
+    assert deleted.before_data is not None
+    assert deleted.before_data["code"] == "BP01"
+
+
+def test_a_code_a_retired_plan_still_holds_is_refused_by_name() -> None:
+    """`UQ_sales_beat_plans_firm_code` covers deleted rows; the check did not."""
+    session = _session_factory()()
+    firm = _firm(session, "BPRECODE")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    route = _route(service, firm.id, actor, "RT01")
+    plan = service.create_beat_plan(
+        BeatPlanCreate(
+            code="BP01",
+            name="One",
+            territory_id=route,
+            plan_type=BeatPlanType.WEEKLY,
+            weekday=1,
+        ),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    service.delete_beat_plan(plan.id, firm_scope=firm.id, actor_id=actor)
+
+    with pytest.raises(ConflictError, match="A deleted beat plan holds the code"):
+        service.create_beat_plan(
+            BeatPlanCreate(
+                code="BP01",
+                name="Two",
+                territory_id=route,
+                plan_type=BeatPlanType.WEEKLY,
+                weekday=1,
+            ),
+            firm_scope=firm.id,
+            actor_id=actor,
+        )

@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
+from app.common.report_names import customer_names
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.pricing import (
@@ -47,6 +48,7 @@ from app.document_framework.services.transactional_document_service import (
 )
 from app.pricing.services.price_list_service import PriceListResolver
 from app.products.models import Product
+from app.products.services.trading_status import assert_product_takes_new_lines
 from app.promotions.schemas import (
     PromotionEvaluationRequest,
     PromotionLineRequest,
@@ -1045,6 +1047,10 @@ class QuotationService(TransactionalDocumentService):
             )
             if product is None:
                 raise ValidationError("Product not found for quotation line.")
+            # A product withdrawn from sale is not quoted (D-MST-12). Every
+            # line here was typed by somebody -- a quotation inherits nothing
+            # -- so there is no already-agreed line to spare.
+            assert_product_takes_new_lines(product, document="quotation")
             products.append(product)
             grosses.append(self._q(self._q(item.quantity) * self._q(item.unit_price)))
         # The firm's live offers and the customer's segment, asked once for the
@@ -1482,19 +1488,20 @@ class QuotationService(TransactionalDocumentService):
     # ---- reports -------------------------------------------------------
 
     def register_report(self, *, firm_scope: UUID) -> list[QuotationRegisterRecord]:
-        """Every quotation raised, with what became of it."""
-        return [
-            QuotationRegisterRecord(
-                quotation_id=row.id,
-                quotation_number=row.quotation_number,
-                customer_id=row.customer_id,
-                quotation_date=row.quotation_date,
-                valid_until=row.valid_until,
-                status=QuotationStatus(row.status),
-                grand_total=row.grand_total,
-                converted_sales_order_number=row.converted_sales_order_number,
-            )
-            for row in self._session.scalars(
+        """Every quotation raised, with what became of it.
+
+        The customer is named as well as identified: the grid derives its
+        columns from the row, so a register carrying only ids showed a screen
+        of UUIDs (D-RPT-17). One read for the whole report.
+
+        `is_expired` rides beside the status because expiry is a date rather
+        than a status: a SENT offer past `valid_until` still reads SENT, and
+        the register had nothing to say whether its prices still stood
+        (D-RPT-19). Derived by `is_expired`, the same rule the document's own
+        response and the conversion report use.
+        """
+        rows = list(
+            self._session.scalars(
                 select(SalesQuotation)
                 .where(
                     SalesQuotation.firm_id == firm_scope,
@@ -1502,6 +1509,22 @@ class QuotationService(TransactionalDocumentService):
                 )
                 .order_by(SalesQuotation.quotation_date.desc())
             ).all()
+        )
+        customers = customer_names(self._session, (row.customer_id for row in rows))
+        return [
+            QuotationRegisterRecord(
+                quotation_id=row.id,
+                quotation_number=row.quotation_number,
+                customer_id=row.customer_id,
+                customer_name=customers.get(row.customer_id, str(row.customer_id)),
+                quotation_date=row.quotation_date,
+                valid_until=row.valid_until,
+                status=QuotationStatus(row.status),
+                is_expired=self.is_expired(row),
+                grand_total=row.grand_total,
+                converted_sales_order_number=row.converted_sales_order_number,
+            )
+            for row in rows
         ]
 
     def conversion_report(self, *, firm_scope: UUID) -> list[QuotationConversionRecord]:

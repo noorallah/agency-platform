@@ -17,6 +17,13 @@ from app.branches.models import Branch, Warehouse
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader, platform_reader
+from app.common.report_names import (
+    branch_names,
+    customer_names,
+    salesman_names,
+    territory_names,
+    warehouse_names,
+)
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger
@@ -26,6 +33,7 @@ from app.core.utils.pricing import (
     resolve_bill_discount,
     resolve_line_discount,
 )
+from app.core.utils.report_labels import UNASSIGNED
 from app.customers.models import Customer, CustomerGroup
 from app.customers.services import CreditAssessment, CreditControlService
 from app.customers.services.trading_status import (
@@ -50,6 +58,7 @@ from app.inventory.models import InventoryRecord
 from app.inventory.services import InventoryService, LineConversion
 from app.pricing.services.price_list_service import PriceListResolver
 from app.products.models import Product
+from app.products.services.trading_status import assert_product_takes_new_lines
 from app.promotions.schemas import (
     PromotionEvaluationRequest,
     PromotionEvaluationResponse,
@@ -310,8 +319,9 @@ class SalesOrderService(TransactionalDocumentService):
         """Create one sales order without committing it.
 
         ``raised_as`` is what the person is actually raising, for the refusal a
-        customer who is not ACTIVE gets: a firm that bills without typing an
-        order is raising a bill, and should be told so (D-MST-6).
+        customer who is not ACTIVE gets, and for the one a product that is not
+        ACTIVE gets: a firm that bills without typing an order is raising a
+        bill, and should be told so (D-MST-6, D-MST-12).
 
         Split out so a caller composing several documents -- an import, or a
         firm whose configuration says this stage is synthesised -- can write
@@ -393,6 +403,7 @@ class SalesOrderService(TransactionalDocumentService):
             bill_percent=data.bill_discount_percent,
             bill_amount=data.bill_discount_amount,
             freight_amount=data.freight_amount,
+            raised_as=raised_as,
             actor_id=actor_id,
         )
         row.line_discount_total = totals["line_discount_total"]
@@ -1068,7 +1079,14 @@ class SalesOrderService(TransactionalDocumentService):
         )
 
     def register_report(self, *, firm_scope: UUID) -> list[SalesOrderRegisterRecord]:
-        """Return the register report for the visible firm scope."""
+        """Return the register report for the visible firm scope.
+
+        Every id carries its name, because the grid derives its columns from
+        the row and this register showed five columns of UUIDs (D-RPT-17).
+        Five reads for the whole report -- one per table -- and the
+        salespeople are read from the platform store, which is the only place
+        ``users`` exists.
+        """
         rows = list(
             self._session.scalars(
                 select(SalesOrder)
@@ -1078,16 +1096,34 @@ class SalesOrderService(TransactionalDocumentService):
                 .order_by(SalesOrder.order_date.desc(), SalesOrder.created_at.desc())
             ).all()
         )
+        customers = customer_names(self._session, (row.customer_id for row in rows))
+        people = salesman_names(self._session, (row.salesman_id for row in rows))
+        territories = territory_names(self._session, (row.territory_id for row in rows))
+        branches = branch_names(self._session, (row.branch_id for row in rows))
+        warehouses = warehouse_names(self._session, (row.warehouse_id for row in rows))
         return [
             SalesOrderRegisterRecord(
                 order_id=row.id,
                 order_number=row.order_number,
                 order_date=row.order_date,
                 customer_id=row.customer_id,
+                customer_name=customers.get(row.customer_id, str(row.customer_id)),
                 salesman_id=row.salesman_id,
+                salesman_name=(
+                    None
+                    if row.salesman_id is None
+                    else people.get(row.salesman_id, str(row.salesman_id))
+                ),
                 territory_id=row.territory_id,
+                territory_name=(
+                    None
+                    if row.territory_id is None
+                    else territories.get(row.territory_id, str(row.territory_id))
+                ),
                 branch_id=row.branch_id,
+                branch_name=branches.get(row.branch_id, str(row.branch_id)),
                 warehouse_id=row.warehouse_id,
+                warehouse_name=warehouses.get(row.warehouse_id, str(row.warehouse_id)),
                 status=SalesOrderStatus(row.status),
                 grand_total=row.grand_total,
             )
@@ -1287,7 +1323,14 @@ class SalesOrderService(TransactionalDocumentService):
     def orders_by_customer(
         self, *, firm_scope: UUID
     ) -> list[SalesOrderByCustomerRecord]:
-        """Total order value and count per customer, cancellations excluded."""
+        """Total order value and count per customer, cancellations excluded.
+
+        One read for the names rather than one per customer, and the name is
+        `display_name` -- what the customer's account is called and what every
+        other report shows. This read `Customer.name`, the legal name, which
+        differs for most trading businesses, so the same customer was one name
+        here and another on the credit-note and return reports (D-RPT-19).
+        """
         rows = list(
             self._session.scalars(
                 select(SalesOrder).where(
@@ -1299,17 +1342,15 @@ class SalesOrderService(TransactionalDocumentService):
         )
         totals: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
         counts: dict[UUID, int] = defaultdict(int)
-        names: dict[UUID, str] = {}
         for row in rows:
             totals[row.customer_id] += row.grand_total
             counts[row.customer_id] += 1
-            if row.customer_id not in names:
-                customer = self._session.scalar(
-                    select(Customer).where(Customer.id == row.customer_id)
-                )
-                names[row.customer_id] = (
-                    customer.name if customer is not None else str(row.customer_id)
-                )
+        names = {
+            customer.id: customer.display_name
+            for customer in self._session.scalars(
+                select(Customer).where(Customer.id.in_(list(totals)))
+            ).all()
+        }
         return [
             SalesOrderByCustomerRecord(
                 customer_id=customer_id,
@@ -1347,80 +1388,88 @@ class SalesOrderService(TransactionalDocumentService):
     def orders_by_salesman(
         self, *, firm_scope: UUID
     ) -> list[SalesOrderBySalesmanRecord]:
-        """Total order value and count per salesman, cancellations excluded."""
+        """Total order value and count per salesman, cancellations excluded.
+
+        An order nobody is credited with falls in an **Unassigned** bucket
+        rather than out of the report: the delivery-note by-* reports have
+        always said "Unassigned", and a total that silently drops the
+        unattributed orders cannot be reconciled against the register
+        (D-RPT-19).
+        """
         rows = list(
             self._session.scalars(
                 select(SalesOrder).where(
                     SalesOrder.firm_id == firm_scope,
                     SalesOrder.is_deleted.is_(False),
                     SalesOrder.status != SalesOrderStatus.CANCELLED.value,
-                    SalesOrder.salesman_id.is_not(None),
                 )
             ).all()
         )
-        totals: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
-        counts: dict[UUID, int] = defaultdict(int)
-        names: dict[UUID, str] = {}
+        totals: dict[UUID | None, Decimal] = defaultdict(lambda: ZERO)
+        counts: dict[UUID | None, int] = defaultdict(int)
         for row in rows:
-            if row.salesman_id is None:
-                continue
             totals[row.salesman_id] += row.grand_total
             counts[row.salesman_id] += 1
         # One read for every salesman rather than one per row, and against the
         # platform store rather than this firm's.
-        names = self._salesman_names(set(totals))
+        labels: dict[UUID | None, str] = {None: UNASSIGNED}
+        for person, name in self._salesman_names(
+            {key for key in totals if key is not None}
+        ).items():
+            labels[person] = name
         return [
             SalesOrderBySalesmanRecord(
                 salesman_id=salesman_id,
-                salesman_name=names.get(salesman_id, str(salesman_id)),
+                salesman_name=labels.get(salesman_id, str(salesman_id)),
                 order_count=counts[salesman_id],
                 total_value=self._q(totals[salesman_id]),
             )
             for salesman_id in sorted(
-                totals.keys(), key=lambda item: names.get(item, str(item))
+                totals.keys(), key=lambda item: labels.get(item, str(item))
             )
         ]
 
     def orders_by_territory(
         self, *, firm_scope: UUID
     ) -> list[SalesOrderByTerritoryRecord]:
-        """Total order value and count per territory, cancellations excluded."""
+        """Total order value and count per territory, cancellations excluded.
+
+        An order placed on no territory falls in an **Unassigned** bucket
+        rather than out of the report, for the same reason as the by-salesman
+        one, and the names are read in one query rather than one per node
+        (D-RPT-19).
+        """
         rows = list(
             self._session.scalars(
                 select(SalesOrder).where(
                     SalesOrder.firm_id == firm_scope,
                     SalesOrder.is_deleted.is_(False),
                     SalesOrder.status != SalesOrderStatus.CANCELLED.value,
-                    SalesOrder.territory_id.is_not(None),
                 )
             ).all()
         )
-        totals: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
-        counts: dict[UUID, int] = defaultdict(int)
-        names: dict[UUID, str] = {}
+        totals: dict[UUID | None, Decimal] = defaultdict(lambda: ZERO)
+        counts: dict[UUID | None, int] = defaultdict(int)
         for row in rows:
-            if row.territory_id is None:
-                continue
             totals[row.territory_id] += row.grand_total
             counts[row.territory_id] += 1
-            if row.territory_id not in names:
-                territory = self._session.scalar(
-                    select(SalesTerritoryNode).where(
-                        SalesTerritoryNode.id == row.territory_id
-                    )
-                )
-                names[row.territory_id] = (
-                    territory.name if territory is not None else str(row.territory_id)
-                )
+        labels: dict[UUID | None, str] = {None: UNASSIGNED}
+        # One read for every node named, rather than one query per node.
+        for node in self._session.scalars(
+            select(SalesTerritoryNode).where(
+                SalesTerritoryNode.id.in_([key for key in totals if key is not None])
+            )
+        ).all():
+            labels[node.id] = node.name
         return [
             SalesOrderByTerritoryRecord(
                 territory_id=territory_id,
-                territory_name=names.get(territory_id, str(territory_id)),
+                territory_name=labels.get(territory_id, str(territory_id)),
                 order_count=counts[territory_id],
                 total_value=self._q(totals[territory_id]),
             )
             for territory_id in sorted(
-                totals.keys(), key=lambda item: names.get(item, str(item))
+                totals.keys(), key=lambda item: labels.get(item, str(item))
             )
         ]
 
@@ -1693,6 +1742,7 @@ class SalesOrderService(TransactionalDocumentService):
         bill_percent: Decimal | None,
         bill_amount: Decimal | None,
         freight_amount: Decimal | None = None,
+        raised_as: str = "sales order",
         actor_id: UUID,
     ) -> dict[str, Decimal]:
         # Lines are matched on their line number and updated in place. Deleting
@@ -1745,6 +1795,12 @@ class SalesOrderService(TransactionalDocumentService):
             )
             if product is None:
                 raise ValidationError("Product not found for sales order line.")
+            # A product withdrawn from sale is not ordered (D-MST-12). These
+            # lines were typed -- by the form, by an import, by a converted
+            # quotation or by the chain turning a bare bill into an order --
+            # so none of them is a line inherited from a document already
+            # agreed, and the refusal names what is actually being raised.
+            assert_product_takes_new_lines(product, document=raised_as)
             grosses.append(self._q(self._q(item.quantity) * self._q(item.unit_price)))
 
         # Promotions are read once the grosses are known and before anything is

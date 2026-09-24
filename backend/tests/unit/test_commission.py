@@ -29,7 +29,11 @@ from app.commission.schemas import (
 from app.commission.services import CommissionService
 from app.common.audit.models import AuditLog
 from app.core.database.base import Base
-from app.core.exceptions import ConflictError, ValidationError
+from app.core.exceptions import (
+    ConflictError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.credit_note.models import CreditNote
 from app.customers.models import Customer
 from app.finance.services.opening_setup import seed_finance_setup
@@ -984,3 +988,86 @@ def test_the_key_leaves_an_inactive_rule_and_another_person_alone() -> None:
     books.session.commit()
 
     assert len(books.session.scalars(select(CommissionRule)).all()) == 3
+
+
+def test_a_ladder_rule_needs_no_flat_rate() -> None:
+    """`percentage` was required on a rule that ignores it entirely.
+
+    A rule with slabs pays the ladder, so asking for a flat rate invites
+    somebody to type the ladder's top rate into a column the arrangement
+    never reads -- and the rules screen then shows it as the rate
+    (D-TER-16). It defaults to zero, which is what a ladder rule already
+    stored.
+    """
+    books = _Books(_session_factory()())
+
+    rule = CommissionService(books.session).create_rule(
+        CommissionRuleCreate(
+            salesman_id=books.asha,
+            effective_from=date(2026, 4, 1),
+            slabs=[
+                CommissionSlabWrite(
+                    from_amount=Decimal("0"),
+                    to_amount=Decimal("1000"),
+                    percentage=Decimal("2"),
+                ),
+                CommissionSlabWrite(
+                    from_amount=Decimal("1000"), percentage=Decimal("4")
+                ),
+            ],
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+
+    assert rule.percentage == Decimal("0")
+    _collect(books, "SI-1", "2000.00", books.asha)
+    # 2% of the first 1,000 and 4% of the next, which is the ladder and not
+    # the column.
+    assert _earned(books, books.asha) == Decimal("60.00")
+
+
+def test_a_rule_refuses_a_salesman_who_is_not_a_member() -> None:
+    """No store carries a key from a rule to a person, and nothing asked.
+
+    Any UUID at all was accepted as the scope of a rule, and the rules list
+    then showed the rate against "Former member" -- a rate nobody could
+    attach to anybody (D-TER-15). Membership is read through
+    `FirmMetadataReader`, which goes to the platform store: `users` and
+    `user_firms` are invisible to a tenant session.
+    """
+    books = _Books(_session_factory()())
+
+    with pytest.raises(ValidationError, match="not an active member"):
+        books.rule("5", salesman_id=uuid4())
+
+    books.session.rollback()
+    assert books.session.scalars(select(CommissionRule)).all() == []
+
+
+def test_a_rule_refuses_goods_that_are_not_the_firms() -> None:
+    """An unknown product reached the key and came back as a bare 409.
+
+    In the shared store the key is also satisfied by another firm's row, so
+    the check is on the firm rather than on the key. It answers "not found",
+    which names what was wrong with the request.
+    """
+    books = _Books(_session_factory()())
+    service = CommissionService(books.session)
+
+    for field in ("product_id", "product_category_id"):
+        with pytest.raises(ResourceNotFoundError, match="not found"):
+            service.create_rule(
+                CommissionRuleCreate(
+                    salesman_id=books.asha,
+                    percentage=Decimal("5"),
+                    effective_from=date(2026, 4, 1),
+                    **{field: uuid4()},
+                ),
+                firm_id=books.firm.id,
+                actor_id=books.actor_id,
+            )
+        books.session.rollback()
+
+    assert books.session.scalars(select(CommissionRule)).all() == []

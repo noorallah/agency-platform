@@ -37,6 +37,7 @@ from app.common.audit.models import AuditLog
 from app.core.database.base import Base
 from app.customers.models import Customer
 from app.firms.models import Firm
+from app.identity.models import User, UserFirm
 from app.products.models import Product
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 
@@ -62,7 +63,6 @@ class _Books:
         """Seed the firm and its masters."""
         self.session = session
         self.actor_id = uuid4()
-        self.salesman_id = uuid4()
         self.firm = Firm(
             name="Margin Firm",
             code="MRGN",
@@ -72,6 +72,19 @@ class _Books:
         )
         session.add(self.firm)
         session.commit()
+        # A rule names somebody the firm actually employs (D-TER-15), so the
+        # salesman here is a real user with a live membership.
+        salesman = User(
+            email="asha@margin.example.com",
+            full_name="Asha Rao",
+            password_hash="x",
+            is_active=True,
+        )
+        session.add(salesman)
+        session.flush()
+        session.add(UserFirm(user_id=salesman.id, firm_id=self.firm.id, is_active=True))
+        session.commit()
+        self.salesman_id = salesman.id
         self.branch = Branch(
             firm_id=self.firm.id,
             code="BR-1",

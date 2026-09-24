@@ -228,6 +228,7 @@ class CommissionService:
             updated_by=actor_id,
         )
         self._assert_rate_shape(row)
+        self._assert_ids_are_the_firms(row)
         self._assert_window_is_free(row)
         self._session.add(row)
         self._session.flush()
@@ -311,6 +312,7 @@ class CommissionService:
         if row.effective_to is not None and row.effective_to < row.effective_from:
             raise ValidationError("effective_to cannot be before effective_from.")
         self._assert_rate_shape(row)
+        self._assert_ids_are_the_firms(row)
         self._assert_window_is_free(row)
         row.updated_by = actor_id
         self._session.flush()
@@ -397,6 +399,54 @@ class CommissionService:
                 "Name a product or a category, not both -- the product is the "
                 "narrower of the two."
             )
+
+    def _assert_ids_are_the_firms(self, candidate: CommissionRule) -> None:
+        """Refuse a rule naming a person or goods that are not this firm's.
+
+        No store carries a foreign key from a rule to a person -- `users` is a
+        platform table and this one lives in every firm store -- and the
+        service did not ask either, so any UUID at all was accepted as a
+        salesman and the report then listed the rule's earnings against
+        "Former member" (D-TER-15). The membership is read through
+        `FirmMetadataReader`, which goes to the platform store, because a
+        tenant session cannot see `users` or `user_firms` at all.
+
+        The goods do carry keys, but in the shared store a key is satisfied by
+        **another firm's** row, and an id belonging to nobody reached the key
+        and came back as a bare 409 that named neither the column nor the
+        value. Both are answered here as "not found" instead.
+
+        Args:
+            candidate: The rule about to be written.
+
+        Raises:
+            ValidationError: If the salesman is not an active member.
+            ResourceNotFoundError: If the product or category is not this
+                firm's.
+
+        """
+        if candidate.salesman_id is not None and not self._members.active_member_count(
+            candidate.firm_id, [candidate.salesman_id]
+        ):
+            raise ValidationError(
+                "That salesperson is not an active member of this firm."
+            )
+        if candidate.product_id is not None and not self._session.scalar(
+            select(Product.id).where(
+                Product.id == candidate.product_id,
+                Product.firm_id == candidate.firm_id,
+                Product.is_deleted.is_(False),
+            )
+        ):
+            raise ResourceNotFoundError("Product not found.")
+        if candidate.product_category_id is not None and not self._session.scalar(
+            select(ProductCategory.id).where(
+                ProductCategory.id == candidate.product_category_id,
+                ProductCategory.firm_id == candidate.firm_id,
+                ProductCategory.is_deleted.is_(False),
+            )
+        ):
+            raise ResourceNotFoundError("Product category not found.")
 
     def _assert_window_is_free(self, candidate: CommissionRule) -> None:
         """Refuse a second live rule covering the same scope and dates.

@@ -360,10 +360,18 @@ class SalesOrderRegisterRecord(SalesOrderSchema):
     order_number: str
     order_date: date
     customer_id: UUID
+    #: Each id keeps a name beside it: the grid derives its columns from the
+    #: row, so a register of ids alone showed seven columns of UUIDs
+    #: (D-RPT-17). A name is ``None`` only where the id itself is.
+    customer_name: str
     salesman_id: UUID | None
+    salesman_name: str | None
     territory_id: UUID | None
+    territory_name: str | None
     branch_id: UUID
+    branch_name: str
     warehouse_id: UUID
+    warehouse_name: str
     status: SalesOrderStatus
     grand_total: Decimal
 
@@ -425,18 +433,27 @@ class SalesOrderByCustomerRecord(SalesOrderSchema):
 
 
 class SalesOrderBySalesmanRecord(SalesOrderSchema):
-    """One row of the sales order by salesman report."""
+    """One row of the sales order by salesman report.
 
-    salesman_id: UUID
+    ``salesman_id`` is ``None`` for the **Unassigned** bucket: an order
+    nobody is credited with used to fall out of the report altogether, so the
+    total could not be reconciled against the register (D-RPT-19).
+    """
+
+    salesman_id: UUID | None
     salesman_name: str
     order_count: int
     total_value: Decimal
 
 
 class SalesOrderByTerritoryRecord(SalesOrderSchema):
-    """One row of the sales order by territory report."""
+    """One row of the sales order by territory report.
 
-    territory_id: UUID
+    ``territory_id`` is ``None`` for the **Unassigned** bucket, for the same
+    reason as the by-salesman report (D-RPT-19).
+    """
+
+    territory_id: UUID | None
     territory_name: str
     order_count: int
     total_value: Decimal

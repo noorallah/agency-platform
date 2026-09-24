@@ -32,10 +32,15 @@ from sqlalchemy.pool import StaticPool
 from app.branches.models import Branch
 from app.common.audit.models.audit_log import AuditLog
 from app.core.database.base import Base
-from app.core.exceptions import ConflictError, ValidationError
+from app.core.exceptions import (
+    ConflictError,
+    ResourceNotFoundError,
+    ValidationError,
+)
 from app.credit_note.models import CreditNote
 from app.customers.models import Customer
 from app.firms.models import Firm
+from app.identity.models import User, UserFirm
 from app.identity.models import identity as _identity_models  # noqa: F401
 from app.sales.models import SalesTerritoryNode
 from app.sales_invoice.models import SalesInvoice
@@ -93,6 +98,25 @@ def _branch(session: Session, *, firm_id: UUID) -> Branch:
     session.add(row)
     session.commit()
     return row
+
+
+def _salesman(session: Session, *, firm_id: UUID, email: str = "asha") -> UUID:
+    """Add one active member of the firm and return their id.
+
+    A target names somebody the firm actually employs (D-TER-15), so these
+    can no longer be bare `uuid4()`s.
+    """
+    row = User(
+        email=f"{email}@targets.example.com",
+        full_name=f"{email.title()} Rao",
+        password_hash="x",
+        is_active=True,
+    )
+    session.add(row)
+    session.flush()
+    session.add(UserFirm(user_id=row.id, firm_id=firm_id, is_active=True))
+    session.commit()
+    return row.id
 
 
 def _customer(session: Session, *, firm_id: UUID) -> Customer:
@@ -273,7 +297,7 @@ def test_a_target_naming_a_salesman_counts_only_their_sales() -> None:
     firm = _firm(session)
     branch = _branch(session, firm_id=firm.id)
     customer = _customer(session, firm_id=firm.id)
-    theirs = uuid4()
+    theirs = _salesman(session, firm_id=firm.id)
     service = SalesTargetService(session)
     _target(service, firm_id=firm.id, amount="10000", salesman_id=theirs)
     _invoice(
@@ -644,7 +668,7 @@ def test_a_person_s_target_on_a_region_takes_only_their_sales_in_it() -> None:
     tree = _tree(session, firm.id)
     branch = _branch(session, firm_id=firm.id)
     customer = _customer(session, firm_id=firm.id)
-    theirs = uuid4()
+    theirs = _salesman(session, firm_id=firm.id)
     for node, total, who in (
         ("route_a", "4000", theirs),
         ("route_b", "3000", uuid4()),
@@ -728,7 +752,7 @@ def test_an_edit_naming_only_the_dates_and_amount_keeps_the_rest() -> None:
     """
     session = _session_factory()()
     firm = _firm(session)
-    theirs = uuid4()
+    theirs = _salesman(session, firm_id=firm.id)
     service, target_id = _persons_target(session, firm_id=firm.id, salesman_id=theirs)
 
     row = service.update_target(
@@ -767,7 +791,9 @@ def test_an_explicit_null_still_clears_the_person() -> None:
     """Absent and null are different answers; null is the instruction."""
     session = _session_factory()()
     firm = _firm(session)
-    service, target_id = _persons_target(session, firm_id=firm.id, salesman_id=uuid4())
+    service, target_id = _persons_target(
+        session, firm_id=firm.id, salesman_id=_salesman(session, firm_id=firm.id)
+    )
 
     row = service.update_target(
         target_id,
@@ -789,7 +815,9 @@ def test_a_column_a_target_cannot_do_without_is_not_cleared_by_null() -> None:
     """A target with no period, basis or amount is not a target."""
     session = _session_factory()()
     firm = _firm(session)
-    service, target_id = _persons_target(session, firm_id=firm.id, salesman_id=uuid4())
+    service, target_id = _persons_target(
+        session, firm_id=firm.id, salesman_id=_salesman(session, firm_id=firm.id)
+    )
 
     with pytest.raises(ValidationError):
         service.update_target(
@@ -818,7 +846,7 @@ def test_the_overlap_check_reads_the_merged_row_not_the_body() -> None:
     """
     session = _session_factory()()
     firm = _firm(session)
-    theirs = uuid4()
+    theirs = _salesman(session, firm_id=firm.id)
     service, _ = _persons_target(session, firm_id=firm.id, salesman_id=theirs)
     may = service.create_target(
         SalesTargetWrite(
@@ -845,7 +873,9 @@ def test_an_edit_that_changes_nothing_writes_nothing() -> None:
     """A save that changes nothing does not move the counter or the trail."""
     session = _session_factory()()
     firm = _firm(session)
-    service, target_id = _persons_target(session, firm_id=firm.id, salesman_id=uuid4())
+    service, target_id = _persons_target(
+        session, firm_id=firm.id, salesman_id=_salesman(session, firm_id=firm.id)
+    )
     before = service.get_target(target_id, firm_scope=firm.id).version
 
     row = service.update_target(
@@ -948,6 +978,110 @@ def test_the_key_leaves_the_other_basis_and_a_withdrawn_target_alone() -> None:
         )
         == 3
     )
+
+
+def test_a_targets_create_and_delete_rows_carry_the_whole_target() -> None:
+    """`.created` recorded the start date and the amount, `.deleted` the amount.
+
+    Neither said whose number it was, over what period or on what basis --
+    and a target is nothing but its scope, its period and its number
+    (D-TER-16). `delete_target` also left `deleted_at` and `deleted_by` NULL,
+    which every other soft delete on this platform fills.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor = uuid4()
+    service = SalesTargetService(session)
+    created = service.create_target(
+        SalesTargetWrite(
+            period_start=APRIL[0],
+            period_end=APRIL[1],
+            period_type=SalesTargetPeriod.MONTHLY,
+            basis=SalesTargetBasis.COLLECTED,
+            target_amount=Decimal("10000"),
+            notes="Q1 push",
+        ),
+        firm_id=firm.id,
+        actor_id=actor,
+    )
+
+    service.delete_target(created.id, firm_scope=firm.id, actor_id=actor)
+
+    born = session.scalars(
+        select(AuditLog).where(AuditLog.action == "sales_target.created")
+    ).one()
+    assert born.after_data is not None
+    assert born.after_data["basis"] == "COLLECTED"
+    assert born.after_data["period_end"] == "2026-04-30"
+    assert born.after_data["notes"] == "Q1 push"
+    withdrawn = session.scalars(
+        select(AuditLog).where(AuditLog.action == "sales_target.deleted")
+    ).one()
+    assert withdrawn.before_data is not None
+    assert withdrawn.before_data["target_amount"] == "10000"
+    assert withdrawn.before_data["basis"] == "COLLECTED"
+    row = session.get(SalesTarget, created.id)
+    assert row is not None
+    assert row.is_deleted is True
+    assert row.deleted_at is not None
+    assert row.deleted_by == actor
+
+
+def test_a_target_refuses_a_salesman_who_is_not_a_member() -> None:
+    """Nothing checked the id, and nothing could: `users` is a platform table.
+
+    A target was accepted for any UUID at all and then reported for ever
+    against somebody the report could only call "Unassigned" (D-TER-15). The
+    membership is read through `FirmMetadataReader`, which goes to the
+    platform store rather than to the tenant session.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    service = SalesTargetService(session)
+    outsider = _salesman(session, firm_id=_firm(session, "OTHER").id, email="bala")
+
+    for candidate in (uuid4(), outsider):
+        with pytest.raises(ValidationError, match="not an active member"):
+            _target(service, firm_id=firm.id, amount="100", salesman_id=candidate)
+
+    assert service.list_targets(firm_scope=firm.id, page=1, page_size=10)[1] == 0
+
+
+def test_a_target_refuses_a_territory_that_is_not_the_firms() -> None:
+    """`sales_territories` lives in the shared store, so a key is not enough."""
+    session = _session_factory()()
+    firm = _firm(session)
+    other = _firm(session, "OTHER")
+    elsewhere = _node(session, firm_id=other.id, code="X-1", name="Elsewhere")
+    retired = _node(session, firm_id=firm.id, code="X-2", name="Retired")
+    retired.is_deleted = True
+    session.commit()
+    service = SalesTargetService(session)
+
+    for candidate in (uuid4(), elsewhere.id, retired.id):
+        with pytest.raises(ResourceNotFoundError, match="Territory not found"):
+            _target(service, firm_id=firm.id, amount="100", territory_id=candidate)
+
+    assert service.list_targets(firm_scope=firm.id, page=1, page_size=10)[1] == 0
+
+
+def test_an_edit_refuses_a_salesman_who_is_not_a_member() -> None:
+    """The check runs on the merged row, as the overlap check does."""
+    session = _session_factory()()
+    firm = _firm(session)
+    theirs = _salesman(session, firm_id=firm.id)
+    service, target_id = _persons_target(session, firm_id=firm.id, salesman_id=theirs)
+
+    with pytest.raises(ValidationError, match="not an active member"):
+        service.update_target(
+            target_id,
+            SalesTargetUpdate(salesman_id=uuid4()),
+            firm_scope=firm.id,
+            actor_id=uuid4(),
+        )
+
+    session.rollback()
+    assert service.get_target(target_id, firm_scope=firm.id).salesman_id == theirs
 
 
 _EDITOR = (
