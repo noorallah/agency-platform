@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../api/api_client.dart';
+import '../api/api_refusal.dart';
 import '../diagnostics/report_queue.dart';
 import '../logging/app_log.dart';
 import '../preferences/desktop_preferences_service.dart';
@@ -232,7 +233,8 @@ class SessionController extends ChangeNotifier {
       _notice = 'Password updated. Sign in with your new password.';
       _setStatus(SessionStatus.signedOut);
     } on ApiException catch (exception) {
-      _error = exception.message;
+      // The policy's own rules, where the server states them (BL-31.16).
+      _error = refusalMessage(exception);
       _setStatus(SessionStatus.requiresPasswordChange);
     }
   }

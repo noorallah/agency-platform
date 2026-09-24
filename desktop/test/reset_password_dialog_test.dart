@@ -29,7 +29,7 @@ PermissionService _permissions({required bool platformAdmin}) {
 }
 
 class _Api extends ApiClient {
-  _Api({this.refuse})
+  _Api({this.refuse, this.rules})
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -38,6 +38,7 @@ class _Api extends ApiClient {
         );
 
   final String? refuse;
+  final List<String>? rules;
   final List<(String, String, bool)> resets = [];
 
   @override
@@ -46,7 +47,9 @@ class _Api extends ApiClient {
     String newPassword, {
     bool forceChange = true,
   }) async {
-    if (refuse != null) throw ApiException(refuse!, statusCode: 422);
+    if (refuse != null) {
+      throw ApiException(refuse!, statusCode: 422, details: rules);
+    }
     resets.add((id, newPassword, forceChange));
     return _user;
   }
@@ -156,6 +159,26 @@ void main() {
       ));
       await tester.pump();
     }
+
+    testWidgets('a policy the server holds is shown rule by rule',
+        (tester) async {
+      // The server's policy may be stricter than the one the dialog checks;
+      // its rules are shown rather than the bare refusal (BL-31.16).
+      final List<bool> answers = await _open(
+        tester,
+        _Api(
+          refuse: 'Password does not meet the configured policy.',
+          rules: const ['must contain at least 16 characters'],
+        ),
+      );
+      await _fill(tester, 'Temp-Passw0rd!!');
+      await tester.tap(find.widgetWithText(FilledButton, 'Set password'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('must contain at least 16 characters'),
+          findsOneWidget);
+      expect(answers, isEmpty);
+    });
 
     testWidgets('a platform administrator gets it beside Roles by firm',
         (tester) async {

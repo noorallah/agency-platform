@@ -5160,7 +5160,8 @@ template.
   move on an audit row.
 - **The merged read** (`GET /audit-logs` with `X-Firm-ID`) takes `page ×
   page_size` from each store, sorts on `created_at` then id, and slices; the
-  same filters reach both, exact-match (BL-31.17), and a store is never merged
+  same filters reach both -- `action` and `entity_type` as a part of the name,
+  ignoring case, since #622 (BL-31.17); the ids exact -- and a store is never merged
   with itself. Both need `AUDIT_LOG_VIEW`; the platform trail (no header)
   needs the designation too, either reach; a firm's trail needs a membership,
   or `ALL_FIRMS`.

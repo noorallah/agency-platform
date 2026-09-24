@@ -116,6 +116,7 @@ class _AuditLogPageState extends State<AuditLogPage> {
                 decoration: const InputDecoration(
                   labelText: 'Action',
                   hintText: 'customer.created',
+                  helperText: 'Part of the name is enough',
                 ),
                 onSubmitted: (_) => _load(requestedPage: 1),
               ),
@@ -128,6 +129,7 @@ class _AuditLogPageState extends State<AuditLogPage> {
                 decoration: const InputDecoration(
                   labelText: 'Entity type',
                   hintText: 'customer',
+                  helperText: 'Part of the name is enough',
                 ),
                 onSubmitted: (_) => _load(requestedPage: 1),
               ),

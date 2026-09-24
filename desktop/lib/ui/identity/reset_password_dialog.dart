@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/api/api_refusal.dart';
 import '../../models/entities.dart';
 import 'change_password_dialog.dart';
 
@@ -68,7 +69,10 @@ class _ResetPasswordDialogState extends State<ResetPasswordDialog> {
       if (!mounted) return;
       setState(() {
         _saving = false;
-        _error = error.message;
+        // Rule by rule where the server states them: a policy stricter
+        // than the one this dialog checks used to arrive as the bare
+        // "does not meet the configured policy" (BL-31.16).
+        _error = refusalMessage(error);
       });
     }
   }

@@ -10,11 +10,21 @@ from datetime import UTC, datetime, time
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Select, func, select
-from sqlalchemy.orm import Session
+from sqlalchemy import ColumnElement, Select, func, select
+from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.common.audit.models import AuditLog
 from app.common.audit.schemas import AuditLogFilters
+
+
+def _contains(column: InstrumentedAttribute[str], text: str) -> ColumnElement[bool]:
+    """Match rows whose column holds `text` anywhere, ignoring case.
+
+    The wildcards a person might type are matched literally: an `_` in
+    `user_firm` is an underscore, not "any character".
+    """
+    escaped = text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+    return column.ilike(f"%{escaped}%", escape="\\")
 
 
 class AuditLogReader:
@@ -143,10 +153,16 @@ class AuditLogReader:
         """Restrict a statement to the requested scope and filters."""
         if firm_scope is not None:
             statement = statement.where(AuditLog.firm_id == firm_scope)
+        # A part of the name, whatever its case: `user` finds `user.created`
+        # and `USER_FIRM.updated` alike. The filters matched exactly, so the
+        # box that hinted `customer.created` found nothing for `customer`
+        # (BL-31.17). An id is still an id, and matched exactly below.
         if filters.action is not None:
-            statement = statement.where(AuditLog.action == filters.action)
+            statement = statement.where(_contains(AuditLog.action, filters.action))
         if filters.entity_type is not None:
-            statement = statement.where(AuditLog.entity_type == filters.entity_type)
+            statement = statement.where(
+                _contains(AuditLog.entity_type, filters.entity_type)
+            )
         if filters.entity_id is not None:
             statement = statement.where(AuditLog.entity_id == filters.entity_id)
         if filters.actor_id is not None:

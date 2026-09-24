@@ -11,7 +11,7 @@ import 'package:flutter_test/flutter_test.dart';
 /// the change, and answers true so the caller can end the session the server
 /// has already revoked.
 class _Api extends ApiClient {
-  _Api({this.refuse})
+  _Api({this.refuse, this.rules})
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -20,11 +20,14 @@ class _Api extends ApiClient {
         );
 
   final String? refuse;
+  final List<String>? rules;
   final List<(String, String)> sent = [];
 
   @override
   Future<void> changePassword(String currentPassword, String newPassword) async {
-    if (refuse != null) throw ApiException(refuse!, statusCode: 422);
+    if (refuse != null) {
+      throw ApiException(refuse!, statusCode: 422, details: rules);
+    }
     sent.add((currentPassword, newPassword));
   }
 }
@@ -120,6 +123,28 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('A recent password cannot be reused.'), findsOneWidget);
+    expect(answers, isEmpty, reason: 'still open, for another try');
+  });
+
+  testWidgets('a policy the server holds is shown rule by rule',
+      (tester) async {
+    // The dialog checks the policy it knows; the server's may be stricter,
+    // and its refusal used to arrive as the bare "does not meet the
+    // configured policy" while the rules sat unread in `details`
+    // (BL-31.16).
+    final List<bool> answers = await _open(
+      tester,
+      _Api(
+        refuse: 'Password does not meet the configured policy.',
+        rules: const ['must contain at least 16 characters'],
+      ),
+    );
+    await _fill(tester);
+    await tester.tap(find.widgetWithText(FilledButton, 'Change password'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('must contain at least 16 characters'),
+        findsOneWidget);
     expect(answers, isEmpty, reason: 'still open, for another try');
   });
 
