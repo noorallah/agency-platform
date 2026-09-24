@@ -205,6 +205,7 @@ class PromotionConditionRecord {
     this.sequence = 1,
     this.valueText = '',
     this.valueNumber = '',
+    this.valueLabel = '',
   });
 
   final String id;
@@ -214,6 +215,10 @@ class PromotionConditionRecord {
   final String valueText;
   final String valueNumber;
 
+  /// What the id in [valueText] names ("MILK — Milk"), as the server resolved
+  /// it; empty for a field that is not an id or an id that did not resolve.
+  final String valueLabel;
+
   factory PromotionConditionRecord.fromJson(Json json) =>
       PromotionConditionRecord(
         id: stringValue(json['id']),
@@ -222,6 +227,7 @@ class PromotionConditionRecord {
         operator: stringValue(json['operator']),
         valueText: stringValue(json['value_text']),
         valueNumber: stringValue(json['value_number']),
+        valueLabel: stringValue(json['value_label']),
       );
 
   Json toJson() => <String, dynamic>{
@@ -258,14 +264,16 @@ const Map<String, String> promotionOperatorLabels = <String, String>{
 
 /// "Quantity on the line is at least 25", not
 /// `line_quantity GREATER_OR_EQUAL 25` (BL-31.15). A condition on a product,
-/// customer, territory or route still names it by id, because the dialog
-/// takes the id typed and nothing on the page can turn it into a name.
+/// customer, territory or route shows the name the server resolved
+/// ("Product is MILK — Milk"), and the id only when nothing resolved it.
 String describePromotionCondition(PromotionConditionRecord condition) {
   final String field =
       promotionFieldLabels[condition.fieldKey] ?? condition.fieldKey;
   final String test =
       promotionOperatorLabels[condition.operator] ?? condition.operator;
-  final String value = condition.valueText.isNotEmpty
+  final String value = condition.valueLabel.isNotEmpty
+      ? condition.valueLabel
+      : condition.valueText.isNotEmpty
       ? condition.valueText
       : _plainNumber(condition.valueNumber);
   return '$field $test $value';

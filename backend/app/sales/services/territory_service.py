@@ -3957,6 +3957,7 @@ class SalesTerritoryService:
             working_days[day.route_profile_id].append(day.weekday)
         return {
             profile.territory_id: RouteProfileResponse(
+                id=profile.id,
                 route_type_id=profile.route_type_id,
                 route_type_name=(
                     route_type_names.get(profile.route_type_id)

@@ -3,8 +3,11 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/concurrency.dart';
 import '../../core/design/design_tokens.dart';
+import '../../models/customer.dart';
 import '../../models/entities.dart';
 import '../../models/pricing.dart';
+import '../../models/product.dart';
+import '../../models/sales_territory.dart';
 
 /// Agree one offer: what it gives, who it is for, and when it runs.
 ///
@@ -31,6 +34,17 @@ class _PromotionDialogState extends State<PromotionDialog> {
     'FREE_QUANTITY': 'Free goods (buy X, get Y)',
   };
 
+  /// The condition fields that name a record, and so are picked rather than
+  /// typed as an id (BL-31.15).
+  static const Set<String> _idFields = <String>{
+    'product_id',
+    'product_category_id',
+    'customer_id',
+    'territory_id',
+    'route_id',
+  };
+  static const int _pickerPageSize = 20;
+
   final GlobalKey<FormState> _form = GlobalKey<FormState>();
   final TextEditingController _code = TextEditingController();
   final TextEditingController _name = TextEditingController();
@@ -47,6 +61,10 @@ class _PromotionDialogState extends State<PromotionDialog> {
   String? _error;
 
   bool get _editing => widget.existing != null;
+
+  /// The category list has no server-side search, so it is read once per
+  /// dialog and filtered here.
+  Future<List<ProductCategoryRecord>>? _categories;
 
   @override
   void initState() {
@@ -358,6 +376,112 @@ class _PromotionDialogState extends State<PromotionDialog> {
     );
   }
 
+  /// The records a picker offers for [fieldKey], searched on the server as
+  /// the person types, shown as "CODE — name".
+  Future<List<_PickOption>> _options(String fieldKey, String text) async {
+    final String search = text.trim();
+    try {
+      switch (fieldKey) {
+        case 'product_id':
+          final PagedResult<Product> page = await widget.api
+              .products(search: search, pageSize: _pickerPageSize);
+          return [
+            for (final Product item in page.items)
+              _PickOption(item.id, _coded(item.code, item.name)),
+          ];
+        case 'customer_id':
+          final PagedResult<Customer> page = await widget.api
+              .customers(search: search, pageSize: _pickerPageSize);
+          return [
+            for (final Customer item in page.items)
+              _PickOption(
+                item.id,
+                _coded(
+                  item.code,
+                  item.displayName.isNotEmpty ? item.displayName : item.name,
+                ),
+              ),
+          ];
+        case 'product_category_id':
+          final List<ProductCategoryRecord> all =
+              await (_categories ??= widget.api.productCategories());
+          final String needle = search.toLowerCase();
+          return [
+            for (final ProductCategoryRecord item in all.where((item) =>
+                needle.isEmpty ||
+                item.code.toLowerCase().contains(needle) ||
+                item.name.toLowerCase().contains(needle)))
+              _PickOption(item.id, _coded(item.code, item.name)),
+          ].take(_pickerPageSize).toList();
+        case 'territory_id':
+          final PagedResult<SalesTerritory> page = await widget.api
+              .territories(search: search, pageSize: _pickerPageSize);
+          return [
+            for (final SalesTerritory item in page.items)
+              _PickOption(item.id, _coded(item.code, item.name)),
+          ];
+        case 'route_id':
+          // A route is a territory node with a route profile, and the id a
+          // condition holds is the profile's. Nothing lists routes alone, so
+          // a wider page is read and the plain nodes are dropped.
+          final PagedResult<SalesTerritory> page =
+              await widget.api.territories(search: search, pageSize: 100);
+          return [
+            for (final SalesTerritory item in page.items)
+              if (!item.isDeleted &&
+                  (item.routeProfile?.id.isNotEmpty ?? false))
+                _PickOption(
+                  item.routeProfile!.id,
+                  _coded(item.code, item.name),
+                ),
+          ].take(_pickerPageSize).toList();
+      }
+    } on Exception {
+      return const <_PickOption>[];
+    }
+    return const <_PickOption>[];
+  }
+
+  static String _coded(String code, String name) =>
+      code.isEmpty ? name : '$code — $name';
+
+  Widget _idPicker(_ConditionDraft condition) {
+    final String field =
+        promotionFieldLabels[condition.fieldKey] ?? condition.fieldKey;
+    return Autocomplete<_PickOption>(
+      key: ObjectKey((condition, condition.fieldKey)),
+      initialValue: TextEditingValue(text: condition.label),
+      displayStringForOption: (option) => option.label,
+      optionsBuilder: (value) => _options(condition.fieldKey, value.text),
+      onSelected: (option) {
+        condition.valueText.text = option.id;
+        condition.label = option.label;
+      },
+      fieldViewBuilder: (context, controller, focusNode, onSubmitted) =>
+          TextFormField(
+        controller: controller,
+        focusNode: focusNode,
+        decoration: InputDecoration(
+          labelText: field,
+          helperText: 'Type to search',
+          suffixIcon: const Icon(Icons.search, size: 18),
+        ),
+        // Typing over a chosen record un-chooses it: the id must never
+        // disagree with the name on the screen.
+        onChanged: (text) {
+          if (text != condition.label) {
+            condition.valueText.clear();
+            condition.label = '';
+          }
+        },
+        validator: (text) =>
+            (text ?? '').trim().isNotEmpty && condition.valueText.text.isEmpty
+                ? 'Pick one from the list.'
+                : null,
+      ),
+    );
+  }
+
   Widget _conditionRow(int index) {
     final _ConditionDraft condition = _conditions[index];
     final bool numeric = condition.fieldKey.endsWith('_quantity') ||
@@ -378,9 +502,18 @@ class _PromotionDialogState extends State<PromotionDialog> {
                     in promotionFieldLabels.entries)
                   DropdownMenuItem(value: entry.key, child: Text(entry.value)),
               ],
-              onChanged: (value) => setState(
-                () => condition.fieldKey = value ?? condition.fieldKey,
-              ),
+              onChanged: (value) => setState(() {
+                final String next = value ?? condition.fieldKey;
+                if (next == condition.fieldKey) return;
+                // An id picked for one kind of record means nothing to
+                // another.
+                if (_idFields.contains(condition.fieldKey) ||
+                    _idFields.contains(next)) {
+                  condition.valueText.clear();
+                  condition.label = '';
+                }
+                condition.fieldKey = next;
+              }),
             ),
           ),
           const SizedBox(width: AppSpacing.sm),
@@ -402,13 +535,13 @@ class _PromotionDialogState extends State<PromotionDialog> {
           const SizedBox(width: AppSpacing.sm),
           Expanded(
             flex: 2,
-            child: TextFormField(
-              controller: numeric ? condition.valueNumber : condition.valueText,
-              decoration: InputDecoration(
-                labelText: numeric ? 'Value' : 'Id',
-                helperText: numeric ? null : 'The record id',
-              ),
-            ),
+            child: _idFields.contains(condition.fieldKey)
+                ? _idPicker(condition)
+                : TextFormField(
+                    controller:
+                        numeric ? condition.valueNumber : condition.valueText,
+                    decoration: const InputDecoration(labelText: 'Value'),
+                  ),
           ),
           IconButton(
             tooltip: 'Remove condition',
@@ -451,6 +584,17 @@ class _ActionDraft {
       ).toJson();
 }
 
+/// One record a condition picker offers.
+class _PickOption {
+  const _PickOption(this.id, this.label);
+
+  final String id;
+  final String label;
+
+  @override
+  String toString() => label;
+}
+
 /// One condition being edited.
 class _ConditionDraft {
   _ConditionDraft();
@@ -461,11 +605,18 @@ class _ConditionDraft {
       ..operator = record.operator;
     draft.valueText.text = record.valueText;
     draft.valueNumber.text = record.valueNumber;
+    // An id the server could not name is still shown, rather than a blank
+    // that would read as "no value".
+    draft.label =
+        record.valueLabel.isNotEmpty ? record.valueLabel : record.valueText;
     return draft;
   }
 
   String fieldKey = 'product_category_id';
   String operator = 'EQUALS';
+
+  /// What the picker shows for the id in [valueText].
+  String label = '';
   final TextEditingController valueText = TextEditingController();
   final TextEditingController valueNumber = TextEditingController();
 
