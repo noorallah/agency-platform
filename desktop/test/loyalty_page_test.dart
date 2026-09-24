@@ -41,6 +41,9 @@ class _LoyaltyApi extends ApiClient {
   /// only whether a dialog appeared.
   final List<Json> written = <Json>[];
 
+  /// Whose balance the screen asked for, if it did.
+  String? balanceAsked;
+
   @override
   Future<Json> request(
     String method,
@@ -57,6 +60,27 @@ class _LoyaltyApi extends ApiClient {
         return <String, dynamic>{'data': settings};
       }
       return <String, dynamic>{'data': settings};
+    }
+    if (path.endsWith('/loyalty/entries')) {
+      final String? customer = query?['customer_id'];
+      return <String, dynamic>{
+        'data': customer == null
+            ? entries
+            : entries.where((row) => row['customer_id'] == customer).toList(),
+      };
+    }
+    if (method == 'GET') {
+      // GET /loyalty/{customer_id}: the balance.
+      balanceAsked = path.split('/').last;
+      return <String, dynamic>{
+        'data': <String, dynamic>{
+          'customer_id': balanceAsked,
+          'customer_name': 'Kumar Stores',
+          'points': '20.0000',
+          'amount': '20.00',
+          'redeemable': false,
+        },
+      };
     }
     return <String, dynamic>{'data': entries};
   }
@@ -240,5 +264,36 @@ void main() {
       find.widgetWithText(FilledButton, 'Save'),
     );
     expect(save.onPressed, isNull);
+  });
+
+  testWidgets('one customer\'s ledger and balance can be asked for',
+      (tester) async {
+    // The page had no customer filter and no balance, though the API had
+    // both; the balances report was the only route (BL-31.15).
+    final _LoyaltyApi api = _LoyaltyApi(
+      settings: _settings(),
+      entries: <Json>[
+        _entry(),
+        <String, dynamic>{
+          ..._entry(),
+          'id': 'le-2',
+          'customer_id': 'c-2',
+          'customer_name': 'Patel Traders',
+        },
+      ],
+    );
+    await _pump(tester, api);
+    expect(find.textContaining('Patel Traders'), findsWidgets);
+
+    await tester.tap(find.byType(DropdownButton<String?>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Kumar Stores').last);
+    await tester.pumpAndSettle();
+
+    expect(api.balanceAsked, 'c-1');
+    expect(find.textContaining('Kumar Stores: 20.00 points, worth 20.00'),
+        findsOneWidget);
+    expect(find.textContaining('below the floor'), findsOneWidget);
+    expect(find.textContaining('Patel Traders'), findsNothing);
   });
 }

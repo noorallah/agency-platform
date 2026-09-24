@@ -2180,7 +2180,9 @@ each is a decision or a small feature rather than a broken behaviour.
   The API takes `accounting_period_id` and `status` and nothing about the
   source. A dropdown over the thirteen posting modules is the obvious
   shape; it needs a query parameter first.
-- **Ctrl+K masks a failing search route.** If `GET /api/v1/search`
+- *(Closed 2026-09-24, #630: the fallback says the search service could not
+  be reached and only stock is shown.)*
+  **Ctrl+K masks a failing search route.** If `GET /api/v1/search`
   throws, the shell silently falls back to an inventory-only search, so a
   503 there reads as "inventory results". A visible notice would be
   honest.
@@ -2189,7 +2191,9 @@ each is a decision or a small feature rather than a broken behaviour.
 - **The e-way bill action is offered only on registered rows**, so "an
   e-way bill against an unregistered invoice is refused" can only be shown
   over HTTP. Fine as a design; the plan says so.
-- **The Loyalty page cannot answer "this customer's balance"**: no
+- *(Closed 2026-09-24, #630: a customer picker narrows the ledger and states
+  the balance, its worth and whether it is below the floor.)*
+  **The Loyalty page cannot answer "this customer's balance"**: no
   customer filter and no balance column, though the API has both
   (`loyaltyEntries(customerId:)`, `GET /loyalty/{customer_id}`). The
   balances report is the route today.
@@ -2197,7 +2201,9 @@ each is a decision or a small feature rather than a broken behaviour.
   products**, and territory-scoped lists cannot be created from the desktop
   (the third segment prints a sentence). *(The pane now says where each
   break starts, and double-click edits -- 2026-09-13.)*
-- **Promotions: the details pane prints conditions raw**
+- *(Half closed 2026-09-24, #630: conditions read as sentences; an id-typed
+  condition still shows the id.)*
+  **Promotions: the details pane prints conditions raw**
   (`line_quantity GREATER_OR_EQUAL 25`), and a condition on a product,
   customer, territory or route is typed as a bare id. *(The missing save
   toast -- "saved as a new revision; the one you opened is now inactive"

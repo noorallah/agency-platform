@@ -283,7 +283,7 @@ or invoiced (D-RPT-11).
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
 | BL-31.14 | Low | **One decision left from "what a saved sales document does not show":** whether a coupon should apply to an order converted from a quotation -- the conversion forwards each quoted rate as a typed rate, which outranks every promotion. Owner's call. (The display items are fixed: "Line 1" in #398, the Apply/Reverse labels and default invoice copies in #625, the resolved rate and the coupon on a saved document in #626; the view dialogs resolve ids through `DocumentLineLabels`.) | Decision |
-| BL-31.15 | Low | **Small gaps from sections 10-13:** Ctrl+K hides a failing search; the Loyalty page cannot show one customer's balance; promotion conditions print raw (journal filter, targets salesperson and the two catalogue entries fixed in #629). | As recorded 2026-09-13, not re-checked |
+| BL-31.15 | Low | **One item left from the section 10-13 gaps:** a promotion condition on a product, customer, territory or route is typed as a bare id in the dialog and shown as one on the page -- the dialog needs entity pickers and the page a name lookup. (The rest is fixed: journal filter, targets salesperson and the two catalogue entries in #629; the Ctrl+K notice, the Loyalty customer balance and readable conditions in #630. The e-way bill on registered rows only and the price-list Products count stand as designed.) | Code |
 
 ---
 

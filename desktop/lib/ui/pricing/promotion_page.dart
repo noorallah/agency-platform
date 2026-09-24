@@ -458,8 +458,7 @@ class _PromotionPageState extends State<PromotionPage> {
             Padding(
               padding: const EdgeInsets.only(bottom: AppSpacing.xs),
               child: Text(
-                '${condition.fieldKey} ${condition.operator} '
-                '${condition.valueText.isNotEmpty ? condition.valueText : condition.valueNumber}',
+                describePromotionCondition(condition),
                 style: theme.textTheme.bodySmall,
               ),
             ),

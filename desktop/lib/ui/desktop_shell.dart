@@ -845,7 +845,9 @@ class _DesktopShellState extends State<DesktopShell> {
         total: total,
       );
     } on ApiException {
-      // Fall back to inventory-focused search to preserve continuity.
+      // Fall back to stock, and say so below: a 503 on the search route
+      // used to read as "inventory results" (BL-31.15). Everything past this
+      // line runs only on that failure.
     }
     if (widget.session.currentFirm == null) {
       return const GlobalSearchResponse(
@@ -899,9 +901,9 @@ class _DesktopShellState extends State<DesktopShell> {
         deduped.values.take(50).map(_toSearchResult).toList(growable: false);
     return GlobalSearchResponse(
       results: items,
-      message: items.isEmpty
-          ? 'No inventory results found.'
-          : '${items.length} inventory result${items.length == 1 ? '' : 's'} found.',
+      message: 'The search service could not be reached; showing stock only. '
+          '${items.isEmpty ? 'No inventory results found.' : '${items.length} '
+              'inventory result${items.length == 1 ? '' : 's'} found.'}',
       page: request.page,
       pageSize: request.pageSize,
       total: items.length,
