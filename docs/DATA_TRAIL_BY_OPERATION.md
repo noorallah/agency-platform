@@ -6959,8 +6959,9 @@ platform administrator. §18.11 says which claims a live row confirmed.
   bill), `loyalty/reports/balances` and `expiring` (which keeps its
   `within_days`), `promotions/reports/performance` and `coupons` (an offer's
   remaining allowance is as of now), and `sales-invoices/reports/summary`.
-  The desktop's From/To and pager are still to come, and its `DataTable` is
-  not virtualised.
+  The desktop asks every dated report for a period, opening on the current
+  month, and pages it a hundred rows at a time since #634; its `DataTable`
+  is still not virtualised but never holds more than a page.
 - **"Today" is `utc_now().date()`** everywhere a report needs one — the
   overdue lists, the proforma's `days_to_expiry`, the loyalty horizon. No
   report reads the server clock.

@@ -59,9 +59,12 @@ class ReportDefinition {
   /// the grid derives them from the rows themselves.
   final List<ReportColumn> columns;
 
-  /// Whether the endpoint requires `from_date` and `to_date`. The workspace
-  /// then offers a From and To box, opening on the current month, rather than
-  /// calling a route that answers 422 without them.
+  /// Whether the report is dated: its rows come from documents that carry a
+  /// date, so the route takes `from_date`/`to_date` and a page (D-RPT-18).
+  /// The workspace then offers a From and To box, opening on the current
+  /// month, and pages the rows a hundred at a time. A snapshot report --
+  /// what is pending, overdue or owed as of now -- takes neither, because a
+  /// window would hide the old item it exists to show.
   final bool needsPeriod;
 
   /// Where the rows are when the endpoint answers with one object rather than
@@ -130,4 +133,17 @@ String cellValue(Json row, String key) {
   final dynamic value = row[key];
   if (value == null) return '—';
   return '$value';
+}
+
+/// One page of a report: the rows, and how many matched in all.
+///
+/// A dated report answers `PaginatedResponse`, so `total` is the server's
+/// `total_records`; the commission report answers one object with
+/// `total_records` beside its `rows`; a snapshot answers a plain list, and
+/// then the total is the list.
+class ReportPage {
+  const ReportPage({required this.rows, required this.total});
+
+  final List<Json> rows;
+  final int total;
 }
