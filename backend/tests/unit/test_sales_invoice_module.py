@@ -782,6 +782,9 @@ def test_cancelling_an_approved_invoice_takes_its_journal_back() -> None:
     )
 
     assert receivable() == Decimal("0.00"), "cancelling takes it back"
+    # And says when (D-FIN-21), so an ageing of an earlier day still counts it.
+    cancelled = session.get(SalesInvoice, invoice_id)
+    assert cancelled is not None and cancelled.cancelled_at is not None
     # Both entries stay: the invoice happened, and so did taking it back.
     entries = session.scalars(
         select(JournalEntry.reference_number).where(

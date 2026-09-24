@@ -405,6 +405,7 @@ class TcsService:
         if row is None:
             return None
         before = self._collection_snapshot(row)
+        reversed_on = None
         if row.journal_entry_id is not None:
             mirror = self._journals.reverse_entry(
                 row.journal_entry_id,
@@ -416,12 +417,14 @@ class TcsService:
                 reference_number=f"{self.reference_for(settlement)}-REV",
             )
             row.reversal_journal_entry_id = mirror.id
+            reversed_on = mirror.journal_date
         if row.receivable_transaction_id is not None:
             self._customers.reverse_receivable_transaction(
                 row.receivable_transaction_id,
                 firm_scope=firm_id,
                 actor_id=actor_id,
                 commit=False,
+                on=reversed_on,
             )
         row.status = TcsCollectionStatus.REVERSED.value
         row.updated_by = actor_id

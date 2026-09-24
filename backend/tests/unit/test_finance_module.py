@@ -27,10 +27,14 @@ from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
 from app.finance.api.router import (
     create_journal_entry,
+    delete_journal_entry,
     list_journal_entries,
+    list_ledger_accounts,
     post_journal_entry,
+    reject_journal_entry,
     reverse_journal_entry,
     trial_balance,
+    update_journal_entry,
 )
 from app.finance.models import (
     AccountingPeriod,
@@ -46,14 +50,18 @@ from app.finance.models import (
 )
 from app.finance.schemas import (
     AccountGroupCreate,
+    AccountGroupUpdate,
     AccountingPeriodCreate,
     AccountingPeriodUpdate,
     AccountTypeEnum,
     CostCenterCreate,
+    CostCenterUpdate,
     FinancialYearCreate,
     FinancialYearUpdate,
     JournalEntryCreate,
+    JournalEntryReject,
     JournalEntryReverse,
+    JournalEntryUpdate,
     JournalTypeCreate,
     LedgerAccountCreate,
     LedgerAccountUpdate,
@@ -3038,3 +3046,417 @@ def test_a_journal_line_takes_only_the_firms_own_live_centres() -> None:
         posted.id, firm_id=firm.id, reference_number="JV-OURS-REV", actor_id=actor_id
     )
     assert reversal.lines[0].cost_center_id == ours.id
+
+
+def _second_period(
+    book: _Book, session: Session, firm_id: UUID, actor: UUID
+) -> AccountingPeriod:
+    """Open May 2026 beside the book's April."""
+    return FinanceService(session).create_accounting_period(
+        AccountingPeriodCreate(
+            financial_year_id=book.year.id,
+            period_number=2,
+            code="P2",
+            name="May 2026",
+            starts_on=date(2026, 5, 1),
+            ends_on=date(2026, 5, 31),
+        ),
+        firm_id=firm_id,
+        actor_id=actor,
+    )
+
+
+def test_a_finance_audit_row_says_what_changed() -> None:
+    """D-FIN-13: the rows recorded name and is_active whatever was edited.
+
+    Ticking an account's cost-centre requirement left a row reading
+    ``{"name": "Purchases", "is_active": true}`` on both sides; a centre's
+    edit carried no before at all; Open the books mapped 24 purposes silently.
+    """
+    session, firm_id, actor, book = _engine_book()
+    finance = FinanceService(session)
+    finance.update_ledger_account(
+        book.cash.id,
+        LedgerAccountUpdate(requires_cost_center=True),
+        firm_id=firm_id,
+        actor_id=actor,
+    )
+    centre = finance.create_cost_center(
+        CostCenterCreate(code="CC1", name="Shop"), firm_id=firm_id, actor_id=actor
+    )
+    finance.update_cost_center(
+        centre.id, CostCenterUpdate(name="Store"), firm_id=firm_id, actor_id=actor
+    )
+    finance.update_accounting_period(
+        book.period.id,
+        AccountingPeriodUpdate(description="Year opening month"),
+        firm_id=firm_id,
+        actor_id=actor,
+    )
+    ControlAccountService(session).assign(
+        firm_id, ControlAccountPurpose.CASH, book.cash.id, actor_id=actor
+    )
+    session.commit()
+
+    def _row(action: str) -> AuditLog:
+        """Return the one audit row written under an action."""
+        return session.scalars(select(AuditLog).where(AuditLog.action == action)).one()
+
+    account = _row("finance.ledger_account.updated")
+    assert account.before_data["requires_cost_center"] is False
+    assert account.after_data["requires_cost_center"] is True
+    centre_row = _row("finance.cost_center.updated")
+    assert centre_row.before_data["name"] == "Shop"
+    assert centre_row.after_data["name"] == "Store"
+    period = _row("finance.accounting_period.updated")
+    assert period.before_data["description"] is None
+    assert period.after_data["description"] == "Year opening month"
+    mapping = _row("control_account.assigned")
+    assert mapping.before_data["ledger_account_id"] is None
+    assert mapping.after_data == {
+        "purpose": "CASH",
+        "ledger_account_id": str(book.cash.id),
+    }
+
+
+def test_a_finance_report_refuses_another_firms_period() -> None:
+    """D-FIN-14: a report on another firm's period answered with own figures."""
+    session = _session_factory()()
+    ours = _firm(session, "OURS")
+    theirs = _firm(session, "THEIRS")
+    actor = uuid4()
+    book = _Book(session, ours.id, actor)
+    other = _Book(session, theirs.id, actor)
+    ledger = GeneralLedgerService(session)
+    for report in (
+        ledger.trial_balance,
+        ledger.balance_sheet,
+        ledger.profit_and_loss,
+        ledger.account_summary,
+    ):
+        with pytest.raises(ResourceNotFoundError, match="Accounting period"):
+            report(firm_id=ours.id, accounting_period_id=other.period.id)
+    with pytest.raises(ResourceNotFoundError, match="Accounting period"):
+        ledger.general_ledger(
+            firm_id=ours.id,
+            ledger_account_id=book.cash.id,
+            accounting_period_id=other.period.id,
+        )
+    # Its own period still reads.
+    assert ledger.trial_balance(
+        firm_id=ours.id, accounting_period_id=book.period.id
+    ).is_balanced
+
+
+def test_a_hand_draft_can_be_edited_deleted_and_rejected() -> None:
+    """D-FIN-15: JournalEntryUpdate was declared and unrouted; REJECTED unused."""
+    session, firm_id, actor, book = _engine_book()
+    session.add(UserFirm(user_id=actor, firm_id=firm_id, is_active=True))
+    session.commit()
+    scope = _firm_scope(
+        _principal(actor, {"JOURNAL_CREATE", "JOURNAL_POST"}), session, firm_id
+    )
+
+    def _draft(reference: str) -> UUID:
+        """Write one hand draft of 100."""
+        return create_journal_entry(
+            JournalEntryCreate(
+                journal_type_id=book.journal_type.id,
+                voucher_type_id=book.voucher_type.id,
+                accounting_period_id=book.period.id,
+                journal_date=date(2026, 4, 12),
+                reference_number=reference,
+                lines=[
+                    {"ledger_account_id": book.cash.id, "debit_amount": "100"},
+                    {"ledger_account_id": book.sales.id, "credit_amount": "100"},
+                ],
+            ),
+            scope,
+            session,
+        ).data.id
+
+    edited_id = _draft("JV-EDIT")
+    edited = update_journal_entry(
+        edited_id,
+        JournalEntryUpdate(
+            description="Corrected",
+            lines=[
+                {"ledger_account_id": book.cash.id, "debit_amount": "250"},
+                {"ledger_account_id": book.sales.id, "credit_amount": "250"},
+            ],
+        ),
+        scope,
+        session,
+    ).data
+    assert edited.description == "Corrected"
+    assert edited.total_debit == Decimal("250.00")
+    assert [line.debit_amount for line in edited.lines] == [
+        Decimal("250.00"),
+        Decimal("0.00"),
+    ]
+    # A field left out is left alone; the edit is asked what a create is.
+    assert edited.reference_number == "JV-EDIT"
+    with pytest.raises(ValidationError, match="JV-"):
+        update_journal_entry(
+            edited_id, JournalEntryUpdate(reference_number="SI-1"), scope, session
+        )
+    with pytest.raises(ValidationError, match="inside the accounting period"):
+        update_journal_entry(
+            edited_id,
+            JournalEntryUpdate(journal_date=date(2026, 6, 1)),
+            scope,
+            session,
+        )
+
+    doomed = _draft("JV-GONE")
+    delete_journal_entry(doomed, scope, session)
+    with pytest.raises(ResourceNotFoundError):
+        JournalEntryEngine(session).get_entry(doomed, firm_id=firm_id)
+
+    refused = _draft("JV-NO")
+    rejected = reject_journal_entry(
+        refused, JournalEntryReject(reason="Wrong account"), scope, session
+    ).data
+    assert rejected.status == JournalStatus.REJECTED.value
+    assert "Wrong account" in (rejected.remarks or "")
+    with pytest.raises(ValidationError, match="Only draft entries can be posted"):
+        post_journal_entry(refused, scope, session)
+    with pytest.raises(ValidationError, match="Only a draft can be edited"):
+        update_journal_entry(
+            refused, JournalEntryUpdate(description="x"), scope, session
+        )
+
+    # A posted entry is reversed, never edited or deleted.
+    post_journal_entry(edited_id, scope, session)
+    with pytest.raises(ValidationError, match="Only a draft can be deleted"):
+        delete_journal_entry(edited_id, scope, session)
+    actions = set(
+        session.scalars(
+            select(AuditLog.action).where(AuditLog.entity_type == "journal_entry")
+        ).all()
+    )
+    assert {
+        "finance.journal_entry.updated",
+        "finance.journal_entry.deleted",
+        "finance.journal_entry.rejected",
+    } <= actions
+
+
+def test_the_small_finance_gaps_are_closed() -> None:
+    """D-FIN-15's other items, one assertion each."""
+    session, firm_id, actor, book = _engine_book()
+    finance = FinanceService(session)
+    engine = JournalEntryEngine(session)
+    june = finance.create_accounting_period(
+        AccountingPeriodCreate(
+            financial_year_id=book.year.id,
+            period_number=3,
+            code="P3",
+            name="June 2026",
+            starts_on=date(2026, 6, 1),
+            ends_on=date(2026, 6, 30),
+        ),
+        firm_id=firm_id,
+        actor_id=actor,
+    )
+
+    # A period holding no journal can be deleted, so its year can be too.
+    finance.delete_accounting_period(june.id, firm_id=firm_id, actor_id=actor)
+    entry = engine.create_entry(
+        firm_id=firm_id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=book.period.id,
+        journal_date=date(2026, 4, 10),
+        reference_number="JV-1",
+        description=None,
+        lines=_sale_lines(book, "10"),
+        actor_id=actor,
+    )
+    engine.post_entry(entry.id, firm_id=firm_id, actor_id=actor)
+    with pytest.raises(ValidationError, match="holds 1 journal entry"):
+        finance.delete_accounting_period(
+            book.period.id, firm_id=firm_id, actor_id=actor
+        )
+
+    # A reversal into a chosen period refuses a date outside it.
+    may = _second_period(book, session, firm_id, actor)
+    with pytest.raises(ValidationError, match="does not fall in P2"):
+        engine.reverse_entry(
+            entry.id,
+            firm_id=firm_id,
+            reference_number="JV-1-REV",
+            accounting_period_id=may.id,
+            journal_date=date(2026, 6, 3),
+            actor_id=actor,
+        )
+
+    # A group's parent keeps its type and cannot close a loop.
+    child = finance.create_account_group(
+        AccountGroupCreate(
+            code="BANK",
+            name="Bank",
+            account_type=AccountTypeEnum.ASSET,
+            parent_group_id=book.asset_group.id,
+        ),
+        firm_id=firm_id,
+        actor_id=actor,
+    )
+    with pytest.raises(ValidationError, match="share its parent's account type"):
+        finance.update_account_group(
+            child.id,
+            AccountGroupUpdate(parent_group_id=book.income_group.id),
+            firm_id=firm_id,
+            actor_id=actor,
+        )
+    with pytest.raises(ValidationError, match="cannot also be"):
+        finance.update_account_group(
+            book.asset_group.id,
+            AccountGroupUpdate(parent_group_id=child.id),
+            firm_id=firm_id,
+            actor_id=actor,
+        )
+
+    # An inactive journal type takes no entry, and documents skip it.
+    book.journal_type.is_active = False
+    other = finance.create_journal_type(
+        JournalTypeCreate(code="AAA", name="Sorts first"),
+        firm_id=firm_id,
+        actor_id=actor,
+    )
+    with pytest.raises(ValidationError, match="Journal type GEN is inactive"):
+        engine.create_entry(
+            firm_id=firm_id,
+            journal_type_id=book.journal_type.id,
+            voucher_type_id=book.voucher_type.id,
+            accounting_period_id=book.period.id,
+            journal_date=date(2026, 4, 10),
+            reference_number="JV-2",
+            description=None,
+            lines=_sale_lines(book, "10"),
+            actor_id=actor,
+        )
+    context = DocumentPostingService(session).context_for(firm_id, date(2026, 4, 5))
+    assert context.journal_type_id == other.id
+    book.journal_type.is_active = True
+    # GEN is preferred over a type that merely sorts first.
+    context = DocumentPostingService(session).context_for(firm_id, date(2026, 4, 5))
+    assert context.journal_type_id == book.journal_type.id
+
+    # Periods close oldest first and reopen newest first.
+    with pytest.raises(ValidationError, match="P1, which comes before it"):
+        finance.update_accounting_period(
+            may.id,
+            AccountingPeriodUpdate(status=PeriodStatusEnum.CLOSED),
+            firm_id=firm_id,
+            actor_id=actor,
+        )
+    for period in (book.period, may):
+        finance.update_accounting_period(
+            period.id,
+            AccountingPeriodUpdate(status=PeriodStatusEnum.CLOSED),
+            firm_id=firm_id,
+            actor_id=actor,
+        )
+    with pytest.raises(ValidationError, match="P2, which comes after it"):
+        finance.update_accounting_period(
+            book.period.id,
+            AccountingPeriodUpdate(status=PeriodStatusEnum.OPEN),
+            firm_id=firm_id,
+            actor_id=actor,
+        )
+
+
+def test_the_trial_balance_total_row_totals_its_columns() -> None:
+    """D-FIN-18: the Total sat under the movement and summed the closing.
+
+    September on a fixture firm: the Debit column summed to 8,468.75 and
+    the Total read 7,165.54. Every column is now totalled, the opening and
+    closing split by side, and Balanced is judged on the closing.
+    """
+    session, firm_id, actor, book = _engine_book()
+    engine = JournalEntryEngine(session)
+    may = _second_period(book, session, firm_id, actor)
+    for reference, period, day, amount in (
+        ("JV-A", book.period, date(2026, 4, 5), "300"),
+        ("JV-B", may, date(2026, 5, 5), "120"),
+    ):
+        entry = engine.create_entry(
+            firm_id=firm_id,
+            journal_type_id=book.journal_type.id,
+            voucher_type_id=book.voucher_type.id,
+            accounting_period_id=period.id,
+            journal_date=day,
+            reference_number=reference,
+            description=None,
+            lines=_sale_lines(book, amount),
+            actor_id=actor,
+        )
+        engine.post_entry(entry.id, firm_id=firm_id, actor_id=actor)
+    # A refund in May moves cash the other way inside the period.
+    refund = engine.create_entry(
+        firm_id=firm_id,
+        journal_type_id=book.journal_type.id,
+        voucher_type_id=book.voucher_type.id,
+        accounting_period_id=may.id,
+        journal_date=date(2026, 5, 9),
+        reference_number="JV-C",
+        description=None,
+        lines=[
+            JournalLineData(ledger_account_id=book.sales.id, debit_amount=Decimal(20)),
+            JournalLineData(ledger_account_id=book.cash.id, credit_amount=Decimal(20)),
+        ],
+        actor_id=actor,
+    )
+    engine.post_entry(refund.id, firm_id=firm_id, actor_id=actor)
+    session.commit()
+
+    report = GeneralLedgerService(session).trial_balance(
+        firm_id=firm_id, accounting_period_id=may.id
+    )
+    lines = {line.account_code: line for line in report.lines}
+    assert report.total_period_debit == sum(
+        (line.period_debit for line in report.lines), Decimal(0)
+    )
+    assert report.total_period_debit == Decimal("140.00")
+    assert report.total_opening_debit == Decimal("300.00")
+    assert report.total_opening_credit == Decimal("300.00")
+    assert lines["1000"].closing_debit == Decimal("400.00")
+    assert lines["4000"].closing_credit == Decimal("400.00")
+    assert report.total_closing_debit == report.total_debit == Decimal("400.00")
+    assert report.is_balanced
+
+
+def test_the_journal_editor_is_offered_only_accounts_it_can_save() -> None:
+    """D-FIN-20: the picker listed the sub-ledger accounts the server refuses."""
+    session, firm_id, actor, book = _engine_book()
+    finance = FinanceService(session)
+    receivable = finance.create_ledger_account(
+        LedgerAccountCreate(
+            account_group_id=book.asset_group.id,
+            code="1100",
+            name="Trade receivables",
+            account_type=AccountTypeEnum.ASSET,
+        ),
+        firm_id=firm_id,
+        actor_id=actor,
+    )
+    ControlAccountService(session).assign(
+        firm_id,
+        ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
+        receivable.id,
+        actor_id=actor,
+    )
+    session.add(UserFirm(user_id=actor, firm_id=firm_id, is_active=True))
+    session.commit()
+    scope = _firm_scope(_principal(actor, {"ACCOUNT_VIEW"}), session, firm_id)
+
+    every = {row.code for row in list_ledger_accounts(scope, db=session).data}
+    offered = {
+        row.code
+        for row in list_ledger_accounts(
+            scope, open_to_hand_journals=True, db=session
+        ).data
+    }
+    assert "1100" in every
+    assert offered == every - {"1100"}

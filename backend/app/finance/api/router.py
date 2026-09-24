@@ -31,8 +31,10 @@ from app.finance.schemas import (
     FinancialYearUpdate,
     GeneralLedgerReport,
     JournalEntryCreate,
+    JournalEntryReject,
     JournalEntryResponse,
     JournalEntryReverse,
+    JournalEntryUpdate,
     JournalStatusEnum,
     JournalTypeCreate,
     JournalTypeResponse,
@@ -216,6 +218,19 @@ def update_accounting_period(
     return ApiResponse(data=AccountingPeriodResponse.model_validate(row))
 
 
+@router.delete(
+    "/accounting-periods/{period_id}", status_code=status.HTTP_204_NO_CONTENT
+)
+def delete_accounting_period(
+    period_id: UUID, scope: YearManageScope, db: Session = Depends(get_db)
+) -> None:
+    """Soft delete one accounting period that holds no journals (D-FIN-15)."""
+    FinanceService(db).delete_accounting_period(
+        period_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    db.commit()
+
+
 # ----------------------------------------------------------------------
 # Chart of accounts
 # ----------------------------------------------------------------------
@@ -288,14 +303,24 @@ def list_ledger_accounts(
     scope: MasterViewScope,
     account_group_id: UUID | None = None,
     is_active: bool | None = None,
+    open_to_hand_journals: bool = False,
     db: Session = Depends(get_db),
 ) -> ApiResponse[list[LedgerAccountResponse]]:
-    """Return ledger accounts, optionally filtered by group and status."""
+    """Return ledger accounts, optionally filtered by group and status.
+
+    ``open_to_hand_journals`` leaves out every account a hand journal is
+    refused on -- the sub-ledger and CONTROL accounts -- so the journal
+    editor offers only what it can save (D-FIN-20). The rule is the server's
+    own, asked of the same method the create uses.
+    """
     rows = FinanceService(db).list_ledger_accounts(
         firm_id=scope.firm_id,
         account_group_id=account_group_id,
         is_active=is_active,
     )
+    if open_to_hand_journals:
+        closed = ControlAccountService(db).closed_to_hand_journals(scope.firm_id)
+        rows = [row for row in rows if row.id not in closed]
     return ApiResponse(data=[LedgerAccountResponse.model_validate(r) for r in rows])
 
 
@@ -626,6 +651,93 @@ def get_journal_entry(
 ) -> ApiResponse[JournalEntryResponse]:
     """Return one journal entry with its lines."""
     entry = JournalEntryEngine(db).get_entry(entry_id, firm_id=scope.firm_id)
+    return ApiResponse(data=JournalEntryResponse.model_validate(entry))
+
+
+@router.patch(
+    "/journal-entries/{entry_id}", response_model=ApiResponse[JournalEntryResponse]
+)
+def update_journal_entry(
+    entry_id: UUID,
+    payload: JournalEntryUpdate,
+    scope: JournalCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[JournalEntryResponse]:
+    """Edit a hand-written draft before it is posted (D-FIN-15).
+
+    A field left out is left alone; ``lines`` replaces every line. The edit
+    is asked what the create is, the sub-ledger accounts included.
+    """
+    changes = payload.model_dump(exclude_unset=True, exclude={"lines"})
+    # None is not a value any of these columns may hold except the two notes.
+    changes = {
+        key: value
+        for key, value in changes.items()
+        if value is not None or key in {"description", "remarks"}
+    }
+    lines = (
+        [
+            JournalLineData(
+                ledger_account_id=line.ledger_account_id,
+                debit_amount=line.debit_amount,
+                credit_amount=line.credit_amount,
+                cost_center_id=line.cost_center_id,
+                profit_center_id=line.profit_center_id,
+                description=line.description,
+            )
+            for line in payload.lines
+        ]
+        if payload.lines is not None
+        else None
+    )
+    if lines is not None:
+        ControlAccountService(db).assert_open_to_hand_journals(
+            scope.firm_id, (line.ledger_account_id for line in lines)
+        )
+    entry = JournalEntryEngine(db).update_draft(
+        entry_id,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        changes=changes,
+        lines=lines,
+    )
+    db.commit()
+    return ApiResponse(data=JournalEntryResponse.model_validate(entry))
+
+
+@router.delete("/journal-entries/{entry_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_journal_entry(
+    entry_id: UUID, scope: JournalCreateScope, db: Session = Depends(get_db)
+) -> None:
+    """Soft delete a hand-written draft (D-FIN-15)."""
+    JournalEntryEngine(db).delete_draft(
+        entry_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    db.commit()
+
+
+@router.post(
+    "/journal-entries/{entry_id}/reject",
+    response_model=ApiResponse[JournalEntryResponse],
+)
+def reject_journal_entry(
+    entry_id: UUID,
+    payload: JournalEntryReject,
+    scope: JournalPostScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[JournalEntryResponse]:
+    """Reject a hand-written draft at review (D-FIN-15).
+
+    Under the posting permission: whoever may approve a draft into the
+    ledger is who may turn it away.
+    """
+    entry = JournalEntryEngine(db).reject_draft(
+        entry_id,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        reason=payload.reason,
+    )
+    db.commit()
     return ApiResponse(data=JournalEntryResponse.model_validate(entry))
 
 

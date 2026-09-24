@@ -398,11 +398,38 @@ class JournalEntryCreate(FinanceSchema):
 
 
 class JournalEntryUpdate(FinanceSchema):
-    """Apply a partial journal entry update while it remains a draft."""
+    """Edit a hand-written draft; a field left out is left alone (D-FIN-15).
 
+    ``lines``, when sent, replaces every line of the draft.
+    """
+
+    journal_type_id: UUID | None = None
+    voucher_type_id: UUID | None = None
+    accounting_period_id: UUID | None = None
+    journal_date: date | None = None
+    reference_number: str | None = Field(default=None, max_length=50, min_length=1)
     description: str | None = None
     remarks: str | None = None
-    journal_date: date | None = None
+    lines: list[JournalLineInput] | None = Field(default=None, min_length=2)
+
+    @model_validator(mode="after")
+    def validate_balanced(self) -> Self:
+        """Require replacement lines, when sent, to balance."""
+        if self.lines is None:
+            return self
+        debit = sum((line.debit_amount for line in self.lines), Decimal("0"))
+        credit = sum((line.credit_amount for line in self.lines), Decimal("0"))
+        if debit.quantize(MONEY) != credit.quantize(MONEY):
+            raise ValueError(
+                f"Journal entry is not balanced: debit {debit}, credit {credit}."
+            )
+        return self
+
+
+class JournalEntryReject(FinanceSchema):
+    """Reject a hand-written draft at review, saying why."""
+
+    reason: str | None = Field(default=None, max_length=500)
 
 
 class JournalEntryResponse(FinanceSchema):
@@ -506,18 +533,35 @@ class TrialBalanceLine(FinanceSchema):
     account_code: str
     account_name: str
     account_type: AccountTypeEnum
+    #: Signed on the account's normal side; the split pair beside it is what
+    #: a trial balance shows and totals (D-FIN-18).
     opening_balance: Decimal
+    opening_debit: Decimal
+    opening_credit: Decimal
     period_debit: Decimal
     period_credit: Decimal
     closing_balance: Decimal
+    closing_debit: Decimal
+    closing_credit: Decimal
 
 
 class TrialBalanceReport(FinanceSchema):
-    """Return a trial balance for one accounting period."""
+    """Return a trial balance for one accounting period.
+
+    Every column is totalled (D-FIN-18). ``total_debit`` and ``total_credit``
+    are the closing totals, kept under their old names, and ``is_balanced``
+    is judged on them.
+    """
 
     accounting_period_id: UUID
     generated_at: datetime
     lines: list[TrialBalanceLine]
+    total_opening_debit: Decimal
+    total_opening_credit: Decimal
+    total_period_debit: Decimal
+    total_period_credit: Decimal
+    total_closing_debit: Decimal
+    total_closing_credit: Decimal
     total_debit: Decimal
     total_credit: Decimal
     is_balanced: bool

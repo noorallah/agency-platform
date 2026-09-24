@@ -169,6 +169,50 @@ void main() {
       expect(find.text('604976.70'), findsWidgets);
     });
 
+    testWidgets('the Total row totals the columns above it (D-FIN-18)',
+        (tester) async {
+      // The Debit and Credit columns are the movement; their totals sat
+      // under them with the closing balances' totals in their place.
+      final _FinanceApi api = _FinanceApi(
+        periods: [_period('p-1', '2026-08-01')],
+        report: TrialBalanceReport.fromJson({
+          'accounting_period_id': 'p-1',
+          'total_opening_debit': '500.00',
+          'total_opening_credit': '500.00',
+          'total_period_debit': '8468.75',
+          'total_period_credit': '8468.75',
+          'total_closing_debit': '7165.54',
+          'total_closing_credit': '7165.54',
+          'total_debit': '7165.54',
+          'total_credit': '7165.54',
+          'is_balanced': true,
+          'lines': [
+            {
+              'account_code': '1000',
+              'account_name': 'Cash',
+              'account_type': 'ASSET',
+              'opening_balance': '500.00',
+              'opening_debit': '500.00',
+              'opening_credit': '0.00',
+              'period_debit': '8468.75',
+              'period_credit': '1803.21',
+              'closing_balance': '7165.54',
+              'closing_debit': '7165.54',
+              'closing_credit': '0.00',
+            },
+          ],
+        }),
+      );
+      await _pump(tester, api);
+
+      expect(find.text('Closing Dr'), findsOneWidget);
+      expect(find.text('Opening Cr'), findsOneWidget);
+      // Once in the line and twice in the Total row -- its debit and its
+      // credit total, which agree -- for the movement and for the closing.
+      expect(find.text('8468.75'), findsNWidgets(3));
+      expect(find.text('7165.54'), findsNWidgets(3));
+    });
+
     testWidgets('an unbalanced ledger says by how much', (tester) async {
       // The number is the point. "Out of balance" without it sends somebody
       // to a spreadsheet to work out what the screen already knew.

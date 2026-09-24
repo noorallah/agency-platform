@@ -188,6 +188,10 @@ class TrialBalanceLine {
     required this.periodDebit,
     required this.periodCredit,
     required this.closingBalance,
+    this.openingDebit = '0.00',
+    this.openingCredit = '0.00',
+    this.closingDebit = '0.00',
+    this.closingCredit = '0.00',
   });
 
   final String ledgerAccountId;
@@ -199,6 +203,13 @@ class TrialBalanceLine {
   final String periodCredit;
   final String closingBalance;
 
+  /// The opening and closing balances split by side, which is what the
+  /// trial balance shows and totals (D-FIN-18).
+  final String openingDebit;
+  final String openingCredit;
+  final String closingDebit;
+  final String closingCredit;
+
   factory TrialBalanceLine.fromJson(Json json) => TrialBalanceLine(
         ledgerAccountId: stringValue(json['ledger_account_id']),
         accountCode: stringValue(json['account_code']),
@@ -208,6 +219,10 @@ class TrialBalanceLine {
         periodDebit: stringValue(json['period_debit']),
         periodCredit: stringValue(json['period_credit']),
         closingBalance: stringValue(json['closing_balance']),
+        openingDebit: stringValue(json['opening_debit']),
+        openingCredit: stringValue(json['opening_credit']),
+        closingDebit: stringValue(json['closing_debit']),
+        closingCredit: stringValue(json['closing_credit']),
       );
 }
 
@@ -224,14 +239,27 @@ class TrialBalanceReport {
     required this.totalDebit,
     required this.totalCredit,
     required this.isBalanced,
+    this.totalOpeningDebit = '0.00',
+    this.totalOpeningCredit = '0.00',
+    this.totalPeriodDebit = '0.00',
+    this.totalPeriodCredit = '0.00',
   });
 
   final String accountingPeriodId;
   final String generatedAt;
   final List<TrialBalanceLine> lines;
+
+  /// The closing columns' totals, which is what [isBalanced] is judged on.
   final String totalDebit;
   final String totalCredit;
   final bool isBalanced;
+
+  /// Every other column's total, so the Total row sums what is above it
+  /// (D-FIN-18).
+  final String totalOpeningDebit;
+  final String totalOpeningCredit;
+  final String totalPeriodDebit;
+  final String totalPeriodCredit;
 
   factory TrialBalanceReport.fromJson(Json json) {
     final Json d =
@@ -244,9 +272,14 @@ class TrialBalanceReport {
         for (final dynamic line in lines is List ? lines : const [])
           if (line is Map) TrialBalanceLine.fromJson(Map<String, dynamic>.from(line)),
       ],
-      totalDebit: stringValue(d['total_debit']),
-      totalCredit: stringValue(d['total_credit']),
+      totalDebit: stringValue(d['total_closing_debit'] ?? d['total_debit']),
+      totalCredit:
+          stringValue(d['total_closing_credit'] ?? d['total_credit']),
       isBalanced: boolValue(d['is_balanced']),
+      totalOpeningDebit: stringValue(d['total_opening_debit']),
+      totalOpeningCredit: stringValue(d['total_opening_credit']),
+      totalPeriodDebit: stringValue(d['total_period_debit']),
+      totalPeriodCredit: stringValue(d['total_period_credit']),
     );
   }
 
@@ -596,6 +629,8 @@ class JournalLine {
     required this.debitAmount,
     required this.creditAmount,
     required this.description,
+    this.costCenterId = '',
+    this.profitCenterId = '',
   });
 
   final String ledgerAccountId;
@@ -604,12 +639,18 @@ class JournalLine {
   final String creditAmount;
   final String description;
 
+  /// Carried so a draft reopened for editing keeps its centres.
+  final String costCenterId;
+  final String profitCenterId;
+
   factory JournalLine.fromJson(Json json) => JournalLine(
         ledgerAccountId: stringValue(json['ledger_account_id']),
         lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
         debitAmount: stringValue(json['debit_amount']),
         creditAmount: stringValue(json['credit_amount']),
         description: stringValue(json['description']),
+        costCenterId: stringValue(json['cost_center_id']),
+        profitCenterId: stringValue(json['profit_center_id']),
       );
 }
 
@@ -654,6 +695,10 @@ class JournalEntry {
   bool get isDraft => status == 'DRAFT';
   bool get isPosted => status == 'POSTED';
 
+  /// A draft somebody wrote by hand: the only kind that can be edited,
+  /// deleted or rejected (D-FIN-15).
+  bool get isManualDraft => isDraft && isManual;
+
   /// Whether a person wrote it. Entries a document posted are not editable
   /// here, and saying which raised it is more use than hiding the fact.
   bool get isManual => sourceModule.isEmpty;
@@ -687,11 +732,20 @@ class JournalEntry {
 
 /// A journal or voucher type, which every entry has to name.
 class FinanceTypeRef {
-  const FinanceTypeRef({required this.id, required this.code, required this.name});
+  const FinanceTypeRef({
+    required this.id,
+    required this.code,
+    required this.name,
+    this.isActive = true,
+  });
 
   final String id;
   final String code;
   final String name;
+
+  /// An inactive type is refused by the server (D-FIN-15), so it is not
+  /// offered.
+  final bool isActive;
 
   String get label => code.isEmpty ? name : '$code — $name';
 
@@ -699,6 +753,7 @@ class FinanceTypeRef {
         id: stringValue(json['id']),
         code: stringValue(json['code']),
         name: stringValue(json['name']),
+        isActive: json['is_active'] is bool ? json['is_active'] as bool : true,
       );
 }
 

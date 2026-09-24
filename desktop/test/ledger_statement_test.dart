@@ -39,6 +39,7 @@ class _LedgerApi extends ApiClient {
   Future<PagedResult<LedgerAccount>> ledgerAccounts({
     String? accountGroupId,
     bool? isActive,
+    bool openToHandJournals = false,
   }) async =>
       PagedResult<LedgerAccount>(items: accounts, total: accounts.length);
 

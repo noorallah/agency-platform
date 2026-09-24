@@ -798,14 +798,18 @@ class SalesReturnService(TransactionalDocumentService):
             stock_value = self._reverse_inventory(
                 row, firm_scope=firm_scope, actor_id=actor_id
             )
-            self._reverse_postings(
+            reversed_on = self._reverse_postings(
                 row,
                 firm_scope=firm_scope,
                 actor_id=actor_id,
                 stock_value=stock_value,
             )
             self._reverse_receivable(
-                row, firm_scope=firm_scope, actor_id=actor_id, reason=reason
+                row,
+                firm_scope=firm_scope,
+                actor_id=actor_id,
+                reason=reason,
+                on=reversed_on,
             )
         row.status = SalesReturnStatus.CANCELLED.value
         row.cancel_reason = reason
@@ -907,6 +911,7 @@ class SalesReturnService(TransactionalDocumentService):
         firm_scope: UUID,
         actor_id: UUID,
         reason: str | None,
+        on: date | None = None,
     ) -> None:
         """Undo the credit note by its own recorded deltas, not by its total.
 
@@ -941,6 +946,7 @@ class SalesReturnService(TransactionalDocumentService):
             reference_number=f"{row.return_number}-REV",
             remarks=reason or f"Cancelled sales return {row.return_number}.",
             commit=False,
+            on=on,
         )
 
     def _reverse_inventory(
@@ -985,8 +991,11 @@ class SalesReturnService(TransactionalDocumentService):
         firm_scope: UUID,
         actor_id: UUID,
         stock_value: Decimal,
-    ) -> None:
+    ) -> date | None:
         """Mirror both journals a completed return posted.
+
+        Returns the credit mirror's date, which the receivable reversal
+        carries so the statement agrees with 1100 (D-FIN-17).
 
         Both, not one. The credit and the cost are separate entries because
         they answer separate questions, and reversing only the money would
@@ -994,12 +1003,17 @@ class SalesReturnService(TransactionalDocumentService):
         """
         # The credit note mirrors exactly: it is what the customer was told
         # they are owed, and cancelling makes the whole of it void.
+        reversed_on = None
         if row.journal_entry_id is not None:
-            JournalEntryEngine(self._session).reverse_entry(
-                row.journal_entry_id,
-                firm_id=firm_scope,
-                reference_number=f"{row.return_number}-REV",
-                actor_id=actor_id,
+            reversed_on = (
+                JournalEntryEngine(self._session)
+                .reverse_entry(
+                    row.journal_entry_id,
+                    firm_id=firm_scope,
+                    reference_number=f"{row.return_number}-REV",
+                    actor_id=actor_id,
+                )
+                .journal_date
             )
         # The cost entry does not. It brought goods in at the average of the
         # day the return completed; they leave at the average of today, and
@@ -1014,6 +1028,7 @@ class SalesReturnService(TransactionalDocumentService):
             )
         row.journal_entry_id = None
         row.cost_journal_entry_id = None
+        return reversed_on
 
     # ---- children ------------------------------------------------------
 

@@ -38,6 +38,9 @@ class _JournalApi extends ApiClient {
   String? posted;
   Json? reversed;
   final List<String?> sourceModulesAsked = [];
+  final List<bool> openToHandJournalsAsked = [];
+  String? deleted;
+  String? rejected;
 
   @override
   Future<PagedResult<JournalEntry>> journalEntries({
@@ -57,8 +60,10 @@ class _JournalApi extends ApiClient {
   Future<PagedResult<LedgerAccount>> ledgerAccounts({
     String? accountGroupId,
     bool? isActive,
-  }) async =>
-      PagedResult<LedgerAccount>(
+    bool openToHandJournals = false,
+  }) async {
+    openToHandJournalsAsked.add(openToHandJournals);
+    return PagedResult<LedgerAccount>(
         items: [
           LedgerAccount.fromJson(
               {'id': 'acc-ar', 'code': '1100', 'name': 'Trade Receivables'}),
@@ -67,6 +72,49 @@ class _JournalApi extends ApiClient {
         ],
         total: 2,
       );
+  }
+
+  @override
+  Future<List<AccountingPeriod>> accountingPeriods(
+          {String? financialYearId}) async =>
+      [
+        AccountingPeriod.fromJson({
+          'id': 'p-1',
+          'name': 'August',
+          'status': 'OPEN',
+          'starts_on': '2026-08-01',
+          'ends_on': '2026-08-31',
+        }),
+      ];
+
+  @override
+  Future<List<FinanceTypeRef>> journalTypes() async => [
+        FinanceTypeRef.fromJson({'id': 'jt-1', 'code': 'GEN', 'name': 'General'}),
+        FinanceTypeRef.fromJson(
+            {'id': 'jt-2', 'code': 'OLD', 'name': 'Old', 'is_active': false}),
+      ];
+
+  @override
+  Future<List<FinanceTypeRef>> voucherTypes() async => [
+        FinanceTypeRef.fromJson({'id': 'vt-1', 'code': 'JV', 'name': 'Voucher'}),
+      ];
+
+  @override
+  Future<PagedResult<FinanceCentre>> costCenters() async =>
+      const PagedResult<FinanceCentre>(items: [], total: 0);
+
+  @override
+  Future<PagedResult<FinanceCentre>> profitCenters() async =>
+      const PagedResult<FinanceCentre>(items: [], total: 0);
+
+  @override
+  Future<void> deleteJournalEntry(String id) async => deleted = id;
+
+  @override
+  Future<JournalEntry> rejectJournalEntry(String id, {String? reason}) async {
+    rejected = '$id:$reason';
+    return entries.first;
+  }
 
   @override
   Future<JournalEntry> postJournalEntry(String id) async {
@@ -215,6 +263,56 @@ void main() {
       // engine numbers the lines itself.
       expect(_line('acc-1', debit: '10').toJson().containsKey('line_number'),
           isFalse);
+    });
+  });
+
+  group('a hand-written draft (D-FIN-15, D-FIN-20)', () {
+    testWidgets('the editor asks only for accounts a hand journal may use',
+        (tester) async {
+      final _JournalApi api = _JournalApi(entries: [_entry(reference: 'JV-1')]);
+      await _pumpList(tester, api);
+      await tester.tap(find.widgetWithText(FilledButton, 'New Entry'));
+      await tester.pumpAndSettle();
+      expect(api.openToHandJournalsAsked, [true]);
+      // An inactive journal type is refused by the server, so not offered.
+      await tester.tap(find.text('GEN — General'));
+      await tester.pumpAndSettle();
+      expect(find.text('OLD — Old'), findsNothing);
+    });
+
+    testWidgets('a hand draft can be deleted and rejected from the menu',
+        (tester) async {
+      final _JournalApi api = _JournalApi(entries: [_entry(reference: 'JV-1')]);
+      await _pumpList(tester, api);
+      await tester.tap(find.byKey(const ValueKey('journal-draft-actions')));
+      await tester.pumpAndSettle();
+      expect(find.text('Edit draft'), findsOneWidget);
+      await tester.tap(find.text('Delete draft'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+      await tester.pumpAndSettle();
+      expect(api.deleted, 'je-JV-1');
+
+      await tester.tap(find.byKey(const ValueKey('journal-draft-actions')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Reject draft'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField).last, 'wrong account');
+      await tester.tap(find.widgetWithText(FilledButton, 'Reject'));
+      await tester.pumpAndSettle();
+      expect(api.rejected, 'je-JV-1:wrong account');
+    });
+
+    testWidgets('the menu is shut for a draft a document raised',
+        (tester) async {
+      final _JournalApi api = _JournalApi(
+        entries: [_entry(reference: 'SI-1', source: 'sales_invoice')],
+      );
+      await _pumpList(tester, api);
+      final PopupMenuButton<String> menu = tester.widget(
+        find.byKey(const ValueKey('journal-draft-actions')),
+      );
+      expect(menu.enabled, isFalse);
     });
   });
 

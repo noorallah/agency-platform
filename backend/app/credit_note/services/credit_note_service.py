@@ -424,22 +424,24 @@ class CreditNoteService(TransactionalDocumentService):
         if row.status == CreditNoteStatus.CANCELLED.value:
             raise ValidationError("This credit note is already cancelled.")
         before = self._snapshot(row)
+        reversed_on = None
         if row.journal_entry_id is not None:
             # A mirror is right: what is being undone is worth exactly what it
             # was worth when it happened, unlike a stock reversal.
-            self._journals.reverse_entry(
+            reversed_on = self._journals.reverse_entry(
                 row.journal_entry_id,
                 firm_id=firm_scope,
                 reference_number=f"{row.credit_note_number}-REV",
                 journal_date=row.credit_note_date,
                 actor_id=actor_id,
-            )
+            ).journal_date
         if row.receivable_transaction_id is not None:
             self._customers.reverse_receivable_transaction(
                 row.receivable_transaction_id,
                 firm_scope=firm_scope,
                 actor_id=actor_id,
                 commit=False,
+                on=reversed_on,
             )
         row.status = CreditNoteStatus.CANCELLED.value
         row.updated_by = actor_id
