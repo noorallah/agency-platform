@@ -26,7 +26,10 @@ from app.branches.models import Branch, Warehouse
 from app.core.database.base import Base
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.customers.models import Customer, CustomerReceivableTransaction
-from app.document_framework.models import DocumentNumberingRule
+from app.document_framework.models import (
+    DocumentLifecycleEvent,
+    DocumentNumberingRule,
+)
 from app.finance.models import JournalEntry
 from app.firms.models import Firm
 from app.products.models import Product
@@ -414,6 +417,49 @@ def test_a_proforma_cannot_be_issued_twice() -> None:
         service.issue_proforma(
             row.id, firm_scope=books.firm.id, actor_id=books.actor_id
         )
+
+
+def test_a_cancelled_proforma_is_not_said_to_be_issued() -> None:
+    """Issuing a cancelled draft names what it is (D-SELL-28)."""
+    books = _Books(_session_factory()())
+    service = ProformaService(books.session)
+    row = books.raise_proforma()
+    service.cancel_proforma(
+        row.id,
+        reason="Not needed.",
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+    )
+
+    with pytest.raises(ValidationError, match="is cancelled and cannot be issued"):
+        service.issue_proforma(
+            row.id, firm_scope=books.firm.id, actor_id=books.actor_id
+        )
+
+
+def test_the_proforma_trail_uses_the_sibling_action_names() -> None:
+    """Lifecycle events read CREATED / ISSUED / CANCELLED (D-SELL-24).
+
+    They were ``PROFORMA.CREATED`` and so on, so a filter that works on
+    every other document's timeline found nothing here.
+    """
+    books = _Books(_session_factory()())
+    service = ProformaService(books.session)
+    row = books.raise_proforma()
+    service.issue_proforma(row.id, firm_scope=books.firm.id, actor_id=books.actor_id)
+    service.cancel_proforma(
+        row.id,
+        reason="Superseded.",
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+    )
+
+    actions = books.session.scalars(
+        select(DocumentLifecycleEvent.action)
+        .where(DocumentLifecycleEvent.source_document_id == row.id)
+        .order_by(DocumentLifecycleEvent.created_at)
+    ).all()
+    assert sorted(actions) == ["CANCELLED", "CREATED", "ISSUED"]
 
 
 def test_a_revision_says_what_it_replaces() -> None:
