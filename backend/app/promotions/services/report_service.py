@@ -19,9 +19,10 @@ not would disagree with the engine that refuses the claim.
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import Select, select
 from sqlalchemy.orm import Session
 
+from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.money import ZERO
 from app.customers.models import Customer
 from app.promotions.models import (
@@ -125,7 +126,9 @@ class PromotionReportService:
         ]
         return sorted(records, key=lambda record: (-record.benefit_amount, record.code))
 
-    def redemption_report(self, *, firm_scope: UUID) -> list[PromotionRedemptionRecord]:
+    def redemption_report(
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
+    ) -> list[PromotionRedemptionRecord]:
         """Return every claim on an offer, newest first.
 
         PENDING rows are included and labelled. A claim staged against a draft
@@ -135,18 +138,22 @@ class PromotionReportService:
 
         Args:
             firm_scope: The firm whose claims to list.
+            window: The days, on `redeemed_on`, and the page to answer; the
+                claims are paged in SQL.
 
         Returns:
             One record per redemption row.
 
         """
-        rows = self._redemptions(firm_scope)
+        rows = window.fetch(
+            self._session, self._redemption_statement(firm_scope, window)
+        )
         if not rows:
-            return []
+            return mapped_like(rows, [])
         promotions = {version.id: version for version in self._promotions(firm_scope)}
         coupons = self._coupon_codes({row.coupon_id for row in rows})
         names = self._customer_names({row.customer_id for row in rows})
-        return [
+        records = [
             PromotionRedemptionRecord(
                 redemption_id=row.id,
                 promotion_id=row.promotion_id,
@@ -166,6 +173,7 @@ class PromotionReportService:
             )
             for row in rows
         ]
+        return mapped_like(rows, records)
 
     def coupon_report(
         self, *, firm_scope: UUID
@@ -250,16 +258,27 @@ class PromotionReportService:
         """Every live claim row, newest first."""
         return list(
             self._session.scalars(
-                select(PromotionRedemption)
-                .where(
-                    PromotionRedemption.firm_id == firm_scope,
-                    PromotionRedemption.is_deleted.is_(False),
-                )
-                .order_by(
-                    PromotionRedemption.redeemed_on.desc(),
-                    PromotionRedemption.created_at.desc(),
-                )
+                self._redemption_statement(firm_scope, WHOLE_HISTORY)
             ).all()
+        )
+
+    @staticmethod
+    def _redemption_statement(
+        firm_scope: UUID, window: ReportWindow
+    ) -> Select[tuple[PromotionRedemption]]:
+        """Select the live claim rows redeemed in ``window``, newest first."""
+        return (
+            select(PromotionRedemption)
+            .where(
+                PromotionRedemption.firm_id == firm_scope,
+                PromotionRedemption.is_deleted.is_(False),
+                *window.dated(PromotionRedemption.redeemed_on),
+            )
+            .order_by(
+                PromotionRedemption.redeemed_on.desc(),
+                PromotionRedemption.created_at.desc(),
+                PromotionRedemption.id.desc(),
+            )
         )
 
     def _coupon_codes(self, ids: set[UUID | None]) -> dict[UUID, str]:

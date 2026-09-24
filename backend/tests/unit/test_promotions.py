@@ -2208,3 +2208,50 @@ def test_an_order_says_whether_its_whole_order_discount_was_typed() -> None:
     )
     assert order.bill_discount_source == "typed"
     assert order.bill_discount_amount == Decimal("40.0000")
+
+
+def test_the_claims_register_takes_a_window_and_a_page() -> None:
+    """D-RPT-18: the claims register was every claim the firm ever took.
+
+    Read on the claim's own `redeemed_on`, both ends inclusive, with
+    `total_records` counting the matches rather than the page. Performance
+    and coupons report each offer's allowance as it stands today, which a
+    window would misstate, so they take neither.
+    """
+    from app.promotions.api.router import promotion_redemptions, router
+    from tests.unit.report_windows import assert_page_size_is_bounded, report_scope
+
+    session = _session_factory()()
+    shop = _Shop(session)
+    _promotion(
+        session,
+        firm_id=shop.firm.id,
+        code="TEN",
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+    )
+    orders = SalesOrderService(session)
+    for _ in range(3):
+        order = shop.order()
+        orders.approve_order(order.id, firm_scope=shop.firm.id, actor_id=uuid4())
+    days = [date(2026, 8, 4), date(2026, 8, 5), date(2026, 8, 6)]
+    claims = session.scalars(
+        select(PromotionRedemption).order_by(PromotionRedemption.created_at)
+    ).all()
+    assert len(claims) == 3
+    for claim, day in zip(claims, days, strict=True):
+        claim.redeemed_on = day
+    session.commit()
+    scope = report_scope(shop.firm.id)
+
+    page = promotion_redemptions(
+        scope=scope,
+        db=session,
+        from_date=days[1],
+        to_date=days[2],
+        page=1,
+        page_size=1,
+    )
+    assert page.pagination.total_records == 2
+    assert [row.redeemed_on for row in page.data] == [days[2]]
+
+    assert_page_size_is_bounded(router, "/api/v1/promotions/reports/redemptions")

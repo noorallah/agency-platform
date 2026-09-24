@@ -1071,3 +1071,54 @@ def test_a_rule_refuses_goods_that_are_not_the_firms() -> None:
         books.session.rollback()
 
     assert books.session.scalars(select(CommissionRule)).all() == []
+
+
+def test_the_report_pages_its_rows_and_keeps_the_period_totals() -> None:
+    """D-RPT-18: the report stays one object and gains a page.
+
+    `rows` is one page of salespeople and `total_records` counts them all,
+    while the three totals stay the whole period's -- a page of people is not
+    a page of the money. The period was already required; a page above the
+    cap is refused with a 422.
+    """
+    from app.commission.api.router import commission_report, router
+    from tests.unit.report_windows import report_scope, status_for
+
+    books = _Books(_session_factory()())
+    books.rule("5", salesman_id=books.asha)
+    books.rule("2", salesman_id=books.bala)
+    books.receipt(books.invoice("SI-1", "1000.00", books.asha), "400.00")
+    books.receipt(books.invoice("SI-2", "1000.00", books.bala), "500.00")
+    scope = report_scope(books.firm.id)
+
+    whole = commission_report(
+        scope=scope, from_date=YEAR[0], to_date=YEAR[1], db=books.session
+    ).data
+    first = commission_report(
+        scope=scope,
+        from_date=YEAR[0],
+        to_date=YEAR[1],
+        page=1,
+        page_size=1,
+        db=books.session,
+    ).data
+    second = commission_report(
+        scope=scope,
+        from_date=YEAR[0],
+        to_date=YEAR[1],
+        page=2,
+        page_size=1,
+        db=books.session,
+    ).data
+
+    assert whole.total_records == first.total_records == 2
+    assert [row.salesman_id for row in first.rows + second.rows] == [
+        row.salesman_id for row in whole.rows
+    ]
+    assert first.total_collected_amount == whole.total_collected_amount
+    assert first.total_commission_amount == Decimal("30.00")
+
+    path = "/api/v1/commission/report"
+    window = {"from_date": YEAR[0].isoformat(), "to_date": YEAR[1].isoformat()}
+    assert status_for(router, path, page_size=101, **window) == 422
+    assert status_for(router, path, page=0, **window) == 422

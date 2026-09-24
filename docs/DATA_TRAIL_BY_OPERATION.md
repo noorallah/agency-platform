@@ -6936,12 +6936,31 @@ platform administrator. §18.11 says which claims a live row confirmed.
   table anything here inserts into is `platform.error_reports` (§18.7). The
   one row a report *can* leave is the `user_preferences.updated` of the last
   screen, on the platform (§3).
-- **Every report is the whole history.** Fifty-seven catalogued report routes
-  and **not one takes a date range or a page** — `loyalty/reports/expiring`
-  takes `within_days` (1–730, default 90) and that is the only parameter
-  anywhere. Each answers `ApiResponse[list[...]]` holding every matching row
-  the firm has ever written, and the desktop's `DataTable` is not virtualised
-  (D-RPT-18).
+- **Every dated report takes a window and a page** since #PRNUM (D-RPT-18).
+  Thirty-six of the fifty-seven `/reports/` routes, plus
+  `sales-targets/achievement` and `commission/report`, take `page` (≥ 1) and
+  `page_size` (1–100, default 100) and answer `PaginatedResponse` with
+  `pagination.total_records` counting every match; the thirty-six also take
+  `from_date`/`to_date`, inclusive days on the document's **own** date
+  (`order_date`, `invoice_date`, `delivery_date`, `receipt_date`,
+  `return_date`, `credit_note_date`, `quotation_date`, `proforma_date`,
+  `purchase_date`, a claim's `redeemed_on`, a loyalty entry's `earned_on`),
+  never `created_at`. A register pages in SQL; a group-by (by-customer,
+  by-product, conversion, ...) is computed over the window and the page is
+  sliced from it. The commission report stays one object: `rows` is a page,
+  `total_records` sits beside it, and the totals are the whole period's.
+  **The snapshots take neither** — what is open or held *today*, where a
+  window would hide the old item the report exists to show: every
+  `pending`, every `overdue`, `sales-orders/reports/back-orders`,
+  `goods-receipts/reports/partial`, `proforma-invoices/reports/outstanding`,
+  `purchase-invoices/reports/outstanding`,
+  `sales-invoices/reports/customer-outstanding`, the purchase and sales
+  invoice `reconciliation` (billed against received or delivered across every
+  bill), `loyalty/reports/balances` and `expiring` (which keeps its
+  `within_days`), `promotions/reports/performance` and `coupons` (an offer's
+  remaining allowance is as of now), and `sales-invoices/reports/summary`.
+  The desktop's From/To and pager are still to come, and its `DataTable` is
+  not virtualised.
 - **"Today" is `utc_now().date()`** everywhere a report needs one — the
   overdue lists, the proforma's `days_to_expiry`, the loyalty horizon. No
   report reads the server clock.
@@ -7198,7 +7217,7 @@ since the client's own version is a JSON file beside the exe. `GET
 | --- | --- |
 | A row saying who ran which report, when | None — not an audit row, not a preference. The screen is a `GET` |
 | A stored report, snapshot or export | None; every report is recomputed on the read and nothing can be exported |
-| A report bounded to a period | None takes a date; the whole history every time (D-RPT-18) |
+| A report bounded to a period | Every dated report takes `from_date`/`to_date` and `page`/`page_size` since #PRNUM; the snapshots (pending, overdue, outstanding, back-orders, reconciliations of invoices, balances, expiring, offer performance) take neither, and the desktop does not send them yet (D-RPT-18) |
 | An overdue or outstanding figure that a receipt or payment moves | Never on the invoice reports: they read `status` and `due_date`, or the customer's running balance; allocations are §9.11 and §12.12 (D-RPT-2, D-RPT-3) |
 | A search that remembers what was typed | Recent and saved searches are the desktop's local preference file, not the server |
 | An audit row for a crash report | None; `error_reports` is telemetry and carries its own actor columns |

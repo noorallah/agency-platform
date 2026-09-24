@@ -27,7 +27,7 @@ from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
-from app.core.pagination import PaginationParams
+from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.document_framework.schemas import DocumentLifecycleEventResponse
 from app.purchase_return.schemas import (
@@ -321,88 +321,126 @@ def purchase_return_history(
 
 
 @router.get(
-    "/reports/register", response_model=ApiResponse[list[PurchaseReturnRegisterRecord]]
+    "/reports/register", response_model=PaginatedResponse[PurchaseReturnRegisterRecord]
 )
 def purchase_return_register(
     scope: PurchaseReturnReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[PurchaseReturnRegisterRecord]]:
+) -> PaginatedResponse[PurchaseReturnRegisterRecord]:
     """Return the purchase return register report for the visible firm scope."""
-    return ApiResponse(
-        data=PurchaseReturnService(db).register_report(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        PurchaseReturnService(db).register_report(
+            firm_scope=scope.firm_id, window=window
+        )
     )
 
 
 @router.get(
     "/reports/by-vendor",
-    response_model=ApiResponse[list[PurchaseReturnByVendorRecord]],
+    response_model=PaginatedResponse[PurchaseReturnByVendorRecord],
 )
 def returns_by_vendor(
     scope: PurchaseReturnReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[PurchaseReturnByVendorRecord]]:
+) -> PaginatedResponse[PurchaseReturnByVendorRecord]:
     """Total returned value and count per vendor."""
-    return ApiResponse(
-        data=PurchaseReturnService(db).by_vendor_report(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        PurchaseReturnService(db).by_vendor_report(
+            firm_scope=scope.firm_id, window=window
+        )
     )
 
 
 @router.get(
     "/reports/by-product",
-    response_model=ApiResponse[list[PurchaseReturnByProductRecord]],
+    response_model=PaginatedResponse[PurchaseReturnByProductRecord],
 )
 def returns_by_product(
     scope: PurchaseReturnReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[PurchaseReturnByProductRecord]]:
+) -> PaginatedResponse[PurchaseReturnByProductRecord]:
     """Total returned quantity and value per product."""
-    return ApiResponse(
-        data=PurchaseReturnService(db).by_product_report(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        PurchaseReturnService(db).by_product_report(
+            firm_scope=scope.firm_id, window=window
+        )
     )
 
 
 @router.get(
     "/reports/reconciliation",
-    response_model=ApiResponse[list[PurchaseReturnReconciliationRecord]],
+    response_model=PaginatedResponse[PurchaseReturnReconciliationRecord],
 )
 def purchase_return_reconciliation(
     scope: PurchaseReturnReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[PurchaseReturnReconciliationRecord]]:
+) -> PaginatedResponse[PurchaseReturnReconciliationRecord]:
     """Return lines set against the receipts they came from."""
-    return ApiResponse(
-        data=PurchaseReturnService(db).reconciliation_report(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        PurchaseReturnService(db).reconciliation_report(
+            firm_scope=scope.firm_id, window=window
+        )
     )
 
 
 @router.get(
     "/reports/damaged",
-    response_model=ApiResponse[list[PurchaseReturnReconciliationRecord]],
+    response_model=PaginatedResponse[PurchaseReturnReconciliationRecord],
 )
 def damaged_goods_report(
     scope: PurchaseReturnReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[PurchaseReturnReconciliationRecord]]:
+) -> PaginatedResponse[PurchaseReturnReconciliationRecord]:
     """Lines returned because the goods were damaged."""
-    return ApiResponse(
-        data=PurchaseReturnService(db).reconciliation_report(
-            firm_scope=scope.firm_id, damaged_only=True
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        PurchaseReturnService(db).reconciliation_report(
+            firm_scope=scope.firm_id, window=window, damaged_only=True
         )
     )
 
 
 @router.get(
     "/reports/expired",
-    response_model=ApiResponse[list[PurchaseReturnReconciliationRecord]],
+    response_model=PaginatedResponse[PurchaseReturnReconciliationRecord],
 )
 def expired_goods_report(
     scope: PurchaseReturnReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[PurchaseReturnReconciliationRecord]]:
+) -> PaginatedResponse[PurchaseReturnReconciliationRecord]:
     """Lines returned because the stock was past its date."""
-    return ApiResponse(
-        data=PurchaseReturnService(db).reconciliation_report(
-            firm_scope=scope.firm_id, expired_only=True
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        PurchaseReturnService(db).reconciliation_report(
+            firm_scope=scope.firm_id, window=window, expired_only=True
         )
     )
 

@@ -1006,6 +1006,7 @@ class CommissionService:
             total_invoiced_amount=quantize_ledger(sum(invoiced.values(), ZERO)),
             total_commission_amount=quantize_ledger(sum(earned.values(), ZERO)),
             rows=rows,
+            total_records=len(rows),
         )
 
     def _collections(

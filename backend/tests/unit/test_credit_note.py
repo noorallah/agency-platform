@@ -665,3 +665,54 @@ def test_a_draft_credit_is_not_yet_given() -> None:
     assert (row.note_count, row.taxable_amount) == (1, Decimal("100.00"))
     [reason] = service.by_reason_report(firm_scope=books.firm.id)
     assert reason.note_count == 1
+
+
+def test_the_credit_note_reports_take_a_window_and_a_page() -> None:
+    """D-RPT-18: every report was the firm's whole history.
+
+    Read on the note's own `credit_note_date`, both ends inclusive, with
+    `total_records` counting the matches rather than the page, and a page
+    above the cap refused with a 422.
+    """
+    from app.credit_note.api.router import (
+        credit_note_register,
+        credit_notes_by_customer,
+        credit_notes_by_reason,
+        router,
+    )
+    from tests.unit.report_windows import assert_page_size_is_bounded, report_scope
+
+    books = _Books(_session_factory()())
+    days = [date(2026, 8, 4), date(2026, 8, 5), date(2026, 8, 6)]
+    for day in days:
+        note = books.approved(taxable="100")
+        note.credit_note_date = day
+    books.session.commit()
+    scope = report_scope(books.firm.id)
+
+    page = credit_note_register(
+        scope=scope,
+        db=books.session,
+        from_date=days[1],
+        to_date=days[2],
+        page=1,
+        page_size=1,
+    )
+    assert page.pagination.total_records == 2
+    assert [row.credit_note_date for row in page.data] == [days[2]]
+
+    [customer] = credit_notes_by_customer(
+        scope=scope, db=books.session, from_date=days[0], to_date=days[1]
+    ).data
+    assert customer.note_count == 2
+    [reason] = credit_notes_by_reason(
+        scope=scope, db=books.session, to_date=days[0]
+    ).data
+    assert reason.note_count == 1
+
+    assert_page_size_is_bounded(
+        router,
+        "/api/v1/credit-notes/reports/register",
+        "/api/v1/credit-notes/reports/by-customer",
+        "/api/v1/credit-notes/reports/by-reason",
+    )

@@ -1371,3 +1371,83 @@ def test_a_return_line_cannot_front_for_another_documents_line() -> None:
     session.commit()
     with pytest.raises(ValidationError, match="GRN-2026-000001 has no line"):
         service.complete_return(saved.id, firm_scope=firm.id, actor_id=uuid4())
+
+
+def test_the_return_reports_take_a_window_and_a_page() -> None:
+    """D-RPT-18: every report was the firm's whole history.
+
+    Every report here is read on the return's own `return_date`, both ends
+    inclusive, with `total_records` counting the matches rather than the page,
+    and a page above the cap refused with a 422.
+    """
+    from app.purchase_return.api.router import (
+        damaged_goods_report,
+        expired_goods_report,
+        purchase_return_reconciliation,
+        purchase_return_register,
+        returns_by_product,
+        returns_by_vendor,
+        router,
+    )
+    from tests.unit.report_windows import assert_page_size_is_bounded, report_scope
+
+    session = _session_factory()()
+    firm = _firm(session)
+    service, row, _ = _approved_return(session, firm_id=firm.id)  # 2026-08-02
+    _return_against(  # 2026-08-03
+        session,
+        service,
+        row,
+        firm_id=firm.id,
+        supplier_return_number="SUP-W1",
+        is_damaged=True,
+    )
+    expired = _return_against(
+        session,
+        service,
+        row,
+        firm_id=firm.id,
+        supplier_return_number="SUP-W2",
+        is_expired=True,
+    )
+    expired.return_date = date(2026, 8, 4)
+    session.commit()
+    first, second, third = date(2026, 8, 2), date(2026, 8, 3), date(2026, 8, 4)
+    scope = report_scope(firm.id)
+
+    page = purchase_return_register(
+        scope=scope, db=session, from_date=second, to_date=third, page=1, page_size=1
+    )
+    assert page.pagination.total_records == 2
+    assert [record.return_date for record in page.data] == [third]
+
+    [vendor] = returns_by_vendor(
+        scope=scope, db=session, from_date=first, to_date=first
+    ).data
+    assert vendor.return_count == 1
+    [product] = returns_by_product(scope=scope, db=session, from_date=second).data
+    assert product.return_count == 2
+
+    lines = purchase_return_reconciliation(
+        scope=scope, db=session, from_date=second, page=2, page_size=1
+    )
+    assert lines.pagination.total_records == 2
+    assert [record.return_date for record in lines.data] == [second]
+    assert (
+        damaged_goods_report(
+            scope=scope, db=session, from_date=first, to_date=first
+        ).data
+        == []
+    )
+    assert damaged_goods_report(scope=scope, db=session, from_date=second).data
+    assert expired_goods_report(scope=scope, db=session, to_date=second).data == []
+
+    assert_page_size_is_bounded(
+        router,
+        "/api/v1/purchase-returns/reports/register",
+        "/api/v1/purchase-returns/reports/by-vendor",
+        "/api/v1/purchase-returns/reports/by-product",
+        "/api/v1/purchase-returns/reports/reconciliation",
+        "/api/v1/purchase-returns/reports/damaged",
+        "/api/v1/purchase-returns/reports/expired",
+    )

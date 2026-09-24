@@ -1949,3 +1949,57 @@ def test_receiving_writes_the_orders_own_history_row() -> None:
     assert [
         Decimal(json.loads(row.details_json)["received_quantity"]) for row in rows
     ] == [Decimal("4"), Decimal("10")], "what had arrived in all, at each step"
+
+
+def test_the_dated_receipt_reports_take_a_window_and_a_page() -> None:
+    """D-RPT-18: every report was the firm's whole history.
+
+    Completed, damaged and rejected are read on the receipt's own
+    `receipt_date`, both ends inclusive; `total_records` counts the matches
+    rather than the page; a page above the cap is refused with a 422.
+    """
+    from app.goods_receipt.api.router import (
+        completed_goods_receipts,
+        damaged_goods_receipt_items,
+        rejected_goods_receipt_items,
+        router,
+    )
+    from tests.unit.report_windows import assert_page_size_is_bounded, report_scope
+
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-WIN")
+    service = GoodsReceiptService(session)
+    days = [date(2026, 8, 5), date(2026, 8, 6), date(2026, 8, 7)]
+    for day in days:
+        payload = fixture.receipt_payload("2", receipt_date=day.isoformat())
+        payload.lines[0].damaged_quantity = Decimal("1")
+        payload.lines[0].rejected_quantity = Decimal("1")
+        receipt = service.create_receipt(
+            payload, firm_id=fixture.firm.id, actor_id=fixture.actor_id
+        )
+        service.complete_receipt(
+            receipt.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+        )
+    scope = report_scope(fixture.firm.id)
+
+    page = completed_goods_receipts(
+        scope=scope,
+        db=session,
+        from_date=days[1],
+        to_date=days[2],
+        page=1,
+        page_size=1,
+    )
+    assert page.pagination.total_records == 2
+    assert [row.receipt_date for row in page.data] == [days[2]]
+    for handler in (damaged_goods_receipt_items, rejected_goods_receipt_items):
+        lines = handler(scope=scope, db=session, from_date=days[0], to_date=days[0])
+        assert lines.pagination.total_records == 1
+        assert len(lines.data) == 1
+
+    assert_page_size_is_bounded(
+        router,
+        "/api/v1/goods-receipts/reports/completed",
+        "/api/v1/goods-receipts/reports/rejected",
+        "/api/v1/goods-receipts/reports/damaged",
+    )

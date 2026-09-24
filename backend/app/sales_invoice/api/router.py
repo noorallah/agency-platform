@@ -24,7 +24,7 @@ from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
-from app.core.pagination import PaginationParams
+from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.document_framework.schemas import DocumentLifecycleEventResponse
 from app.sales_invoice.schemas import (
@@ -365,16 +365,23 @@ def get_sales_invoice_summary(
 
 @router.get(
     "/reports/register",
-    response_model=ApiResponse[list[SalesInvoiceRegisterRecord]],
+    response_model=PaginatedResponse[SalesInvoiceRegisterRecord],
     status_code=status.HTTP_200_OK,
 )
 def get_sales_invoice_register(
     scope: SalesInvoiceReportScope,
     db: Annotated[Session, Depends(get_db)],
-) -> ApiResponse[list[SalesInvoiceRegisterRecord]]:
-    """Get sales invoice register report."""
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+) -> PaginatedResponse[SalesInvoiceRegisterRecord]:
+    """Every invoice raised in the window, on its `invoice_date`, one page."""
     service = SalesInvoiceService(db)
-    return ApiResponse(data=service.register_report(firm_scope=scope.firm_id))
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        service.register_report(firm_scope=scope.firm_id, window=window)
+    )
 
 
 @router.get(

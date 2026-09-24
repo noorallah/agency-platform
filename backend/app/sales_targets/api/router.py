@@ -12,7 +12,7 @@ from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
-from app.core.pagination import PaginationParams
+from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.sales_targets.schemas import (
     SalesTargetAchievement,
@@ -38,21 +38,25 @@ TargetManageScope = Annotated[
 
 # Declared above `/{target_id}`: FastAPI matches in declaration order, and
 # below it "achievement" is read as a target id and answered 422.
-@router.get("/achievement", response_model=ApiResponse[list[SalesTargetAchievement]])
+@router.get("/achievement", response_model=PaginatedResponse[SalesTargetAchievement])
 def target_achievement(
     scope: TargetViewScope,
     from_date: date,
     to_date: date,
     salesman_id: UUID | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[SalesTargetAchievement]]:
+) -> PaginatedResponse[SalesTargetAchievement]:
     """Report every target overlapping the window, against what it took.
 
     Each is measured over its own period and on its own basis. The window only
-    chooses which targets are worth reporting.
+    chooses which targets are worth reporting. Each row is computed, so the
+    page is sliced from the whole answer (D-RPT-18).
     """
-    return ApiResponse(
-        data=SalesTargetService(db).achievement(
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        SalesTargetService(db).achievement(
             firm_scope=scope.firm_id,
             from_date=from_date,
             to_date=to_date,

@@ -1198,3 +1198,74 @@ def test_input_tax_posts_one_leg_per_gst_head_and_reverses_the_same_way() -> Non
     assert undivided["1300"] == (Decimal("36.00"), Decimal("0.00"))
     assert "1320" not in undivided
     assert "1330" not in undivided
+
+
+def test_the_register_takes_a_window_and_a_page() -> None:
+    """D-RPT-18: the register was every bill the firm ever entered.
+
+    Read on the bill's own `invoice_date`, both ends inclusive, with
+    `total_records` counting the matches rather than the page. Pending,
+    overdue, outstanding and the reconciliation are what is open today, so
+    they take neither.
+    """
+    from app.purchase_invoice.api.router import purchase_invoice_register, router
+    from tests.unit.report_windows import assert_page_size_is_bounded, report_scope
+
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    vendor = _vendor(session, firm_id=firm.id)
+    order = _purchase_order(
+        session,
+        firm_id=firm.id,
+        vendor_id=vendor.id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+    )
+    po_line = session.scalar(
+        select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+    )
+    assert po_line is not None
+    receipt, receipt_line = _received(session, po_line)
+    service = PurchaseInvoiceService(session)
+    days = [date(2026, 8, 2), date(2026, 8, 3), date(2026, 8, 4)]
+    for number, day in enumerate(days):
+        service.create_invoice(
+            PurchaseInvoiceCreate(
+                supplier_invoice_number=f"SUP-W{number}",
+                supplier_invoice_date=day,
+                invoice_date=day,
+                source_documents=[
+                    {
+                        "source_document_type": PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                        "source_document_id": receipt.id,
+                    }
+                ],
+                lines=[
+                    PurchaseInvoiceLineWrite(
+                        source_document_type=PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                        source_document_id=receipt.id,
+                        source_document_line_id=receipt_line.id,
+                        line_number=1,
+                        current_invoice_quantity=Decimal("1"),
+                    )
+                ],
+            ),
+            firm_id=firm.id,
+            actor_id=uuid4(),
+        )
+    scope = report_scope(firm.id)
+
+    page = purchase_invoice_register(
+        scope=scope,
+        db=session,
+        from_date=days[1],
+        to_date=days[2],
+        page=1,
+        page_size=1,
+    )
+    assert page.pagination.total_records == 2
+    assert [row.invoice_date for row in page.data] == [days[2]]
+
+    assert_page_size_is_bounded(router, "/api/v1/purchase-invoices/reports/register")

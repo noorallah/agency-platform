@@ -2688,3 +2688,90 @@ def test_a_note_and_a_bill_inherit_the_orders_freight() -> None:
         actor_id=actor_id,
     )
     assert waived.freight_amount == Decimal("0.0000")
+
+
+def test_the_dated_reports_take_a_window_and_a_page() -> None:
+    """D-RPT-18: a report answered the firm's whole history in one response.
+
+    The window is inclusive on both days and read on the note's own
+    `delivery_date` (the order's `order_date` for the progress report);
+    `total_records` counts every match, not the page; a page above the cap is
+    refused by FastAPI before the handler runs.
+    """
+    from app.delivery_note.api.router import (
+        delivery_by_warehouse,
+        delivery_note_register,
+        partial_delivery_report,
+        router,
+    )
+    from tests.unit.report_windows import assert_page_size_is_bounded, report_scope
+
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    actor_id = uuid4()
+    _stock(session, firm=firm, branch=branch, warehouse=warehouse, product=product)
+    order, order_line = _approved_order(
+        session,
+        firm=firm,
+        branch=branch,
+        warehouse=warehouse,
+        customer=customer,
+        product=product,
+        quantity=Decimal("3"),
+        actor_id=actor_id,
+    )
+    days = [date(2026, 8, 4), date(2026, 8, 5), date(2026, 8, 6)]
+    for day in days:
+        _dispatch(
+            session,
+            firm=firm,
+            order=order,
+            order_line=order_line,
+            quantity=Decimal("1"),
+            on=day,
+            actor_id=actor_id,
+        )
+    scope = report_scope(firm.id)
+
+    page = delivery_note_register(
+        scope=scope,
+        db=session,
+        from_date=days[1],
+        to_date=days[2],
+        page=1,
+        page_size=1,
+    )
+    assert page.pagination.total_records == 2, "both ends of the window are in"
+    assert page.pagination.total_pages == 2
+    assert [row.delivery_date for row in page.data] == [days[2]]
+    second = delivery_note_register(
+        scope=scope, db=session, from_date=days[1], to_date=days[2], page=2, page_size=1
+    )
+    assert [row.delivery_date for row in second.data] == [days[1]]
+
+    [by_warehouse] = delivery_by_warehouse(
+        scope=scope, db=session, from_date=days[1], to_date=days[1]
+    ).data
+    assert by_warehouse.note_count == 1
+
+    # The progress report is one row per order, dated by the order.
+    ordered_on = date(2026, 8, 3)
+    within = partial_delivery_report(
+        scope=scope, db=session, from_date=ordered_on, to_date=ordered_on
+    )
+    assert within.pagination.total_records == 1
+    after = partial_delivery_report(scope=scope, db=session, from_date=days[0])
+    assert after.pagination.total_records == 0
+
+    assert_page_size_is_bounded(
+        router,
+        "/api/v1/delivery-notes/reports/register",
+        "/api/v1/delivery-notes/reports/partial",
+        "/api/v1/delivery-notes/reports/by-route",
+        "/api/v1/delivery-notes/reports/by-salesman",
+        "/api/v1/delivery-notes/reports/by-warehouse",
+    )

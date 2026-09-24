@@ -28,7 +28,7 @@ from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
-from app.core.pagination import PaginationParams
+from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.document_framework.schemas import DocumentLifecycleEventResponse
 from app.goods_receipt.schemas import (
@@ -326,44 +326,65 @@ def pending_goods_receipts(
 
 @router.get(
     "/reports/completed",
-    response_model=ApiResponse[list[GoodsReceiptRegisterRecord]],
+    response_model=PaginatedResponse[GoodsReceiptRegisterRecord],
 )
 def completed_goods_receipts(
     scope: GoodsReceiptReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[GoodsReceiptRegisterRecord]]:
+) -> PaginatedResponse[GoodsReceiptRegisterRecord]:
     """List the receipts whose goods are in stock, one flat row each."""
     service = GoodsReceiptService(db)
-    return ApiResponse(
-        data=service.register_rows(service.completed_receipts(firm_scope=scope.firm_id))
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        service.register_rows(
+            service.completed_receipts(firm_scope=scope.firm_id, window=window)
+        )
     )
 
 
 @router.get(
-    "/reports/rejected", response_model=ApiResponse[list[GoodsReceiptLineResponse]]
+    "/reports/rejected", response_model=PaginatedResponse[GoodsReceiptLineResponse]
 )
 def rejected_goods_receipt_items(
     scope: GoodsReceiptReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[GoodsReceiptLineResponse]]:
+) -> PaginatedResponse[GoodsReceiptLineResponse]:
     """Return the lines refused at the door, product and warehouse named."""
     service = GoodsReceiptService(db)
-    return ApiResponse(
-        data=service.line_report_rows(service.rejected_items(firm_scope=scope.firm_id))
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        service.line_report_rows(
+            service.rejected_items(firm_scope=scope.firm_id, window=window)
+        )
     )
 
 
 @router.get(
-    "/reports/damaged", response_model=ApiResponse[list[GoodsReceiptLineResponse]]
+    "/reports/damaged", response_model=PaginatedResponse[GoodsReceiptLineResponse]
 )
 def damaged_goods_receipt_items(
     scope: GoodsReceiptReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[GoodsReceiptLineResponse]]:
+) -> PaginatedResponse[GoodsReceiptLineResponse]:
     """Return the lines damaged on arrival, product and warehouse named."""
     service = GoodsReceiptService(db)
-    return ApiResponse(
-        data=service.line_report_rows(service.damaged_items(firm_scope=scope.firm_id))
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        service.line_report_rows(
+            service.damaged_items(firm_scope=scope.firm_id, window=window)
+        )
     )
 
 

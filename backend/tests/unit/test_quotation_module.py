@@ -1368,3 +1368,52 @@ def test_an_offer_already_made_is_edited_but_takes_no_withdrawn_line() -> None:
         setup.service.update_quotation(
             quotation.id, payload, firm_scope=setup.firm.id, actor_id=uuid4()
         )
+
+
+def test_the_quotation_reports_take_a_window_and_a_page() -> None:
+    """D-RPT-18: every report was the firm's whole history.
+
+    Both are read on the quotation's own `quotation_date`, both ends
+    inclusive, with `total_records` counting the matches rather than the page,
+    and a page above the cap refused with a 422.
+    """
+    from app.quotation.api.router import (
+        quotation_conversion,
+        quotation_register,
+        router,
+    )
+    from tests.unit.report_windows import assert_page_size_is_bounded, report_scope
+
+    session = _session_factory()()
+    setup = _Setup(session)
+    today = utc_now().date()
+    days = [today - timedelta(days=2), today - timedelta(days=1), today]
+    for day in days:
+        setup.service.create_quotation(
+            setup.payload(quotation_date=day),
+            firm_id=setup.firm.id,
+            actor_id=setup.actor_id,
+        )
+    scope = report_scope(setup.firm.id)
+
+    page = quotation_register(
+        scope=scope,
+        db=session,
+        from_date=days[1],
+        to_date=days[2],
+        page=1,
+        page_size=1,
+    )
+    assert page.pagination.total_records == 2
+    assert [row.quotation_date for row in page.data] == [days[2]]
+
+    [row] = quotation_conversion(
+        scope=scope, db=session, from_date=days[0], to_date=days[1]
+    ).data
+    assert row.quoted_count == 2
+
+    assert_page_size_is_bounded(
+        router,
+        "/api/v1/quotations/reports/register",
+        "/api/v1/quotations/reports/conversion",
+    )

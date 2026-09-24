@@ -264,6 +264,9 @@ class CommissionReport(CommissionSchema):
     total_invoiced_amount: Decimal
     total_commission_amount: Decimal
     rows: list[SalesmanCommissionRecord]
+    #: How many salespeople the period has rows for; ``rows`` is one page of
+    #: them, and the three totals above are always the whole period's.
+    total_records: int = Field(default=0, ge=0)
 
 
 __all__ = [

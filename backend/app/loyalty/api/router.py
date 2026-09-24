@@ -1,5 +1,6 @@
 """Firm-scoped REST endpoints for the loyalty ledger."""
 
+from datetime import date
 from typing import Annotated
 from uuid import UUID
 
@@ -14,7 +15,7 @@ from app.common.scope import (
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
-from app.core.pagination import PaginationParams
+from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.loyalty.schemas import (
     LoyaltyAdjust,
@@ -183,15 +184,20 @@ def loyalty_balances(
 
 @router.get(
     "/reports/movements",
-    response_model=ApiResponse[list[LoyaltyMovementRecord]],
+    response_model=PaginatedResponse[LoyaltyMovementRecord],
 )
 def loyalty_movements(
     scope: LoyaltyReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[LoyaltyMovementRecord]]:
+) -> PaginatedResponse[LoyaltyMovementRecord]:
     """Every movement of credit: earned, spent, adjusted and lapsed."""
-    return ApiResponse(
-        data=LoyaltyService(db).movements_report(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        LoyaltyService(db).movements_report(firm_scope=scope.firm_id, window=window)
     )
 
 

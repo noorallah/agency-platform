@@ -28,6 +28,7 @@ from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader, platform_reader
 from app.common.report_names import branch_names, customer_names, warehouse_names
 from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
 from app.core.utils.pricing import (
     LineDiscount,
@@ -866,7 +867,11 @@ class DeliveryNoteService(TransactionalDocumentService):
         )
 
     def register_report(
-        self, *, firm_scope: UUID, statuses: Sequence[str] | None = None
+        self,
+        *,
+        firm_scope: UUID,
+        statuses: Sequence[str] | None = None,
+        window: ReportWindow = WHOLE_HISTORY,
     ) -> list[DeliveryNoteRegisterRecord]:
         """Return the register report, optionally narrowed to some statuses.
 
@@ -878,27 +883,29 @@ class DeliveryNoteService(TransactionalDocumentService):
         rather than one per row; the grid derives its columns from the row, so
         a register of ids alone read as UUIDs (D-RPT-17).
         """
-        rows = list(
-            self._session.scalars(
-                select(DeliveryNote)
-                .where(
-                    DeliveryNote.firm_id == firm_scope,
-                    DeliveryNote.is_deleted.is_(False),
-                    *(
-                        ()
-                        if statuses is None
-                        else (DeliveryNote.status.in_(list(statuses)),)
-                    ),
-                )
-                .order_by(
-                    DeliveryNote.delivery_date.desc(), DeliveryNote.created_at.desc()
-                )
-            ).all()
+        rows = window.fetch(
+            self._session,
+            select(DeliveryNote)
+            .where(
+                DeliveryNote.firm_id == firm_scope,
+                DeliveryNote.is_deleted.is_(False),
+                *(
+                    ()
+                    if statuses is None
+                    else (DeliveryNote.status.in_(list(statuses)),)
+                ),
+                *window.dated(DeliveryNote.delivery_date),
+            )
+            .order_by(
+                DeliveryNote.delivery_date.desc(),
+                DeliveryNote.created_at.desc(),
+                DeliveryNote.id.desc(),
+            ),
         )
         customers = customer_names(self._session, (row.customer_id for row in rows))
         branches = branch_names(self._session, (row.branch_id for row in rows))
         warehouses = warehouse_names(self._session, (row.warehouse_id for row in rows))
-        return [
+        records = [
             DeliveryNoteRegisterRecord(
                 delivery_note_id=row.id,
                 delivery_note_number=row.delivery_note_number,
@@ -916,6 +923,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             )
             for row in rows
         ]
+        return mapped_like(rows, records)
 
     def pending_notes(self, *, firm_scope: UUID) -> list[DeliveryNote]:
         """List notes still open: draft or approved, not yet dispatched."""
@@ -935,7 +943,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         )
 
     def partially_delivered_orders(
-        self, *, firm_scope: UUID
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
     ) -> list[DeliveryNoteOrderProgressRecord]:
         """Show how much of each sales order has actually been delivered.
 
@@ -946,17 +954,24 @@ class DeliveryNoteService(TransactionalDocumentService):
         while nothing had moved (D-RPT-9). One grouped read for the lines and
         one for the deliveries, rather than one query per line.
         """
-        order_rows = list(
-            self._session.scalars(
-                select(SalesOrder).where(
-                    SalesOrder.firm_id == firm_scope,
-                    SalesOrder.is_deleted.is_(False),
-                    SalesOrder.status != SalesOrderStatus.CANCELLED.value,
-                )
-            ).all()
+        # One record per order, so the orders are paged in SQL, newest first.
+        order_rows = window.fetch(
+            self._session,
+            select(SalesOrder)
+            .where(
+                SalesOrder.firm_id == firm_scope,
+                SalesOrder.is_deleted.is_(False),
+                SalesOrder.status != SalesOrderStatus.CANCELLED.value,
+                *window.dated(SalesOrder.order_date),
+            )
+            .order_by(
+                SalesOrder.order_date.desc(),
+                SalesOrder.created_at.desc(),
+                SalesOrder.id.desc(),
+            ),
         )
         if not order_rows:
-            return []
+            return mapped_like(order_rows, [])
         order_ids = [order.id for order in order_rows]
         lines_by_order: dict[UUID, list[SalesOrderLine]] = defaultdict(list)
         for line in self._session.scalars(
@@ -997,9 +1012,11 @@ class DeliveryNoteService(TransactionalDocumentService):
                     ),
                 )
             )
-        return result
+        return mapped_like(order_rows, result)
 
-    def _shipped_notes(self, *, firm_scope: UUID) -> list[DeliveryNote]:
+    def _shipped_notes(
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
+    ) -> list[DeliveryNote]:
         """Every note whose goods actually left the warehouse.
 
         The by-route, by-salesman and by-warehouse reports say "delivered",
@@ -1014,36 +1031,37 @@ class DeliveryNoteService(TransactionalDocumentService):
                     DeliveryNote.firm_id == firm_scope,
                     DeliveryNote.is_deleted.is_(False),
                     goods_have_left_clause(),
+                    *window.dated(DeliveryNote.delivery_date),
                 )
             ).all()
         )
 
     def by_route_report(
-        self, *, firm_scope: UUID
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
     ) -> list[DeliveryNoteByDimensionRecord]:
         """Deliveries per route: dispatched notes only."""
         return self._aggregate_dimension(
-            rows=self._shipped_notes(firm_scope=firm_scope),
+            rows=self._shipped_notes(firm_scope=firm_scope, window=window),
             attr="route_id",
             dimension="route",
         )
 
     def by_salesman_report(
-        self, *, firm_scope: UUID
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
     ) -> list[DeliveryNoteByDimensionRecord]:
         """Deliveries per salesperson: dispatched notes only."""
         return self._aggregate_dimension(
-            rows=self._shipped_notes(firm_scope=firm_scope),
+            rows=self._shipped_notes(firm_scope=firm_scope, window=window),
             attr="salesman_id",
             dimension="salesman",
         )
 
     def by_warehouse_report(
-        self, *, firm_scope: UUID
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
     ) -> list[DeliveryNoteByDimensionRecord]:
         """Deliveries per warehouse: dispatched notes only."""
         return self._aggregate_dimension(
-            rows=self._shipped_notes(firm_scope=firm_scope),
+            rows=self._shipped_notes(firm_scope=firm_scope, window=window),
             attr="warehouse_id",
             dimension="warehouse",
         )
