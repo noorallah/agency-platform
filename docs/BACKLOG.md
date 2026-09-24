@@ -2156,7 +2156,7 @@ product id** (`physical_count_sheet_dialog.dart`), the same class as
 - *(Closed: both dialogs resolve them through `DocumentLineLabels`; noted
   2026-09-24.)* **Sales order and sales invoice view dialogs print product and tax
   profile ids** (already §31.3; the delivery note resolves them).
-- *(Decided 2026-09-24, #PRNUM: a typed rate is the deal and stands; an
+- *(Decided 2026-09-24, #636: a typed rate is the deal and stands; an
   inherited one is resolved afresh, so the coupon reaches it -- which is
   what the conversion has done since D-SELL-9.)*
   **A coupon cannot reach an order that began as a quotation.** The
