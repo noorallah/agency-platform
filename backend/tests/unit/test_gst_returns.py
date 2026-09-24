@@ -1270,9 +1270,9 @@ def test_a_late_cancellation_gives_back_its_untaxed_lines_too() -> None:
     assert april_summary["nil_rated_and_exempt_supplies"]["taxable_value"] == 1000.0
     assert may_summary["nil_rated_and_exempt_supplies"]["taxable_value"] == -1000.0
     assert [row["exempted"] for row in april["nil_exempt"]] == [1000.0]
-    assert [
-        (row["supply_type"], row["exempted"]) for row in may["nil_exempt"]
-    ] == [("INTRA-STATE TO REGISTERED", -1000.0)]
+    assert [(row["supply_type"], row["exempted"]) for row in may["nil_exempt"]] == [
+        ("INTRA-STATE TO REGISTERED", -1000.0)
+    ]
     # Nothing was taxed, so there is no CDNR row to write.
     assert may["cdnr"] == []
     assert may["hsn"][0]["taxable_value"] == -1000.0
