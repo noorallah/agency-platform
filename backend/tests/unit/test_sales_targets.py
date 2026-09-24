@@ -1112,8 +1112,12 @@ def test_every_key_the_desktop_editor_sends_is_one_the_update_accepts() -> None:
     assert not unknown, "the desktop sends keys the update refuses: " + ", ".join(
         unknown
     )
+    # Since #629 the editor names the salesperson on purpose -- "Whole firm"
+    # sends null so an edit can clear a person -- so it is no longer one of
+    # the keys the editor leaves alone. The territory and the notes still are.
+    assert "salesman_id" in sent
     left_alone = set(SalesTargetUpdate.model_fields) - sent
-    assert {"salesman_id", "territory_id", "notes"} <= left_alone
+    assert {"territory_id", "notes"} <= left_alone
     for field in left_alone:
         assert SalesTargetUpdate.model_fields[field].default is None
 
