@@ -37,6 +37,10 @@ still worth a note. `Blocked` means an earlier failure stopped you reaching it.
 Run the sections in order: A, B, C, then D. Section D ends with the laptop
 uninstalled, so it comes last.
 
+Testing the product itself, with data you create by hand, is the separate
+`QA_FUNCTIONAL_WALKTHROUGH.md` (*QA functional walkthrough.pdf*). Run it after
+sections A and B here, and before section D.
+
 ## A. Server laptop
 
 | ID | Step | Expected | Result | Notes |
