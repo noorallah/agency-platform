@@ -684,10 +684,7 @@ def test_a_receipt_paying_the_tax_owed_is_not_itself_charged() -> None:
     )
     assert preview.tcs_amount == Decimal("0")
     assert "settles tax" in preview.reason
-    assert (
-        books.collection(books.receipt("1000", on=WHEN + timedelta(days=1)))
-        is None
-    )
+    assert books.collection(books.receipt("1000", on=WHEN + timedelta(days=1))) is None
 
     # The tax is paid now, so the next receipt is consideration in full.
     later = books.collection(books.receipt("100000", on=WHEN + timedelta(days=2)))
