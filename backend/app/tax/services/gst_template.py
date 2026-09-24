@@ -46,13 +46,26 @@ from app.tax.schemas import (
     TaxStatus,
     TaxSystemWrite,
 )
-from app.tax.services.place_of_supply import PURCHASE_INTERSTATE, SALES_INTERSTATE
+from app.tax.services.place_of_supply import (
+    FOREIGN_STATE_CODE,
+    PURCHASE_INTERSTATE,
+    SALES_INTERSTATE,
+)
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 
 #: The one template offered today. A key rather than a bare boolean so a
 #: second country's template is a new entry and not a new endpoint.
 INDIA_GST = "IN_GST"
+
+#: The transaction types an inward document prices a local line as -- what
+#: ``inward_transaction_type`` returns for a supplier in the firm's own state.
+INWARD_DOCUMENT_TYPES: tuple[str, ...] = (
+    "PURCHASE",
+    "GOODS_RECEIPT",
+    "PURCHASE_INVOICE",
+    "PURCHASE_RETURN",
+)
 
 #: When GST came into force; every seeded row is effective from here.
 _GST_EFFECTIVE_FROM = date(2017, 7, 1)
@@ -256,7 +269,7 @@ def _interstate_rule(
     str,
     str,
     int,
-    list[tuple[str, TaxRuleConditionOperator, str]],
+    list[tuple[str, TaxRuleConditionOperator, str | list[str]]],
     list[TaxRuleActionWrite],
 ]:
     """One rule switching a local slab to its interstate twin.
@@ -324,7 +337,11 @@ def _create_rules(
             "EXPORT_ZERO",
             "Export supplies are zero rated",
             1,
-            [("transaction_type", TaxRuleConditionOperator.EQUALS, "EXPORT")],
+            # A buyer outside India, which is what a document can say; no
+            # document sends a transaction type EXPORT (D-CMP-13). Zero rated
+            # under LUT, IGST Act s.16(3)(a) -- a firm exporting on payment of
+            # IGST edits or retires this rule.
+            [("destination", TaxRuleConditionOperator.EQUALS, FOREIGN_STATE_CODE)],
             [
                 TaxRuleActionWrite(
                     sequence=1,
@@ -359,7 +376,16 @@ def _create_rules(
             "PURCHASE_INPUT_CREDIT",
             "Purchase transactions allow input credit",
             30,
-            [("transaction_type", TaxRuleConditionOperator.EQUALS, "PURCHASE")],
+            # Every inward document, not just the order: ``PURCHASE`` alone
+            # left a receipt, a bill and a return without the credit its own
+            # order was given (D-CMP-13).
+            [
+                (
+                    "transaction_type",
+                    TaxRuleConditionOperator.IN,
+                    list(INWARD_DOCUMENT_TYPES),
+                )
+            ],
             [
                 TaxRuleActionWrite(
                     sequence=1, action_type=TaxRuleActionType.INPUT_CREDIT_ALLOWED
@@ -385,13 +411,15 @@ def _create_rules(
                         sequence=index,
                         field_key=field_key,
                         operator=operator,
-                        value_text=value_text,
+                        value_text=value if isinstance(value, str) else None,
                         value_number=None,
                         value_date=None,
                         value_boolean=None,
-                        value_json=None,
+                        value_json=(
+                            None if isinstance(value, str) else {"values": value}
+                        ),
                     )
-                    for index, (field_key, operator, value_text) in enumerate(
+                    for index, (field_key, operator, value) in enumerate(
                         conditions, start=1
                     )
                 ],

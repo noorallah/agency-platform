@@ -1,6 +1,7 @@
 """TCS schemas."""
 
 from app.tcs.schemas.tcs import (
+    TcsBuyerPosition,
     TcsCollectionResponse,
     TcsPreview,
     TcsSettingsResponse,
@@ -8,6 +9,7 @@ from app.tcs.schemas.tcs import (
 )
 
 __all__ = [
+    "TcsBuyerPosition",
     "TcsCollectionResponse",
     "TcsPreview",
     "TcsSettingsResponse",

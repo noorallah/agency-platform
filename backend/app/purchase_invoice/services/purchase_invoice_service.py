@@ -1185,6 +1185,8 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             )
             discount_amount = line_discount.amount
             line_tax = self._resolve_tax(
+                document_id=row.id,
+                line_number=index,
                 invoice_date=invoice_date,
                 firm_id=firm_id,
                 business_profile_id=business_profile_id,
@@ -1563,6 +1565,8 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         product_id: UUID,
         tax_profile_id: UUID | None,
         invoice_value: Decimal,
+        document_id: UUID | None = None,
+        line_number: int | None = None,
     ) -> _LineTax:
         """Work out the line's tax, and keep everything that decided it.
 
@@ -1616,7 +1620,13 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 "document_type": "PURCHASE_INVOICE",
             },
         )
-        response = self._tax.simulate(request, firm_scope=firm_id, actor_id=actor_id)
+        response = self._tax.simulate(
+            request,
+            firm_scope=firm_id,
+            actor_id=actor_id,
+            document_id=document_id,
+            line_number=line_number,
+        )
         return _LineTax(
             # The resolved profile, not the one the caller sent: a client that
             # names none still gets the product's, and the line should say so.

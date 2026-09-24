@@ -10,7 +10,7 @@ from io import StringIO
 from typing import Any
 from uuid import UUID, uuid4
 
-from sqlalchemy import and_, func, or_, select
+from sqlalchemy import and_, case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 from sqlalchemy.sql import Select
@@ -614,8 +614,18 @@ class TaxRuleService:
         *,
         firm_scope: UUID,
         actor_id: UUID,
+        document_id: UUID | None = None,
+        line_number: int | None = None,
+        execution_mode: str | None = None,
     ) -> TaxRuleSimulationResponse:
-        """Simulate one tax record."""
+        """Decide one line's tax and log how it was decided.
+
+        The log says whether this was a document line or a what-if from the
+        simulate endpoint (D-CMP-13): every document caller names itself in
+        ``additional_context["document_type"]``, so that is DOCUMENT unless the
+        caller says otherwise, and the endpoint says SIMULATION outright so a
+        what-if cannot pass itself off as a document by naming one.
+        """
         context = self._build_context(data, firm_scope=firm_scope)
         transaction_date = context["transaction_date"]
         rules = self._session.scalars(
@@ -668,6 +678,7 @@ class TaxRuleService:
                 firm_scope=firm_scope,
                 base_profile_id=applied_profile_id,
                 existing_components=components,
+                transaction_date=transaction_date,
             )
             applied_profile_id = action_result["applied_tax_profile_id"]
             components = action_result["components"]
@@ -743,10 +754,16 @@ class TaxRuleService:
             decisions=decisions,
         )
         now = utc_now()
+        named_document = data.additional_context.get("document_type")
+        document_type = str(named_document) if named_document else None
+        mode = execution_mode or ("DOCUMENT" if document_type else "SIMULATION")
         log = TaxRuleExecutionLog(
             firm_id=firm_scope,
-            execution_mode="SIMULATION",
+            execution_mode=mode,
             transaction_type=str(context["transaction_type"]),
+            document_type=document_type,
+            document_id=document_id,
+            line_number=line_number,
             country_id=context.get("country_id"),
             business_profile_id=context.get("business_profile_id"),
             tax_profile_id=context.get("tax_profile_id"),
@@ -972,6 +989,16 @@ class TaxRuleService:
             context["business_profile_id"] = resolve_profile_id(
                 self._session, firm_scope
             )
+        # Where the goods go, as a GST state code -- ``96`` for a buyer outside
+        # India -- so a rule can tell an export from any other interstate sale.
+        # The template's EXPORT_ZERO matched a transaction type ``EXPORT`` that
+        # no document sends (D-CMP-13); it matches this now.
+        if context.get("destination") is None and data.customer_id is not None:
+            if self._supply is None:
+                self._supply = SupplyPlaceResolver(self._session)
+            destination = self._supply.buyer_state(data.customer_id)
+            if destination is not None:
+                context["destination"] = destination
         return context
 
     def _country_for_profile(
@@ -1143,6 +1170,52 @@ class TaxRuleService:
             )
         return items
 
+    def _current_version_of(
+        self,
+        profile_id: UUID | None,
+        transaction_date: date | None,
+        *,
+        firm_scope: UUID,
+    ) -> UUID | None:
+        """Return the version of a rule's target profile in force on the date.
+
+        An action names the profile it applies by id, and a rate change mints
+        a new id under the same group -- so a rule written before the change
+        went on applying the old rate (D-CMP-13). The id is read as a name for
+        its group: whichever version of that group is ACTIVE on the date
+        applies, and the named row only where the group has none.
+        """
+        if profile_id is None or transaction_date is None:
+            return profile_id
+        named = self._session.get(TaxProfile, profile_id)
+        if named is None or not named.group_code:
+            return profile_id
+        current = self._session.scalar(
+            select(TaxProfile.id)
+            .where(
+                TaxProfile.firm_id == firm_scope,
+                TaxProfile.group_code == named.group_code,
+                TaxProfile.is_deleted.is_(False),
+                TaxProfile.status == TaxStatus.ACTIVE.value,
+                or_(
+                    TaxProfile.effective_from.is_(None),
+                    TaxProfile.effective_from <= transaction_date,
+                ),
+                or_(
+                    TaxProfile.effective_to.is_(None),
+                    TaxProfile.effective_to >= transaction_date,
+                ),
+            )
+            # Ranked explicitly: PostgreSQL and SQLite put NULLs at opposite
+            # ends of a DESC sort.
+            .order_by(
+                case((TaxProfile.effective_from.is_(None), 1), else_=0),
+                TaxProfile.effective_from.desc(),
+            )
+            .limit(1)
+        )
+        return current or profile_id
+
     def _apply_actions(
         self,
         rule: TaxRule,
@@ -1150,6 +1223,7 @@ class TaxRuleService:
         firm_scope: UUID,
         base_profile_id: UUID | None,
         existing_components: list[dict[str, Any]],
+        transaction_date: date | None = None,
     ) -> dict[str, Any]:
         components = [dict(item) for item in existing_components]
         applied_profile_id = base_profile_id
@@ -1160,7 +1234,11 @@ class TaxRuleService:
         for action in sorted(rule.actions, key=lambda item: item.sequence):
             action_type = TaxRuleActionType(action.action_type)
             if action_type == TaxRuleActionType.APPLY_TAX_PROFILE:
-                applied_profile_id = action.target_tax_profile_id
+                applied_profile_id = self._current_version_of(
+                    action.target_tax_profile_id,
+                    transaction_date,
+                    firm_scope=firm_scope,
+                )
                 components = self._components_for_profile(
                     applied_profile_id, firm_scope=firm_scope
                 )

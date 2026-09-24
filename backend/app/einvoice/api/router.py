@@ -64,6 +64,24 @@ class RegistrationResponse(BaseModel):
     cancellation_reason: str | None
 
 
+def _labelled(
+    db: Session, row: EInvoiceRegistration, *, firm_id: UUID
+) -> RegistrationResponse:
+    """Return one registration with the bill number and buyer filled in.
+
+    The list filled them and every single-row answer left them blank, so the
+    screen showed a registration it had just made as a nameless row
+    (D-CMP-13).
+    """
+    labels = EInvoiceService(db).invoice_labels(
+        firm_scope=firm_id, invoice_ids=[row.sales_invoice_id]
+    )
+    number, name = labels.get(row.sales_invoice_id, ("", ""))
+    return RegistrationResponse.model_validate(row).model_copy(
+        update={"invoice_number": number, "customer_name": name}
+    )
+
+
 class EWayBillResponse(BaseModel):
     """What the portal knows about one consignment."""
 
@@ -151,7 +169,7 @@ def get_registration(
         invoice_id, firm_scope=scope.firm_id
     )
     return ApiResponse(
-        data=None if row is None else RegistrationResponse.model_validate(row)
+        data=None if row is None else _labelled(db, row, firm_id=scope.firm_id)
     )
 
 
@@ -172,7 +190,7 @@ def register_invoice(
     db.commit()
     db.refresh(row)
     return ApiResponse(
-        data=RegistrationResponse.model_validate(row),
+        data=_labelled(db, row, firm_id=scope.firm_id),
         message=(
             f"Registered in {row.mode} mode."
             if row.status == "REGISTERED"
@@ -201,7 +219,7 @@ def cancel_registration(
     db.commit()
     db.refresh(row)
     return ApiResponse(
-        data=RegistrationResponse.model_validate(row),
+        data=_labelled(db, row, firm_id=scope.firm_id),
         message="Registration withdrawn.",
     )
 

@@ -47,6 +47,36 @@ class TcsSettingsResponse(TcsSchema):
     seller_in_scope: bool
 
 
+class TcsBuyerPosition(TcsSchema):
+    """One buyer's year: what the section made due against what was charged.
+
+    Collections are never rewritten, so after a reversal or a back-dated
+    receipt a buyer can stand over- or under-collected until their next
+    receipt squares it (D-CMP-16). This is where that shows (D-CMP-21).
+    """
+
+    customer_id: UUID
+    customer_code: str
+    customer_name: str
+    financial_year_start: date
+    #: Consideration received in the year: receipts net of refunds and of the
+    #: part that paid tax already collected.
+    consideration_received: Decimal
+    threshold_amount: Decimal
+    #: What the section made chargeable -- the excess over the threshold,
+    #: counting only receipts dated while the section stood.
+    taxable_due: Decimal
+    rate_percent: Decimal
+    tcs_due: Decimal
+    #: What standing collections charged, on what.
+    taxable_charged: Decimal
+    tcs_charged: Decimal
+    #: Charged less due: above zero is over-collected, below is short.
+    difference: Decimal
+    #: OVER, SHORT or SQUARE.
+    position: str
+
+
 class TcsCollectionResponse(TcsSchema):
     """One receipt's worth of tax collected, and why it came to that."""
 

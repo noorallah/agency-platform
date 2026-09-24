@@ -176,15 +176,20 @@ def test_only_the_part_above_the_threshold_is_charged() -> None:
 
 
 def test_every_later_receipt_is_charged_in_full() -> None:
-    """Once the buyer is past the threshold the headroom is gone."""
+    """Once the buyer is past the threshold the headroom is gone.
+
+    Everything the receipt brings in as consideration is charged. The first
+    Rs 1,000 of it settles the tax the 60 lakh was charged, which is not
+    consideration (D-CMP-13), so 99,000 is.
+    """
     books = _Books(_session_factory()())
     books.receipt("6000000")
 
     row = books.collection(books.receipt("100000"))
 
     assert row is not None
-    assert row.taxable_amount == Decimal("100000.00")
-    assert row.tcs_amount == Decimal("100.00")
+    assert row.taxable_amount == Decimal("99000.00")
+    assert row.tcs_amount == Decimal("99.00")
 
 
 def test_a_receipt_is_not_counted_as_money_paid_before_itself() -> None:
@@ -558,16 +563,17 @@ def test_a_back_dated_receipt_does_not_count_money_paid_after_it() -> None:
 def test_a_reversal_is_settled_on_the_next_receipt_not_by_rewriting() -> None:
     """D-CMP-16: what a standing collection charged on is not charged twice.
 
-    60 lakh then 10 lakh: each is charged on 10 lakh. The first is then
-    reversed, so the buyer is back to 10 lakh paid -- but the second
-    collection stands, and a collection already made is never rewritten. A
-    further 60 lakh brings the year to 70 lakh received, 20 lakh taxable in
-    all, 10 of it already charged: so 10 lakh, not the 20 this used to charge
-    on top of the 10 the buyer had already paid.
+    60 lakh then 10 lakh: each is charged on 10 lakh (the second receipt
+    carries Rs 1,000 more, which settles the first's tax, D-CMP-13). The first
+    is then reversed, so the buyer is back to about 10 lakh paid -- but the
+    second collection stands, and a collection already made is never
+    rewritten. A further 60 lakh brings the year to about 70 lakh received, 20
+    lakh taxable in all, 10 of it already charged: so 10 lakh, not the 20 this
+    used to charge on top of the 10 the buyer had already paid.
     """
     books = _Books(_session_factory()())
     first = books.receipt("6000000")
-    second = books.collection(books.receipt("1000000", on=WHEN + timedelta(days=1)))
+    second = books.collection(books.receipt("1001000", on=WHEN + timedelta(days=1)))
     assert second is not None
     assert second.taxable_amount == Decimal("1000000.00")
 
@@ -579,7 +585,9 @@ def test_a_reversal_is_settled_on_the_next_receipt_not_by_rewriting() -> None:
     later = books.collection(books.receipt("6000000", on=WHEN + timedelta(days=2)))
 
     assert later is not None
-    assert later.cumulative_before == Decimal("1000000.00")
+    # The reversed collection no longer owes its tax, so all of the second
+    # receipt now counts as consideration.
+    assert later.cumulative_before == Decimal("1001000.00")
     assert later.taxable_amount == Decimal("1000000.00")
 
 
@@ -590,7 +598,8 @@ def test_a_back_dated_receipt_is_settled_on_the_next_one() -> None:
     1st is then recorded: on that day the buyer was still inside the
     threshold, so it charges nothing, and the 10th's collection is not
     rewritten. The next receipt squares the year up -- 101 lakh received, 51
-    lakh taxable, 10 already charged, so 41.
+    lakh taxable, 10 already charged, so 41, less the Rs 1,000 of it that
+    settles the 10th's tax (D-CMP-13).
     """
     books = _Books(_session_factory()())
     books.receipt("6000000")
@@ -600,7 +609,7 @@ def test_a_back_dated_receipt_is_settled_on_the_next_one() -> None:
 
     assert later is not None
     assert later.cumulative_before == Decimal("10000000.00")
-    assert later.taxable_amount == Decimal("4100000.00")
+    assert later.taxable_amount == Decimal("4099000.00")
 
 
 def test_a_receipt_on_the_same_day_counts_one_recorded_before_it() -> None:
@@ -632,7 +641,8 @@ def test_nothing_is_collected_under_206c_1h_from_1_april_2025() -> None:
     books.receipt("6000000", on=date(2025, 3, 30))
     last_day = books.collection(books.receipt("100000", on=date(2025, 3, 31)))
     assert last_day is not None
-    assert last_day.tcs_amount == Decimal("100.00")
+    # 99,000 of it is consideration; the rest settles the 30th's tax.
+    assert last_day.tcs_amount == Decimal("99.00")
 
     # A new year and a buyer well past any threshold: still nothing.
     books.receipt("6000000", on=date(2025, 4, 1))
@@ -651,4 +661,85 @@ def test_nothing_is_collected_under_206c_1h_from_1_april_2025() -> None:
     # The collection made while the section stood is untouched.
     books.session.refresh(last_day)
     assert last_day.status == TcsCollectionStatus.COLLECTED.value
-    assert last_day.tcs_amount == Decimal("100.00")
+    assert last_day.tcs_amount == Decimal("99.00")
+
+
+def test_a_receipt_paying_the_tax_owed_is_not_itself_charged() -> None:
+    """D-CMP-13: the tax a buyer pays over is not consideration for goods.
+
+    60 lakh is charged on 10 lakh, Rs 1,000, debited to the buyer. The buyer
+    then sends exactly that Rs 1,000. It settles the tax; charging it again
+    is tax on tax. A receipt larger than what is owed is charged on the rest.
+    """
+    books = _Books(_session_factory()())
+    first = books.collection(books.receipt("6000000"))
+    assert first is not None
+    assert first.tcs_amount == Decimal("1000.00")
+
+    preview = TcsService(books.session).preview(
+        firm_id=books.firm.id,
+        customer_id=books.customer.id,
+        amount=Decimal("1000"),
+        on=WHEN + timedelta(days=1),
+    )
+    assert preview.tcs_amount == Decimal("0")
+    assert "settles tax" in preview.reason
+    assert (
+        books.collection(books.receipt("1000", on=WHEN + timedelta(days=1)))
+        is None
+    )
+
+    # The tax is paid now, so the next receipt is consideration in full.
+    later = books.collection(books.receipt("100000", on=WHEN + timedelta(days=2)))
+    assert later is not None
+    assert later.taxable_amount == Decimal("100000.00")
+
+
+def test_a_buyer_left_over_collected_shows_on_the_charged_versus_due_report() -> None:
+    """D-CMP-21: nothing reported TCS charged against due, buyer by buyer.
+
+    60 lakh then 10 lakh are each charged. The 60 lakh is reversed, so the
+    buyer has paid 10 lakh -- inside the threshold, so nothing is due -- but
+    the second collection stands, because a collection is never rewritten.
+    That buyer is over-collected until they pay again, and this is where it
+    shows.
+    """
+    from app.tcs.api.router import charged_versus_due
+    from tests.unit.report_windows import report_scope
+
+    books = _Books(_session_factory()())
+    first = books.receipt("6000000")
+    second = books.collection(books.receipt("1001000", on=WHEN + timedelta(days=1)))
+    assert second is not None
+    ReceiptService(books.session).reverse(
+        first, firm_id=books.firm.id, actor_id=books.actor_id, reason="Bounced."
+    )
+    books.session.commit()
+
+    rows = charged_versus_due(
+        report_scope(books.firm.id), on=WHEN, db=books.session
+    ).data
+    assert rows is not None
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.customer_id == books.customer.id
+    assert row.consideration_received == Decimal("1001000.00")
+    assert row.taxable_due == Decimal("0")
+    assert row.tcs_due == Decimal("0.00")
+    assert row.tcs_charged == Decimal("1000.00")
+    assert row.difference == Decimal("1000.00")
+    assert row.position == "OVER"
+
+
+def test_a_squared_up_buyer_reads_square() -> None:
+    """The ordinary sequence charges exactly what is due."""
+    books = _Books(_session_factory()())
+    books.receipt("6000000")
+    books.receipt("100000", on=WHEN + timedelta(days=1))
+
+    rows = TcsService(books.session).charged_versus_due(firm_id=books.firm.id, on=WHEN)
+
+    assert [(row.tcs_due, row.tcs_charged, row.position) for row in rows] == [
+        (Decimal("1099.00"), Decimal("1099.00"), "SQUARE")
+    ]

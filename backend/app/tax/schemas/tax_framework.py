@@ -673,6 +673,9 @@ class TaxRuleExecutionLogResponse(TaxFrameworkSchema):
     firm_id: UUID
     execution_mode: str
     transaction_type: str
+    document_type: str | None = None
+    document_id: UUID | None = None
+    line_number: int | None = None
     country_id: UUID | None
     business_profile_id: UUID | None
     tax_profile_id: UUID | None

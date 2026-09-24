@@ -1186,3 +1186,93 @@ def test_a_sales_return_is_declared_at_what_its_journal_reversed() -> None:
     assert row["note_number"] == "SR-1"
     assert (row["central_tax"], row["state_tax"]) == (36.86, 36.85)
     assert books.gstr3b()["credit_notes_deducted"]["tax"] == 73.71
+
+
+def test_a_credit_note_is_declared_at_each_line_s_own_rate() -> None:
+    """D-CMP-13: a note's rate was its first line's.
+
+    A note crediting a 5% line and an 18% line was declared wholly at 18%,
+    so the 5% row of B2CS kept a value that had been given back and the 18%
+    row lost one that had not.
+    """
+    books = _Books(_session_factory()())
+    invoice = books.invoice("SI-1", customer=books.walk_in, gross="1000", tax="180")
+    note = books.credit("CN-1", invoice, taxable="100", tax="18")
+    source = books.session.scalars(
+        select(SalesInvoiceLine).where(SalesInvoiceLine.sales_invoice_id == invoice.id)
+    ).one()
+    books.session.add(
+        CreditNoteLine(
+            credit_note_id=note.id,
+            firm_id=books.firm.id,
+            line_number=2,
+            sales_invoice_line_id=source.id,
+            product_id=books.product.id,
+            quantity=Decimal("0"),
+            taxable_amount=Decimal("200"),
+            tax_rate_percent=Decimal("5"),
+            tax_amount=Decimal("10"),
+            total_amount=Decimal("210"),
+        )
+    )
+    note.taxable_amount = Decimal("300")
+    note.tax_amount = Decimal("28")
+    books.session.commit()
+
+    rows = {row["rate"]: row for row in books.gstr1()["b2cs"]}
+
+    assert rows[18.0]["taxable_value"] == 900.0
+    assert rows[18.0]["central_tax"] == 81.0
+    assert rows[5.0]["taxable_value"] == -200.0
+    assert rows[5.0]["central_tax"] == -5.0
+    assert books.gstr3b()["credit_notes_deducted"] == {
+        "taxable_value": 300.0,
+        "tax": 28.0,
+    }
+
+
+def test_the_hsn_summary_is_net_of_credit_notes_and_returns() -> None:
+    """D-CMP-17: Table 12 is declared net of credit notes (GSTN FAQ).
+
+    It added up the bills alone, so it no longer agreed with B2B and B2CS
+    once a credit note or a return had been netted off them.
+    """
+    books = _Books(_session_factory()())
+    invoice = books.invoice("SI-1", gross="1000", tax="180")
+    books.credit("CN-1", invoice, taxable="100", tax="18")
+    books.returned("SR-1", invoice, taxable="100", tax="18")
+
+    hsn = books.gstr1()["hsn"]
+
+    assert len(hsn) == 1
+    assert hsn[0]["hsn"] == "33061020"
+    assert hsn[0]["quantity"] == 9.0
+    assert hsn[0]["taxable_value"] == 800.0
+    assert hsn[0]["central_tax"] == 72.0
+    assert hsn[0]["state_tax"] == 72.0
+
+
+def test_a_late_cancellation_gives_back_its_untaxed_lines_too() -> None:
+    """D-CMP-18: 3.1(c) and Table 8 were never reduced by a late cancellation.
+
+    April was due with the exempt bill in it; cancelled on 20 May, the
+    cancellation is May's -- its taxed lines already came off B2B there, and
+    now its exempt value comes off 3B 3.1(c) and Table 8 as well.
+    """
+    books = _Books(_session_factory()())
+    invoice = books.invoice("SI-1", gross="1000", tax="180")
+    _untaxed(books, invoice, kind="EXEMPT")
+    _cancel(books, invoice, on=date(2026, 5, 20))
+
+    april, april_summary = _returns_for(books, APRIL)
+    may, may_summary = _returns_for(books, MAY)
+
+    assert april_summary["nil_rated_and_exempt_supplies"]["taxable_value"] == 1000.0
+    assert may_summary["nil_rated_and_exempt_supplies"]["taxable_value"] == -1000.0
+    assert [row["exempted"] for row in april["nil_exempt"]] == [1000.0]
+    assert [
+        (row["supply_type"], row["exempted"]) for row in may["nil_exempt"]
+    ] == [("INTRA-STATE TO REGISTERED", -1000.0)]
+    # Nothing was taxed, so there is no CDNR row to write.
+    assert may["cdnr"] == []
+    assert may["hsn"][0]["taxable_value"] == -1000.0

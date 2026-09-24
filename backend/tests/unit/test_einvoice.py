@@ -646,3 +646,127 @@ def test_a_withdrawn_registration_is_never_registered_again() -> None:
     assert kept.irn == irn
     assert kept.attempts == 1
     assert kept.cancellation_reason == "Raised against the wrong customer."
+
+
+def test_register_and_withdraw_answer_with_the_bill_and_the_buyer() -> None:
+    """D-CMP-13: the single-row answers left both names blank.
+
+    The list filled them, so the screen showed a registration it had just
+    made as a nameless row until the next refresh.
+    """
+    from app.common.scope import ResolvedFirmScope
+    from app.einvoice.api.router import (
+        CancellationRequest,
+        cancel_registration,
+        get_registration,
+        register_invoice,
+    )
+    from tests.unit.report_windows import report_scope
+
+    books = _Books(_session_factory()())
+    scope = ResolvedFirmScope(
+        principal=report_scope(books.firm.id).principal, firm_id=books.firm.id
+    )
+
+    registered = register_invoice(books.invoice.id, scope, books.session).data
+    read = get_registration(books.invoice.id, scope, books.session).data
+    withdrawn = cancel_registration(
+        books.invoice.id,
+        CancellationRequest(reason="Wrong buyer"),
+        scope,
+        books.session,
+    ).data
+
+    for answer in (registered, read, withdrawn):
+        assert answer is not None
+        assert (answer.invoice_number, answer.customer_name) == (
+            "SI-1",
+            "Kumar Stores",
+        )
+
+
+def _decimals(value: float) -> int:
+    """Return how many decimals a float was sent with."""
+    text = repr(value)
+    return len(text.split(".")[1]) if "." in text else 0
+
+
+def test_every_amount_is_sent_at_two_decimals_and_the_totals_add_up() -> None:
+    """D-CMP-13: four decimals went out, and ValDtls had no round-off.
+
+    The schema takes two decimals for an amount (three for a price), and the
+    portal checks TotInvVal against the parts -- which it could not do while
+    the bill's round-off and its charges outside the tax were missing.
+    """
+    books = _Books(_session_factory()())
+    books.line.discount_amount = Decimal("0.3333")
+    books.line.unit_price = Decimal("100.12345")
+    books.invoice.additional_charges = Decimal("10")
+    books.invoice.round_off = Decimal("0.3333")
+    books.invoice.grand_total = Decimal("1190.0000")
+    books.session.commit()
+
+    payload = EInvoicePayloadBuilder(books.session).build(
+        books.invoice, firm_id=books.firm.id
+    )
+
+    item = payload["ItemList"][0]
+    for key in (
+        "TotAmt",
+        "Discount",
+        "OthChrg",
+        "AssAmt",
+        "CgstAmt",
+        "SgstAmt",
+        "TotItemVal",
+    ):
+        assert _decimals(item[key]) <= 2, key
+    assert _decimals(item["UnitPrice"]) <= 3
+    assert item["AssAmt"] == 999.67
+    values = payload["ValDtls"]
+    assert values["AssVal"] == 999.67
+    assert values["OthChrg"] == 10.0
+    assert values["RndOffAmt"] == 0.33
+    assert values["TotInvVal"] == 1190.0
+
+
+def test_the_supply_type_and_place_come_from_the_document() -> None:
+    """D-CMP-13: SupTyp was always B2B and Pos the buyer's GSTIN state.
+
+    The place of supply is what the bill was charged by, and an export is
+    EXPWP where IGST was paid on it and EXPWOP where it went under LUT.
+    """
+    shipped = _Books(
+        _session_factory()(), buyer_gstin=BUYER_SAME_STATE, interstate=True
+    )
+    # Registered in Maharashtra, goods delivered to Karnataka: IGST, and the
+    # place of supply is the document's, not the GSTIN's.
+    shipped.invoice.place_of_supply = "Karnataka (29)"
+    shipped.session.commit()
+    payload = EInvoicePayloadBuilder(shipped.session).build(
+        shipped.invoice, firm_id=shipped.firm.id
+    )
+    assert payload["TranDtls"]["SupTyp"] == "B2B"
+    assert payload["BuyerDtls"]["Pos"] == "29"
+    assert payload["BuyerDtls"]["Stcd"] == "27"
+
+    paid = _Books(_session_factory()(), buyer_gstin=None, interstate=True)
+    paid.invoice.place_of_supply = "96"
+    paid.session.commit()
+    export = EInvoicePayloadBuilder(paid.session).build(
+        paid.invoice, firm_id=paid.firm.id
+    )
+    assert export["TranDtls"]["SupTyp"] == "EXPWP"
+    assert export["BuyerDtls"]["Gstin"] == "URP"
+    assert export["BuyerDtls"]["Pos"] == "96"
+
+    bonded = _Books(_session_factory()(), buyer_gstin=None, interstate=True)
+    bonded.invoice.place_of_supply = "96"
+    for component in bonded.session.scalars(select(SalesInvoiceLineTax)).all():
+        component.percentage = Decimal("0")
+        component.amount = Decimal("0")
+    bonded.session.commit()
+    lut = EInvoicePayloadBuilder(bonded.session).build(
+        bonded.invoice, firm_id=bonded.firm.id
+    )
+    assert lut["TranDtls"]["SupTyp"] == "EXPWOP"

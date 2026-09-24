@@ -316,9 +316,7 @@ class _EInvoicePageState extends State<EInvoicePage> {
           // at all (plan item 12.6, 2026-09-13).
           if (_mayManage) ...[
             OutlinedButton.icon(
-              onPressed: _selectedRow != null &&
-                      _selectedRow!.isRegistered &&
-                      _bills[_selectedRow!.salesInvoiceId] == null
+              onPressed: _selectedRow != null && _mayRaiseBill(_selectedRow!)
                   ? () => _raiseEwayBill(_selectedRow!)
                   : null,
               icon: const Icon(Icons.local_shipping_outlined),
@@ -416,19 +414,28 @@ class _EInvoicePageState extends State<EInvoicePage> {
     );
   }
 
+  /// A registered invoice may carry a bill unless one already stands. A
+  /// withdrawn or refused bill does not stand -- the service raises a fresh
+  /// one over it -- so it is offered again rather than left to the API alone
+  /// (D-CMP-13).
+  bool _mayRaiseBill(EInvoiceRegistrationRecord row) {
+    final EWayBillRecord? bill = _bills[row.salesInvoiceId];
+    return row.isRegistered && (bill == null || !bill.isGenerated);
+  }
+
   Widget _actions(EInvoiceRegistrationRecord row) {
     if (!_mayManage) return const SizedBox.shrink();
     final EWayBillRecord? bill = _bills[row.salesInvoiceId];
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
-        if (row.isRegistered && bill == null)
+        if (_mayRaiseBill(row))
           TextButton(
             onPressed: () => _raiseEwayBill(row),
             // Not just "E-way bill": that is the column header beside it, and
             // a button whose label matches a header is one nobody can point
             // at -- including a test, which is how this was noticed.
-            child: const Text('Raise e-way bill'),
+            child: Text(bill == null ? 'Raise e-way bill' : 'Raise bill again'),
           ),
         if (bill != null && bill.isGenerated)
           TextButton(

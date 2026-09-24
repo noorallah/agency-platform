@@ -1013,6 +1013,7 @@ def simulate_tax_rule(
         data,
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
+        execution_mode="SIMULATION",
     )
     db.commit()
     return ApiResponse(data=response)

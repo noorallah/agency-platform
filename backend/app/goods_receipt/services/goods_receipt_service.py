@@ -1195,6 +1195,8 @@ class GoodsReceiptService(TransactionalDocumentService):
                 raise ValidationError("Discount cannot exceed the line amount.")
             line_subtotal = self._q(gross_amount - discount_amount)
             tax_amount = self._line_tax_amount(
+                document_id=receipt.id,
+                line_number=line.line_number,
                 firm_id=firm_id,
                 actor_id=actor_id,
                 tax_profile_id=line.tax_profile_id or purchase_line.tax_profile_id,
@@ -1781,6 +1783,8 @@ class GoodsReceiptService(TransactionalDocumentService):
         branch_id: UUID | None,
         receipt_date: date,
         taxable: Decimal,
+        document_id: UUID | None = None,
+        line_number: int | None = None,
     ) -> Decimal:
         """Line tax amount."""
         # A product names a tax group, not a version, so the rate is decided by
@@ -1826,6 +1830,8 @@ class GoodsReceiptService(TransactionalDocumentService):
             ),
             firm_scope=firm_id,
             actor_id=actor_id,
+            document_id=document_id,
+            line_number=line_number,
         )
         return self._q(simulation.total_tax_amount)
 
