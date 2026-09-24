@@ -38,6 +38,16 @@ from app.uom.models import Uom
 
 ZERO = Decimal("0")
 DOCUMENT_TYPE = "SALES_INVOICE"
+#: What the copies of a tax invoice for goods are called (CGST rule 48: the
+#: original for the recipient, the duplicate for the transporter, the
+#: triplicate for the supplier). A firm may rename or cut them, but a firm
+#: that has saved no Print settings used to get one unlabelled copy
+#: (BL-31.14).
+DEFAULT_COPIES: tuple[str, ...] = (
+    "ORIGINAL FOR RECIPIENT",
+    "DUPLICATE FOR TRANSPORTER",
+    "TRIPLICATE FOR SUPPLIER",
+)
 
 
 class SalesInvoicePrintService:
@@ -70,7 +80,10 @@ class SalesInvoicePrintService:
     def _template(self, firm_scope: UUID) -> TemplateSettings:
         """Return the firm's template, or the platform default."""
         return load_template(
-            self._session, firm_scope=firm_scope, document_type=DOCUMENT_TYPE
+            self._session,
+            firm_scope=firm_scope,
+            document_type=DOCUMENT_TYPE,
+            fallback=TemplateSettings(copy_labels=DEFAULT_COPIES),
         )
 
     def _document(self, invoice: SalesInvoice, *, firm_scope: UUID) -> InvoiceDocument:

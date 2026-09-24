@@ -2136,9 +2136,14 @@ product id** (`physical_count_sheet_dialog.dart`), the same class as
   once the order is approved.
 - **The coupon is invisible after save**: no grid column, no header field
   in `EnterpriseDocumentHeader`; only the draft order's editor shows it.
-- **Allocate and Reverse on a receipt are unlabelled icons** (tooltips
+- *(Closed 2026-09-24, #625: the row buttons read "Apply" and "Reverse".)*
+  **Allocate and Reverse on a receipt are unlabelled icons** (tooltips
   "Apply to an invoice" and "Reverse") on the Receipts list row.
-- **Invoice print copies are not defaulted**: `copy_labels` is empty until
+- *(Closed 2026-09-24, #625: a firm that has saved no Print settings gets
+  the three copies CGST rule 48 names for goods -- recipient, transporter,
+  supplier -- which is also the desktop's own default list; the owner may
+  prefer the two-copy services set.)*
+  **Invoice print copies are not defaulted**: `copy_labels` is empty until
   the firm saves Print settings, so a first print carries one unlabelled
   copy. The delivery challan defaults three labels; the invoice should
   default two (ORIGINAL FOR RECIPIENT, DUPLICATE FOR SUPPLIER).
