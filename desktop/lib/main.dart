@@ -112,7 +112,11 @@ Future<void> _run() async {
       appVersion: branding.version,
       buildNumber: _buildNumber,
     );
-    runApp(AgencyApp(preferences: preferences, branding: branding));
+    runApp(AgencyApp(
+      preferences: preferences,
+      branding: branding,
+      waitForServer: true,
+    ));
     AppLog.info('Application started.');
   } catch (error, stack) {
     AppLog.recordError('Unhandled startup error', error, stack);

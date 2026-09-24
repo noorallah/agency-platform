@@ -133,6 +133,20 @@ foreach ($file in Get-ChildItem $root -Recurse -File -Force -ErrorAction Silentl
 }
 Report 'no development credentials' $leaked
 
+# 6. Seeders, demo tooling, fixtures and tests. They are tooling for developing
+#    and selling this, not the product: each writes invented firms or known
+#    passwords into whatever database it is pointed at, and on a customer
+#    machine that database holds the firm's books. Matched by name, whatever the
+#    extension, so a compiled or renamed copy is caught as well as a .py -- and
+#    independently of check 1, which -SkipCompile switches off.
+$toolingPattern = '^(generate_sample_data|generate_transaction_history|seed_multi_firm_demo|' +
+  'seed_tax_sample_data|seed_finance_defaults|verify_sample_data|reset_tenancy_layout|' +
+  'conftest)$|fixture|^test_|_test$'
+$tooling = Get-ChildItem $root -Recurse -File -Force -ErrorAction SilentlyContinue |
+  Where-Object { $_.BaseName -match $toolingPattern } |
+  ForEach-Object { $_.FullName.Substring($root.Length + 1) }
+Report 'no seeders, demo tooling, fixtures or tests' $tooling
+
 Write-Host ""
 if ($problems.Count -eq 0) {
   Write-Host "Release check passed." -ForegroundColor Green

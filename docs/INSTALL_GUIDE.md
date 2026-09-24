@@ -184,45 +184,42 @@ generates it, writes it to `backend\config\.env`, and nobody needs to type it.
 
 ---
 
-## 4. Install PostgreSQL 17 on the server
+## 4. PostgreSQL: Setup brings its own
 
-Skip this if PostgreSQL 17 is already installed and running.
+**Do not install PostgreSQL yourself.** Since round 1 of the installer, the
+server's setup program carries a private PostgreSQL 17 (the EDB binaries, the
+version pinned in `packaging/build_installer.ps1`) and sets it up on its own:
 
-Either install it with `winget`, in an administrator PowerShell window:
+- the data goes in `C:\ProgramData\Agency Platform\pgdata`;
+- it listens on port **5433**, so it never collides with a PostgreSQL that is
+  already on the machine on 5432;
+- it runs as the Windows service **Agency Platform Database**
+  (`AgencyPlatformDB`), started automatically, as `NetworkService`;
+- its superuser password is generated, used once to create the application's
+  own account, and then deleted. Nobody types it and nobody needs it;
+- its logs are `C:\ProgramData\Agency Platform\logs\database\postgresql-YYYY-MM-DD.log`.
 
-```powershell
-winget install --id PostgreSQL.PostgreSQL.17 --accept-package-agreements --accept-source-agreements
-```
+It listens on this PC only, unless you tick **Allow other PCs on this network
+to connect** during setup (section 5.1), in which case it also accepts this
+PC's own private network(s) and nothing else (`pg_hba.conf`).
 
-or download the Windows installer from
-<https://www.postgresql.org/download/windows/> and run it.
-
-During installation:
-
-- **Set a password for the `postgres` superuser, and keep it.** You type it
-  once, on the setup program's **Database** page ([section 5.1](#51-run-the-setup-program)).
-- Leave the port at **5432**. That is what the platform expects
-  (`AGENCY_DATABASE_PORT=5432`, which the configuration step writes).
-- Leave the service set to start automatically.
-
-**Keep PostgreSQL on the same machine as the server** (recommendation). The
-installer assumes `localhost`, and it means port 5432 never has to be opened to
-the network. A database on a separate machine does work: give its address on
-the setup program's **Database** page, which writes it to `AGENCY_DATABASE_HOST`
-in `config\.env`. You then have to open that machine to
-the server yourself, in `postgresql.conf` (`listen_addresses`) and
-`pg_hba.conf`.
-
-You do not create the application's database account by hand. The setup
-program creates it for you: a login called `agency_app` that is **not** a superuser and owns one
-database, `agency_platform` (sourced: `install/install.ps1`,
+The application's database account is created for you: a login called
+`agency_app` that is **not** a superuser and owns one database,
+`agency_platform` (sourced: `install/install.ps1`,
 `backend/app/core/database/bootstrap.py`).
+
+An installation made by an earlier setup program, against a PostgreSQL you
+installed yourself, keeps using that PostgreSQL when it is upgraded: setup
+reads where it is from `config\.env` and does not move the data.
 
 ---
 
 ## 5. Install the server
 
 ### 5.1 Run the setup program
+
+It needs 64-bit Windows 10 or 11, at least 4 GB of memory and 3 GB of free
+disk, and refuses to start otherwise. It needs no internet connection.
 
 1. Copy `AgencyPlatform-1.0.0-Setup.exe` to the server and double-click it.
 2. SmartScreen warns about an unknown publisher. Click **More info**, then
@@ -231,29 +228,35 @@ database, `agency_platform` (sourced: `install/install.ps1`,
 4. Accept the default folder, `C:\Program Files\Agency Platform`, or choose
    another with **Browse**. When you upgrade later, setup reuses whatever folder
    you pick now.
-5. **This PC**: choose **The server**.
-6. **Database**: the PostgreSQL server (`localhost` when it is on this machine),
-   its port (`5432`), and an administrator account: `postgres` and the password
-   you set in section 4. Setup uses the account once, to create the
-   application's own account and database, and does not store it.
-7. Setup shows "Setting up the database. This can take a few minutes..." while
-   it writes `config\.env`, creates the account and the database, and builds the
-   tables in every store (sourced: the `[Code]` section of
-   `packaging/AgencyPlatform.iss`, which runs `install.ps1 -ConfigureOnly`).
-8. **If that worked**, the last page shows the first administrator's sign-in
-   address and password. **Write the password down now.** Setup does not show
-   it again; after this it is only in `config\.env` (section 7).
+5. **This PC**: choose **This PC: server and app**. Tick **Allow other PCs on
+   this network to connect** if other PCs will use this server; it is off by
+   default, and without it the server answers this PC only.
+6. Setup shows "Setting up the database and the server..." while it creates the
+   database, writes `config\.env`, builds the platform tables, checks that the
+   database holds no firm (a fresh install must find none, or it stops), and
+   registers the server as the Windows service **Agency Platform Server**
+   (`AgencyPlatformServer`). The service starts automatically, restarts itself
+   after a failure, and runs as its own least-privilege account,
+   `NT SERVICE\AgencyPlatformServer`. With the box ticked it listens on the
+   network and Windows Firewall gets one rule: inbound TCP 8000, private
+   networks only. Setup then waits up to 90 seconds for the server to answer.
+7. **If that worked**, the last page shows the first administrator's sign-in
+   and password, with a **Copy** button. They are also saved in
+   `C:\ProgramData\Agency Platform\first-login.txt`, readable by administrators
+   only; delete that file once the password has been changed at the first
+   sign-in, which the application requires.
 
-   **If it did not**, setup says so in a message giving the reason, the last
-   page says the database is not set up, and **Start Agency Platform** is not
-   offered. The usual causes are a wrong administrator password and PostgreSQL
-   not running. Fix the cause and **run setup again**: it asks for the database
-   again and carries on from where it stopped. Everything the step printed,
-   except the password, is in
-   `C:\ProgramData\Agency Platform\logs\setup-configure.log`.
+   **If it did not**, setup says so with the reason, the last page says the
+   server is not set up, and **Launch Agency Platform** is not offered. **Run
+   setup again** once the cause is fixed: it carries on from where it stopped.
+   Everything it did, except the password, is in
+   `C:\ProgramData\Agency Platform\logs\install\install-<version>-<date-time>.log`
+   (the last ten runs are kept).
 
-On the last page, **Start Agency Platform** opens the client. Its sign-in will
-fail until the server is running (section 5.3). That failure is expected.
+**Launch Agency Platform**, ticked on the last page, opens the client pointed at
+`http://127.0.0.1:8000`. Sections 5.3 to 5.5 -- starting the server, starting it
+automatically, the firewall -- are what setup has just done; they remain for an
+installation made from a folder (section 11).
 
 ### 5.2 Check the settings, or finish by hand
 
@@ -453,40 +456,45 @@ place and the network is Private, and the address is right.
 
 1. Run the same `AgencyPlatform-1.0.0-Setup.exe` and get past SmartScreen as in
    section 5.1. Setup needs an administrator account.
-2. On the **This PC** page, choose **A client**. Setup then skips the database
-   entirely: it asks for no PostgreSQL account and writes no `config\.env`. The
-   server program is still copied, because there is no client-only installer
-   yet. **Ignore it on a client PC.** Do not start it and do not register the
-   task from section 5.4. Setup remembers the choice, so an upgrade does not ask
-   again.
-3. Start **Agency Platform** from the Start Menu.
+2. On the **This PC** page, choose **App only: connect to a server on the
+   network**. Setup installs no PostgreSQL, no server and no service.
+3. On the **Server** page, type the server's address, for example
+   `http://192.168.1.50:8000`. Setup asks it for `/health`; if nothing answers
+   it says so and lets you keep the address anyway (the server PC may simply
+   be off). The server must have been installed with **Allow other PCs on this
+   network to connect** ticked.
+4. Setup writes the address into `config\branding.json` beside the program, so
+   it holds for **every Windows user** of the PC, and remembers it for the next
+   upgrade.
 
-**Point the client at the server.** Nothing sets the server address at install
-time. On the sign-in screen:
+**Changing the server later.** On the sign-in screen, click the **gear icon**
+(*Application Settings*), type the address in **API URL** and click **Save**.
+That choice is **per Windows user**, in
+`%APPDATA%\.agency_platform\desktop_preferences.json`, and wins over the
+address setup wrote (sourced: `desktop/lib/app.dart`, `resolveServerUrl`). An
+address the client will not accept is refused with a message explaining why
+(see [section 2.5](#25-network)).
 
-1. Click the **gear icon** (tooltip: *Application Settings*) at the top.
-2. In **API URL**, type the server's address, for example
-   `http://192.168.1.50:8000`, or `https://...` if you set up HTTPS.
-3. Click **Save**.
+**Before the sign-in screen**, the client shows *Connecting to server...* and
+asks the server every 2 seconds for up to a minute. If it never answers, it
+says *The Agency Platform Server service is not running* and offers **Retry**,
+**Open logs folder**, and **Continue to sign-in** (to reach the gear and
+correct a wrong address).
 
-An address the client will not accept is refused with a message explaining why
-(see [section 2.5](#25-network)). The address is saved **for each Windows user**,
-in `%APPDATA%\.agency_platform\desktop_preferences.json` (sourced:
-`desktop/lib/core/preferences/desktop_preferences_service.dart`,
-`desktop/lib/core/platform/app_storage.dart`). Each person who signs in to
-Windows on that PC sets it once. **Recent Servers** in the same dialog remembers
-earlier addresses. Without a saved address, the client uses
-`http://localhost:8000`, which is right only on the server machine itself.
+**`config\branding.json`** sits beside `agency_desktop.exe`, in
+`C:\Program Files\Agency Platform\config\`. Besides `server_url`, it sets only
+what the program displays: application and company names, logo and splash
+images, the version shown, support e-mail and website, copyright, and the
+sign-in screen colours (sourced: `desktop/config/branding.json`,
+`desktop/lib/core/branding/branding_config.dart`). If a value in that file is
+broken, the client falls back to built-in defaults and still starts.
 
-**`config\branding.json` does not set the server address.** It sits beside
-`agency_desktop.exe`, in `C:\Program Files\Agency Platform\config\`, and sets
-only what the program displays: application and company names, logo and splash
-images, the version shown, support e-mail and website, copyright, and the sign-in
-screen colours (sourced: `desktop/config/branding.json`,
-`desktop/lib/core/branding/branding_config.dart`). The shipped support details
-are placeholders (`support@example.com`, `https://example.com/support`). If a
-value in that file is broken, the client falls back to built-in defaults and
-still starts.
+**Client logs** go to
+`C:\ProgramData\Agency Platform\logs\client\<Windows user>\client-YYYY-MM-DD.log`,
+one file a day, kept 14 days; where that folder cannot be written, to
+`%APPDATA%\.agency_platform\logs` instead. **Open logs folder** in Application
+Settings opens `C:\ProgramData\Agency Platform\logs`.
+
 
 ---
 
@@ -552,42 +560,31 @@ database, possibly on another server. In that case you build its storage with
 
 ## 8. Upgrading to a new version
 
-1. **Take a backup first** ([section 9](#9-backups)).
-2. **Stop the server** and ask users to close the client. Recommendation: setup
-   cannot replace files that are in use. If you used the task from section 5.4,
-   run `Stop-ScheduledTask -TaskName 'Agency Platform server'`, then check that
-   no `agency-server.exe` is left in Task Manager.
-3. Run the new `AgencyPlatform-<version>-Setup.exe`. It installs into the same
-   folder without asking (`UsePreviousAppDir=yes`), and Windows treats it as an
-   upgrade rather than a second copy. It does not ask **This PC** or
-   **Database** again: it remembers the answer, and that the database is set up.
-4. **Upgrade every store**, from an administrator PowerShell window:
+1. Ask users to close the client.
+2. Run the new `AgencyPlatform-<version>-Setup.exe` on the server. It installs
+   into the same folder without asking (`UsePreviousAppDir=yes`), does not ask
+   **This PC** again, and **refuses to install an older version** over a newer
+   one.
+3. Before it replaces a single file, setup stops **Agency Platform Server** and
+   backs up every store the server uses -- the platform store, the shared firm
+   store and every firm with its own schema or database on this PC -- with
+   `pg_dump`, to
+   `C:\ProgramData\Agency Platform\backups\pre-upgrade-<old version>-<date-time>\`.
+   **If any backup fails, the upgrade stops there and nothing is changed.** A
+   firm whose store is on another server is named in the log and not backed up
+   here: back that server up yourself.
+4. It then replaces the program files, runs `agency-server migrate-all --yes`
+   (every store, store by store, and a failure is named), starts the service
+   and waits for it to answer. It does **not** re-create the database or
+   generate new passwords: `config\.env` and the database are left as they are.
+5. Update each client PC by running the same setup program there. It remembers
+   the server address.
 
-   ```powershell
-   cd "C:\Program Files\Agency Platform\backend"
-   .\agency-server.exe migrate-all --dry-run
-   .\agency-server.exe migrate-all --yes
-   ```
-
-   Setup runs this too, and tells you if it failed (the detail is in
-   `setup-configure.log`); `start_backend.ps1` does it on every start. Running
-   it here shows the result **store by store**. It covers
-   the platform store, the shared firm store, and **every** firm with its own
-   schema or database, including firms on another server. Those servers must be
-   reachable, and their profiles must still be in `config\.env`. If one store
-   fails, the others are still upgraded, and the failure is named.
-5. Start the server again, then update each client PC by running the same setup
-   program there.
-
-**An upgrade keeps your data.** The database lives in PostgreSQL, and setup
-never touches it except through the migration step, which only adds to it.
-`config\.env`, which holds the signing key and database password, was created
-on the machine rather than installed, so setup does not replace it. **Uninstalling
-leaves the database, `config\.env` and the logs in place** (sourced:
-`[UninstallDelete]` in `packaging/AgencyPlatform.iss`, [`RELEASE_BUILD.md`](RELEASE_BUILD.md)).
-Removing those is a deliberate job for someone who means it.
-
----
+**An upgrade keeps your data**, and so does uninstalling: Add/Remove Programs
+stops and removes both services and the firewall rule and removes the program,
+then asks **Also delete all data (database, backups, logs)?**, with **No** as
+the default. Answer **No** and a later install picks the data up where it was
+left. **Yes cannot be undone.**
 
 ## 9. Backups
 

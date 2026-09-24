@@ -42,6 +42,18 @@
   when the build is killed rather than failing -- a killed build leaves no
   error to read, which is what makes it worth naming here.
 
+.PARAMETER ClientDir
+  A built desktop client to stage instead of desktop\build\windows\x64\runner\
+  Release. For building the installer from a worktree that has not built the
+  client itself; a release build normally omits it.
+
+.PARAMETER CacheDir
+  Where the three downloaded build inputs are kept between builds -- the
+  PostgreSQL binaries, WinSW and the Visual C++ runtime. Outside the
+  repository, so a clean checkout does not download 350 MB again and nothing
+  large is ever committed. Defaults to $env:AGENCY_BUILD_CACHE, then
+  %LOCALAPPDATA%\agency-build-cache.
+
 .EXAMPLE
   .\packaging\build_installer.ps1
   Stages, verifies and produces dist\windows\AgencyPlatform-1.0.0-Setup.exe
@@ -57,13 +69,58 @@ param(
   [switch]$SkipVerify,
   [switch]$SkipCompile,
   [int]$Jobs = 0,
-  [switch]$LowMemory
+  [switch]$LowMemory,
+  [string]$ClientDir,
+  [string]$CacheDir
 )
 
 $ErrorActionPreference = 'Stop'
 $root = Resolve-Path (Join-Path $PSScriptRoot '..')
 $staging = Join-Path $root 'dist\staging'
+# Installed by Setup to {tmp} and run, never copied to Program Files -- so it
+# is staged beside the payload rather than inside it.
+$redistStaging = Join-Path $root 'dist\redist'
 $output = Join-Path $root 'dist\windows'
+
+if (-not $CacheDir) {
+  $CacheDir = if ($env:AGENCY_BUILD_CACHE) { $env:AGENCY_BUILD_CACHE } else {
+    Join-Path $env:LOCALAPPDATA 'agency-build-cache'
+  }
+}
+
+# -- Pinned build inputs --------------------------------------------------------
+# Each is downloaded once into the cache and checked against its SHA-256 on
+# every build, so what reaches a customer is exactly what was reviewed here. To
+# move one forward, change the version, the URL and the hash together; a
+# mismatch stops the build rather than shipping whatever the URL serves today.
+$PostgresVersion = '17.11-1'
+$PinnedInputs = @(
+  @{
+    Name   = "PostgreSQL $PostgresVersion binaries (EDB, Windows x64)"
+    File   = "postgresql-$PostgresVersion-windows-x64-binaries.zip"
+    Url    = "https://get.enterprisedb.com/postgresql/postgresql-$PostgresVersion-windows-x64-binaries.zip"
+    Sha256 = '6EABDF00D2893713B75DB4336A23C3FDF505F056E217EC6E2E95D901750CFEA3'
+  },
+  @{
+    # WinSW 2.12.0 is the current stable release; 3.x is still alpha.
+    Name   = 'WinSW 2.12.0 (x64)'
+    File   = 'WinSW-x64-2.12.0.exe'
+    Url    = 'https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW-x64.exe'
+    Sha256 = '05B82D46AD331CC16BDC00DE5C6332C1EF818DF8CEEFCD49C726553209B3A0DA'
+  },
+  @{
+    # 14.44.35211. The versioned URL aka.ms/vs/17/release/vc_redist.x64.exe
+    # redirected to on 2026-09-24; the aka.ms link itself moves with every
+    # Visual Studio release, which a pinned hash cannot follow.
+    Name   = 'Visual C++ 2015-2022 runtime 14.44.35211 (x64)'
+    File   = 'vc_redist-14.44.35211.x64.exe'
+    Url    = 'https://download.visualstudio.microsoft.com/download/pr/bd1c8d9d-ba95-4eee-bc6e-df1fcc876373/CC0FF0EB1DC3F5188AE6300FAEF32BF5BEEBA4BDD6E8E445A9184072096B713B/VC_redist.x64.exe'
+    Sha256 = 'CC0FF0EB1DC3F5188AE6300FAEF32BF5BEEBA4BDD6E8E445A9184072096B713B'
+  }
+)
+# The runtime the bundled vc_redist carries, handed to the .iss so Setup
+# installs it only when the machine has an older one or none.
+$VcRuntimeMinor = 44
 
 function Write-Step { param([string]$Text) Write-Host "`n== $Text" -ForegroundColor Cyan }
 function Write-Done { param([string]$Text) Write-Host "   $Text" -ForegroundColor Green }
@@ -93,9 +150,74 @@ Write-Host "  output:   $output"
 # keeps shipping. Start from nothing, every time.
 
 Write-Step 'Clean'
-if (Test-Path $staging) { Remove-Item -Recurse -Force $staging }
-New-Item -ItemType Directory -Force -Path $staging, $output | Out-Null
+foreach ($dir in @($staging, $redistStaging)) {
+  if (Test-Path $dir) { Remove-Item -Recurse -Force $dir }
+}
+New-Item -ItemType Directory -Force -Path $staging, $redistStaging, $output | Out-Null
 Write-Done 'staging directory is empty'
+
+# -- 1a. Fetch ------------------------------------------------------------------
+# The installer is fully offline: everything a customer machine needs is inside
+# Setup.exe. What this repository does not build -- PostgreSQL, the service
+# wrapper, the C++ runtime -- is fetched here, once, into a cache outside the
+# repository, and checked against its pinned hash on every build.
+
+Write-Step 'Fetch'
+New-Item -ItemType Directory -Force -Path $CacheDir | Out-Null
+Write-Host "   cache: $CacheDir"
+
+function Get-PinnedInput {
+  param([hashtable]$Item)
+  $target = Join-Path $CacheDir $Item.File
+  $partial = "$target.tmp"
+  foreach ($candidate in @($target, $partial)) {
+    if (-not (Test-Path $candidate)) { continue }
+    $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $candidate).Hash
+    if ($hash -eq $Item.Sha256) {
+      if ($candidate -ne $target) { Move-Item -Force -LiteralPath $candidate -Destination $target }
+      Write-Done "$($Item.Name): cached, hash verified"
+      return $target
+    }
+    Write-Host "   $($Item.Name): cached copy has the wrong hash -- fetching again" -ForegroundColor Yellow
+    Remove-Item -Force -LiteralPath $candidate
+  }
+  Write-Host "   $($Item.Name): downloading $($Item.Url)"
+  $previousProgress = $ProgressPreference
+  $ProgressPreference = 'SilentlyContinue'   # the progress bar makes this ten times slower
+  try {
+    [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+    Invoke-WebRequest -UseBasicParsing -Uri $Item.Url -OutFile $partial
+  } catch {
+    Stop-Build "Could not download $($Item.Name): $($_.Exception.Message)" `
+      "Check the network, or place the file in $CacheDir as $($Item.File) by hand."
+  } finally { $ProgressPreference = $previousProgress }
+  $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $partial).Hash
+  if ($hash -ne $Item.Sha256) {
+    Remove-Item -Force -LiteralPath $partial
+    Stop-Build "$($Item.Name) does not match its pinned SHA-256 (got $hash)." `
+      'Either the download was corrupted or the publisher changed the file. Do not update the pin without finding out which.'
+  }
+  Move-Item -Force -LiteralPath $partial -Destination $target
+  Write-Done "$($Item.Name): downloaded, hash verified"
+  return $target
+}
+
+$fetched = @{}
+foreach ($item in $PinnedInputs) { $fetched[$item.File] = Get-PinnedInput $item }
+$postgresZip = $fetched["postgresql-$PostgresVersion-windows-x64-binaries.zip"]
+$winswExe = $fetched['WinSW-x64-2.12.0.exe']
+$vcRedist = $fetched['vc_redist-14.44.35211.x64.exe']
+
+# Extracted once per version into the cache: the zip is 340 MB and expanding it
+# is most of a minute, which is not worth paying on every build.
+$postgresExtracted = Join-Path $CacheDir "pgsql-$PostgresVersion"
+if (-not (Test-Path (Join-Path $postgresExtracted 'pgsql\bin\postgres.exe'))) {
+  Write-Host "   extracting PostgreSQL $PostgresVersion"
+  if (Test-Path $postgresExtracted) { Remove-Item -Recurse -Force $postgresExtracted }
+  Add-Type -AssemblyName System.IO.Compression.FileSystem
+  [System.IO.Compression.ZipFile]::ExtractToDirectory($postgresZip, $postgresExtracted)
+}
+Write-Done "PostgreSQL $PostgresVersion ready to stage"
 
 # -- 1b. Compile --------------------------------------------------------------
 # This is the step the whole exercise is for. Nuitka translates the backend to
@@ -193,7 +315,7 @@ if ($SkipCompile) {
 
 Write-Step 'Stage'
 
-$client = Join-Path $root 'desktop\build\windows\x64\runner\Release'
+$client = if ($ClientDir) { $ClientDir } else { Join-Path $root 'desktop\build\windows\x64\runner\Release' }
 if (-not (Test-Path (Join-Path $client 'agency_desktop.exe'))) {
   Stop-Build 'The desktop client has not been built.' `
     'Run: cd desktop; flutter build windows --release'
@@ -269,7 +391,42 @@ Write-Done 'backend staged'
 $packagingTo = Join-Path $staging 'packaging'
 New-Item -ItemType Directory -Force -Path $packagingTo | Out-Null
 Copy-Item -Path (Join-Path $root 'install\install.ps1') -Destination $packagingTo -Force
+# The machine-level half: the private database, the service, the firewall,
+# the pre-upgrade backup and the uninstall. It calls install.ps1 rather than
+# repeating it.
+Copy-Item -Path (Join-Path $PSScriptRoot 'server_setup.ps1') -Destination $packagingTo -Force
 Write-Done 'configure step staged'
+
+# The private PostgreSQL. Only what a server needs to run: pgAdmin,
+# StackBuilder, the documentation, the debug symbols and the C headers are
+# roughly two thirds of the zip and none of them is used on a customer machine.
+$pgsqlFrom = Join-Path $postgresExtracted 'pgsql'
+$pgsqlTo = Join-Path $staging 'pgsql'
+$pgsqlDrop = @('pgAdmin 4', 'StackBuilder', 'doc', 'symbols', 'include')
+New-Item -ItemType Directory -Force -Path $pgsqlTo | Out-Null
+foreach ($entry in Get-ChildItem -Force $pgsqlFrom) {
+  if ($entry.Name -in $pgsqlDrop) { continue }
+  Copy-Item -Path $entry.FullName -Destination $pgsqlTo -Recurse -Force
+}
+# PostgreSQL's own test programs: bin\test_cloexec.exe and the
+# test_decoding example plugin. Not used by a server, and the release check
+# refuses anything named like a test.
+Get-ChildItem -Path $pgsqlTo -Recurse -File -Filter 'test_*' | Remove-Item -Force
+foreach ($required in @('bin\postgres.exe', 'bin\initdb.exe', 'bin\pg_ctl.exe', 'bin\pg_dump.exe',
+                        'bin\pg_isready.exe', 'share\postgresql.conf.sample')) {
+  if (-not (Test-Path (Join-Path $pgsqlTo $required))) { Stop-Build "The PostgreSQL stage lacks $required." }
+}
+$pgSize = [math]::Round((Get-ChildItem $pgsqlTo -Recurse -File | Measure-Object Length -Sum).Sum / 1MB, 1)
+Write-Done "PostgreSQL $PostgresVersion staged ($pgSize MB; pgAdmin, StackBuilder, docs, symbols and headers dropped)"
+
+# The service wrapper, named after the service so WinSW finds its XML beside it.
+$serviceTo = Join-Path $staging 'service'
+New-Item -ItemType Directory -Force -Path $serviceTo | Out-Null
+Copy-Item -Path $winswExe -Destination (Join-Path $serviceTo 'AgencyPlatformServer.exe') -Force
+Write-Done 'service wrapper staged'
+
+Copy-Item -Path $vcRedist -Destination (Join-Path $redistStaging 'vc_redist.x64.exe') -Force
+Write-Done 'Visual C++ runtime staged (run by Setup when missing, never copied to Program Files)'
 
 # Compiled caches travel badly and belong to the build machine.
 Get-ChildItem -Path $staging -Recurse -Force -Directory `
@@ -313,9 +470,12 @@ if ($SkipInstaller) {
 }
 
 Write-Step 'Installer'
+# winget installs Inno Setup per user unless told otherwise, which puts it
+# under LOCALAPPDATA rather than Program Files.
 $iscc = @(
   "${env:ProgramFiles(x86)}\Inno Setup 6\ISCC.exe",
-  "$env:ProgramFiles\Inno Setup 6\ISCC.exe"
+  "$env:ProgramFiles\Inno Setup 6\ISCC.exe",
+  "$env:LOCALAPPDATA\Programs\Inno Setup 6\ISCC.exe"
 ) | Where-Object { Test-Path $_ } | Select-Object -First 1
 
 if (-not $iscc) {
@@ -323,7 +483,8 @@ if (-not $iscc) {
     "Install it with:`n    winget install --id JRSoftware.InnoSetup`n  Then run this again. The staged tree is ready at $staging."
 }
 
-& $iscc "/DAppVersion=$Version" "/DPayloadDir=$staging" "/DOutputDir=$output" `
+& $iscc "/DAppVersion=$Version" "/DPayloadDir=$staging" "/DRedistDir=$redistStaging" `
+  "/DOutputDir=$output" "/DVcRuntimeMinor=$VcRuntimeMinor" `
   (Join-Path $PSScriptRoot 'AgencyPlatform.iss')
 if ($LASTEXITCODE -ne 0) { Stop-Build 'Inno Setup failed to compile the installer.' }
 

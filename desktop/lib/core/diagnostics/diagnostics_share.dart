@@ -56,6 +56,27 @@ abstract final class DiagnosticsShare {
     }
   }
 
+  /// Opens the logs folder in the desktop's file manager.
+  ///
+  /// On an installed Windows copy that is `C:\ProgramData\Agency Platform\logs`,
+  /// which holds the server's and the database's logs beside this client's;
+  /// elsewhere it is the folder this client writes to.
+  static Future<void> openLogsFolder() async {
+    final Directory folder = AppLog.logsFolder();
+    try {
+      folder.createSync(recursive: true);
+      if (Platform.isWindows) {
+        await Process.run('explorer', [folder.path]);
+      } else if (Platform.isMacOS) {
+        await Process.run('open', [folder.path]);
+      } else {
+        await Process.run('xdg-open', [folder.path]);
+      }
+    } on Object catch (error) {
+      AppLog.warn('Could not open ${folder.path}: $error');
+    }
+  }
+
   static Future<void> copy(String report) =>
       Clipboard.setData(ClipboardData(text: report));
 }

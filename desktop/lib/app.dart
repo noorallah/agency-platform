@@ -2,15 +2,35 @@ import 'package:flutter/material.dart';
 
 import 'core/auth/session_controller.dart';
 import 'core/branding/branding_config.dart';
+import 'core/diagnostics/diagnostics_share.dart';
 import 'core/preferences/desktop_preferences_service.dart';
 import 'core/preferences/user_preferences.dart';
 import 'core/security/permission_service.dart';
 import 'core/theme/theme_manager.dart';
 import 'ui/auth_screens.dart';
 import 'ui/desktop_shell.dart';
+import 'ui/server_connection_gate.dart';
 
 const String _configuredApiUrl = String.fromEnvironment('API_BASE_URL',
     defaultValue: 'http://localhost:8000');
+
+/// The preferences file's own default, which means "never chosen".
+const String _unchosenServerUrl = 'http://localhost:8000';
+
+/// Which server the app talks to, in order of who decided it: the user, in
+/// Application Settings; then Setup, in `config/branding.json`; then the build.
+///
+/// The preferences default is indistinguishable from a choice of it, so it
+/// counts as no choice -- as it always has.
+String resolveServerUrl({
+  required String saved,
+  required String installed,
+  required String compiled,
+}) {
+  if (saved.isNotEmpty && saved != _unchosenServerUrl) return saved;
+  if (installed.isNotEmpty) return installed;
+  return compiled;
+}
 
 class AgencyApp extends StatefulWidget {
   const AgencyApp({
@@ -19,12 +39,22 @@ class AgencyApp extends StatefulWidget {
     this.preferences,
     this.branding,
     this.permissions,
+    this.waitForServer = false,
+    this.serverProbe,
   });
 
   final SessionController? session;
   final DesktopPreferencesService? preferences;
   final BrandingConfig? branding;
   final PermissionService? permissions;
+
+  /// Show [ServerConnectionGate] until the server answers `/health`, before
+  /// the session is restored or the sign-in screen shown. `main` turns it on;
+  /// tests that drive the sign-in screen leave it off.
+  final bool waitForServer;
+
+  /// Replaces the gate's `/health` call, for tests.
+  final Future<bool> Function()? serverProbe;
 
   @override
   State<AgencyApp> createState() => _AgencyAppState();
@@ -40,10 +70,11 @@ class _AgencyAppState extends State<AgencyApp> {
       widget.permissions ?? PermissionService();
   late final SessionController _session = widget.session ??
       SessionController(
-        baseUrl: _preferences.current.serverUrl.isEmpty ||
-                _preferences.current.serverUrl == 'http://localhost:8000'
-            ? _configuredApiUrl
-            : _preferences.current.serverUrl,
+        baseUrl: resolveServerUrl(
+          saved: _preferences.current.serverUrl,
+          installed: _branding.serverUrl,
+          compiled: _configuredApiUrl,
+        ),
         preferences: _preferences,
         onPreferencesSynchronized: _applyServerPreferences,
         onAccessTokenChanged: _permissions.applyAccessToken,
@@ -69,6 +100,16 @@ class _AgencyAppState extends State<AgencyApp> {
       }
       return Future.value();
     });
+    if (_serverReady) _session.restore();
+  }
+
+  /// Whether the gate has let the app through. Restoring the session asks the
+  /// server for a token, so it waits for the same answer the gate does.
+  late bool _serverReady = !widget.waitForServer;
+
+  void _passGate() {
+    if (_serverReady) return;
+    setState(() => _serverReady = true);
     _session.restore();
   }
 
@@ -126,7 +167,15 @@ class _AgencyAppState extends State<AgencyApp> {
           // messages and read-only values are plain `Text`, and those are
           // exactly what a user needs to quote back. The two dialog shells
           // wrap themselves; see `WorkspaceDialog` and `CrudWorkspaceDialog`.
-          home: SelectionArea(
+          home: !_serverReady
+              ? ServerConnectionGate(
+                  probe: widget.serverProbe ?? _session.api.backendReachable,
+                  serverUrl: _session.baseUrl,
+                  onConnected: _passGate,
+                  onContinueAnyway: _passGate,
+                  onOpenLogs: DiagnosticsShare.openLogsFolder,
+                )
+              : SelectionArea(
             child: AnimatedBuilder(
               animation: _session,
               builder: (context, _) {

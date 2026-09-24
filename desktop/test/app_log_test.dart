@@ -21,11 +21,18 @@ Directory _tempDir() {
   return directory;
 }
 
-File _logIn(Directory directory) =>
-    File('${directory.path}${Platform.pathSeparator}agency_desktop.log');
+/// The day every test runs on, unless it moves the clock itself.
+DateTime _now = DateTime(2026, 9, 24, 10);
+
+File _logIn(Directory directory, [String day = '2026-09-24']) =>
+    File('${directory.path}${Platform.pathSeparator}client-$day.log');
 
 void main() {
-  setUp(AppLog.resetForTest);
+  setUp(() {
+    AppLog.resetForTest();
+    _now = DateTime(2026, 9, 24, 10);
+    AppLog.clock = () => _now;
+  });
 
   test('a line reaches the file immediately, not on some later flush', () {
     final Directory directory = _tempDir();
@@ -98,6 +105,60 @@ void main() {
 
   test('logs live in a logs folder, not loose beside preferences', () {
     expect(AppLog.defaultDirectory().path, endsWith('logs'));
+  });
+
+  test('a new day starts a new file, named for the day', () {
+    final Directory directory = _tempDir();
+    AppLog.initialize(directory: directory);
+
+    AppLog.info('before midnight');
+    _now = DateTime(2026, 9, 25, 0, 5);
+    AppLog.info('after midnight');
+
+    expect(_logIn(directory).readAsStringSync(), contains('before midnight'));
+    expect(
+      _logIn(directory, '2026-09-25').readAsStringSync(),
+      contains('after midnight'),
+    );
+    expect(AppLog.filePath, endsWith('client-2026-09-25.log'));
+  });
+
+  test('fourteen days are kept and older ones deleted, generations too', () {
+    final Directory directory = _tempDir();
+    String path(String name) =>
+        '${directory.path}${Platform.pathSeparator}$name';
+    // Today is 2026-09-24: the 11th is the oldest of the fourteen days kept.
+    File(path('client-2026-09-11.log')).writeAsStringSync('kept');
+    File(path('client-2026-09-10.log')).writeAsStringSync('expired');
+    File(path('client-2026-09-10.log.1')).writeAsStringSync('expired');
+    File(path('notes.txt')).writeAsStringSync('not ours');
+
+    AppLog.initialize(directory: directory);
+
+    expect(File(path('client-2026-09-11.log')).existsSync(), isTrue);
+    expect(File(path('client-2026-09-10.log')).existsSync(), isFalse);
+    expect(File(path('client-2026-09-10.log.1')).existsSync(), isFalse);
+    expect(File(path('notes.txt')).existsSync(), isTrue);
+  });
+
+  test('the shared location is ProgramData, per Windows user', () {
+    final Directory? shared = AppLog.sharedClientDirectory(
+      environment: const {
+        'ProgramData': r'C:\ProgramData',
+        'USERNAME': 'clerk',
+      },
+    );
+    expect(
+      shared?.path,
+      r'C:\ProgramData\Agency Platform\logs\client\clerk',
+    );
+    // No user name, no shared folder: the per-user one is used instead.
+    expect(
+      AppLog.sharedClientDirectory(
+        environment: const {'ProgramData': r'C:\ProgramData'},
+      ),
+      isNull,
+    );
   });
 
   test('timestamps are UTC so they line up with the backend', () {
