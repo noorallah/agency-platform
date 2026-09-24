@@ -7078,13 +7078,20 @@ path**: `require_platform_admin()` by designation, always the platform session.
 It answers four counts of live (`is_deleted = false`) rows — `firms` (inactive
 firms included), `users`, `roles`, `permissions` — each `null` when the caller
 lacks `FIRM_VIEW` / `USER_VIEW` / `ROLE_VIEW` / `PERMISSION_VIEW` in the token's
-`permissions` claim. Nothing else: `DashboardSummary` forbids extra fields.
-On 2026-09-23 the platform held 46 firms, 161 users, 20 roles and 189
-permissions. The desktop page (`dashboard_page.dart`) shows the four cards,
-each hidden without its code, and **two panels the server has never filled** —
-"Recent Firms" reads `recent_firms` and "System Activity" `system_activity`,
-neither of which any response carries, so both have always said "No recent …
-activity available" (D-RPT-20). The module is offered on `requiresPlatformAdmin`,
+`permissions` claim. Beside them it carries two lists (`DashboardSummary`
+forbids anything else). `recent_firms` is up to five live firms (`id`, `code`,
+`name`, `status`, `created_at`), newest `created_at` first: every live firm for
+an `ALL_FIRMS` designation, and for a `PLATFORM` one only the firms of its own
+active `user_firms` rows — the same narrowing `GET /api/v1/me/firms` applies.
+`system_activity` is the newest ten rows of the **platform** `audit_logs`
+(`action`, `entity_type`, `entity_id`, `actor_id`, `created_at`): all of them
+for `ALL_FIRMS`, only the caller's own (`actor_id`) for `PLATFORM`. Each firm's
+own trail stays in its store and is not read here. On 2026-09-23 the platform
+held 46 firms, 161 users, 20 roles and 189 permissions. The desktop page
+(`dashboard_page.dart`) shows the four cards, each hidden without its code, and
+the two panels "Recent Firms" and "System Activity" from those lists. Until
+2026-09-24 no response carried either list, so both had always said "No recent
+… activity available" (D-RPT-20). The module is offered on `requiresPlatformAdmin`,
 not on the four codes; an `ACCOUNTANT` in a firm gets 403 from the route and
 never sees the tab.
 
@@ -7124,12 +7131,17 @@ which lists everything.
   with the same filter**, so every node is listed twice, once under each label
   — WHOLE01's six nodes are twelve hits (D-RPT-6).
 - **Pagination is over an in-memory list.** Each definition contributes at
-  most `max(page_size, 20)` rows, newest `updated_at` first then `id DESC` (a
-  tie-break, since every row one request wrote shares a timestamp); the hits
-  are concatenated in definition order and sliced. `total` is therefore the
-  size of that capped list, never the count of matches (D-RPT-20). `inventory`
-  is matched on `storage_locator` alone and `opening_stock` on
-  `reference_number`, so stock cannot be found by product.
+  most `max(page × page_size, 20)` rows — the end of the page asked for, so a
+  later page is exact rather than empty — newest `updated_at` first then
+  `id DESC` (a tie-break, since every row one request wrote shares a
+  timestamp); the hits are concatenated in definition order and sliced.
+  `total` is the sum of one `COUNT(*)` per definition under the same filter,
+  so it is the number of matches, not the size of the capped list (before
+  D-RPT-20 it was the latter). `inventory` is matched on `storage_locator` **or
+  its product's `code` / `name`** (a `product_id IN (…)` subquery), so typing a
+  product finds its stock rows; `opening_stock` is matched on
+  `reference_number`. The `expiry` definition's "has an expiry date" is in SQL,
+  so its count agrees with its list.
 - **The desktop dialog offers fourteen category chips and the server accepts
   five.** `_searchCategoryWire` sends `modules`, `customers`, `vendors`,
   `documents`, `transactions` and `reports` as typed, and the route's
