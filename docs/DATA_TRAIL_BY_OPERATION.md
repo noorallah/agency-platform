@@ -6858,7 +6858,7 @@ all `COMMISSION_MANAGE`, `If-Match` optional.
 | A salesperson taken off their rounds when they leave | Nothing touches the firm store (§17.5) |
 | A foreign key from a rule, payout or target to a person | None in any store (§17.0) |
 | A journal from a DRAFT or a cancelled-from-DRAFT payout | None: only approval posts |
-| Commission net of tax or freight | Measured on `grand_total`; an open question, not a defect (`docs/COMMISSION_FRAMEWORK.md`) |
+| Commission net of tax or freight | Measured on net sales -- taxable value net of discounts, without tax or freight -- since 2026-09-24; decided by Claude, industry standard (`docs/COMMISSION_FRAMEWORK.md`) |
 
 ### 17.18 Checked against live rows, and not
 

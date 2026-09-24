@@ -86,9 +86,10 @@ def _whole_document(amount: Decimal) -> "_BilledLine":
 class _BilledLine:
     """One line of an invoice, as commission needs to see it.
 
-    `share` is this line's part of the invoice's own total, not its net
-    amount: the shares of an invoice sum to the invoice exactly, which is what
-    keeps a scoped and an unscoped rule measuring the same money.
+    `share` is this line's part of the invoice's commission base -- its
+    taxable value net of discounts, without tax or freight -- apportioned so
+    the shares of an invoice sum to that base exactly, which is what keeps a
+    scoped and an unscoped rule measuring the same money.
     """
 
     product_id: UUID
@@ -100,11 +101,25 @@ class _BilledLine:
     #: nothing moved, and zero would say the goods were free -- which on a
     #: margin rule pays commission on the whole sale price.
     cost: Decimal | None = None
-    #: What the line was billed at, before the invoice's total was
-    #: apportioned onto it. The margin is measured against this rather than
-    #: against `share`, which carries the header's rounding and charges and
-    #: would make a margin drift by whatever those come to.
+    #: What the line is worth before its base was apportioned: its value net
+    #: of discounts, without tax or freight. The margin is measured against
+    #: this rather than against `share`, which carries the apportioning's
+    #: rounding and would make a margin drift by whatever that comes to.
     net: Decimal = ZERO
+
+
+@dataclass(frozen=True)
+class _BilledInvoice:
+    """An invoice's lines, and the figure a payment against it is a part of.
+
+    `total` is the invoice's `grand_total` -- what a receipt, or the bill's
+    value net of credits, is measured against. Each line contributes
+    `amount * share / total`, so a payment of the whole bill earns on exactly
+    the sum of the shares: the net base, never the tax or the freight in it.
+    """
+
+    lines: list[_BilledLine]
+    total: Decimal
 
 
 class CommissionService:
@@ -850,8 +865,16 @@ class CommissionService:
         from_date: date,
         to_date: date,
         salesman_id: UUID | None = None,
+        on_document_total: bool = False,
     ) -> CommissionReport:
         """Report money collected and commission earned, by salesman.
+
+        **Commission is earned on net sales**: an invoice contributes its
+        taxable value net of its discounts, and neither its tax -- collected
+        for the government -- nor its freight, which is a pass-through. On the
+        COLLECTED basis a receipt contributes in the ratio that base bears to
+        the invoice's total. `collected_amount` and `invoiced_amount` stay the
+        money itself, so the report still reconciles against the cash book.
 
         Collections are read from the allocations that cleared sales invoices,
         joined to the settlement that made them, so a **reversed** settlement
@@ -868,6 +891,10 @@ class CommissionService:
             from_date: First allocation (or invoice) date to include, inclusive.
             to_date: Last allocation (or invoice) date to include, inclusive.
             salesman_id: Report one person rather than everybody.
+            on_document_total: Measure on the whole document, tax and freight
+                included, as every payout accrued before 2026-09-24
+                was. Only the clawback re-read of such a paid period asks for
+                it, so a period is judged on the base it was paid on.
 
         Returns:
             One row per salesman, plus the Unassigned bucket when anything
@@ -913,7 +940,10 @@ class CommissionService:
         ]
         # What each invoice is made of, so a rule that names a product can be
         # resolved against the lines rather than against the whole bill.
-        goods = self._lines_of({invoice_id for _, invoice_id, _, _, _ in measured})
+        goods = self._lines_of(
+            {invoice_id for _, invoice_id, _, _, _ in measured},
+            on_document_total=on_document_total,
+        )
         # Quantities are accumulated separately from money: a per-unit rate
         # multiplies cases, not rupees, and mixing the two into one subtotal
         # would make the ladder unreadable.
@@ -925,8 +955,11 @@ class CommissionService:
                 collected[owner] = collected.get(owner, ZERO) + amount
             else:
                 invoiced[owner] = invoiced.get(owner, ZERO) + amount
-            lines = goods.get(invoice_id) or [_whole_document(amount)]
-            billed = sum((line.share for line in lines), ZERO)
+            bill = goods.get(invoice_id)
+            if bill is None:
+                bill = _BilledInvoice(lines=[_whole_document(amount)], total=amount)
+            lines = bill.lines
+            billed = bill.total
             for line in lines:
                 rule = self._rule_for(owner, when, line, rules)
                 # A rule pays on one basis. Money measured the other way is
@@ -937,8 +970,8 @@ class CommissionService:
                     continue
                 key = (owner, rule.id)
                 # An unscoped rule matches every line and the shares sum to
-                # the invoice exactly, so it measures precisely what it
-                # measured before scoping existed. A scoped one takes only
+                # the invoice's net base exactly, so a whole bill measures its
+                # base and a receipt its share of it. A scoped one takes only
                 # its lines' share -- of what the bill is now worth on the
                 # invoiced basis, and of each receipt on the collected one,
                 # in the same proportion either way, because a payment clears
@@ -1223,21 +1256,27 @@ class CommissionService:
         margin = portion - (line.cost * share)
         return margin if margin > ZERO else ZERO
 
-    def _lines_of(self, invoice_ids: set[UUID]) -> dict[UUID, list["_BilledLine"]]:
+    def _lines_of(
+        self, invoice_ids: set[UUID], *, on_document_total: bool = False
+    ) -> dict[UUID, _BilledInvoice]:
         """Return what each invoice was made of, with each line's share of it.
 
-        The share is the invoice's own `grand_total` apportioned across its
-        lines in proportion to their net amounts, so **the shares of an
-        invoice sum to the invoice exactly**. That is what lets an unscoped
-        rule measure precisely what it measured before scoping existed: it
-        matches every line, and the parts add up to the whole. Deriving the
-        share from the line's net amount instead would drift from the total by
-        whatever the header carries -- rounding, a bill-level charge -- and a
-        commission report that does not reconcile against the invoices behind
-        it is one nobody can sign off.
+        **The base is net sales (decided 2026-09-24)**: each line is worth
+        `gross - line discount - bill-discount share + line charges`, which is
+        its taxable value without the freight share, and the tax is not in it
+        at all. The invoice's base -- the sum of those, quantized -- is
+        apportioned across the lines in proportion to them, so **the shares of
+        an invoice sum to its base exactly**. That is what lets an unscoped
+        rule and a set of scoped ones measure the same money, and a report
+        that does not reconcile against the invoices behind it is one nobody
+        can sign off.
 
         `apportion` is the same helper a bill discount is split with, so the
         rounding residual lands on the largest line rather than being dropped.
+
+        With `on_document_total` the old measure is used instead: the
+        invoice's `grand_total` apportioned on each line's `net_amount`. It
+        exists only so a period paid on that measure is re-read on it.
         """
         if not invoice_ids:
             return {}
@@ -1247,6 +1286,10 @@ class CommissionService:
                 SalesInvoiceLine.product_id,
                 SalesInvoiceLine.current_invoice_quantity,
                 SalesInvoiceLine.net_amount,
+                SalesInvoiceLine.gross_amount,
+                SalesInvoiceLine.discount_amount,
+                SalesInvoiceLine.bill_discount_amount,
+                SalesInvoiceLine.charges_amount,
                 Product.category_id,
                 SalesInvoiceLine.cost_amount,
             )
@@ -1256,45 +1299,90 @@ class CommissionService:
                 SalesInvoiceLine.is_deleted.is_(False),
             )
         ).all()
-        totals = {
-            invoice_id: Decimal(str(total))
-            for invoice_id, total in self._session.execute(
-                select(SalesInvoice.id, SalesInvoice.grand_total).where(
-                    SalesInvoice.id.in_(invoice_ids)
-                )
+        headers = {
+            invoice_id: (
+                Decimal(str(total)),
+                Decimal(str(total))
+                - Decimal(str(tax))
+                - Decimal(str(extras))
+                - Decimal(str(round_off)),
+            )
+            for invoice_id, total, tax, extras, round_off in self._session.execute(
+                select(
+                    SalesInvoice.id,
+                    SalesInvoice.grand_total,
+                    SalesInvoice.tax_total,
+                    SalesInvoice.additional_charges,
+                    SalesInvoice.round_off,
+                ).where(SalesInvoice.id.in_(invoice_ids))
             ).all()
         }
         grouped: dict[
             UUID, list[tuple[UUID, Decimal, Decimal, UUID | None, Decimal | None]]
         ] = {}
-        for invoice_id, product_id, quantity, net, category_id, cost in rows:
+        for (
+            invoice_id,
+            product_id,
+            quantity,
+            net_amount,
+            gross,
+            discount,
+            bill_discount,
+            charges,
+            category_id,
+            cost,
+        ) in rows:
+            if on_document_total:
+                worth = Decimal(str(net_amount))
+            else:
+                worth = (
+                    Decimal(str(gross))
+                    - Decimal(str(discount))
+                    - Decimal(str(bill_discount))
+                    + Decimal(str(charges))
+                )
             grouped.setdefault(invoice_id, []).append(
                 (
                     product_id,
                     Decimal(str(quantity)),
-                    Decimal(str(net)),
+                    worth,
                     category_id,
                     None if cost is None else Decimal(str(cost)),
                 )
             )
-        answer: dict[UUID, list[_BilledLine]] = {}
-        for invoice_id, lines in grouped.items():
-            shares = apportion(
-                totals.get(invoice_id, ZERO), [net for _, _, net, _, _ in lines]
+        answer: dict[UUID, _BilledInvoice] = {}
+        for invoice_id, (total, untaxed) in headers.items():
+            lines = grouped.get(invoice_id)
+            if not lines:
+                # No readable lines: the header's total less its tax, its
+                # untaxed extras and its rounding is the best statement of
+                # its base.
+                base = total if on_document_total else untaxed
+                answer[invoice_id] = _BilledInvoice(
+                    lines=[_whole_document(quantize_ledger(base))], total=total
+                )
+                continue
+            if on_document_total:
+                base = total
+            else:
+                base = quantize_ledger(sum((net for _, _, net, _, _ in lines), ZERO))
+            shares = apportion(base, [net for _, _, net, _, _ in lines])
+            answer[invoice_id] = _BilledInvoice(
+                lines=[
+                    _BilledLine(
+                        product_id=product_id,
+                        category_id=category_id,
+                        quantity=quantity,
+                        share=share,
+                        cost=cost,
+                        net=net,
+                    )
+                    for (product_id, quantity, net, category_id, cost), share in zip(
+                        lines, shares, strict=True
+                    )
+                ],
+                total=total,
             )
-            answer[invoice_id] = [
-                _BilledLine(
-                    product_id=product_id,
-                    category_id=category_id,
-                    quantity=quantity,
-                    share=share,
-                    cost=cost,
-                    net=net,
-                )
-                for (product_id, quantity, net, category_id, cost), share in zip(
-                    lines, shares, strict=True
-                )
-            ]
         return answer
 
     def _goods_names(self) -> dict[UUID, str]:

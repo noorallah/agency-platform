@@ -379,18 +379,14 @@ def test_a_scoped_rule_takes_its_share_of_each_receipt() -> None:
     assert books.earned() == Decimal("30.00")
 
 
-def test_the_shares_add_up_to_the_document_and_not_to_the_lines() -> None:
-    """An invoice's total is not the sum of its line net amounts.
+def test_the_shares_add_up_to_the_net_base_and_not_to_the_document() -> None:
+    """An invoice's total is not what commission is earned on.
 
-    Tax, rounding and header charges live above the lines, so a share derived
-    from a line's own net would leave a commission report that does not
-    reconcile against the invoices behind it -- and would quietly change what
-    every unscoped rule pays. The share is the **document's** total
-    apportioned across the lines, which is why `apportion` is the helper here.
-
-    Whether commission should be paid on tax at all is a separate question and
-    a firm's to answer; this asserts only that scoping the rules changed
-    nothing about what an unscoped one measures.
+    Tax, rounding and header charges live above the lines. Commission is paid
+    on net sales (the owner's decision of 2026-09-24, industry standard): the
+    base is each line's value net of its discounts, apportioned so the shares
+    sum to that base exactly, and a payment of the whole bill earns on exactly
+    that base.
     """
     books = _Books(_session_factory()())
     books.rule("10")
@@ -430,4 +426,150 @@ def test_the_shares_add_up_to_the_document_and_not_to_the_lines() -> None:
         )
     books.session.commit()
 
-    assert books.earned() == Decimal("118.00")
+    # Was 118.00 -- 10% of the 1,180 document total, tax included -- until
+    # the owner decided on 2026-09-24 that commission is earned on net sales.
+    # 10% of the 1,000 the lines are worth.
+    assert books.earned() == Decimal("100.00")
+
+
+def _taxed_invoice(
+    books: _Books,
+    number: str,
+    lines: list[tuple[Product, str, str, str, str]],
+) -> SalesInvoice:
+    """Bill lines that carry tax and freight, the way the invoice service does.
+
+    Each line is (product, quantity, value after discounts, freight share,
+    tax). The freight is part of what the line is taxed on, the tax is on top,
+    and the bill's total is the lines' value plus their tax plus the freight.
+    Every line was discounted by 50, which is not part of the base either.
+    """
+    value_total = sum(Decimal(value) for _, _, value, _, _ in lines)
+    freight_total = sum(Decimal(freight) for _, _, _, freight, _ in lines)
+    tax_total = sum(Decimal(tax) for _, _, _, _, tax in lines)
+    row = SalesInvoice(
+        firm_id=books.firm.id,
+        customer_id=books.customer.id,
+        branch_id=books.branch_id,
+        salesman_id=books.asha,
+        invoice_number=number,
+        invoice_date=WHEN,
+        status="APPROVED",
+        subtotal=value_total,
+        freight_amount=freight_total,
+        tax_total=tax_total,
+        grand_total=value_total + freight_total + tax_total,
+    )
+    books.session.add(row)
+    books.session.flush()
+    for index, (product, quantity, value, freight, tax) in enumerate(lines, start=1):
+        books.session.add(
+            SalesInvoiceLine(
+                sales_invoice_id=row.id,
+                firm_id=books.firm.id,
+                line_number=index,
+                source_document_type="SALES_ORDER",
+                source_document_id=uuid4(),
+                source_document_number=f"SO-{index}",
+                source_document_line_id=uuid4(),
+                source_document_line_number=index,
+                product_id=product.id,
+                delivered_quantity=Decimal(quantity),
+                current_invoice_quantity=Decimal(quantity),
+                unit_price=(Decimal(value) + Decimal("50.00")) / Decimal(quantity),
+                gross_amount=Decimal(value) + Decimal("50.00"),
+                discount_amount=Decimal("50.00"),
+                freight_amount=Decimal(freight),
+                tax_amount=Decimal(tax),
+                net_amount=Decimal(value) + Decimal(freight) + Decimal(tax),
+            )
+        )
+    books.session.commit()
+    return row
+
+
+def test_tax_and_freight_earn_no_commission() -> None:
+    """Tax is the government's and freight is a pass-through.
+
+    A bill worth 1,000 of goods after discounts, carrying 100 of freight and
+    198 of tax on the two together, pays 10% of the 1,000 -- not of 1,298.
+    """
+    books = _Books(_session_factory()())
+    books.rule("10")
+    _taxed_invoice(
+        books,
+        "SI-NET",
+        [
+            (books.milk, "10", "600.00", "60.00", "118.80"),
+            (books.rice, "5", "400.00", "40.00", "79.20"),
+        ],
+    )
+
+    assert books.earned() == Decimal("100.00")
+
+
+def test_a_scoped_rule_on_a_taxed_bill_earns_on_its_lines_net_value() -> None:
+    """The line shares still split the net base in proportion to the lines."""
+    books = _Books(_session_factory()())
+    books.rule("10", product=books.milk)
+    _taxed_invoice(
+        books,
+        "SI-NET",
+        [
+            (books.milk, "10", "600.00", "60.00", "118.80"),
+            (books.rice, "5", "400.00", "40.00", "79.20"),
+        ],
+    )
+
+    assert books.earned() == Decimal("60.00")
+
+
+def test_a_receipt_earns_on_its_share_of_the_net_base() -> None:
+    """On collections, a receipt counts in the ratio net base : bill total.
+
+    Half of a 1,298 bill collected is half of its 1,000 net base, so a 10%
+    rule pays 50 -- not 64.90.
+    """
+    from app.finance.services.opening_setup import seed_finance_setup
+    from app.settlements.schemas import (
+        SettlementAllocationWrite,
+        SettlementCreate,
+        SettlementMethodEnum,
+    )
+    from app.settlements.services import ReceiptService
+
+    books = _Books(_session_factory()())
+    seed_finance_setup(
+        books.session,
+        firm_id=books.firm.id,
+        year_starts_on=date(2026, 4, 1),
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+    books.rule("10", basis=CommissionBasisEnum.COLLECTED)
+    invoice = _taxed_invoice(
+        books,
+        "SI-NET",
+        [
+            (books.milk, "10", "600.00", "60.00", "118.80"),
+            (books.rice, "5", "400.00", "40.00", "79.20"),
+        ],
+    )
+    ReceiptService(books.session).create(
+        SettlementCreate(
+            party_id=books.customer.id,
+            settlement_date=WHEN,
+            amount=Decimal("649.00"),
+            method=SettlementMethodEnum.CASH,
+            allocations=[
+                SettlementAllocationWrite(
+                    invoice_id=invoice.id, amount=Decimal("649.00")
+                )
+            ],
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+
+    assert books.earned() == Decimal("50.00")

@@ -54,12 +54,11 @@ statement about lines rather than about the document, resolved in **six
 rungs of specificity** -- the person's own product rule, their category
 rule, their unscoped rule, then the same three firm-wide. Whose rule it is
 outranks what it is about, or a firm-wide rule naming a product would
-override a rate somebody negotiated. **An unscoped rule must keep measuring
-exactly the document**: the report apportions each invoice's own
-`grand_total` across its lines with `apportion` (the bill-discount helper),
-so the shares sum to the invoice -- deriving a share from the line's own
-`net_amount` instead drifts by whatever the header carries and silently
-changes what every existing rule pays, which has a test. On the COLLECTED
+override a rate somebody negotiated. **An unscoped rule measures exactly the
+invoice's net base**: the report apportions that base across the lines with
+`apportion` (the bill-discount helper), so the shares sum to it and a set of
+scoped rules measures the same money an unscoped one does, which has a test.
+On the COLLECTED
 basis a scoped rule takes its share of **each receipt** in the same
 proportion, because a payment clears a share of every line it settles. An
 invoice with no readable lines contributes as a single unscoped line, so
@@ -67,9 +66,28 @@ money that exists is still measured by a rule about the document.
 `rate_type` PER_UNIT multiplies **quantity** and ignores value and slabs
 entirely; it is refused on the COLLECTED basis (money has no cases) and
 refused without a product or category (it would add cases of biscuits to
-litres of oil). Commission is measured on the document total, which
-**includes tax** -- whether that is right is an open question for the owner
-and deliberately not changed, because changing it moves every payout.
+litres of oil).
+
+**Commission is earned on net sales -- tax and freight earn nothing.**
+Decided by Claude, industry standard, on the owner's instruction of
+2026-09-24: tax is collected for the government and freight is a
+pass-through, so neither is a sale anybody made. An invoice's base is the sum
+of its lines' `gross_amount - discount_amount - bill_discount_amount +
+charges_amount` -- the taxable value net of every discount, without the
+freight share and without the tax -- apportioned across the lines as above.
+What a bill is worth on the INVOICED basis, and each receipt on the
+COLLECTED basis, is scaled by **base / `grand_total`**, so a receipt of half
+the bill earns on half the base. `collected_amount` and `invoiced_amount` on
+the report stay the money itself, so it still reconciles against the cash
+book; only the commission moves. A margin rule measures against the same
+net value, so a margin no longer includes the tax either. **Payouts already
+accrued are snapshotted and do not change**, and the clawback re-read of a
+paid period uses the base it was paid on: a payout created before
+2026-09-24 (`NET_SALES_BASE_FROM` in `payout_service.py`) is re-read on the
+document total, or every such period would look short by its tax and the
+next accrual would claw back money that was correctly paid. Until that day
+commission was measured on the document total, tax included; the question
+was left open for the owner and is now settled.
 
 ## One live payout per person per period is held by the database, not by a read
 

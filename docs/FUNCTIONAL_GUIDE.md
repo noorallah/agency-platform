@@ -2669,9 +2669,11 @@ approved payout is a liability that outlives the month it was earned in.
    sale price. Such a line contributes nothing.
 4. **A sale below cost earns nothing, not a negative.** Clawing it back off
    other sales is an arrangement nobody asked for.
-5. **Commission is measured on the document total, which includes tax.**
-   Whether that is right is an open question for the owner and deliberately not
-   changed, because changing it moves every payout.
+5. **Commission is earned on net sales -- tax and freight earn nothing.** A
+   bill contributes its taxable value net of discounts, without its tax or its
+   freight; a receipt contributes the same share of that base as it is of the
+   bill. Decided by Claude, industry standard, 2026-09-24. Payouts accrued
+   before then keep what they were paid on.
 
 ---
 
