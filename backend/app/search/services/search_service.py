@@ -5,7 +5,7 @@ from dataclasses import dataclass
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Select, String, cast, or_, select
+from sqlalchemy import Select, String, cast, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.batch_serial.models import BatchRecord, LotRecord, SerialNumber
@@ -90,6 +90,12 @@ class SearchDefinition:
     #: (D-RPT-6). A route is a node with a `territory_route_profiles` row
     #: (§17.0); a territory is one without.
     only: Any = None
+    #: A second table whose columns also match the query:
+    #: `(related model, the model's key into it, related columns)`. Stock rows
+    #: carry only a `storage_locator` of their own, so typing a product's name
+    #: or code found none of its stock (D-RPT-20); the product is what a person
+    #: knows the stock by.
+    match_through: tuple[Any, Any, tuple[str, ...]] | None = None
 
 
 _DEFINITIONS: tuple[SearchDefinition, ...] = (
@@ -489,6 +495,7 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
         status_column="status",
         badge_columns=("current_quantity", "available_quantity"),
         category="inventory",
+        match_through=(Product, InventoryRecord.product_id, ("code", "name")),
     ),
     SearchDefinition(
         "opening_stock",
@@ -569,6 +576,8 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
         subtitle_columns=("expiry_date",),
         status_column="status",
         category="inventory",
+        # In SQL rather than after the read, so the count agrees with the list.
+        only=BatchRecord.expiry_date.is_not(None),
     ),
     SearchDefinition(
         "geo_masters",
@@ -718,8 +727,18 @@ class SearchService:
         )
         if entity_types is not None:
             allowed_types = allowed_types.intersection(entity_types)
-        per_entity_limit = max(page_size, 20)
+        start = (page - 1) * page_size
+        end = start + page_size
+        # Each entity's list is cut at the end of the page asked for. The page
+        # is a slice of the concatenated lists, and no row past an entity's
+        # `end`-th can land inside it, so a later page is exact rather than
+        # empty.
+        per_entity_limit = max(end, 20)
         hits: list[SearchResultItem] = []
+        # How many rows matched, entity by entity, before any list was cut.
+        # `total` used to be `len(hits)` -- the size of the capped lists -- so
+        # 143 matching customers read as 20 (D-RPT-20).
+        total = 0
         # Opened once, and only when it is both needed and unavoidable:
         #
         #   * a platform-owned entity has to be in scope -- a search narrowed
@@ -741,19 +760,16 @@ class SearchService:
                     and principal.firm_id is not None
                 ):
                     platform = stack.enter_context(platform_reader())
-                hits.extend(
-                    self._search_definition(
-                        definition=definition,
-                        query=normalized_query,
-                        principal=principal,
-                        include_deleted=include_deleted,
-                        limit=per_entity_limit,
-                        platform=platform,
-                    )
+                items, matched = self._search_definition(
+                    definition=definition,
+                    query=normalized_query,
+                    principal=principal,
+                    include_deleted=include_deleted,
+                    limit=per_entity_limit,
+                    platform=platform,
                 )
-        total = len(hits)
-        start = (page - 1) * page_size
-        end = start + page_size
+                hits.extend(items)
+                total += matched
         return SearchResultPage(
             query=normalized_query,
             category=category,
@@ -781,7 +797,8 @@ class SearchService:
         include_deleted: bool,
         limit: int,
         platform: Session | None = None,
-    ) -> list[SearchResultItem]:
+    ) -> tuple[list[SearchResultItem], int]:
+        """Return the entity's first `limit` hits and how many rows matched."""
         model = definition.model
         statement: Select[tuple[Any]] = select(model)
         if hasattr(model, "is_deleted") and not include_deleted:
@@ -812,7 +829,7 @@ class SearchService:
             )
         if definition.membership_scoped and not principal.is_platform_admin:
             if principal.firm_id is None:
-                return []
+                return [], 0
             members = select(UserFirm.user_id).where(
                 UserFirm.firm_id == principal.firm_id,
                 UserFirm.is_active.is_(True),
@@ -826,18 +843,24 @@ class SearchService:
                 if column is None:
                     continue
                 search_conditions.append(cast(column, String).ilike(f"%{query}%"))
+            if definition.match_through is not None:
+                related, key, related_fields = definition.match_through
+                search_conditions.append(
+                    key.in_(
+                        select(related.id).where(
+                            or_(
+                                *(
+                                    cast(getattr(related, field), String).ilike(
+                                        f"%{query}%"
+                                    )
+                                    for field in related_fields
+                                )
+                            )
+                        )
+                    )
+                )
             if search_conditions:
                 statement = statement.where(or_(*search_conditions))
-        if hasattr(model, "updated_at"):
-            statement = statement.order_by(model.updated_at.desc())
-        elif hasattr(model, "created_at"):
-            statement = statement.order_by(model.created_at.desc())
-        # Both timestamps are the transaction's start instant, so every row one
-        # request wrote shares them and the cut at `limit` would otherwise take
-        # an arbitrary subset of the tie.
-        if hasattr(model, "id"):
-            statement = statement.order_by(model.id.desc())
-        statement = statement.limit(limit)
         # `users`, `roles`, `permissions` and `firms` exist only in the
         # platform schema. A request carrying `X-Firm-ID` runs on a tenant
         # session whose `search_path` is that firm's schema and nothing else,
@@ -848,17 +871,23 @@ class SearchService:
         # `platform` is None when the request carries no firm, and then the
         # session in hand is the platform store already.
         reader = platform if definition.platform_store and platform else self._session
+        matched = int(
+            reader.scalar(select(func.count()).select_from(statement.subquery())) or 0
+        )
+        if hasattr(model, "updated_at"):
+            statement = statement.order_by(model.updated_at.desc())
+        elif hasattr(model, "created_at"):
+            statement = statement.order_by(model.created_at.desc())
+        # Both timestamps are the transaction's start instant, so every row one
+        # request wrote shares them and the cut at `limit` would otherwise take
+        # an arbitrary subset of the tie.
+        if hasattr(model, "id"):
+            statement = statement.order_by(model.id.desc())
+        statement = statement.limit(limit)
         rows = reader.scalars(statement).all()
         return [
-            self._to_item(definition=definition, row=row, query=query)
-            for row in rows
-            if self._include_row(definition, row)
-        ]
-
-    def _include_row(self, definition: SearchDefinition, row: object) -> bool:
-        if definition.entity_type == "expiry":
-            return getattr(row, "expiry_date", None) is not None
-        return True
+            self._to_item(definition=definition, row=row, query=query) for row in rows
+        ], matched
 
     def _to_item(
         self,
