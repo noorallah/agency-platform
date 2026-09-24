@@ -19,6 +19,7 @@ from sqlalchemy.pool import StaticPool
 from app.batch_serial.models import BatchRecord
 from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.business.models import BusinessProfile, FirmBusinessProfile
+from app.common.audit.models import AuditLog
 from app.core.database.base import Base
 from app.core.exceptions import ConflictError, ValidationError
 from app.finance.models import GLPosting, JournalEntry, LedgerAccount
@@ -346,17 +347,40 @@ def test_the_variance_is_measured_when_the_sheet_is_posted() -> None:
 
 
 def test_a_line_nobody_walked_is_not_a_line_that_found_nothing() -> None:
-    """Treating an uncounted line as zero would write off unreached stock."""
+    """Treating an uncounted line as zero would write off unreached stock.
+
+    And a sheet on which nobody counted anything is not posted at all: it read
+    POSTED with nothing adjusted, which says the warehouse was counted and
+    agreed when nobody walked it (D-STK-5).
+    """
     books = _Warehouse(_session_factory()())
     count_id = books.sheet(None)
 
-    books.counts.post(count_id, firm_id=books.firm.id, actor_id=books.actor_id)
-    books.session.commit()
+    with pytest.raises(ValidationError, match="no counted line"):
+        books.counts.post(count_id, firm_id=books.firm.id, actor_id=books.actor_id)
+    books.session.rollback()
 
+    assert books.counts.get(count_id, firm_id=books.firm.id).status == "DRAFT"
     line = books.counts.lines_for(count_id)[0]
     assert line.variance_quantity is None
     assert line.transaction_id is None
     assert books.on_hand() == Decimal("10.0000"), "untouched"
+
+
+def test_saving_progress_on_a_count_leaves_a_named_audit_row() -> None:
+    """Save progress is a write, and the trail says what it wrote (D-STK-6)."""
+    books = _Warehouse(_session_factory()())
+    count_id = books.sheet("9")
+
+    row = books.session.scalar(
+        select(AuditLog).where(
+            AuditLog.action == "inventory.physical_count.progress_saved",
+            AuditLog.entity_id == count_id,
+        )
+    )
+    assert row is not None
+    assert row.after_data is not None
+    assert row.after_data["lines_counted"] == "1"
 
 
 def test_a_count_that_agrees_writes_no_adjustment() -> None:

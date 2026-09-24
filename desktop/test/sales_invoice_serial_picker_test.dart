@@ -14,7 +14,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 class _SerialApi extends ApiClient {
-  _SerialApi({required this.salesOrderStage, this.billable = const []})
+  _SerialApi({
+    required this.salesOrderStage,
+    this.billable = const [],
+    this.existing,
+  })
       : super(
           baseUrl: 'http://localhost:8000',
           accessToken: () => null,
@@ -24,8 +28,10 @@ class _SerialApi extends ApiClient {
 
   final bool salesOrderStage;
   final List<Json> billable;
+  final Json? existing;
   final List<Map<String, String>> serialQueries = <Map<String, String>>[];
   Json? created;
+  Json? updated;
 
   @override
   Future<Json> request(
@@ -83,6 +89,13 @@ class _SerialApi extends ApiClient {
         'pagination': <String, dynamic>{'total_records': 3},
       };
     }
+    if (method == 'GET' && path == '/api/v1/sales-invoices/inv-1') {
+      return <String, dynamic>{'data': existing};
+    }
+    if (method == 'PUT' && path == '/api/v1/sales-invoices/inv-1') {
+      updated = body;
+      return <String, dynamic>{'data': existing};
+    }
     if (method == 'POST' && path.endsWith('/sales-invoices')) {
       created = body;
       return <String, dynamic>{
@@ -93,7 +106,8 @@ class _SerialApi extends ApiClient {
   }
 }
 
-Future<void> _pump(WidgetTester tester, _SerialApi api) async {
+Future<void> _pump(WidgetTester tester, _SerialApi api,
+    {String? invoiceId}) async {
   tester.view.physicalSize = const Size(1600, 1200);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -106,6 +120,7 @@ Future<void> _pump(WidgetTester tester, _SerialApi api) async {
             builder: (_) => SalesInvoiceEditorDialog(
               api: api,
               today: DateTime(2026, 9, 19),
+              invoiceId: invoiceId,
             ),
           ),
           child: const Text('open'),
@@ -219,5 +234,65 @@ void main() {
     final Map<String, dynamic> line = Map<String, dynamic>.from(
         (api.created!['lines'] as List).single as Map);
     expect(line.containsKey('serial_ids'), isFalse);
+  });
+
+  testWidgets('editing a draft that ships its own note re-offers the picker',
+      (tester) async {
+    // D-SELL-33: the saved draft bills the note it raised, so the editor saw
+    // a note line and offered no picker; the units could not be changed.
+    final Json draft = <String, dynamic>{
+      'id': 'inv-1',
+      'status': 'DRAFT',
+      'invoice_date': '2026-09-19',
+      'customer_id': 'cust-1',
+      'customer_name': 'Walk-in Customer',
+      'branch_id': 'branch-1',
+      'version': 1,
+      'lines': <Json>[
+        <String, dynamic>{
+          'line_number': 1,
+          'source_document_type': 'DELIVERY_NOTE',
+          'source_document_id': 'dn-own',
+          'source_document_number': 'DN-1',
+          'source_document_line_id': 'dnl-1',
+          'product_id': 'mixer',
+          'warehouse_id': 'wh-order',
+          'description': 'Mixer Grinder',
+          'delivered_quantity': '2',
+          'current_invoice_quantity': '2',
+          'unit_price': '3000',
+          'discount_percent': '0',
+          'picks_serials': true,
+          'serials': <Json>[
+            <String, dynamic>{
+              'serial_id': 'serial-1',
+              'serial_number': 'MIX-0001',
+              'status': 'AVAILABLE',
+            },
+            <String, dynamic>{
+              'serial_id': 'serial-3',
+              'serial_number': 'MIX-0003',
+              'status': 'AVAILABLE',
+            },
+          ],
+        },
+      ],
+    };
+    final _SerialApi api =
+        _SerialApi(salesOrderStage: true, existing: draft);
+    await _pump(tester, api, invoiceId: 'inv-1');
+
+    expect(find.textContaining('Serial numbers going out'), findsOneWidget);
+    expect(api.serialQueries.single['warehouse_id'], 'wh-order');
+    // Swap one unit for another and save.
+    await tester.tap(find.byKey(const ValueKey<String>('serial-pick-serial-1')));
+    await tester.tap(find.byKey(const ValueKey<String>('serial-pick-serial-2')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    final Map<String, dynamic> line = Map<String, dynamic>.from(
+        (api.updated!['lines'] as List).single as Map);
+    expect(line['serial_ids'], <String>['serial-3', 'serial-2']);
   });
 }

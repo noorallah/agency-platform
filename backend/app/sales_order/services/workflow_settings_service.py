@@ -121,8 +121,12 @@ class SalesWorkflowService:
         self._session.flush()
         record_audit(
             self._session,
-            action="UPDATE" if before is not None else "CREATE",
-            entity_type="SalesWorkflowSettings",
+            action=(
+                "sales_workflow_settings.updated"
+                if before is not None
+                else "sales_workflow_settings.created"
+            ),
+            entity_type="sales_workflow_settings",
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_id,

@@ -56,7 +56,16 @@ class GeneralLedgerService:
     def trial_balance(
         self, *, firm_id: UUID, accounting_period_id: UUID
     ) -> TrialBalanceReport:
-        """Return the trial balance for one accounting period."""
+        """Return the trial balance for one accounting period.
+
+        The standard layout: the opening and the closing balance each split by
+        side, the period's movement between them, and every column totalled.
+        The Total row used to put the closing balances split by side under the
+        movement columns, so it was not the sum of the figures above it
+        (D-FIN-18). Balanced is judged on the closing columns, which is the
+        question a trial balance answers.
+        """
+        self._require_period(firm_id=firm_id, accounting_period_id=accounting_period_id)
         rows = self._balances(
             firm_id=firm_id, accounting_period_id=accounting_period_id
         )
@@ -69,35 +78,56 @@ class GeneralLedgerService:
         )
         rows.sort(key=lambda row: row[1].code)
         lines: list[TrialBalanceLine] = []
-        total_debit = ZERO
-        total_credit = ZERO
+        totals = dict.fromkeys(
+            (
+                "opening_debit",
+                "opening_credit",
+                "period_debit",
+                "period_credit",
+                "closing_debit",
+                "closing_credit",
+            ),
+            ZERO,
+        )
 
         for balance, account in rows:
-            debit, credit = self._present_balance(
+            opening_debit, opening_credit = self._present_balance(
+                account.account_type, balance.opening_balance
+            )
+            closing_debit, closing_credit = self._present_balance(
                 account.account_type, balance.closing_balance
             )
-            total_debit += debit
-            total_credit += credit
-            lines.append(
-                TrialBalanceLine(
-                    ledger_account_id=account.id,
-                    account_code=account.code,
-                    account_name=account.name,
-                    account_type=AccountTypeEnum(account.account_type),
-                    opening_balance=balance.opening_balance,
-                    period_debit=balance.period_debit,
-                    period_credit=balance.period_credit,
-                    closing_balance=balance.closing_balance,
-                )
+            line = TrialBalanceLine(
+                ledger_account_id=account.id,
+                account_code=account.code,
+                account_name=account.name,
+                account_type=AccountTypeEnum(account.account_type),
+                opening_balance=balance.opening_balance,
+                opening_debit=opening_debit,
+                opening_credit=opening_credit,
+                period_debit=balance.period_debit,
+                period_credit=balance.period_credit,
+                closing_balance=balance.closing_balance,
+                closing_debit=closing_debit,
+                closing_credit=closing_credit,
             )
+            for key in totals:
+                totals[key] += getattr(line, key)
+            lines.append(line)
 
         return TrialBalanceReport(
             accounting_period_id=accounting_period_id,
             generated_at=utc_now(),
             lines=lines,
-            total_debit=total_debit,
-            total_credit=total_credit,
-            is_balanced=total_debit == total_credit,
+            total_opening_debit=totals["opening_debit"],
+            total_opening_credit=totals["opening_credit"],
+            total_period_debit=totals["period_debit"],
+            total_period_credit=totals["period_credit"],
+            total_closing_debit=totals["closing_debit"],
+            total_closing_credit=totals["closing_credit"],
+            total_debit=totals["closing_debit"],
+            total_credit=totals["closing_credit"],
+            is_balanced=totals["closing_debit"] == totals["closing_credit"],
         )
 
     def general_ledger(
@@ -113,6 +143,7 @@ class GeneralLedgerService:
         )
         if account is None:
             raise ResourceNotFoundError("Ledger account not found.")
+        self._require_period(firm_id=firm_id, accounting_period_id=accounting_period_id)
 
         balance = self._session.scalar(
             select(LedgerBalance).where(
@@ -215,9 +246,9 @@ class GeneralLedgerService:
         has ever made, and no chart of accounts can fix that because the entry
         that would do it is never written.
         """
-        period = self._session.get(AccountingPeriod, accounting_period_id)
-        if period is None:
-            raise ResourceNotFoundError("Accounting period not found.")
+        period = self._require_period(
+            firm_id=firm_id, accounting_period_id=accounting_period_id
+        )
 
         rows = self._balances(
             firm_id=firm_id, accounting_period_id=accounting_period_id
@@ -327,9 +358,9 @@ class GeneralLedgerService:
         demo firm carries it as `False`, Sales and Purchases included. A report
         that reads it would have come back empty on every firm that exists.
         """
-        period = self._session.get(AccountingPeriod, accounting_period_id)
-        if period is None:
-            raise ResourceNotFoundError("Accounting period not found.")
+        period = self._require_period(
+            firm_id=firm_id, accounting_period_id=accounting_period_id
+        )
 
         # Every income and expense movement in the financial year up to and
         # including this period. Profit resets at the year, so the year is the
@@ -408,6 +439,7 @@ class GeneralLedgerService:
         self, *, firm_id: UUID, accounting_period_id: UUID
     ) -> list[AccountSummary]:
         """Return one balance row per account with movement for the period."""
+        self._require_period(firm_id=firm_id, accounting_period_id=accounting_period_id)
         return [
             AccountSummary(
                 ledger_account_id=account.id,
@@ -427,6 +459,32 @@ class GeneralLedgerService:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _firm_period(
+        self, firm_id: UUID, accounting_period_id: UUID
+    ) -> AccountingPeriod | None:
+        """Return the period when it is the firm's own and live, else None."""
+        return self._session.scalar(
+            select(AccountingPeriod).where(
+                AccountingPeriod.id == accounting_period_id,
+                AccountingPeriod.firm_id == firm_id,
+                AccountingPeriod.is_deleted.is_(False),
+            )
+        )
+
+    def _require_period(
+        self, *, firm_id: UUID, accounting_period_id: UUID
+    ) -> AccountingPeriod:
+        """Return the firm's own period or refuse as not found (D-FIN-14).
+
+        The reports read the period with ``session.get`` and no firm check, so
+        in the shared store one firm's report on another's period answered
+        with its own figures on the other's calendar.
+        """
+        period = self._firm_period(firm_id, accounting_period_id)
+        if period is None:
+            raise ResourceNotFoundError("Accounting period not found.")
+        return period
 
     def _balances(
         self, *, firm_id: UUID, accounting_period_id: UUID
@@ -471,7 +529,7 @@ class GeneralLedgerService:
         say and a trial balance listing every account ever created is a worse
         report than one that does not.
         """
-        period = self._session.get(AccountingPeriod, accounting_period_id)
+        period = self._firm_period(firm_id, accounting_period_id)
         if period is None:
             return []
         # Every balance the firm holds from an earlier period, newest last, so
@@ -527,7 +585,7 @@ class GeneralLedgerService:
         account, and loading every balance the firm holds to read one of them
         is the shape that makes a report slow as a firm accumulates years.
         """
-        period = self._session.get(AccountingPeriod, accounting_period_id)
+        period = self._firm_period(firm_id, accounting_period_id)
         if period is None:
             return ZERO
         balance = self._session.scalar(
@@ -582,7 +640,7 @@ class GeneralLedgerService:
     def _present_balance(
         self, account_type: str, closing_balance: Decimal
     ) -> tuple[Decimal, Decimal]:
-        """Split a closing balance into its trial-balance debit and credit sides."""
+        """Split a balance into its trial-balance debit and credit sides."""
         if account_type in DEBIT_BALANCE_ACCOUNT_TYPES:
             if closing_balance >= ZERO:
                 return closing_balance, ZERO

@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import io
 from collections import defaultdict
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -1539,24 +1539,89 @@ class DeliveryNoteService(TransactionalDocumentService):
         }
         for line_number, serial_ids in stated.items():
             line = persisted[line_number]
-            warehouse_id = line.warehouse_id
-
-            def _may_leave(
-                serial: SerialNumber, warehouse_id: UUID | None = warehouse_id
-            ) -> str | None:
-                """Refuse a unit that is not on this line's shelf."""
-                if serial.status != SerialStatus.AVAILABLE.value:
-                    return f"is {serial.status}, not AVAILABLE."
-                if serial.warehouse_id != warehouse_id:
-                    return "is not in the warehouse this line ships from."
-                return None
-
             self._trail.replace_picks(
                 self._line_ref(line),
                 serial_ids,
-                check=_may_leave,
+                check=self._on_the_shelf(line.warehouse_id),
                 actor_id=actor_id,
             )
+
+    @staticmethod
+    def _on_the_shelf(
+        warehouse_id: UUID | None,
+    ) -> Callable[[SerialNumber], str | None]:
+        """Return the check a picked unit must pass to leave this shelf."""
+
+        def _may_leave(serial: SerialNumber) -> str | None:
+            """Refuse a unit that is not on this line's shelf."""
+            if serial.status != SerialStatus.AVAILABLE.value:
+                return f"is {serial.status}, not AVAILABLE."
+            if serial.warehouse_id != warehouse_id:
+                return "is not in the warehouse this line ships from."
+            return None
+
+        return _may_leave
+
+    def restate_serial_picks(
+        self,
+        note_id: UUID,
+        picks: dict[UUID, list[UUID]],
+        *,
+        firm_scope: UUID,
+        raised_by_sales_invoice_id: UUID,
+        actor_id: UUID,
+    ) -> None:
+        """Change the units a bill's own note will ship, before it ships.
+
+        A bill that dispatches its own goods hands its picks to the note it
+        raises, and the note is approved at once -- so editing the draft bill
+        had nowhere to change them (D-SELL-33). Only that bill may, and only
+        while the note waits for the bill's approval to dispatch it.
+
+        Args:
+            note_id: The note the bill raised.
+            picks: The units each note line ships, keyed by note line id.
+            firm_scope: The owning firm.
+            raised_by_sales_invoice_id: The bill restating them.
+            actor_id: The user editing the bill.
+
+        Raises:
+            ValidationError: If the note is not that bill's, has shipped, or a
+                line is not the note's.
+
+        """
+        note = self.get_note(note_id, firm_scope=firm_scope)
+        if (
+            note.raised_by_sales_invoice_id != raised_by_sales_invoice_id
+            or note.status != DeliveryNoteStatus.APPROVED.value
+        ):
+            raise ValidationError(
+                "Serial numbers are picked on the delivery note that ships the "
+                "goods; this bill names a note that has already been dispatched."
+            )
+        lines = {
+            line.id: line
+            for line in self._session.scalars(
+                select(DeliveryNoteLine).where(
+                    DeliveryNoteLine.delivery_note_id == note.id,
+                    DeliveryNoteLine.is_deleted.is_(False),
+                )
+            ).all()
+        }
+        for line_id, serial_ids in picks.items():
+            line = lines.get(line_id)
+            if line is None:
+                raise ValidationError(
+                    f"A bill line names a line that is not on "
+                    f"{note.delivery_note_number}."
+                )
+            self._trail.replace_picks(
+                self._line_ref(line),
+                serial_ids,
+                check=self._on_the_shelf(line.warehouse_id),
+                actor_id=actor_id,
+            )
+        self._session.flush()
 
     def _units_by_batch(
         self,

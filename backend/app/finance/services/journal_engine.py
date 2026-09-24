@@ -140,10 +140,6 @@ class JournalEntryEngine:
         centres the original carried, and undoing an entry must not depend on
         a centre still being in use.
         """
-        if len(lines) < 2:
-            raise ValidationError(
-                "A journal entry needs at least one debit and one credit line."
-            )
         period = self._require_open_period(accounting_period_id, firm_id=firm_id)
         if not (period.starts_on <= journal_date <= period.ends_on):
             raise ValidationError(
@@ -155,37 +151,11 @@ class JournalEntryEngine:
         self._require_reference(
             voucher_type_id, VoucherType, firm_id, "Voucher type not found."
         )
-
-        # Round each leg to the ledger's scale *before* checking the balance,
-        # because these are the values that get stored. Summing first and
-        # rounding after is not the same operation: a document balanced at its
-        # own four decimals -- 100.0100 = 100.0050 + 0.0050 -- rounds to legs of
-        # 100.01 against 100.01 + 0.01, and the old check compared the rounded
-        # sums, saw 100.01 both sides, and wrote an entry whose lines were a
-        # cent apart with ``is_balanced`` set to true. ``_post_line`` copies the
-        # line amounts straight into the general ledger, so that cent stayed in
-        # the trial balance with nothing reporting it.
-        legs = [
-            (
-                data,
-                quantize_money(data.debit_amount),
-                quantize_money(data.credit_amount),
-            )
-            for data in lines
-        ]
-        total_debit = sum((debit for _, debit, _ in legs), ZERO)
-        total_credit = sum((credit for _, _, credit in legs), ZERO)
-        if total_debit != total_credit:
-            raise ValidationError(
-                f"Journal entry is not balanced: debit {total_debit}, "
-                f"credit {total_credit}."
-            )
-        if total_debit == ZERO:
-            raise ValidationError("A journal entry must carry a non-zero amount.")
-
-        accounts = self._load_accounts(lines, firm_id=firm_id)
-        self._check_centres(
-            lines, firm_id=firm_id, require_active=not inactive_centres_allowed
+        total_debit, built = self._build_lines(
+            lines,
+            firm_id=firm_id,
+            actor_id=actor_id,
+            require_active_centres=not inactive_centres_allowed,
         )
         # Asked before the insert rather than learnt from the unique key
         # (D-FIN-9): the IntegrityError path below has to roll the session
@@ -207,29 +177,14 @@ class JournalEntryEngine:
             remarks=remarks,
             status=JournalStatus.DRAFT.value,
             total_debit=total_debit,
-            total_credit=total_credit,
+            total_credit=total_debit,
             is_balanced=True,
             source_module=source_module,
             source_id=source_id,
             created_by=actor_id,
             updated_by=actor_id,
         )
-        for index, (data, debit, credit) in enumerate(legs, start=1):
-            account = accounts[data.ledger_account_id]
-            self._validate_line_dimensions(account, data)
-            entry.lines.append(
-                JournalLine(
-                    ledger_account_id=data.ledger_account_id,
-                    cost_center_id=data.cost_center_id,
-                    profit_center_id=data.profit_center_id,
-                    line_number=index,
-                    debit_amount=debit,
-                    credit_amount=credit,
-                    description=data.description,
-                    created_by=actor_id,
-                    updated_by=actor_id,
-                )
-            )
+        entry.lines.extend(built)
         self._session.add(entry)
         try:
             self._session.flush()
@@ -290,6 +245,187 @@ class JournalEntryEngine:
             after_data={"status": entry.status},
         )
         return entry
+
+    def _hand_draft(
+        self, journal_entry_id: UUID, *, firm_id: UUID, action: str
+    ) -> JournalEntry:
+        """Return a hand-written draft, or refuse the action by name (D-FIN-15).
+
+        A posted entry is reversed, never edited; one a document raised
+        belongs to that document.
+        """
+        entry = self.get_entry(journal_entry_id, firm_id=firm_id)
+        if entry.status != JournalStatus.DRAFT.value:
+            raise ValidationError(
+                f"Only a draft can be {action}; {entry.reference_number} is "
+                f"{entry.status.lower()}."
+            )
+        if entry.source_module is not None:
+            owner = SOURCE_DOCUMENT_NAMES.get(
+                entry.source_module, entry.source_module.replace("_", " ")
+            )
+            raise ValidationError(
+                f"{entry.reference_number} was raised by a {owner} and can "
+                f"only be {action} with it."
+            )
+        return entry
+
+    def update_draft(
+        self,
+        journal_entry_id: UUID,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        changes: dict[str, object],
+        lines: list[JournalLineData] | None = None,
+    ) -> JournalEntry:
+        """Edit a hand-written draft before it is posted (D-FIN-15).
+
+        ``changes`` holds only the header fields the caller sent; ``lines``,
+        when given, replaces every line. The edited draft is asked everything
+        a new one is: an open period covering its date, live types, a
+        balanced set of lines on accounts that accept them, and a reference
+        in the manual namespace that nothing else holds.
+        """
+        entry = self._hand_draft(journal_entry_id, firm_id=firm_id, action="edited")
+        before = self._draft_snapshot(entry)
+        period_id = changes.get("accounting_period_id", entry.accounting_period_id)
+        journal_date = changes.get("journal_date", entry.journal_date)
+        assert isinstance(period_id, UUID)
+        assert isinstance(journal_date, date)
+        period = self._require_open_period(period_id, firm_id=firm_id)
+        if not (period.starts_on <= journal_date <= period.ends_on):
+            raise ValidationError(
+                "The journal date must fall inside the accounting period."
+            )
+        if "journal_type_id" in changes:
+            self._require_reference(
+                changes["journal_type_id"],  # type: ignore[arg-type]
+                JournalType,
+                firm_id,
+                "Journal type not found.",
+            )
+        if "voucher_type_id" in changes:
+            self._require_reference(
+                changes["voucher_type_id"],  # type: ignore[arg-type]
+                VoucherType,
+                firm_id,
+                "Voucher type not found.",
+            )
+        reference = changes.get("reference_number")
+        if isinstance(reference, str) and reference != entry.reference_number:
+            assert_manual_reference(reference)
+            if self.reference_taken(reference, firm_id=firm_id):
+                raise ConflictError(
+                    f"A journal entry with reference {reference} already exists."
+                )
+        if lines is not None:
+            total, built = self._build_lines(
+                lines, firm_id=firm_id, actor_id=actor_id, require_active_centres=True
+            )
+            # Cleared and flushed before the new lines go in: the unit of work
+            # inserts before it deletes, and line numbers are unique per entry.
+            entry.lines.clear()
+            self._session.flush()
+            entry.lines.extend(built)
+            entry.total_debit = total
+            entry.total_credit = total
+            entry.is_balanced = True
+        for name, value in changes.items():
+            setattr(entry, name, value)
+        entry.updated_by = actor_id
+        self._session.flush()
+        record_audit(
+            self._session,
+            action="finance.journal_entry.updated",
+            entity_type="journal_entry",
+            entity_id=entry.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            before_data=before,
+            after_data=self._draft_snapshot(entry),
+        )
+        return entry
+
+    def delete_draft(
+        self, journal_entry_id: UUID, *, firm_id: UUID, actor_id: UUID
+    ) -> None:
+        """Soft delete a hand-written draft (D-FIN-15).
+
+        Its reference stays taken: the unique key counts deleted rows, and a
+        number once issued is not handed out twice.
+        """
+        entry = self._hand_draft(journal_entry_id, firm_id=firm_id, action="deleted")
+        entry.is_deleted = True
+        entry.deleted_at = utc_now()
+        entry.deleted_by = actor_id
+        entry.updated_by = actor_id
+        self._session.flush()
+        record_audit(
+            self._session,
+            action="finance.journal_entry.deleted",
+            entity_type="journal_entry",
+            entity_id=entry.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            before_data=self._draft_snapshot(entry),
+        )
+
+    def reject_draft(
+        self,
+        journal_entry_id: UUID,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        reason: str | None = None,
+    ) -> JournalEntry:
+        """Refuse a hand-written draft at review, keeping it on record (D-FIN-15).
+
+        REJECTED was declared and never written. A rejected draft is final --
+        it cannot be posted, edited or deleted -- and the reason is kept on
+        the audit row and appended to its remarks.
+        """
+        entry = self._hand_draft(journal_entry_id, firm_id=firm_id, action="rejected")
+        entry.status = JournalStatus.REJECTED.value
+        if reason and reason.strip():
+            note = f"Rejected: {reason.strip()}"
+            entry.remarks = f"{entry.remarks}\n{note}" if entry.remarks else note
+        entry.updated_by = actor_id
+        self._session.flush()
+        record_audit(
+            self._session,
+            action="finance.journal_entry.rejected",
+            entity_type="journal_entry",
+            entity_id=entry.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            before_data={"status": JournalStatus.DRAFT.value},
+            after_data={"status": entry.status, "reason": reason},
+        )
+        return entry
+
+    @staticmethod
+    def _draft_snapshot(entry: JournalEntry) -> dict[str, object]:
+        """Return what an audit row says about a draft, lines included."""
+        return {
+            "reference_number": entry.reference_number,
+            "journal_type_id": str(entry.journal_type_id),
+            "voucher_type_id": str(entry.voucher_type_id),
+            "accounting_period_id": str(entry.accounting_period_id),
+            "journal_date": entry.journal_date.isoformat(),
+            "description": entry.description,
+            "remarks": entry.remarks,
+            "total_debit": str(entry.total_debit),
+            "total_credit": str(entry.total_credit),
+            "lines": [
+                {
+                    "ledger_account_id": str(line.ledger_account_id),
+                    "debit_amount": str(line.debit_amount),
+                    "credit_amount": str(line.credit_amount),
+                }
+                for line in entry.lines
+            ],
+        }
 
     def reference_taken(self, reference_number: str, *, firm_id: UUID) -> bool:
         """Say whether any journal of the firm already carries a reference.
@@ -388,7 +524,13 @@ class JournalEntryEngine:
             period = self._require_open_period(target_period_id, firm_id=firm_id)
             target_date = journal_date or period.starts_on
             if not (period.starts_on <= target_date <= period.ends_on):
-                target_date = period.starts_on
+                # D-FIN-15: the date was quietly moved to the period's first
+                # day, so the reversal carried a date nobody chose.
+                raise ValidationError(
+                    f"A reversal dated {target_date.isoformat()} does not fall "
+                    f"in {period.code} ({period.starts_on.isoformat()} to "
+                    f"{period.ends_on.isoformat()})."
+                )
         else:
             # D-BUY-4, decided by the owner on 2026-09-18: a reversal carries
             # the day it happened, in the period open on that day. It used to
@@ -563,6 +705,76 @@ class JournalEntryEngine:
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    def _build_lines(
+        self,
+        lines: list[JournalLineData],
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        require_active_centres: bool,
+    ) -> tuple[Decimal, list[JournalLine]]:
+        """Validate the legs of an entry and build its lines.
+
+        Shared by the create and the draft edit, so an edited draft is asked
+        exactly what a new one is.
+
+        Returns:
+            The entry's total (debit, which equals credit) and its lines.
+
+        """
+        if len(lines) < 2:
+            raise ValidationError(
+                "A journal entry needs at least one debit and one credit line."
+            )
+        # Round each leg to the ledger's scale *before* checking the balance,
+        # because these are the values that get stored. Summing first and
+        # rounding after is not the same operation: a document balanced at its
+        # own four decimals -- 100.0100 = 100.0050 + 0.0050 -- rounds to legs of
+        # 100.01 against 100.01 + 0.01, and the old check compared the rounded
+        # sums, saw 100.01 both sides, and wrote an entry whose lines were a
+        # cent apart with ``is_balanced`` set to true. ``_post_line`` copies the
+        # line amounts straight into the general ledger, so that cent stayed in
+        # the trial balance with nothing reporting it.
+        legs = [
+            (
+                data,
+                quantize_money(data.debit_amount),
+                quantize_money(data.credit_amount),
+            )
+            for data in lines
+        ]
+        total_debit = sum((debit for _, debit, _ in legs), ZERO)
+        total_credit = sum((credit for _, _, credit in legs), ZERO)
+        if total_debit != total_credit:
+            raise ValidationError(
+                f"Journal entry is not balanced: debit {total_debit}, "
+                f"credit {total_credit}."
+            )
+        if total_debit == ZERO:
+            raise ValidationError("A journal entry must carry a non-zero amount.")
+
+        accounts = self._load_accounts(lines, firm_id=firm_id)
+        self._check_centres(
+            lines, firm_id=firm_id, require_active=require_active_centres
+        )
+        built: list[JournalLine] = []
+        for index, (data, debit, credit) in enumerate(legs, start=1):
+            self._validate_line_dimensions(accounts[data.ledger_account_id], data)
+            built.append(
+                JournalLine(
+                    ledger_account_id=data.ledger_account_id,
+                    cost_center_id=data.cost_center_id,
+                    profit_center_id=data.profit_center_id,
+                    line_number=index,
+                    debit_amount=debit,
+                    credit_amount=credit,
+                    description=data.description,
+                    created_by=actor_id,
+                    updated_by=actor_id,
+                )
+            )
+        return total_debit, built
 
     def _post_line(
         self,
@@ -774,16 +986,24 @@ class JournalEntryEngine:
         firm_id: UUID,
         message: str,
     ) -> None:
-        """Confirm a supporting master record belongs to the firm."""
-        found = self._session.scalar(
-            select(model.id).where(
+        """Confirm a supporting master record is the firm's and still in use.
+
+        ``is_active`` was never read (D-FIN-15), so a type switched off went
+        on taking entries.
+        """
+        found = self._session.execute(
+            select(model.code, model.is_active).where(
                 model.id == entity_id,
                 model.firm_id == firm_id,
                 model.is_deleted.is_(False),
             )
-        )
+        ).first()
         if found is None:
             raise ValidationError(message)
+        code, active = found
+        if not active:
+            label = "Journal type" if model is JournalType else "Voucher type"
+            raise ValidationError(f"{label} {code} is inactive.")
 
     def _load_accounts(
         self, lines: list[JournalLineData], *, firm_id: UUID

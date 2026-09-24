@@ -555,6 +555,13 @@ class QuotationService(TransactionalDocumentService):
         row = self.get_quotation(quotation_id, firm_scope=firm_scope)
         if row.status == QuotationStatus.CANCELLED.value:
             return row
+        if row.status == QuotationStatus.DECLINED.value:
+            # Declined is terminal: the customer said no, and cancelling it
+            # would overwrite that answer with the firm's (D-SELL-28).
+            raise ValidationError(
+                "This quotation was declined by the customer; it cannot be "
+                "cancelled."
+            )
         if row.status == QuotationStatus.CONVERTED.value:
             raise ValidationError(
                 "This quotation became an order; cancel the order instead."

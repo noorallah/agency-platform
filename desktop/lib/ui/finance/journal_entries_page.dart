@@ -9,6 +9,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/finance.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/reason_prompt.dart';
 import 'journal_entry_dialog.dart';
 import 'journal_entry_view_dialog.dart';
 
@@ -134,7 +135,9 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
   Future<bool> _loadEditorReferences() async {
     try {
       final List<dynamic> results = await Future.wait<dynamic>([
-        widget.api.ledgerAccounts(isActive: true),
+        // Only what a hand journal may post to (D-FIN-20): the server
+        // refuses sub-ledger and CONTROL accounts by name.
+        widget.api.ledgerAccounts(isActive: true, openToHandJournals: true),
         widget.api.accountingPeriods(),
         widget.api.journalTypes(),
         widget.api.voucherTypes(),
@@ -149,8 +152,12 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
         _accounts = (results[0] as PagedResult<LedgerAccount>).items;
         // A closed period will not accept a posting, so it is not offered.
         _periods = periods.where((period) => period.status == 'OPEN').toList();
-        _journalTypes = results[2] as List<FinanceTypeRef>;
-        _voucherTypes = results[3] as List<FinanceTypeRef>;
+        _journalTypes = (results[2] as List<FinanceTypeRef>)
+            .where((type) => type.isActive)
+            .toList();
+        _voucherTypes = (results[3] as List<FinanceTypeRef>)
+            .where((type) => type.isActive)
+            .toList();
         _costCenters = (results[4] as PagedResult<FinanceCentre>)
             .items
             .where((centre) => centre.isActive)
@@ -200,6 +207,106 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
       'Post it to put it in the ledger.',
       kind: AppNotificationKind.success,
     );
+  }
+
+  Future<void> _editSelected() async {
+    final JournalEntry? entry = _selected;
+    if (entry == null || !entry.isManualDraft) return;
+    setState(() => _loading = true);
+    final bool ready = await _loadEditorReferences();
+    if (mounted) setState(() => _loading = false);
+    if (!ready || !mounted) return;
+    final JournalEntry? saved = await showDialog<JournalEntry>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => JournalEntryDialog(
+        api: widget.api,
+        accounts: _accounts,
+        periods: _periods,
+        journalTypes: _journalTypes,
+        voucherTypes: _voucherTypes,
+        costCenters: _costCenters,
+        profitCenters: _profitCenters,
+        entry: entry,
+      ),
+    );
+    if (saved == null || !mounted) return;
+    await _load();
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      'Draft ${saved.referenceNumber} saved.',
+      kind: AppNotificationKind.success,
+    );
+  }
+
+  Future<void> _deleteSelected() async {
+    final JournalEntry? entry = _selected;
+    if (entry == null || !entry.isManualDraft) return;
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Delete ${entry.referenceNumber}?'),
+        content: const Text(
+          'The draft goes, and its reference stays taken: a number once '
+          'issued is not handed out again.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    try {
+      await widget.api.deleteJournalEntry(entry.id);
+      await _load();
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        'Draft ${entry.referenceNumber} deleted.',
+        kind: AppNotificationKind.success,
+      );
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      NotificationService.show(context, exception.message,
+          kind: AppNotificationKind.error);
+    }
+  }
+
+  Future<void> _rejectSelected() async {
+    final JournalEntry? entry = _selected;
+    if (entry == null || !entry.isManualDraft) return;
+    final String? reason = await askForReason(
+      context,
+      title: 'Reject ${entry.referenceNumber}',
+      explanation: 'A rejected draft stays on record and can never be '
+          'posted, edited or deleted.',
+      label: 'Why it is rejected',
+      confirmLabel: 'Reject',
+    );
+    if (reason == null || !mounted) return;
+    try {
+      await widget.api.rejectJournalEntry(entry.id, reason: reason);
+      await _load();
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        'Draft ${entry.referenceNumber} rejected. It stays on record and '
+        'cannot be posted.',
+        kind: AppNotificationKind.success,
+      );
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      NotificationService.show(context, exception.message,
+          kind: AppNotificationKind.error);
+    }
   }
 
   Future<void> _postSelected() async {
@@ -386,6 +493,37 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
                         : null,
                 icon: const Icon(Icons.undo),
                 label: const Text('Reverse'),
+              ),
+            // Edit, delete and reject a hand-written draft (D-FIN-15), kept
+            // in one menu so the toolbar still fits the narrowest window.
+            if (_canCreate || _canPost)
+              PopupMenuButton<String>(
+                key: const ValueKey('journal-draft-actions'),
+                tooltip: 'Draft actions',
+                enabled: selected != null && selected.isManualDraft,
+                icon: const Icon(Icons.more_vert),
+                onSelected: (action) => unawaited(switch (action) {
+                  'edit' => _editSelected(),
+                  'delete' => _deleteSelected(),
+                  _ => _rejectSelected(),
+                }),
+                itemBuilder: (_) => [
+                  if (_canCreate)
+                    const PopupMenuItem<String>(
+                      value: 'edit',
+                      child: Text('Edit draft'),
+                    ),
+                  if (_canCreate)
+                    const PopupMenuItem<String>(
+                      value: 'delete',
+                      child: Text('Delete draft'),
+                    ),
+                  if (_canPost)
+                    const PopupMenuItem<String>(
+                      value: 'reject',
+                      child: Text('Reject draft'),
+                    ),
+                ],
               ),
             const SizedBox(width: AppSpacing.sm),
             if (_canCreate)

@@ -418,6 +418,24 @@ def test_a_converted_quotation_cannot_be_cancelled() -> None:
         )
 
 
+def test_a_declined_quotation_cannot_be_cancelled() -> None:
+    """Declined is terminal; the customer's answer stands (D-SELL-28)."""
+    session = _session_factory()()
+    setup = _Setup(session)
+    row = setup.service.create_quotation(
+        setup.payload(), firm_id=setup.firm.id, actor_id=setup.actor_id
+    )
+    setup.service.decline_quotation(
+        row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id, reason="Price"
+    )
+
+    with pytest.raises(ValidationError, match="declined by the customer"):
+        setup.service.cancel_quotation(
+            row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id, reason="oops"
+        )
+    assert row.status == QuotationStatus.DECLINED.value
+
+
 def test_a_sent_quotation_can_still_be_revised() -> None:
     """A customer asking for a better price is the ordinary case."""
     session = _session_factory()()

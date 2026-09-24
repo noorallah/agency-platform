@@ -14,9 +14,9 @@ The rest follows:
   question asked afterwards.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from sqlalchemy import create_engine
@@ -26,6 +26,7 @@ from sqlalchemy.pool import StaticPool
 from app.branches.models import Branch, Warehouse
 from app.core.database.base import Base
 from app.core.exceptions import ValidationError
+from app.core.utils.dates import utc_now
 from app.customers.models import Customer
 from app.delivery_note.schemas import DeliveryNoteCreate, DeliveryNoteLineWrite
 from app.delivery_note.services import DeliveryNoteService
@@ -359,3 +360,45 @@ def test_a_held_orders_draft_can_be_tidied_but_not_resized() -> None:
         actor_id=books.actor_id,
     )
     assert row.remarks == "Driver changed."
+
+
+class _ReleaseRecorder:
+    """Stand in for the stock side and keep what a release was dated."""
+
+    def __init__(self) -> None:
+        """Start with nothing released."""
+        self.dates: list[date] = []
+
+    def allocate_for_release(
+        self, *, quantity: Decimal, **_: object
+    ) -> list[tuple[UUID | None, Decimal]]:
+        """Say the whole hold sits on the untracked row."""
+        return [(None, quantity)]
+
+    def release_sales_order_reservation(
+        self, *, transaction_date: date, **_: object
+    ) -> None:
+        """Record the date the release was written with."""
+        self.dates.append(transaction_date)
+
+
+@pytest.mark.parametrize("days_ahead", [-30, 1])
+def test_a_release_is_dated_when_it_happened_never_before_the_hold(
+    days_ahead: int,
+) -> None:
+    """Cancelling lets the stock go today, but never before it was held.
+
+    An order dated ahead of today's UTC date showed its release in the ledger
+    a day before its reservation (D-STK-7).
+    """
+    books = _Books(_session_factory()())
+    today = utc_now().date()
+    books.order.order_date = today + timedelta(days=days_ahead)
+    books.session.commit()
+    service = SalesOrderService(books.session)
+    recorder = _ReleaseRecorder()
+    service._inventory = recorder  # type: ignore[assignment]
+
+    service._release_inventory(books.order, actor_id=books.actor_id)
+
+    assert recorder.dates == [max(today, books.order.order_date)]

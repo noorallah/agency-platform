@@ -589,6 +589,40 @@ def test_a_reversed_receipt_stops_clearing_its_invoice() -> None:
     assert len(service.allocations_for(settlement.id)) == 1, "the record stays"
 
 
+def test_a_reversal_row_is_dated_the_day_of_its_journal() -> None:
+    """D-FIN-17: the receivable reversal carried the original's date.
+
+    Its journal carries the cancel date, so a statement already sent for the
+    receipt's month changed when the receipt was reversed later, and never
+    agreed with 1100 at that month end.
+    """
+    books = _Books(_session_factory()())
+    books.owe_us("1000.00")
+    invoice = books.sales_invoice("SI-1", "500.00")
+    settlement = _receipt(
+        books,
+        "500.00",
+        [SettlementAllocationWrite(invoice_id=invoice.id, amount=Decimal("500.00"))],
+    )
+    books.session.commit()
+    reversed_row = ReceiptService(books.session).reverse(
+        settlement.id,
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+
+    mirror = books.session.get(JournalEntry, reversed_row.reversal_journal_entry_id)
+    assert mirror is not None
+    reversal = books.session.scalars(
+        select(CustomerReceivableTransaction).where(
+            CustomerReceivableTransaction.transaction_type == "REVERSAL"
+        )
+    ).one()
+    assert reversal.transaction_date == mirror.journal_date
+    assert reversal.transaction_date != WHEN
+
+
 def test_a_receipt_whose_advance_was_applied_reverses_in_full() -> None:
     """A bounced cheque is taken back even after its advance was applied.
 

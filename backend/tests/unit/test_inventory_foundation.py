@@ -13,6 +13,7 @@ from app.batch_serial.models.batch_serial import BatchRecord
 from app.batch_serial.services import BatchSerialService
 from app.branches.models import Branch, Warehouse
 from app.business.models import BusinessProfile, FirmBusinessProfile
+from app.common.audit.models import AuditLog
 from app.common.scope import (
     ResolvedFirmScope,
     optional_firm_scope,
@@ -2105,3 +2106,75 @@ def test_a_stock_movement_refuses_a_fraction_of_a_whole_unit() -> None:
         on_date=date(2026, 8, 1),
     )
     assert in_kg == Decimal("1.5")
+
+
+def test_a_quarantine_hold_and_release_leave_named_audit_rows() -> None:
+    """The trail says a hold was placed, not only that stock moved (D-STK-6)."""
+    session = _session_factory()()
+    firm = _firm(session, "QAUD")
+    profile = _profile(session, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(session, firm, profile)
+    actor_id = uuid4()
+    service = _costed_stock(session, firm, branch, warehouse, product, actor_id)
+
+    for action, reference in (
+        (QuarantineAction.HOLD, "QR-AUD-1"),
+        (QuarantineAction.RELEASE, "QR-AUD-2"),
+    ):
+        service.quarantine_stock(
+            StockQuarantineCreate(
+                branch_id=branch.id,
+                warehouse_id=warehouse.id,
+                product_id=product.id,
+                action=action,
+                quantity=Decimal("2"),
+                reference_number=reference,
+                transaction_date=date(2026, 8, 2),
+            ),
+            firm_scope=firm.id,
+            actor_id=actor_id,
+        )
+
+    rows = {
+        row.action: row.after_data
+        for row in session.scalars(
+            select(AuditLog).where(AuditLog.action.like("inventory.quarantine.%"))
+        )
+    }
+    assert set(rows) == {"inventory.quarantine.held", "inventory.quarantine.released"}
+    held = rows["inventory.quarantine.held"]
+    assert held is not None
+    assert held["reference_number"] == "QR-AUD-1"
+    assert held["quantity"] == "2"
+
+
+def test_a_reversal_is_dated_when_the_goods_moved_back() -> None:
+    """Not the day they first arrived (D-STK-9).
+
+    Dating it the original's date showed stock leaving the day it came in and
+    ran the row's last movement date backwards.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "REVD")
+    profile = _profile(session, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(session, firm, profile)
+    actor_id = uuid4()
+    service = _costed_stock(session, firm, branch, warehouse, product, actor_id)
+    receipt = session.scalar(
+        select(InventoryTransaction).where(
+            InventoryTransaction.reference_number == "GRN-WO"
+        )
+    )
+    assert receipt is not None
+    assert receipt.transaction_date == date(2026, 8, 1)
+
+    reversal = service.reverse_transaction(
+        receipt.id, firm_scope=firm.id, actor_id=actor_id, reason="wrong goods"
+    )
+    session.commit()
+
+    today = utc_now().date()
+    assert reversal.transaction_date == max(date(2026, 8, 1), today)
+    stock = session.get(InventoryRecord, receipt.inventory_id)
+    assert stock is not None
+    assert stock.last_transaction_at == reversal.transaction_date

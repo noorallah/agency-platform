@@ -104,9 +104,13 @@ class JournalEntryDialog extends StatefulWidget {
     required this.voucherTypes,
     this.costCenters = const [],
     this.profitCenters = const [],
+    this.entry,
   });
 
   final ApiClient api;
+
+  /// A hand-written draft being edited, or null for a new entry (D-FIN-15).
+  final JournalEntry? entry;
   final List<LedgerAccount> accounts;
   final List<AccountingPeriod> periods;
   final List<FinanceTypeRef> journalTypes;
@@ -137,6 +141,49 @@ class _JournalEntryDialogState extends State<JournalEntryDialog> {
   ];
   bool _saving = false;
   String? _error;
+
+  bool get _editing => widget.entry != null;
+
+  @override
+  void initState() {
+    super.initState();
+    final JournalEntry? entry = widget.entry;
+    if (entry == null) return;
+    // Only choices the lists hold: a dropdown given a value it does not offer
+    // fails outright rather than showing it blank.
+    if (widget.periods.any((p) => p.id == entry.accountingPeriodId)) {
+      _periodId = entry.accountingPeriodId;
+    }
+    if (widget.journalTypes.any((t) => t.id == entry.journalTypeId)) {
+      _journalTypeId = entry.journalTypeId;
+    }
+    if (widget.voucherTypes.any((t) => t.id == entry.voucherTypeId)) {
+      _voucherTypeId = entry.voucherTypeId;
+    }
+    _journalDate = entry.journalDate;
+    _reference = entry.referenceNumber;
+    _description = entry.description;
+    _lines
+      ..clear()
+      ..addAll([
+        for (final JournalLine line in entry.lines)
+          JournalDraftLine(
+            ledgerAccountId: line.ledgerAccountId,
+            debit: (double.tryParse(line.debitAmount) ?? 0) == 0
+                ? ''
+                : line.debitAmount,
+            credit: (double.tryParse(line.creditAmount) ?? 0) == 0
+                ? ''
+                : line.creditAmount,
+            description: line.description,
+            costCenterId: line.costCenterId,
+            profitCenterId: line.profitCenterId,
+          ),
+      ]);
+    while (_lines.length < 2) {
+      _lines.add(JournalDraftLine());
+    }
+  }
 
   double get _debitTotal =>
       _lines.fold(0, (sum, line) => sum + line.debitValue);
@@ -220,7 +267,7 @@ class _JournalEntryDialogState extends State<JournalEntryDialog> {
     try {
       final List<JournalDraftLine> sending =
           _lines.where((line) => !line.isBlank).toList();
-      final JournalEntry created = await widget.api.createJournalEntry({
+      final Json body = {
         'journal_type_id': _journalTypeId,
         'voucher_type_id': _voucherTypeId,
         'accounting_period_id': _periodId,
@@ -228,7 +275,11 @@ class _JournalEntryDialogState extends State<JournalEntryDialog> {
         'reference_number': _reference.trim(),
         if (_description.trim().isNotEmpty) 'description': _description.trim(),
         'lines': [for (final JournalDraftLine line in sending) line.toJson()],
-      });
+      };
+      final JournalEntry? editing = widget.entry;
+      final JournalEntry created = editing == null
+          ? await widget.api.createJournalEntry(body)
+          : await widget.api.updateJournalEntry(editing.id, body);
       if (!mounted) return;
       Navigator.pop(context, created);
     } on ApiException catch (exception) {
@@ -242,7 +293,9 @@ class _JournalEntryDialogState extends State<JournalEntryDialog> {
 
   @override
   Widget build(BuildContext context) => WorkspaceDialog(
-        title: 'New Journal Entry',
+        title: _editing
+            ? 'Edit ${widget.entry!.referenceNumber}'
+            : 'New Journal Entry',
         subtitle: 'Saved as a draft. Posting it is a separate step.',
         icon: Icons.menu_book_outlined,
         loading: _saving,
@@ -433,7 +486,9 @@ class _JournalEntryDialogState extends State<JournalEntryDialog> {
                 Expanded(
                   flex: 3,
                   child: DropdownButtonFormField<String>(
-                    initialValue: _lines[index].ledgerAccountId.isEmpty
+                    // Only an account the list offers: a draft written before
+                    // D-FIN-20 may hold one the server now refuses.
+                    initialValue: _accountOf(_lines[index]) == null
                         ? null
                         : _lines[index].ledgerAccountId,
                     isExpanded: true,

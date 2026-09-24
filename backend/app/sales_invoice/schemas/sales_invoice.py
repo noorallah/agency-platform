@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.batch_serial.schemas import PickedSerial
+
 
 class SalesInvoiceSchema(BaseModel):
     """Apply strict input and ORM response behavior."""
@@ -403,6 +405,12 @@ class SalesInvoiceLineResponse(SalesInvoiceSchema):
     accounting_event_reference: str | None
     #: What the customer was charged, component by component.
     taxes: list[SalesInvoiceLineTaxResponse] = Field(default_factory=list)
+    #: Whether this bill names the units the line ships: a serial-tracked
+    #: line billing a delivery note the bill raised for itself, not yet
+    #: dispatched. Editing such a draft re-offers the picker (D-SELL-33).
+    picks_serials: bool = False
+    #: The units that note line ships, where ``picks_serials`` is true.
+    serials: list[PickedSerial] = Field(default_factory=list)
     created_at: datetime
     updated_at: datetime
 
@@ -460,6 +468,7 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     grand_total: Decimal
     approved_at: datetime | None
     closed_at: datetime | None
+    cancelled_at: datetime | None = None
     cancel_reason: str | None
     close_reason: str | None
     is_deleted: bool

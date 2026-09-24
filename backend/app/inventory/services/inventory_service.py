@@ -1536,6 +1536,26 @@ class InventoryService:
                 revalues=False,
             ),
         )
+        # A named row, so the trail says a hold was placed rather than only
+        # that a movement was written (D-STK-6).
+        record_audit(
+            self._session,
+            action=(
+                "inventory.quarantine.held"
+                if holding
+                else "inventory.quarantine.released"
+            ),
+            entity_type="inventory_transaction",
+            entity_id=transaction.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            after_data={
+                "reference_number": transaction.reference_number,
+                "product_id": str(data.product_id),
+                "batch_id": str(data.batch_id) if data.batch_id else None,
+                "quantity": str(data.quantity),
+            },
+        )
         self._commit()
         self._session.refresh(transaction)
         return transaction
@@ -2048,7 +2068,11 @@ class InventoryService:
                 serial_id=original.serial_id,
                 reference_number=original.reference_number,
                 reference_type=original.reference_type,
-                transaction_date=original.transaction_date,
+                # Dated when the goods moved back, not when they first moved:
+                # the original's date showed stock leaving the day it arrived
+                # and ran `last_transaction_at` backwards (D-STK-9). Never
+                # before the original, which may itself be dated ahead.
+                transaction_date=max(original.transaction_date, utc_now().date()),
                 quantity=-original.quantity,
                 current_delta=-original.current_quantity_delta,
                 reserved_delta=-original.reserved_quantity_delta,

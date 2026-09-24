@@ -203,8 +203,12 @@ class CreditControlService:
         self._session.flush()
         record_audit(
             self._session,
-            action="UPDATE" if before is not None else "CREATE",
-            entity_type="CreditControlSettings",
+            action=(
+                "credit_control_settings.updated"
+                if before is not None
+                else "credit_control_settings.created"
+            ),
+            entity_type="credit_control_settings",
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_id,

@@ -313,6 +313,7 @@ class ControlAccountService:
                 FirmControlAccount.is_deleted.is_(False),
             )
         )
+        previous = row.ledger_account_id if row is not None else None
         if row is None:
             row = FirmControlAccount(
                 firm_id=firm_id, purpose=purpose.value, created_by=actor_id
@@ -321,6 +322,26 @@ class ControlAccountService:
         row.ledger_account_id = ledger_account_id
         row.updated_by = actor_id
         self._session.flush()
+        if previous != ledger_account_id:
+            # Every mapping is audited where it is written (D-FIN-13): the 24
+            # that Open the books writes came through here and left no row,
+            # because only the screen's `reassign` recorded one.
+            record_audit(
+                self._session,
+                action="control_account.assigned",
+                entity_type="firm_control_account",
+                entity_id=row.id,
+                actor_id=actor_id,
+                firm_id=firm_id,
+                before_data={
+                    "purpose": purpose.value,
+                    "ledger_account_id": str(previous) if previous else None,
+                },
+                after_data={
+                    "purpose": purpose.value,
+                    "ledger_account_id": str(ledger_account_id),
+                },
+            )
         return row
 
     def purposes_of(
@@ -437,21 +458,7 @@ class ControlAccountService:
                     "post a transfer entry and map the new account from the "
                     "next period instead."
                 )
-        row = self.assign(firm_id, purpose, ledger_account_id, actor_id=actor_id)
-        record_audit(
-            self._session,
-            action="control_account.assigned",
-            entity_type="firm_control_account",
-            entity_id=row.id,
-            actor_id=actor_id,
-            firm_id=firm_id,
-            before_data={"ledger_account_id": str(current) if current else None},
-            after_data={
-                "purpose": purpose.value,
-                "ledger_account_id": str(ledger_account_id),
-            },
-        )
-        return row
+        return self.assign(firm_id, purpose, ledger_account_id, actor_id=actor_id)
 
     def missing(
         self, firm_id: UUID, purposes: tuple[ControlAccountPurpose, ...]
@@ -462,6 +469,35 @@ class ControlAccountService:
         """
         configured = self.mapping(firm_id)
         return tuple(p for p in purposes if p.value not in configured)
+
+    def closed_to_hand_journals(self, firm_id: UUID) -> set[UUID]:
+        """Return every account of the firm a hand journal is refused on.
+
+        The same two tests :meth:`assert_open_to_hand_journals` applies --
+        mapped to a sub-ledger purpose, or of type CONTROL -- asked of the
+        whole chart, so the journal editor can leave them out (D-FIN-20).
+        """
+        closed = {
+            account_id
+            for account_id, purpose in self._session.execute(
+                select(
+                    FirmControlAccount.ledger_account_id, FirmControlAccount.purpose
+                ).where(
+                    FirmControlAccount.firm_id == firm_id,
+                    FirmControlAccount.is_deleted.is_(False),
+                )
+            ).all()
+            if purpose in SUBLEDGER_PURPOSES
+        }
+        closed.update(
+            self._session.scalars(
+                select(LedgerAccount.id).where(
+                    LedgerAccount.firm_id == firm_id,
+                    LedgerAccount.account_type == "CONTROL",
+                )
+            ).all()
+        )
+        return closed
 
     def assert_open_to_hand_journals(
         self, firm_id: UUID, ledger_account_ids: Iterable[UUID]

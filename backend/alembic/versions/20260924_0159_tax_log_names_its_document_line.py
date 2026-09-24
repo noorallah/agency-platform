@@ -25,7 +25,7 @@ missing, because firm stores are partly built by ``create_all``. Firm-owned, so
 run it through ``scripts/migrate_all_stores.py``.
 
 Revision ID: 20260924_0159
-Revises: 20260924_0157
+Revises: 20260924_0158
 Create Date: 2026-09-24
 
 """
@@ -38,7 +38,7 @@ from alembic import op
 from app.core.database.types import UUIDType
 
 revision: str = "20260924_0159"
-down_revision: str | Sequence[str] | None = "20260924_0157"
+down_revision: str | Sequence[str] | None = "20260924_0158"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

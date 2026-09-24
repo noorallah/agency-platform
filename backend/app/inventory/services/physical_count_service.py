@@ -276,6 +276,21 @@ class PhysicalCountService(TransactionalDocumentService):
         if data.remarks is not None:
             row.remarks = data.remarks
         row.updated_by = actor_id
+        record_audit(
+            self._session,
+            action="inventory.physical_count.progress_saved",
+            entity_type="physical_count",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            after_data={
+                "count_number": row.count_number,
+                "lines_written": str(len(counted)),
+                "lines_counted": str(
+                    sum(1 for line in lines if line.counted_quantity is not None)
+                ),
+            },
+        )
         self._session.flush()
         return row
 
@@ -299,9 +314,17 @@ class PhysicalCountService(TransactionalDocumentService):
         """
         row = self.get(count_id, firm_id=firm_id)
         self._require_draft(row)
+        sheet = self.lines_for(row.id)
+        # A sheet nobody walked is not a count that found everything in
+        # place; posting it read POSTED with nothing counted (D-STK-5).
+        if not any(line.counted_quantity is not None for line in sheet):
+            raise ValidationError(
+                f"{row.count_number} has no counted line; record at least one "
+                "counted quantity before posting it."
+            )
         adjusted = 0
         differences: list[tuple[str, Decimal]] = []
-        for line in self.lines_for(row.id):
+        for line in sheet:
             if line.counted_quantity is None:
                 continue
             on_hand = self._on_hand(

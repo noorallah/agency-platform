@@ -369,6 +369,8 @@ class TcsService:
                 transaction_type=CustomerReceivableTransactionType.TCS,
                 transaction_date=settlement.settlement_date,
                 amount=row.tcs_amount,
+                reference_type="TCS_COLLECTION",
+                reference_id=row.id,
                 reference_number=self.reference_for(settlement),
                 remarks="Tax collected at source under 206C(1H).",
             ),
@@ -420,6 +422,7 @@ class TcsService:
         if row is None:
             return None
         before = self._collection_snapshot(row)
+        reversed_on = None
         if row.journal_entry_id is not None:
             mirror = self._journals.reverse_entry(
                 row.journal_entry_id,
@@ -431,12 +434,21 @@ class TcsService:
                 reference_number=f"{self.reference_for(settlement)}-REV",
             )
             row.reversal_journal_entry_id = mirror.id
+            reversed_on = mirror.journal_date
         if row.receivable_transaction_id is not None:
+            # Named like the journal it matches, not the collection's own
+            # reference again, and saying why (D-SELL-27).
             self._customers.reverse_receivable_transaction(
                 row.receivable_transaction_id,
                 firm_scope=firm_id,
                 actor_id=actor_id,
+                reference_number=f"{self.reference_for(settlement)}-REV",
+                remarks=(
+                    "Tax collected at source reversed with receipt "
+                    f"{settlement.settlement_number}."
+                ),
                 commit=False,
+                on=reversed_on,
             )
         row.status = TcsCollectionStatus.REVERSED.value
         row.updated_by = actor_id

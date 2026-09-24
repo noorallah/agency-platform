@@ -15,7 +15,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import case, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ValidationError
@@ -203,23 +203,46 @@ class DocumentPostingService:
                 open accounting period covering the date.
 
         """
+        # D-FIN-15: the first type by code was taken whether or not it was in
+        # use. Decided by the usual convention: documents post under the
+        # firm's general journal (GEN) and journal voucher (JV) -- the pair
+        # Open the books creates -- while they are active, and otherwise
+        # under the first active type by code. An inactive type is never used.
         journal_type_id = self._session.scalar(
             select(JournalType.id)
-            .where(JournalType.firm_id == firm_id, JournalType.is_deleted.is_(False))
-            .order_by(JournalType.code.asc())
+            .where(
+                JournalType.firm_id == firm_id,
+                JournalType.is_deleted.is_(False),
+                JournalType.is_active.is_(True),
+            )
+            .order_by(
+                case((JournalType.code == "GEN", 0), else_=1),
+                JournalType.code.asc(),
+            )
+            .limit(1)
         )
         if journal_type_id is None:
             raise ValidationError(
-                "This firm has no journal type configured, so documents cannot post."
+                "This firm has no active journal type configured, so documents "
+                "cannot post."
             )
         voucher_type_id = self._session.scalar(
             select(VoucherType.id)
-            .where(VoucherType.firm_id == firm_id, VoucherType.is_deleted.is_(False))
-            .order_by(VoucherType.code.asc())
+            .where(
+                VoucherType.firm_id == firm_id,
+                VoucherType.is_deleted.is_(False),
+                VoucherType.is_active.is_(True),
+            )
+            .order_by(
+                case((VoucherType.code == "JV", 0), else_=1),
+                VoucherType.code.asc(),
+            )
+            .limit(1)
         )
         if voucher_type_id is None:
             raise ValidationError(
-                "This firm has no voucher type configured, so documents cannot post."
+                "This firm has no active voucher type configured, so documents "
+                "cannot post."
             )
         period_id = self._session.scalar(
             select(AccountingPeriod.id)

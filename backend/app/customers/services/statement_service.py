@@ -16,11 +16,11 @@ existed on any day.
 """
 
 from collections import defaultdict
-from datetime import date
+from datetime import UTC, date, datetime, time, timedelta
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ResourceNotFoundError, ValidationError
@@ -203,12 +203,27 @@ class CustomerStatementService:
         ).where(
             SalesInvoice.firm_id == firm_scope,
             SalesInvoice.is_deleted.is_(False),
-            SalesInvoice.status.in_(_LIVE_INVOICE_STATUSES),
         )
-        if as_of is not None:
+        if as_of is None:
+            query = query.where(SalesInvoice.status.in_(_LIVE_INVOICE_STATUSES))
+        else:
             # D-FIN-10: `as_of` moved only the day count, so a bill raised
             # after it was aged as if it had been owed on that day.
             query = query.where(SalesInvoice.invoice_date <= as_of)
+            # D-FIN-21: a bill approved and cancelled after that day was owed
+            # on it. Its cancellation is only a status, so it needs the
+            # moment it happened; a draft cancelled was never owed at all.
+            day_after = datetime.combine(as_of + timedelta(days=1), time(), UTC)
+            query = query.where(
+                or_(
+                    SalesInvoice.status.in_(_LIVE_INVOICE_STATUSES),
+                    and_(
+                        SalesInvoice.status == "CANCELLED",
+                        SalesInvoice.approved_at.is_not(None),
+                        SalesInvoice.cancelled_at >= day_after,
+                    ),
+                )
+            )
         if customer_id is not None:
             query = query.where(SalesInvoice.customer_id == customer_id)
         raised = self._session.execute(query).all()

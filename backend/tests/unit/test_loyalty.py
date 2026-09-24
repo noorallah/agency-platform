@@ -32,7 +32,7 @@ from app.branches.models import Branch
 from app.core.database.base import Base
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
-from app.customers.models import Customer
+from app.customers.models import Customer, CustomerReceivableTransaction
 from app.finance.models import JournalEntry, JournalLine, LedgerAccount
 from app.finance.services.control_accounts import (
     ControlAccountPurpose,
@@ -1077,3 +1077,38 @@ def test_the_movements_report_takes_a_window_and_a_page() -> None:
     assert [row.earned_on for row in page.data] == [date(2026, 8, 6)]
 
     assert_page_size_is_bounded(loyalty_router, "/api/v1/loyalty/reports/movements")
+
+
+def test_a_redemption_names_itself_and_never_predates_its_bill() -> None:
+    """D-SELL-23 and D-SELL-27, on the redemption.
+
+    Its receivable row carried no reference type, and it was dated today in
+    UTC even for a bill dated tomorrow in the user's zone -- a settlement
+    before the bill it settles.
+    """
+    books = _Books(_session_factory()())
+    books.earn(books.invoice("SI-1", total="1000"))
+    later = books.invoice("SI-2", total="500")
+    tomorrow = utc_now().date() + timedelta(days=1)
+    if tomorrow > date(2027, 3, 31):
+        pytest.skip("the seeded year has closed")
+    later.invoice_date = tomorrow
+    books.customer.current_outstanding = Decimal("500.00")
+    books.session.commit()
+
+    entry = LoyaltyService(books.session).redeem(
+        firm_scope=books.firm.id,
+        invoice_id=later.id,
+        points=Decimal("20"),
+        actor_id=books.actor_id,
+    )
+
+    assert entry.earned_on == tomorrow
+    transaction = books.session.scalars(
+        select(CustomerReceivableTransaction).where(
+            CustomerReceivableTransaction.transaction_type == "LOYALTY"
+        )
+    ).one()
+    assert transaction.reference_type == "LOYALTY_ENTRY"
+    assert transaction.reference_id == entry.id
+    assert transaction.transaction_date == tomorrow

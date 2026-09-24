@@ -292,6 +292,12 @@ class CreditNoteService(TransactionalDocumentService):
             self._replace_lines(row, data.lines, invoice=invoice, actor_id=actor_id)
         row.updated_by = actor_id
         self._session.flush()
+        self._record_event(
+            row,
+            action="EDITED",
+            from_state=row.status,
+            actor_id=actor_id,
+        )
         record_audit(
             self._session,
             action="credit_note.updated",
@@ -368,6 +374,10 @@ class CreditNoteService(TransactionalDocumentService):
                 # nothing to say which is right.
                 amount=quantize_ledger(row.taxable_amount)
                 + quantize_ledger(row.tax_amount),
+                # Named by type and id like the invoice's and the return's,
+                # so the row leads back to the note (D-SELL-23).
+                reference_type="CREDIT_NOTE",
+                reference_id=row.id,
                 reference_number=row.credit_note_number,
                 remarks=row.remarks,
             ),
@@ -379,6 +389,12 @@ class CreditNoteService(TransactionalDocumentService):
         row.status = CreditNoteStatus.APPROVED.value
         row.updated_by = actor_id
         self._session.flush()
+        self._record_event(
+            row,
+            action="APPROVED",
+            from_state=CreditNoteStatus.DRAFT.value,
+            actor_id=actor_id,
+        )
         record_audit(
             self._session,
             action="credit_note.approved",
@@ -424,26 +440,39 @@ class CreditNoteService(TransactionalDocumentService):
         if row.status == CreditNoteStatus.CANCELLED.value:
             raise ValidationError("This credit note is already cancelled.")
         before = self._snapshot(row)
+        reversed_on = None
         if row.journal_entry_id is not None:
             # A mirror is right: what is being undone is worth exactly what it
             # was worth when it happened, unlike a stock reversal.
-            self._journals.reverse_entry(
+            reversed_on = self._journals.reverse_entry(
                 row.journal_entry_id,
                 firm_id=firm_scope,
                 reference_number=f"{row.credit_note_number}-REV",
-                journal_date=row.credit_note_date,
+                # Dated the day it is cancelled, like a receipt's, a return's
+                # and an invoice's reversal (D-BUY-4) -- not the note's own
+                # date, which put the undo before the decision (D-SELL-27).
                 actor_id=actor_id,
-            )
+            ).journal_date
         if row.receivable_transaction_id is not None:
             self._customers.reverse_receivable_transaction(
                 row.receivable_transaction_id,
                 firm_scope=firm_scope,
                 actor_id=actor_id,
+                reference_number=f"{row.credit_note_number}-REV",
+                remarks=f"Cancelled credit note {row.credit_note_number}.",
                 commit=False,
+                on=reversed_on,
             )
+        was = row.status
         row.status = CreditNoteStatus.CANCELLED.value
         row.updated_by = actor_id
         self._session.flush()
+        self._record_event(
+            row,
+            action="CANCELLED",
+            from_state=was,
+            actor_id=actor_id,
+        )
         record_audit(
             self._session,
             action="credit_note.cancelled",
@@ -455,6 +484,36 @@ class CreditNoteService(TransactionalDocumentService):
             after_data=self._snapshot(row),
         )
         return row
+
+    def _record_event(
+        self,
+        row: CreditNote,
+        *,
+        action: str,
+        from_state: str | None,
+        actor_id: UUID,
+    ) -> None:
+        """Append one step to the note's timeline, like its sibling modules.
+
+        Only CREATED was ever recorded, so an approved or cancelled note's
+        trail stopped at its birth (D-SELL-23).
+        """
+        self._record_lifecycle_event(
+            firm_id=row.firm_id,
+            document_type=self._document_type(row.firm_id),
+            document_id=row.id,
+            document_number=row.credit_note_number,
+            action=action,
+            from_state=from_state,
+            to_state=row.status,
+            actor_id=actor_id,
+            details={
+                "credit_note_number": row.credit_note_number,
+                "sales_invoice_id": str(row.sales_invoice_id),
+                "total_amount": str(row.total_amount),
+            },
+            snapshot={"status": row.status},
+        )
 
     # ---- lines ---------------------------------------------------------
 
@@ -550,6 +609,8 @@ class CreditNoteService(TransactionalDocumentService):
                     total_amount=quantize_money(asked + tax),
                     tax_profile_id=source.tax_profile_id,
                     tax_rate_percent=rate,
+                    created_by=actor_id,
+                    updated_by=actor_id,
                 )
             )
             taxable_total += asked

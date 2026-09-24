@@ -372,6 +372,32 @@ def test_a_draft_or_cancelled_invoice_is_not_a_debt() -> None:
     assert books.ageing() == []
 
 
+def test_a_bill_cancelled_after_the_day_was_owed_on_it() -> None:
+    """D-FIN-21: an ageing as of a day before a cancellation now counts it.
+
+    A cancellation carried no timestamp, so the bill was left out though on
+    that day it was owed.
+
+    A draft cancelled was never owed, whatever day is asked about.
+    """
+    books = _Books(_session_factory()())
+    bill = books.invoice("SI-1", "1000", status="CANCELLED")
+    bill.approved_at = datetime(2026, 4, 10, 9, tzinfo=UTC)
+    bill.cancelled_at = datetime(2026, 6, 10, 12, tzinfo=UTC)
+    draft = books.invoice("SI-2", "700", status="CANCELLED")
+    draft.cancelled_at = datetime(2026, 6, 10, 12, tzinfo=UTC)
+    books.session.commit()
+
+    before = books.ageing(as_of=date(2026, 6, 1))
+    assert [(row.invoice_number, row.outstanding) for row in before[0].invoices] == [
+        ("SI-1", Decimal("1000.00"))
+    ]
+    assert books.ageing(as_of=date(2026, 6, 10)) == []
+    assert (
+        CustomerStatementService(books.session).ageing(firm_scope=books.firm.id) == []
+    )
+
+
 def test_the_buckets_add_up_to_the_total() -> None:
     """A set of buckets that does not is one nobody can reconcile."""
     books = _Books(_session_factory()())

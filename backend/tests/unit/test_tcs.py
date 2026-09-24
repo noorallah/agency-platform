@@ -26,7 +26,7 @@ from sqlalchemy.pool import StaticPool
 
 from app.core.database.base import Base
 from app.core.exceptions import ResourceNotFoundError, ValidationError
-from app.customers.models import Customer
+from app.customers.models import Customer, CustomerReceivableTransaction
 from app.finance.models import JournalLine
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
@@ -743,3 +743,36 @@ def test_a_squared_up_buyer_reads_square() -> None:
     assert [(row.tcs_due, row.tcs_charged, row.position) for row in rows] == [
         (Decimal("1099.00"), Decimal("1099.00"), "SQUARE")
     ]
+
+
+def test_the_tcs_reversal_is_named_like_its_journal() -> None:
+    """D-SELL-27: the receivable reversal reused ``TCS-RC-...`` with no remarks."""
+    books = _Books(_session_factory()())
+    books.customer.current_outstanding = Decimal("8000000.00")
+    books.session.commit()
+    settlement_id = books.receipt("6000000")
+    row = books.collection(settlement_id)
+    assert row is not None
+    original = books.session.get(
+        CustomerReceivableTransaction, row.receivable_transaction_id
+    )
+    assert original is not None
+    assert original.reference_type == "TCS_COLLECTION"
+
+    ReceiptService(books.session).reverse(
+        settlement_id,
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+        reason="Cheque returned.",
+    )
+    books.session.commit()
+
+    undo = books.session.scalars(
+        select(CustomerReceivableTransaction).where(
+            CustomerReceivableTransaction.reference_type == "reversal",
+            CustomerReceivableTransaction.reference_id == original.id,
+        )
+    ).one()
+    assert undo.reference_number == f"{original.reference_number}-REV"
+    assert undo.remarks is not None
+    assert "reversed" in undo.remarks
