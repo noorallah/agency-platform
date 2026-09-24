@@ -6133,7 +6133,11 @@ seen in a live row)* was read off the code only.
   pruned from a firm store, so the constraint is never built. The only keys on
   these tables are to products, product categories, territories, ledger
   accounts and journal entries. What the service does not check, nothing
-  checks (D-TER-15).
+  checks -- so since #614 the rule and the target both check it themselves,
+  through `FirmMetadataReader`, which reads the **platform** store
+  (D-TER-15). `commission_payouts.salesman_id` still names whoever the
+  accrual found, which is right: a payout is a record of what somebody
+  earned while they were here.
 - **The audit rows are the firm's own, every one carries its firm, and most
   say very little.** `sales_territory.created` / `.updated` / `.deleted` /
   `.restored` / `.moved` / `.status_changed` / `.customers_set` /
@@ -6143,11 +6147,12 @@ seen in a live row)* was read off the code only.
   `commission.payout.accrued` / `.updated` / `.approved` / `.paid` /
   `.cancelled`, `sales_target.created` / `.updated` / `.deleted`. The payout
   rows carry a full before and after; a rule row its whole shape **except
-  `measure`**; `customers_set` and `salesmen_set` carry only a count;
-  `sales_territory.updated` carries the code and path and nothing about the
-  route profile; `.deleted`, `.restored`, the hierarchy row and every
-  `beat_plan.*` row carry nothing at all; a target row carries only the
-  amount (D-TER-16). Query them:
+  `measure`**. Since #615 `customers_set` and `salesmen_set` carry the ids on
+  both sides plus `added` and `removed`; `.deleted` and `.restored` carry the
+  node; the hierarchy row carries the four settings and the levels; every
+  `beat_plan.*` row carries the plan; and a target row carries the whole
+  target (D-TER-16). `sales_territory.updated` still carries the code and path
+  and nothing about the route profile. Query them:
   ```sql
   select created_at, action, entity_type, entity_id, actor_id,
          before_data::jsonb - '_meta' as before, after_data::jsonb - '_meta' as after
@@ -6176,12 +6181,24 @@ seen in a live row)* was read off the code only.
   `UQ_commission_payouts_period_active` on live, un-cancelled rows.
   `UQ_sales_territories_firm_code`, `UQ_sales_beat_plans_firm_code` and
   `UQ_territory_salesman_assignments_territory_user` are **plain**, so a
-  deleted territory or plan keeps its code for ever while the service's own
-  check filters `is_deleted` — the refusal then arrives as the bare 409.
-  `UQ_sales_targets_scope_period` is plain over
-  (`firm_id`, `salesman_id`, `territory_id`, `period_start`), and since
-  PostgreSQL never equates two NULLs it holds nothing for any target that
-  leaves either scope blank — which is nearly all of them (D-TER-16).
+  deleted territory or plan keeps its code for ever. The service's own check
+  filtered `is_deleted` and the refusal then arrived as the bare 409; since
+  #615 both checks look at retired rows too and name where the code went --
+  "A deleted territory holds the code RT01. Restore it, or use another code."
+  (D-TER-16).
+  `UQ_sales_targets_scope_period` was plain over
+  (`firm_id`, `salesman_id`, `territory_id`, `period_start`): since neither
+  dialect equates two NULLs it held nothing for a target that left either
+  scope blank — nearly all of them — it covered deleted rows, and it left
+  `basis` out while the service allows one INVOICED and one COLLECTED target
+  over the same days. `UQ_sales_targets_scope_period_active` replaces it
+  (`20260924_0157`), partial on live rows, with both scopes `coalesce`d onto
+  the nil UUID and `basis` in the key.
+  `UQ_commission_rules_scope_start_active` is the same shape for a rule's
+  scope and start date, partial on live ACTIVE rows, and is what the overlap
+  read had nothing behind it (D-TER-16). Neither expresses an **overlapping**
+  window, only a shared start; the service checks stay authoritative for that,
+  as they do beside `UQ_commission_payouts_period_active`.
 - **Concurrency.** Territories, route types, beat plans, commission rules,
   payouts and targets publish `version` as an `ETag` and on the body, and take
   `If-Match`. The two whole-list replaces — a round's customers and a node's
@@ -6200,7 +6217,9 @@ seen in a live row)* was read off the code only.
 - **A save** rewrites the four settings (`max_levels`,
   `allow_multi_route_per_salesman`, `allow_multi_salesman_per_route`,
   `enforce_customer_leaf_assignment`) and replaces the levels; audit
-  `sales_territory.hierarchy.updated`, empty on both sides.
+  `sales_territory.hierarchy.updated`, which was empty on both sides and
+  since #615 carries the four settings and the levels by order, code and
+  display name (D-TER-16).
 - **A route type** is one `sales_route_types` row; delete is refused while a
   live route profile names it — "<n> route(s) still use this route type.
   Reassign them before deleting it."
@@ -6228,10 +6247,11 @@ seen in a live row)* was read off the code only.
   sibling holds; a level that is not exactly one below the parent's — "Territory
   level must be exactly one level below its parent."; a top-level node that is
   not level 1; `max_nodes_per_parent` reached.
-- **Not checked:** that `hierarchy_level_id` is one of **this firm's** levels
-  (`_level` filters on the id alone), nor that `route_type_id` is this firm's
-  route type (D-TER-15). A code a **deleted** node holds passes the service and
-  is refused by `UQ_sales_territories_firm_code` as a bare 409.
+- **Whose masters they are is checked since #614.** `_level` takes the firm
+  wherever the id came off a request body, and `_upsert_route_profile` resolves
+  `route_type_id` through `_route_type`, which is firm-scoped: both live in the
+  shared store, where a key is satisfied by another firm's row (D-TER-15). A
+  code a **deleted** node holds is refused by name since #615 (D-TER-16).
 - **Check:**
   ```sql
   select t.path, t.status, t.is_deleted, l.display_name as level,
@@ -6272,16 +6292,19 @@ seen in a live row)* was read off the code only.
   is still called (D-TER-16).
 - **Delete** is soft (`is_deleted`, `deleted_at`, `deleted_by`), audit
   `sales_territory.deleted` with nothing on either side, and is refused while
-  the node has live children, customers or salespeople. **It does not look at
-  beat plans or targets**: the plans stay live and the call list goes on
-  reporting the deleted round as running, and a target on it stays in the
-  achievement report (D-TER-14). The route profile and its working days are
-  left as they are.
-- **The edit reaches a deleted node**: `update_territory` loads with
-  `include_deleted=True`, so a PUT renames a territory that is in the bin and
-  leaves it there (D-TER-14). Restore clears the three columns, audits
-  `sales_territory.restored`, and re-checks neither the code nor that the
-  parent is still live.
+  the node has live children, customers or salespeople -- **and, since #612,
+  while a live beat plan or a live sales target names it**, the refusal
+  listing the plan codes or the target periods so the caller knows what to
+  retire first (D-TER-14). The call list also skips a plan whose round is in
+  the bin, for the rows retired before the guard existed. The route profile
+  and its working days are left as they are.
+- **A node in the bin refuses to be changed.** `update_territory`,
+  `update_beat_plan`, `bulk_status_change` and `bulk_move` all load with
+  `include_deleted=True` so that they can report a stale id honestly, and
+  every one of them then wrote: a PUT renamed a territory that was in the bin
+  and left it there (D-TER-14, #612). Restore is the endpoint for bringing one
+  back; it clears the three columns, audits `sales_territory.restored`, and
+  re-checks neither the code nor that the parent is still live.
 - **Check:** §17.2's query, and the plans and targets a node still carries:
   ```sql
   select t.code, t.is_deleted,
@@ -6324,9 +6347,11 @@ is either `customer_ids` (membership only) or `entries`
   deleted — "One or more customers do not belong to the active firm."; two
   entries on one stop number (422, naming the numbers); a node that is not a
   leaf when `enforce_customer_leaf_assignment` is on.
-- **Audit:** one `sales_territory.customers_set` on the **territory**, carrying
-  `customer_count` and nothing else — who joined, who left and what order they
-  are in is on no trail.
+- **Audit:** one `sales_territory.customers_set` on the **territory**. It
+  carried `customer_count` and nothing else, so who joined or left a round was
+  on no trail at all; since #615 it also carries the ids on both sides and the
+  `added` / `removed` lists (D-TER-16). The call **order** is still not
+  recorded.
 - **Check:**
   ```sql
   select t.code as round, c.code as shop, a.visit_sequence, a.is_primary,
@@ -6349,6 +6374,10 @@ is either `customer_ids` (membership only) or `entries`
   inserted or un-deleted, and `include_children` and `is_primary` are written
   from the body every time — `is_primary` defaults to **false**, so a client
   that omits it demotes (the customer list's "leave alone" has no twin here).
+  Deliberate, and said so on the schema since #615: a round may have several
+  people and "primary" is the one a document is attributed to, so a save that
+  said nothing about it cannot be read as "promote whoever is first in the
+  list" (D-TER-16).
 - **Checked through the platform store**: every `user_id` must be an active
   member of this firm (`FirmMetadataReader.active_member_count`) — "One or more
   salesmen are not active firm members." The two hierarchy settings are
@@ -6366,7 +6395,9 @@ is either `customer_ids` (membership only) or `entries`
   listing them (D-TER-17). The two writes are not one transaction and cannot
   be -- they are different databases -- so the platform fact is committed
   first and the firm stores follow it.
-- **Audit:** `sales_territory.salesmen_set` with `salesman_count`.
+- **Audit:** `sales_territory.salesmen_set`. It carried `salesman_count`
+  alone and since #615 also carries the ids on both sides and the `added` /
+  `removed` lists (D-TER-16).
 - **Check** (the platform join works where the firm's store is in
   `agency_platform`):
   ```sql
@@ -6397,8 +6428,9 @@ is either `customer_ids` (membership only) or `entries`
 - **The edit is a whole replace**, stops included: they are all soft-deleted
   and re-inserted from the body, so a PUT that leaves `customer_stops` out
   clears them (D-TER-7). It too loads with `include_deleted=True`.
-- **Audit:** `sales_territory.beat_plan.created` / `.updated` / `.deleted`,
-  each with **nothing on either side**.
+- **Audit:** `sales_territory.beat_plan.created` / `.updated` / `.deleted`.
+  `.updated` always carried both sides; since #615 `.created` and `.deleted`
+  carry the plan too (D-TER-16).
 - **Check:**
   ```sql
   select b.code, t.code as route, t.is_deleted as route_gone, b.plan_type, b.weekday,
@@ -6452,11 +6484,14 @@ from its order. It writes three columns on the document and nothing else.
   exists, not that it is this firm's, the customer's, the territory's or in
   force, so an order is tagged to a round that ended in June, or to somebody
   else's (D-TER-9).
-- **Membership is checked where the caller names a person, and only on three
-  documents.** Order, delivery note and invoice ask `active_member_count`
-  through the platform store — "Salesman is not an active member of this
-  firm."; **quotation and return do not**, so with no territory to check
-  against any id at all is stored (D-TER-15). A **derived** person is never
+- **Membership is checked wherever the caller names a person.** Order,
+  delivery note and invoice each ask `active_member_count` through the
+  platform store in their own service — "Salesman is not an active member of
+  this firm." — and since #614 `_validated_salesman` asks it too, before
+  coverage and whether or not there is a territory, which is what closes
+  quotation and sales return: they had no check of their own, so with no
+  territory to check against any id at all was stored (D-TER-15). A
+  **derived** person is never
   checked, so somebody who has left the firm is put on the order, the order
   approves and reserves stock, and the delivery note — which does check — is
   refused (D-TER-11).
@@ -6525,10 +6560,14 @@ from its order. It writes three columns on the document and nothing else.
   start at 0, has a gap or an overlap, or is open-ended below the top; a second
   ACTIVE rule over the same person, goods and days — "Another active rule
   already covers part of that period for the same scope (from …)." That last
-  check is a read followed by an insert with **no key behind it** (D-TER-16).
-- **Not checked:** that `salesman_id` is anybody at all — an unknown id is
-  saved and listed as "Former member"; an unknown `product_id` reaches the
-  foreign key and answers the bare 409 (D-TER-15).
+  check was a read followed by an insert with no key behind it;
+  `UQ_commission_rules_scope_start_active` (`20260924_0157`) is the backstop
+  for two requests that both read before either commits (D-TER-16).
+- **Who and what the rule names is checked since #614.** `salesman_id` must be
+  an active member, read through the platform store — an unknown id used to be
+  saved and listed as "Former member"; `product_id` and `product_category_id`
+  must be **this firm's** live rows, answered as "not found" rather than as the
+  bare 409 the foreign key gave (D-TER-15).
 - **Audit:** `commission.rule.created` / `.updated` / `.deleted` with the whole
   rule and its ladder, `measure` excepted.
 - **Check:**
@@ -6728,8 +6767,10 @@ all `COMMISSION_MANAGE`, `If-Match` optional.
 
 - **Create** inserts one `sales_targets` row: a person, a node, both or
   neither; the period's own dates; `period_type` a label; `basis` INVOICED or
-  COLLECTED; `status` **free text** — only `ACTIVE` is ever reported, and
-  `PAUSED` is accepted as readily as `INACTIVE` (D-TER-16).
+  COLLECTED; `status` ACTIVE or INACTIVE. It was **free text** and only
+  `ACTIVE` is ever reported, so `PAUSED` was accepted, stored, and vanished
+  from the one screen a target exists for; it is an enum since `20260924_0157`
+  (D-TER-16). The desktop's editor sends `ACTIVE` and nothing else.
 - **The edit is a whole replace** with the create schema: every column is
   assigned from the body, so a PUT that leaves out `salesman_id` turns a
   person's target into **the firm's**, one that leaves out `basis` makes it
@@ -6738,13 +6779,20 @@ all `COMMISSION_MANAGE`, `If-Match` optional.
   quarterly target from the 1st is refused because the monthly one starts that
   day, while a second target from the 2nd — overlapping the first entirely — is
   accepted (D-TER-2).
-- **Delete** sets `is_deleted` and nothing else: `deleted_at` and `deleted_by`
-  stay NULL *(not seen in a live row — no store holds a deleted target)*.
-- **Not checked:** the salesperson or the territory, which may be anybody's or
-  nobody's (D-TER-15).
-- **Audit:** `sales_target.created` (start date and amount), `.updated` and
-  `.deleted` (the amount) — a changed person, node, period or basis is on no
-  trail.
+- **Delete** fills `is_deleted`, `deleted_at` and `deleted_by` since #615; it
+  used to set the first alone, so the row said it had gone and neither when
+  nor at whose hand (D-TER-16).
+- **Who and where the target is for is checked since #614.** `salesman_id` must
+  be an active member, read through the platform store, and `territory_id` a
+  live node of **this firm** -- `sales_territories` lives in the shared store,
+  where a key is satisfied by another firm's node (D-TER-15). Both null is
+  still the firm's own number and is checked against nothing. The update runs
+  the check on the merged row, as the overlap check does.
+- **Audit:** `sales_target.created`, `.updated` and `.deleted`. The first
+  carried the start date and the amount and the last the amount alone, so
+  neither said whose number it was or over what period; since #615 both carry
+  every column the update may touch, rendered the way `.updated` renders them
+  (D-TER-16).
 - **Check:**
   ```sql
   select g.status, g.salesman_id, t.code as territory, g.period_start, g.period_end,
@@ -6943,18 +6991,18 @@ route with no catalogue entry, and the reverse.
 
 | Report | Route | Reads | Notes |
 | --- | --- | --- | --- |
-| Quotation register | `/api/v1/quotations/reports/register` | `sales_quotations`, every status, CANCELLED in; `quotation_date DESC` | `quotation_number, customer_id, quotation_date, valid_until, status, grand_total, converted_sales_order_number`. No customer name; `status` is the stored one, so a SENT quote past `valid_until` still reads SENT although the document's own response carries `is_expired` (D-RPT-19) |
+| Quotation register | `/api/v1/quotations/reports/register` | `sales_quotations`, every status, CANCELLED in; `quotation_date DESC` | `quotation_number, customer_id, quotation_date, valid_until, status, grand_total, converted_sales_order_number`. `customer_name` beside the id, in one read (D-RPT-17); `status` is the stored one, so a SENT quote past `valid_until` still reads SENT -- `is_expired` rides beside it, derived by the rule the document's own response uses (D-RPT-19) |
 | Quotation conversion | `/api/v1/quotations/reports/conversion` | `sales_quotations` not CANCELLED, per customer; `customers.display_name` | `quoted_count` / `quoted_value` (every non-cancelled quote, DRAFT in), `converted_*` (CONVERTED), `declined_count` (DECLINED). **Nothing counts a lapsed quote** — a SENT quote past its date is "quoted" and nothing else, although the catalogue promises "how many lapsed" (D-RPT-12). Unordered |
-| Sales order register | `/api/v1/sales-orders/reports/register` | `sales_orders`, every status; `order_date DESC, created_at DESC` | `order_number, order_date, customer_id, salesman_id, territory_id, branch_id, warehouse_id, status, grand_total` — five ids, no name for any |
+| Sales order register | `/api/v1/sales-orders/reports/register` | `sales_orders`, every status; `order_date DESC, created_at DESC` | `order_number, order_date, customer_id, salesman_id, territory_id, branch_id, warehouse_id, status, grand_total` — each id with its name beside it, one read per table and the salespeople through `platform_reader()` (D-RPT-17) |
 | Orders not yet delivered | `/api/v1/sales-orders/reports/pending` | `sales_orders` in **DRAFT or APPROVED** only | `pending_value` is the **whole `grand_total`**. A **PARTIALLY_DELIVERED** order — the one that most literally still owes stock — is left out, and a DRAFT nobody has approved is in; `is_on_hold` is not read (D-RPT-7) |
 | Back orders | `/api/v1/sales-orders/reports/back-orders` | `sales_order_lines` joined to their order, **every status** — DELIVERED, CLOSED and CANCELLED in; one `select(SalesOrder)` per line | A line qualifies when `reservable_quantity − available_stock > 0`, and **`available_stock` is the snapshot written when the line was saved**, never refreshed: it says what was short the day the order was typed (D-RPT-8). No product name |
-| Orders by customer | `/api/v1/sales-orders/reports/by-customer` | `sales_orders` not CANCELLED (DRAFT in); Σ `grand_total` and a count per customer; one `select(Customer)` per customer; `Customer.name` | sorted by name |
-| Orders by salesman | `/api/v1/sales-orders/reports/by-salesman` | the same, `salesman_id IS NOT NULL`; names from `platform.users` in one `platform_reader()` read | an order with nobody is absent rather than "Unassigned" (D-RPT-19) |
-| Orders by territory | `/api/v1/sales-orders/reports/by-territory` | the same, `territory_id IS NOT NULL`; one `select(SalesTerritoryNode)` per node | keyed on the **node** (`sales_orders.territory_id` is a node id, §17.0) — right; no roll-up to the parent |
-| Delivery note register | `/api/v1/delivery-notes/reports/register` | `delivery_notes`, every status; `delivery_date DESC, created_at DESC` | `delivery_note_number, delivery_date, sales_order_id, sales_order_number` (the stored `sales_order_reference`), `customer_id, branch_id, warehouse_id, status, grand_total`. No names |
+| Orders by customer | `/api/v1/sales-orders/reports/by-customer` | `sales_orders` not CANCELLED (DRAFT in); Σ `grand_total` and a count per customer; `customers.display_name` in one read (D-RPT-19) | sorted by name |
+| Orders by salesman | `/api/v1/sales-orders/reports/by-salesman` | the same, every order; names from `platform.users` in one `platform_reader()` read | an order with nobody falls in an **Unassigned** bucket, as the note reports have always done, so the total reconciles against the register (D-RPT-19) |
+| Orders by territory | `/api/v1/sales-orders/reports/by-territory` | the same, with an **Unassigned** bucket for an order on no territory; the nodes named in one read (D-RPT-19) | keyed on the **node** (`sales_orders.territory_id` is a node id, §17.0) — right; no roll-up to the parent |
+| Delivery note register | `/api/v1/delivery-notes/reports/register` | `delivery_notes`, every status; `delivery_date DESC, created_at DESC` | `delivery_note_number, delivery_date, sales_order_id, sales_order_number` (the stored `sales_order_reference`), `customer_id, branch_id, warehouse_id, status, grand_total`. The customer, branch and warehouse are named, one read each (D-RPT-17) |
 | Dispatches not yet completed | `/api/v1/delivery-notes/reports/pending` | `delivery_notes` in DRAFT or APPROVED | answers **whole `DeliveryNoteResponse` documents**, which is why the catalogue names its five columns (D-RPT-16). Unordered |
 | Delivery progress by order | `/api/v1/delivery-notes/reports/partial` | **every** `sales_orders` row not CANCELLED (DELIVERED and CLOSED in); per order a `select(SalesOrderLine)`, per line a summed `delivery_note_lines` read | `ordered` = Σ `reservable_quantity` (base units, free goods in); `delivered` = Σ `delivered_quantity` on notes that are **APPROVED**, DISPATCHED, COMPLETED or CLOSED — so an approved note that has not left the warehouse counts as delivered and its order reads COMPLETED, unlike the service's own `_already_delivered_quantity`, which starts at DISPATCHED (D-RPT-9) |
-| Deliveries by route / by salesman / by warehouse | `/api/v1/delivery-notes/reports/by-route`, `/by-salesman`, `/by-warehouse` | `delivery_notes` not CANCELLED — **DRAFT and APPROVED in**; keyed on `route_id` (a `territory_route_profiles.id`, named through the node — right per §17.0), `salesman_id` (**one platform connection per person**), `warehouse_id` (one `select(Warehouse)` per key) | `dimension_id, dimension_name` (`None` → "Unassigned"), `note_count, delivered_quantity, total_value`; `delivered_quantity` is Σ `delivery_note_lines.delivered_quantity` of every non-cancelled note, one `select(DeliveryNoteLine)` per note — a draft's typed quantity is "delivered" (D-RPT-9) |
+| Deliveries by route / by salesman / by warehouse | `/api/v1/delivery-notes/reports/by-route`, `/by-salesman`, `/by-warehouse` | `delivery_notes` not CANCELLED — **DRAFT and APPROVED in**; keyed on `route_id` (a `territory_route_profiles.id`, named through the node — right per §17.0), `salesman_id` (**one platform connection per person**), `warehouse_id` -- every label in one read per dimension (D-RPT-19) | `dimension_id, dimension_name` (`None` → "Unassigned"), `note_count, delivered_quantity, total_value`; `delivered_quantity` is Σ `delivery_note_lines.delivered_quantity` of every non-cancelled note, one `select(DeliveryNoteLine)` per note — a draft's typed quantity is "delivered" (D-RPT-9) |
 
 `grand_total` on every one of these is **with tax**, and a DRAFT order counts
 in every `by-*` total.
@@ -6969,12 +7017,12 @@ the invoice screen's dashboard tile, not a catalogue report.
 | --- | --- | --- | --- |
 | Invoices not yet approved | `/api/v1/sales-invoices/reports/pending` | `sales_invoices` in DRAFT | whole `SalesInvoiceResponse` documents (D-RPT-16). Honest: "pending" means unapproved |
 | Overdue invoices | `/api/v1/sales-invoices/reports/overdue` | `sales_invoices` with `due_date < today` and status **not CANCELLED and not CLOSED** | whole documents. **Status is the only test of "still owing"**, and a paid invoice stays APPROVED (§9.14's rule holds for sales too), so a **fully-collected invoice past its due date is listed as overdue**, and so is a DRAFT with a due date, which never posted — WHOLE01 lists 23, 5 of them paid in full (D-RPT-3). `due_date` is filled from `customers.payment_terms_days` when the caller sends none |
-| Sales invoice register | `/api/v1/sales-invoices/reports/register` | `sales_invoices`, every status; `invoice_date DESC, created_at DESC` | `invoice_number, customer_invoice_number, customer_id, branch_id, invoice_date, due_date, grand_total, status`. No names, nothing about what is paid |
+| Sales invoice register | `/api/v1/sales-invoices/reports/register` | `sales_invoices`, every status; `invoice_date DESC, created_at DESC` | `invoice_number, customer_invoice_number, customer_id, branch_id, invoice_date, due_date, grand_total, status`. `customer_name` and `branch_name` beside the ids (D-RPT-17); nothing about what is paid |
 | Customer outstanding | `/api/v1/sales-invoices/reports/customer-outstanding` | `customers` of the firm with `current_outstanding > 0`; `invoice_count` = number of **APPROVED** invoices per customer, paid or not | `outstanding_amount` is **`customers.current_outstanding`**, the running balance `post_receivable_transaction` keeps — the statement's figure (§12.10), which credit notes, returns and opening balances move and allocations do not, so it legitimately differs from a sum over invoices (WHOLE01: 41,134.24 against 78,697.14 owed by invoices alone). `invoice_count` counts settled bills too, so "1 invoice, 1,200.00" may be one paid bill and an opening balance; a customer in advance (negative) is dropped (D-RPT-3) |
-| Invoice reconciliation | `/api/v1/sales-invoices/reports/reconciliation` | `sales_invoice_lines` joined to their invoice, **every status** — DRAFT and CANCELLED in | one row **per invoice line**; `delivered_quantity, already_invoiced_quantity, current_invoice_quantity, pending_quantity` are the **snapshot stored on that line when written**, so a source line billed twice appears twice with the older row's `pending` stale, and a cancelled invoice's line still claims its quantity billed — WHOLE01 holds one (D-RPT-13). No product, no customer |
+| Invoice reconciliation | `/api/v1/sales-invoices/reports/reconciliation` | `sales_invoice_lines` joined to their invoice, **every status** — DRAFT and CANCELLED in | one row **per invoice line**; `delivered_quantity, already_invoiced_quantity, current_invoice_quantity, pending_quantity` are the **snapshot stored on that line when written**, so a source line billed twice appears twice with the older row's `pending` stale, and a cancelled invoice's line still claims its quantity billed — WHOLE01 holds one (D-RPT-13). The product is named (D-RPT-17); the customer is not |
 | Credit note register | `/api/v1/credit-notes/reports/register` | `credit_notes`, every status; `customers.display_name` and `sales_invoices.invoice_number` in one read each; `credit_note_date DESC, created_at DESC` | `credit_note_number, credit_note_date, customer_id, customer_name, sales_invoice_id, sales_invoice_number, reason, taxable_amount, tax_amount, total_amount, status` — the one register that names everything |
 | Credits by customer / by reason | `/api/v1/credit-notes/reports/by-customer`, `/by-reason` | `_live_notes`: status **≠ CANCELLED** — **DRAFT in**; Σ `taxable_amount`, Σ `tax_amount` per customer (`quantize_ledger`, taxable desc) and Σ `total_amount` per `reason` | a draft credit — not given, posted nothing — is counted as credited (D-RPT-10) |
-| Sales return register | `/api/v1/sales-returns/reports/register` | `sales_returns`, every status; `return_date DESC` | `return_number, customer_return_number, customer_id, branch_id, warehouse_id, return_date, grand_total, status`. No names |
+| Sales return register | `/api/v1/sales-returns/reports/register` | `sales_returns`, every status; `return_date DESC` | `return_number, customer_return_number, customer_id, branch_id, warehouse_id, return_date, grand_total, status`. The customer, branch and warehouse are named, one read each (D-RPT-17) |
 | Returns by customer | `/api/v1/sales-returns/reports/by-customer` | `sales_returns` with status not in `_SPENT_STATUSES = (CANCELLED,)` — **DRAFT and APPROVED in**; Σ `grand_total`; `customers.display_name` | only COMPLETED moves stock and posts (§11.16); a draft return is counted as returned value (D-RPT-10) |
 | Returns by product | `/api/v1/sales-returns/reports/by-product` | `_report_lines`: live lines of non-cancelled returns; Σ `current_return_quantity`, Σ **`restock_quantity`**, Σ `net_amount` (with tax) per product; `products` in one read | `restock_quantity` is summed off DRAFT lines whose stock has not come back (D-RPT-10) |
 | Return reconciliation | `/api/v1/sales-returns/reports/reconciliation` | the same lines with their header; `products.name` in one read | `return_number, return_date, source_document_type/id/number, source_document_line_id/number, product_id, product_name, dispatched_quantity, already_returned_quantity, current_return_quantity, pending_quantity, restock_quantity, reason_code, is_damaged, is_expired` — the three quantities the line's own snapshot, one row per return line, drafts in (D-RPT-10) |
@@ -6990,14 +7038,14 @@ Vendor, product and customer names come from the firm's own store in one
 | --- | --- | --- | --- |
 | Receipts awaiting completion | `/api/v1/goods-receipts/reports/pending` | `goods_receipts` in **DRAFT**; then per receipt its live lines, attachments, notes and a duplicate check | whole `GoodsReceiptResponse` documents — four extra queries per receipt, no ordering (D-RPT-16) |
 | Receipts completed | `/api/v1/goods-receipts/reports/completed` | `goods_receipts` in **COMPLETED** only; the same per-row reads | **CLOSED receipts are left out**, although closing is the step after completing (`close_receipt`, COMPLETED → CLOSED): the report shrinks as the firm tidies up (D-RPT-15). No live store holds a CLOSED receipt yet |
-| Rejected on receipt / Damaged on receipt | `/api/v1/goods-receipts/reports/rejected`, `/damaged` | `goods_receipt_lines` joined to `goods_receipts`, `rejected_quantity > 0` / `damaged_quantity > 0`, both not deleted | **no receipt status filter**: lines of DRAFT and CANCELLED receipts included, so a cancelled receipt's damage is reported as having happened (D-RPT-15). Bare `GoodsReceiptLineResponse` — `product_id`, no product name, no receipt number or date. No ordering |
-| Orders part received | `/api/v1/goods-receipts/reports/partial` | every live `purchase_orders` row of the firm, **any status**; its live lines; per line a `SUM(current_receipt_quantity)` of `goods_receipt_lines` on receipts in **COMPLETED** only; a count of COMPLETED receipts | keeps an order when `0 < received < ordered` summed over the order; `status` is always the literal `PARTIAL`; ids only. Counts COMPLETED receipts where the order's own derivation (`_received_quantities_for_po`) counts COMPLETED **and CLOSED** — close one receipt and the report says part received while the order reads RECEIVED; a CANCELLED or CLOSED order with a partial receipt is listed (D-RPT-14). One query per order plus one per line |
-| Purchase invoice register | `/api/v1/purchase-invoices/reports/register` | `purchase_invoices`, every status; `invoice_date DESC, created_at DESC` | `invoice_number, supplier_invoice_number, vendor_id, branch_id, invoice_date, due_date, grand_total, status`. Ids, no vendor name |
+| Rejected on receipt / Damaged on receipt | `/api/v1/goods-receipts/reports/rejected`, `/damaged` | `goods_receipt_lines` joined to `goods_receipts`, `rejected_quantity > 0` / `damaged_quantity > 0`, both not deleted | **no receipt status filter**: lines of DRAFT and CANCELLED receipts included, so a cancelled receipt's damage is reported as having happened (D-RPT-15). `GoodsReceiptLineResponse` with `product_code`, `product_name` and `warehouse_name` filled for the report (D-RPT-17); still no receipt number or date. No ordering |
+| Orders part received | `/api/v1/goods-receipts/reports/partial` | every live `purchase_orders` row of the firm, **any status**; its live lines; per line a `SUM(current_receipt_quantity)` of `goods_receipt_lines` on receipts in **COMPLETED** only; a count of COMPLETED receipts | keeps an order when `0 < received < ordered` summed over the order; `status` is always the literal `PARTIAL`; the vendor, branch and warehouse are named (D-RPT-17). Counts COMPLETED receipts where the order's own derivation (`_received_quantities_for_po`) counts COMPLETED **and CLOSED** — close one receipt and the report says part received while the order reads RECEIVED; a CANCELLED or CLOSED order with a partial receipt is listed (D-RPT-14). One query per order plus one per line |
+| Purchase invoice register | `/api/v1/purchase-invoices/reports/register` | `purchase_invoices`, every status; `invoice_date DESC, created_at DESC` | `invoice_number, supplier_invoice_number, vendor_id, branch_id, invoice_date, due_date, grand_total, status`. `vendor_name` and `branch_name` beside the ids (D-RPT-17) |
 | Supplier invoices not yet approved | `/api/v1/purchase-invoices/reports/pending` | `purchase_invoices` in **DRAFT**; then per invoice its sources, lines, attachments, notes, accounting events and a duplicate check | whole documents; five extra queries per row; no ordering (D-RPT-16) |
 | Overdue purchase invoices | `/api/v1/purchase-invoices/reports/overdue` | `purchase_invoices` with `due_date IS NOT NULL AND due_date < today`, status **not in (CANCELLED, CLOSED)** | so **DRAFT and APPROVED** are in. `due_date` is a request field, never derived from `payment_terms` — WHOLE01's 30 bills carry none, so none is ever overdue there. **Never reads `settlement_allocations`**: a bill paid in full stays overdue until somebody closes it (D-RPT-2). Whole documents |
 | Vendor outstanding | `/api/v1/purchase-invoices/reports/outstanding` | `purchase_invoices` not deleted, status **≠ CANCELLED**; `vendors.display_name` | `SUM(grand_total)` and a count per vendor. **Nothing is subtracted**: not payments, not returns raised on the bill's lines, not CLOSED; DRAFT bills count as owed. `SettlementService.outstanding_invoices` already derives the real figure — total less POSTED allocations less returns, over `SETTLEABLE_INVOICE_STATES` — and this report ignores it: WHOLE01 reports 435,349.20 where 421,189.20 is owed (D-RPT-2) |
-| Purchase invoice reconciliation | `/api/v1/purchase-invoices/reports/reconciliation` | `purchase_invoice_lines` joined to live `purchase_invoices`, **every status** | per line `received_quantity, already_invoiced_quantity, current_invoice_quantity` as **snapshotted at create**, `pending` floored at 0. A CANCELLED invoice's line still reports its quantity as billed (D-RPT-13). No product, vendor or invoice number — only the source document's type, id, number and line |
-| Purchase return register | `/api/v1/purchase-returns/reports/register` | `purchase_returns`, every status; `return_date DESC, created_at DESC` | `return_number, supplier_return_number, vendor_id, branch_id, warehouse_id, return_date, grand_total, status`. Ids only |
+| Purchase invoice reconciliation | `/api/v1/purchase-invoices/reports/reconciliation` | `purchase_invoice_lines` joined to live `purchase_invoices`, **every status** | per line `received_quantity, already_invoiced_quantity, current_invoice_quantity` as **snapshotted at create**, `pending` floored at 0. A CANCELLED invoice's line still reports its quantity as billed (D-RPT-13). The product is named (D-RPT-17); the vendor and the invoice number are not — only the source document's type, id, number and line |
+| Purchase return register | `/api/v1/purchase-returns/reports/register` | `purchase_returns`, every status; `return_date DESC, created_at DESC` | `return_number, supplier_return_number, vendor_id, branch_id, warehouse_id, return_date, grand_total, status`. The vendor, branch and warehouse are named, one read each (D-RPT-17) |
 | Returns by vendor | `/api/v1/purchase-returns/reports/by-vendor` | `purchase_returns` not CANCELLED (DRAFT in); `vendors.display_name` | `SUM(grand_total)` (tax in) and count per vendor |
 | Purchase returns by product | `/api/v1/purchase-returns/reports/by-product` | live `purchase_return_lines` of returns not CANCELLED; `products.code`, `.name` | `SUM(current_return_quantity)`, `SUM(net_amount)` (tax in) and a line count per product |
 | Purchase return reconciliation / Expired stock returned | `/api/v1/purchase-returns/reports/reconciliation`, `/expired` | the same lines with their header (`_report_lines`, CANCELLED out, DRAFT in); `products.name`; `/expired` keeps `is_expired` lines only | per line the three snapshotted quantities, `pending` floored at 0, `reason_code, is_damaged, is_expired`, source type / id / number / line. `/damaged` (§9.13) is the `is_damaged` twin |
@@ -7016,7 +7064,7 @@ draft, REVERSED on cancellation (§11.5).
 | --- | --- | --- | --- |
 | Loyalty balances | `/api/v1/loyalty/reports/balances` | every live `loyalty_entries` row of the firm in `earned_on, id` order; `loyalty_settings.amount_per_point`; `customers.display_name` | `SUM(points)` per customer, only customers **above zero**; `amount` = what the unspent batches are worth at each batch's own rate. Largest holding first |
 | Loyalty movements | `/api/v1/loyalty/reports/movements` | every live entry, `earned_on DESC, id DESC`; `customers.display_name`; `sales_invoices.invoice_number` where named | one row per entry: `kind`, signed `points`, `amount`, `earned_on`, `expires_on`, `sales_invoice_number`, `remarks` |
-| Points about to lapse | `/api/v1/loyalty/reports/expiring?within_days=90` | customers with an EARNED entry whose `expires_on <= today + within_days`; then `unspent_batches` per customer, one ledger read each | one row per batch still holding points: `points` = what is **left** of the batch, `amount` at its rate, `days_remaining`; sorted by `expires_on`, then name. A batch already past its date and not yet swept is listed with a **negative** `days_remaining` — WHOLE01 holds 10 (D-RPT-19) |
+| Points about to lapse | `/api/v1/loyalty/reports/expiring?within_days=90` | customers with an EARNED entry whose `expires_on <= today + within_days`; then `unspent_batches` per customer, one ledger read each | one row per batch still holding points: `points` = what is **left** of the batch, `amount` at its rate, `days_remaining`; sorted by `expires_on`, then name. A batch already past its date and not yet swept is **kept**, with `awaiting_sweep` true and a negative `days_remaining`: its points are still spendable and still in the balance, so the row is the notice that the sweep has not run (D-RPT-19) |
 | Promotion performance | `/api/v1/promotions/reports/performance` | live `promotions` (every version); live `promotion_redemptions` | one row per group, the **latest version's** code / name / status / `max_redemptions`; `claimed_count, pending_count, reversed_count`, distinct `customer_count`, `benefit_amount` (CLAIMED only), `remaining_redemptions` = cap − claimed floored at 0, `None` when uncapped. Offers with no claim still appear. Costliest first |
 | Promotion claims | `/api/v1/promotions/reports/redemptions` | live `promotion_redemptions`, `redeemed_on DESC, created_at DESC`; `promotions` for code and name; `promotion_coupons.code`; `customers.display_name` | every row **including PENDING and REVERSED**, labelled by `status`; `document_type, document_id, document_number, benefit_amount` |
 | Coupon performance | `/api/v1/promotions/reports/coupons` | live `promotion_coupons`; `promotions`; live redemptions with a `coupon_id` and `status == CLAIMED` | per coupon `code, promotion_code, status, claimed_count, customer_count, benefit_amount, max_redemptions, remaining_redemptions`. Costliest first |

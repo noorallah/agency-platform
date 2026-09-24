@@ -154,4 +154,12 @@ class LoyaltyExpiringRecord(LoyaltySchema):
     amount: Decimal
     earned_on: date
     expires_on: date
+    #: Negative once the date has passed, which is what `awaiting_sweep`
+    #: explains rather than hides.
     days_remaining: int
+    #: True for a batch whose date has passed and whose points the sweep has
+    #: not yet taken. They are still spendable and still in the balance, so
+    #: dropping the row would understate what the firm owes and say nothing
+    #: about the sweep being overdue -- the row is kept and labelled
+    #: (D-RPT-19).
+    awaiting_sweep: bool

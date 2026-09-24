@@ -794,6 +794,21 @@ def test_the_reconciliation_counts_the_bills_that_still_stand() -> None:
     service.cancel_invoice(second.id, firm_scope=firm.id, actor_id=uuid4())
     assert row() == (Decimal("3.00"), Decimal("0.00"), received - 3, 1)
 
+    # D-RPT-17: the grid derives its columns from the row, so the register
+    # answered a supplier and a branch as UUIDs and the reconciliation a
+    # product as one. Each id keeps its name beside it.
+    entry = service.register_report(firm_scope=firm.id)[0]
+    assert (entry.vendor_id, entry.vendor_name) == (vendor.id, vendor.display_name)
+    assert (entry.branch_id, entry.branch_name) == (branch.id, branch.name)
+    product = session.scalar(select(Product).where(Product.firm_id == firm.id))
+    assert product is not None
+    [reconciled] = service.reconciliation_report(firm_scope=firm.id)
+    assert reconciled.product_id == product.id
+    assert (reconciled.product_code, reconciled.product_name) == (
+        product.code,
+        product.name,
+    )
+
 
 def _gst_profile(session: Session, *, firm: Firm, actor_id: UUID) -> TaxProfile:
     """Return an 18% tax split into two 9% components, the way GST is charged."""

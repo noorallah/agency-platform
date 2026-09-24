@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader
+from app.common.report_names import branch_names, customer_names, product_names
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger
@@ -1427,6 +1428,10 @@ class SalesInvoiceService(TransactionalDocumentService):
 
         The pending report answers this shape too, rather than whole
         documents (D-RPT-16).
+
+        The customer and the branch are named as well as identified, in one
+        read each for the whole report: the grid derives its columns from the
+        row, so a register of ids alone read as UUIDs (D-RPT-17).
         """
         rows = list(
             self._session.scalars(
@@ -1445,13 +1450,17 @@ class SalesInvoiceService(TransactionalDocumentService):
                 )
             ).all()
         )
+        customers = customer_names(self._session, (row.customer_id for row in rows))
+        branches = branch_names(self._session, (row.branch_id for row in rows))
         return [
             SalesInvoiceRegisterRecord(
                 invoice_id=row.id,
                 invoice_number=row.invoice_number,
                 customer_invoice_number=row.customer_invoice_number,
                 customer_id=row.customer_id,
+                customer_name=customers.get(row.customer_id, str(row.customer_id)),
                 branch_id=row.branch_id,
+                branch_name=branches.get(row.branch_id, str(row.branch_id)),
                 invoice_date=row.invoice_date,
                 due_date=row.due_date,
                 grand_total=row.grand_total,
@@ -1463,7 +1472,12 @@ class SalesInvoiceService(TransactionalDocumentService):
     def outstanding_report(
         self, *, firm_scope: UUID
     ) -> list[SalesInvoiceCustomerOutstandingRecord]:
-        """Return the outstanding report for the visible firm scope."""
+        """Return the outstanding report for the visible firm scope.
+
+        The customer is named by `display_name`, as every other report names
+        one: this read `name`, the legal name, so the same customer appeared
+        under two names on two screens (D-RPT-19).
+        """
         rows = list(
             self._session.scalars(
                 select(Customer).where(
@@ -1481,7 +1495,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         return [
             SalesInvoiceCustomerOutstandingRecord(
                 customer_id=customer.id,
-                customer_name=customer.name,
+                customer_name=customer.display_name,
                 outstanding_amount=self._q(customer.current_outstanding),
                 invoice_count=counts[customer.id],
             )
@@ -1518,6 +1532,8 @@ class SalesInvoiceService(TransactionalDocumentService):
         grouped: dict[UUID, list[tuple[SalesInvoiceLine, SalesInvoice]]] = {}
         for line, invoice in rows:
             grouped.setdefault(line.source_document_line_id, []).append((line, invoice))
+        # One read for every product the report names, never one per row.
+        products = product_names(self._session, (line.product_id for line, _ in rows))
         result: list[SalesInvoiceReconciliationRecord] = []
         for lines in grouped.values():
             newest, _ = lines[0]
@@ -1548,6 +1564,10 @@ class SalesInvoiceService(TransactionalDocumentService):
                     source_document_line_id=newest.source_document_line_id,
                     source_document_line_number=newest.source_document_line_number,
                     product_id=newest.product_id,
+                    product_code=products.get(newest.product_id, ("", ""))[0],
+                    product_name=products.get(
+                        newest.product_id, ("", str(newest.product_id))
+                    )[1],
                     delivered_quantity=newest.delivered_quantity,
                     invoiced_quantity=self._q(billed),
                     draft_quantity=self._q(drafted),

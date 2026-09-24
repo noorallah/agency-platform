@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 from app.batch_serial.services import BatchSerialService
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
+from app.common.report_names import branch_names, vendor_names, warehouse_names
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_money
@@ -1041,7 +1042,12 @@ class PurchaseReturnService(TransactionalDocumentService):
     def register_report(
         self, *, firm_scope: UUID
     ) -> list[PurchaseReturnRegisterRecord]:
-        """Return the register report for the visible firm scope."""
+        """Return the register report for the visible firm scope.
+
+        Each id carries its name, in one read per table for the whole report:
+        the grid derives its columns from the row, so a register of ids alone
+        read as UUIDs (D-RPT-17).
+        """
         rows = list(
             self._session.scalars(
                 select(PurchaseReturn)
@@ -1054,14 +1060,20 @@ class PurchaseReturnService(TransactionalDocumentService):
                 )
             ).all()
         )
+        suppliers = vendor_names(self._session, (row.vendor_id for row in rows))
+        branches = branch_names(self._session, (row.branch_id for row in rows))
+        warehouses = warehouse_names(self._session, (row.warehouse_id for row in rows))
         return [
             PurchaseReturnRegisterRecord(
                 return_id=row.id,
                 return_number=row.return_number,
                 supplier_return_number=row.supplier_return_number,
                 vendor_id=row.vendor_id,
+                vendor_name=suppliers.get(row.vendor_id, str(row.vendor_id)),
                 branch_id=row.branch_id,
+                branch_name=branches.get(row.branch_id, str(row.branch_id)),
                 warehouse_id=row.warehouse_id,
+                warehouse_name=warehouses.get(row.warehouse_id, str(row.warehouse_id)),
                 return_date=row.return_date,
                 grand_total=row.grand_total,
                 status=PurchaseReturnStatus(row.status),

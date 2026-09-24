@@ -17,14 +17,17 @@ on the wrong week.
 from datetime import date
 from uuid import UUID, uuid4
 
+import pytest
 from sqlalchemy import create_engine
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.core.database.base import Base
+from app.core.exceptions import ValidationError
 from app.customers.models import Customer
 from app.firms.models import Firm
 from app.identity.models import User, UserFirm
+from app.sales.models import SalesTerritoryNode
 from app.sales.schemas import (
     TerritoryAssignCustomersRequest,
     TerritoryAssignSalesmenRequest,
@@ -600,3 +603,58 @@ def test_the_off_week_and_the_wrong_week_say_so_too() -> None:
         False,
         "Runs on the second Tuesday of the month; this is the third.",
     )
+
+
+def test_a_plan_whose_round_is_in_the_bin_calls_nobody() -> None:
+    """A retired round went on being reported as running (D-TER-14).
+
+    `call_list` read the plan's territory without `is_deleted`, so a route
+    deleted from under its plan still answered `occurs: true` and still sent
+    somebody to the shops on it. Deleting the route is refused now, so the
+    only way this state arises is a node retired before the guard existed --
+    which is exactly the row the read has to survive.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "CALLDEL")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    route = _route(service, firm.id, actor, "RT01")
+    customer = _customer(session, firm.id, "C1")
+    service.set_customers(
+        route,
+        TerritoryAssignCustomersRequest(customer_ids=[customer.id]),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    _plan(service, firm.id, actor, route, "MON")
+    assert service.call_list(firm_scope=firm.id, on_date=MONDAY).entries != []
+
+    node = session.get(SalesTerritoryNode, route)
+    assert node is not None
+    node.is_deleted = True
+    session.commit()
+
+    assert service.call_list(firm_scope=firm.id, on_date=MONDAY).entries == []
+
+
+def test_a_beat_plan_in_the_bin_refuses_to_be_edited() -> None:
+    """`update_beat_plan` loaded with ``include_deleted=True`` and then wrote."""
+    session = _session_factory()()
+    firm = _firm(session, "PLANDEL")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    route = _route(service, firm.id, actor, "RT01")
+    plan = _plan(service, firm.id, actor, route, "MON")
+    service.delete_beat_plan(plan, firm_scope=firm.id, actor_id=actor)
+
+    with pytest.raises(ValidationError, match="Restore it"):
+        service.update_beat_plan(
+            plan,
+            BeatPlanUpdate(name="Renamed while in the bin"),
+            firm_scope=firm.id,
+            actor_id=actor,
+        )
+
+    session.rollback()
+    row = service.get_beat_plan(plan, firm_scope=firm.id, include_deleted=True)
+    assert row.name == "MON plan"

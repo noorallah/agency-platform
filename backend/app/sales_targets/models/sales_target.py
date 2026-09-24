@@ -28,7 +28,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
-    UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -41,14 +41,46 @@ class SalesTarget(BaseEntity):
 
     __tablename__ = "sales_targets"
     __table_args__ = (
-        # One target per scope per period. A second would leave two answers to
-        # "did they make it", and no report could choose between them.
-        UniqueConstraint(
+        # One live target per scope, basis and period start. A second would
+        # leave two answers to "did they make it", and no report could choose
+        # between them.
+        #
+        # It was a plain `UniqueConstraint` over
+        # (firm_id, salesman_id, territory_id, period_start), which held in
+        # two directions at once and in neither of them well (D-TER-16):
+        #
+        # - both scope columns are nullable and neither PostgreSQL nor SQLite
+        #   equates two NULLs, so it held **nothing at all** for a target with
+        #   a blank scope -- which is most of them, since a target naming only
+        #   a person leaves the territory blank and the firm's own number
+        #   leaves both. `coalesce` onto the nil UUID gives the two scopes a
+        #   value the key can compare;
+        # - it covered deleted rows, so a withdrawn target kept its period for
+        #   ever, and the service -- which filters `is_deleted` -- let the
+        #   replacement through to a bare 409 from the database;
+        # - and it left `basis` out, while the service deliberately allows one
+        #   INVOICED and one COLLECTED target over the same days, because what
+        #   was billed and what was collected are different numbers a firm may
+        #   set both of.
+        #
+        # It still cannot express **overlap**, which is what `_assert_free`
+        # checks and what D-TER-2 was about; the service check stays
+        # authoritative, and this is the backstop for two requests that both
+        # read before either commits. The same division `UQ_commission_payouts
+        # _period_active` already draws.
+        Index(
+            "UQ_sales_targets_scope_period_active",
             "firm_id",
-            "salesman_id",
-            "territory_id",
+            text("coalesce(salesman_id, '00000000-0000-0000-0000-000000000000')"),
+            text("coalesce(territory_id, '00000000-0000-0000-0000-000000000000')"),
+            "basis",
             "period_start",
-            name="UQ_sales_targets_scope_period",
+            unique=True,
+            # Both dialects: with only the PostgreSQL clause SQLite ignores it
+            # and `create_all` builds an unconditional unique index -- stricter
+            # than intended, and the unit suite is what would then be believed.
+            postgresql_where=text("NOT is_deleted"),
+            sqlite_where=text("NOT is_deleted"),
         ),
         CheckConstraint(
             "period_end >= period_start", name="CK_sales_targets_period_order"

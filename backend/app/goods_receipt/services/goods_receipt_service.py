@@ -15,6 +15,12 @@ from app.batch_serial.services import BatchSerialService
 from app.branches.models import Warehouse, WarehouseStorageNode
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
+from app.common.report_names import (
+    branch_names,
+    product_names,
+    vendor_names,
+    warehouse_names,
+)
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.document_framework.models import (
@@ -67,7 +73,6 @@ from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService, assert_quantity_fits_unit
-from app.vendors.models import Vendor
 
 ZERO = Decimal("0")
 
@@ -826,17 +831,13 @@ class GoodsReceiptService(TransactionalDocumentService):
     def register_rows(
         self, rows: list[GoodsReceipt]
     ) -> list[GoodsReceiptRegisterRecord]:
-        """Flatten receipts to one row each, naming the vendor in one read."""
-        names = (
-            {
-                vendor.id: vendor.display_name
-                for vendor in self._session.scalars(
-                    select(Vendor).where(Vendor.id.in_({row.vendor_id for row in rows}))
-                ).all()
-            }
-            if rows
-            else {}
-        )
+        """Flatten receipts to one row each, naming vendor and warehouse.
+
+        One read per table for the whole report; the warehouse used to be an
+        id alone, and the grid derives its columns from the row (D-RPT-17).
+        """
+        names = vendor_names(self._session, (row.vendor_id for row in rows))
+        warehouses = warehouse_names(self._session, (row.warehouse_id for row in rows))
         return [
             GoodsReceiptRegisterRecord(
                 receipt_id=row.id,
@@ -847,6 +848,7 @@ class GoodsReceiptService(TransactionalDocumentService):
                 vendor_id=row.vendor_id,
                 vendor_name=names.get(row.vendor_id, str(row.vendor_id)),
                 warehouse_id=row.warehouse_id,
+                warehouse_name=warehouses.get(row.warehouse_id, str(row.warehouse_id)),
                 status=row.status,
                 total_current_receipt_quantity=row.total_current_receipt_quantity,
                 total_accepted_quantity=row.total_accepted_quantity,
@@ -916,6 +918,32 @@ class GoodsReceiptService(TransactionalDocumentService):
             ).all()
         )
 
+    def line_report_rows(
+        self, lines: list[GoodsReceiptLine]
+    ) -> list[GoodsReceiptLineResponse]:
+        """Answer the rejected and damaged reports with the names they need.
+
+        The lines carry `product_id` and `warehouse_id` and nothing to read
+        them by, so both reports showed a UUID where the product belongs
+        (D-RPT-17). One read for the products and one for the warehouses,
+        whatever the report's length.
+        """
+        products = product_names(self._session, (line.product_id for line in lines))
+        warehouses = warehouse_names(
+            self._session, (line.warehouse_id for line in lines)
+        )
+        rows: list[GoodsReceiptLineResponse] = []
+        for line in lines:
+            record = GoodsReceiptLineResponse.model_validate(line)
+            code, name = products.get(line.product_id, ("", str(line.product_id)))
+            record.product_code = code
+            record.product_name = name
+            record.warehouse_name = warehouses.get(
+                line.warehouse_id, str(line.warehouse_id)
+            )
+            rows.append(record)
+        return rows
+
     def partially_received_purchase_orders(
         self, *, firm_scope: UUID
     ) -> list[GoodsReceiptPurchaseOrderReport]:
@@ -967,14 +995,15 @@ class GoodsReceiptService(TransactionalDocumentService):
                 .group_by(GoodsReceipt.purchase_order_id)
             ).all()
         }
-        vendor_names = {
-            vendor.id: vendor.display_name
-            for vendor in self._session.scalars(
-                select(Vendor).where(
-                    Vendor.id.in_({order.vendor_id for order in purchase_orders})
-                )
-            ).all()
-        }
+        suppliers = vendor_names(
+            self._session, (order.vendor_id for order in purchase_orders)
+        )
+        branches = branch_names(
+            self._session, (order.branch_id for order in purchase_orders)
+        )
+        warehouses = warehouse_names(
+            self._session, (order.warehouse_id for order in purchase_orders)
+        )
         reports: list[GoodsReceiptPurchaseOrderReport] = []
         for purchase_order in purchase_orders:
             lines = lines_by_order.get(purchase_order.id, [])
@@ -990,11 +1019,17 @@ class GoodsReceiptService(TransactionalDocumentService):
                     purchase_order_id=purchase_order.id,
                     purchase_order_number=purchase_order.po_number,
                     vendor_id=purchase_order.vendor_id,
-                    vendor_name=vendor_names.get(
+                    vendor_name=suppliers.get(
                         purchase_order.vendor_id, str(purchase_order.vendor_id)
                     ),
                     branch_id=purchase_order.branch_id,
+                    branch_name=branches.get(
+                        purchase_order.branch_id, str(purchase_order.branch_id)
+                    ),
                     warehouse_id=purchase_order.warehouse_id,
+                    warehouse_name=warehouses.get(
+                        purchase_order.warehouse_id, str(purchase_order.warehouse_id)
+                    ),
                     ordered_quantity=self._q(ordered),
                     received_quantity=self._q(received),
                     pending_quantity=self._q(ordered - received),

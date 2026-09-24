@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
+from app.common.report_names import branch_names, product_names, vendor_names
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger
@@ -859,6 +860,10 @@ class PurchaseInvoiceService(TransactionalDocumentService):
 
         The pending report answers this shape too, rather than whole
         documents with their five extra reads per row (D-RPT-16).
+
+        The supplier and the branch are named as well as identified, in one
+        read each for the whole report: the grid derives its columns from the
+        row, so a register of ids alone read as UUIDs (D-RPT-17).
         """
         rows = list(
             self._session.scalars(
@@ -878,13 +883,17 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 )
             ).all()
         )
+        suppliers = vendor_names(self._session, (row.vendor_id for row in rows))
+        branches = branch_names(self._session, (row.branch_id for row in rows))
         return [
             PurchaseInvoiceRegisterRecord(
                 invoice_id=row.id,
                 invoice_number=row.invoice_number,
                 supplier_invoice_number=row.supplier_invoice_number,
                 vendor_id=row.vendor_id,
+                vendor_name=suppliers.get(row.vendor_id, str(row.vendor_id)),
                 branch_id=row.branch_id,
+                branch_name=branches.get(row.branch_id, str(row.branch_id)),
                 invoice_date=row.invoice_date,
                 due_date=row.due_date,
                 grand_total=row.grand_total,
@@ -954,6 +963,8 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         grouped: dict[UUID, list[tuple[PurchaseInvoiceLine, PurchaseInvoice]]] = {}
         for line, invoice in rows:
             grouped.setdefault(line.source_document_line_id, []).append((line, invoice))
+        # One read for every product the report names, never one per row.
+        products = product_names(self._session, (line.product_id for line, _ in rows))
         result: list[PurchaseInvoiceReconciliationRecord] = []
         for lines in grouped.values():
             newest, _ = lines[0]
@@ -984,6 +995,10 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                     source_document_line_id=newest.source_document_line_id,
                     source_document_line_number=newest.source_document_line_number,
                     product_id=newest.product_id,
+                    product_code=products.get(newest.product_id, ("", ""))[0],
+                    product_name=products.get(
+                        newest.product_id, ("", str(newest.product_id))
+                    )[1],
                     received_quantity=newest.received_quantity,
                     invoiced_quantity=self._q(billed),
                     draft_quantity=self._q(drafted),
