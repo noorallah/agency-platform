@@ -221,6 +221,7 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         documentDate: '${row['order_date'] ?? '-'}',
         status: '${row['status'] ?? 'DRAFT'}',
         reference: (row['reference_number'] as String?) ?? '',
+        coupon: (row['coupon_code'] as String?) ?? '',
         remarks: (row['remarks'] as String?) ?? '',
       );
 
@@ -247,6 +248,7 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
           freeQuantity: '${item['free_quantity'] ?? '0'}',
           unitPrice: '${item['unit_price'] ?? '0'}',
           discount: '${item['discount_amount'] ?? '0'}',
+          discountPercent: '${item['discount_percent'] ?? ''}',
           taxProfile: _labels.taxProfile('${item['tax_profile_id'] ?? ''}'),
           amount: '${item['gross_amount'] ?? '0'}',
           netAmount: '${item['net_amount'] ?? '0'}',

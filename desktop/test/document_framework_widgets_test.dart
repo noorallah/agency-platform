@@ -134,4 +134,79 @@ void main() {
     expect(find.text('Party'), findsNothing,
         reason: 'a document with no party carries no party field');
   });
+
+  testWidgets('a saved line shows the rate it got beside the amount, and the '
+      'header its coupon', (tester) async {
+    // The Discount column was the amount alone and the coupon was on no
+    // screen once the order was saved; a salesman asking "what did this line
+    // get" had no route once the order was approved (BL-31.14).
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: SingleChildScrollView(
+            child: Column(
+              children: [
+                EnterpriseDocumentHeader(
+                  header: const DocumentHeaderSnapshot(
+                    documentTypeCode: 'SALES_ORDER',
+                    documentTypeName: 'Sales Order',
+                    documentNumber: 'SO-1',
+                    documentDate: '2026-09-24',
+                    status: 'Approved',
+                    coupon: 'WELCOME10',
+                  ),
+                ),
+                EnterpriseDocumentLines(
+                  lines: const [
+                    DocumentLineSnapshot(
+                      lineNumber: 1,
+                      product: 'Laptop',
+                      quantity: '2',
+                      unitPrice: '500.00',
+                      discount: '100.00',
+                      discountPercent: '10.00',
+                    ),
+                    DocumentLineSnapshot(
+                      lineNumber: 2,
+                      product: 'Mouse',
+                      quantity: '1',
+                      unitPrice: '50.00',
+                      discount: '0.00',
+                      discountPercent: '0.00',
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Coupon'), findsOneWidget);
+    expect(find.text('WELCOME10'), findsOneWidget);
+    expect(find.text('100.00 (10.00%)'), findsOneWidget);
+    // No arrangement, no "(0.00%)".
+    expect(find.text('0.00'), findsOneWidget);
+  });
+
+  testWidgets('a header with no coupon shows no Coupon field', (tester) async {
+    await tester.pumpWidget(
+      const MaterialApp(
+        home: Scaffold(
+          body: EnterpriseDocumentHeader(
+            header: DocumentHeaderSnapshot(
+              documentTypeCode: 'PURCHASE_ORDER',
+              documentTypeName: 'Purchase Order',
+              documentNumber: 'PO-1',
+              documentDate: '2026-09-24',
+              status: 'Draft',
+            ),
+          ),
+        ),
+      ),
+    );
+
+    expect(find.text('Coupon'), findsNothing);
+  });
 }
