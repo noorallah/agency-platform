@@ -22,20 +22,11 @@ from sqlalchemy.orm import Session
 from app.common.firm_metadata import platform_reader
 from app.customers.models import Customer, CustomerAddress
 from app.document_framework.models import DocumentPrintTemplate
+from app.document_framework.services.printable_types import (
+    PRINTABLE_DOCUMENT_TYPES as PRINTABLE_DOCUMENT_TYPES,
+)
 from app.firms.models import Firm
 from app.sales_invoice.services.invoice_pdf import PartyBlock, TemplateSettings
-
-#: The document types a print service reads a template for. Each print
-#: service's own ``DOCUMENT_TYPE`` must be in here; a test holds them together.
-PRINTABLE_DOCUMENT_TYPES = frozenset(
-    {
-        "DELIVERY_NOTE",
-        "PURCHASE_ORDER",
-        "SALES_INVOICE",
-        "SALES_QUOTATION",
-        "SALES_RETURN",
-    }
-)
 
 
 def load_template(

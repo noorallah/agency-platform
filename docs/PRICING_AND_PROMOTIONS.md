@@ -373,3 +373,10 @@ no freight; freight and a bill discount both survive on the line rather than
 netting; and both `app/gst_returns` and the e-invoice payload put it inside
 the taxable value, since leaving it out declares less than the invoice
 charged tax on.
+
+**Freight that is taxed is also billed.** The line's `net_amount` and the
+document's `subtotal` carry its freight share on every sales document, so
+`grand_total`, the receivable and the journal follow; the sales invoice left
+it out of all three until D-SELL-37 (2026-09-24), taxing a delivery it never
+charged for. It is credited to sales revenue with the goods, and the
+commission base leaves it out.

@@ -1481,7 +1481,10 @@ def test_the_line_keeps_the_tax_it_charged_component_by_component() -> None:
 
 
 def _interstate_bill(
-    *, buyer_gstin: str | None, billing_state: str | None
+    *,
+    buyer_gstin: str | None,
+    billing_state: str | None,
+    freight: Decimal | None = None,
 ) -> tuple[Session, SalesInvoice]:
     """Bill 4 x 250 of an 18% good from a Tamil Nadu firm, on the GST template."""
     session = _session_factory()()
@@ -1535,6 +1538,7 @@ def _interstate_bill(
                     unit_price=Decimal("250"),
                 )
             ],
+            freight_amount=freight,
         ),
         firm_id=firm.id,
         actor_id=actor_id,
@@ -1597,6 +1601,59 @@ def test_a_sale_within_the_state_keeps_central_and_state_tax() -> None:
     assert _components(session, invoice) == [
         ("CGST", Decimal("90.0000")),
         ("SGST", Decimal("90.0000")),
+    ]
+
+
+def test_freight_agreed_with_the_goods_is_billed_not_only_taxed() -> None:
+    """Freight is part of the taxable value, so it is part of the bill.
+
+    D-SELL-37: each line's freight share reached the value it was taxed on and
+    nothing else -- not the line's ``net_amount``, not ``subtotal``, not
+    ``grand_total``. A bill of 1,000 of goods with 400 of freight charged tax
+    on 1,400 (252) and billed 1,252: the customer was taxed on a delivery
+    nobody asked them to pay for, and revenue and the receivable were each
+    400 short. The quotation and the order already carried it.
+    """
+    session, invoice = _interstate_bill(
+        buyer_gstin="29AAACR5055K1Z5", billing_state=None, freight=Decimal("400")
+    )
+
+    assert _components(session, invoice) == [("IGST", Decimal("252.0000"))]
+    line = session.scalar(
+        select(SalesInvoiceLine).where(SalesInvoiceLine.sales_invoice_id == invoice.id)
+    )
+    assert line is not None
+    assert line.freight_amount == Decimal("400.0000")
+    assert line.net_amount == Decimal("1652.0000")
+    assert invoice.subtotal == Decimal("1400.0000"), "the taxable base, freight in"
+    assert invoice.grand_total == Decimal("1652.0000")
+
+    seed_finance_setup(
+        session,
+        firm_id=invoice.firm_id,
+        year_starts_on=date(2026, 4, 1),
+        actor_id=uuid4(),
+    )
+    SalesInvoiceService(session).approve_invoice(
+        invoice.id, firm_scope=invoice.firm_id, actor_id=uuid4()
+    )
+    entry = session.scalar(
+        select(JournalEntry).where(
+            JournalEntry.source_module == "sales_invoice",
+            JournalEntry.source_id == invoice.id,
+        )
+    )
+    assert entry is not None
+    legs = session.scalars(
+        select(JournalLine).where(JournalLine.journal_entry_id == entry.id)
+    ).all()
+    assert sorted(leg.debit_amount for leg in legs if leg.debit_amount) == [
+        Decimal("1652.00")
+    ], "the receivable is what the customer owes, freight included"
+    # Freight is credited to sales revenue with the goods; the tax to output tax.
+    assert sorted(leg.credit_amount for leg in legs if leg.credit_amount) == [
+        Decimal("252.00"),
+        Decimal("1400.00"),
     ]
 
 
