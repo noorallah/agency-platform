@@ -26,7 +26,8 @@ from sqlalchemy.pool import StaticPool
 from app.branches.models import Branch
 from app.core.database.base import Base
 from app.core.exceptions import ValidationError
-from app.credit_note.models import CreditNote, CreditNoteStatus
+from app.core.utils.dates import utc_now
+from app.credit_note.models import CreditNote, CreditNoteLine, CreditNoteStatus
 from app.credit_note.schemas import (
     CreditNoteCreate,
     CreditNoteLineWrite,
@@ -34,7 +35,8 @@ from app.credit_note.schemas import (
     CreditNoteUpdate,
 )
 from app.credit_note.services import CreditNoteService
-from app.customers.models import Customer
+from app.customers.models import Customer, CustomerReceivableTransaction
+from app.document_framework.models import DocumentLifecycleEvent
 from app.finance.models import JournalEntry, JournalLine
 from app.finance.services.control_accounts import ControlAccountPurpose
 from app.finance.services.opening_setup import seed_finance_setup
@@ -716,3 +718,84 @@ def test_the_credit_note_reports_take_a_window_and_a_page() -> None:
         "/api/v1/credit-notes/reports/by-customer",
         "/api/v1/credit-notes/reports/by-reason",
     )
+
+
+def test_the_trail_records_edit_approve_and_cancel() -> None:
+    """D-SELL-23: a credit note's timeline stopped at CREATED."""
+    books = _Books(_session_factory()())
+    note = books.note("100")
+    service = CreditNoteService(books.session)
+    service.update_note(
+        note.id,
+        CreditNoteUpdate(remarks="agreed on the phone"),
+        firm_scope=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    service.approve_note(note.id, firm_scope=books.firm.id, actor_id=books.actor_id)
+    service.cancel_note(note.id, firm_scope=books.firm.id, actor_id=books.actor_id)
+    books.session.commit()
+
+    events = books.session.scalars(
+        select(DocumentLifecycleEvent).where(
+            DocumentLifecycleEvent.source_document_id == note.id
+        )
+    ).all()
+    assert sorted((event.action, event.to_state) for event in events) == [
+        ("APPROVED", "APPROVED"),
+        ("CANCELLED", "CANCELLED"),
+        ("CREATED", "DRAFT"),
+        ("EDITED", "DRAFT"),
+    ]
+
+
+def test_the_receivable_row_names_the_note_and_its_lines_their_author() -> None:
+    """D-SELL-23: the receivable row had no reference type, lines no author."""
+    books = _Books(_session_factory()())
+    books.customer.current_outstanding = Decimal("1180.00")
+    books.session.commit()
+    note = books.approved("100")
+
+    transaction = books.session.get(
+        CustomerReceivableTransaction, note.receivable_transaction_id
+    )
+    assert transaction is not None
+    assert transaction.reference_type == "CREDIT_NOTE"
+    assert transaction.reference_id == note.id
+    lines = books.session.scalars(
+        select(CreditNoteLine).where(CreditNoteLine.credit_note_id == note.id)
+    ).all()
+    assert lines
+    assert all(line.created_by == books.actor_id for line in lines)
+
+
+def test_a_cancelled_note_is_reversed_on_the_day_it_is_cancelled() -> None:
+    """D-SELL-27: the ``-REV`` took the note's own date, unlike its siblings.
+
+    A receipt's, a return's and an invoice's reversal carry the day of the
+    cancellation (D-BUY-4); the receivable reversal is named ``-REV`` too.
+    """
+    books = _Books(_session_factory()())
+    books.customer.current_outstanding = Decimal("1180.00")
+    books.session.commit()
+    note = books.approved("100")
+
+    CreditNoteService(books.session).cancel_note(
+        note.id, firm_scope=books.firm.id, actor_id=books.actor_id
+    )
+    books.session.commit()
+
+    mirror = books.session.scalars(
+        select(JournalEntry).where(JournalEntry.reversal_of_id == note.journal_entry_id)
+    ).one()
+    today = utc_now().date()
+    in_the_open_year = date(2026, 4, 1) <= today <= date(2027, 3, 31)
+    assert mirror.journal_date == (max(today, WHEN) if in_the_open_year else WHEN)
+    undo = books.session.scalars(
+        select(CustomerReceivableTransaction).where(
+            CustomerReceivableTransaction.reference_type == "reversal",
+            CustomerReceivableTransaction.reference_id
+            == note.receivable_transaction_id,
+        )
+    ).one()
+    assert undo.reference_number == f"{note.credit_note_number}-REV"
+    assert undo.remarks is not None

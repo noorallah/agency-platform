@@ -77,6 +77,10 @@ class RedemptionService:
             )
         ).all():
             existing.is_deleted = True
+            # Stamped like every other soft delete; the row said deleted and
+            # never said when (D-SELL-22).
+            existing.deleted_at = utc_now()
+            existing.deleted_by = actor_id
             existing.updated_by = actor_id
         self._session.flush()
         for application in applications:

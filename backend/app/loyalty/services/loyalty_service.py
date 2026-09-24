@@ -537,7 +537,11 @@ class LoyaltyService:
             points=-asked,
             amount=amount,
             sales_invoice_id=invoice.id,
-            earned_on=utc_now().date(),
+            # The day it is spent, in UTC like every event -- but never before
+            # the bill it settles: a bill carries the user's local date, which
+            # runs ahead of UTC until 05:30 in India, and a settlement dated
+            # the day before its bill is the D-FIN-5 trap again (D-SELL-27).
+            earned_on=max(utc_now().date(), invoice.invoice_date),
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -562,6 +566,10 @@ class LoyaltyService:
                 transaction_type=CustomerReceivableTransactionType.LOYALTY,
                 amount=amount,
                 transaction_date=entry.earned_on,
+                # Named by type and id, so the row leads back to the
+                # redemption that wrote it (D-SELL-23).
+                reference_type="LOYALTY_ENTRY",
+                reference_id=entry.id,
                 reference_number=invoice.invoice_number,
                 remarks=f"{asked} points spent on {invoice.invoice_number}.",
             ),

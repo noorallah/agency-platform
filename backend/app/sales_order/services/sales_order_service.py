@@ -36,6 +36,7 @@ from app.core.utils.pricing import (
 )
 from app.core.utils.report_labels import UNASSIGNED
 from app.customers.models import Customer, CustomerGroup
+from app.customers.schemas import CreditStatus
 from app.customers.services import CreditAssessment, CreditControlService
 from app.customers.services.trading_status import (
     assert_customer_takes_new_documents,
@@ -389,7 +390,9 @@ class SalesOrderService(TransactionalDocumentService):
             remarks=data.remarks,
             coupon_code=_normalized_coupon(data.coupon_code),
             credit_limit_snapshot=self._q(customer.credit_limit),
-            outstanding_balance_snapshot=self._q(customer.opening_balance),
+            # What the customer owed when the order was taken, not what they
+            # opened with years ago (D-SELL-25).
+            outstanding_balance_snapshot=self._q(customer.current_outstanding),
             status=SalesOrderStatus.DRAFT.value,
             additional_charges=self._q(data.additional_charges),
             round_off=self._q(data.round_off),
@@ -495,7 +498,7 @@ class SalesOrderService(TransactionalDocumentService):
         row.remarks = data.remarks
         row.coupon_code = _normalized_coupon(data.coupon_code)
         row.credit_limit_snapshot = self._q(customer.credit_limit)
-        row.outstanding_balance_snapshot = self._q(customer.opening_balance)
+        row.outstanding_balance_snapshot = self._q(customer.current_outstanding)
         row.additional_charges = self._q(data.additional_charges)
         row.round_off = self._q(data.round_off)
         row.updated_by = actor_id
@@ -570,9 +573,23 @@ class SalesOrderService(TransactionalDocumentService):
         if row.status != SalesOrderStatus.DRAFT.value:
             raise ValidationError("Only draft sales orders can be approved.")
         # Credit is committed here, before any stock moves: approving the order
-        # is the promise, invoicing only bills it. Under WARN this records the
-        # assessment on the order; under BLOCK it raises before reserving.
-        self._credit_assessment = self._assess_credit(row, firm_scope=firm_scope)
+        # is the promise, invoicing only bills it. Under BLOCK it raises before
+        # reserving; a warning is recorded on the APPROVED event and in the
+        # audit row, where the timeline and any client can read it. It was
+        # assigned to an attribute nothing read (D-SELL-26).
+        assessment = self._assess_credit(row, firm_scope=firm_scope)
+        credit_warning: dict[str, object] | None = (
+            None
+            if assessment is None or assessment.status is not CreditStatus.WARNING
+            else {
+                "status": assessment.status.value,
+                "limit": str(assessment.limit),
+                "exposure": str(assessment.exposure),
+                "available": str(assessment.available),
+                "used_percent": str(assessment.used_percent),
+                "message": assessment.message,
+            }
+        )
         # Before stock is reserved: an offer that has run out refuses the
         # approval, and refusing after a reservation would leave stock held
         # against an order nobody approved.
@@ -592,7 +609,17 @@ class SalesOrderService(TransactionalDocumentService):
             from_state=SalesOrderStatus.DRAFT.value,
             to_state=SalesOrderStatus.APPROVED.value,
             actor_id=actor_id,
+            remarks=None if assessment is None else assessment.message,
+            details=(
+                None if credit_warning is None else {"credit_warning": credit_warning}
+            ),
         )
+        approved: dict[str, object] = {
+            "order_number": row.order_number,
+            "status": row.status,
+        }
+        if credit_warning is not None:
+            approved["credit_warning"] = credit_warning
         record_audit(
             self._session,
             action="sales_order.approved",
@@ -600,7 +627,7 @@ class SalesOrderService(TransactionalDocumentService):
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
-            after_data={"order_number": row.order_number, "status": row.status},
+            after_data=approved,
         )
         return row
 
@@ -666,6 +693,19 @@ class SalesOrderService(TransactionalDocumentService):
     def _refuse_if_documents_raised(self, row: SalesOrder) -> None:
         """Refuse to cancel an order that a live note or bill continues.
 
+        See `_documents_raised` for what counts.
+        """
+        raised = self._documents_raised(row)
+        if raised:
+            raise ValidationError(
+                f"{row.order_number} cannot be cancelled while "
+                f"{', '.join(raised)} stands against it. Cancel those first, "
+                "or close the order to stop what is still to come."
+            )
+
+    def _documents_raised(self, row: SalesOrder) -> list[str]:
+        """Name the live notes and bills that continue this order.
+
         Cancelling handed the reservations and the offer claims back and read
         CANCELLED while the goods had left and the bill stood (D-SELL-11,
         driven 2026-09-19: SO-2026-2027-000001, DELIVERED by two dispatched
@@ -697,16 +737,10 @@ class SalesOrderService(TransactionalDocumentService):
                 SalesInvoice.is_deleted.is_(False),
             )
         ).all()
-        raised = [
+        return [
             *(f"delivery note {number}" for number in sorted(set(notes))),
             *(f"sales invoice {number}" for number in sorted(set(bills))),
         ]
-        if raised:
-            raise ValidationError(
-                f"{row.order_number} cannot be cancelled while "
-                f"{', '.join(raised)} stands against it. Cancel those first, "
-                "or close the order to stop what is still to come."
-            )
 
     def hold_order(
         self,
@@ -884,13 +918,26 @@ class SalesOrderService(TransactionalDocumentService):
             SalesOrderStatus.CLOSED.value,
         }:
             raise ValidationError("Sales order is already closed for updates.")
+        if row.status == SalesOrderStatus.DRAFT.value:
+            # Closing short-closes a promise that was made; a draft was never
+            # promised, so it is cancelled rather than closed. A closed draft
+            # kept its PENDING offer claims for ever (D-SELL-22).
+            raise ValidationError(
+                "A draft sales order is cancelled, not closed. Cancel it instead."
+            )
         from_status = row.status
         # Whatever is still held goes back, whatever the status says. This
         # checked for APPROVED alone, so an order a note had part-shipped
         # (PARTIALLY_DELIVERED) kept the undelivered rest reserved for ever
-        # (2026-09-13). A draft holds nothing and a line with nothing held is
-        # skipped, so releasing unconditionally is safe.
+        # (2026-09-13). A line with nothing held is skipped, so releasing
+        # unconditionally is safe.
         self._release_inventory(row, actor_id=actor_id)
+        # An order nothing was shipped or billed against used no offer, so its
+        # claims go back as a cancellation's do. Once a note or a bill stands,
+        # the goods left at the offer's price and the claim was used: closing
+        # stops what is still to come and keeps what happened (D-SELL-22).
+        if not self._documents_raised(row):
+            self._release_promotions(row, actor_id=actor_id)
         row.status = SalesOrderStatus.CLOSED.value
         row.closed_at = utc_now()
         row.close_reason = reason.strip() if reason else None
@@ -2416,6 +2463,7 @@ class SalesOrderService(TransactionalDocumentService):
         to_state: str | None,
         actor_id: UUID,
         remarks: str | None = None,
+        details: dict[str, object] | None = None,
     ) -> None:
         self._documents.record_event(
             firm_id,
@@ -2431,6 +2479,7 @@ class SalesOrderService(TransactionalDocumentService):
                 details_json={
                     "order_number": document.order_number,
                     "grand_total": str(document.grand_total),
+                    **(details or {}),
                 },
                 snapshot_json={
                     "status": document.status,

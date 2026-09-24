@@ -977,9 +977,13 @@ def test_updating_credit_settings_twice_keeps_one_row_and_audits_the_change() ->
     assert len(rows) == 1
 
     actions = session.scalars(
-        select(AuditLog.action).where(AuditLog.entity_type == "CreditControlSettings")
+        select(AuditLog.action).where(AuditLog.entity_type == "credit_control_settings")
     ).all()
-    assert list(actions) == ["CREATE", "UPDATE"]
+    # entity.action like every other module (D-SELL-24).
+    assert list(actions) == [
+        "credit_control_settings.created",
+        "credit_control_settings.updated",
+    ]
 
 
 def test_a_warning_threshold_above_the_block_is_rejected() -> None:
