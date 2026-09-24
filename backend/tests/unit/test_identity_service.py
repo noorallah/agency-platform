@@ -708,7 +708,8 @@ def test_user_preferences_are_versioned_and_require_active_firm_membership() -> 
     assert defaults.preferences_version == 1
     assert defaults.preferred_theme == "light"
     assert defaults.preferred_palette == "neutral"
-    assert session.query(UserPreferences).count() == 1
+    # A read writes nothing: the defaults are served unsaved (D-CFG-21).
+    assert session.query(UserPreferences).count() == 0
 
     service.set_user_firms(
         user.id,

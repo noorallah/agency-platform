@@ -4,7 +4,9 @@ from datetime import date, datetime
 from typing import Any, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.core.validation.common import refuse_explicit_nulls
 
 
 class ApiSchema(BaseModel):
@@ -94,6 +96,12 @@ class UserPreferencesUpdate(ApiSchema):
         default=None, max_length=100
     )
     dashboard_layout: dict[str, Any] | None = Field(default=None, max_length=100)
+
+    @model_validator(mode="after")
+    def _no_null_on_a_required_field(self) -> "UserPreferencesUpdate":
+        """Only the remembered firm may be cleared with null (D-CFG-21)."""
+        refuse_explicit_nulls(self, nullable={"default_firm_id"})
+        return self
 
 
 class UserPreferencesResponse(ApiSchema):

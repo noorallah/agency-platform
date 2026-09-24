@@ -4560,11 +4560,15 @@ class ApiClient {
     };
   }
 
+  /// [notes] null leaves the stored notes alone -- the Set up panel assigns a
+  /// profile without knowing them -- while an empty string clears them. The
+  /// server keeps what is not sent, so the panel no longer wipes the notes
+  /// the Profile Assignment screen wrote (D-CFG-21).
   Future<void> assignBusinessProfileToFirm(
     String firmId,
     String businessProfileId, {
     bool isActive = true,
-    String notes = '',
+    String? notes,
   }) =>
       request(
         'PUT',
@@ -4572,7 +4576,7 @@ class ApiClient {
         body: {
           'business_profile_id': businessProfileId,
           'is_active': isActive,
-          if (notes.isNotEmpty) 'notes': notes,
+          if (notes != null) 'notes': notes.trim().isEmpty ? null : notes,
         },
       );
 

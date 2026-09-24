@@ -2,6 +2,7 @@
 
 # ruff: noqa: D103
 
+from collections.abc import Callable
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -655,13 +656,20 @@ def list_firm_profile_assignments(
 @router.get("/active-features", response_model=ApiResponse[list[ActiveFeatureResponse]])
 def get_active_features(
     principal: Annotated[Principal, Depends(require_authenticated())],
+    request: Request,
     db: Session = Depends(get_db),
     platform_db: Session = Depends(get_platform_db),
     x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
     firm_id: Annotated[UUID | None, Query()] = None,
 ) -> ApiResponse[list[ActiveFeatureResponse]]:
     resolved_firm = _resolve_firm_scope(principal, platform_db, x_firm_id, firm_id)
-    rows = _service(db).active_features(resolved_firm)
+    rows = _read_in_firm_store(
+        request,
+        db,
+        x_firm_id,
+        resolved_firm,
+        lambda service: service.active_features(resolved_firm),
+    )
     return ApiResponse(
         data=[
             ActiveFeatureResponse(
@@ -679,13 +687,20 @@ def get_active_features(
 @router.get("/active-modules", response_model=ApiResponse[list[ActiveModuleResponse]])
 def get_active_modules(
     principal: Annotated[Principal, Depends(require_authenticated())],
+    request: Request,
     db: Session = Depends(get_db),
     platform_db: Session = Depends(get_platform_db),
     x_firm_id: Annotated[UUID | None, Header(alias="X-Firm-ID")] = None,
     firm_id: Annotated[UUID | None, Query()] = None,
 ) -> ApiResponse[list[ActiveModuleResponse]]:
     resolved_firm = _resolve_firm_scope(principal, platform_db, x_firm_id, firm_id)
-    rows = _service(db).active_modules(resolved_firm)
+    rows = _read_in_firm_store(
+        request,
+        db,
+        x_firm_id,
+        resolved_firm,
+        lambda service: service.active_modules(resolved_firm),
+    )
     return ApiResponse(
         data=[
             ActiveModuleResponse(
@@ -698,6 +713,26 @@ def get_active_modules(
             for module, display_order in rows
         ]
     )
+
+
+def _read_in_firm_store[T](
+    request: Request,
+    db: Session,
+    x_firm_id: UUID | None,
+    firm_id: UUID | None,
+    read: Callable[[BusinessProfileFrameworkService], T],
+) -> T:
+    """Answer from the store of the firm asked about, not the caller's.
+
+    ``?firm_id=`` may name a firm other than the one ``X-Firm-ID`` selected,
+    and the assignment lives in the named firm's store. Reading it through
+    ``get_db`` answered from whichever store the header opened -- another
+    firm's profile, or the platform default (D-CFG-19).
+    """
+    if firm_id is None or firm_id == x_firm_id:
+        return read(_service(db))
+    with firm_store_session(request, firm_id) as firm_db:
+        return read(_service(firm_db))
 
 
 def _resolve_firm_scope(

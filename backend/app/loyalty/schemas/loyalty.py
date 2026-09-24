@@ -5,7 +5,9 @@ from decimal import Decimal
 from enum import StrEnum
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
+
+from app.core.validation.common import refuse_explicit_nulls
 
 
 class LoyaltySchema(BaseModel):
@@ -40,6 +42,12 @@ class LoyaltySettingsWrite(LoyaltySchema):
     #: Explicitly null means points do not expire, which is a real choice.
     #: Zero would mean they expire the day they are earned.
     expiry_months: int | None = Field(default=None, ge=1, le=600)
+
+    @model_validator(mode="after")
+    def _no_null_on_a_required_field(self) -> "LoyaltySettingsWrite":
+        """Only the expiry may be null -- "points never expire" (D-CFG-21)."""
+        refuse_explicit_nulls(self, nullable={"expiry_months"})
+        return self
 
 
 class LoyaltySettingsResponse(LoyaltySchema):

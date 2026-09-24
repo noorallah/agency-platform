@@ -9,7 +9,6 @@ from uuid import UUID, uuid4
 
 from sqlalchemy import and_, case, func, or_, select, update
 from sqlalchemy.engine import CursorResult
-from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.elements import ColumnElement
 
@@ -73,6 +72,36 @@ from app.identity.system_seed import (
     PLATFORM_ROLE_CODES,
     SYSTEM_ROLE_CODES,
 )
+
+#: The current version's defaults: what a user with no saved row reads, and
+#: what a reset restores. Kept in step with the column defaults on
+#: ``UserPreferences``.
+_PREFERENCE_DEFAULTS: dict[str, object] = {
+    "preferences_version": 1,
+    "preferred_theme": "light",
+    "preferred_theme_mode": "system",
+    "preferred_high_contrast": False,
+    "preferred_palette": "neutral",
+    "language": "en",
+    "date_format": "yyyy-MM-dd",
+    "time_format": "24h",
+    "number_format": "1,234.56",
+    "currency_format": "symbol",
+    "default_firm_id": None,
+    "default_landing_page": "dashboard",
+    "rows_per_page": 20,
+    "notification_preferences": {},
+    "dashboard_layout": {},
+}
+
+
+def _fresh_preference_defaults() -> dict[str, object]:
+    """Return the defaults with their own dicts, so no row shares the constant's."""
+    return {
+        key: dict(value) if isinstance(value, dict) else value
+        for key, value in _PREFERENCE_DEFAULTS.items()
+    }
+
 
 _PROFILE_FIELDS = (
     "personal_mobile",
@@ -363,35 +392,32 @@ class IdentityService:
         self._session.commit()
 
     def get_user_preferences(self, user_id: UUID) -> UserPreferences:
-        """Return a user's preferences, creating the current default document lazily."""
+        """Return a user's preferences, or the defaults if none are stored.
+
+        A read writes nothing. This used to insert the default document on the
+        first ``GET``, with no audit row -- a write nobody asked for and the
+        trail could not show (D-CFG-21). The defaults are returned unsaved; the
+        row is created by the first save that actually changes something.
+        """
         self._get_user(user_id)
-        preferences = self._session.scalar(
+        stored = self._stored_preferences(user_id)
+        if stored is not None:
+            return stored
+        return UserPreferences(
+            user_id=user_id,
+            created_by=user_id,
+            updated_by=user_id,
+            **_fresh_preference_defaults(),
+        )
+
+    def _stored_preferences(self, user_id: UUID) -> UserPreferences | None:
+        """Return the user's saved preference row, if there is one."""
+        return self._session.scalar(
             select(UserPreferences).where(
                 UserPreferences.user_id == user_id,
                 UserPreferences.is_deleted.is_(False),
             )
         )
-        if preferences is not None:
-            return preferences
-        preferences = UserPreferences(
-            user_id=user_id,
-            created_by=user_id,
-            updated_by=user_id,
-        )
-        self._session.add(preferences)
-        try:
-            self._session.commit()
-        except IntegrityError:
-            self._session.rollback()
-            preferences = self._session.scalar(
-                select(UserPreferences).where(
-                    UserPreferences.user_id == user_id,
-                    UserPreferences.is_deleted.is_(False),
-                )
-            )
-            if preferences is None:
-                raise
-        return preferences
 
     def update_user_preferences(
         self,
@@ -454,8 +480,11 @@ class IdentityService:
         The desktop saves preferences on every screen change, so most saves
         change nothing; each used to write an audit row with no before, no
         after and no firm -- 521 of them on one server (D-CFG-13). A save
-        that changes nothing now writes nothing, and one that does names
-        each field it moved.
+        that changes nothing now writes nothing -- not even the first row,
+        for a user still on the defaults -- and one that does names each
+        field it moved and the firm the user works in (D-CFG-21): their
+        remembered firm, which is a validated membership, rather than a
+        header anybody could send.
         """
         before = row_state(preferences)
         for field, value in changes.items():
@@ -465,12 +494,16 @@ class IdentityService:
         if not after_data:
             return
         preferences.updated_by = user_id
+        if preferences not in self._session:
+            self._session.add(preferences)
+        self._session.flush()
         record_audit(
             self._session,
             action=action,
             entity_type="user_preferences",
             entity_id=preferences.id,
             actor_id=user_id,
+            firm_id=preferences.default_firm_id,
             before_data=before_data,
             after_data=after_data,
         )
@@ -479,25 +512,11 @@ class IdentityService:
     def reset_user_preferences(self, user_id: UUID) -> UserPreferences:
         """Replace preferences with the current version's defaults."""
         preferences = self.get_user_preferences(user_id)
-        defaults: dict[str, object] = {
-            "preferences_version": 1,
-            "preferred_theme": "light",
-            "preferred_theme_mode": "system",
-            "preferred_high_contrast": False,
-            "preferred_palette": "neutral",
-            "language": "en",
-            "date_format": "yyyy-MM-dd",
-            "time_format": "24h",
-            "number_format": "1,234.56",
-            "currency_format": "symbol",
-            "default_firm_id": None,
-            "default_landing_page": "dashboard",
-            "rows_per_page": 20,
-            "notification_preferences": {},
-            "dashboard_layout": {},
-        }
         self._apply_preferences(
-            preferences, defaults, user_id=user_id, action="user_preferences.reset"
+            preferences,
+            _fresh_preference_defaults(),
+            user_id=user_id,
+            action="user_preferences.reset",
         )
         return preferences
 

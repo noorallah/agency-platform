@@ -11,6 +11,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
+from app.business.schemas import AttributeValueResponse
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
@@ -126,7 +127,13 @@ def _may_view_bank(scope: ResolvedFirmScope) -> bool:
     return scope.principal.has_permission("VENDOR_VIEW_FINANCIAL_DETAILS")
 
 
-def _response(row: Vendor, db: Session, scope: ResolvedFirmScope) -> VendorResponse:
+def _response(
+    row: Vendor,
+    db: Session,
+    scope: ResolvedFirmScope,
+    *,
+    attributes: list[AttributeValueResponse] | None = None,
+) -> VendorResponse:
     """Build one vendor response with its custom fields attached.
 
     The values live in their own table and `VendorResponse` cannot reach them
@@ -139,10 +146,22 @@ def _response(row: Vendor, db: Session, scope: ResolvedFirmScope) -> VendorRespo
     router withholds a cost price.
     """
     payload = VendorResponse.model_validate(row).model_dump(mode="python")
-    payload["attributes"] = VendorService(db).attribute_responses(row)
+    payload["attributes"] = (
+        VendorService(db).attribute_responses(row) if attributes is None else attributes
+    )
     if not _may_view_bank(scope):
         payload["bank_accounts"] = []
     return VendorResponse.model_validate(payload)
+
+
+def _responses(
+    rows: list[Vendor], db: Session, scope: ResolvedFirmScope
+) -> list[VendorResponse]:
+    """Build a page of responses, reading every row's custom fields at once."""
+    attributes = VendorService(db).attribute_responses_for_many(rows)
+    return [
+        _response(row, db, scope, attributes=attributes.get(row.id, [])) for row in rows
+    ]
 
 
 @router.get("", response_model=PaginatedResponse[VendorResponse])
@@ -191,7 +210,7 @@ def list_vendors(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=[_response(row, db, scope) for row in rows],
+        data=_responses(rows, db, scope),
         pagination=params.metadata(total),
     )
 
@@ -293,7 +312,7 @@ def import_vendors(
         actor_id=scope.actor_id,
         may_manage_bank_details=_may_manage_bank(scope),
     )
-    return ApiResponse(data=[_response(item, db, scope) for item in vendors])
+    return ApiResponse(data=_responses(vendors, db, scope))
 
 
 # The two masters come first on purpose. FastAPI matches in declaration

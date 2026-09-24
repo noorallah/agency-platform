@@ -156,7 +156,7 @@ class _Api extends ApiClient {
     String firmId,
     String businessProfileId, {
     bool isActive = true,
-    String notes = '',
+    String? notes,
   }) async {
     assigned.add((firmId, businessProfileId));
   }

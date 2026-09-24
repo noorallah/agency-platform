@@ -589,6 +589,18 @@ class CustomerService:
             )
         ]
 
+    def attribute_responses_for_many(
+        self, customers: list[Customer]
+    ) -> dict[UUID, list[AttributeValueResponse]]:
+        """Return a page of customers' custom fields in one query (D-CFG-20)."""
+        grouped = AttributeService(self._session).value_rows_for_many(
+            CustomerAttributeValue, [row.id for row in customers]
+        )
+        return {
+            owner: [AttributeValueResponse.model_validate(row) for row in rows]
+            for owner, rows in grouped.items()
+        }
+
     def addresses(
         self, customer_id: UUID, *, firm_scope: UUID | None
     ) -> list[CustomerAddress]:

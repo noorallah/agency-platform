@@ -29,7 +29,15 @@ class Uom(BaseEntity):
 
     __tablename__ = "uoms"
     __table_args__ = (
-        UniqueConstraint("code", name="UQ_uoms_code"),
+        # Partial, so a deleted unit gives its code back; the plain key
+        # refused it for ever (D-CFG-21, `20260924_0160`).
+        Index(
+            "UQ_uoms_code_active",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
         Index("IX_uoms_status", "status"),
     )
 
@@ -52,7 +60,13 @@ class UomGroup(BaseEntity):
 
     __tablename__ = "uom_groups"
     __table_args__ = (
-        UniqueConstraint("code", name="UQ_uom_groups_code"),
+        Index(
+            "UQ_uom_groups_code_active",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
         Index("IX_uom_groups_status", "status"),
     )
 
@@ -92,7 +106,13 @@ class PackagingType(BaseEntity):
 
     __tablename__ = "packaging_types"
     __table_args__ = (
-        UniqueConstraint("code", name="UQ_packaging_types_code"),
+        Index(
+            "UQ_packaging_types_code_active",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
         Index("IX_packaging_types_status", "status"),
     )
 

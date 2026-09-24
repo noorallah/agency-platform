@@ -167,11 +167,31 @@ def _attributes(
     return BranchWarehouseService(db).attribute_responses(model, row)
 
 
-def _warehouse_response(row: Warehouse, db: Session) -> WarehouseResponse:
+def _warehouse_response(
+    row: Warehouse,
+    db: Session,
+    *,
+    attributes: list[AttributeValueResponse] | None = None,
+) -> WarehouseResponse:
     """Build one warehouse response with its custom fields attached."""
     payload = WarehouseResponse.model_validate(row).model_dump(mode="python")
-    payload["attributes"] = _attributes(WarehouseAttributeValue, row, db)
+    payload["attributes"] = (
+        _attributes(WarehouseAttributeValue, row, db)
+        if attributes is None
+        else attributes
+    )
     return WarehouseResponse.model_validate(payload)
+
+
+def _warehouse_responses(rows: list[Warehouse], db: Session) -> list[WarehouseResponse]:
+    """Build a page of responses, reading every row's custom fields at once."""
+    attributes = BranchWarehouseService(db).attribute_responses_for_many(
+        WarehouseAttributeValue, rows
+    )
+    return [
+        _warehouse_response(row, db, attributes=attributes.get(row.id, []))
+        for row in rows
+    ]
 
 
 @router.get("/branches", response_model=PaginatedResponse[BranchResponse])
@@ -217,10 +237,13 @@ def list_branches(
         sort_by=sort_by,
         descending=sort_direction == "desc",
     )
+    attributes = BranchWarehouseService(db).attribute_responses_for_many(
+        BranchAttributeValue, rows
+    )
     data = []
     for row in rows:
         payload = BranchResponse.model_validate(row).model_dump(mode="python")
-        payload["attributes"] = _attributes(BranchAttributeValue, row, db)
+        payload["attributes"] = attributes.get(row.id, [])
         payload["warehouse_count"] = len(
             [item for item in row.warehouses if not item.is_deleted]
         )
@@ -280,10 +303,13 @@ def import_branches(
     rows = BranchWarehouseService(db).import_branches(
         data.records, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
+    attributes = BranchWarehouseService(db).attribute_responses_for_many(
+        BranchAttributeValue, rows
+    )
     payloads = []
     for row in rows:
         payload = BranchResponse.model_validate(row).model_dump(mode="python")
-        payload["attributes"] = _attributes(BranchAttributeValue, row, db)
+        payload["attributes"] = attributes.get(row.id, [])
         payload["warehouse_count"] = 0
         payloads.append(BranchResponse.model_validate(payload))
     return ApiResponse(data=payloads)
@@ -612,7 +638,7 @@ def list_warehouses(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=[_warehouse_response(row, db) for row in rows],
+        data=_warehouse_responses(rows, db),
         pagination=params.metadata(total),
     )
 
@@ -666,7 +692,7 @@ def import_warehouses(
     rows = BranchWarehouseService(db).import_warehouses(
         data.records, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
-    return ApiResponse(data=[_warehouse_response(row, db) for row in rows])
+    return ApiResponse(data=_warehouse_responses(rows, db))
 
 
 # Above `/warehouses/{id}` on purpose: FastAPI matches in declaration order, so

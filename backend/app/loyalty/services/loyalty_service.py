@@ -124,11 +124,17 @@ class LoyaltyService:
         """
         row = self.settings_for(firm_id)
         before = None if row is None else self._settings_snapshot(row)
+        stored = None if row is None else self._settings_values(row)
         if row is None:
             row = LoyaltySettings(firm_id=firm_id, created_by=actor_id)
             self._session.add(row)
         for field, value in payload.model_dump(exclude_unset=True).items():
             setattr(row, field, value)
+        if stored is not None and stored == self._settings_values(row):
+            # A save that changes nothing is not an event. The demo seeder
+            # re-states the scheme on every run, and each run wrote another
+            # `settings_changed` with the same values on both sides (D-CFG-21).
+            return LoyaltySettingsResponse.model_validate(row)
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -1155,6 +1161,21 @@ class LoyaltyService:
                 "Only an approved invoice can be settled with points."
             )
         return row
+
+    @staticmethod
+    def _settings_values(row: LoyaltySettings) -> tuple[object, ...]:
+        """Return the scheme's values, compared as numbers rather than text.
+
+        ``_settings_snapshot`` renders the rates as strings, and the stored
+        ``1.0000`` and a sent ``1`` are the same rate in different spellings.
+        """
+        return (
+            row.is_enabled,
+            row.points_per_amount,
+            row.amount_per_point,
+            row.minimum_redemption_points,
+            row.expiry_months,
+        )
 
     @staticmethod
     def _settings_snapshot(row: LoyaltySettings) -> dict[str, object]:

@@ -53,7 +53,7 @@ from app.finance.services.control_accounts import (
 )
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
-from app.identity.models import UserFirm
+from app.identity.models import User, UserFirm
 from app.sales.models import GeoCountry
 from app.tax.models import TaxProfile, TaxRule, TaxSystem
 from app.tax.services.gst_template import INDIA_GST, apply_india_gst_template
@@ -176,6 +176,11 @@ def store_steps(session: Session, firm_id: UUID, today: date) -> list[ReadinessS
         .where(
             FirmBusinessProfile.firm_id == firm_id,
             FirmBusinessProfile.is_deleted.is_(False),
+            # A switched-off assignment is not one the gate reads, so the firm
+            # runs as the platform default; reporting it done said otherwise
+            # (D-CFG-21).
+            FirmBusinessProfile.is_active.is_(True),
+            BusinessProfile.is_deleted.is_(False),
         )
     )
     steps.append(
@@ -426,10 +431,15 @@ class FirmReadinessService:
             self._platform.scalar(
                 select(func.count())
                 .select_from(UserFirm)
+                # A membership of a deleted or switched-off account is nobody
+                # who can sign in; TEST02 counted twelve of them (D-CFG-21).
+                .join(User, User.id == UserFirm.user_id)
                 .where(
                     UserFirm.firm_id == firm.id,
                     UserFirm.is_active.is_(True),
                     UserFirm.is_deleted.is_(False),
+                    User.is_active.is_(True),
+                    User.is_deleted.is_(False),
                 )
             )
             or 0

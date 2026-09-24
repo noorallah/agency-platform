@@ -106,7 +106,7 @@ class _FirmApi extends ApiClient {
     String firmId,
     String businessProfileId, {
     bool isActive = true,
-    String notes = '',
+    String? notes,
   }) async {
     assignedFirmId = firmId;
     assignedProfileId = businessProfileId;

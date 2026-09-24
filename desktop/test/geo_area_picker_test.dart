@@ -100,4 +100,54 @@ void main() {
     // Anything below a changed rung stops meaning anything.
     expect(find.text('Tamil Nadu'), findsNothing);
   });
+
+  // A retired place is kept where it is the stored value -- the form must
+  // still show and save it -- and is not offered for a new choice (D-CFG-21).
+  Future<void> pumpRetired(
+    WidgetTester tester,
+    Map<GeoLevel, String> value,
+  ) async {
+    tester.view.physicalSize = const Size(1600, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: GeoAreaPicker(
+            levels: const <GeoLevel>[GeoLevel.country],
+            loadPlaces: (level, {String parentId = ''}) async =>
+                <GeoPlaceRecord>[
+              _place(level, 'c-in', 'IN', 'India'),
+              GeoPlaceRecord.fromJson(level, <String, dynamic>{
+                'id': 'c-np',
+                'code': 'NP',
+                'name': 'Nepal',
+                'is_active': false,
+              }),
+            ],
+            value: value,
+            onChanged: (_) {},
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('a retired place is not offered', (tester) async {
+    await pumpRetired(tester, const <GeoLevel, String>{});
+    expect(find.text('India'), findsWidgets);
+    expect(find.text('Nepal'), findsNothing);
+  });
+
+  testWidgets('a retired place stays where it is already chosen',
+      (tester) async {
+    await pumpRetired(
+      tester,
+      const <GeoLevel, String>{GeoLevel.country: 'c-np'},
+    );
+    expect(find.text('Nepal'), findsWidgets);
+  });
 }

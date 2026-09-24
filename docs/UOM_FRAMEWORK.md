@@ -158,6 +158,25 @@ Both levels are audited (`uom.profile_default.created` / `.updated`). A
 profile-wide row has no owning firm, so the entry is written against the firm
 whose store the change happened in — otherwise the trail would lose it.
 
+**A `PROFILE` write reaches every store, not only the caller's** (D-CFG-21).
+The row is reference data held per store, so it is written into each firm's
+store in turn, matched to the profile there by code, since each store seeds
+its own catalogue. A firm whose store cannot be reached, or has no such
+profile, is named in the response's message rather than skipped silently. A
+store that already holds the same units writes no audit row, which is what a
+shared schema visited once per firm needs; both levels record the units
+before and after (D-CFG-23).
+
+**The unit catalogue's baseline is the same everywhere; what is added is
+not.** The 19 units in `SEED_UOMS` are in every store and reseeded on every
+reset. A unit an administrator adds lives in the store it was added in, like
+any master, so two stores can legitimately hold different totals. Units,
+groups and packaging types are keyed on their code among **live** rows
+(`UQ_uoms_code_active` and its siblings, `20260924_0160`), so a deleted code
+can be used again. A unit recorded on any document line or stock movement
+cannot be deleted: every column ending in `uom_id` is asked, found from the
+schema rather than listed.
+
 `UQ_business_profile_uom_defaults_firm_profile` covers `(firm_id,
 business_profile_id)` and PostgreSQL treats NULLs as distinct, so it constrains
 overrides and not profile-wide rows. That did not matter while only the seed

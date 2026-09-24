@@ -8,11 +8,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_change, row_state
+from app.core.exceptions import ValidationError
 from app.document_framework.models import DocumentPrintTemplate
 from app.document_framework.schemas import (
     DocumentPrintTemplateResponse,
     DocumentPrintTemplateWrite,
 )
+from app.document_framework.services.print_support import PRINTABLE_DOCUMENT_TYPES
 
 #: What a firm gets before it configures anything. Kept here rather than in the
 #: database so a new firm needs no seeding to print a correct bill.
@@ -35,6 +37,7 @@ class DocumentPrintTemplateService:
         self, document_type: str, *, firm_scope: UUID
     ) -> DocumentPrintTemplateResponse:
         """Return the firm's template, falling back to the platform default."""
+        self._assert_printable(document_type)
         row = self._row(document_type, firm_scope=firm_scope)
         if row is None:
             return DocumentPrintTemplateResponse(
@@ -53,10 +56,10 @@ class DocumentPrintTemplateService:
         actor_id: UUID,
     ) -> DocumentPrintTemplateResponse:
         """Create or replace the firm's template for one document type."""
-        code = document_type.upper()
+        code = self._assert_printable(document_type)
         row = self._row(code, firm_scope=firm_scope)
-        values = data.model_dump()
         if row is None:
+            values = data.model_dump()
             row = DocumentPrintTemplate(
                 firm_id=firm_scope,
                 document_type=code,
@@ -69,7 +72,10 @@ class DocumentPrintTemplateService:
             before: dict[str, object] | None = None
         else:
             before = row_state(row)
-            for field, value in values.items():
+            # Only what the caller sent: a client that does not know a field
+            # -- the desktop's Print settings has no `header_note` -- must not
+            # clear it on every save (D-CFG-18).
+            for field, value in data.model_dump(exclude_unset=True).items():
                 setattr(row, field, value)
             row.updated_by = actor_id
             action = "document_print_template.updated"
@@ -89,6 +95,21 @@ class DocumentPrintTemplateService:
         return self._response(row)
 
     # ------------------------------------------------------------------
+    @staticmethod
+    def _assert_printable(document_type: str) -> str:
+        """Return the normalised code, refusing a type nothing prints.
+
+        A template saved under a mistyped or unprintable code was stored and
+        read by nothing, while the screen said it had been saved (D-CFG-18).
+        """
+        code = document_type.strip().upper()
+        if code not in PRINTABLE_DOCUMENT_TYPES:
+            raise ValidationError(
+                f"{code} is not a document that prints. Choose one of "
+                f"{', '.join(sorted(PRINTABLE_DOCUMENT_TYPES))}."
+            )
+        return code
+
     def _row(
         self, document_type: str, *, firm_scope: UUID
     ) -> DocumentPrintTemplate | None:

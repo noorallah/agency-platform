@@ -16,7 +16,7 @@ from decimal import (
 from typing import ClassVar
 from uuid import UUID
 
-from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy import and_, case, func, literal, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -25,6 +25,7 @@ from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit, record_change, row_state
 from app.core.concurrency import assert_version
+from app.core.database.base import Base
 from app.core.database.entity import BaseEntity
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
@@ -158,6 +159,21 @@ def assert_quantity_fits_unit(
         )
 
 
+#: Tables `_assert_uom_unused` checks by name, honouring their soft delete, and
+#: the unit's own custom-field values, which go with it. Every other column
+#: ending in ``uom_id`` is found from the schema.
+_UOM_REFERENCES_CHECKED_ABOVE = frozenset(
+    {
+        "business_profile_uom_defaults",
+        "product_packaging_levels",
+        "products",
+        "uom_attribute_values",
+        "uom_conversion_rules",
+        "uom_group_units",
+    }
+)
+
+
 class UomService:
     """Coordinate UOM masters, conversions, and product packaging hierarchy."""
 
@@ -219,6 +235,18 @@ class UomService:
             firm_id=firm_id,
             actor_id=actor_id,
         )
+
+    def attribute_responses_for_many(
+        self, rows: list[Uom], *, firm_id: UUID
+    ) -> dict[UUID, list[AttributeValueResponse]]:
+        """Return the calling firm's custom fields on many units in one query."""
+        grouped = AttributeService(self._session).value_rows_for_many(
+            UomAttributeValue, [row.id for row in rows], firm_id=firm_id
+        )
+        return {
+            owner: [AttributeValueResponse.model_validate(value) for value in values]
+            for owner, values in grouped.items()
+        }
 
     def attribute_responses(
         self, row: Uom, *, firm_id: UUID
@@ -344,6 +372,31 @@ class UomService:
             if in_use is not None:
                 raise ValidationError(
                     "This unit is in use and cannot be deleted. Deactivate it instead."
+                )
+        # Every other column that records a unit: the lines of every document
+        # and stock movement. A unit used only there passed the checks above
+        # and could be deleted, leaving issued documents naming a unit the
+        # catalogue no longer has (D-CFG-21). A line is history, so a deleted
+        # one still counts. Derived from the schema rather than listed, so a
+        # new document module is covered the day it lands.
+        for table in Base.metadata.sorted_tables:
+            if table.name in _UOM_REFERENCES_CHECKED_ABOVE:
+                continue
+            columns = [
+                column for column in table.columns if column.name.endswith("uom_id")
+            ]
+            if not columns:
+                continue
+            used = self._session.execute(
+                select(literal(1))
+                .select_from(table)
+                .where(or_(*(column == uom_id for column in columns)))
+                .limit(1)
+            ).first()
+            if used is not None:
+                raise ValidationError(
+                    "This unit is recorded on documents or stock movements and "
+                    "cannot be deleted. Deactivate it instead."
                 )
 
     def list_uom_groups(self) -> list[UomGroup]:
@@ -752,6 +805,7 @@ class UomService:
             )
         )
         created = row is None
+        before = None if row is None else row_state(row)
         if row is None:
             row = BusinessProfileUomDefault(
                 firm_id=firm_scope,
@@ -765,7 +819,9 @@ class UomService:
             setattr(row, field, value)
         row.updated_by = actor_id
         self._flush_or_conflict("Business profile UOM defaults conflict.")
-        record_audit(
+        # The units themselves, before and after: the row said only that the
+        # defaults had been touched, and a re-save wrote another (D-CFG-23).
+        record_change(
             self._session,
             action=(
                 "uom.profile_default.created"
@@ -773,9 +829,11 @@ class UomService:
                 else "uom.profile_default.updated"
             ),
             entity_type="business_profile_uom_default",
-            entity_id=row.id,
+            row=row,
             actor_id=actor_id,
+            before=before,
             firm_id=audit_firm_id if firm_scope is None else firm_scope,
+            exclude=("updated_by",),
         )
         self._session.commit()
         return row
@@ -1099,6 +1157,9 @@ class UomService:
         )
         self._session.add(row)
         self._flush_or_conflict("Industry template code already exists.")
+        # Reference data every firm's profile setup reads; it wrote no audit
+        # row at all (D-CFG-23).
+        self._audit("uom.industry_template.created", "industry_template", row, actor_id)
         self._session.commit()
         return row
 
@@ -1120,6 +1181,7 @@ class UomService:
         if row is None:
             raise ResourceNotFoundError("Industry template not found.")
         assert_version(row.version, expected_version)
+        before = row_state(row)
         payload = data.model_dump(exclude_unset=True)
         for field, value in payload.items():
             if isinstance(value, str):
@@ -1130,6 +1192,9 @@ class UomService:
         row.updated_by = actor_id
         self._flush_or_conflict(
             "Industry template update conflicts with existing data."
+        )
+        self._audit(
+            "uom.industry_template.updated", "industry_template", row, actor_id, before
         )
         self._session.commit()
         return row
@@ -1148,6 +1213,7 @@ class UomService:
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
         row.updated_by = actor_id
+        self._audit("uom.industry_template.deleted", "industry_template", row, actor_id)
         self._session.commit()
 
     def _assert_version_free(

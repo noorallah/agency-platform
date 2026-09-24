@@ -4,9 +4,10 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
+from app.core.validation.common import refuse_explicit_nulls
 
 
 class UomSchema(BaseModel):
@@ -40,6 +41,12 @@ class UomUpdate(UomSchema):
     is_decimal_allowed: bool | None = None
     #: None leaves the firm's values alone; a list replaces them.
     attributes: list[AttributeValueInput] | None = Field(default=None, max_length=300)
+
+    @model_validator(mode="after")
+    def _no_null_on_a_required_field(self) -> "UomUpdate":
+        """Refuse a null code or name; a null symbol clears it (D-CFG-21)."""
+        refuse_explicit_nulls(self, nullable={"symbol", "attributes"})
+        return self
 
 
 class UomResponse(UomSchema):
@@ -159,6 +166,15 @@ class ConversionRuleUpdate(UomSchema):
     version_number: int | None = Field(default=None, ge=1)
     status: str | None = Field(default=None, min_length=1, max_length=20)
     reason: str | None = None
+
+    @model_validator(mode="after")
+    def _no_null_on_a_required_field(self) -> "ConversionRuleUpdate":
+        """Only the optional scope, end date and reason clear (D-CFG-21)."""
+        refuse_explicit_nulls(
+            self,
+            nullable={"business_profile_id", "product_id", "effective_to", "reason"},
+        )
+        return self
 
 
 class ConversionRuleResponse(UomSchema):
