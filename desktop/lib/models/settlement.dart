@@ -9,6 +9,7 @@ class SettlementAllocation {
     required this.invoiceDate,
     required this.invoiceTotal,
     required this.amount,
+    this.allocatedOn = '',
   });
 
   final String id;
@@ -18,6 +19,10 @@ class SettlementAllocation {
   final String invoiceTotal;
   final String amount;
 
+  /// The day the money met the bill: the bill's date, or the settlement's
+  /// where that came later (D-TER-19).
+  final String allocatedOn;
+
   factory SettlementAllocation.fromJson(Json json) => SettlementAllocation(
         id: stringValue(json['id']),
         invoiceId: stringValue(json['invoice_id']),
@@ -25,6 +30,7 @@ class SettlementAllocation {
         invoiceDate: stringValue(json['invoice_date']),
         invoiceTotal: stringValue(json['invoice_total']),
         amount: stringValue(json['amount']),
+        allocatedOn: stringValue(json['allocated_on']),
       );
 }
 

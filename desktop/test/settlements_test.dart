@@ -345,12 +345,15 @@ void main() {
             'invoice_date': '2024-05-22',
             'invoice_total': '8429.63',
             'amount': '8429.63',
+            'allocated_on': '2024-05-22',
           },
         ]),
       ]);
       await _pump(tester, api);
 
-      expect(find.textContaining('Cleared SI-2024-2025-000004'), findsOneWidget);
+      // And the day the money met it (D-TER-19).
+      expect(find.textContaining('Cleared SI-2024-2025-000004 on 2024-05-22'),
+          findsOneWidget);
       expect(find.text('Applied'), findsOneWidget);
       expect(find.textContaining('BANK into Bank'), findsOneWidget);
     });
