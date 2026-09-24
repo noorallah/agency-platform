@@ -5,7 +5,7 @@ from __future__ import annotations
 import csv
 import io
 import json
-from datetime import date
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
 from uuid import UUID
@@ -115,6 +115,9 @@ class PurchaseService(TransactionalDocumentService):
         super().__init__(session)
         self._uom = UomService(session)
         self._tax = TaxRuleService(session)
+        #: The last timestamp handed to a history row by this instance, so the
+        #: next one can be made strictly later. See `_history_time`.
+        self._last_history_at: datetime | None = None
 
     def list_orders(
         self,
@@ -1417,6 +1420,28 @@ class PurchaseService(TransactionalDocumentService):
                 )
             )
 
+    def _history_time(self) -> datetime:
+        """Return a timestamp strictly later than the last history row's.
+
+        `created_at` defaults to `func.now()`, which in PostgreSQL is the
+        *transaction's* start time -- identical for every row a request
+        writes. So the two rows an edit of an approved order leaves, the edit
+        itself and the withdrawal of its approval, carried the same timestamp,
+        and `order_history` orders on `created_at` alone: the trail could read
+        "approval withdrawn, then edited", which is backwards, and no client
+        could sort it right either (D-BUY-8).
+
+        Stamped here rather than left to the database, and made strictly
+        increasing rather than merely re-read, because the system clock's
+        resolution is coarse enough on Windows for two consecutive reads to
+        return the same microsecond.
+        """
+        now = utc_now()
+        if self._last_history_at is not None and now <= self._last_history_at:
+            now = self._last_history_at + timedelta(microseconds=1)
+        self._last_history_at = now
+        return now
+
     def _history(
         self,
         *,
@@ -1438,6 +1463,7 @@ class PurchaseService(TransactionalDocumentService):
                 to_status=to_status,
                 remarks=remarks,
                 details_json=json.dumps(details or {}),
+                created_at=self._history_time(),
                 created_by=actor_id,
                 updated_by=actor_id,
             )

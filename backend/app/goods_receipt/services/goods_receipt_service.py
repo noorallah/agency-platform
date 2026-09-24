@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from datetime import date
 from decimal import Decimal
@@ -61,7 +62,7 @@ from app.goods_receipt.schemas import (
 from app.inventory.models import StockLedgerEntry
 from app.inventory.services import InventoryService, LineConversion
 from app.products.models import Product
-from app.purchase.models import PurchaseOrder, PurchaseOrderLine
+from app.purchase.models import PurchaseOrder, PurchaseOrderHistory, PurchaseOrderLine
 from app.purchase.schemas import PurchaseOrderStatus
 from app.purchase_invoice.models import (
     PurchaseInvoice,
@@ -1535,6 +1536,26 @@ class GoodsReceiptService(TransactionalDocumentService):
         before = purchase_order.status
         purchase_order.status = target
         purchase_order.updated_by = actor_id
+        # The order's own trail, beside the audit row. Every other status this
+        # order takes writes a `purchase_order_history` row, and receiving --
+        # the one transition raised from outside the purchase module -- wrote
+        # only an audit entry, so the Purchase Order screen's History tab
+        # skipped from "approved" to "closed" with nothing to say the goods
+        # ever arrived (D-BUY-8). The history table is the purchase module's,
+        # but so is the status field this method already writes: receiving
+        # moving the order is one of the four transitions that reach across.
+        self._session.add(
+            PurchaseOrderHistory(
+                purchase_order_id=purchase_order.id,
+                firm_id=firm_id,
+                action="purchase.received_status_changed",
+                from_status=before,
+                to_status=target,
+                details_json=json.dumps({"received_quantity": str(total)}),
+                created_by=actor_id,
+                updated_by=actor_id,
+            )
+        )
         record_audit(
             self._session,
             action="purchase.received_status_changed",
