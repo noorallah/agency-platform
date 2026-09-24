@@ -31,7 +31,12 @@ from app.identity.models import identity as _identity_models  # noqa: F401
 from app.inventory.models import InventoryTransaction
 from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.products.models import Product
-from app.promotions.models import Promotion, PromotionAction, PromotionRedemption
+from app.promotions.models import (
+    Promotion,
+    PromotionAction,
+    PromotionCoupon,
+    PromotionRedemption,
+)
 from app.promotions.schemas import PromotionActionType, PromotionStatus
 from app.quotation.models import SalesQuotation, SalesQuotationLine
 from app.quotation.schemas import (
@@ -1417,3 +1422,75 @@ def test_the_quotation_reports_take_a_window_and_a_page() -> None:
         "/api/v1/quotations/reports/register",
         "/api/v1/quotations/reports/conversion",
     )
+
+
+def test_a_coupon_reaches_an_order_that_began_as_a_quotation() -> None:
+    """Decided 2026-09-24 (BL-31.14): the deal is what was negotiated.
+
+    A rate somebody **typed** on the quotation is the agreement and stands on
+    the order whatever offer is presented later. A rate the quotation merely
+    inherited -- the customer's standing terms, a price list -- was never
+    negotiated, so the order resolves it afresh and a coupon presented at
+    order time reaches it, exactly as on an order raised directly. The
+    conversion has handed over only typed rates since D-SELL-9; this pins
+    the decision from the coupon's side.
+    """
+    session = _session_factory()()
+    setup = _Setup(session)
+    promotion = _limited_offer(setup, max_redemptions=5)
+    promotion.requires_coupon = True
+    session.add(
+        PromotionCoupon(
+            firm_id=setup.firm.id,
+            promotion_id=promotion.id,
+            code="SAVE10",
+            status=PromotionStatus.ACTIVE.value,
+        )
+    )
+    setup.customer.default_discount_percent = Decimal("4")
+    session.commit()
+    inherited = setup.accepted()
+    typed = setup.accepted(discount_percent=Decimal("4"))
+    orders = SalesOrderService(session)
+
+    outcomes: dict[str, str] = {}
+    for name, quote, typed_rate in (
+        ("inherited", inherited, None),
+        ("typed", typed, Decimal("4")),
+    ):
+        _, order = setup.service.convert_quotation(
+            quote.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+        )
+        # The desktop re-sends a typed rate as typed and an inherited one as
+        # blank, and presents the coupon on the order.
+        orders.update_order(
+            order.id,
+            SalesOrderCreate(
+                customer_id=setup.customer.id,
+                branch_id=setup.branch.id,
+                warehouse_id=setup.warehouse.id,
+                order_date=order.order_date,
+                coupon_code="SAVE10",
+                lines=[
+                    SalesOrderLineWrite(
+                        line_number=1,
+                        product_id=setup.product.id,
+                        quantity=Decimal("4"),
+                        unit_price=PRICE,
+                        discount_percent=typed_rate,
+                    )
+                ],
+            ),
+            firm_scope=setup.firm.id,
+            actor_id=setup.actor_id,
+        )
+        line = session.scalar(
+            select(SalesOrderLine).where(SalesOrderLine.sales_order_id == order.id)
+        )
+        assert line is not None
+        outcomes[name] = f"{line.discount_source} {line.discount_percent}"
+
+    assert outcomes == {
+        "inherited": "promotion 10.0000",
+        "typed": "percent 4.0000",
+    }
