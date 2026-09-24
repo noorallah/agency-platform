@@ -2201,7 +2201,7 @@ each is a decision or a small feature rather than a broken behaviour.
   products**, and territory-scoped lists cannot be created from the desktop
   (the third segment prints a sentence). *(The pane now says where each
   break starts, and double-click edits -- 2026-09-13.)*
-- *(Closed 2026-09-24, #630 and #PRNUM: conditions read as sentences, and a
+- *(Closed 2026-09-24, #630 and #637: conditions read as sentences, and a
   condition on a product, category, customer, territory or route is picked
   by name in the dialog and shown by name on the page.)*
   **Promotions: the details pane prints conditions raw**
