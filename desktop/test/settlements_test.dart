@@ -148,6 +148,21 @@ class _SettlementApi extends ApiClient {
     };
     return rows.first;
   }
+
+  @override
+  Future<Settlement> allocatePayment({
+    required String id,
+    required String invoiceId,
+    required String amount,
+  }) async {
+    allocated = <String, dynamic>{
+      'id': id,
+      'invoice_id': invoiceId,
+      'amount': amount,
+      'direction': 'PAYMENT',
+    };
+    return rows.first;
+  }
 }
 
 OutstandingInvoice _invoice(String id, String number, String outstanding) =>
@@ -166,11 +181,12 @@ Settlement _settlement({
   String unallocated = '0.00',
   String status = 'POSTED',
   String salesOrderNumber = '',
+  String direction = 'RECEIPT',
   List<Json> allocations = const [],
 }) =>
     Settlement.fromJson({
       'id': 'st-1',
-      'direction': 'RECEIPT',
+      'direction': direction,
       'party_id': 'c-1',
       'party_code': 'WHOLE01C03',
       'party_name': 'Third Customer',
@@ -675,6 +691,41 @@ void main() {
     // "Applying" money sounds like moving it, and it does not: the money
     // arrived when the receipt was recorded.
     expect(find.textContaining('Nothing moves in the ledger'), findsOneWidget);
+  });
+
+  testWidgets('a supplier advance can be applied to a bill that arrived since',
+      (tester) async {
+    final _SettlementApi api = _SettlementApi(
+      rows: [
+        _settlement(
+          number: 'PY-2026-2027-000001',
+          amount: '5000.00',
+          unallocated: '5000.00',
+          direction: 'PAYMENT',
+        ),
+      ],
+      outstanding: [_invoice('bill-1', 'PI-2026-2027-000004', '3000.00')],
+    );
+    await _pump(
+      tester,
+      api,
+      direction: SettlementDirection.payment,
+      perms: const <String>['PAYMENT_VIEW', 'PAYMENT_CREATE'],
+    );
+
+    // The mirror of the customer's advance, and the same hole: a payment
+    // recorded before the bill arrived could never be set against it
+    // (D-BUY-8).
+    await tester.tap(find.byTooltip('Apply to a bill'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('left when the payment'), findsOneWidget);
+    await tester.enterText(find.byType(TextField).last, '3000.00');
+    await tester.tap(find.widgetWithText(FilledButton, 'Apply'));
+    await tester.pumpAndSettle();
+
+    expect(api.allocated?['direction'], 'PAYMENT');
+    expect(api.allocated?['invoice_id'], 'bill-1');
+    expect(api.allocated?['amount'], '3000.00');
   });
 
   testWidgets('a fully applied receipt offers no Apply button',

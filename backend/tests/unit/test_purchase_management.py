@@ -60,7 +60,11 @@ from app.purchase.api.router import (
     submit_purchase_order,
     update_purchase_order,
 )
-from app.purchase.models import PurchaseOrder, PurchaseOrderLine
+from app.purchase.models import (
+    PurchaseOrder,
+    PurchaseOrderHistory,
+    PurchaseOrderLine,
+)
 from app.purchase.schemas import (
     PurchaseOrderCreate,
     PurchaseOrderImportRequest,
@@ -2030,3 +2034,35 @@ def test_a_report_never_reaches_another_firm() -> None:
     assert service.by_buyer_report(firm_scope=other.id) == []
     assert service.by_product_report(firm_scope=other.id) == []
     assert len(service.register_report(firm_scope=firm_id)) == 3
+
+
+def test_an_edits_two_history_rows_are_in_order_on_the_clock() -> None:
+    """The edit comes first and the withdrawal after, by timestamp too.
+
+    `created_at` defaulted to the database's `now()`, which in PostgreSQL is
+    the *transaction's* start time, so the two rows an edit of an approved
+    order leaves shared one timestamp and `order_history`, sorted on it, could
+    read "approval withdrawn, then edited" -- and no client could sort it
+    right either (D-BUY-8). Each row is now stamped strictly later than the
+    one before it.
+    """
+    session = _session_factory()()
+    service, order, firm_id, actor_id = _submittable_order(session)
+    service.submit_order(order.id, firm_scope=firm_id, actor_id=actor_id)
+    service.approve_order(order.id, firm_scope=firm_id, actor_id=actor_id)
+
+    _edit(service, order, firm_id=firm_id, actor_id=actor_id, qty="500")
+
+    rows = session.scalars(
+        select(PurchaseOrderHistory)
+        .where(PurchaseOrderHistory.purchase_order_id == order.id)
+        .order_by(PurchaseOrderHistory.created_at.asc())
+    ).all()
+    assert [row.action for row in rows][-2:] == [
+        "purchase.updated",
+        "purchase.approval_withdrawn",
+    ]
+    stamps = [row.created_at for row in rows]
+    assert all(
+        later > earlier for earlier, later in zip(stamps, stamps[1:], strict=False)
+    ), "every history row is strictly later than the one before it"

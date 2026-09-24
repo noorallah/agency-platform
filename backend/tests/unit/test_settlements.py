@@ -21,6 +21,7 @@ from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
+from app.common.audit.models import AuditLog
 from app.core.database.base import Base
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.customers.models import Customer, CustomerReceivableTransaction
@@ -1439,3 +1440,96 @@ def test_the_customer_reports_read_what_a_bill_still_owes() -> None:
     assert service.summary(firm_scope=books.firm.id).overdue_invoices == 0
     [row] = service.outstanding_report(firm_scope=books.firm.id)
     assert (row.outstanding_amount, row.invoice_count) == (Decimal("250.00"), 1)
+
+
+def test_a_supplier_advance_can_be_applied_to_a_bill_that_arrived_since() -> None:
+    """A payment recorded before the bill is set against it afterwards.
+
+    The mirror of the customer's advance, with the same hole: the allocate
+    endpoint was for receipts only, so a supplier advance sat in
+    `unallocated_amount` beside a bill the account showed owed in full
+    (D-BUY-8). Nothing is posted -- the money left when the payment was
+    recorded -- and there is no vendor balance to move either.
+    """
+    books = _Books(_session_factory()())
+    payments = PaymentService(books.session)
+    settlement = payments.create(
+        SettlementCreate(
+            party_id=books.vendor.id,
+            settlement_date=WHEN,
+            amount=Decimal("500.00"),
+            method=SettlementMethodEnum.BANK,
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+    bill = books.purchase_invoice("PI-1", "300.00")
+    postings_before = books.session.scalar(select(func.count()).select_from(GLPosting))
+
+    payments.allocate(
+        settlement.id,
+        invoice_id=bill.id,
+        amount=Decimal("300.00"),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+
+    books.session.refresh(settlement)
+    assert settlement.allocated_amount == Decimal("300.00")
+    assert settlement.unallocated_amount == Decimal("200.00")
+    assert [
+        (row.purchase_invoice_id, row.sales_invoice_id, row.amount)
+        for row in payments.allocations_for(settlement.id)
+    ] == [(bill.id, None, Decimal("300.00"))], "the bill side of the key"
+    owed = {
+        record.invoice_id: record.outstanding_amount
+        for record in payments.outstanding_invoices(
+            firm_id=books.firm.id, party_id=books.vendor.id
+        )
+    }
+    assert owed.get(bill.id, Decimal("0.00")) == Decimal("0.00"), "PI-1 is settled"
+    assert (
+        books.session.scalar(select(func.count()).select_from(GLPosting))
+        == postings_before
+    ), "no journal: the money moved when the payment was recorded"
+    assert (
+        "settlement.payment.allocated"
+        in books.session.scalars(
+            select(AuditLog.action).where(AuditLog.entity_id == settlement.id)
+        ).all()
+    )
+
+
+def test_a_refund_on_the_books_cannot_be_applied_afterwards_either() -> None:
+    """Handing money back is the opposite of settling a document."""
+    books = _Books(_session_factory()())
+    books.owe_us("300.00")
+    _receipt(books, "500.00")
+    books.session.commit()
+    refunds = RefundService(books.session)
+    refund = refunds.create(
+        SettlementCreate(
+            party_id=books.customer.id,
+            settlement_date=WHEN,
+            amount=Decimal("200.00"),
+            method=SettlementMethodEnum.BANK,
+            narration="Overpayment returned",
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+    invoice = books.sales_invoice("SI-1", "300.00")
+
+    with pytest.raises(ValidationError) as error:
+        refunds.allocate(
+            refund.id,
+            invoice_id=invoice.id,
+            amount=Decimal("100.00"),
+            firm_id=books.firm.id,
+            actor_id=books.actor_id,
+        )
+
+    assert "refund" in str(error.value).lower()
