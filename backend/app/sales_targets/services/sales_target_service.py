@@ -209,7 +209,7 @@ class SalesTargetService:
             basis=data.basis.value,
             target_amount=data.target_amount,
             notes=data.notes,
-            status=data.status,
+            status=data.status.value,
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -265,7 +265,7 @@ class SalesTargetService:
         merged: dict[str, object] = {
             field: changes.get(field, getattr(row, field)) for field in _COLUMNS
         }
-        for field in ("period_type", "basis"):
+        for field in ("period_type", "basis", "status"):
             label = merged[field]
             if isinstance(label, StrEnum):
                 merged[field] = label.value
