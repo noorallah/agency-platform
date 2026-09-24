@@ -286,6 +286,10 @@ const List<ReportDefinition> reportCatalog = [
     // named rather than derived from forty fields of one record.
     columns: [
       ReportColumn(key: 'line_number', label: 'Line number', numeric: true),
+      // Beside the line, because the row carried only `product_id` and the
+      // screen showed a UUID where the product belongs (D-RPT-17).
+      ReportColumn(key: 'product_code', label: 'Product code'),
+      ReportColumn(key: 'product_name', label: 'Product'),
       ReportColumn(key: 'description', label: 'Description'),
       ReportColumn(
           key: 'ordered_quantity', label: 'Ordered quantity', numeric: true),
@@ -295,6 +299,7 @@ const List<ReportDefinition> reportCatalog = [
           numeric: true),
       ReportColumn(
           key: 'damaged_quantity', label: 'Damaged quantity', numeric: true),
+      ReportColumn(key: 'warehouse_name', label: 'Warehouse'),
       ReportColumn(key: 'batch_number', label: 'Batch number'),
     ],
   ),
@@ -309,6 +314,10 @@ const List<ReportDefinition> reportCatalog = [
     // named rather than derived from forty fields of one record.
     columns: [
       ReportColumn(key: 'line_number', label: 'Line number', numeric: true),
+      // Beside the line, because the row carried only `product_id` and the
+      // screen showed a UUID where the product belongs (D-RPT-17).
+      ReportColumn(key: 'product_code', label: 'Product code'),
+      ReportColumn(key: 'product_name', label: 'Product'),
       ReportColumn(key: 'description', label: 'Description'),
       ReportColumn(
           key: 'ordered_quantity', label: 'Ordered quantity', numeric: true),
@@ -318,6 +327,7 @@ const List<ReportDefinition> reportCatalog = [
           numeric: true),
       ReportColumn(
           key: 'rejected_quantity', label: 'Rejected quantity', numeric: true),
+      ReportColumn(key: 'warehouse_name', label: 'Warehouse'),
       ReportColumn(key: 'batch_number', label: 'Batch number'),
     ],
   ),

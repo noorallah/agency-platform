@@ -104,6 +104,8 @@ from app.tax.services.place_of_supply import place_of_supply_label
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.models import uom as _uom_models  # noqa: F401
+from tests.unit.test_sales_chain_synthesis import _Firm as _ChainFirm
+from tests.unit.test_sales_chain_synthesis import _session_factory as _chain_session
 
 # Fixtures here type their document numbers; see conftest (D-CFG-2).
 pytestmark = pytest.mark.typed_document_numbers
@@ -447,6 +449,16 @@ def test_sales_invoice_timeline_and_outstanding_endpoints_resolve() -> None:
     assert len(outstanding.data) == 1
     assert outstanding.data[0].invoice_count == 1
     assert outstanding.data[0].outstanding_amount > Decimal("0")
+
+    # D-RPT-19: this named the customer by `name`, the legal name, where
+    # every other report names one by `display_name` -- so the same customer
+    # read differently on two screens.
+    customer = session.scalar(select(Customer).where(Customer.firm_id == firm.id))
+    assert customer is not None
+    customer.display_name = "Alpha Traders"
+    session.commit()
+    renamed = get_customer_outstanding(scope=scope, db=session)
+    assert renamed.data[0].customer_name == "Alpha Traders"
 
 
 def test_sales_invoice_cancel_endpoint_passes_the_reason_through() -> None:
@@ -2902,3 +2914,75 @@ def test_the_reconciliation_counts_the_invoices_that_still_stand() -> None:
 
     service.cancel_invoice(invoice_id, firm_scope=firm.id, actor_id=uuid4())
     assert service.reconciliation_report(firm_scope=firm.id) == []
+
+
+def test_the_register_and_reconciliation_name_what_they_identify() -> None:
+    """D-RPT-17: the grid derives its columns from the row.
+
+    The register answered `customer_id` and `branch_id`, and the
+    reconciliation `product_id`, with nothing to read any of them by -- so
+    both screens showed UUIDs where a name belongs.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=uuid4()
+    )
+    service, _invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)
+    customer = session.scalar(select(Customer).where(Customer.firm_id == firm.id))
+    branch = session.scalar(select(Branch).where(Branch.firm_id == firm.id))
+    product = session.scalar(select(Product).where(Product.firm_id == firm.id))
+    assert customer is not None and branch is not None and product is not None
+
+    [record] = service.register_report(firm_scope=firm.id)
+    assert (record.customer_id, record.customer_name) == (
+        customer.id,
+        customer.display_name,
+    )
+    assert (record.branch_id, record.branch_name) == (branch.id, branch.name)
+
+    [row] = service.reconciliation_report(firm_scope=firm.id)
+    assert row.product_id == product.id
+    assert (row.product_code, row.product_name) == (product.code, product.name)
+
+
+def test_a_bare_bill_for_a_withdrawn_product_is_refused_as_a_bill() -> None:
+    """D-MST-12: a counter sale is where a bill's product line is typed.
+
+    The bare lines of a bill raised with no order behind it are new lines, so
+    the product's status is read -- and the refusal says "bill", because that
+    is what the person was raising rather than the order the chain would have
+    synthesised for them.
+    """
+    setup = _ChainFirm(_chain_session()())
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    setup.product.status = "INACTIVE"
+    setup.session.commit()
+
+    with pytest.raises(ValidationError) as refused:
+        SalesInvoiceService(setup.session).create_invoice(
+            setup.bare_bill(), firm_id=setup.firm.id, actor_id=uuid4()
+        )
+    setup.session.rollback()
+
+    assert setup.product.code in str(refused.value)
+    assert "is inactive" in str(refused.value)
+    assert "new bill" in str(refused.value)
+    assert setup.session.scalar(select(SalesInvoice.id)) is None
+    assert setup.session.scalar(select(SalesOrder.id)) is None
+
+
+def test_goods_already_dispatched_are_billed_though_the_product_is_withdrawn() -> None:
+    """What left the warehouse is still billed (D-MST-12).
+
+    The line is inherited from a delivery note, not typed, so withdrawing the
+    product stops the next sale rather than abandoning the one already made.
+    """
+    setup = _Billing(_session_factory()())
+    note = _dispatched_note(setup)
+    setup.product.status = "INACTIVE"
+    setup.session.commit()
+
+    billed = _bill_note(setup, note, Decimal("4"))
+
+    assert billed.grand_total > Decimal("0")

@@ -1,6 +1,6 @@
 """Application services for authentication and platform identity administration."""
 
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from datetime import UTC, datetime, timedelta
 from hashlib import sha256
 from math import ceil
@@ -618,21 +618,40 @@ class IdentityService:
         return user
 
     def delete_user(
-        self, user_id: UUID, actor_id: UUID, firm_scope: UUID | None = None
+        self,
+        user_id: UUID,
+        actor_id: UUID,
+        firm_scope: UUID | None = None,
+        on_membership_ended: Callable[[UUID], None] | None = None,
     ) -> None:
-        """Soft delete a non-platform-admin user and revoke all sessions."""
+        """Soft delete a non-platform-admin user and revoke all sessions.
+
+        Deleting the account ends every membership at once -- every
+        `active_member_count` filters `users.is_deleted` -- so the firm-owned
+        rows naming them are retired in each of their firms, the same way
+        `set_user_firms` retires the ones it ends (D-TER-17).
+
+        Args:
+            user_id: The account to retire.
+            actor_id: Who is retiring it.
+            firm_scope: The caller's firm, when they are not platform-wide.
+            on_membership_ended: Called once per firm they belonged to, after
+                the commit. See `set_user_firms`.
+
+        """
         user = self._get_user(user_id, firm_scope)
         if firm_scope is not None:
             self._assert_exclusive_firm_user(user.id, firm_scope)
         if self._is_platform_admin(user.id):
             raise BusinessRuleError("Platform administrator users cannot be deleted.")
+        was_a_member_of = self._member_firm_ids(user.id)
         user.is_deleted = True
         user.deleted_at = utc_now()
         user.deleted_by = actor_id
         user.updated_by = actor_id
         self._revoke_user_tokens(user.id)
         self._audit_for_firms(
-            self._member_firm_ids(user.id),
+            was_a_member_of,
             action="user.deleted",
             entity_type="user",
             entity_id=user.id,
@@ -645,6 +664,9 @@ class IdentityService:
             after_data={"is_deleted": True},
         )
         self._session.commit()
+        if on_membership_ended is not None:
+            for firm_id in was_a_member_of:
+                on_membership_ended(firm_id)
 
     def reset_password(
         self,
@@ -1988,6 +2010,7 @@ class IdentityService:
         assignments: list[UserFirmAssignment],
         actor_id: UUID,
         allowed_firm_ids: frozenset[UUID] | None = None,
+        on_membership_ended: Callable[[UUID], None] | None = None,
     ) -> list[UserFirm]:
         """Replace firm memberships while enforcing a single active primary firm.
 
@@ -2008,6 +2031,12 @@ class IdentityService:
             assignments: The memberships being asked for.
             actor_id: Who is asking.
             allowed_firm_ids: The firms the caller may staff, or None for all.
+            on_membership_ended: Called once per firm the person has stopped
+                belonging to, **after** the platform change is committed. It
+                is how the firm-owned rows that name them are retired, and it
+                is a callback rather than a call because those rows live in
+                each firm's own store and only the transport layer can open
+                one (D-TER-17).
 
         Returns:
             The resulting memberships.
@@ -2104,7 +2133,43 @@ class IdentityService:
                 )
         self._revoke_user_tokens(user.id)
         self._session.commit()
+        # After the commit, because each firm's rows live in that firm's own
+        # store: the two writes cannot be one transaction whatever order they
+        # are in, so the platform fact is settled first and the firm stores
+        # follow it.
+        self._announce_departures(
+            before_memberships, after_memberships, on_membership_ended
+        )
         return result
+
+    @staticmethod
+    def _announce_departures(
+        before: dict[UUID, dict[str, object]],
+        after: dict[UUID, dict[str, object]],
+        listener: Callable[[UUID], None] | None,
+    ) -> None:
+        """Report each firm the person has stopped actively belonging to.
+
+        `_membership_state` keys only the **live** memberships, and a
+        membership deactivated in place is as much a departure as one deleted
+        -- both make `active_member_count` answer zero, which is what every
+        read-side check asks (D-TER-17).
+
+        Args:
+            before: The live memberships before the save.
+            after: The live memberships after it.
+            listener: What to tell, or None.
+
+        """
+        if listener is None:
+            return
+
+        def active(state: dict[UUID, dict[str, object]], firm_id: UUID) -> bool:
+            return bool(state.get(firm_id, {}).get("is_active", False))
+
+        for firm_id in sorted(set(before) | set(after), key=str):
+            if active(before, firm_id) and not active(after, firm_id):
+                listener(firm_id)
 
     @staticmethod
     def _membership_state(

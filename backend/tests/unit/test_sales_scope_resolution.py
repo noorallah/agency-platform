@@ -250,8 +250,30 @@ def test_a_salesperson_off_the_round_is_refused() -> None:
     route = _territory(service, firm.id, actor, "RT01")
     customer = _customer(session, firm.id)
     _assign_customer(service, route, customer.id, firm.id, actor)
+    stranger = _salesman(session, firm.id, "stranger@example.local")
 
     with pytest.raises(ValidationError, match="not assigned to this territory"):
+        resolve_sales_scope(
+            session,
+            firm_id=firm.id,
+            customer_id=customer.id,
+            salesman_id=stranger,
+        )
+
+
+def test_a_salesperson_who_does_not_work_here_is_refused() -> None:
+    """Membership is asked before coverage, and whether or not there is a round.
+
+    The order, the delivery note and the invoice each asked it in their own
+    service; the quotation and the sales return did not, so with no territory
+    to check against **any id at all** was stored (D-TER-15). Asking it in
+    the shared resolver asks it once, for all five.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    customer = _customer(session, firm.id)
+
+    with pytest.raises(ValidationError, match="not an active member"):
         resolve_sales_scope(
             session,
             firm_id=firm.id,

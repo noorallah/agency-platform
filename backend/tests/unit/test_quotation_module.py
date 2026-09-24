@@ -606,6 +606,41 @@ def test_the_register_says_what_became_of_each_offer() -> None:
     assert register[0].status == QuotationStatus.CONVERTED
 
 
+def test_the_register_names_the_customer_it_quoted() -> None:
+    """A register of ids alone shows a screen of UUIDs (D-RPT-17)."""
+    session = _session_factory()()
+    setup = _Setup(session)
+    setup.accepted()
+
+    register = setup.service.register_report(firm_scope=setup.firm.id)
+
+    assert register[0].customer_id == setup.customer.id
+    assert register[0].customer_name == setup.customer.display_name
+
+
+def test_the_register_says_whether_the_prices_still_stand() -> None:
+    """D-RPT-19: expiry is a date, and the register only showed the status.
+
+    A SENT offer past `valid_until` still reads SENT, so the register said
+    nothing about whether it could still be acted on -- the one question a
+    list of live offers is read to answer. `is_expired` rides beside the
+    status, derived the way the document's own response derives it.
+    """
+    session = _session_factory()()
+    setup = _Setup(session)
+    row = setup.accepted()
+
+    [record] = setup.service.register_report(firm_scope=setup.firm.id)
+    assert record.is_expired is False
+
+    row.valid_until = utc_now().date() - timedelta(days=1)
+    session.commit()
+
+    [lapsed] = setup.service.register_report(firm_scope=setup.firm.id)
+    assert lapsed.is_expired is True
+    assert lapsed.status == QuotationStatus.ACCEPTED, "the stored status is untouched"
+
+
 def test_the_response_answers_whether_it_can_still_be_converted() -> None:
     """Answered by the server so a client cannot disagree with it."""
     session = _session_factory()()
@@ -1264,3 +1299,72 @@ def test_a_converted_order_finds_the_quoted_offers_again() -> None:
         )
     ).all()
     assert sorted(row.status for row in staged) == ["PENDING"] * 3
+
+
+@pytest.mark.parametrize(
+    ("status", "words"),
+    [
+        ("INACTIVE", "is inactive"),
+        ("DRAFT", "is still a draft"),
+        ("ARCHIVED", "is archived"),
+    ],
+)
+def test_a_product_that_is_not_active_is_not_quoted(status: str, words: str) -> None:
+    """D-MST-12: the product half of the rule #562 gave the customer.
+
+    Nothing on the sales side read ``products.status``, so a product withdrawn
+    from sale was still offered. It is refused by code and name, and no offer
+    is written.
+    """
+    session = _session_factory()()
+    setup = _Setup(session)
+    setup.product.status = status
+    session.commit()
+
+    with pytest.raises(ValidationError) as refused:
+        setup.service.create_quotation(
+            setup.payload(), firm_id=setup.firm.id, actor_id=setup.actor_id
+        )
+    session.rollback()
+
+    assert setup.product.code in str(refused.value)
+    assert words in str(refused.value)
+    assert "new quotation" in str(refused.value)
+    assert session.scalar(select(SalesQuotation.id)) is None
+
+
+def test_an_offer_already_made_is_edited_but_takes_no_withdrawn_line() -> None:
+    """An edit keeping the product saves; one adding a withdrawn one does not."""
+    session = _session_factory()()
+    setup = _Setup(session)
+    quotation = setup.service.create_quotation(
+        setup.payload(), firm_id=setup.firm.id, actor_id=setup.actor_id
+    )
+    withdrawn = Product(
+        firm_id=setup.firm.id,
+        code="SKU-GONE",
+        name="Withdrawn",
+        product_type="STOCK_ITEM",
+        status="INACTIVE",
+    )
+    session.add(withdrawn)
+    session.commit()
+
+    kept = setup.service.update_quotation(
+        quotation.id, setup.payload(), firm_scope=setup.firm.id, actor_id=uuid4()
+    )
+    assert kept.id == quotation.id
+
+    payload = setup.payload()
+    payload.lines.append(
+        QuotationLineWrite(
+            line_number=2,
+            product_id=withdrawn.id,
+            quantity=Decimal("1"),
+            unit_price=PRICE,
+        )
+    )
+    with pytest.raises(ValidationError, match="is inactive"):
+        setup.service.update_quotation(
+            quotation.id, payload, firm_scope=setup.firm.id, actor_id=uuid4()
+        )

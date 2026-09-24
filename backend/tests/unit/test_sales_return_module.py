@@ -725,6 +725,20 @@ def test_the_reports_read_the_completed_return() -> None:
     reconciliation = service.reconciliation_report(firm_scope=setup.firm.id)
 
     assert [record.return_number for record in register] == [row.return_number]
+    # Each id the register carries is named beside it, or the grid -- which
+    # derives its columns from the row -- shows UUIDs (D-RPT-17).
+    assert (register[0].customer_id, register[0].customer_name) == (
+        setup.customer.id,
+        setup.customer.display_name,
+    )
+    assert (register[0].branch_id, register[0].branch_name) == (
+        setup.branch.id,
+        setup.branch.name,
+    )
+    assert (register[0].warehouse_id, register[0].warehouse_name) == (
+        setup.warehouse.id,
+        setup.warehouse.name,
+    )
     assert by_customer[0].customer_name == "Customer CUS-001"
     assert by_customer[0].return_count == 1
     assert by_product[0].product_code == "SKU-001"
