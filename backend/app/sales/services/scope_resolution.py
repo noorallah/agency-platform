@@ -77,7 +77,7 @@ def resolve_sales_scope(
         else _derived_territory(session, customer_id)
     )
     resolved_salesman = (
-        _validated_salesman(session, resolved_territory, salesman_id)
+        _validated_salesman(session, firm_id, resolved_territory, salesman_id)
         if salesman_id is not None
         else _derived_salesman(session, firm_id, resolved_territory)
     )
@@ -246,14 +246,22 @@ def _derived_territory(session: Session, customer_id: UUID) -> UUID | None:
 
 
 def _validated_salesman(
-    session: Session, territory_id: UUID | None, salesman_id: UUID
+    session: Session, firm_id: UUID, territory_id: UUID | None, salesman_id: UUID
 ) -> UUID:
-    """Accept a caller's salesman only if they cover the resolved territory.
+    """Accept a caller's salesman only if they work here and cover the territory.
 
-    With no territory to check against there is nothing to validate, so the
+    Membership first, because it is the question that has an answer whether or
+    not the firm runs territories: the order, the delivery note and the invoice
+    each asked it in their own service, and the quotation and the sales return
+    -- which do not -- took **any id at all** whenever the customer was on no
+    territory (D-TER-15). Asking it here asks it once, for all five.
+
+    Coverage is still only checkable against a territory. With none, the
     caller's choice stands: refusing would block a firm that records who sold
     without running territories at all.
     """
+    if not FirmMetadataReader(session).active_member_count(firm_id, [salesman_id]):
+        raise ValidationError("Salesman is not an active member of this firm.")
     if territory_id is None:
         return salesman_id
     if not _covers(session, territory_id, salesman_id):
