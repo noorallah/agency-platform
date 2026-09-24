@@ -28,7 +28,7 @@ from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
-from app.core.pagination import PaginationParams
+from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.document_framework.schemas import DocumentLifecycleEventResponse
 from app.sales_order.schemas import (
@@ -425,15 +425,20 @@ def sales_order_history(
 
 
 @router.get(
-    "/reports/register", response_model=ApiResponse[list[SalesOrderRegisterRecord]]
+    "/reports/register", response_model=PaginatedResponse[SalesOrderRegisterRecord]
 )
 def sales_order_register(
     scope: SalesOrderReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[SalesOrderRegisterRecord]]:
+) -> PaginatedResponse[SalesOrderRegisterRecord]:
     """Return the sales order register report for the visible firm scope."""
-    return ApiResponse(
-        data=SalesOrderService(db).register_report(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        SalesOrderService(db).register_report(firm_scope=scope.firm_id, window=window)
     )
 
 
@@ -462,42 +467,63 @@ def back_order_report(
 
 
 @router.get(
-    "/reports/by-customer", response_model=ApiResponse[list[SalesOrderByCustomerRecord]]
+    "/reports/by-customer", response_model=PaginatedResponse[SalesOrderByCustomerRecord]
 )
 def orders_by_customer(
     scope: SalesOrderReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[SalesOrderByCustomerRecord]]:
+) -> PaginatedResponse[SalesOrderByCustomerRecord]:
     """Total order value and count per customer, cancellations excluded."""
-    return ApiResponse(
-        data=SalesOrderService(db).orders_by_customer(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        SalesOrderService(db).orders_by_customer(
+            firm_scope=scope.firm_id, window=window
+        )
     )
 
 
 @router.get(
-    "/reports/by-salesman", response_model=ApiResponse[list[SalesOrderBySalesmanRecord]]
+    "/reports/by-salesman", response_model=PaginatedResponse[SalesOrderBySalesmanRecord]
 )
 def orders_by_salesman(
     scope: SalesOrderReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[SalesOrderBySalesmanRecord]]:
+) -> PaginatedResponse[SalesOrderBySalesmanRecord]:
     """Total order value and count per salesman, cancellations excluded."""
-    return ApiResponse(
-        data=SalesOrderService(db).orders_by_salesman(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        SalesOrderService(db).orders_by_salesman(
+            firm_scope=scope.firm_id, window=window
+        )
     )
 
 
 @router.get(
     "/reports/by-territory",
-    response_model=ApiResponse[list[SalesOrderByTerritoryRecord]],
+    response_model=PaginatedResponse[SalesOrderByTerritoryRecord],
 )
 def orders_by_territory(
     scope: SalesOrderReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[SalesOrderByTerritoryRecord]]:
+) -> PaginatedResponse[SalesOrderByTerritoryRecord]:
     """Total order value and count per territory, cancellations excluded."""
-    return ApiResponse(
-        data=SalesOrderService(db).orders_by_territory(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        SalesOrderService(db).orders_by_territory(
+            firm_scope=scope.firm_id, window=window
+        )
     )
 
 

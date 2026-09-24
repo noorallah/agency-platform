@@ -19,6 +19,7 @@ from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader
 from app.common.report_names import branch_names, customer_names, product_names
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
+from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger
 from app.core.utils.pricing import (
@@ -1422,7 +1423,11 @@ class SalesInvoiceService(TransactionalDocumentService):
         }
 
     def register_report(
-        self, *, firm_scope: UUID, statuses: Sequence[str] | None = None
+        self,
+        *,
+        firm_scope: UUID,
+        statuses: Sequence[str] | None = None,
+        window: ReportWindow = WHOLE_HISTORY,
     ) -> list[SalesInvoiceRegisterRecord]:
         """Return the register report, optionally narrowed to some statuses.
 
@@ -1433,26 +1438,28 @@ class SalesInvoiceService(TransactionalDocumentService):
         read each for the whole report: the grid derives its columns from the
         row, so a register of ids alone read as UUIDs (D-RPT-17).
         """
-        rows = list(
-            self._session.scalars(
-                select(SalesInvoice)
-                .where(
-                    SalesInvoice.firm_id == firm_scope,
-                    SalesInvoice.is_deleted.is_(False),
-                    *(
-                        ()
-                        if statuses is None
-                        else (SalesInvoice.status.in_(list(statuses)),)
-                    ),
-                )
-                .order_by(
-                    SalesInvoice.invoice_date.desc(), SalesInvoice.created_at.desc()
-                )
-            ).all()
+        rows = window.fetch(
+            self._session,
+            select(SalesInvoice)
+            .where(
+                SalesInvoice.firm_id == firm_scope,
+                SalesInvoice.is_deleted.is_(False),
+                *(
+                    ()
+                    if statuses is None
+                    else (SalesInvoice.status.in_(list(statuses)),)
+                ),
+                *window.dated(SalesInvoice.invoice_date),
+            )
+            .order_by(
+                SalesInvoice.invoice_date.desc(),
+                SalesInvoice.created_at.desc(),
+                SalesInvoice.id.desc(),
+            ),
         )
         customers = customer_names(self._session, (row.customer_id for row in rows))
         branches = branch_names(self._session, (row.branch_id for row in rows))
-        return [
+        records = [
             SalesInvoiceRegisterRecord(
                 invoice_id=row.id,
                 invoice_number=row.invoice_number,
@@ -1468,6 +1475,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             )
             for row in rows
         ]
+        return mapped_like(rows, records)
 
     def outstanding_report(
         self, *, firm_scope: UUID

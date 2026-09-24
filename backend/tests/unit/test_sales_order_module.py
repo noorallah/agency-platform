@@ -1322,3 +1322,77 @@ def test_a_draft_order_is_edited_but_takes_no_withdrawn_product() -> None:
             firm_scope=firm.id,
             actor_id=uuid4(),
         )
+
+
+def test_the_dated_order_reports_take_a_window_and_a_page() -> None:
+    """D-RPT-18: every report was the firm's whole history.
+
+    Register and the by-* totals are read on the order's own `order_date`,
+    both ends inclusive, with `total_records` counting the matches rather than
+    the page. Pending and back-orders are what is open today, so they take
+    neither.
+    """
+    from app.sales_order.api.router import (
+        orders_by_customer,
+        orders_by_salesman,
+        orders_by_territory,
+        router,
+        sales_order_register,
+    )
+    from tests.unit.report_windows import assert_page_size_is_bounded, report_scope
+
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    service = SalesOrderService(session)
+    days = [date(2026, 9, 20), date(2026, 9, 21), date(2026, 9, 22)]
+    for day in days:
+        service.create_order(
+            SalesOrderCreate(
+                customer_id=customer.id,
+                branch_id=branch.id,
+                warehouse_id=warehouse.id,
+                order_date=day,
+                lines=[
+                    SalesOrderLineWrite(
+                        line_number=1,
+                        product_id=product.id,
+                        quantity=Decimal("1"),
+                        unit_price=Decimal("100"),
+                    )
+                ],
+            ),
+            firm_id=firm.id,
+            actor_id=uuid4(),
+        )
+    session.commit()
+    scope = report_scope(firm.id)
+
+    page = sales_order_register(
+        scope=scope,
+        db=session,
+        from_date=days[1],
+        to_date=days[2],
+        page=1,
+        page_size=1,
+    )
+    assert page.pagination.total_records == 2
+    assert [row.order_date for row in page.data] == [days[2]]
+
+    for handler in (orders_by_customer, orders_by_salesman, orders_by_territory):
+        [row] = handler(
+            scope=scope, db=session, from_date=days[0], to_date=days[1]
+        ).data
+        assert row.order_count == 2, handler.__name__
+        assert handler(scope=scope, db=session, to_date=date(2026, 9, 19)).data == []
+
+    assert_page_size_is_bounded(
+        router,
+        "/api/v1/sales-orders/reports/register",
+        "/api/v1/sales-orders/reports/by-customer",
+        "/api/v1/sales-orders/reports/by-salesman",
+        "/api/v1/sales-orders/reports/by-territory",
+    )

@@ -18,6 +18,7 @@ from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.common.report_names import branch_names, product_names, vendor_names
 from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger
 from app.core.utils.pricing import LineDiscount, resolve_line_discount
@@ -854,7 +855,11 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         return records
 
     def register_report(
-        self, *, firm_scope: UUID, statuses: Sequence[str] | None = None
+        self,
+        *,
+        firm_scope: UUID,
+        statuses: Sequence[str] | None = None,
+        window: ReportWindow = WHOLE_HISTORY,
     ) -> list[PurchaseInvoiceRegisterRecord]:
         """Return the register report, optionally narrowed to some statuses.
 
@@ -865,27 +870,28 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         read each for the whole report: the grid derives its columns from the
         row, so a register of ids alone read as UUIDs (D-RPT-17).
         """
-        rows = list(
-            self._session.scalars(
-                select(PurchaseInvoice)
-                .where(
-                    PurchaseInvoice.firm_id == firm_scope,
-                    PurchaseInvoice.is_deleted.is_(False),
-                    *(
-                        ()
-                        if statuses is None
-                        else (PurchaseInvoice.status.in_(list(statuses)),)
-                    ),
-                )
-                .order_by(
-                    PurchaseInvoice.invoice_date.desc(),
-                    PurchaseInvoice.created_at.desc(),
-                )
-            ).all()
+        rows = window.fetch(
+            self._session,
+            select(PurchaseInvoice)
+            .where(
+                PurchaseInvoice.firm_id == firm_scope,
+                PurchaseInvoice.is_deleted.is_(False),
+                *(
+                    ()
+                    if statuses is None
+                    else (PurchaseInvoice.status.in_(list(statuses)),)
+                ),
+                *window.dated(PurchaseInvoice.invoice_date),
+            )
+            .order_by(
+                PurchaseInvoice.invoice_date.desc(),
+                PurchaseInvoice.created_at.desc(),
+                PurchaseInvoice.id.desc(),
+            ),
         )
         suppliers = vendor_names(self._session, (row.vendor_id for row in rows))
         branches = branch_names(self._session, (row.branch_id for row in rows))
-        return [
+        records = [
             PurchaseInvoiceRegisterRecord(
                 invoice_id=row.id,
                 invoice_number=row.invoice_number,
@@ -901,6 +907,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             )
             for row in rows
         ]
+        return mapped_like(rows, records)
 
     def outstanding_report(
         self, *, firm_scope: UUID

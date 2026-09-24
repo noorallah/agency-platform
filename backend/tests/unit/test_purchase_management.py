@@ -2066,3 +2066,63 @@ def test_an_edits_two_history_rows_are_in_order_on_the_clock() -> None:
     assert all(
         later > earlier for earlier, later in zip(stamps, stamps[1:], strict=False)
     ), "every history row is strictly later than the one before it"
+
+
+def test_the_dated_order_reports_take_a_window_and_a_page() -> None:
+    """D-RPT-18: every report was the firm's whole history.
+
+    Register and the by-* totals are read on the order's own `purchase_date`,
+    both ends inclusive, with `total_records` counting the matches rather than
+    the page. Pending and overdue are what is open today, so they take neither.
+    """
+    from app.purchase.api.router import (
+        purchase_order_register,
+        purchase_orders_by_product,
+        purchase_orders_by_vendor,
+        router,
+    )
+    from tests.unit.report_windows import assert_page_size_is_bounded, report_scope
+
+    session = _session_factory()()
+    _service, firm_id, _actor_id, _first = _reportable_orders(session)
+    days = [date(2026, 8, 4), date(2026, 8, 5), date(2026, 8, 6)]
+    # The cancelled order is dated last, so the by-* windows can leave it out.
+    orders = sorted(
+        session.scalars(select(PurchaseOrder)).all(),
+        key=lambda order: (order.status == "CANCELLED", order.po_number),
+    )
+    for order, day in zip(orders, days, strict=True):
+        order.purchase_date = day
+    session.commit()
+    scope = report_scope(firm_id)
+
+    page = purchase_order_register(
+        scope=scope,
+        db=session,
+        from_date=days[1],
+        to_date=days[2],
+        page=1,
+        page_size=1,
+    )
+    assert page.pagination.total_records == 2
+    assert [row.purchase_date for row in page.data] == [days[2]]
+
+    [vendor] = purchase_orders_by_vendor(
+        scope=scope, db=session, from_date=days[1], to_date=days[1]
+    ).data
+    assert vendor.order_count == 1
+    assert (
+        purchase_orders_by_vendor(scope=scope, db=session, from_date=days[2]).data == []
+    )
+    [product] = purchase_orders_by_product(
+        scope=scope, db=session, to_date=days[1]
+    ).data
+    assert product.order_count == 2
+
+    assert_page_size_is_bounded(
+        router,
+        "/api/v1/purchases/reports/register",
+        "/api/v1/purchases/reports/by-vendor",
+        "/api/v1/purchases/reports/by-buyer",
+        "/api/v1/purchases/reports/by-product",
+    )

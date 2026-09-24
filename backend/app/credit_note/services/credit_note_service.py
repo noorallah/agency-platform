@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.common.audit.services import record_audit
 from app.core.concurrency import assert_version
 from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO, quantize_ledger, quantize_money
 from app.credit_note.models import CreditNote, CreditNoteLine, CreditNoteStatus
@@ -735,23 +736,27 @@ class CreditNoteService(TransactionalDocumentService):
 
     # ---- reports -------------------------------------------------------
 
-    def register_report(self, *, firm_scope: UUID) -> list[CreditNoteRegisterRecord]:
-        """Every credit note raised, newest first."""
-        rows = list(
-            self._session.scalars(
-                select(CreditNote)
-                .where(
-                    CreditNote.firm_id == firm_scope,
-                    CreditNote.is_deleted.is_(False),
-                )
-                .order_by(
-                    CreditNote.credit_note_date.desc(), CreditNote.created_at.desc()
-                )
-            ).all()
+    def register_report(
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
+    ) -> list[CreditNoteRegisterRecord]:
+        """Every credit note raised in the window, newest first; paged in SQL."""
+        rows = window.fetch(
+            self._session,
+            select(CreditNote)
+            .where(
+                CreditNote.firm_id == firm_scope,
+                CreditNote.is_deleted.is_(False),
+                *window.dated(CreditNote.credit_note_date),
+            )
+            .order_by(
+                CreditNote.credit_note_date.desc(),
+                CreditNote.created_at.desc(),
+                CreditNote.id.desc(),
+            ),
         )
         names = self._customer_names({row.customer_id for row in rows})
         invoices = self._invoice_numbers({row.sales_invoice_id for row in rows})
-        return [
+        records = [
             CreditNoteRegisterRecord(
                 credit_note_id=row.id,
                 credit_note_number=row.credit_note_number,
@@ -768,16 +773,17 @@ class CreditNoteService(TransactionalDocumentService):
             )
             for row in rows
         ]
+        return mapped_like(rows, records)
 
     def by_customer_report(
-        self, *, firm_scope: UUID
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
     ) -> list[CreditNoteByCustomerRecord]:
         """Credited value and count per customer.
 
         Cancelled notes are excluded: a withdrawn credit is one the customer
         never had, and counting it overstates what the firm gave back.
         """
-        rows = self._live_notes(firm_scope)
+        rows = self._live_notes(firm_scope, window)
         taxable: dict[UUID, Decimal] = {}
         tax: dict[UUID, Decimal] = {}
         counts: dict[UUID, int] = {}
@@ -801,7 +807,9 @@ class CreditNoteService(TransactionalDocumentService):
             )
         ]
 
-    def by_reason_report(self, *, firm_scope: UUID) -> list[CreditNoteByReasonRecord]:
+    def by_reason_report(
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
+    ) -> list[CreditNoteByReasonRecord]:
         """Total what the firm is crediting for, and how much of it.
 
         The register cannot answer this on its own, and the two answers are
@@ -810,7 +818,7 @@ class CreditNoteService(TransactionalDocumentService):
         """
         totals: dict[str, Decimal] = {}
         counts: dict[str, int] = {}
-        for row in self._live_notes(firm_scope):
+        for row in self._live_notes(firm_scope, window):
             totals[row.reason] = totals.get(row.reason, ZERO) + Decimal(
                 str(row.total_amount)
             )
@@ -824,7 +832,9 @@ class CreditNoteService(TransactionalDocumentService):
             for reason, total in sorted(totals.items(), key=lambda item: -item[1])
         ]
 
-    def _live_notes(self, firm_scope: UUID) -> list[CreditNote]:
+    def _live_notes(
+        self, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
+    ) -> list[CreditNote]:
         """Every note that was actually given: APPROVED, and nothing else.
 
         Only approval posts the journal and moves the customer's balance; a
@@ -838,6 +848,7 @@ class CreditNoteService(TransactionalDocumentService):
                     CreditNote.firm_id == firm_scope,
                     CreditNote.is_deleted.is_(False),
                     CreditNote.status == CreditNoteStatus.APPROVED.value,
+                    *window.dated(CreditNote.credit_note_date),
                 )
             ).all()
         )

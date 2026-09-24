@@ -20,7 +20,7 @@ from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
-from app.core.pagination import PaginationParams
+from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.document_framework.schemas import DocumentLifecycleEventResponse
 from app.sales_return.schemas import (
@@ -172,57 +172,83 @@ def get_sales_return_summary(
 
 @router.get(
     "/reports/register",
-    response_model=ApiResponse[list[SalesReturnRegisterRecord]],
+    response_model=PaginatedResponse[SalesReturnRegisterRecord],
 )
 def sales_return_register(
     scope: SalesReturnReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[SalesReturnRegisterRecord]]:
+) -> PaginatedResponse[SalesReturnRegisterRecord]:
     """Every sales return raised, with what it was worth."""
-    return ApiResponse(
-        data=SalesReturnService(db).register_report(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        SalesReturnService(db).register_report(firm_scope=scope.firm_id, window=window)
     )
 
 
 @router.get(
     "/reports/by-customer",
-    response_model=ApiResponse[list[SalesReturnByCustomerRecord]],
+    response_model=PaginatedResponse[SalesReturnByCustomerRecord],
 )
 def sales_returns_by_customer(
     scope: SalesReturnReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[SalesReturnByCustomerRecord]]:
+) -> PaginatedResponse[SalesReturnByCustomerRecord]:
     """Total returned value and count per customer."""
-    return ApiResponse(
-        data=SalesReturnService(db).by_customer_report(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        SalesReturnService(db).by_customer_report(
+            firm_scope=scope.firm_id, window=window
+        )
     )
 
 
 @router.get(
     "/reports/by-product",
-    response_model=ApiResponse[list[SalesReturnByProductRecord]],
+    response_model=PaginatedResponse[SalesReturnByProductRecord],
 )
 def sales_returns_by_product(
     scope: SalesReturnReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[SalesReturnByProductRecord]]:
+) -> PaginatedResponse[SalesReturnByProductRecord]:
     """Total returned quantity and value per product."""
-    return ApiResponse(
-        data=SalesReturnService(db).by_product_report(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        SalesReturnService(db).by_product_report(
+            firm_scope=scope.firm_id, window=window
+        )
     )
 
 
 @router.get(
     "/reports/reconciliation",
-    response_model=ApiResponse[list[SalesReturnReconciliationRecord]],
+    response_model=PaginatedResponse[SalesReturnReconciliationRecord],
 )
 def sales_return_reconciliation(
     scope: SalesReturnReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[SalesReturnReconciliationRecord]]:
+) -> PaginatedResponse[SalesReturnReconciliationRecord]:
     """Return lines set against the documents they were dispatched on."""
-    return ApiResponse(
-        data=SalesReturnService(db).reconciliation_report(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        SalesReturnService(db).reconciliation_report(
+            firm_scope=scope.firm_id, window=window
+        )
     )
 
 

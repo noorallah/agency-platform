@@ -7,7 +7,7 @@ administrators — which is why none of it was ever exercised.
 """
 
 import inspect
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import get_args
@@ -2986,3 +2986,40 @@ def test_goods_already_dispatched_are_billed_though_the_product_is_withdrawn() -
     billed = _bill_note(setup, note, Decimal("4"))
 
     assert billed.grand_total > Decimal("0")
+
+
+def test_the_register_takes_a_window_and_a_page() -> None:
+    """D-RPT-18: the register was every invoice the firm ever raised.
+
+    Read on the invoice's own `invoice_date`, both ends inclusive, with
+    `total_records` counting the matches rather than the page. Pending,
+    overdue, outstanding and the reconciliation are what is open today, so
+    they take neither.
+    """
+    from app.sales_invoice.api.router import get_sales_invoice_register, router
+    from app.sales_invoice.models import SalesInvoice
+    from tests.unit.report_windows import assert_page_size_is_bounded, report_scope
+
+    session = _session_factory()()
+    firm = _firm(session)
+    seed_finance_setup(
+        session, firm_id=firm.id, year_starts_on=date(2026, 4, 1), actor_id=uuid4()
+    )
+    _service, invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)
+    invoice = session.get(SalesInvoice, invoice_id)
+    assert invoice is not None
+    billed_on = invoice.invoice_date
+    scope = report_scope(firm.id)
+
+    def total(**window: object) -> int:
+        return get_sales_invoice_register(
+            scope=scope, db=session, **window  # type: ignore[arg-type]
+        ).pagination.total_records
+
+    assert total(from_date=billed_on, to_date=billed_on) == 1, "both ends are in"
+    assert total(from_date=billed_on + timedelta(days=1)) == 0
+    assert total(to_date=billed_on - timedelta(days=1)) == 0
+    beyond = get_sales_invoice_register(scope=scope, db=session, page=2, page_size=1)
+    assert (beyond.data, beyond.pagination.total_records) == ([], 1)
+
+    assert_page_size_is_bounded(router, "/api/v1/sales-invoices/reports/register")

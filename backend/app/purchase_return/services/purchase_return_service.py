@@ -17,6 +17,7 @@ from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.common.report_names import branch_names, vendor_names, warehouse_names
 from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_money
 from app.core.utils.pricing import LineDiscount, resolve_line_discount
@@ -1040,7 +1041,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         )
 
     def register_report(
-        self, *, firm_scope: UUID
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
     ) -> list[PurchaseReturnRegisterRecord]:
         """Return the register report for the visible firm scope.
 
@@ -1048,22 +1049,24 @@ class PurchaseReturnService(TransactionalDocumentService):
         the grid derives its columns from the row, so a register of ids alone
         read as UUIDs (D-RPT-17).
         """
-        rows = list(
-            self._session.scalars(
-                select(PurchaseReturn)
-                .where(
-                    PurchaseReturn.firm_id == firm_scope,
-                    PurchaseReturn.is_deleted.is_(False),
-                )
-                .order_by(
-                    PurchaseReturn.return_date.desc(), PurchaseReturn.created_at.desc()
-                )
-            ).all()
+        rows = window.fetch(
+            self._session,
+            select(PurchaseReturn)
+            .where(
+                PurchaseReturn.firm_id == firm_scope,
+                PurchaseReturn.is_deleted.is_(False),
+                *window.dated(PurchaseReturn.return_date),
+            )
+            .order_by(
+                PurchaseReturn.return_date.desc(),
+                PurchaseReturn.created_at.desc(),
+                PurchaseReturn.id.desc(),
+            ),
         )
         suppliers = vendor_names(self._session, (row.vendor_id for row in rows))
         branches = branch_names(self._session, (row.branch_id for row in rows))
         warehouses = warehouse_names(self._session, (row.warehouse_id for row in rows))
-        return [
+        records = [
             PurchaseReturnRegisterRecord(
                 return_id=row.id,
                 return_number=row.return_number,
@@ -1080,9 +1083,10 @@ class PurchaseReturnService(TransactionalDocumentService):
             )
             for row in rows
         ]
+        return mapped_like(rows, records)
 
     def by_vendor_report(
-        self, *, firm_scope: UUID
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
     ) -> list[PurchaseReturnByVendorRecord]:
         """Total returned value and count per vendor."""
         rows = list(
@@ -1091,6 +1095,7 @@ class PurchaseReturnService(TransactionalDocumentService):
                     PurchaseReturn.firm_id == firm_scope,
                     PurchaseReturn.is_deleted.is_(False),
                     PurchaseReturn.status != PurchaseReturnStatus.CANCELLED.value,
+                    *window.dated(PurchaseReturn.return_date),
                 )
             ).all()
         )
@@ -1116,7 +1121,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         ]
 
     def by_product_report(
-        self, *, firm_scope: UUID
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
     ) -> list[PurchaseReturnByProductRecord]:
         """Total returned quantity and value per product.
 
@@ -1124,7 +1129,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         answer with the per-line reconciliation, which carries no product at
         all.
         """
-        lines = self._report_lines(firm_scope=firm_scope)
+        lines = self._report_lines(firm_scope=firm_scope, window=window)
         quantities: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
         amounts: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
         counts: dict[UUID, int] = defaultdict(int)
@@ -1163,7 +1168,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         return return_tax_by_component(self._session, return_id)
 
     def _report_lines(
-        self, *, firm_scope: UUID
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
     ) -> list[tuple[PurchaseReturnLine, PurchaseReturn]]:
         """Every live return line in scope, with the return it belongs to.
 
@@ -1184,6 +1189,12 @@ class PurchaseReturnService(TransactionalDocumentService):
                     PurchaseReturn.is_deleted.is_(False),
                     PurchaseReturn.status != PurchaseReturnStatus.CANCELLED.value,
                     PurchaseReturnLine.is_deleted.is_(False),
+                    *window.dated(PurchaseReturn.return_date),
+                )
+                .order_by(
+                    PurchaseReturn.return_date.desc(),
+                    PurchaseReturn.id.desc(),
+                    PurchaseReturnLine.line_number,
                 )
             ).all()
         ]
@@ -1194,6 +1205,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         firm_scope: UUID,
         damaged_only: bool = False,
         expired_only: bool = False,
+        window: ReportWindow = WHOLE_HISTORY,
     ) -> list[PurchaseReturnReconciliationRecord]:
         """Return lines set against the receipts they came from.
 
@@ -1202,7 +1214,7 @@ class PurchaseReturnService(TransactionalDocumentService):
         ``is_expired``, and both reports used to filter on a quantity instead,
         so they answered "anything returned" and "nearly everything".
         """
-        lines = self._report_lines(firm_scope=firm_scope)
+        lines = self._report_lines(firm_scope=firm_scope, window=window)
         product_names = {
             product.id: product.name
             for product in self._session.scalars(

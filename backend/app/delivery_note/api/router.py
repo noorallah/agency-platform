@@ -28,7 +28,7 @@ from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
-from app.core.pagination import PaginationParams
+from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.delivery_note.schemas import (
     DeliveryNoteByDimensionRecord,
@@ -371,15 +371,20 @@ def delivery_note_history(
 
 
 @router.get(
-    "/reports/register", response_model=ApiResponse[list[DeliveryNoteRegisterRecord]]
+    "/reports/register", response_model=PaginatedResponse[DeliveryNoteRegisterRecord]
 )
 def delivery_note_register(
     scope: DeliveryNoteReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[DeliveryNoteRegisterRecord]]:
+) -> PaginatedResponse[DeliveryNoteRegisterRecord]:
     """Return the delivery note register report for the visible firm scope."""
-    return ApiResponse(
-        data=DeliveryNoteService(db).register_report(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        DeliveryNoteService(db).register_report(firm_scope=scope.firm_id, window=window)
     )
 
 
@@ -404,58 +409,82 @@ def pending_delivery_notes(
 
 @router.get(
     "/reports/partial",
-    response_model=ApiResponse[list[DeliveryNoteOrderProgressRecord]],
+    response_model=PaginatedResponse[DeliveryNoteOrderProgressRecord],
 )
 def partial_delivery_report(
     scope: DeliveryNoteReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[DeliveryNoteOrderProgressRecord]]:
+) -> PaginatedResponse[DeliveryNoteOrderProgressRecord]:
     """Return the partial delivery report for the visible firm scope."""
-    return ApiResponse(
-        data=DeliveryNoteService(db).partially_delivered_orders(
-            firm_scope=scope.firm_id
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        DeliveryNoteService(db).partially_delivered_orders(
+            firm_scope=scope.firm_id, window=window
         )
     )
 
 
 @router.get(
-    "/reports/by-route", response_model=ApiResponse[list[DeliveryNoteByDimensionRecord]]
+    "/reports/by-route", response_model=PaginatedResponse[DeliveryNoteByDimensionRecord]
 )
 def delivery_by_route(
     scope: DeliveryNoteReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[DeliveryNoteByDimensionRecord]]:
+) -> PaginatedResponse[DeliveryNoteByDimensionRecord]:
     """Total delivered value and count per route."""
-    return ApiResponse(
-        data=DeliveryNoteService(db).by_route_report(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        DeliveryNoteService(db).by_route_report(firm_scope=scope.firm_id, window=window)
     )
 
 
 @router.get(
     "/reports/by-salesman",
-    response_model=ApiResponse[list[DeliveryNoteByDimensionRecord]],
+    response_model=PaginatedResponse[DeliveryNoteByDimensionRecord],
 )
 def delivery_by_salesman(
     scope: DeliveryNoteReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[DeliveryNoteByDimensionRecord]]:
+) -> PaginatedResponse[DeliveryNoteByDimensionRecord]:
     """Total delivered value and count per salesman."""
-    return ApiResponse(
-        data=DeliveryNoteService(db).by_salesman_report(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        DeliveryNoteService(db).by_salesman_report(
+            firm_scope=scope.firm_id, window=window
+        )
     )
 
 
 @router.get(
     "/reports/by-warehouse",
-    response_model=ApiResponse[list[DeliveryNoteByDimensionRecord]],
+    response_model=PaginatedResponse[DeliveryNoteByDimensionRecord],
 )
 def delivery_by_warehouse(
     scope: DeliveryNoteReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[DeliveryNoteByDimensionRecord]]:
+) -> PaginatedResponse[DeliveryNoteByDimensionRecord]:
     """Total delivered value and count per warehouse."""
-    return ApiResponse(
-        data=DeliveryNoteService(db).by_warehouse_report(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        DeliveryNoteService(db).by_warehouse_report(
+            firm_scope=scope.firm_id, window=window
+        )
     )
 
 

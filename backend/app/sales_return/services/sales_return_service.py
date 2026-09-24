@@ -39,6 +39,7 @@ from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.common.report_names import branch_names, customer_names, warehouse_names
 from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger
 from app.core.utils.pricing import LineDiscount, resolve_line_discount
@@ -2144,27 +2145,33 @@ class SalesReturnService(TransactionalDocumentService):
 
     # ---- reports -------------------------------------------------------
 
-    def register_report(self, *, firm_scope: UUID) -> list[SalesReturnRegisterRecord]:
+    def register_report(
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
+    ) -> list[SalesReturnRegisterRecord]:
         """Every sales return raised, with what it was worth.
 
         Each id carries its name, in one read per table for the whole report:
         the grid derives its columns from the row, so a register of ids alone
         read as UUIDs (D-RPT-17).
         """
-        rows = list(
-            self._session.scalars(
-                select(SalesReturn)
-                .where(
-                    SalesReturn.firm_id == firm_scope,
-                    SalesReturn.is_deleted.is_(False),
-                )
-                .order_by(SalesReturn.return_date.desc())
-            ).all()
+        rows = window.fetch(
+            self._session,
+            select(SalesReturn)
+            .where(
+                SalesReturn.firm_id == firm_scope,
+                SalesReturn.is_deleted.is_(False),
+                *window.dated(SalesReturn.return_date),
+            )
+            .order_by(
+                SalesReturn.return_date.desc(),
+                SalesReturn.created_at.desc(),
+                SalesReturn.id.desc(),
+            ),
         )
         customers = customer_names(self._session, (row.customer_id for row in rows))
         branches = branch_names(self._session, (row.branch_id for row in rows))
         warehouses = warehouse_names(self._session, (row.warehouse_id for row in rows))
-        return [
+        records = [
             SalesReturnRegisterRecord(
                 return_id=row.id,
                 return_number=row.return_number,
@@ -2181,9 +2188,10 @@ class SalesReturnService(TransactionalDocumentService):
             )
             for row in rows
         ]
+        return mapped_like(rows, records)
 
     def by_customer_report(
-        self, *, firm_scope: UUID
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
     ) -> list[SalesReturnByCustomerRecord]:
         """Total returned value and count per customer, completed returns only."""
         rows = list(
@@ -2192,6 +2200,7 @@ class SalesReturnService(TransactionalDocumentService):
                     SalesReturn.firm_id == firm_scope,
                     SalesReturn.is_deleted.is_(False),
                     SalesReturn.status.in_(_RETURNED_STATUSES),
+                    *window.dated(SalesReturn.return_date),
                 )
             ).all()
         )
@@ -2217,10 +2226,10 @@ class SalesReturnService(TransactionalDocumentService):
         ]
 
     def by_product_report(
-        self, *, firm_scope: UUID
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
     ) -> list[SalesReturnByProductRecord]:
         """Total returned quantity and value per product."""
-        lines = self._report_lines(firm_scope=firm_scope)
+        lines = self._report_lines(firm_scope=firm_scope, window=window)
         quantities: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
         restocked: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
         amounts: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
@@ -2258,10 +2267,10 @@ class SalesReturnService(TransactionalDocumentService):
         ]
 
     def reconciliation_report(
-        self, *, firm_scope: UUID
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
     ) -> list[SalesReturnReconciliationRecord]:
         """Return lines set against the documents they were dispatched on."""
-        lines = self._report_lines(firm_scope=firm_scope)
+        lines = self._report_lines(firm_scope=firm_scope, window=window)
         names = {
             product.id: product.name
             for product in self._session.scalars(
@@ -2304,7 +2313,7 @@ class SalesReturnService(TransactionalDocumentService):
         return records
 
     def _report_lines(
-        self, *, firm_scope: UUID
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
     ) -> list[tuple[SalesReturnLine, SalesReturn]]:
         """Every completed return line in scope, with the return it belongs to.
 
@@ -2324,6 +2333,12 @@ class SalesReturnService(TransactionalDocumentService):
                     SalesReturn.is_deleted.is_(False),
                     SalesReturn.status.in_(_RETURNED_STATUSES),
                     SalesReturnLine.is_deleted.is_(False),
+                    *window.dated(SalesReturn.return_date),
+                )
+                .order_by(
+                    SalesReturn.return_date.desc(),
+                    SalesReturn.id.desc(),
+                    SalesReturnLine.line_number,
                 )
             ).all()
         ]

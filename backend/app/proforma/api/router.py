@@ -1,5 +1,6 @@
 """Firm-scoped REST endpoints for proforma invoices."""
 
+from datetime import date
 from typing import Annotated
 from uuid import UUID
 
@@ -15,7 +16,7 @@ from app.core.concurrency import ExpectedVersion, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
-from app.core.pagination import PaginationParams
+from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.proforma.schemas import (
     ProformaCancel,
@@ -100,15 +101,20 @@ def create_proforma(
 
 @router.get(
     "/reports/register",
-    response_model=ApiResponse[list[ProformaRegisterRecord]],
+    response_model=PaginatedResponse[ProformaRegisterRecord],
 )
 def proforma_register(
     scope: ProformaReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[ProformaRegisterRecord]]:
+) -> PaginatedResponse[ProformaRegisterRecord]:
     """Every proforma raised, with the order it states."""
-    return ApiResponse(
-        data=ProformaService(db).register_report(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        ProformaService(db).register_report(firm_scope=scope.firm_id, window=window)
     )
 
 

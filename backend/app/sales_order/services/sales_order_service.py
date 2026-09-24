@@ -25,6 +25,7 @@ from app.common.report_names import (
     warehouse_names,
 )
 from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger
 from app.core.utils.pricing import (
@@ -1078,7 +1079,9 @@ class SalesOrderService(TransactionalDocumentService):
             sort_direction=True,
         )
 
-    def register_report(self, *, firm_scope: UUID) -> list[SalesOrderRegisterRecord]:
+    def register_report(
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
+    ) -> list[SalesOrderRegisterRecord]:
         """Return the register report for the visible firm scope.
 
         Every id carries its name, because the grid derives its columns from
@@ -1087,21 +1090,26 @@ class SalesOrderService(TransactionalDocumentService):
         salespeople are read from the platform store, which is the only place
         ``users`` exists.
         """
-        rows = list(
-            self._session.scalars(
-                select(SalesOrder)
-                .where(
-                    SalesOrder.firm_id == firm_scope, SalesOrder.is_deleted.is_(False)
-                )
-                .order_by(SalesOrder.order_date.desc(), SalesOrder.created_at.desc())
-            ).all()
+        rows = window.fetch(
+            self._session,
+            select(SalesOrder)
+            .where(
+                SalesOrder.firm_id == firm_scope,
+                SalesOrder.is_deleted.is_(False),
+                *window.dated(SalesOrder.order_date),
+            )
+            .order_by(
+                SalesOrder.order_date.desc(),
+                SalesOrder.created_at.desc(),
+                SalesOrder.id.desc(),
+            ),
         )
         customers = customer_names(self._session, (row.customer_id for row in rows))
         people = salesman_names(self._session, (row.salesman_id for row in rows))
         territories = territory_names(self._session, (row.territory_id for row in rows))
         branches = branch_names(self._session, (row.branch_id for row in rows))
         warehouses = warehouse_names(self._session, (row.warehouse_id for row in rows))
-        return [
+        records = [
             SalesOrderRegisterRecord(
                 order_id=row.id,
                 order_number=row.order_number,
@@ -1129,6 +1137,7 @@ class SalesOrderService(TransactionalDocumentService):
             )
             for row in rows
         ]
+        return mapped_like(rows, records)
 
     def pending_orders(self, *, firm_scope: UUID) -> list[SalesOrderPendingRecord]:
         """List the orders still owing stock: approved, and not yet fully out.
@@ -1321,7 +1330,7 @@ class SalesOrderService(TransactionalDocumentService):
         return result
 
     def orders_by_customer(
-        self, *, firm_scope: UUID
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
     ) -> list[SalesOrderByCustomerRecord]:
         """Total order value and count per customer, cancellations excluded.
 
@@ -1337,6 +1346,7 @@ class SalesOrderService(TransactionalDocumentService):
                     SalesOrder.firm_id == firm_scope,
                     SalesOrder.is_deleted.is_(False),
                     SalesOrder.status != SalesOrderStatus.CANCELLED.value,
+                    *window.dated(SalesOrder.order_date),
                 )
             ).all()
         )
@@ -1386,7 +1396,7 @@ class SalesOrderService(TransactionalDocumentService):
         return {row[0]: row[1] for row in rows}
 
     def orders_by_salesman(
-        self, *, firm_scope: UUID
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
     ) -> list[SalesOrderBySalesmanRecord]:
         """Total order value and count per salesman, cancellations excluded.
 
@@ -1402,6 +1412,7 @@ class SalesOrderService(TransactionalDocumentService):
                     SalesOrder.firm_id == firm_scope,
                     SalesOrder.is_deleted.is_(False),
                     SalesOrder.status != SalesOrderStatus.CANCELLED.value,
+                    *window.dated(SalesOrder.order_date),
                 )
             ).all()
         )
@@ -1430,7 +1441,7 @@ class SalesOrderService(TransactionalDocumentService):
         ]
 
     def orders_by_territory(
-        self, *, firm_scope: UUID
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
     ) -> list[SalesOrderByTerritoryRecord]:
         """Total order value and count per territory, cancellations excluded.
 
@@ -1445,6 +1456,7 @@ class SalesOrderService(TransactionalDocumentService):
                     SalesOrder.firm_id == firm_scope,
                     SalesOrder.is_deleted.is_(False),
                     SalesOrder.status != SalesOrderStatus.CANCELLED.value,
+                    *window.dated(SalesOrder.order_date),
                 )
             ).all()
         )

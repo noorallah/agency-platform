@@ -33,7 +33,7 @@ from app.core.concurrency import ExpectedVersion, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
-from app.core.pagination import PaginationParams
+from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 
 router = APIRouter(
@@ -62,6 +62,8 @@ def commission_report(
     from_date: Annotated[date, Query()],
     to_date: Annotated[date, Query()],
     salesman_id: Annotated[UUID | None, Query()] = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
 ) -> ApiResponse[CommissionReport]:
     """Report money collected in the period and the commission it earned.
@@ -70,6 +72,10 @@ def commission_report(
     allocation's own date -- because that is what earns the commission, not
     the day the invoice was raised, and not the day an advance arrived that
     was only applied to the bill later (D-TER-6).
+
+    The report stays one object: ``rows`` is one page of salespeople,
+    ``total_records`` counts them all, and the totals are the whole period's
+    (D-RPT-18). Computed per person over the period, then sliced.
     """
     report = CommissionService(db).report(
         firm_id=scope.firm_id,
@@ -77,7 +83,10 @@ def commission_report(
         to_date=to_date,
         salesman_id=salesman_id,
     )
-    return ApiResponse(data=report)
+    rows, total = ReportWindow(page=page, page_size=page_size).slice(report.rows)
+    return ApiResponse(
+        data=report.model_copy(update={"rows": rows, "total_records": total})
+    )
 
 
 @router.get("/rules", response_model=PaginatedResponse[CommissionRuleResponse])

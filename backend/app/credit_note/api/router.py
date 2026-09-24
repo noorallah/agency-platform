@@ -5,6 +5,7 @@ declaration order and nine endpoints in eight routers were unreachable until
 2026-08-22 for exactly that reason.
 """
 
+from datetime import date
 from typing import Annotated
 from uuid import UUID
 
@@ -20,7 +21,7 @@ from app.core.concurrency import ExpectedVersion, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
-from app.core.pagination import PaginationParams
+from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.credit_note.schemas import (
     CreditNoteByCustomerRecord,
@@ -104,43 +105,60 @@ def create_credit_note(
 
 @router.get(
     "/reports/register",
-    response_model=ApiResponse[list[CreditNoteRegisterRecord]],
+    response_model=PaginatedResponse[CreditNoteRegisterRecord],
 )
 def credit_note_register(
     scope: CreditNoteReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[CreditNoteRegisterRecord]]:
+) -> PaginatedResponse[CreditNoteRegisterRecord]:
     """Every credit note raised, with the invoice it credits."""
-    return ApiResponse(
-        data=CreditNoteService(db).register_report(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        CreditNoteService(db).register_report(firm_scope=scope.firm_id, window=window)
     )
 
 
 @router.get(
     "/reports/by-customer",
-    response_model=ApiResponse[list[CreditNoteByCustomerRecord]],
+    response_model=PaginatedResponse[CreditNoteByCustomerRecord],
 )
 def credit_notes_by_customer(
     scope: CreditNoteReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[CreditNoteByCustomerRecord]]:
+) -> PaginatedResponse[CreditNoteByCustomerRecord]:
     """Credited value and count per customer, cancelled notes excluded."""
-    return ApiResponse(
-        data=CreditNoteService(db).by_customer_report(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        CreditNoteService(db).by_customer_report(
+            firm_scope=scope.firm_id, window=window
+        )
     )
 
 
 @router.get(
     "/reports/by-reason",
-    response_model=ApiResponse[list[CreditNoteByReasonRecord]],
+    response_model=PaginatedResponse[CreditNoteByReasonRecord],
 )
 def credit_notes_by_reason(
     scope: CreditNoteReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[CreditNoteByReasonRecord]]:
+) -> PaginatedResponse[CreditNoteByReasonRecord]:
     """Report what the firm is crediting for, and how much of it."""
-    return ApiResponse(
-        data=CreditNoteService(db).by_reason_report(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        CreditNoteService(db).by_reason_report(firm_scope=scope.firm_id, window=window)
     )
 
 

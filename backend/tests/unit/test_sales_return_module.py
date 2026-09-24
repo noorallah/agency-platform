@@ -1311,3 +1311,60 @@ def test_a_return_not_yet_completed_has_returned_nothing() -> None:
     assert product.return_quantity == Decimal("2.0000")
     assert service.by_customer_report(firm_scope=setup.firm.id)[0].return_count == 1
     assert len(service.reconciliation_report(firm_scope=setup.firm.id)) == 1
+
+
+def test_the_return_reports_take_a_window_and_a_page() -> None:
+    """D-RPT-18: every report was the firm's whole history.
+
+    All four are read on the return's own `return_date`, both ends inclusive,
+    with `total_records` counting the matches rather than the page, and a
+    page above the cap refused with a 422.
+    """
+    from app.sales_return.api.router import (
+        router,
+        sales_return_reconciliation,
+        sales_return_register,
+        sales_returns_by_customer,
+        sales_returns_by_product,
+    )
+    from tests.unit.report_windows import assert_page_size_is_bounded, report_scope
+
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    days = [date(2026, 8, 5), date(2026, 8, 6), date(2026, 8, 7)]
+    for day in days:
+        _service, row = setup.completed(quantity=Decimal("1"))
+        row.return_date = day
+    session.commit()
+    scope = report_scope(setup.firm.id)
+
+    page = sales_return_register(
+        scope=scope,
+        db=session,
+        from_date=days[1],
+        to_date=days[2],
+        page=1,
+        page_size=1,
+    )
+    assert page.pagination.total_records == 2
+    assert [record.return_date for record in page.data] == [days[2]]
+
+    [customer] = sales_returns_by_customer(
+        scope=scope, db=session, from_date=days[0], to_date=days[0]
+    ).data
+    assert customer.return_count == 1
+    [product] = sales_returns_by_product(scope=scope, db=session, to_date=days[1]).data
+    assert product.return_count == 2
+    lines = sales_return_reconciliation(
+        scope=scope, db=session, from_date=days[1], page=2, page_size=1
+    )
+    assert lines.pagination.total_records == 2
+    assert [record.return_date for record in lines.data] == [days[1]]
+
+    assert_page_size_is_bounded(
+        router,
+        "/api/v1/sales-returns/reports/register",
+        "/api/v1/sales-returns/reports/by-customer",
+        "/api/v1/sales-returns/reports/by-product",
+        "/api/v1/sales-returns/reports/reconciliation",
+    )

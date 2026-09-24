@@ -23,6 +23,7 @@ from app.common.report_names import (
     warehouse_names,
 )
 from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
 from app.document_framework.models import (
     DocumentLifecycleEvent,
@@ -839,7 +840,7 @@ class GoodsReceiptService(TransactionalDocumentService):
         """
         names = vendor_names(self._session, (row.vendor_id for row in rows))
         warehouses = warehouse_names(self._session, (row.warehouse_id for row in rows))
-        return [
+        records = [
             GoodsReceiptRegisterRecord(
                 receipt_id=row.id,
                 grn_number=row.grn_number,
@@ -859,21 +860,29 @@ class GoodsReceiptService(TransactionalDocumentService):
             )
             for row in rows
         ]
+        return mapped_like(rows, records)
 
-    def completed_receipts(self, *, firm_scope: UUID) -> list[GoodsReceipt]:
-        """Return the receipts whose goods are in stock: completed, or closed after."""
-        return list(
-            self._session.scalars(
-                select(GoodsReceipt)
-                .where(
-                    GoodsReceipt.firm_id == firm_scope,
-                    GoodsReceipt.status.in_(self._RECEIVED_STATUSES),
-                    GoodsReceipt.is_deleted.is_(False),
-                )
-                .order_by(
-                    GoodsReceipt.receipt_date.desc(), GoodsReceipt.created_at.desc()
-                )
-            ).all()
+    def completed_receipts(
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
+    ) -> list[GoodsReceipt]:
+        """Return the receipts whose goods are in stock: completed, or closed after.
+
+        Narrowed to the window on the receipt's own date, and paged in SQL.
+        """
+        return window.fetch(
+            self._session,
+            select(GoodsReceipt)
+            .where(
+                GoodsReceipt.firm_id == firm_scope,
+                GoodsReceipt.status.in_(self._RECEIVED_STATUSES),
+                GoodsReceipt.is_deleted.is_(False),
+                *window.dated(GoodsReceipt.receipt_date),
+            )
+            .order_by(
+                GoodsReceipt.receipt_date.desc(),
+                GoodsReceipt.created_at.desc(),
+                GoodsReceipt.id.desc(),
+            ),
         )
 
     def _received_lines_where(
@@ -896,27 +905,38 @@ class GoodsReceiptService(TransactionalDocumentService):
                 GoodsReceiptLine.is_deleted.is_(False),
                 *clauses,
             )
-            .order_by(GoodsReceipt.receipt_date.desc(), GoodsReceiptLine.line_number)
+            .order_by(
+                GoodsReceipt.receipt_date.desc(),
+                GoodsReceipt.id.desc(),
+                GoodsReceiptLine.line_number,
+                GoodsReceiptLine.id,
+            )
         )
 
-    def rejected_items(self, *, firm_scope: UUID) -> list[GoodsReceiptLine]:
+    def rejected_items(
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
+    ) -> list[GoodsReceiptLine]:
         """Return the lines rejected on a receipt whose goods arrived."""
-        return list(
-            self._session.scalars(
-                self._received_lines_where(
-                    firm_scope, GoodsReceiptLine.rejected_quantity > ZERO
-                )
-            ).all()
+        return window.fetch(
+            self._session,
+            self._received_lines_where(
+                firm_scope,
+                GoodsReceiptLine.rejected_quantity > ZERO,
+                *window.dated(GoodsReceipt.receipt_date),
+            ),
         )
 
-    def damaged_items(self, *, firm_scope: UUID) -> list[GoodsReceiptLine]:
+    def damaged_items(
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
+    ) -> list[GoodsReceiptLine]:
         """Return the lines damaged on a receipt whose goods arrived."""
-        return list(
-            self._session.scalars(
-                self._received_lines_where(
-                    firm_scope, GoodsReceiptLine.damaged_quantity > ZERO
-                )
-            ).all()
+        return window.fetch(
+            self._session,
+            self._received_lines_where(
+                firm_scope,
+                GoodsReceiptLine.damaged_quantity > ZERO,
+                *window.dated(GoodsReceipt.receipt_date),
+            ),
         )
 
     def line_report_rows(
@@ -943,7 +963,7 @@ class GoodsReceiptService(TransactionalDocumentService):
                 line.warehouse_id, str(line.warehouse_id)
             )
             rows.append(record)
-        return rows
+        return mapped_like(lines, rows)
 
     def partially_received_purchase_orders(
         self, *, firm_scope: UUID

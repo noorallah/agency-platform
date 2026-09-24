@@ -1047,3 +1047,33 @@ def test_a_lower_rate_leaves_nothing_behind_in_the_liability() -> None:
 
     assert books.points() == Decimal("0.0000")
     assert _payable(books) == Decimal("0.00")
+
+
+def test_the_movements_report_takes_a_window_and_a_page() -> None:
+    """D-RPT-18: the movements report was the whole ledger.
+
+    Read on each entry's own `earned_on`, both ends inclusive, with
+    `total_records` counting the matches rather than the page. Balances and
+    expiring are what is true today, so they take neither.
+    """
+    from app.loyalty.api.router import loyalty_movements
+    from tests.unit.report_windows import assert_page_size_is_bounded, report_scope
+
+    books = _Books(_session_factory()())
+    books.batch("10", earned_on=date(2026, 8, 4), expires_on=None)
+    books.batch("10", earned_on=date(2026, 8, 5), expires_on=None)
+    books.spend("5", on=date(2026, 8, 6))
+    scope = report_scope(books.firm.id)
+
+    page = loyalty_movements(
+        scope=scope,
+        db=books.session,
+        from_date=date(2026, 8, 5),
+        to_date=date(2026, 8, 6),
+        page=1,
+        page_size=1,
+    )
+    assert page.pagination.total_records == 2
+    assert [row.earned_on for row in page.data] == [date(2026, 8, 6)]
+
+    assert_page_size_is_bounded(loyalty_router, "/api/v1/loyalty/reports/movements")

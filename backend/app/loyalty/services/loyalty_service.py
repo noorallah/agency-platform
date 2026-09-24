@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO, quantize_ledger, quantize_money
 from app.customers.models import Customer
@@ -1221,17 +1222,22 @@ class LoyaltyService:
             )
         ]
 
-    def movements_report(self, *, firm_scope: UUID) -> list[LoyaltyMovementRecord]:
-        """Return every movement of credit, newest first."""
-        rows = list(
-            self._session.scalars(
-                select(LoyaltyEntry)
-                .where(
-                    LoyaltyEntry.firm_id == firm_scope,
-                    LoyaltyEntry.is_deleted.is_(False),
-                )
-                .order_by(LoyaltyEntry.earned_on.desc(), LoyaltyEntry.id.desc())
-            ).all()
+    def movements_report(
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
+    ) -> list[LoyaltyMovementRecord]:
+        """Return every movement of credit in the window, newest first.
+
+        Dated by `earned_on`, the entry's own date, and paged in SQL.
+        """
+        rows = window.fetch(
+            self._session,
+            select(LoyaltyEntry)
+            .where(
+                LoyaltyEntry.firm_id == firm_scope,
+                LoyaltyEntry.is_deleted.is_(False),
+                *window.dated(LoyaltyEntry.earned_on),
+            )
+            .order_by(LoyaltyEntry.earned_on.desc(), LoyaltyEntry.id.desc()),
         )
         names = self._customer_names({row.customer_id for row in rows})
         invoice_ids = [row.sales_invoice_id for row in rows if row.sales_invoice_id]
@@ -1241,7 +1247,7 @@ class LoyaltyService:
                 select(SalesInvoice).where(SalesInvoice.id.in_(invoice_ids))
             ).all()
         }
-        return [
+        records = [
             LoyaltyMovementRecord(
                 entry_id=row.id,
                 customer_id=row.customer_id,
@@ -1260,6 +1266,7 @@ class LoyaltyService:
             )
             for row in rows
         ]
+        return mapped_like(rows, records)
 
     def expiring_report(
         self, *, firm_scope: UUID, within_days: int = 90

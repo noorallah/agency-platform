@@ -636,3 +636,35 @@ def test_a_proforma_awaits_payment_until_its_order_is_paid_or_billed() -> None:
     ] == [second.id]
     _invoice_for(books, other, "APPROVED")
     assert service.outstanding_report(firm_scope=books.firm.id) == []
+
+
+def test_the_register_takes_a_window_and_a_page() -> None:
+    """D-RPT-18: the register was every proforma the firm ever raised.
+
+    Read on the proforma's own `proforma_date`, both ends inclusive, with
+    `total_records` counting the matches rather than the page. Outstanding is
+    what is still open today, so it takes neither.
+    """
+    from app.proforma.api.router import proforma_register, router
+    from tests.unit.report_windows import assert_page_size_is_bounded, report_scope
+
+    books = _Books(_session_factory()())
+    days = [date(2026, 8, 4), date(2026, 8, 5), date(2026, 8, 6)]
+    for day in days:
+        row = books.raise_proforma()
+        row.proforma_date = day
+    books.session.commit()
+    scope = report_scope(books.firm.id)
+
+    page = proforma_register(
+        scope=scope,
+        db=books.session,
+        from_date=days[1],
+        to_date=days[2],
+        page=1,
+        page_size=1,
+    )
+    assert page.pagination.total_records == 2
+    assert [row.proforma_date for row in page.data] == [days[2]]
+
+    assert_page_size_is_bounded(router, "/api/v1/proforma-invoices/reports/register")

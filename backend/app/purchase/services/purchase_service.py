@@ -10,7 +10,7 @@ from decimal import Decimal
 from io import BytesIO
 from uuid import UUID
 
-from sqlalchemy import false, func, or_, select
+from sqlalchemy import Select, false, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.batch_serial.models import BatchRecord
@@ -19,6 +19,7 @@ from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import platform_reader
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
+from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO
 from app.document_framework.models import (
@@ -1811,20 +1812,26 @@ class PurchaseService(TransactionalDocumentService):
         PurchaseOrderStatus.PARTIALLY_RECEIVED.value,
     )
 
-    def register_report(self, *, firm_scope: UUID) -> list[PurchaseOrderRegisterRecord]:
+    def register_report(
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
+    ) -> list[PurchaseOrderRegisterRecord]:
         """Return every purchase order raised, newest first.
 
         Args:
             firm_scope: The firm whose orders to list.
+            window: The days, on `purchase_date`, and the page to answer; the
+                orders are paged in SQL.
 
         Returns:
             One record per order, cancelled ones included -- a register states
             what was raised, and an order called off was still raised.
 
         """
-        rows = self._report_orders(firm_scope)
+        rows = window.fetch(
+            self._session, self._report_orders_statement(firm_scope, window)
+        )
         names = self._vendor_names({row.vendor_id for row in rows})
-        return [
+        records = [
             PurchaseOrderRegisterRecord(
                 order_id=row.id,
                 po_number=row.po_number,
@@ -1840,6 +1847,7 @@ class PurchaseService(TransactionalDocumentService):
             )
             for row in rows
         ]
+        return mapped_like(rows, records)
 
     def pending_report(self, *, firm_scope: UUID) -> list[PurchaseOrderPendingRecord]:
         """Return orders the vendor still owes goods against.
@@ -1913,7 +1921,7 @@ class PurchaseService(TransactionalDocumentService):
         return sorted(records, key=lambda record: -record.days_overdue)
 
     def by_vendor_report(
-        self, *, firm_scope: UUID
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
     ) -> list[PurchaseOrderByVendorRecord]:
         """Return ordered value and count per vendor.
 
@@ -1922,6 +1930,7 @@ class PurchaseService(TransactionalDocumentService):
 
         Args:
             firm_scope: The firm whose orders to total.
+            window: The days, on `purchase_date`, to total over.
 
         Returns:
             One record per vendor, largest first.
@@ -1929,7 +1938,7 @@ class PurchaseService(TransactionalDocumentService):
         """
         totals: dict[UUID, Decimal] = {}
         counts: dict[UUID, int] = {}
-        for row in self._live_report_orders(firm_scope):
+        for row in self._live_report_orders(firm_scope, window):
             totals[row.vendor_id] = totals.get(row.vendor_id, ZERO) + Decimal(
                 str(row.grand_total)
             )
@@ -1945,7 +1954,9 @@ class PurchaseService(TransactionalDocumentService):
             for vendor_id, total in sorted(totals.items(), key=lambda item: -item[1])
         ]
 
-    def by_buyer_report(self, *, firm_scope: UUID) -> list[PurchaseOrderByBuyerRecord]:
+    def by_buyer_report(
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
+    ) -> list[PurchaseOrderByBuyerRecord]:
         """Return ordered value and count per buyer.
 
         An order naming no buyer contributes nothing rather than being pooled
@@ -1954,6 +1965,7 @@ class PurchaseService(TransactionalDocumentService):
 
         Args:
             firm_scope: The firm whose orders to total.
+            window: The days, on `purchase_date`, to total over.
 
         Returns:
             One record per buyer, largest first.
@@ -1961,7 +1973,7 @@ class PurchaseService(TransactionalDocumentService):
         """
         totals: dict[UUID, Decimal] = {}
         counts: dict[UUID, int] = {}
-        for row in self._live_report_orders(firm_scope):
+        for row in self._live_report_orders(firm_scope, window):
             if row.buyer_id is None:
                 continue
             totals[row.buyer_id] = totals.get(row.buyer_id, ZERO) + Decimal(
@@ -1980,18 +1992,19 @@ class PurchaseService(TransactionalDocumentService):
         ]
 
     def by_product_report(
-        self, *, firm_scope: UUID
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
     ) -> list[PurchaseOrderByProductRecord]:
         """Return what the firm is buying, by quantity and by value.
 
         Args:
             firm_scope: The firm whose orders to total.
+            window: The days, on `purchase_date`, to total over.
 
         Returns:
             One record per product, most-ordered first.
 
         """
-        live = {row.id for row in self._live_report_orders(firm_scope)}
+        live = {row.id for row in self._live_report_orders(firm_scope, window)}
         if not live:
             return []
         quantities: dict[UUID, Decimal] = {}
@@ -2030,27 +2043,42 @@ class PurchaseService(TransactionalDocumentService):
             )
         ]
 
-    def _report_orders(self, firm_scope: UUID) -> list[PurchaseOrder]:
-        """Return every order this firm has raised, newest first."""
+    def _report_orders(
+        self, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
+    ) -> list[PurchaseOrder]:
+        """Return every order this firm raised in ``window``, newest first."""
         return list(
             self._session.scalars(
-                select(PurchaseOrder)
-                .where(
-                    PurchaseOrder.firm_id == firm_scope,
-                    PurchaseOrder.is_deleted.is_(False),
-                )
-                .order_by(
-                    PurchaseOrder.purchase_date.desc(),
-                    PurchaseOrder.created_at.desc(),
-                )
+                self._report_orders_statement(firm_scope, window)
             ).all()
         )
 
-    def _live_report_orders(self, firm_scope: UUID) -> list[PurchaseOrder]:
+    @staticmethod
+    def _report_orders_statement(
+        firm_scope: UUID, window: ReportWindow
+    ) -> Select[tuple[PurchaseOrder]]:
+        """Select the orders raised in ``window``, on their `purchase_date`."""
+        return (
+            select(PurchaseOrder)
+            .where(
+                PurchaseOrder.firm_id == firm_scope,
+                PurchaseOrder.is_deleted.is_(False),
+                *window.dated(PurchaseOrder.purchase_date),
+            )
+            .order_by(
+                PurchaseOrder.purchase_date.desc(),
+                PurchaseOrder.created_at.desc(),
+                PurchaseOrder.id.desc(),
+            )
+        )
+
+    def _live_report_orders(
+        self, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
+    ) -> list[PurchaseOrder]:
         """Return the orders that still stand, cancelled ones left out."""
         return [
             row
-            for row in self._report_orders(firm_scope)
+            for row in self._report_orders(firm_scope, window)
             if row.status != PurchaseOrderStatus.CANCELLED.value
         ]
 

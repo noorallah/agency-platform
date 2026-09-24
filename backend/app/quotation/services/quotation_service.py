@@ -25,6 +25,7 @@ from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.common.report_names import customer_names
 from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
 from app.core.utils.pricing import (
     LineDiscount,
@@ -1487,7 +1488,9 @@ class QuotationService(TransactionalDocumentService):
 
     # ---- reports -------------------------------------------------------
 
-    def register_report(self, *, firm_scope: UUID) -> list[QuotationRegisterRecord]:
+    def register_report(
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
+    ) -> list[QuotationRegisterRecord]:
         """Every quotation raised, with what became of it.
 
         The customer is named as well as identified: the grid derives its
@@ -1500,18 +1503,22 @@ class QuotationService(TransactionalDocumentService):
         (D-RPT-19). Derived by `is_expired`, the same rule the document's own
         response and the conversion report use.
         """
-        rows = list(
-            self._session.scalars(
-                select(SalesQuotation)
-                .where(
-                    SalesQuotation.firm_id == firm_scope,
-                    SalesQuotation.is_deleted.is_(False),
-                )
-                .order_by(SalesQuotation.quotation_date.desc())
-            ).all()
+        rows = window.fetch(
+            self._session,
+            select(SalesQuotation)
+            .where(
+                SalesQuotation.firm_id == firm_scope,
+                SalesQuotation.is_deleted.is_(False),
+                *window.dated(SalesQuotation.quotation_date),
+            )
+            .order_by(
+                SalesQuotation.quotation_date.desc(),
+                SalesQuotation.created_at.desc(),
+                SalesQuotation.id.desc(),
+            ),
         )
         customers = customer_names(self._session, (row.customer_id for row in rows))
-        return [
+        records = [
             QuotationRegisterRecord(
                 quotation_id=row.id,
                 quotation_number=row.quotation_number,
@@ -1526,8 +1533,11 @@ class QuotationService(TransactionalDocumentService):
             )
             for row in rows
         ]
+        return mapped_like(rows, records)
 
-    def conversion_report(self, *, firm_scope: UUID) -> list[QuotationConversionRecord]:
+    def conversion_report(
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
+    ) -> list[QuotationConversionRecord]:
         """How many quotations turned into orders, per customer."""
         rows = list(
             self._session.scalars(
@@ -1535,6 +1545,7 @@ class QuotationService(TransactionalDocumentService):
                     SalesQuotation.firm_id == firm_scope,
                     SalesQuotation.is_deleted.is_(False),
                     SalesQuotation.status != QuotationStatus.CANCELLED.value,
+                    *window.dated(SalesQuotation.quotation_date),
                 )
             ).all()
         )

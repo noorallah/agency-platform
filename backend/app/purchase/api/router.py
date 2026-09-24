@@ -28,7 +28,7 @@ from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
-from app.core.pagination import PaginationParams
+from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.purchase.schemas import (
     PurchaseOrderByBuyerRecord,
@@ -294,15 +294,20 @@ def print_purchase_order(
 
 @router.get(
     "/reports/register",
-    response_model=ApiResponse[list[PurchaseOrderRegisterRecord]],
+    response_model=PaginatedResponse[PurchaseOrderRegisterRecord],
 )
 def purchase_order_register(
     scope: PurchaseReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[PurchaseOrderRegisterRecord]]:
+) -> PaginatedResponse[PurchaseOrderRegisterRecord]:
     """Return the purchase order register for the visible firm scope."""
-    return ApiResponse(
-        data=PurchaseService(db).register_report(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        PurchaseService(db).register_report(firm_scope=scope.firm_id, window=window)
     )
 
 
@@ -336,43 +341,58 @@ def overdue_purchase_orders(
 
 @router.get(
     "/reports/by-vendor",
-    response_model=ApiResponse[list[PurchaseOrderByVendorRecord]],
+    response_model=PaginatedResponse[PurchaseOrderByVendorRecord],
 )
 def purchase_orders_by_vendor(
     scope: PurchaseReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[PurchaseOrderByVendorRecord]]:
+) -> PaginatedResponse[PurchaseOrderByVendorRecord]:
     """Return ordered value and count per vendor."""
-    return ApiResponse(
-        data=PurchaseService(db).by_vendor_report(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        PurchaseService(db).by_vendor_report(firm_scope=scope.firm_id, window=window)
     )
 
 
 @router.get(
     "/reports/by-buyer",
-    response_model=ApiResponse[list[PurchaseOrderByBuyerRecord]],
+    response_model=PaginatedResponse[PurchaseOrderByBuyerRecord],
 )
 def purchase_orders_by_buyer(
     scope: PurchaseReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[PurchaseOrderByBuyerRecord]]:
+) -> PaginatedResponse[PurchaseOrderByBuyerRecord]:
     """Return ordered value and count per buyer."""
-    return ApiResponse(
-        data=PurchaseService(db).by_buyer_report(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        PurchaseService(db).by_buyer_report(firm_scope=scope.firm_id, window=window)
     )
 
 
 @router.get(
     "/reports/by-product",
-    response_model=ApiResponse[list[PurchaseOrderByProductRecord]],
+    response_model=PaginatedResponse[PurchaseOrderByProductRecord],
 )
 def purchase_orders_by_product(
     scope: PurchaseReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[PurchaseOrderByProductRecord]]:
+) -> PaginatedResponse[PurchaseOrderByProductRecord]:
     """Return what the firm is buying, by quantity and by value."""
-    return ApiResponse(
-        data=PurchaseService(db).by_product_report(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        PurchaseService(db).by_product_report(firm_scope=scope.firm_id, window=window)
     )
 
 

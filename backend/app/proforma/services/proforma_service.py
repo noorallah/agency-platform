@@ -21,6 +21,7 @@ from sqlalchemy import Select, func, select
 from app.common.audit.services import record_audit
 from app.core.concurrency import assert_version
 from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO, quantize_money
 from app.customers.models import Customer
@@ -670,24 +671,27 @@ class ProformaService(TransactionalDocumentService):
 
     # ---- reports -------------------------------------------------------
 
-    def register_report(self, *, firm_scope: UUID) -> list[ProformaRegisterRecord]:
-        """Every proforma raised, newest first."""
-        rows = list(
-            self._session.scalars(
-                select(ProformaInvoice)
-                .where(
-                    ProformaInvoice.firm_id == firm_scope,
-                    ProformaInvoice.is_deleted.is_(False),
-                )
-                .order_by(
-                    ProformaInvoice.proforma_date.desc(),
-                    ProformaInvoice.created_at.desc(),
-                )
-            ).all()
+    def register_report(
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
+    ) -> list[ProformaRegisterRecord]:
+        """Every proforma raised in the window, newest first; paged in SQL."""
+        rows = window.fetch(
+            self._session,
+            select(ProformaInvoice)
+            .where(
+                ProformaInvoice.firm_id == firm_scope,
+                ProformaInvoice.is_deleted.is_(False),
+                *window.dated(ProformaInvoice.proforma_date),
+            )
+            .order_by(
+                ProformaInvoice.proforma_date.desc(),
+                ProformaInvoice.created_at.desc(),
+                ProformaInvoice.id.desc(),
+            ),
         )
         names = self._customer_names({row.customer_id for row in rows})
         orders = self._order_numbers({row.sales_order_id for row in rows})
-        return [
+        records = [
             ProformaRegisterRecord(
                 proforma_id=row.id,
                 proforma_number=row.proforma_number,
@@ -702,6 +706,7 @@ class ProformaService(TransactionalDocumentService):
             )
             for row in rows
         ]
+        return mapped_like(rows, records)
 
     def outstanding_report(
         self, *, firm_scope: UUID

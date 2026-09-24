@@ -18,7 +18,7 @@ from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
-from app.core.pagination import PaginationParams
+from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.document_framework.schemas import DocumentLifecycleEventResponse
 from app.quotation.schemas import (
@@ -169,29 +169,39 @@ def get_quotation_summary(
 
 @router.get(
     "/reports/register",
-    response_model=ApiResponse[list[QuotationRegisterRecord]],
+    response_model=PaginatedResponse[QuotationRegisterRecord],
 )
 def quotation_register(
     scope: QuotationReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[QuotationRegisterRecord]]:
+) -> PaginatedResponse[QuotationRegisterRecord]:
     """Every quotation raised, with what became of it."""
-    return ApiResponse(
-        data=QuotationService(db).register_report(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        QuotationService(db).register_report(firm_scope=scope.firm_id, window=window)
     )
 
 
 @router.get(
     "/reports/conversion",
-    response_model=ApiResponse[list[QuotationConversionRecord]],
+    response_model=PaginatedResponse[QuotationConversionRecord],
 )
 def quotation_conversion(
     scope: QuotationReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[QuotationConversionRecord]]:
+) -> PaginatedResponse[QuotationConversionRecord]:
     """How many quotations turned into orders, per customer."""
-    return ApiResponse(
-        data=QuotationService(db).conversion_report(firm_scope=scope.firm_id)
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        QuotationService(db).conversion_report(firm_scope=scope.firm_id, window=window)
     )
 
 

@@ -1116,3 +1116,38 @@ def test_every_key_the_desktop_editor_sends_is_one_the_update_accepts() -> None:
     assert {"salesman_id", "territory_id", "notes"} <= left_alone
     for field in left_alone:
         assert SalesTargetUpdate.model_fields[field].default is None
+
+
+def test_achievement_takes_a_page() -> None:
+    """D-RPT-18: the window was already required; the page is new.
+
+    `total_records` counts every target the window overlaps, not the page,
+    and a page above the cap is refused with a 422.
+    """
+    from app.sales_targets.api.router import router, target_achievement
+    from tests.unit.report_windows import report_scope, status_for
+
+    session = _session_factory()()
+    firm = _firm(session)
+    service = SalesTargetService(session)
+    may = (date(2026, 5, 1), date(2026, 5, 31))
+    june = (date(2026, 6, 1), date(2026, 6, 30))
+    for period in (APRIL, may, june):
+        _target(service, firm_id=firm.id, amount="1000", period=period)
+    scope = report_scope(firm.id)
+
+    page = target_achievement(
+        scope=scope,
+        from_date=APRIL[0],
+        to_date=may[1],
+        page=1,
+        page_size=1,
+        db=session,
+    )
+    assert page.pagination.total_records == 2, "June is outside the window"
+    assert len(page.data) == 1
+
+    path = "/api/v1/sales-targets/achievement"
+    window = {"from_date": APRIL[0].isoformat(), "to_date": may[1].isoformat()}
+    assert status_for(router, path, page_size=101, **window) == 422
+    assert status_for(router, path, page=0, **window) == 422
