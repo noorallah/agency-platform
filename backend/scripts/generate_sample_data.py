@@ -78,11 +78,15 @@ from app.document_framework.models import (
     DocumentHeader,
     DocumentLifecycleEvent,
     DocumentLine,
-    DocumentNumberingRule,
-    DocumentStateDefinition,
     DocumentTotal,
     DocumentTypeDefinition,
 )
+from app.document_framework.schemas import (
+    DocumentNumberingRuleCreate,
+    DocumentStateCreate,
+    DocumentTypeCreate,
+)
+from app.document_framework.services import DocumentFrameworkService
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm, FirmStorageMapping
 from app.firms.schemas import FirmCreate
@@ -5780,36 +5784,41 @@ def _seed_document_framework(
     branch_id: UUID,
     warehouse_id: UUID,
 ) -> None:
+    # Written through the service, so each series passes the checks a person's
+    # would -- above all that no two types share a number head. The series
+    # used `code.split("_")[0]`, which gave all three purchase types `PURCHASE/`
+    # and all three sales types `SALES/`, and the modules then numbered from
+    # them (D-CFG-22). The prefixes are the ones each module bootstraps.
+    documents = DocumentFrameworkService(session)
     type_rows: dict[str, DocumentTypeDefinition] = {}
-    for code, name in (
-        ("PURCHASE_ORDER", "Purchase Order"),
-        ("GOODS_RECEIPT", "Goods Receipt Note"),
-        ("PURCHASE_INVOICE", "Purchase Invoice"),
-        ("PURCHASE_RETURN", "Purchase Return"),
-        ("SALES_ORDER", "Sales Order"),
-        ("DELIVERY_NOTE", "Delivery Note"),
-        ("SALES_INVOICE", "Sales Invoice"),
+    for code, name, prefix in (
+        ("PURCHASE_ORDER", "Purchase Order", "PO"),
+        ("GOODS_RECEIPT", "Goods Receipt Note", "GRN"),
+        ("PURCHASE_INVOICE", "Purchase Invoice", "PI"),
+        ("PURCHASE_RETURN", "Purchase Return", "PR"),
+        ("SALES_ORDER", "Sales Order", "SO"),
+        ("DELIVERY_NOTE", "Delivery Note", "DN"),
+        ("SALES_INVOICE", "Sales Invoice", "SI"),
     ):
-        row = DocumentTypeDefinition(
-            firm_id=context.firm.id,
-            code=code,
-            name=name,
-            description=f"{name} document framework definition.",
-            category="TRANSACTION",
-            is_active=True,
-            configuration={"seeded": True},
-            created_by=actor_id,
-            updated_by=actor_id,
+        row = documents.create_type(
+            context.firm.id,
+            DocumentTypeCreate(
+                code=code,
+                name=name,
+                description=f"{name} document framework definition.",
+                category="TRANSACTION",
+                is_active=True,
+                configuration={"seeded": True},
+            ),
+            actor_id,
         )
-        session.add(row)
-        session.flush()
         type_rows[code] = row
         for order, state in enumerate(
             ("DRAFT", "APPROVED", "COMPLETED", "CANCELLED", "CLOSED"), start=1
         ):
-            session.add(
-                DocumentStateDefinition(
-                    firm_id=context.firm.id,
+            documents.create_state(
+                context.firm.id,
+                DocumentStateCreate(
                     document_type_id=row.id,
                     code=state,
                     name=state.title(),
@@ -5822,17 +5831,16 @@ def _seed_document_framework(
                     allows_export_pdf=True,
                     transition_rules=None,
                     is_active=True,
-                    created_by=actor_id,
-                    updated_by=actor_id,
-                )
+                ),
+                actor_id,
             )
-        session.add(
-            DocumentNumberingRule(
-                firm_id=context.firm.id,
+        documents.create_numbering_rule(
+            context.firm.id,
+            DocumentNumberingRuleCreate(
                 document_type_id=row.id,
                 code=f"{code}_STD",
                 name=f"{name} Standard Rule",
-                prefix=code.split("_")[0],
+                prefix=prefix,
                 suffix=None,
                 separator="/",
                 include_financial_year=True,
@@ -5845,9 +5853,8 @@ def _seed_document_framework(
                 is_default=True,
                 is_active=True,
                 configuration={"seeded": True},
-                created_by=actor_id,
-                updated_by=actor_id,
-            )
+            ),
+            actor_id,
         )
 
     for code, source_id, number, doc_date, status, amount in docs:

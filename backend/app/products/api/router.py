@@ -29,6 +29,7 @@ from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.products.models import Product
 from app.products.schemas import (
     BulkProductRequest,
+    ProductAttributeResponse,
     ProductCategoryCreate,
     ProductCategoryFilter,
     ProductCategoryResponse,
@@ -142,9 +143,7 @@ def list_products(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=[
-            _response(row, can_view_cost=_can_view_cost(scope), db=db) for row in rows
-        ],
+        data=_responses(rows, can_view_cost=_can_view_cost(scope), db=db),
         pagination=params.metadata(total),
     )
 
@@ -209,10 +208,7 @@ async def import_products(
             records, firm_scope=scope.firm_id, actor_id=scope.actor_id
         )
         return ApiResponse(
-            data=[
-                _response(row, can_view_cost=_can_view_cost(scope), db=db)
-                for row in rows
-            ]
+            data=_responses(rows, can_view_cost=_can_view_cost(scope), db=db)
         )
     if file is None:
         raise ValidationError("file is required for CSV/XLSX import.")
@@ -226,9 +222,7 @@ async def import_products(
             content, firm_scope=scope.firm_id, actor_id=scope.actor_id
         )
     return ApiResponse(
-        data=[
-            _response(row, can_view_cost=_can_view_cost(scope), db=db) for row in rows
-        ]
+        data=_responses(rows, can_view_cost=_can_view_cost(scope), db=db)
     )
 
 
@@ -422,10 +416,36 @@ def bulk_restore_products(
     return ApiResponse(data={"affected": count})
 
 
-def _response(row: Product, *, can_view_cost: bool, db: Session) -> ProductResponse:
+def _response(
+    row: Product,
+    *,
+    can_view_cost: bool,
+    db: Session,
+    attributes: list[ProductAttributeResponse] | None = None,
+) -> ProductResponse:
     """Build one product response with its configurable attributes."""
     payload = ProductResponse.model_validate(row).model_dump(mode="python")
-    payload["attributes"] = ProductService(db).attribute_responses(row)
+    payload["attributes"] = (
+        ProductService(db).attribute_responses(row)
+        if attributes is None
+        else attributes
+    )
     if not can_view_cost:
         payload["purchase_price"] = None
     return ProductResponse.model_validate(payload)
+
+
+def _responses(
+    rows: list[Product], *, can_view_cost: bool, db: Session
+) -> list[ProductResponse]:
+    """Build a page of responses, reading every row's attributes at once."""
+    attributes = ProductService(db).attribute_responses_for_many(rows)
+    return [
+        _response(
+            row,
+            can_view_cost=can_view_cost,
+            db=db,
+            attributes=attributes.get(row.id, []),
+        )
+        for row in rows
+    ]

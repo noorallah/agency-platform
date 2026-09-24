@@ -1,7 +1,10 @@
 """Stateless validation helpers shared by future API schemas and services."""
 
 import re
+from collections.abc import Iterable
 from datetime import date
+
+from pydantic import BaseModel
 
 from app.core.exceptions import BusinessRuleError, ValidationError
 
@@ -10,6 +13,36 @@ _EMAIL_PATTERN = re.compile(
     r"[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$"
 )
 _PHONE_PATTERN = re.compile(r"^\+[1-9]\d{7,14}$")
+
+
+def refuse_explicit_nulls(model: BaseModel, *, nullable: Iterable[str] = ()) -> None:
+    """Refuse an explicit ``null`` for a field whose column cannot hold one.
+
+    For a partial update, where every field is optional so that *absent* can
+    mean "leave it alone". An explicit null on a NOT NULL column then reached
+    the database and came back as a 409 "conflicts with existing data" -- a
+    conflict with nothing (D-CFG-21). Called from a ``model_validator``, the
+    ``ValueError`` becomes a 422 naming the field.
+
+    Args:
+        model: The validated payload.
+        nullable: The fields for which null is a real value -- "clear it".
+
+    Raises:
+        ValueError: Naming each field sent as null that may not be.
+
+    """
+    allowed = frozenset(nullable)
+    refused = sorted(
+        name
+        for name in model.model_fields_set
+        if name not in allowed and getattr(model, name) is None
+    )
+    if refused:
+        raise ValueError(
+            f"{', '.join(refused)} cannot be null. Omit a field to leave it "
+            "unchanged."
+        )
 
 
 def validate_email(value: str) -> str:

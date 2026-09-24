@@ -113,8 +113,14 @@ class DocumentStateResponse(DocumentFrameworkSchema):
     updated_at: datetime
 
 
-class DocumentNumberingRuleCreate(DocumentFrameworkSchema):
-    """Create or replace one numbering rule."""
+class _NumberingRuleFields(DocumentFrameworkSchema):
+    """What a firm states about a numbering series, create or edit.
+
+    Deliberately without the counter: ``next_sequence`` and
+    ``last_scope_signature`` belong to the allocator. An edit that wrote them
+    was accepted and then ignored -- the per-scope counter issued the next
+    number regardless, while the rule read whatever had been sent (D-CFG-18).
+    """
 
     document_type_id: UUID
     code: str = Field(min_length=2, max_length=80, pattern=r"^[A-Z0-9_-]+$")
@@ -128,8 +134,6 @@ class DocumentNumberingRuleCreate(DocumentFrameworkSchema):
     auto_reset: bool = True
     manual_allowed: bool = False
     sequence_padding: int = Field(default=6, ge=1, le=12)
-    next_sequence: int = Field(default=1, ge=1)
-    last_scope_signature: str | None = Field(default=None, max_length=200)
     format_pattern: str | None = Field(default=None, max_length=200)
     is_default: bool = False
     is_active: bool = True
@@ -141,8 +145,21 @@ class DocumentNumberingRuleCreate(DocumentFrameworkSchema):
         return value.strip().upper()
 
 
-class DocumentNumberingRuleUpdate(DocumentNumberingRuleCreate):
-    """Replace one numbering rule."""
+class DocumentNumberingRuleCreate(_NumberingRuleFields):
+    """Create one numbering rule, optionally starting past 1."""
+
+    #: Where a new series starts -- a firm moving from another system carries
+    #: on from its last number. Only on create: from then on the counter owns it.
+    next_sequence: int = Field(default=1, ge=1)
+
+
+class DocumentNumberingRuleUpdate(_NumberingRuleFields):
+    """Edit one numbering rule.
+
+    ``document_type_id`` is accepted so a client can send the rule back as it
+    read it, but it must name the type the rule already numbers: a series moved
+    under another type would carry that type's issued numbers with it.
+    """
 
 
 class DocumentNumberingRuleResponse(DocumentFrameworkSchema):

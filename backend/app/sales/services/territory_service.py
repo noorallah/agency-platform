@@ -9,6 +9,7 @@ from io import BytesIO
 from typing import TypeVar
 from uuid import UUID
 
+from pydantic import BaseModel
 from sqlalchemy import Select, case, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import InstrumentedAttribute, Session
@@ -196,6 +197,17 @@ def _wrong_day(weekday: int, on_date: date) -> str:
     )
 
 
+def _apply_stated(row: BaseEntity, payload: BaseModel) -> None:
+    """Copy onto a geography row only the fields the request stated.
+
+    The write models default ``is_active`` to true and a country's ISO codes
+    to null, so a PUT that did not mention them switched a retired place back
+    on and wiped its codes (D-CFG-21). The required fields are always stated.
+    """
+    for field, value in payload.model_dump(exclude_unset=True).items():
+        setattr(row, field, value)
+
+
 class SalesTerritoryService:
     """Coordinate hierarchy configuration, territory tree, and assignments."""
 
@@ -229,11 +241,15 @@ class SalesTerritoryService:
         # record of what they had been called (D-TER-16).
         before = self._hierarchy_snapshot(config)
         config.max_levels = payload.max_levels
-        config.allow_multi_route_per_salesman = payload.allow_multi_route_per_salesman
-        config.allow_multi_salesman_per_route = payload.allow_multi_salesman_per_route
-        config.enforce_customer_leaf_assignment = (
-            payload.enforce_customer_leaf_assignment
-        )
+        # A flag the request does not state is left as it is (D-CFG-21).
+        for flag in (
+            "allow_multi_route_per_salesman",
+            "allow_multi_salesman_per_route",
+            "enforce_customer_leaf_assignment",
+        ):
+            value = getattr(payload, flag)
+            if value is not None:
+                setattr(config, flag, value)
         config.updated_by = actor_id
         self._replace_levels(config.id, payload.levels, actor_id)
         record_audit(
@@ -705,12 +721,7 @@ class SalesTerritoryService:
         assert_version(row.version, expected_version)
         before = row_state(row)
         self._assert_geo_code_free(GeoCountry, payload.code, current_id=row.id)
-        row.code = payload.code
-        row.name = payload.name
-        row.iso2 = payload.iso2
-        row.iso3 = payload.iso3
-        row.phone_code = payload.phone_code
-        row.is_active = payload.is_active
+        _apply_stated(row, payload)
         row.updated_by = actor_id
         self._audit_geo("country", "updated", row, actor_id, before)
         self._commit()
@@ -747,11 +758,13 @@ class SalesTerritoryService:
         assert_version(row.version, expected_version)
         before = row_state(row)
         self._geo_row(GeoCountry, payload.country_id, "Country")
-        self._assert_geo_code_free(GeoState, payload.code, current_id=row.id)
-        row.country_id = payload.country_id
-        row.code = payload.code
-        row.name = payload.name
-        row.is_active = payload.is_active
+        self._assert_geo_code_free(
+            GeoState,
+            payload.code,
+            current_id=row.id,
+            parent=(GeoState.country_id, payload.country_id),
+        )
+        _apply_stated(row, payload)
         row.updated_by = actor_id
         self._audit_geo("state", "updated", row, actor_id, before)
         self._commit()
@@ -795,11 +808,13 @@ class SalesTerritoryService:
         assert_version(row.version, expected_version)
         before = row_state(row)
         self._geo_row(GeoState, payload.state_id, "State")
-        self._assert_geo_code_free(GeoDistrict, payload.code, current_id=row.id)
-        row.state_id = payload.state_id
-        row.code = payload.code
-        row.name = payload.name
-        row.is_active = payload.is_active
+        self._assert_geo_code_free(
+            GeoDistrict,
+            payload.code,
+            current_id=row.id,
+            parent=(GeoDistrict.state_id, payload.state_id),
+        )
+        _apply_stated(row, payload)
         row.updated_by = actor_id
         self._audit_geo("district", "updated", row, actor_id, before)
         self._commit()
@@ -843,11 +858,13 @@ class SalesTerritoryService:
         assert_version(row.version, expected_version)
         before = row_state(row)
         self._geo_row(GeoDistrict, payload.district_id, "District")
-        self._assert_geo_code_free(GeoCity, payload.code, current_id=row.id)
-        row.district_id = payload.district_id
-        row.code = payload.code
-        row.name = payload.name
-        row.is_active = payload.is_active
+        self._assert_geo_code_free(
+            GeoCity,
+            payload.code,
+            current_id=row.id,
+            parent=(GeoCity.district_id, payload.district_id),
+        )
+        _apply_stated(row, payload)
         row.updated_by = actor_id
         self._audit_geo("city", "updated", row, actor_id, before)
         self._commit()
@@ -893,8 +910,9 @@ class SalesTerritoryService:
         before = row_state(row)
         self._geo_row(GeoCity, payload.city_id, "City")
         row.city_id = payload.city_id
-        row.postal_code = payload.postal_code
-        row.is_active = payload.is_active
+        row.postal_code = payload.postal_code.strip()
+        if "is_active" in payload.model_fields_set:
+            row.is_active = payload.is_active
         row.updated_by = actor_id
         self._audit_geo("postal_code", "updated", row, actor_id, before)
         self._commit()
@@ -940,7 +958,8 @@ class SalesTerritoryService:
         self._geo_row(GeoPostalCode, payload.postal_code_id, "Postal code")
         row.postal_code_id = payload.postal_code_id
         row.name = payload.name.strip()
-        row.is_active = payload.is_active
+        if "is_active" in payload.model_fields_set:
+            row.is_active = payload.is_active
         row.updated_by = actor_id
         self._audit_geo("locality", "updated", row, actor_id, before)
         self._commit()
@@ -992,20 +1011,33 @@ class SalesTerritoryService:
         return row
 
     def _assert_geo_code_free(
-        self, model: type[BaseEntity], code: str, *, current_id: UUID
+        self,
+        model: type[BaseEntity],
+        code: str,
+        *,
+        current_id: UUID,
+        parent: tuple[InstrumentedAttribute[UUID], UUID] | None = None,
     ) -> None:
-        """Keep a geography code unique among the live rows of its own kind."""
+        """Keep a geography code unique among the live rows under one parent.
+
+        ``parent`` is the level above, and the keys are drawn the same way --
+        ``UQ_geo_states_country_code_active`` and its siblings. Checked across
+        every parent, a state could not be renamed to a code some other
+        country's state already used, which the key allows (D-CFG-21).
+        """
         # `code` is not on `BaseEntity`, so it is read off the mapper rather
         # than the class: the four levels that carry one all spell it the same,
         # and postal codes -- which do not -- never reach here.
         code_column = model.__table__.c["code"]
-        existing = self._session.scalar(
-            select(model.id).where(
-                code_column == code,
-                model.id != current_id,
-                model.is_deleted.is_(False),
-            )
+        statement = select(model.id).where(
+            code_column == code,
+            model.id != current_id,
+            model.is_deleted.is_(False),
         )
+        if parent is not None:
+            column, parent_id = parent
+            statement = statement.where(column == parent_id)
+        existing = self._session.scalar(statement)
         if existing is not None:
             raise ConflictError(f"Another record already uses the code {code}.")
 
@@ -3605,6 +3637,22 @@ class SalesTerritoryService:
         )
         self._session.add(config)
         self._session.flush()
+        # The read creates the firm's hierarchy, so the trail says so: it
+        # inserted with no audit row, and the levels a firm's territories hang
+        # from appeared from nowhere (D-CFG-21). Creating on the first read is
+        # kept -- the ids it returns must exist -- as provisioning does.
+        record_audit(
+            self._session,
+            action="sales_territory.hierarchy.created",
+            entity_type="sales_hierarchy_config",
+            entity_id=config.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            after_data={
+                "max_levels": config.max_levels,
+                "levels": ["REGION", "TERRITORY", "ROUTE"],
+            },
+        )
         defaults = [
             ("REGION", "Region", 1),
             ("TERRITORY", "Territory", 2),
@@ -3660,10 +3708,17 @@ class SalesTerritoryService:
             if existing_row is not None:
                 existing_row.level_code = item.level_code
                 existing_row.display_name = item.display_name
-                existing_row.description = item.description
-                existing_row.is_mandatory = item.is_mandatory
-                existing_row.is_enabled = item.is_enabled
-                existing_row.max_nodes_per_parent = item.max_nodes_per_parent
+                # The optional fields only when stated: a level renamed by a
+                # client that did not send `is_mandatory` kept its flag
+                # rather than taking the default (D-CFG-21).
+                for field in (
+                    "description",
+                    "is_mandatory",
+                    "is_enabled",
+                    "max_nodes_per_parent",
+                ):
+                    if field in item.model_fields_set:
+                        setattr(existing_row, field, getattr(item, field))
                 existing_row.is_deleted = False
                 existing_row.deleted_at = None
                 existing_row.deleted_by = None

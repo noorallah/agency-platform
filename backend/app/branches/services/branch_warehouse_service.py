@@ -909,6 +909,20 @@ class BranchWarehouseService:
             for value in AttributeService(self._session).value_rows(model, row.id)
         ]
 
+    def attribute_responses_for_many(
+        self,
+        model: type[BranchAttributeValue] | type[WarehouseAttributeValue],
+        rows: list[Branch] | list[Warehouse],
+    ) -> dict[UUID, list[AttributeValueResponse]]:
+        """Return a page of records' custom fields in one query (D-CFG-20)."""
+        grouped = AttributeService(self._session).value_rows_for_many(
+            model, [row.id for row in rows]
+        )
+        return {
+            owner: [AttributeValueResponse.model_validate(value) for value in values]
+            for owner, values in grouped.items()
+        }
+
     def create_branch_type(
         self, data: BranchTypeWrite, *, firm_id: UUID, actor_id: UUID
     ) -> BranchType:

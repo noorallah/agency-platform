@@ -11,6 +11,7 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.business.schemas import AttributeValueResponse
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
@@ -116,7 +117,12 @@ def _filters(
         raise ValidationError(str(error)) from error
 
 
-def _response(row: Customer, db: Session) -> CustomerResponse:
+def _response(
+    row: Customer,
+    db: Session,
+    *,
+    attributes: list[AttributeValueResponse] | None = None,
+) -> CustomerResponse:
     """Build one customer response with its custom fields attached.
 
     The values live in their own table and `CustomerResponse` cannot reach
@@ -125,8 +131,18 @@ def _response(row: Customer, db: Session) -> CustomerResponse:
     list for a customer that has values.
     """
     payload = CustomerResponse.model_validate(row).model_dump(mode="python")
-    payload["attributes"] = CustomerService(db).attribute_responses(row)
+    payload["attributes"] = (
+        CustomerService(db).attribute_responses(row)
+        if attributes is None
+        else attributes
+    )
     return CustomerResponse.model_validate(payload)
+
+
+def _responses(rows: list[Customer], db: Session) -> list[CustomerResponse]:
+    """Build a page of responses, reading every row's custom fields at once."""
+    attributes = CustomerService(db).attribute_responses_for_many(rows)
+    return [_response(row, db, attributes=attributes.get(row.id, [])) for row in rows]
 
 
 @router.get("", response_model=PaginatedResponse[CustomerResponse])
@@ -171,7 +187,7 @@ def list_customers(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=[_response(row, db) for row in rows],
+        data=_responses(rows, db),
         pagination=params.metadata(total),
     )
 
@@ -281,7 +297,7 @@ def import_customers(
             "CUSTOMER_MANAGE_SETTINGS"
         ),
     )
-    return ApiResponse(data=[_response(customer, db) for customer in customers])
+    return ApiResponse(data=_responses(customers, db))
 
 
 # Declared with the other literals above `/{customer_id}`: FastAPI matches in

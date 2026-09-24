@@ -247,9 +247,11 @@ class HierarchyUpdateRequest(TerritorySchema):
     """Replace hierarchy configuration and configured levels for one firm."""
 
     max_levels: int = Field(ge=1, le=20)
-    allow_multi_route_per_salesman: bool = True
-    allow_multi_salesman_per_route: bool = True
-    enforce_customer_leaf_assignment: bool = False
+    #: Omitted leaves the stored flag alone; a PUT that did not mention one
+    #: used to reset it to the default (D-CFG-21).
+    allow_multi_route_per_salesman: bool | None = None
+    allow_multi_salesman_per_route: bool | None = None
+    enforce_customer_leaf_assignment: bool | None = None
     levels: list[HierarchyLevelInput] = Field(min_length=1, max_length=20)
 
     @model_validator(mode="after")

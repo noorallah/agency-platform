@@ -868,6 +868,18 @@ class VendorService:
             )
         ]
 
+    def attribute_responses_for_many(
+        self, vendors: list[Vendor]
+    ) -> dict[UUID, list[AttributeValueResponse]]:
+        """Return a page of vendors' custom fields in one query (D-CFG-20)."""
+        grouped = AttributeService(self._session).value_rows_for_many(
+            VendorAttributeValue, [row.id for row in vendors]
+        )
+        return {
+            owner: [AttributeValueResponse.model_validate(row) for row in rows]
+            for owner, rows in grouped.items()
+        }
+
     @staticmethod
     def _vendor_values(
         data: VendorCreate | VendorUpdate, *, partial: bool = False

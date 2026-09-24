@@ -4,9 +4,12 @@ from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
+from sqlalchemy import select
+from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
+from app.business.models import BusinessProfile
 from app.common.scope import (
     RequiredFirmScope,
     ResolvedFirmScope,
@@ -14,12 +17,17 @@ from app.common.scope import (
 )
 from app.core.concurrency import ExpectedVersion, set_etag
 from app.core.constants import MAX_PAGE_SIZE
-from app.core.database.dependencies import get_db
-from app.core.exceptions import AuthorizationError
+from app.core.database.dependencies import (
+    firm_store_session,
+    get_db,
+    get_platform_db,
+)
+from app.core.exceptions import ApplicationError, AuthorizationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.core.security.authorization import Principal, require_platform_admin
+from app.firms.models import Firm
 from app.uom.models import Uom
 from app.uom.schemas import (
     BarcodeLookupResponse,
@@ -88,9 +96,14 @@ def list_uoms(
     """List the unit catalogue."""
     service = UomService(db)
     rows = service.list_uoms(include_inactive=include_inactive)
-    return ApiResponse(
-        data=[_uom_response(service, row, scope.firm_id) for row in rows]
-    )
+    # One read for the whole catalogue rather than one per unit (D-CFG-20).
+    attributes = service.attribute_responses_for_many(rows, firm_id=scope.firm_id)
+    data = []
+    for row in rows:
+        payload = UomResponse.model_validate(row).model_dump(mode="python")
+        payload["attributes"] = attributes.get(row.id, [])
+        data.append(UomResponse.model_validate(payload))
+    return ApiResponse(data=data)
 
 
 @router.post(
@@ -426,8 +439,10 @@ def upsert_profile_defaults(
     profile_id: UUID,
     data: BusinessProfileUomDefaultUpsert,
     scope: ConversionManageScope,
+    request: Request,
     apply_to: Annotated[Literal["FIRM", "PROFILE"], Query()] = "FIRM",
     db: Session = Depends(get_db),
+    platform_db: Session = Depends(get_platform_db),
 ) -> ApiResponse[BusinessProfileUomDefaultResponse]:
     """Store default unit behaviour for this firm, or for the whole profile.
 
@@ -456,7 +471,81 @@ def upsert_profile_defaults(
         actor_id=scope.actor_id,
         audit_firm_id=scope.firm_id,
     )
-    return ApiResponse(data=BusinessProfileUomDefaultResponse.model_validate(row))
+    response = BusinessProfileUomDefaultResponse.model_validate(row)
+    if apply_to != "PROFILE":
+        return ApiResponse(data=response)
+    unreached = _write_profile_default_in_every_store(
+        request,
+        db,
+        platform_db,
+        caller_firm_id=scope.firm_id,
+        profile_id=profile_id,
+        data=data,
+        actor_id=scope.actor_id,
+    )
+    message = (
+        "Saved for every firm on the profile."
+        if not unreached
+        else "Saved, but not reached: " + "; ".join(unreached) + "."
+    )
+    return ApiResponse(data=response, message=message)
+
+
+def _write_profile_default_in_every_store(
+    request: Request,
+    db: Session,
+    platform_db: Session,
+    *,
+    caller_firm_id: UUID,
+    profile_id: UUID,
+    data: BusinessProfileUomDefaultUpsert,
+    actor_id: UUID,
+) -> list[str]:
+    """Write a profile-wide default into every firm's store, not only the caller's.
+
+    The row is reference data held per store, so writing it through ``get_db``
+    reached the caller's store alone, while this endpoint and
+    ``docs/UOM_FRAMEWORK.md`` promised every firm on the profile (D-CFG-21).
+    Profiles are matched by code, because each store seeds its own catalogue.
+    A store that already holds the same values writes no audit row, which is
+    what a shared schema visited once per firm needs. A firm whose store cannot
+    be reached, or has no such profile, is named rather than skipped silently.
+
+    Returns:
+        One description per firm the write did not reach.
+
+    """
+    profile = db.get(BusinessProfile, profile_id)
+    if profile is None:
+        return []
+    unreached: list[str] = []
+    firms = platform_db.scalars(
+        select(Firm)
+        .where(Firm.is_deleted.is_(False), Firm.id != caller_firm_id)
+        .order_by(Firm.code.asc())
+    ).all()
+    for firm in firms:
+        try:
+            with firm_store_session(request, firm.id) as store:
+                target = store.scalar(
+                    select(BusinessProfile.id).where(
+                        BusinessProfile.code == profile.code,
+                        BusinessProfile.is_deleted.is_(False),
+                    )
+                )
+                if target is None:
+                    unreached.append(f"{firm.code} has no {profile.code} profile")
+                    continue
+                UomService(store).upsert_profile_default(
+                    firm_scope=None,
+                    profile_id=target,
+                    data=data,
+                    actor_id=actor_id,
+                    audit_firm_id=firm.id,
+                )
+        except (ApplicationError, SQLAlchemyError) as error:
+            unreached.append(f"{firm.code}: {error}")
+    return unreached
 
 
 @router.get(

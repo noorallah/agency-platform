@@ -37,6 +37,10 @@ from app.document_framework.schemas import (
     DocumentTypeUpdate,
 )
 
+#: The only fields of a module-owned lifecycle state an administrator may edit.
+#: Everything else describes what the module's own code does in that state.
+_DESCRIPTIVE_STATE_FIELDS = frozenset({"name", "description", "sort_order"})
+
 
 class DocumentApprovalEngine(Protocol):
     """Placeholder approval engine interface for future orchestration."""
@@ -161,6 +165,14 @@ class DocumentFrameworkService:
     ) -> DocumentTypeDefinition:
         row = self.get_type(firm_id, type_id)
         self._assert_unique_type(firm_id, data.code, current_id=row.id)
+        if self._module_owned(row) and data.code != row.code:
+            # The module finds its type by code; a renamed one is a type it
+            # no longer sees, so the next document would bootstrap a fresh
+            # type and a fresh series restarting at 1 (D-CFG-18).
+            raise ValidationError(
+                f"{row.code} is the document type a module numbers its "
+                "documents under; its code cannot be changed."
+            )
         before: dict[str, object] = {
             "code": row.code,
             "name": row.name,
@@ -182,6 +194,7 @@ class DocumentFrameworkService:
 
     def delete_type(self, firm_id: UUID, type_id: UUID, actor_id: UUID) -> None:
         row = self.get_type(firm_id, type_id)
+        self._assert_type_not_in_use(row)
         row.is_deleted = True
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
@@ -246,8 +259,23 @@ class DocumentFrameworkService:
         return list(rows), int(self._session.scalar(count) or 0)
 
     def create_state(
-        self, firm_id: UUID, data: DocumentStateCreate, actor_id: UUID
+        self,
+        firm_id: UUID,
+        data: DocumentStateCreate,
+        actor_id: UUID,
+        *,
+        module_bootstrap: bool = False,
     ) -> DocumentStateDefinition:
+        """Add a lifecycle state to one of the firm's document types.
+
+        ``module_bootstrap`` is True only when a module writes the states of
+        its own lifecycle. Nobody else may add one to a module's type: the
+        module's code is what moves its documents between states, so a state
+        added here would be listed and never reached (D-CFG-18).
+        """
+        document_type = self.get_type(firm_id, data.document_type_id)
+        if not module_bootstrap:
+            self._assert_not_module_lifecycle(document_type)
         self._assert_unique_state(firm_id, data.document_type_id, data.code)
         row = DocumentStateDefinition(
             firm_id=firm_id,
@@ -290,8 +318,32 @@ class DocumentFrameworkService:
         self._assert_unique_state(
             firm_id, data.document_type_id, data.code, current_id=row.id
         )
+        values = data.model_dump(exclude_unset=True)
+        if values.get("document_type_id", row.document_type_id) != (
+            row.document_type_id
+        ):
+            raise ValidationError(
+                "A lifecycle state cannot be moved under another document type."
+            )
+        document_type = self.get_type(firm_id, row.document_type_id)
+        if self._module_owned(document_type):
+            # Only the words may change. What a state permits is what the
+            # module's code does in it; a flag edited here was stored and
+            # obeyed by nothing (D-CFG-18).
+            moved = sorted(
+                field
+                for field, value in values.items()
+                if field not in _DESCRIPTIVE_STATE_FIELDS
+                and value != getattr(row, field)
+            )
+            if moved:
+                raise ValidationError(
+                    f"{document_type.code} follows its module's own lifecycle; "
+                    "only a state's name, description and order can be "
+                    f"changed here, not {', '.join(moved)}."
+                )
         before = {"code": row.code, "name": row.name, "sort_order": row.sort_order}
-        for field, value in data.model_dump(exclude_unset=True).items():
+        for field, value in values.items():
             setattr(row, field, value)
         row.updated_by = actor_id
         record_audit(
@@ -307,6 +359,7 @@ class DocumentFrameworkService:
 
     def delete_state(self, firm_id: UUID, state_id: UUID, actor_id: UUID) -> None:
         row = self.get_state(firm_id, state_id)
+        self._assert_not_module_lifecycle(self.get_type(firm_id, row.document_type_id))
         row.is_deleted = True
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
@@ -387,6 +440,9 @@ class DocumentFrameworkService:
         with one must not stop the firm raising that document at all. The
         hand-journal space is refused either way.
         """
+        # The type must be this firm's: in the shared store another firm's
+        # type id is a real row, and a rule under it numbered nothing of ours.
+        self.get_type(firm_id, data.document_type_id)
         self._assert_unique_numbering_rule(firm_id, data.document_type_id, data.code)
         self._assert_outside_the_manual_journal_namespace(
             prefix=data.prefix,
@@ -473,6 +529,15 @@ class DocumentFrameworkService:
         )
         before = row_state(row)
         values = data.model_dump(exclude_unset=True)
+        if values.pop("document_type_id", row.document_type_id) != (
+            row.document_type_id
+        ):
+            # A series carries the numbers it has issued; under another type
+            # they would read as that type's (D-CFG-18).
+            raise ValidationError(
+                "A numbering series cannot be moved to another document type. "
+                "Create a series for that type instead."
+            )
         # Judged on what the rule will be, as the year check below is.
         self._assert_outside_the_manual_journal_namespace(
             prefix=values.get("prefix", row.prefix),
@@ -481,7 +546,7 @@ class DocumentFrameworkService:
         )
         self._assert_numbered_apart_from_other_types(
             firm_id,
-            document_type_id=values.get("document_type_id", row.document_type_id),
+            document_type_id=row.document_type_id,
             prefix=values.get("prefix", row.prefix),
             separator=values.get("separator", row.separator),
             format_pattern=values.get("format_pattern", row.format_pattern),
@@ -604,6 +669,14 @@ class DocumentFrameworkService:
                 f"The numbering series {rule.code} is switched off, and no other "
                 "series of this document type is active. Switch a series on "
                 "before raising the document."
+            )
+        document_type = self._session.get(DocumentTypeDefinition, rule.document_type_id)
+        if document_type is not None and not document_type.is_active:
+            # A switched-off document type raises nothing, as a switched-off
+            # series does (D-CFG-18).
+            raise ValidationError(
+                f"The document type {document_type.code} is switched off. "
+                "Switch it on before raising the document."
             )
         on = document_date or utc_now().date()
         # The same derivation `preview_number` uses, so the two cannot answer
@@ -908,6 +981,51 @@ class DocumentFrameworkService:
             statement.order_by(ordering).offset((page - 1) * page_size).limit(page_size)
         ).all()
         return list(rows), int(self._session.scalar(count) or 0)
+
+    @staticmethod
+    def _module_owned(document_type: DocumentTypeDefinition) -> bool:
+        """Return whether a module bootstrapped this type and numbers under it."""
+        configuration = document_type.configuration or {}
+        return bool(configuration.get("module"))
+
+    def _assert_not_module_lifecycle(
+        self, document_type: DocumentTypeDefinition
+    ) -> None:
+        """Refuse adding or removing a state of a module's own lifecycle."""
+        if self._module_owned(document_type):
+            raise ValidationError(
+                f"{document_type.code} follows its module's own lifecycle; "
+                "its states cannot be added or removed here."
+            )
+
+    def _assert_type_not_in_use(self, document_type: DocumentTypeDefinition) -> None:
+        """Refuse deleting a type a module or a live series still numbers under.
+
+        A module looks its type up by code and bootstraps a fresh one when it
+        is gone, with a fresh series starting at 1 -- the restart D-CFG-7
+        closed for a retired series, reached by another road (D-CFG-18).
+        Switching the type off is the way to stop using it.
+        """
+        if self._module_owned(document_type):
+            raise ValidationError(
+                f"{document_type.code} is the document type a module numbers its "
+                "documents under and cannot be deleted. Switch it off instead."
+            )
+        in_use = self._session.scalar(
+            select(DocumentNumberingRule.id).where(
+                DocumentNumberingRule.document_type_id == document_type.id,
+                DocumentNumberingRule.is_deleted.is_(False),
+            )
+        ) or self._session.scalar(
+            select(DocumentLifecycleEvent.id).where(
+                DocumentLifecycleEvent.document_type_id == document_type.id
+            )
+        )
+        if in_use is not None:
+            raise ValidationError(
+                f"{document_type.code} still has numbering series or documents "
+                "recorded against it and cannot be deleted. Switch it off instead."
+            )
 
     def _assert_unique_type(
         self, firm_id: UUID, code: str, *, current_id: UUID | None = None

@@ -1158,6 +1158,30 @@ class ProductService:
             category_code=category.code if category is not None else None,
         )
 
+    def attribute_responses_for_many(
+        self, products: list[Product]
+    ) -> dict[UUID, list[ProductAttributeResponse]]:
+        """Return a page of products' attributes in one query (D-CFG-20)."""
+        grouped = AttributeService(self._session).value_rows_for_many(
+            ProductAttributeValue, [row.id for row in products]
+        )
+        return {
+            owner: [
+                ProductAttributeResponse(
+                    id=row.id,
+                    attribute_definition_id=row.attribute_definition_id,
+                    value_text=row.value_text,
+                    value_number=row.value_number,
+                    value_date=row.value_date,
+                    value_boolean=row.value_boolean,
+                    created_at=row.created_at,
+                    updated_at=row.updated_at,
+                )
+                for row in rows
+            ]
+            for owner, rows in grouped.items()
+        }
+
     def attribute_responses(self, product: Product) -> list[ProductAttributeResponse]:
         """Return one product's stored attributes in response shape."""
         rows = self._session.scalars(

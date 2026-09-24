@@ -5099,7 +5099,7 @@ ResourceDefinition<Firm> _firmProfileAssignmentDefinition(
       firmId,
       values['business_profile_id'].toString(),
       isActive: values['is_active'] as bool? ?? true,
-      notes: values['notes'].toString(),
+      notes: (values['notes'] ?? '').toString(),
     ),
   );
 }

@@ -167,11 +167,14 @@ class _GeoAreaPickerState extends State<GeoAreaPicker> {
     final String current = widget.value[level] ?? '';
     return <DropdownMenuItem<String>>[
       const DropdownMenuItem<String>(value: '', child: Text('None')),
+      // A retired place is not offered for a new choice, only kept where it
+      // is already the stored one (D-CFG-21).
       for (final GeoPlaceRecord row in rows)
-        DropdownMenuItem<String>(
-          value: row.id,
-          child: Text(level == GeoLevel.postalCode ? row.code : row.name),
-        ),
+        if (row.isActive || row.id == current)
+          DropdownMenuItem<String>(
+            value: row.id,
+            child: Text(level == GeoLevel.postalCode ? row.code : row.name),
+          ),
       if (current.isNotEmpty && !rows.any((row) => row.id == current))
         DropdownMenuItem<String>(
           value: current,

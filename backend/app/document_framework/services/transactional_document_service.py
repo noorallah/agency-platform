@@ -305,6 +305,7 @@ class TransactionalDocumentService:
                     is_active=True,
                 ),
                 actor_id,
+                module_bootstrap=True,
             )
         # The series a document is numbered from: an active one before an
         # inactive one, the default before the rest, then the oldest -- every

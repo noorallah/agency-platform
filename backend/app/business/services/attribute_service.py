@@ -22,13 +22,12 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from app.business.gating import resolve_profile_id
 from app.business.models import (
     AttributeDataType,
     AttributeDefinition,
     AttributeValueBase,
-    BusinessProfile,
     CategoryAttributeRule,
-    FirmBusinessProfile,
 )
 from app.common.audit.services import audit_value, changed_fields, record_audit
 from app.core.exceptions import ValidationError
@@ -343,6 +342,35 @@ class AttributeService:
             self._session.scalars(statement.order_by(model.created_at.asc())).all()
         )
 
+    def value_rows_for_many(
+        self,
+        model: type[AttributeValueBase],
+        owner_ids: list[UUID],
+        *,
+        firm_id: UUID | None = None,
+    ) -> dict[UUID, list[AttributeValueBase]]:
+        """Return several records' live stored values in one query.
+
+        :meth:`value_rows` for a page of records: a list endpoint built each
+        row's ``attributes`` with its own query, one per row (D-CFG-20). Each
+        owner's values come back oldest first, as ``value_rows`` returns them;
+        an owner with none is absent from the map.
+        """
+        if not owner_ids:
+            return {}
+        statement = select(model).where(
+            model.owner_column().in_(owner_ids),
+            model.is_deleted.is_(False),
+        )
+        if firm_id is not None:
+            statement = statement.where(model.firm_id == firm_id)
+        grouped: dict[UUID, list[AttributeValueBase]] = {}
+        for value in self._session.scalars(
+            statement.order_by(model.created_at.asc(), model.id.asc())
+        ):
+            grouped.setdefault(getattr(value, model.OWNER_COLUMN), []).append(value)
+        return grouped
+
     def values_for_many(
         self,
         model: type[AttributeValueBase],
@@ -505,20 +533,9 @@ class AttributeService:
         )
 
     def _profile_id(self, firm_id: UUID) -> UUID | None:
-        """Return the firm's active profile, falling back to the default."""
-        assigned = self._session.scalar(
-            select(FirmBusinessProfile.business_profile_id).where(
-                FirmBusinessProfile.firm_id == firm_id,
-                FirmBusinessProfile.is_active.is_(True),
-                FirmBusinessProfile.is_deleted.is_(False),
-            )
-        )
-        if assigned is not None:
-            return assigned
-        return self._session.scalar(
-            select(BusinessProfile.id).where(
-                BusinessProfile.is_default.is_(True),
-                BusinessProfile.status == "ACTIVE",
-                BusinessProfile.is_deleted.is_(False),
-            )
-        )
+        """Return the profile the gate resolves for the firm, or None.
+
+        Delegated to ``resolve_profile_id`` so custom fields, the gate and
+        ``/active-features`` give one answer (D-CFG-19).
+        """
+        return resolve_profile_id(self._session, firm_id)

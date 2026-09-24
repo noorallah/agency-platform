@@ -9,6 +9,7 @@ from uuid import UUID
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
+from app.business.gating import resolve_profile_id
 from app.business.models import (
     AttributeDefinition,
     BusinessFeature,
@@ -696,8 +697,13 @@ class BusinessProfileFrameworkService:
             if row.business_profile_id != data.business_profile_id:
                 row.effective_from = effective_from or utc_now()
             row.business_profile_id = data.business_profile_id
-            row.is_active = data.is_active
-            row.notes = data.notes
+            # Only what the caller sent. The Set up panel sends the profile
+            # alone, and each use of it cleared the notes the Profile
+            # Assignment screen had written (D-CFG-21).
+            if "is_active" in data.model_fields_set:
+                row.is_active = data.is_active
+            if "notes" in data.model_fields_set:
+                row.notes = data.notes
             row.updated_by = actor_id
             action = "firm_business_profile.updated"
         self._session.flush()
@@ -878,7 +884,15 @@ class BusinessProfileFrameworkService:
     def active_features(
         self, firm_id: UUID | None
     ) -> list[tuple[BusinessFeature, dict[str, object]]]:
-        profile_id = self._resolved_profile_id(firm_id)
+        """Return the features the firm's profile switches on.
+
+        The profile is the one the gate resolves (``resolve_profile_id``), so
+        what the desktop offers and what a save accepts cannot part. With no
+        resolvable profile the gate enforces nothing, and this says so by
+        listing every active feature -- never by borrowing some other ACTIVE
+        profile's list, which is what it used to do (D-CFG-19).
+        """
+        profile_id = resolve_profile_id(self._session, firm_id)
         assignments = {
             row.feature_id: row
             for row in self._session.scalars(
@@ -897,7 +911,7 @@ class BusinessProfileFrameworkService:
         result: list[tuple[BusinessFeature, dict[str, object]]] = []
         for feature in rows:
             assignment = assignments.get(feature.id)
-            enabled = (
+            enabled = profile_id is None or (
                 assignment.is_enabled
                 if assignment is not None
                 else feature.default_enabled
@@ -916,7 +930,12 @@ class BusinessProfileFrameworkService:
         return result
 
     def active_modules(self, firm_id: UUID | None) -> list[tuple[BusinessModule, int]]:
-        profile_id = self._resolved_profile_id(firm_id)
+        """Return the modules the firm's profile shows, in display order.
+
+        Resolved as ``active_features`` is; no profile means every active
+        module, since the gate would refuse none of them.
+        """
+        profile_id = resolve_profile_id(self._session, firm_id)
         assignments = {
             row.module_id: row
             for row in self._session.scalars(
@@ -935,7 +954,7 @@ class BusinessProfileFrameworkService:
         result: list[tuple[BusinessModule, int]] = []
         for module in rows:
             assignment = assignments.get(module.id)
-            enabled = (
+            enabled = profile_id is None or (
                 assignment.is_enabled
                 if assignment is not None
                 else module.default_enabled
@@ -944,36 +963,6 @@ class BusinessProfileFrameworkService:
             if enabled and visible:
                 result.append((module, assignment.display_order if assignment else 0))
         return sorted(result, key=lambda item: (item[1], item[0].name))
-
-    def _resolved_profile_id(self, firm_id: UUID | None) -> UUID:
-        if firm_id is not None:
-            assignment = self._session.scalar(
-                select(FirmBusinessProfile).where(
-                    FirmBusinessProfile.firm_id == firm_id,
-                    FirmBusinessProfile.is_deleted.is_(False),
-                    FirmBusinessProfile.is_active.is_(True),
-                )
-            )
-            if assignment is not None:
-                return assignment.business_profile_id
-        default_profile = self._session.scalar(
-            select(BusinessProfile).where(
-                BusinessProfile.is_deleted.is_(False),
-                BusinessProfile.status == "ACTIVE",
-                BusinessProfile.is_default.is_(True),
-            )
-        )
-        if default_profile is not None:
-            return default_profile.id
-        fallback = self._session.scalar(
-            select(BusinessProfile).where(
-                BusinessProfile.is_deleted.is_(False),
-                BusinessProfile.status == "ACTIVE",
-            )
-        )
-        if fallback is None:
-            raise ResourceNotFoundError("No active business profile is configured.")
-        return fallback.id
 
     def _require_firm(self, firm_id: UUID) -> None:
         """Confirm the firm exists, via the platform store.
