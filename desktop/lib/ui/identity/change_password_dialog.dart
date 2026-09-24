@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
+import '../../core/api/api_refusal.dart';
 
 /// Change your own password, from My profile.
 ///
@@ -83,7 +84,10 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
       // last five reused -- shown where it can be acted on.
       setState(() {
         _saving = false;
-        _error = error.message;
+        // Rule by rule where the server states them: a policy stricter
+        // than the one this dialog checks used to arrive as the bare
+        // "does not meet the configured policy" (BL-31.16).
+        _error = refusalMessage(error);
       });
     }
   }
