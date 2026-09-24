@@ -11,7 +11,7 @@ cases that decide whether the payout that closes that gap can be trusted:
   record never disagree about what the firm owes.
 """
 
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -20,7 +20,11 @@ from sqlalchemy import create_engine, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
-from app.commission.models import CommissionPayoutStatus, CommissionRule
+from app.commission.models import (
+    CommissionPayout,
+    CommissionPayoutStatus,
+    CommissionRule,
+)
 from app.commission.schemas import CommissionRuleCreate
 from app.commission.schemas.payout import (
     CommissionPaymentMethodEnum,
@@ -830,6 +834,51 @@ def test_a_period_only_worth_more_now_is_not_paid_again() -> None:
     assert may.clawback_amount == Decimal("0.00")
     assert may.earned_amount == Decimal("1500.00")
     assert may.payable_amount == Decimal("1500.00")
+
+
+def _paid_april_on_a_taxed_bill(*, accrued_at: datetime | None) -> _Books:
+    """Pay April, then reveal that 762.71 of its 5,000 bill was tax.
+
+    The fixture's bills carry no lines, so the header is the base: total less
+    tax. Paid at 500 on the document total, April is worth 423.73 on net
+    sales -- 76.27 "short" if it were re-read on the new base.
+    """
+    books = _ready()
+    [april] = books.accrue()
+    books.settle(april.id)
+    invoice = books.session.scalars(select(SalesInvoice)).one()
+    invoice.tax_total = Decimal("762.71")
+    if accrued_at is not None:
+        payout = books.session.get(CommissionPayout, april.id)
+        assert payout is not None
+        payout.created_at = accrued_at
+    books.session.commit()
+    books.collect("SI-2", "3000.00", when=date(2026, 5, 20))
+    return books
+
+
+def test_a_period_paid_on_the_document_total_is_not_clawed_back_for_its_tax() -> None:
+    """The base moved to net sales on 2026-09-24; paid periods did not.
+
+    A payout accrued before then was measured with tax in, which was the rule
+    in force, so its period is re-read the same way. Re-reading it on net
+    sales would claw back every period's tax share from the next accrual.
+    """
+    books = _paid_april_on_a_taxed_bill(accrued_at=datetime(2026, 9, 1, tzinfo=UTC))
+
+    [may] = books.accrue(MAY)
+
+    assert may.earned_amount == Decimal("300.00")
+    assert may.clawback_amount == Decimal("0.00")
+
+
+def test_a_period_paid_on_net_sales_is_re_read_on_net_sales() -> None:
+    """The control: accrued on or after the change, the net base is the one."""
+    books = _paid_april_on_a_taxed_bill(accrued_at=None)
+
+    [may] = books.accrue(MAY)
+
+    assert may.clawback_amount == Decimal("76.27")
 
 
 # ----------------------------------------------------------------------

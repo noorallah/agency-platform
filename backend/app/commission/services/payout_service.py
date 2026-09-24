@@ -12,7 +12,7 @@ is one nobody can reconcile against the journal it posted.
 """
 
 from collections.abc import Sequence
-from datetime import date, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -45,7 +45,7 @@ from app.core.exceptions import (
     ResourceNotFoundError,
     ValidationError,
 )
-from app.core.utils.dates import utc_now
+from app.core.utils.dates import as_utc, utc_now
 from app.core.utils.money import ZERO
 from app.finance.services.control_accounts import (
     ControlAccountPurpose,
@@ -62,6 +62,15 @@ LIVE_STATUSES = (
     CommissionPayoutStatus.APPROVED.value,
     CommissionPayoutStatus.PAID.value,
 )
+
+
+#: When commission started being earned on net sales rather than on the
+#: document total (the owner's decision of 2026-09-24). A payout accrued
+#: before it was measured with tax and freight in, and its paid period is
+#: re-read the same way -- otherwise every such period would look short by
+#: its tax and freight, and the next accrual would claw back money that was
+#: correctly paid under the rule in force at the time.
+NET_SALES_BASE_FROM = datetime(2026, 9, 24, tzinfo=UTC)
 
 
 class CommissionPayoutService:
@@ -345,6 +354,7 @@ class CommissionPayoutService:
             from_date=source.period_start,
             to_date=source.period_end,
             salesman_id=source.salesman_id,
+            on_document_total=as_utc(source.created_at) < NET_SALES_BASE_FROM,
         )
         worth_now = sum(
             (
