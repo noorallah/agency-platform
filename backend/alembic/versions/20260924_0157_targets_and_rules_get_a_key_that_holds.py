@@ -78,6 +78,19 @@ def _has_index(inspector: sa.Inspector, table: str, name: str) -> bool:
     return any(index["name"] == name for index in inspector.get_indexes(table))
 
 
+def _has_columns(inspector: sa.Inspector, table: str, names: tuple[str, ...]) -> bool:
+    """Whether the table carries every column the key names.
+
+    The platform schema keeps a copy of `commission_rules` from before
+    `product_id` and `product_category_id` were added -- a firm-owned table
+    the platform store never migrates, since nothing there reads it -- and the
+    index over those columns failed on it and took the platform upgrade down
+    with it. A table without the columns has nothing for the key to hold.
+    """
+    present = {column["name"] for column in inspector.get_columns(table)}
+    return all(name in present for name in names)
+
+
 def _has_constraint(inspector: sa.Inspector, table: str, name: str) -> bool:
     """Report whether one unique constraint is already on the table."""
     return any(
@@ -92,7 +105,9 @@ def upgrade() -> None:
     if bind.dialect.name != "postgresql":
         return
     inspector = sa.inspect(bind)
-    if inspector.has_table(_TARGETS):
+    if inspector.has_table(_TARGETS) and _has_columns(
+        inspector, _TARGETS, ("salesman_id", "territory_id", "basis", "period_start")
+    ):
         if _has_constraint(inspector, _TARGETS, _TARGETS_OLD):
             op.drop_constraint(_TARGETS_OLD, _TARGETS, type_="unique")
         if not _has_index(inspector, _TARGETS, _TARGETS_NEW):
@@ -103,7 +118,11 @@ def upgrade() -> None:
                 unique=True,
                 postgresql_where=sa.text("NOT is_deleted"),
             )
-    if inspector.has_table(_RULES) and not _has_index(inspector, _RULES, _RULES_NEW):
+    if (
+        inspector.has_table(_RULES)
+        and _has_columns(inspector, _RULES, ("product_id", "product_category_id"))
+        and not _has_index(inspector, _RULES, _RULES_NEW)
+    ):
         op.create_index(
             _RULES_NEW,
             _RULES,
