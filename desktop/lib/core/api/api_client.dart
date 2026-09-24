@@ -4956,6 +4956,27 @@ class ApiClient {
         ),
       );
 
+  /// Set money already paid against a bill that arrived since.
+  ///
+  /// The supplier's advance, the mirror of [allocateReceipt]: a payment
+  /// recorded with no allocation could never be set against a bill
+  /// afterwards (D-BUY-8). Nothing is posted — the money left when the
+  /// payment was recorded, and this decides which bill it clears.
+  Future<Settlement> allocatePayment({
+    required String id,
+    required String invoiceId,
+    required String amount,
+  }) async =>
+      Settlement.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/payments/$id/allocate',
+            body: <String, dynamic>{'invoice_id': invoiceId, 'amount': amount},
+          ),
+        ),
+      );
+
   /// What a supplier owes the firm from goods sent back against a receipt,
   /// not yet set against a bill (D-FIN-19).
   Future<List<SupplierCredit>> supplierCredits(String vendorId) async {

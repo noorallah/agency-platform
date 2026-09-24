@@ -331,16 +331,22 @@ class _SettlementsPageState extends State<SettlementsPage> {
   /// recorded, and this decides which invoice it clears. The screen says so,
   /// because "applying" money sounds like moving it.
   Future<void> _apply(Settlement row) async {
+    // A supplier advance is the same fact the other way round, and the same
+    // dialog: a payment recorded before the bill arrived, set against the
+    // bill afterwards (D-BUY-8). The words differ -- a bill, not an invoice;
+    // money that left, not money that arrived.
+    final bool isReceipt = widget.direction == SettlementDirection.receipt;
+    final String document = isReceipt ? 'invoice' : 'bill';
     final List<OutstandingInvoice> invoices =
         await widget.api.outstandingInvoices(
-      direction: SettlementDirection.receipt,
+      direction: widget.direction,
       partyId: row.partyId,
     );
     if (!mounted) return;
     if (invoices.isEmpty) {
       NotificationService.show(
         context,
-        '${row.partyName} has no unpaid invoices to apply this to.',
+        '${row.partyName} has no unpaid ${document}s to apply this to.',
         kind: AppNotificationKind.information,
       );
       return;
@@ -349,21 +355,30 @@ class _SettlementsPageState extends State<SettlementsPage> {
       context: context,
       builder: (context) => _ApplyDialog(
         title: 'Apply ${row.settlementNumber}',
-        note: 'Nothing moves in the ledger. The money arrived when the '
-            'receipt was recorded; this says which invoice it clears.',
+        note: 'Nothing moves in the ledger. The money '
+            '${isReceipt ? 'arrived when the receipt' : 'left when the payment'}'
+            ' was recorded; this says which $document it clears.',
         available: row.unallocatedAmount,
         availableLabel: 'on account',
-        invoiceLabel: 'Invoice',
+        invoiceLabel: isReceipt ? 'Invoice' : 'Bill',
         invoices: invoices,
       ),
     );
     if (chosen == null || !mounted) return;
     try {
-      await widget.api.allocateReceipt(
-        id: row.id,
-        invoiceId: chosen.invoiceId,
-        amount: chosen.amount,
-      );
+      if (isReceipt) {
+        await widget.api.allocateReceipt(
+          id: row.id,
+          invoiceId: chosen.invoiceId,
+          amount: chosen.amount,
+        );
+      } else {
+        await widget.api.allocatePayment(
+          id: row.id,
+          invoiceId: chosen.invoiceId,
+          amount: chosen.amount,
+        );
+      }
       if (!mounted) return;
       NotificationService.show(
         context,
@@ -509,9 +524,13 @@ class _SettlementsPageState extends State<SettlementsPage> {
         // On-account money can now be applied. It used to say "somebody has
         // to apply it eventually" and there was no way to: `ADVANCE_APPLY`
         // was a declared transaction type nothing could reach.
-        if (_canCreate && row.isOnAccount && row.direction == 'RECEIPT')
+        // A supplier advance too, since D-BUY-8; a refund holds nothing to
+        // apply, it is money handed back.
+        if (_canCreate && row.isOnAccount && row.direction != 'REFUND')
           IconButton(
-            tooltip: 'Apply to an invoice',
+            tooltip: row.direction == 'RECEIPT'
+                ? 'Apply to an invoice'
+                : 'Apply to a bill',
             icon: const Icon(Icons.playlist_add_check),
             onPressed: () => unawaited(_apply(row)),
           ),

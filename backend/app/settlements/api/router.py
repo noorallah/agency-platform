@@ -593,3 +593,36 @@ def reverse_payment(
     db.commit()
     db.refresh(row)
     return ApiResponse(data=_to_response(service, row), message="Payment reversed.")
+
+
+@payments_router.post(
+    "/{payment_id}/allocate", response_model=ApiResponse[SettlementResponse]
+)
+def allocate_payment(
+    payment_id: UUID,
+    payload: SettlementAllocateRequest,
+    scope: PaymentCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SettlementResponse]:
+    """Set money already paid against a bill that arrived since.
+
+    A supplier advance is the mirror of a customer's deposit, and it had the
+    same hole: a payment recorded with no allocation could never be set
+    against a bill afterwards, so the supplier's account showed the bill owed
+    in full beside cash they had already been sent (D-BUY-8). Nothing is
+    posted to the ledger -- the money moved when the payment was recorded, and
+    this decides which bill it clears.
+    """
+    service = PaymentService(db)
+    row = service.allocate(
+        payment_id,
+        invoice_id=payload.invoice_id,
+        amount=payload.amount,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    db.refresh(row)
+    return ApiResponse(
+        data=_to_response(service, row),
+        message=f"{row.settlement_number} applied.",
+    )

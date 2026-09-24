@@ -510,7 +510,7 @@ code only.
 
 - **Updates:** `purchase_orders` — every header column from the form, totals recomputed, `status` APPROVED → **DRAFT**. `purchase_order_lines` updated **in place by `line_number`**, so the line ids survive; a new line number is inserted and a dropped one is **physically deleted**.
 - **Deleted physically and re-inserted, every save:** `purchase_delivery_schedules`, `purchase_attachments`, `purchase_notes`.
-- **Inserts:** **two** `purchase_order_history` rows — `purchase.updated` (APPROVED → APPROVED) and `purchase.approval_withdrawn` (APPROVED → DRAFT, `details_json` "The order was edited after approval."); lifecycle `EDITED` (APPROVED → DRAFT).
+- **Inserts:** **two** `purchase_order_history` rows — `purchase.updated` (APPROVED → APPROVED) and `purchase.approval_withdrawn` (APPROVED → DRAFT, `details_json` "The order was edited after approval."); lifecycle `EDITED` (APPROVED → DRAFT). **Since #621 the two rows carry distinct `created_at`** -- the service stamps each history row strictly later than the one before it, because the column's default is PostgreSQL's `now()`, which is the transaction's start and was the same for both, so the History tab could sort them backwards (D-BUY-8).
 - **Audit: `purchase.updated` only** (`before_data` status APPROVED; `after_data` status DRAFT and `grand_total`). **`purchase.approval_withdrawn` is a history row, not an audit row.** The view's **History** tab reads `purchase_order_history`, which is where TC-BUY-002 sees it; querying `audit_logs` for it finds nothing. Checked: TEST01's PO-TEST01-HO-2026-2027-000002 has the withdrawal in history and only `purchase.updated` in the trail.
 - **The two history rows share one `created_at`** (one transaction), so time cannot order them; the §9.2 query lists the withdrawal first, and so does WHOLE01's own order. Read them as a pair.
 - Submit and Approve again are §9.2.
@@ -537,7 +537,8 @@ The first step that moves anything.
 - **Inserts, once:** `journal_entries` (`source_module` `goods_receipt`, `source_id` the receipt, `reference_number` the GRN number, `journal_date` the receipt date, POSTED) with two `journal_lines` — **Dr 1200 Inventory / Cr 2300 Goods Received Not Invoiced**, at cost and without tax (400.00 for the fixture's 4, 600.00 for its 6); two `gl_postings`; `ledger_balances` inserted or moved for each account in that period, and each later period's row for the account carried forward. A receipt that brought in no value posts no journal.
 - **Updates:** `goods_receipt_lines.inventory_transaction_id` (and `batch_id`); `goods_receipts.status` COMPLETED, `completed_at`; `purchase_orders.status` → PARTIALLY_RECEIVED or RECEIVED — **derived from the sum of completed receipts** each time, never counted up.
 - **Audit:** `inventory.transaction.created` (per line), `finance.journal_entry.created`, `finance.journal_entry.posted`, `purchase.received_status_changed` (only when the order's status moved), `grn.completed`. Confirmed as one request on TEST01's GRN-TEST01-HO-2026-2027-000001.
-- **Not written:** **no `purchase_order_history` row** when receiving moves the order — `purchase.received_status_changed` in the trail is the only record, so the order's History tab never shows PARTIALLY_RECEIVED or RECEIVED arriving. No payable: nobody is owed anything yet. `purchase_order_lines` hold no received quantity; "already received" is summed from the receipts every time it is shown.
+- **Also inserted, since #621:** a `purchase_order_history` row `purchase.received_status_changed` (`from_status` → `to_status`, `details_json` `received_quantity` = what has arrived in all) whenever receiving moves the order, so the History tab shows PARTIALLY_RECEIVED and RECEIVED arriving. Until then the audit row was the only record (D-BUY-8).
+- **Not written:** no payable: nobody is owed anything yet. `purchase_order_lines` hold no received quantity; "already received" is summed from the receipts every time it is shown.
 - **Refused, and the whole completion rolls back:** a cancelled or closed receipt; over-receipt; a batch-required product with no batch; no open accounting period for the receipt date; a control account not mapped.
 - **Check** — the receipts, the movements behind them, what is on the shelf, and the journals:
   ```sql
@@ -661,7 +662,7 @@ Three steps; only Complete moves anything.
 - **Audit:** `finance.journal_entry.created`, `finance.journal_entry.posted`, `settlement.payment.recorded` (`after_data`: `settlement_number`, `amount`, `allocated_amount`, `party` = the vendor's code).
 - **Not written:** no lifecycle event; nothing on the invoice — `purchase_invoices.status` stays APPROVED, there is no PAID; nothing on the vendor. `vendor_ledgers` exists and nothing writes it.
 - **What a bill still owes is derived every time:** its grand total to two decimals, less the allocations of **POSTED** settlements. At zero it drops out of Record Payment.
-- **A payment with no allocation is accepted** — an advance, held in `unallocated_amount`. **It can never be applied to a bill afterwards:** the allocate endpoint is for receipts only ("Only a receipt can be applied to an invoice.").
+- **A payment with no allocation is accepted** — an advance, held in `unallocated_amount`. **Since #621 it can be applied to a bill afterwards:** `POST /api/v1/payments/{id}/allocate`, the mirror of the receipt's, inserts a `settlement_allocations` row on `purchase_invoice_id`, moves `allocated_amount` / `unallocated_amount`, writes `settlement.payment.allocated` to the trail, and posts **nothing** -- the journal was raised when the payment was recorded, and there is no vendor balance to move. Until then the endpoint was for receipts only ("Only a receipt can be applied to an invoice.") (D-BUY-8).
 - **Refused:** allocating more than a bill owes, to another vendor's bill or to a draft or cancelled one, or more in total than was paid; BANK or CASH not mapped to an account; no open period.
 - **Check** — the payment and its allocations, what each bill still owes, and every journal the vendor's invoices, returns and payments raised:
   ```sql
@@ -734,7 +735,7 @@ Each is computed from the tables every time it opens, and **writes nothing**, no
 | Received or invoiced quantities on the order line | Not stored; summed from completed receipts and live invoices each time |
 | `purchase_invoice_accounting_events` or `purchase_return_accounting_events` being the journal | Placeholders written at create; the journal is `journal_entries` with `source_module` `purchase_invoice` or `purchase_return` |
 | An audit row for `purchase.approval_withdrawn` | A history row only (§9.3) |
-| A history row when receiving moves the order | An audit row only, `purchase.received_status_changed` (§9.5) |
+| A history row when receiving moves the order | Both, since #621; an audit row only before it (§9.5) |
 | A reversal dated today | The first day of the original's period (§9.6) |
 | A purchase return lowering what Record Payment offers | It does not (§9.10) |
 | A journal for approving an order, or for a draft receipt, invoice or return | None; see each block |

@@ -763,22 +763,32 @@ class SettlementService(TransactionalDocumentService):
         firm_id: UUID,
         actor_id: UUID,
     ) -> Settlement:
-        """Set money already received against an invoice raised since.
+        """Set money already moved against an invoice raised since.
 
         The missing half of an advance. `ADVANCE_APPLY` has been a declared
         receivable transaction type since the module shipped and **nothing
         could reach it**: a deposit taken before the bill existed sat on the
         customer's account with no way to say which bill it settled.
 
+        **Both directions.** A supplier advance is the same fact the other way
+        round -- money paid before the bill arrived -- and it had the same
+        hole: a payment recorded with no allocation could never be set against
+        one afterwards, so the supplier's account showed a bill owed in full
+        beside cash they had already been sent (D-BUY-8). A refund is still
+        refused: handing money back is the opposite of settling a document.
+
         **Nothing is posted to the general ledger, and that is correct.** The
         receipt already debited cash and credited receivables; the invoice
         already debited receivables and credited revenue and tax. Applying the
         advance changes no account -- it decides which invoice the receivable
         credit belongs to, which is the subsidiary ledger's business. A journal
-        here would count the money twice.
+        here would count the money twice. The payment side is the mirror of
+        that, and there is no vendor balance to move either: the firm keeps no
+        running payable per vendor, so what a bill still owes is derived from
+        its allocations exactly as it is for a customer.
 
         Args:
-            settlement_id: The receipt holding the money.
+            settlement_id: The settlement holding the money.
             invoice_id: The invoice to set it against.
             amount: How much of it.
             firm_id: The owning firm.
@@ -788,8 +798,9 @@ class SettlementService(TransactionalDocumentService):
             The settlement, with its allocated and unallocated figures moved.
 
         Raises:
-            ValidationError: If the receipt is reversed, holds less than was
-                asked for, or the invoice is not this customer's or owes less.
+            ValidationError: If the settlement is reversed or a refund, holds
+                less than was asked for, or the invoice is not this party's or
+                owes less.
 
         """
         row = self.get(settlement_id, firm_id=firm_id)
@@ -797,8 +808,12 @@ class SettlementService(TransactionalDocumentService):
             raise ValidationError(
                 f"{row.settlement_number} has been reversed and holds nothing."
             )
-        if row.direction != SettlementDirection.RECEIPT.value:
-            raise ValidationError("Only a receipt can be applied to an invoice.")
+        is_receipt = row.direction == SettlementDirection.RECEIPT.value
+        if row.direction == SettlementDirection.REFUND.value:
+            raise ValidationError(
+                "A refund returns money held on account, so it is not "
+                "applied to an invoice."
+            )
         asked = quantize_ledger(amount)
         if asked <= ZERO:
             raise ValidationError("An allocation must be for more than nothing.")
@@ -807,28 +822,33 @@ class SettlementService(TransactionalDocumentService):
                 f"{row.settlement_number} has only "
                 f"{quantize_ledger(row.unallocated_amount)} left unapplied."
             )
-        if row.customer_id is None:  # pragma: no cover - direction guarantees it
-            raise ValidationError("Only a receipt can be applied to an invoice.")
+        party_id = row.customer_id if is_receipt else row.vendor_id
+        if party_id is None:  # pragma: no cover - direction guarantees it
+            raise ValidationError("This settlement names no party to apply it for.")
         outstanding = {
             record.invoice_id: record
-            for record in self.outstanding_invoices(
-                firm_id=firm_id, party_id=row.customer_id
-            )
+            for record in self.outstanding_invoices(firm_id=firm_id, party_id=party_id)
         }
         record = outstanding.get(invoice_id)
         if record is None:
             raise ValidationError(
-                "That invoice does not belong to this customer, is not "
+                f"That invoice does not belong to this "
+                f"{'customer' if is_receipt else 'supplier'}, is not "
                 "approved, or is already settled in full."
             )
         if asked > record.outstanding_amount:
             raise ValidationError(
                 f"{record.invoice_number} owes only {record.outstanding_amount}."
             )
+        invoice_column = (
+            SettlementAllocation.sales_invoice_id
+            if is_receipt
+            else SettlementAllocation.purchase_invoice_id
+        )
         existing = self._session.scalar(
             select(SettlementAllocation).where(
                 SettlementAllocation.settlement_id == row.id,
-                SettlementAllocation.sales_invoice_id == invoice_id,
+                invoice_column == invoice_id,
                 SettlementAllocation.is_deleted.is_(False),
             )
         )
@@ -843,7 +863,8 @@ class SettlementService(TransactionalDocumentService):
             SettlementAllocation(
                 firm_id=firm_id,
                 settlement_id=row.id,
-                sales_invoice_id=invoice_id,
+                sales_invoice_id=invoice_id if is_receipt else None,
+                purchase_invoice_id=None if is_receipt else invoice_id,
                 amount=asked,
                 # The day the money met the bill: the bill's own date, or the
                 # receipt's where the receipt came later. Not today, which
@@ -856,11 +877,17 @@ class SettlementService(TransactionalDocumentService):
                 updated_by=actor_id,
             )
         )
-        from_advance = self._advance_part_of(row, allocating=asked)
+        # Only a receipt has a party balance behind it. The firm keeps a
+        # running receivable per customer and nothing of the sort per vendor,
+        # so a payment's allocation is purely the statement about which bill
+        # the money cleared.
+        from_advance = (
+            self._advance_part_of(row, allocating=asked) if is_receipt else ZERO
+        )
         row.allocated_amount = quantize_ledger(row.allocated_amount + asked)
         row.unallocated_amount = quantize_ledger(row.unallocated_amount - asked)
         row.updated_by = actor_id
-        if from_advance > ZERO:
+        if from_advance > ZERO and row.customer_id is not None:
             # Only the part that actually became an advance. The rest of the
             # receipt already reduced what the customer owes -- posting
             # ADVANCE_APPLY for it would take the same money off the balance
@@ -884,7 +911,7 @@ class SettlementService(TransactionalDocumentService):
             )
         record_audit(
             self._session,
-            action="settlement.receipt.allocated",
+            action=f"settlement.{row.direction.lower()}.allocated",
             entity_type="settlement",
             entity_id=row.id,
             actor_id=actor_id,

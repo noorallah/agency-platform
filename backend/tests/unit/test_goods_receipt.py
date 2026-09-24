@@ -9,6 +9,7 @@ and editing a receipt deleted and re-inserted its lines, which stranded the
 These cases exist to keep all three fixed.
 """
 
+import json
 from datetime import date
 from decimal import Decimal
 from uuid import UUID, uuid4
@@ -57,7 +58,11 @@ from app.inventory.models import (
     ProductValuation,
 )
 from app.products.models import Product
-from app.purchase.models import PurchaseOrder, PurchaseOrderLine
+from app.purchase.models import (
+    PurchaseOrder,
+    PurchaseOrderHistory,
+    PurchaseOrderLine,
+)
 from app.purchase.schemas import PurchaseOrderCreate, PurchaseOrderUpdate
 from app.purchase.services import PurchaseService
 from app.purchase_invoice.models import PurchaseInvoice, PurchaseInvoiceLine
@@ -1904,3 +1909,43 @@ def test_orders_part_received_name_the_supplier_branch_and_warehouse() -> None:
         fixture.warehouse.id,
         fixture.warehouse.name,
     )
+
+
+def test_receiving_writes_the_orders_own_history_row() -> None:
+    """The order's History tab shows the goods arriving, not only the trail.
+
+    Receiving is the one transition raised from outside the purchase module,
+    and it wrote an audit row only, so the order's history skipped from
+    APPROVED to whatever came next with nothing to say the goods ever arrived
+    (D-BUY-8). Every other status the order takes has its history row.
+    """
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRN-HIST")
+    _approve(fixture)
+    service = GoodsReceiptService(session)
+
+    for quantity in ("4", "6"):
+        receipt = service.create_receipt(
+            fixture.receipt_payload(quantity),
+            firm_id=fixture.firm.id,
+            actor_id=fixture.actor_id,
+        )
+        service.complete_receipt(
+            receipt.id, firm_scope=fixture.firm.id, actor_id=fixture.actor_id
+        )
+
+    rows = session.scalars(
+        select(PurchaseOrderHistory)
+        .where(
+            PurchaseOrderHistory.purchase_order_id == fixture.order.id,
+            PurchaseOrderHistory.action == "purchase.received_status_changed",
+        )
+        .order_by(PurchaseOrderHistory.created_at.asc())
+    ).all()
+    assert [(row.from_status, row.to_status) for row in rows] == [
+        ("APPROVED", "PARTIALLY_RECEIVED"),
+        ("PARTIALLY_RECEIVED", "RECEIVED"),
+    ]
+    assert [
+        Decimal(json.loads(row.details_json)["received_quantity"]) for row in rows
+    ] == [Decimal("4"), Decimal("10")], "what had arrived in all, at each step"
