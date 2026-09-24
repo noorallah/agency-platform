@@ -17,6 +17,19 @@ class DashboardPage extends StatefulWidget {
   State<DashboardPage> createState() => _DashboardPageState();
 }
 
+/// `2026-09-24T10:15:30.123456+00:00` as `2026-09-24 10:15` in local time --
+/// the minute is all the dashboard's two panels need. Anything unparseable is
+/// shown as sent.
+String _shortTimestamp(Object? value) {
+  final String text = stringValue(value);
+  final DateTime? parsed = DateTime.tryParse(text);
+  if (parsed == null) return text;
+  final DateTime local = parsed.toLocal();
+  String two(int n) => n.toString().padLeft(2, '0');
+  return '${local.year}-${two(local.month)}-${two(local.day)} '
+      '${two(local.hour)}:${two(local.minute)}';
+}
+
 class _DashboardPageState extends State<DashboardPage> {
   Json? _data;
   String? _error;
@@ -115,9 +128,11 @@ class _DashboardPageState extends State<DashboardPage> {
                         primary: stringValue(entry['name']).isEmpty
                             ? stringValue(entry['code'])
                             : stringValue(entry['name']),
-                        secondary: stringValue(entry['status']).isEmpty
-                            ? 'No status'
-                            : stringValue(entry['status']),
+                        secondary: [
+                          stringValue(entry['code']),
+                          stringValue(entry['status']),
+                          _shortTimestamp(entry['created_at']),
+                        ].where((part) => part.isNotEmpty).join(' · '),
                       ),
                     )
                     .toList(),
@@ -131,12 +146,11 @@ class _DashboardPageState extends State<DashboardPage> {
                     .map((entry) => Map<String, dynamic>.from(entry))
                     .map(
                       (entry) => _DashboardListItem(
-                        primary: stringValue(entry['title']).isEmpty
-                            ? stringValue(entry['event'])
-                            : stringValue(entry['title']),
-                        secondary: stringValue(entry['at']).isEmpty
-                            ? stringValue(entry['subtitle'])
-                            : stringValue(entry['at']),
+                        primary: [
+                          stringValue(entry['action']),
+                          stringValue(entry['entity_type']),
+                        ].where((part) => part.isNotEmpty).join(' · '),
+                        secondary: _shortTimestamp(entry['created_at']),
                       ),
                     )
                     .toList(),
