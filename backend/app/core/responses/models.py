@@ -1,11 +1,22 @@
 """Standard response contracts shared by every HTTP API."""
 
 from datetime import datetime
+from typing import Generic, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.context import get_request_context
 from app.core.utils.dates import utc_now
+
+#: The classic spelling, deliberately. ``class ApiResponse[PayloadT](BaseModel)``
+#: is what Python 3.12 offers and what ruff asks for, and it runs under the
+#: interpreter -- but Nuitka compiles a class's type parameter into a plain
+#: attribute of the class body, and pydantic then refuses the model with
+#: "A non-annotated attribute was detected: `PayloadT = PayloadT`". The first
+#: installed copy of this product failed to start on exactly that line
+#: (2026-09-24), and nothing short of a compiled build can see it.
+#: ``tests/unit/test_no_generic_class_syntax.py`` keeps the syntax out.
+PayloadT = TypeVar("PayloadT")
 
 
 def _request_id() -> str | None:
@@ -14,7 +25,7 @@ def _request_id() -> str | None:
     return context.request_id if context is not None else None
 
 
-class ApiResponse[PayloadT](BaseModel):
+class ApiResponse(BaseModel, Generic[PayloadT]):  # noqa: UP046
     """Represent a successful API response with a typed payload.
 
     Attributes:
@@ -92,7 +103,7 @@ class PaginationMetadata(BaseModel):
     total_pages: int = Field(ge=0)
 
 
-class PaginatedResponse[PayloadT](BaseModel):
+class PaginatedResponse(BaseModel, Generic[PayloadT]):  # noqa: UP046
     """Represent a successful, paginated collection response."""
 
     model_config = ConfigDict(extra="forbid", validate_by_name=True)

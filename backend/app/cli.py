@@ -13,6 +13,7 @@ The subcommands are the things an installed copy actually does::
     agency-server migrate-all --yes
     agency-server firm-count
     agency-server purge-retention --dry-run
+    agency-server check
     agency-server --version
 
 Each is thin. The work lives in ``app/core`` where the application can also
@@ -145,6 +146,31 @@ def _purge_retention(args: argparse.Namespace) -> int:
     )
 
 
+def _check(args: argparse.Namespace) -> int:
+    """Import the whole application and report that it can be built.
+
+    ``--version`` proves the binary starts; it does not prove the product in
+    it works, because it imports none of the application. The first installed
+    copy of this product passed ``--version`` on the build machine and then
+    failed on the customer's, at the first pydantic model it imported -- a
+    defect that only a compiled build can show (2026-09-24). This is the
+    check the build runs instead: it constructs the FastAPI application
+    exactly as ``serve`` would, which imports every router, model and
+    service, and needs no database to do it. A failure is the traceback.
+    """
+    # Imported here for the same reason `serve` does it: the graph is the
+    # thing under test, and `--version` should not pay for it.
+    from app.main import create_app
+
+    application = create_app()
+    # The OpenAPI document walks every route's request and response schema,
+    # so a model that pydantic would refuse, or a field it cannot describe,
+    # fails here rather than on a customer's first request.
+    paths = application.openapi()["paths"]
+    print(f"ok: application built, {len(paths)} paths")
+    return 0
+
+
 def _where(args: argparse.Namespace) -> int:
     """Print what this copy is and where it thinks its files are."""
     settings = Settings()
@@ -228,6 +254,11 @@ def build_parser() -> argparse.ArgumentParser:
         "where", help="Print the version, environment and install directory."
     )
     where.set_defaults(handler=_where)
+
+    check = subcommands.add_parser(
+        "check", help="Import the whole application; the build's start-up proof."
+    )
+    check.set_defaults(handler=_check)
 
     return parser
 

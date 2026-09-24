@@ -610,6 +610,18 @@ function Invoke-Server {
     # install.ps1 has already said "Install stopped: ..." above.
     exit 1
   }
+  if (-not $adminPassword -and -not $ready) {
+    # An earlier run wrote config\.env and stopped before the server answered
+    # (the ready marker is only written after /health does). install.ps1 keeps
+    # an existing .env and so prints no password, and the finished page would
+    # say "sign in as before" to somebody who has never signed in. Nobody can
+    # have changed the bootstrap password without a running server, so the one
+    # in the file is still the one that works: show it again.
+    $adminPassword = (Read-EnvFile)['AGENCY_BOOTSTRAP_ADMIN_PASSWORD']
+    if ($adminPassword) {
+      Write-Log '    Password:   (the earlier run never finished; shown again from config\.env, not logged)'
+    }
+  }
 
   # -- The server as a service --------------------------------------------------
   $bindHost = if ($AllowLan) { '0.0.0.0' } else { '127.0.0.1' }

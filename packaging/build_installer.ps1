@@ -309,6 +309,31 @@ if ($SkipCompile) {
       'That means it did not start, or it was built from a different tree.'
   }
   Write-Done "compiled, and it reports $reported"
+
+  # --version proves the binary starts; it imports none of the application.
+  # The first installed copy passed it here and failed on the customer's PC
+  # at the first pydantic model it imported (Nuitka + PEP 695 generic
+  # classes, 2026-09-24). `check` builds the whole application and its
+  # OpenAPI document, so anything the compiler broke fails here, on this
+  # machine, with a traceback to read. Logs go to a scratch folder: the
+  # application configures its log file on construction, and that must not
+  # land inside the tree about to be staged.
+  $checkLogs = Join-Path $env:TEMP 'agency-build-check-logs'
+  $previousLogDir = $env:AGENCY_LOG_DIRECTORY
+  $env:AGENCY_LOG_DIRECTORY = $checkLogs
+  try {
+    $checkOut = (& $exe check 2>&1 | Out-String).Trim()
+  } finally {
+    if ($null -eq $previousLogDir) { Remove-Item Env:\AGENCY_LOG_DIRECTORY -ErrorAction SilentlyContinue }
+    else { $env:AGENCY_LOG_DIRECTORY = $previousLogDir }
+    Remove-Item -Recurse -Force -LiteralPath $checkLogs -ErrorAction SilentlyContinue
+  }
+  if ($LASTEXITCODE -ne 0 -or $checkOut -notmatch '^ok:') {
+    Write-Host $checkOut
+    Stop-Build 'The compiled binary cannot build the application.' `
+      'The traceback above is from the compiled copy; the same code runs under the interpreter. Look for something the compiler handles differently (tests/unit/test_no_generic_class_syntax.py records one).'
+  }
+  Write-Done "and it builds the application ($checkOut)"
 }
 
 # -- 2. Stage -----------------------------------------------------------------

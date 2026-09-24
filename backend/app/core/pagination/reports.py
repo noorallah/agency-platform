@@ -22,7 +22,7 @@ A snapshot report (stock on hand, balances, what is open today) takes neither.
 from collections.abc import Iterable, Sequence
 from dataclasses import dataclass
 from datetime import date
-from typing import Any
+from typing import Any, TypeVar
 
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import QueryableAttribute, Session
@@ -32,8 +32,13 @@ from app.core.constants.core import MAX_PAGE_SIZE
 from app.core.pagination.models import PaginationParams
 from app.core.responses.models import PaginatedResponse
 
+#: Classic spelling, not ``class ReportRows[RowT]``: Nuitka leaks a class's
+#: type parameter into the class body (`app/core/responses/models.py` says why),
+#: and `tests/unit/test_no_generic_class_syntax.py` keeps the syntax out.
+RowT = TypeVar("RowT")
 
-class ReportRows[RowT](list[RowT]):
+
+class ReportRows(list[RowT]):  # noqa: UP046
     """Report rows that know how many matched, when only a page was read.
 
     A plain list is what every caller that does not page still receives, so a

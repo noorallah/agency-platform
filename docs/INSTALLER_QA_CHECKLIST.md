@@ -43,7 +43,7 @@ uninstalled, so it comes last.
 | --- | --- | --- | --- | --- |
 | A1 | Double-click `AgencyPlatform-1.0.0-Setup.exe` | SmartScreen shows *Windows protected your PC*; **More info** then **Run anyway** goes on. Then an administrator prompt | Not run | |
 | A2 | Welcome page | Names *Agency Platform 1.0.0* | Not run | |
-| A3 | Destination page | Defaults to `C:\Program Files\Agency Platform` | Not run | |
+| A3 | Destination page | Defaults to `C:\Program Files\Agency Platform`. Choosing another folder, e.g. `C:\agencyapp\Agency Platform`, is accepted; the data and logs still go under `C:\ProgramData\Agency Platform` (A12) | Not run | |
 | A4 | *This PC* page | Two choices, **This PC: server and app** preselected, tick box *Allow other PCs on this network to connect* enabled | Not run | |
 | A5 | Pick **App only**, then back to **server** | The tick box greys out for app only and comes back for server | Not run | |
 | A6 | Keep **server**, tick *Allow other PCs*, Next | No *Server* address page appears. Shortcuts page with *Create a desktop shortcut* ticked | Not run | |
@@ -99,6 +99,7 @@ line.
 
 | ID | Step | Expected | Result | Notes |
 | --- | --- | --- | --- | --- |
+| D0 | Only if the first install stopped with *server could not be set up*: run the same Setup again after the cause is fixed | No *This PC* page; it continues from where it stopped, and the finished page shows the sign-in **again**, not *Sign in as before*. `first-login.txt` is written | Not run | |
 | D1 | Restart the laptop, wait a minute, open the app | Both services are running again by themselves; sign-in works; data from B is there | Not run | |
 | D2 | Run the same Setup again on the laptop | No *This PC* page; it installs into the same folder. Before copying, a *Backing up the database* step. Finished page says *upgraded to 1.0.0 … Sign in as before* and shows no password | Not run | |
 | D3 | After D2 | `C:\ProgramData\Agency Platform\backups` holds a `pre-upgrade-1.0.0-<date>` folder with dump files; the firm and users are still there; the old sign-in still works | Not run | |
