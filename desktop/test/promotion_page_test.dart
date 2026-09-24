@@ -48,6 +48,8 @@ PromotionRecord _promotion({
   List<PromotionActionRecord> actions = const <PromotionActionRecord>[
     PromotionActionRecord(actionType: 'LINE_DISCOUNT_PERCENT', percent: '10'),
   ],
+  List<PromotionConditionRecord> conditions =
+      const <PromotionConditionRecord>[],
 }) =>
     PromotionRecord(
       id: id,
@@ -58,6 +60,7 @@ PromotionRecord _promotion({
       status: 'ACTIVE',
       allowStacking: allowStacking,
       actions: actions,
+      conditions: conditions,
     );
 
 class _PromotionApi extends ApiClient {
@@ -168,6 +171,32 @@ void main() {
     // The benefit is spelled out rather than shown as an action code: nobody
     // reading this screen knows what LINE_DISCOUNT_PERCENT means.
     expect(find.textContaining('10% off the line'), findsWidgets);
+  });
+
+  testWidgets('a condition reads as a sentence, not a rule code',
+      (tester) async {
+    // `line_quantity GREATER_OR_EQUAL 25` was printed raw (BL-31.15).
+    await _pumpPage(
+      tester,
+      _PromotionApi(rows: <PromotionRecord>[
+        _promotion(conditions: const <PromotionConditionRecord>[
+          PromotionConditionRecord(
+            fieldKey: 'line_quantity',
+            operator: 'GREATER_OR_EQUAL',
+            valueNumber: '25.0000',
+          ),
+        ]),
+      ]),
+      // Read-only: with Edit on double-click a single tap waits on the
+      // double-tap timer, and the pane is the same either way.
+      manage: false,
+    );
+    await tester.tap(find.text('TEN'));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Quantity on the line is at least 25'), findsOneWidget);
+    expect(find.textContaining('GREATER_OR_EQUAL'), findsNothing);
   });
 
   testWidgets('a promotion that does not stack says it ends the stack',

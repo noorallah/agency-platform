@@ -30,25 +30,6 @@ class _PromotionDialogState extends State<PromotionDialog> {
     'BILL_DISCOUNT_AMOUNT': 'Amount off the whole bill',
     'FREE_QUANTITY': 'Free goods (buy X, get Y)',
   };
-  static const Map<String, String> _fieldLabels = {
-    'product_id': 'Product',
-    'product_category_id': 'Product category',
-    'product_type': 'Product type',
-    'customer_id': 'Customer',
-    'territory_id': 'Territory',
-    'route_id': 'Route',
-    'line_quantity': 'Quantity on the line',
-    'line_gross': 'Line value',
-    'document_gross': 'Order value',
-  };
-  static const Map<String, String> _operatorLabels = {
-    'EQUALS': 'is',
-    'NOT_EQUALS': 'is not',
-    'GREATER_OR_EQUAL': 'is at least',
-    'GREATER_THAN': 'is more than',
-    'LESS_OR_EQUAL': 'is at most',
-    'LESS_THAN': 'is less than',
-  };
 
   final GlobalKey<FormState> _form = GlobalKey<FormState>();
   final TextEditingController _code = TextEditingController();
@@ -394,7 +375,7 @@ class _PromotionDialogState extends State<PromotionDialog> {
               decoration: const InputDecoration(labelText: 'When'),
               items: [
                 for (final MapEntry<String, String> entry
-                    in _fieldLabels.entries)
+                    in promotionFieldLabels.entries)
                   DropdownMenuItem(value: entry.key, child: Text(entry.value)),
               ],
               onChanged: (value) => setState(
@@ -410,7 +391,7 @@ class _PromotionDialogState extends State<PromotionDialog> {
               decoration: const InputDecoration(labelText: 'Test'),
               items: [
                 for (final MapEntry<String, String> entry
-                    in _operatorLabels.entries)
+                    in promotionOperatorLabels.entries)
                   DropdownMenuItem(value: entry.key, child: Text(entry.value)),
               ],
               onChanged: (value) => setState(

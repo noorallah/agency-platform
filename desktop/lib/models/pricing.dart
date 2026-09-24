@@ -233,6 +233,54 @@ class PromotionConditionRecord {
       };
 }
 
+/// What each condition field is called on a screen.
+const Map<String, String> promotionFieldLabels = <String, String>{
+  'product_id': 'Product',
+  'product_category_id': 'Product category',
+  'product_type': 'Product type',
+  'customer_id': 'Customer',
+  'territory_id': 'Territory',
+  'route_id': 'Route',
+  'line_quantity': 'Quantity on the line',
+  'line_gross': 'Line value',
+  'document_gross': 'Order value',
+};
+
+/// What each comparison is called on a screen.
+const Map<String, String> promotionOperatorLabels = <String, String>{
+  'EQUALS': 'is',
+  'NOT_EQUALS': 'is not',
+  'GREATER_OR_EQUAL': 'is at least',
+  'GREATER_THAN': 'is more than',
+  'LESS_OR_EQUAL': 'is at most',
+  'LESS_THAN': 'is less than',
+};
+
+/// "Quantity on the line is at least 25", not
+/// `line_quantity GREATER_OR_EQUAL 25` (BL-31.15). A condition on a product,
+/// customer, territory or route still names it by id, because the dialog
+/// takes the id typed and nothing on the page can turn it into a name.
+String describePromotionCondition(PromotionConditionRecord condition) {
+  final String field =
+      promotionFieldLabels[condition.fieldKey] ?? condition.fieldKey;
+  final String test =
+      promotionOperatorLabels[condition.operator] ?? condition.operator;
+  final String value = condition.valueText.isNotEmpty
+      ? condition.valueText
+      : _plainNumber(condition.valueNumber);
+  return '$field $test $value';
+}
+
+/// `25.0000` as `25`, `12.50` as `12.5`: the server's four decimals, trimmed.
+String _plainNumber(String value) {
+  final double? parsed = double.tryParse(value);
+  if (parsed == null) return value;
+  final String fixed = parsed.toStringAsFixed(4);
+  return fixed.contains('.')
+      ? fixed.replaceFirst(RegExp(r'0+$'), '').replaceFirst(RegExp(r'\.$'), '')
+      : fixed;
+}
+
 /// One benefit a promotion gives when it applies.
 class PromotionActionRecord {
   const PromotionActionRecord({

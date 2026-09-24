@@ -38,6 +38,11 @@ class LoyaltyPage extends StatefulWidget {
 class _LoyaltyPageState extends State<LoyaltyPage> {
   Json? _settings;
   List<Json> _entries = const [];
+
+  /// Every customer the unfiltered ledger names, once each, for the picker.
+  List<MapEntry<String, String>> _customers = const [];
+  String? _customerId;
+  Json? _balance;
   String? _error;
   bool _loading = true;
 
@@ -60,11 +65,17 @@ class _LoyaltyPageState extends State<LoyaltyPage> {
     });
     try {
       final Json settings = await widget.api.loyaltySettings();
-      final List<Json> entries = await widget.api.loyaltyEntries();
+      final List<Json> entries =
+          await widget.api.loyaltyEntries(customerId: _customerId);
+      final Json? balance = _customerId == null
+          ? null
+          : await widget.api.loyaltyBalance(_customerId!);
       if (!mounted) return;
       setState(() {
         _settings = settings;
         _entries = entries;
+        _balance = balance;
+        if (_customerId == null) _customers = _customersIn(entries);
         _loading = false;
       });
     } on ApiException catch (error) {
@@ -158,7 +169,10 @@ class _LoyaltyPageState extends State<LoyaltyPage> {
           ),
         ],
       ),
-      searchPanel: _schemeBanner(),
+      searchPanel: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [_schemeBanner(), _customerRow()],
+      ),
       primaryContent: _ledger(),
       statusBar: WorkspaceStatusBar(
         total: _entries.length,
@@ -201,6 +215,62 @@ class _LoyaltyPageState extends State<LoyaltyPage> {
         ],
       ),
     );
+  }
+
+  /// One customer's ledger and balance, which the page could not answer:
+  /// it had no customer filter and no balance, though the API had both
+  /// (BL-31.15). The picker offers whoever the ledger has named -- a
+  /// customer with no entry has no balance to show.
+  Widget _customerRow() {
+    final Json? balance = _balance;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+          AppSpacing.md, 0, AppSpacing.md, AppSpacing.md),
+      child: Row(children: [
+        SizedBox(
+          width: 320,
+          child: DropdownButton<String?>(
+            value: _customerId,
+            isExpanded: true,
+            items: [
+              const DropdownMenuItem<String?>(
+                  value: null, child: Text('Everyone')),
+              for (final MapEntry<String, String> customer in _customers)
+                DropdownMenuItem<String?>(
+                    value: customer.key, child: Text(customer.value)),
+            ],
+            onChanged: (value) {
+              setState(() => _customerId = value);
+              _load();
+            },
+          ),
+        ),
+        const SizedBox(width: AppSpacing.md),
+        if (balance != null)
+          Expanded(
+            child: Text(
+              '${stringValue(balance['customer_name'])}: '
+              '${_money(balance['points'])} points, worth '
+              '${_money(balance['amount'])}'
+              // The server's own floor, so the screen says "not yet"
+              // rather than offering a redemption the service refuses.
+              '${balance['redeemable'] == false ? ' — below the floor to spend' : ''}',
+            ),
+          ),
+      ]),
+    );
+  }
+
+  /// The customers the ledger names, once each, by name.
+  static List<MapEntry<String, String>> _customersIn(List<Json> entries) {
+    final Map<String, String> seen = <String, String>{};
+    for (final Json row in entries) {
+      final String id = stringValue(row['customer_id']);
+      if (id.isNotEmpty) {
+        seen.putIfAbsent(id, () => stringValue(row['customer_name']));
+      }
+    }
+    return seen.entries.toList()..sort((a, b) => a.value.compareTo(b.value));
   }
 
   Widget _ledger() {
