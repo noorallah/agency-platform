@@ -2162,7 +2162,7 @@ product id** (`physical_count_sheet_dialog.dart`), the same class as
 Found by mapping the screens and driving the flows for the plan rewrite;
 each is a decision or a small feature rather than a broken behaviour.
 
-- *(Closed 2026-09-24, #PR: a "Posted by" dropdown beside the search box,
+- *(Closed 2026-09-24, #629: a "Posted by" dropdown beside the search box,
   over the modules that post plus "All", sends `source_module`, which the
   list route now takes as an exact match.)*
   **Journal Entries has no source-module filter.** The plan wanted one;
@@ -2193,7 +2193,7 @@ each is a decision or a small feature rather than a broken behaviour.
   customer, territory or route is typed as a bare id. *(The missing save
   toast -- "saved as a new revision; the one you opened is now inactive"
   -- and double-click to edit landed 2026-09-13.)*
-- *(Closed 2026-09-24, #PR: the target dialog has a Salesperson picker
+- *(Closed 2026-09-24, #629: the target dialog has a Salesperson picker
   over the firm's members, "Whole firm" as the empty choice, and sends
   `salesman_id` on create and edit -- null for the firm.)*
   **Targets cannot be set for a person from the desktop** -- the dialog
@@ -2201,7 +2201,7 @@ each is a decision or a small feature rather than a broken behaviour.
 - *(Closed 2026-09-13: a call list's "Not today" now says "Runs on
   Fridays; this is a Monday.", and the seeder looks for `<FIRM>-BP-R1-MON`
   so the Monday plan gets its explicit stops -- visible after a reseed.)*
-- *(Closed 2026-09-24, #PR: both are in the report catalogue; the
+- *(Closed 2026-09-24, #629: both are in the report catalogue; the
   workspace asks a period of a report that needs one, and lists them only
   to holders of COMMISSION_VIEW / SALES_TARGET_VIEW, which is what their
   routes check.)*
