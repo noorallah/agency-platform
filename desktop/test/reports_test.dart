@@ -33,10 +33,18 @@ class _ReportApi extends ApiClient {
 
   final List<Json> rows;
   final List<String> requested = [];
+  final List<Map<String, String>?> queries = [];
+  final List<String?> rowsKeys = [];
 
   @override
-  Future<List<Json>> reportRows(String path) async {
+  Future<List<Json>> reportRows(
+    String path, {
+    Map<String, String>? query,
+    String? rowsKey,
+  }) async {
     requested.add(path);
+    queries.add(query);
+    rowsKeys.add(rowsKey);
     return rows;
   }
 }
@@ -293,6 +301,51 @@ void main() {
       expect(
           api.requested.single, reportsFor(ReportArea.operational).first.path);
       expect(find.text('Sales order register'), findsOneWidget);
+    });
+
+    testWidgets('a report that needs a period is asked for one',
+        (tester) async {
+      // BL-31.15: the targets achievement and commission reports lived only
+      // on their own screens. Both routes require from_date and to_date and
+      // answer 422 without them, so the workspace sends the boxes it shows.
+      final _ReportApi api = _ReportApi();
+      await _pump(tester, api, perms: const ['SALES_TARGET_VIEW']);
+      expect(api.requested.single, '/api/v1/sales-targets/achievement');
+      expect(api.queries.single?.keys, containsAll(['from_date', 'to_date']));
+      expect(find.byKey(const ValueKey<String>('report-from')), findsOneWidget);
+
+      await tester.enterText(
+          find.byKey(const ValueKey<String>('report-from')), '2026-04-01');
+      await tester.enterText(
+          find.byKey(const ValueKey<String>('report-to')), '2026-06-30');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      expect(api.queries.last,
+          {'from_date': '2026-04-01', 'to_date': '2026-06-30'});
+    });
+
+    testWidgets('the commission report reads its rows out of the object',
+        (tester) async {
+      final _ReportApi api = _ReportApi();
+      await _pump(tester, api,
+          tabId: 'financial', perms: const ['COMMISSION_VIEW']);
+      expect(api.requested.single, '/api/v1/commission/report');
+      expect(api.rowsKeys.single, 'rows');
+    });
+
+    test('REPORT_VIEW does not offer a report its route does not accept it on',
+        () {
+      // The two routes check only their module's code; listing them to a
+      // REPORT_VIEW holder would offer a report the server refuses (D-RPT-4).
+      final Iterable<String> closed = reportCatalog
+          .where((report) => !report.openToReportView)
+          .map((report) => report.path);
+      expect(
+          closed,
+          containsAll(<String>[
+            '/api/v1/sales-targets/achievement',
+            '/api/v1/commission/report',
+          ]));
     });
 
     testWidgets('with no report-backing code there is nothing to show',

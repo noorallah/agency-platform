@@ -2171,7 +2171,10 @@ product id** (`physical_count_sheet_dialog.dart`), the same class as
 Found by mapping the screens and driving the flows for the plan rewrite;
 each is a decision or a small feature rather than a broken behaviour.
 
-- **Journal Entries has no source-module filter.** The plan wanted one;
+- *(Closed 2026-09-24, #629: a "Posted by" dropdown beside the search box,
+  over the modules that post plus "All", sends `source_module`, which the
+  list route now takes as an exact match.)*
+  **Journal Entries has no source-module filter.** The plan wanted one;
   the page's only filter is the reference/description search, and the
   module is visible only as "Posted by <module>" in each row's subtitle.
   The API takes `accounting_period_id` and `status` and nothing about the
@@ -2199,12 +2202,19 @@ each is a decision or a small feature rather than a broken behaviour.
   customer, territory or route is typed as a bare id. *(The missing save
   toast -- "saved as a new revision; the one you opened is now inactive"
   -- and double-click to edit landed 2026-09-13.)*
-- **Targets cannot be set for a person from the desktop** -- the dialog
+- *(Closed 2026-09-24, #629: the target dialog has a Salesperson picker
+  over the firm's members, "Whole firm" as the empty choice, and sends
+  `salesman_id` on create and edit -- null for the firm.)*
+  **Targets cannot be set for a person from the desktop** -- the dialog
   sends no `salesman_id`, so every desktop-made target is "Whole firm".
 - *(Closed 2026-09-13: a call list's "Not today" now says "Runs on
   Fridays; this is a Monday.", and the seeder looks for `<FIRM>-BP-R1-MON`
   so the Monday plan gets its explicit stops -- visible after a reseed.)*
-- **The commission collections report and the targets achievement report
+- *(Closed 2026-09-24, #629: both are in the report catalogue; the
+  workspace asks a period of a report that needs one, and lists them only
+  to holders of COMMISSION_VIEW / SALES_TARGET_VIEW, which is what their
+  routes check.)*
+  **The commission collections report and the targets achievement report
   are not in the report catalogue**; they exist only as their own
   screens, and the catalogue guard polices `/reports/` paths only.
 

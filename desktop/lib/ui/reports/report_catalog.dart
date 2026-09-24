@@ -84,6 +84,20 @@ const List<ReportDefinition> reportCatalog = [
     permission: 'SALES_VIEW',
     area: ReportArea.operational,
   ),
+  // The Targets screen's Achievement view, listed here too so it is found
+  // beside the other by-salesman reports (BL-31.15). Its route checks only
+  // SALES_TARGET_VIEW, not REPORT_VIEW.
+  ReportDefinition(
+    id: 'sales-target-achievement',
+    label: 'Targets achieved',
+    description: 'Each target overlapping the dates, against what it took -- '
+        'measured over its own period and on its own basis.',
+    path: '/api/v1/sales-targets/achievement',
+    permission: 'SALES_TARGET_VIEW',
+    area: ReportArea.operational,
+    needsPeriod: true,
+    openToReportView: false,
+  ),
 
   // ---- Dispatch ------------------------------------------------------
   ReportDefinition(
@@ -607,6 +621,21 @@ const List<ReportDefinition> reportCatalog = [
     path: '/api/v1/purchase-returns/reports/by-vendor',
     permission: 'PURCHASE_VIEW',
     area: ReportArea.financial,
+  ),
+  // The Commission screen's report, listed here too (BL-31.15): money each
+  // salesman collected in the dates and the commission it earned. Its route
+  // checks only COMMISSION_VIEW, not REPORT_VIEW.
+  ReportDefinition(
+    id: 'commission-collections',
+    label: 'Commission on collections',
+    description: 'What each salesman collected in the dates, and the '
+        'commission it earned them.',
+    path: '/api/v1/commission/report',
+    permission: 'COMMISSION_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    rowsKey: 'rows',
+    openToReportView: false,
   ),
 ];
 

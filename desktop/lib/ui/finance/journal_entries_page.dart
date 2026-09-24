@@ -34,9 +34,32 @@ class JournalEntriesPage extends StatefulWidget {
   State<JournalEntriesPage> createState() => _JournalEntriesPageState();
 }
 
+/// The modules that post to the ledger, as the server records them in
+/// `source_module`, with the name a person reads (BL-31.15). The page showed
+/// "Posted by" on each row and had no way to ask for one module's
+/// entries.
+const List<(String, String)> journalSourceModules = [
+  ('commission', 'Commission'),
+  ('credit_note', 'Credit notes'),
+  ('customers', 'Customers'),
+  ('delivery_note', 'Delivery notes'),
+  ('goods_receipt', 'Goods receipts'),
+  ('inventory', 'Inventory'),
+  ('loyalty', 'Loyalty'),
+  ('physical_count', 'Physical counts'),
+  ('purchase_invoice', 'Purchase invoices'),
+  ('purchase_return', 'Purchase returns'),
+  ('sales_invoice', 'Sales invoices'),
+  ('sales_return', 'Sales returns'),
+  ('settlements', 'Receipts and payments'),
+  ('tcs', 'TCS'),
+];
+
 class _JournalEntriesPageState extends State<JournalEntriesPage> {
   static const int _rowsPerPage = 20;
   final TextEditingController _search = TextEditingController();
+  // Null is "All modules", hand journals included.
+  String? _sourceModule;
   List<JournalEntry> _entries = const [];
   JournalEntry? _selected;
   int _page = 1;
@@ -82,6 +105,7 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
         page: _page,
         pageSize: _rowsPerPage,
         search: _search.text.trim(),
+        sourceModule: _sourceModule,
       );
       if (!mounted) return;
       setState(() {
@@ -295,6 +319,32 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
                   prefixIcon: Icon(Icons.search),
                 ),
                 onSubmitted: (_) => _load(requestedPage: 1),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            SizedBox(
+              width: 220,
+              child: DropdownButtonFormField<String?>(
+                key: const ValueKey('journal-source-module'),
+                initialValue: _sourceModule,
+                isExpanded: true,
+                decoration: const InputDecoration(labelText: 'Posted by'),
+                items: [
+                  const DropdownMenuItem<String?>(
+                    value: null,
+                    child: Text('All'),
+                  ),
+                  for (final (String code, String label)
+                      in journalSourceModules)
+                    DropdownMenuItem<String?>(
+                      value: code,
+                      child: Text(label, overflow: TextOverflow.ellipsis),
+                    ),
+                ],
+                onChanged: (value) {
+                  setState(() => _sourceModule = value);
+                  unawaited(_load(requestedPage: 1));
+                },
               ),
             ),
             const SizedBox(width: AppSpacing.md),

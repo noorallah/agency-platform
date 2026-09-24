@@ -48,16 +48,27 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
   /// 2026-09-13).
   final ScrollController _horizontal = ScrollController();
 
+  // The period a report that requires one is asked for, opening on the
+  // current month.
+  final TextEditingController _from = TextEditingController();
+  final TextEditingController _to = TextEditingController();
+
   @override
   void dispose() {
     _horizontal.dispose();
+    _from.dispose();
+    _to.dispose();
     super.dispose();
   }
+
+  static String _iso(DateTime value) =>
+      value.toIso8601String().split('T').first;
 
   /// `REPORT_VIEW` opens every report; a module's own view code opens that
   /// module's (D-RPT-4).
   bool _canRead(ReportDefinition report) =>
-      widget.permissions.hasPermission('REPORT_VIEW') ||
+      (report.openToReportView &&
+          widget.permissions.hasPermission('REPORT_VIEW')) ||
       widget.permissions.hasPermission(report.permission);
 
   bool get _canView => reportCatalog.any(_canRead);
@@ -71,6 +82,9 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
   @override
   void initState() {
     super.initState();
+    final DateTime now = DateTime.now();
+    _from.text = _iso(DateTime(now.year, now.month, 1));
+    _to.text = _iso(DateTime(now.year, now.month + 1, 0));
     if (_reports.isNotEmpty) {
       _selected = _reports.first;
       unawaited(_load());
@@ -98,7 +112,13 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
       _error = null;
     });
     try {
-      final List<Json> rows = await widget.api.reportRows(report.path);
+      final List<Json> rows = await widget.api.reportRows(
+        report.path,
+        query: report.needsPeriod
+            ? {'from_date': _from.text.trim(), 'to_date': _to.text.trim()}
+            : null,
+        rowsKey: report.rowsKey,
+      );
       if (!mounted) return;
       setState(() => _rows = rows);
     } on ApiException catch (exception) {
@@ -191,6 +211,28 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
                 ],
               ),
             ),
+            if (report.needsPeriod) ...[
+              SizedBox(
+                width: 130,
+                child: TextField(
+                  key: const ValueKey<String>('report-from'),
+                  controller: _from,
+                  decoration: const InputDecoration(labelText: 'From'),
+                  onSubmitted: (_) => unawaited(_load()),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+              SizedBox(
+                width: 130,
+                child: TextField(
+                  key: const ValueKey<String>('report-to'),
+                  controller: _to,
+                  decoration: const InputDecoration(labelText: 'To'),
+                  onSubmitted: (_) => unawaited(_load()),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+            ],
             Text('${_rows.length} row(s)',
                 style: Theme.of(context).textTheme.bodySmall),
             const SizedBox(width: AppSpacing.md),

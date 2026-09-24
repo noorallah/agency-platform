@@ -9,6 +9,7 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/commission.dart';
 import '../../models/entities.dart';
+import '../../models/firm_member.dart';
 import '../workspace/desktop_framework.dart';
 
 /// What a firm expects to sell, and how it went.
@@ -303,6 +304,10 @@ class _SalesTargetDialogState extends State<_SalesTargetDialog> {
   final TextEditingController _start = TextEditingController();
   final TextEditingController _end = TextEditingController();
   final TextEditingController _amount = TextEditingController();
+  // Null is "Whole firm". The dialog sent no `salesman_id` at all, so every
+  // target made on the desktop was the firm's own (BL-31.15).
+  String? _salesmanId;
+  List<FirmMember> _members = const [];
   String _period = 'MONTHLY';
   String _basis = 'INVOICED';
   bool _saving = false;
@@ -311,8 +316,10 @@ class _SalesTargetDialogState extends State<_SalesTargetDialog> {
   @override
   void initState() {
     super.initState();
+    unawaited(_loadMembers());
     final SalesTargetRecord? row = widget.existing;
     if (row == null) return;
+    _salesmanId = row.salesmanId.isEmpty ? null : row.salesmanId;
     _start.text = row.periodStart;
     _end.text = row.periodEnd;
     _amount.text = row.targetAmount;
@@ -328,12 +335,53 @@ class _SalesTargetDialogState extends State<_SalesTargetDialog> {
     super.dispose();
   }
 
+  /// The firm's people, for the Salesperson picker.
+  Future<void> _loadMembers() async {
+    try {
+      final List<FirmMember> members = await widget.api.firmMembers();
+      if (!mounted) return;
+      setState(() => _members = members);
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() => _error = "The firm's people could not be read: "
+          '${error.message}');
+    }
+  }
+
+  /// Every person on offer, plus the one an existing target already names
+  /// if they are no longer a member, so opening it does not lose them.
+  List<DropdownMenuItem<String?>> _salesmanItems() {
+    final SalesTargetRecord? row = widget.existing;
+    final bool keepsFormer = row != null &&
+        row.salesmanId.isNotEmpty &&
+        !_members.any((member) => member.userId == row.salesmanId);
+    return [
+      const DropdownMenuItem<String?>(value: null, child: Text('Whole firm')),
+      for (final FirmMember member in _members)
+        DropdownMenuItem<String?>(
+          value: member.userId,
+          child: Text(member.label, overflow: TextOverflow.ellipsis),
+        ),
+      if (keepsFormer)
+        DropdownMenuItem<String?>(
+          value: row.salesmanId,
+          child: Text(
+            row.salesmanName.isEmpty ? row.salesmanId : row.salesmanName,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+    ];
+  }
+
   Future<void> _save() async {
     setState(() {
       _saving = true;
       _error = null;
     });
     final Json body = <String, dynamic>{
+      // Sent on every save, null included: on an edit, "Whole firm" is an
+      // instruction to clear the person, not an omission.
+      'salesman_id': _salesmanId,
       'period_start': _start.text.trim(),
       'period_end': _end.text.trim(),
       'period_type': _period,
@@ -375,6 +423,15 @@ class _SalesTargetDialogState extends State<_SalesTargetDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
+            DropdownButtonFormField<String?>(
+              key: const ValueKey('sales-target-salesperson'),
+              isExpanded: true,
+              initialValue: _salesmanId,
+              decoration: const InputDecoration(labelText: 'Salesperson'),
+              items: _salesmanItems(),
+              onChanged: (value) => setState(() => _salesmanId = value),
+            ),
+            const SizedBox(height: AppSpacing.md),
             Row(
               children: [
                 Expanded(

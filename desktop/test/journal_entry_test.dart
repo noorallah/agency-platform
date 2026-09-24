@@ -37,6 +37,7 @@ class _JournalApi extends ApiClient {
   final List<JournalEntry> entries;
   String? posted;
   Json? reversed;
+  final List<String?> sourceModulesAsked = [];
 
   @override
   Future<PagedResult<JournalEntry>> journalEntries({
@@ -46,8 +47,11 @@ class _JournalApi extends ApiClient {
     bool descending = true,
     String? accountingPeriodId,
     String? status,
-  }) async =>
-      PagedResult<JournalEntry>(items: entries, total: entries.length);
+    String? sourceModule,
+  }) async {
+    sourceModulesAsked.add(sourceModule);
+    return PagedResult<JournalEntry>(items: entries, total: entries.length);
+  }
 
   @override
   Future<PagedResult<LedgerAccount>> ledgerAccounts({
@@ -326,6 +330,30 @@ void main() {
       await _pumpList(tester, api);
 
       expect(find.text('Posted by goods_receipt'), findsOneWidget);
+    });
+
+    testWidgets('the list can be narrowed to the module that posted it',
+        (tester) async {
+      // BL-31.15: the module was visible on each row and could not be asked
+      // for. Choosing one sends its code; "All" sends nothing.
+      final _JournalApi api = _JournalApi(entries: [
+        _entry(reference: 'SI-5', status: 'POSTED', source: 'sales_invoice'),
+      ]);
+      await _pumpList(tester, api);
+      expect(api.sourceModulesAsked.last, isNull,
+          reason: 'the page opens on every module');
+
+      await tester.tap(find.byKey(const ValueKey('journal-source-module')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Sales invoices').last);
+      await tester.pumpAndSettle();
+      expect(api.sourceModulesAsked.last, 'sales_invoice');
+
+      await tester.tap(find.byKey(const ValueKey('journal-source-module')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('All').last);
+      await tester.pumpAndSettle();
+      expect(api.sourceModulesAsked.last, isNull);
     });
 
     testWidgets('without JOURNAL_POST the button is not offered at all',

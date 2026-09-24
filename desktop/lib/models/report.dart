@@ -36,6 +36,9 @@ class ReportDefinition {
     required this.area,
     required this.permission,
     this.columns = const [],
+    this.needsPeriod = false,
+    this.rowsKey,
+    this.openToReportView = true,
   });
 
   final String id;
@@ -55,6 +58,21 @@ class ReportDefinition {
   /// The columns worth showing, when the defaults are not enough. Left empty,
   /// the grid derives them from the rows themselves.
   final List<ReportColumn> columns;
+
+  /// Whether the endpoint requires `from_date` and `to_date`. The workspace
+  /// then offers a From and To box, opening on the current month, rather than
+  /// calling a route that answers 422 without them.
+  final bool needsPeriod;
+
+  /// Where the rows are when the endpoint answers with one object rather than
+  /// a list -- the commission report carries its totals beside `rows`.
+  final String? rowsKey;
+
+  /// Whether `REPORT_VIEW` alone opens it. The module-owned report routes
+  /// accept it beside their own view code (D-RPT-4); a report served by a
+  /// module's own screen checks only that module's code, so the picker must
+  /// not offer it to somebody the server will refuse.
+  final bool openToReportView;
 }
 
 /// Work out which columns to show for a set of rows.

@@ -591,6 +591,7 @@ def list_journal_entries(
     accounting_period_id: UUID | None = None,
     status_value: Annotated[JournalStatusEnum | None, Query(alias="status")] = None,
     journal_type_id: UUID | None = None,
+    source_module: str | None = None,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[JournalEntryResponse]:
     """Return a page of journal entries for the firm in scope.
@@ -608,6 +609,7 @@ def list_journal_entries(
         accounting_period_id=accounting_period_id,
         status=status_value.value if status_value else None,
         journal_type_id=journal_type_id,
+        source_module=source_module,
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(

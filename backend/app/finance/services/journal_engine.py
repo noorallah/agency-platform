@@ -474,6 +474,7 @@ class JournalEntryEngine:
         accounting_period_id: UUID | None = None,
         status: str | None = None,
         journal_type_id: UUID | None = None,
+        source_module: str | None = None,
         descending: bool = True,
     ) -> tuple[list[JournalEntry], int]:
         """Return a page of journal entries, newest first by default.
@@ -499,6 +500,11 @@ class JournalEntryEngine:
             conditions.append(JournalEntry.status == status)
         if journal_type_id is not None:
             conditions.append(JournalEntry.journal_type_id == journal_type_id)
+        # The module that posted it, matched exactly -- the page could show
+        # "Posted by <module>" on each row and had no way to ask for one
+        # module's entries (BL-31.15).
+        if source_module:
+            conditions.append(JournalEntry.source_module == source_module)
         if search:
             term = f"%{search.strip()}%"
             conditions.append(
