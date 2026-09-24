@@ -27,6 +27,7 @@ from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
 from app.finance.api.router import (
     create_journal_entry,
+    list_journal_entries,
     post_journal_entry,
     reverse_journal_entry,
     trial_balance,
@@ -592,6 +593,66 @@ def test_a_documents_journal_cannot_be_reversed_by_hand() -> None:
         session,
     )
     assert reversal.data.reversal_of_id == hand_journal
+
+
+def test_journal_entries_can_be_asked_for_by_the_module_that_posted_them() -> None:
+    """BL-31.15: the page showed "Posted by <module>" and could not filter on it.
+
+    The list took a period, a status and a journal type and nothing about the
+    source, so an accountant looking for the day's invoice journals read every
+    row. `source_module` is an exact match; leaving it out lists everything,
+    hand journals included.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    user_id = uuid4()
+    book = _Book(session, firm.id, user_id)
+    session.add(UserFirm(user_id=user_id, firm_id=firm.id, is_active=True))
+    session.commit()
+    scope = _firm_scope(_principal(user_id, {"JOURNAL_VIEW"}), session, firm.id)
+    engine = JournalEntryEngine(session)
+
+    for reference, source_module in (
+        ("SI-0001", "sales_invoice"),
+        ("SI-0002", "sales_invoice"),
+        ("DN-0001", "delivery_note"),
+        ("JV-0001", None),
+    ):
+        engine.create_entry(
+            firm_id=firm.id,
+            journal_type_id=book.journal_type.id,
+            voucher_type_id=book.voucher_type.id,
+            accounting_period_id=book.period.id,
+            journal_date=date(2026, 4, 10),
+            reference_number=reference,
+            description="Cash sale",
+            lines=_sale_lines(book, "50.00"),
+            source_module=source_module,
+            source_id=None if source_module is None else uuid4(),
+            actor_id=user_id,
+        )
+    session.commit()
+
+    def _references(source_module: str | None) -> list[str]:
+        """List the firm's journals, filtered by the module that posted them."""
+        response = list_journal_entries(
+            scope,
+            page=1,
+            page_size=20,
+            search=None,
+            sort_direction="desc",
+            accounting_period_id=None,
+            status_value=None,
+            journal_type_id=None,
+            source_module=source_module,
+            db=session,
+        )
+        return sorted(row.reference_number for row in response.data)
+
+    assert _references("sales_invoice") == ["SI-0001", "SI-0002"]
+    assert _references("delivery_note") == ["DN-0001"]
+    assert _references("sales") == [], "an exact match, not a prefix"
+    assert _references(None) == ["DN-0001", "JV-0001", "SI-0001", "SI-0002"]
 
 
 def test_a_quiet_period_still_lists_the_balances_it_carries() -> None:

@@ -2337,9 +2337,18 @@ class ApiClient {
   /// one method serves all of them and the difference between reports is a
   /// path. Six of them answered differently until that was corrected; a client
   /// method per report would have hidden that rather than surfaced it.
-  Future<List<Json>> reportRows(String path) async {
-    final Json response = await request('GET', path);
-    final dynamic data = response['data'];
+  ///
+  /// `rowsKey` reads the rows out of an endpoint that answers with one object
+  /// (the commission report); `query` carries a period where one is required.
+  Future<List<Json>> reportRows(
+    String path, {
+    Map<String, String>? query,
+    String? rowsKey,
+  }) async {
+    final Json response = await request('GET', path, query: query);
+    final dynamic envelope = response['data'];
+    final dynamic data =
+        rowsKey != null && envelope is Map ? envelope[rowsKey] : envelope;
     return [
       for (final dynamic row in data is List ? data : const [])
         if (row is Map) Map<String, dynamic>.from(row),
@@ -5104,6 +5113,7 @@ class ApiClient {
     bool descending = true,
     String? accountingPeriodId,
     String? status,
+    String? sourceModule,
   }) =>
       _list(
         '/api/v1/finance/journal-entries',
@@ -5116,6 +5126,7 @@ class ApiClient {
           if (accountingPeriodId != null)
             'accounting_period_id': accountingPeriodId,
           if (status != null) 'status': status,
+          if (sourceModule != null) 'source_module': sourceModule,
         },
       );
 
