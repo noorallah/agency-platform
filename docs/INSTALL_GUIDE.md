@@ -49,7 +49,9 @@ it on the last page.
 
 1. Run `AgencyPlatform-1.0.0-Setup.exe`, get past SmartScreen (**More info**,
    **Run anyway**) and answer **Yes** to the administrator prompt.
-2. **Destination**: leave it at `C:\Program Files\Agency Platform`.
+2. **Destination**: leave it at `C:\Program Files\Agency Platform`, or choose
+   another folder. Only the program goes there; the data and the logs always
+   go under `C:\ProgramData\Agency Platform`, whatever you choose here.
 3. **This PC**: choose **This PC: server and app**. Tick **Allow other PCs on
    this network to connect** if anyone else will use the system from another
    PC. Without the tick, the server answers only this PC and the firewall
@@ -81,8 +83,9 @@ if they stop:
 
 **If the last page says the server could not be set up**, the files are
 installed but nothing runs yet. The page names the reason and the log file.
-Fix the reason and run the same Setup again: it is safe to repeat and
-continues from where it stopped.
+Fix the reason and run the same Setup again: it is safe to repeat, it
+continues from where it stopped, and its finished page shows the sign-in
+again, because nobody has been able to change the password yet.
 
 **Passwords you never see.** The database passwords are generated and stored
 in `backend\config\.env` under the program folder, readable by administrators
@@ -234,7 +237,10 @@ PCs are on the same network and that the address typed matches the server's
 **Setup's last page says the server could not be set up.** Read the reason on
 the page, then the newest file in
 `C:\ProgramData\Agency Platform\logs\install`, which records every step of
-that run. Fix the cause and run Setup again.
+that run. `C:\ProgramData` is a hidden folder, so paste that path into the
+Explorer address bar or the Run box rather than browsing to it; the logs are
+never under the program folder. Fix the cause and run Setup again; its
+finished page shows the sign-in again.
 
 **The password from the finished page was lost.** It is in
 `C:\ProgramData\Agency Platform\first-login.txt` until the first sign-in

@@ -2,7 +2,7 @@
 
 from collections.abc import Sequence
 from datetime import UTC, datetime
-from typing import Protocol, TypeVar
+from typing import Generic, Protocol, TypeVar
 from uuid import UUID
 
 from sqlalchemy import func, select
@@ -38,8 +38,14 @@ class CRUDRepository(Repository[EntityT], Protocol[EntityT]):
         """Logically delete an entity."""
 
 
-class BaseRepository[EntityT: BaseEntity]:
-    """Provide reusable SQLAlchemy CRUD primitives for one entity type."""
+class BaseRepository(Generic[EntityT]):  # noqa: UP046
+    """Provide reusable SQLAlchemy CRUD primitives for one entity type.
+
+    Spelled with the module's ``EntityT`` rather than ``class
+    BaseRepository[EntityT: BaseEntity]``: Nuitka leaks a class's type
+    parameter into the class body (`app/core/responses/models.py` says why),
+    and `tests/unit/test_no_generic_class_syntax.py` keeps the syntax out.
+    """
 
     def __init__(self, session: Session, model: type[EntityT]) -> None:
         """Bind this repository to an entity model and unit-of-work session."""
