@@ -184,15 +184,15 @@ names what the service writes, and
 `tests/unit/test_inventory_transaction_vocabulary.py` compares the two lists so
 they cannot drift apart again.
 
-### Not built
+### Built since, and how it is written
 
-There is **no stock transfer between warehouses** and **no physical count
-reconciliation** in this module, and no dedicated damage, expiry or quarantine
-write-off movement — the buckets exist and only `ADJUSTMENT` can move them.
-`GOODS_ISSUE`, `TRANSFER_IN`, `TRANSFER_OUT`, `PHYSICAL_COUNT`, `DAMAGE`,
-`EXPIRY`, `QUARANTINE` and `CORRECTION` were declared in the enum and are
-recorded here instead, because naming them in the API advertised features that
-do not exist.
+Warehouse transfers (`TRANSFER_OUT` / `TRANSFER_IN`), physical counts
+(`PhysicalCountService`, each difference an `ADJUSTMENT` with `reference_type`
+`PHYSICAL_COUNT`), write-offs (`WRITE_OFF`) and quarantine
+(`QUARANTINE_HOLD` / `QUARANTINE_RELEASE`) are all built. `GOODS_ISSUE`,
+`PHYSICAL_COUNT`, `DAMAGE`, `EXPIRY`, `QUARANTINE` and `CORRECTION` were once
+declared in the enum and never written; they stay out of it, because naming
+them in the API advertised movements that do not exist (D-STK-10).
 
 ## Who writes stock
 

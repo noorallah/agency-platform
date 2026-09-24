@@ -25,6 +25,7 @@ from app.batch_serial.schemas.batch_serial import (
 )
 from app.batch_serial.services import BatchSerialService
 from app.branches.models import Branch, Warehouse
+from app.common.audit.models import AuditLog
 from app.core.database.base import Base
 from app.core.exceptions import ConflictError, ResourceNotFoundError
 from app.core.utils.dates import utc_now
@@ -33,6 +34,7 @@ from app.firms.models import Firm
 from app.identity.models import (
     identity as _identity_models,  # noqa: F401 – register users table
 )
+from app.inventory.models import InventoryRecord
 from app.products.models import Product
 from app.sales.models import territory as _geo_models  # noqa: F401
 from app.tax.models import tax_framework as _tax_models  # noqa: F401
@@ -108,6 +110,25 @@ def _warehouse(session: Session, firm_id: UUID, branch_id: UUID) -> Warehouse:
     session.add(row)
     session.commit()
     return row
+
+
+def _stock(
+    session: Session, warehouse: Warehouse, batch: BatchRecord, quantity: str
+) -> None:
+    """Put a quantity of a batch on the shelf, as the expiry cards count it."""
+    session.add(
+        InventoryRecord(
+            firm_id=batch.firm_id,
+            branch_id=warehouse.branch_id,
+            warehouse_id=warehouse.id,
+            storage_locator="MAIN",
+            product_id=batch.product_id,
+            batch_id=batch.id,
+            current_quantity=Decimal(quantity),
+            available_quantity=Decimal(quantity),
+        )
+    )
+    session.commit()
 
 
 def _batch_create(product_id: UUID, batch_number: str = "BATCH-001") -> BatchCreate:
@@ -375,17 +396,18 @@ def test_delete_batch_soft() -> None:
 def test_expiry_dashboard() -> None:
     """The dashboard counts what has expired and what is held back.
 
-    Both halves count the same batches: one marked expired by hand, and
-    one that expired on its own once UTC passed its date.
+    Total expired counts one batch marked expired by hand and one that expires
+    today; "expired today" counts only the second (D-STK-8).
     """
     session = _session_factory()()
     firm = _firm(session, "BS6")
     product = _product(session, firm.id)
+    warehouse = _warehouse(session, firm.id, _branch(session, firm.id).id)
     actor_id = uuid4()
     service = BatchSerialService(session)
 
     # Create an expired batch
-    service.create_batch(
+    marked = service.create_batch(
         firm_scope=firm.id,
         actor_id=actor_id,
         data=BatchCreate(
@@ -394,18 +416,18 @@ def test_expiry_dashboard() -> None:
             status=BatchStatus.EXPIRED,
         ),
     )
-    # Create a batch expiring in 5 days
-    service.create_batch(
+    # Create a batch expiring today
+    due = service.create_batch(
         firm_scope=firm.id,
         actor_id=actor_id,
         data=BatchCreate(
             product_id=product.id,
             batch_number="EXP-002",
-            expiry_date=date.today(),
+            expiry_date=utc_now().date(),
         ),
     )
     # Quarantine batch
-    service.create_batch(
+    held = service.create_batch(
         firm_scope=firm.id,
         actor_id=actor_id,
         data=BatchCreate(
@@ -415,14 +437,15 @@ def test_expiry_dashboard() -> None:
         ),
     )
 
+    for batch in (marked, due, held):
+        _stock(session, warehouse, batch, "5")
+
     dashboard = service.expiry_dashboard(firm_scope=firm.id)
 
     assert isinstance(dashboard, ExpiryDashboard)
-    # Both halves count the same batches now: the one marked expired by hand
-    # and, once UTC passes its date, the one that expired on its own.
-    assert dashboard.total_expired == dashboard.expired_today
+    assert dashboard.total_expired == 2
+    assert dashboard.expired_today == 1
     assert dashboard.quarantine == 1
-    assert dashboard.total_expired >= 1
 
 
 def test_create_lot_success() -> None:
@@ -565,6 +588,7 @@ def test_expired_counts_come_from_the_date_not_a_status() -> None:
     product = _product(session, firm.id)
     actor_id = uuid4()
     service = BatchSerialService(session)
+    warehouse = _warehouse(session, firm.id, _branch(session, firm.id).id)
     today = utc_now().date()
 
     for number, expiry, status in (
@@ -573,7 +597,7 @@ def test_expired_counts_come_from_the_date_not_a_status() -> None:
         ("SOON", today + timedelta(days=3), BatchStatus.AVAILABLE),
         ("LATER", today + timedelta(days=90), BatchStatus.AVAILABLE),
     ):
-        service.create_batch(
+        batch = service.create_batch(
             firm_scope=firm.id,
             actor_id=actor_id,
             data=BatchCreate(
@@ -583,15 +607,14 @@ def test_expired_counts_come_from_the_date_not_a_status() -> None:
                 status=status,
             ),
         )
+        _stock(session, warehouse, batch, "1")
 
     summary = service.batch_summary(firm_scope=firm.id)
     dashboard = service.expiry_dashboard(firm_scope=firm.id)
 
     assert summary.expired == 2
     assert dashboard.total_expired == 2
-    assert dashboard.expired_today == 2
-    # The two halves of the dashboard now agree.
-    assert dashboard.total_expired == dashboard.expired_today
+    assert dashboard.expired_today == 0, "neither expired today"
     assert summary.near_expiry == 1
     assert dashboard.expire_in_7_days == 1
 
@@ -660,3 +683,90 @@ def test_a_batch_refuses_a_write_aimed_at_an_older_version() -> None:
         data=BatchUpdate(remarks="no precondition"),
     )
     assert batch.remarks == "no precondition"
+
+
+def test_the_expiry_cards_count_batches_that_still_hold_stock() -> None:
+    """A sold-out batch is history, not something to act on (D-STK-8).
+
+    "Expired today" and "total expired" were one query, and every card counted
+    batch rows whether or not anything was left in them.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "BSCARD")
+    product = _product(session, firm.id)
+    warehouse = _warehouse(session, firm.id, _branch(session, firm.id).id)
+    actor_id = uuid4()
+    service = BatchSerialService(session)
+    today = utc_now().date()
+
+    def batch(number: str, expiry: date, quantity: str | None) -> None:
+        """Create a batch and, if a quantity is given, put it on the shelf."""
+        row = service.create_batch(
+            firm_scope=firm.id,
+            actor_id=actor_id,
+            data=BatchCreate(
+                product_id=product.id, batch_number=number, expiry_date=expiry
+            ),
+        )
+        if quantity is not None:
+            _stock(session, warehouse, row, quantity)
+
+    batch("TODAY", today, "4")
+    batch("LAST-WEEK", today - timedelta(days=7), "2")
+    batch("SOLD-OUT", today - timedelta(days=3), "0")
+    batch("NEVER-STOCKED", today, None)
+    batch("SOON-EMPTY", today + timedelta(days=5), "0")
+
+    dashboard = service.expiry_dashboard(firm_scope=firm.id)
+
+    assert dashboard.expired_today == 1, "only TODAY expires today with stock"
+    assert dashboard.total_expired == 2, "TODAY and LAST-WEEK"
+    assert dashboard.expire_in_7_days == 0, "SOON-EMPTY holds nothing"
+
+
+def test_batch_and_serial_audit_rows_are_named_and_say_what_was_written() -> None:
+    """``batch.created``, not a bare CREATE with nothing in it (D-STK-10)."""
+    session = _session_factory()()
+    firm = _firm(session, "BSAUD")
+    product = _product(session, firm.id)
+    actor_id = uuid4()
+    service = BatchSerialService(session)
+
+    batch = service.create_batch(
+        firm_scope=firm.id,
+        actor_id=actor_id,
+        data=BatchCreate(
+            product_id=product.id,
+            batch_number="AUD-1",
+            expiry_date=date(2027, 3, 31),
+        ),
+    )
+    service.update_batch(
+        firm_scope=firm.id,
+        actor_id=actor_id,
+        batch_id=batch.id,
+        data=BatchUpdate(remarks="relabelled"),
+    )
+    serial = service.create_serial(
+        firm_scope=firm.id,
+        actor_id=actor_id,
+        data=SerialCreate(product_id=product.id, serial_number="SN-AUD-1"),
+    )
+    service.delete_batch(firm_scope=firm.id, actor_id=actor_id, batch_id=batch.id)
+
+    rows = {
+        (row.action, row.entity_id): row.after_data
+        for row in session.scalars(select(AuditLog))
+    }
+    created = rows[("batch.created", batch.id)]
+    assert created is not None
+    assert created["batch_number"] == "AUD-1"
+    assert created["expiry_date"] == "2027-03-31"
+    assert ("batch.updated", batch.id) in rows
+    deleted = rows[("batch.deleted", batch.id)]
+    assert deleted is not None
+    assert deleted["is_deleted"] is True
+    serial_row = rows[("serial_number.created", serial.id)]
+    assert serial_row is not None
+    assert serial_row["serial_number"] == "SN-AUD-1"
+    assert not any(action in {"CREATE", "UPDATE", "DELETE"} for action, _ in rows)
