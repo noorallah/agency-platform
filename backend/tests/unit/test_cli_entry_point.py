@@ -31,6 +31,8 @@ _CALLERS = [
     ["create-database"],
     ["migrate-all", "--yes"],
     ["migrate-all", "--dry-run"],
+    # The installer refuses a fresh install onto a database that holds firms.
+    ["firm-count"],
     ["purge-retention", "--dry-run"],
     ["serve", "--host", "0.0.0.0", "--port", "8000"],
     ["serve", "--host", "127.0.0.1", "--port", "8000", "--reload"],

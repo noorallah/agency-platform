@@ -28,7 +28,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 
 from alembic.config import Config
-from sqlalchemy import create_engine, select, text
+from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.engine import make_url
 
 from alembic import command
@@ -79,6 +79,34 @@ def upgrade_store(*, database_url: str, schema_name: str) -> None:
         command.upgrade(config, "head")
 
 
+def store_is_built(*, database_url: str, schema_name: str) -> bool:
+    """Whether a store exists and has been migrated at least once.
+
+    "Built" means its schema carries an ``alembic_version`` table. A database
+    that does not exist yet, or cannot be reached, answers False; the build
+    that follows is what reports why.
+    """
+    engine = create_engine(database_url, pool_pre_ping=True)
+    try:
+        with engine.connect() as connection:
+            if connection.dialect.name != "postgresql":
+                # Only PostgreSQL stores are built on demand; elsewhere nothing
+                # changes from before the shared store was.
+                return True
+            found = connection.scalar(
+                text(
+                    "SELECT 1 FROM information_schema.tables "
+                    "WHERE table_schema = :schema AND table_name = 'alembic_version'"
+                ),
+                {"schema": schema_name},
+            )
+            return found is not None
+    except Exception:  # noqa: BLE001 - absent or unreachable both mean "not yet"
+        return False
+    finally:
+        engine.dispose()
+
+
 def current_revision(target: MigrationTarget) -> str:
     """Return the revision a store is at, or why it could not be read."""
     engine = create_engine(target.database_url, pool_pre_ping=True)
@@ -96,14 +124,49 @@ def current_revision(target: MigrationTarget) -> str:
         engine.dispose()
 
 
+def count_firms(platform: DatabaseManager) -> int | None:
+    """Return how many live firms the registry holds, or None if it has none yet.
+
+    None means the platform store has not been migrated -- no ``firms`` table
+    -- which is the state a fresh install is in before ``migrate-all``. Any
+    other failure (the server unreachable, a wrong password) is raised: an
+    installer asking "is this a fresh database" must not read "I could not
+    tell" as "yes".
+    """
+    platform_schema = platform.config.default_schema or "platform"
+    with platform.engine.connect() as connection:
+        if connection.dialect.name == "postgresql":
+            present = connection.scalar(
+                text(
+                    "SELECT 1 FROM information_schema.tables "
+                    "WHERE table_schema = :schema AND table_name = 'firms'"
+                ),
+                {"schema": platform_schema},
+            )
+            if present is None:
+                return None
+    with platform.sessions(schema=platform_schema).session() as session:
+        return int(
+            session.scalar(
+                select(func.count()).select_from(Firm).where(Firm.is_deleted.is_(False))
+            )
+            or 0
+        )
+
+
 def migration_targets(
-    platform: DatabaseManager, settings: Settings
+    platform: DatabaseManager, settings: Settings, *, platform_only: bool = False
 ) -> list[MigrationTarget]:
     """Return every distinct store: platform, then shared, then dedicated.
 
     Enumerated from the registry rather than from a list someone maintains by
     hand, and each dedicated firm is reached through its own connection
     profile, so a firm on another server is upgraded on that server.
+
+    ``platform_only`` is a fresh installation, one with no firm: the platform
+    store is the only thing to migrate. The shared store is added all the same
+    when it has already been built, so a database that once held firms keeps
+    every store it has at head.
     """
     base = platform.config
     platform_schema = base.default_schema or "platform"
@@ -122,11 +185,18 @@ def migration_targets(
     add(f"platform ({base.database}/{platform_schema})", base.url, platform_schema)
     shared_database = settings.tenancy.shared_database_name or base.database
     shared_url = make_url(base.url).set(database=shared_database)
-    add(
-        f"shared ({shared_database}/{settings.tenancy.shared_schema_name})",
-        shared_url.render_as_string(hide_password=False),
-        settings.tenancy.shared_schema_name,
-    )
+    shared_rendered = shared_url.render_as_string(hide_password=False)
+    if not platform_only or store_is_built(
+        database_url=shared_rendered,
+        schema_name=settings.tenancy.shared_schema_name,
+    ):
+        add(
+            f"shared ({shared_database}/{settings.tenancy.shared_schema_name})",
+            shared_rendered,
+            settings.tenancy.shared_schema_name,
+        )
+    if platform_only:
+        return list(targets.values())
 
     with platform.sessions(schema=platform_schema).session() as session:
         rows = session.execute(
@@ -163,6 +233,28 @@ def migration_targets(
     return list(targets.values())
 
 
+def _prune_fresh_platform(target: MigrationTarget, say: Callable[[str], None]) -> int:
+    """Drop the firm-owned tables from a platform store that has no firm.
+
+    Returns the number of failures, 0 or 1, in the shape the caller counts.
+    Only ever called when the registry holds no firm, so an installation with
+    firms keeps exactly the layout it had.
+    """
+    # Imported here: lifecycle imports this module for `upgrade_store`.
+    from app.core.tenancy.lifecycle import prune_firm_objects
+
+    try:
+        dropped = prune_firm_objects(
+            database_url=target.database_url, schema_name=target.schema_name
+        )
+    except Exception as error:  # noqa: BLE001 - reporting, not control flow
+        say(f"  {target.label}: pruning firm tables FAILED\n    {error}")
+        return 1
+    if dropped:
+        say(f"  {target.label}: {len(dropped)} firm-owned table(s) pruned")
+    return 0
+
+
 def upgrade_every_store(
     *, dry_run: bool, report: Callable[[str], None] | None = None
 ) -> int:
@@ -177,11 +269,17 @@ def upgrade_every_store(
     settings = Settings()
     platform = DatabaseManager.from_settings(settings)
     try:
-        targets = migration_targets(platform, settings)
+        # A fresh installation -- no registry yet, or one holding no firm --
+        # migrates the platform store only. The shared store is built by the
+        # first SHARED firm, through provisioning, not here.
+        fresh = not count_firms(platform)
+        targets = migration_targets(platform, settings, platform_only=fresh)
     finally:
         platform.dispose()
 
     say(f"{len(targets)} store(s) to migrate.")
+    if fresh:
+        say("No firm is registered: the platform store is migrated on its own.")
     if dry_run:
         for target in targets:
             say(f"  {target.label}: at {current_revision(target)}")
@@ -200,6 +298,9 @@ def upgrade_every_store(
             say(f"  {target.label}: FAILED\n    {detail}")
             continue
         say(f"  {target.label}: upgraded to head")
+
+    if fresh and failures == 0:
+        failures += _prune_fresh_platform(targets[0], say)
 
     if failures:
         say(f"\n{failures} of {len(targets)} store(s) failed.")

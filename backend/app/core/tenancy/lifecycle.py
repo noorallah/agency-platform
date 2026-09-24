@@ -14,7 +14,7 @@ from app.core.tenancy.connections import (
     build_tenant_database_config,
     resolve_connection_profile,
 )
-from app.core.tenancy.migrations import upgrade_store
+from app.core.tenancy.migrations import store_is_built, upgrade_store
 from app.core.tenancy.models import DeploymentMode, TenantContext
 from app.firms.models import Firm
 
@@ -45,6 +45,13 @@ _PLATFORM_TABLES = (
     # list from the platform schema.
     "error_reports",
 )
+
+#: What the platform store keeps when it is pruned of firm-owned tables: the
+#: platform tables above, Alembic's version table, and `audit_logs` -- platform
+#: administration writes its own trail (the trail is per store), so the platform
+#: keeps its copy of the table, its `TR_audit_logs_append_only` trigger and the
+#: `reject_audit_log_mutation()` function the trigger calls.
+PLATFORM_STORE_TABLES = frozenset({"alembic_version", "audit_logs", *_PLATFORM_TABLES})
 
 
 #: Schemas that belong to somebody other than a dedicated firm: the platform
@@ -151,6 +158,61 @@ def prune_platform_objects(*, database_url: str, schema_name: str) -> None:
         engine.dispose()
 
 
+def prune_firm_objects(*, database_url: str, schema_name: str) -> list[str]:
+    """Drop every firm-owned table from the platform store. Returns what went.
+
+    The mirror of `prune_platform_objects`. Alembic migrates one schema per
+    run and every migration targets whichever schema it was pointed at, so a
+    migrated platform schema also carries empty copies of `products`,
+    `sales_invoices` and the other firm-owned tables. Nothing reads them -- a
+    firm's rows live in its own store -- and they made a fresh installation
+    look as though it held a firm. A fresh install ends with exactly
+    `PLATFORM_STORE_TABLES` here.
+
+    Only tables are dropped. `audit_logs` stays, and with it the
+    `TR_audit_logs_append_only` trigger and the function it calls, so the
+    platform's own trail stays append-only.
+
+    **Refuses any schema that is not a platform store** -- one without a
+    `firms` table -- because on a firm store this would delete the firm's
+    books. Safe to repeat, and a no-op on dialects other than PostgreSQL.
+
+    Raises:
+        BusinessRuleError: If the schema does not hold the firm registry.
+
+    """
+    schema = _safe_identifier(schema_name, "schema name")
+    engine = create_engine(database_url, pool_pre_ping=True)
+    dropped: list[str] = []
+    try:
+        with engine.begin() as connection:
+            if connection.dialect.name != "postgresql":
+                return dropped
+            present = set(
+                connection.scalars(
+                    text(
+                        "SELECT table_name FROM information_schema.tables "
+                        "WHERE table_schema = :schema AND table_type = 'BASE TABLE'"
+                    ),
+                    {"schema": schema},
+                )
+            )
+            if "firms" not in present:
+                raise BusinessRuleError(
+                    f"Refusing to prune firm tables from {schema_name!r}: it holds "
+                    "no firm registry, so it is not the platform store."
+                )
+            for table_name in sorted(present - PLATFORM_STORE_TABLES):
+                quoted_table = _safe_identifier(table_name, "table name")
+                connection.execute(
+                    text(f'DROP TABLE IF EXISTS "{schema}"."{quoted_table}" CASCADE')
+                )
+                dropped.append(table_name)
+    finally:
+        engine.dispose()
+    return dropped
+
+
 class TenantStorageLifecycleService:
     """Create dedicated tenant storage and bootstrap schema migrations."""
 
@@ -158,10 +220,19 @@ class TenantStorageLifecycleService:
         self,
         platform_database: DatabaseManager,
         connection_profiles: Mapping[str, ConnectionProfileSettings] | None = None,
+        *,
+        shared_database_name: str | None = None,
+        shared_schema_name: str = "firm_shared",
     ) -> None:
-        """Bind platform database configuration and connection profiles."""
+        """Bind platform database configuration and connection profiles.
+
+        ``shared_database_name`` and ``shared_schema_name`` name the store every
+        SHARED firm lives in; no database name means the platform's own.
+        """
         self._platform_database = platform_database
         self._connection_profiles = connection_profiles or {}
+        self._shared_database_name = shared_database_name or None
+        self._shared_schema_name = shared_schema_name
         self._seed_handler: Callable[[TenantContext], None] | None = None
 
     def register_seed_handler(self, handler: Callable[[TenantContext], None]) -> None:
@@ -172,6 +243,7 @@ class TenantStorageLifecycleService:
         """Provision storage resources for dedicated deployments."""
         mode = DeploymentMode(firm.deployment_mode)
         if mode is DeploymentMode.SHARED:
+            self.provision_shared_store()
             return
         schema_name = firm.schema_name
         database_name = firm.database_name
@@ -225,6 +297,54 @@ class TenantStorageLifecycleService:
                 database_type=target_config.dialect.value,
             )
         )
+
+    def _shared_store_url(self) -> URL:
+        """Return the URL of the database holding the shared store."""
+        base = make_url(self._platform_database.config.url)
+        return base.set(database=self._shared_database_name or base.database)
+
+    def shared_store_is_built(self) -> bool:
+        """Whether the store SHARED firms live in has been built."""
+        return store_is_built(
+            database_url=self._shared_store_url().render_as_string(hide_password=False),
+            schema_name=self._shared_schema_name,
+        )
+
+    def provision_shared_store(self, *, only_if_missing: bool = False) -> bool:
+        """Build the store every SHARED firm lives in. Returns whether it ran.
+
+        A fresh installation holds the platform store only, so the shared
+        store is built for the first SHARED firm rather than by the installer.
+        Every step is create-if-missing -- the database when it is not the
+        platform's, the schema, the migration to head, the prune of the
+        platform tables -- so this is also the repair action.
+
+        Args:
+            only_if_missing: Skip the whole build when the store already
+                carries an ``alembic_version``. Firm creation passes it, so a
+                second shared firm costs no migration run.
+
+        """
+        config = self._platform_database.config
+        if config.dialect is not DatabaseDialect.POSTGRESQL:
+            # Nothing was ever built for a shared firm on another dialect.
+            return False
+        schema = _safe_identifier(self._shared_schema_name, "schema name")
+        target_url = self._shared_store_url()
+        rendered = target_url.render_as_string(hide_password=False)
+        if only_if_missing and store_is_built(
+            database_url=rendered, schema_name=schema
+        ):
+            return False
+        platform_database = make_url(config.url).database
+        if target_url.database and target_url.database != platform_database:
+            self._create_database_if_missing(
+                config, _safe_identifier(target_url.database, "database name")
+            )
+        self._create_schema_if_missing(config, schema, target_url)
+        self._run_migrations(database_url=rendered, schema_name=schema)
+        self._prune_platform_objects(database_url=rendered, schema_name=schema)
+        return True
 
     def _assert_not_reserved(
         self, mode: DeploymentMode, schema_name: str, database_name: str

@@ -19,6 +19,7 @@ from app.core.config.settings import Settings
 from app.core.database.engine import DatabaseManager
 from app.core.exceptions.handlers import register_exception_handlers
 from app.core.logging.configuration import configure_logging
+from app.core.logging.retention import LogMaintenance
 from app.core.middleware import CoreRequestMiddleware
 from app.core.openapi import OPENAPI_TAGS, build_openapi_metadata
 from app.core.tenancy import (
@@ -85,9 +86,16 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             settings.app_name,
             settings.environment,
         )
+        # Compress, expire and cap the log folder now and hourly. Only when
+        # this process writes log files: otherwise the folder is not ours.
+        maintenance = LogMaintenance(settings) if settings.log_file_enabled else None
+        if maintenance is not None:
+            maintenance.start()
         try:
             yield
         finally:
+            if maintenance is not None:
+                maintenance.stop()
             application.state.database_provider.dispose()
             application.state.database.dispose()
             logger.info("Application shutdown: name=%s", settings.app_name)
@@ -115,6 +123,8 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.state.tenant_storage_lifecycle = TenantStorageLifecycleService(
         application.state.database,
         settings.tenancy.connection_profiles,
+        shared_database_name=settings.tenancy.shared_database_name,
+        shared_schema_name=settings.tenancy.shared_schema_name,
     )
     application.add_middleware(CoreRequestMiddleware)
     application.include_router(health_router)

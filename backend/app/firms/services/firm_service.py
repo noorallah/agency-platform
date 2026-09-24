@@ -49,6 +49,7 @@ class FirmService:
         payload, storage_payload = self._normalize_registry_defaults(payload)
         self._assert_storage_not_reserved(storage_payload)
         self._assert_storage_unclaimed(storage_payload, current_firm_id=None)
+        shared_store_ready = self._ensure_shared_store(storage_payload)
         now = utc_now()
         payload["created_date"] = now
         payload["updated_date"] = now
@@ -57,7 +58,11 @@ class FirmService:
         self._session.flush()
         self._upsert_storage_mapping(
             firm_id=firm.id,
-            payload=storage_payload,
+            payload=(
+                {**storage_payload, "provisioned_at": now}
+                if shared_store_ready
+                else storage_payload
+            ),
             actor_id=actor_id,
         )
         self._session.flush()
@@ -77,22 +82,50 @@ class FirmService:
         self._session.commit()
         return firm
 
+    def _ensure_shared_store(self, storage_payload: dict[str, object]) -> bool:
+        """Build the shared store before the first SHARED firm is written to it.
+
+        A fresh installation holds the platform store only; the store every
+        SHARED firm lives in is built for the first one. Doing it here rather
+        than leaving it to `provision` is what keeps a SHARED firm usable the
+        moment it exists -- the Firms screen offers no provisioning action for
+        one, because a shared firm never needed any. It runs *before* the firm
+        row is written, so a build that fails leaves nothing behind but the
+        refusal. Returns whether the store is known to be built; without a
+        lifecycle (the unit suite) nothing is checked, as before.
+
+        Raises:
+            BusinessRuleError: If the shared store could not be built.
+
+        """
+        if self._storage_lifecycle is None or (
+            DeploymentMode(str(storage_payload["deployment_mode"]))
+            is not DeploymentMode.SHARED
+        ):
+            return False
+        try:
+            self._storage_lifecycle.provision_shared_store(only_if_missing=True)
+        except Exception as error:
+            raise BusinessRuleError(
+                f"The shared firm store could not be built: {str(error)[-600:]}"
+            ) from error
+        return True
+
     def provision(self, firm_id: UUID, actor_id: UUID) -> tuple[Firm, bool]:
-        """Build a firm's dedicated storage and record the outcome.
+        """Build a firm's storage and record the outcome.
 
         Returns the firm and whether it was already provisioned. Re-running is
         safe -- every step of `provision_new_firm` is create-if-missing and
         Alembic stops at head -- so this doubles as the repair action when a
         target server was unreachable the first time.
+
+        A SHARED firm builds the shared store (`firm_shared` by default), which
+        a fresh installation does not have until its first shared firm.
         """
         firm = self.get(firm_id)
         mapping = self._storage_mapping(firm.id)
-        if mapping is None or DeploymentMode(mapping.deployment_mode) is (
-            DeploymentMode.SHARED
-        ):
-            raise BusinessRuleError(
-                "Shared firms use the platform store and need no provisioning."
-            )
+        if mapping is None:
+            raise BusinessRuleError("This firm has no storage routing to provision.")
         if mapping.provisioned_at is not None:
             return firm, True
         if self._storage_lifecycle is None:

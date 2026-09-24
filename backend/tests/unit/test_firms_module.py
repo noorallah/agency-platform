@@ -112,12 +112,18 @@ class _RecordingLifecycle:
     def __init__(self) -> None:
         """Start with nothing provisioned."""
         self.provisioned: list[tuple[str, str | None, str | None]] = []
+        self.shared_builds: list[bool] = []
 
     def provision_new_firm(self, firm: Firm) -> None:
         """Record the routing the firm resolved to at provisioning time."""
         self.provisioned.append(
             (firm.deployment_mode, firm.database_name, firm.schema_name)
         )
+
+    def provision_shared_store(self, *, only_if_missing: bool = False) -> bool:
+        """Record that the shared store was asked for, and how."""
+        self.shared_builds.append(only_if_missing)
+        return True
 
 
 def test_create_defaults_to_shared_storage_and_audits() -> None:
@@ -205,14 +211,64 @@ def test_provision_records_the_reason_a_build_failed() -> None:
     assert "10.0.0.7" in (mapping.provisioning_error or "")
 
 
-def test_provision_refuses_a_shared_firm() -> None:
-    """Shared firms live in the platform store and have nothing to build."""
+def test_creating_a_shared_firm_builds_the_shared_store_first() -> None:
+    """A fresh install has no `firm_shared`; the first shared firm builds it.
+
+    Asked for only-if-missing, so a second shared firm costs no migration run,
+    and before the firm is written, so a failed build leaves no firm behind.
+    """
     session = _session()
-    service = FirmService(session, storage_lifecycle=_RecordingLifecycle())
+    lifecycle = _RecordingLifecycle()
+    service = FirmService(session, storage_lifecycle=lifecycle)
+
     firm = service.create(_create_payload(), _ACTOR)
 
-    with pytest.raises(BusinessRuleError):
-        service.provision(firm.id, _ACTOR)
+    assert lifecycle.shared_builds == [True]
+    assert _mapping(session, firm.id).provisioned_at is not None
+
+
+def test_a_dedicated_firm_does_not_build_the_shared_store() -> None:
+    """Only a SHARED firm lives in the shared store."""
+    lifecycle = _RecordingLifecycle()
+    FirmService(_session(), storage_lifecycle=lifecycle).create(
+        _create_payload(deployment_mode="SCHEMA"), _ACTOR
+    )
+    assert lifecycle.shared_builds == []
+
+
+def test_a_shared_store_that_cannot_be_built_refuses_the_firm() -> None:
+    """Nothing is written when the store the firm would live in is not there."""
+    session = _session()
+
+    class _BrokenShared(_RecordingLifecycle):
+        """Fail to build the shared store."""
+
+        def provision_shared_store(self, *, only_if_missing: bool = False) -> bool:
+            """Raise as though the migration failed."""
+            raise RuntimeError("migration 0042 failed")
+
+    service = FirmService(session, storage_lifecycle=_BrokenShared())
+
+    with pytest.raises(BusinessRuleError, match="0042"):
+        service.create(_create_payload(), _ACTOR)
+    session.rollback()
+    assert session.scalars(select(Firm)).all() == []
+
+
+def test_provision_builds_the_store_of_a_shared_firm() -> None:
+    """The repair action works for a SHARED firm too; it used to be refused."""
+    session = _session()
+    lifecycle = _RecordingLifecycle()
+    # Created without a lifecycle: a shared firm from before the shared store
+    # was built on demand, with nothing recorded as provisioned.
+    firm = FirmService(session).create(_create_payload(), _ACTOR)
+    service = FirmService(session, storage_lifecycle=lifecycle)
+
+    _, already = service.provision(firm.id, _ACTOR)
+
+    assert already is False
+    assert lifecycle.provisioned == [("SHARED", None, None)]
+    assert _mapping(session, firm.id).provisioned_at is not None
 
 
 def test_create_rejects_duplicate_code_gst_and_pan() -> None:
