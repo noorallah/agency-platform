@@ -2126,7 +2126,9 @@ product id** (`physical_count_sheet_dialog.dart`), the same class as
 
 **Seen while writing the section 9 steps**, not yet on screen by the tester.
 
-- **No resolved discount percentage on any saved document.** The
+- *(Closed 2026-09-24, #626: the Discount cell reads "100.00 (10.00%)" and
+  the quotation card "less 10.00%" where a rate applied.)*
+  **No resolved discount percentage on any saved document.** The
   quotation's detail card prints `qty × price` and the totals; the order
   and invoice view dialogs' Discount column is the *amount*. The only way
   to read the rate the server resolved is to reopen the editor (Revise on
@@ -2134,18 +2136,25 @@ product id** (`physical_count_sheet_dialog.dart`), the same class as
   stored `discount_percent`. A tester checking 9.1--9.5 has no other
   route, and a salesman asking "what did this line get" has none at all
   once the order is approved.
-- **The coupon is invisible after save**: no grid column, no header field
+- *(Closed 2026-09-24, #626: a Coupon header field, where one was presented.)*
+  **The coupon is invisible after save**: no grid column, no header field
   in `EnterpriseDocumentHeader`; only the draft order's editor shows it.
-- **Allocate and Reverse on a receipt are unlabelled icons** (tooltips
+- *(Closed 2026-09-24, #625: the row buttons read "Apply" and "Reverse".)*
+  **Allocate and Reverse on a receipt are unlabelled icons** (tooltips
   "Apply to an invoice" and "Reverse") on the Receipts list row.
-- **Invoice print copies are not defaulted**: `copy_labels` is empty until
+- *(Closed 2026-09-24, #625: a firm that has saved no Print settings gets
+  the three copies CGST rule 48 names for goods -- recipient, transporter,
+  supplier -- which is also the desktop's own default list; the owner may
+  prefer the two-copy services set.)*
+  **Invoice print copies are not defaulted**: `copy_labels` is empty until
   the firm saves Print settings, so a first print carries one unlabelled
   copy. The delivery challan defaults three labels; the invoice should
   default two (ORIGINAL FOR RECIPIENT, DUPLICATE FOR SUPPLIER).
 - **The sales return and credit note Line pickers read `Line 1`** when
   the source line has no description -- no product code, so two lines of
   one document cannot be told apart by product.
-- **Sales order and sales invoice view dialogs print product and tax
+- *(Closed: both dialogs resolve them through `DocumentLineLabels`; noted
+  2026-09-24.)* **Sales order and sales invoice view dialogs print product and tax
   profile ids** (already §31.3; the delivery note resolves them).
 - **A coupon cannot reach an order that began as a quotation.** The
   conversion forwards each quoted rate as a typed rate -- the deal carries

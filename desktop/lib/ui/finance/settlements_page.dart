@@ -498,13 +498,18 @@ class _SettlementsPageState extends State<SettlementsPage> {
     }
   }
 
+  /// "SI-… on 2026-05-19": the bill, and the day the money met it, which
+  /// is what a statement's running balance is dated by (D-TER-19).
+  static String _allocationLabel(SettlementAllocation a) =>
+      a.allocatedOn.isEmpty ? a.invoiceNumber : '${a.invoiceNumber} on ${a.allocatedOn}';
+
   Widget _tile(BuildContext context, Settlement row) {
     // A reversed settlement still names what it had cleared: that is the
     // first thing anybody asks when a correction is queried.
     final String cleared = row.allocations.isEmpty
         ? 'Not applied to any invoice'
         : '${row.isReversed ? 'Had cleared' : 'Cleared'} '
-            '${row.allocations.map((a) => a.invoiceNumber).join(', ')}';
+            '${row.allocations.map(_allocationLabel).join(', ')}';
     return ListTile(
       title: Text(
         '${row.settlementNumber}  ·  ${row.settlementDate}  ·  '
@@ -526,19 +531,28 @@ class _SettlementsPageState extends State<SettlementsPage> {
         // was a declared transaction type nothing could reach.
         // A supplier advance too, since D-BUY-8; a refund holds nothing to
         // apply, it is money handed back.
+        // Labelled, not bare icons: what a checklist icon and an undo arrow
+        // do to money is not obvious at a glance (BL-31.14). The tooltip
+        // stays as the address a test and a hover both use.
         if (_canCreate && row.isOnAccount && row.direction != 'REFUND')
-          IconButton(
-            tooltip: row.direction == 'RECEIPT'
+          Tooltip(
+            message: row.direction == 'RECEIPT'
                 ? 'Apply to an invoice'
                 : 'Apply to a bill',
-            icon: const Icon(Icons.playlist_add_check),
-            onPressed: () => unawaited(_apply(row)),
+            child: TextButton.icon(
+              icon: const Icon(Icons.playlist_add_check),
+              label: const Text('Apply'),
+              onPressed: () => unawaited(_apply(row)),
+            ),
           ),
         if (_canCreate && !row.isReversed)
-          IconButton(
-            tooltip: 'Reverse',
-            icon: const Icon(Icons.undo),
-            onPressed: () => unawaited(_reverse(row)),
+          Tooltip(
+            message: 'Reverse',
+            child: TextButton.icon(
+              icon: const Icon(Icons.undo),
+              label: const Text('Reverse'),
+              onPressed: () => unawaited(_reverse(row)),
+            ),
           ),
         if (row.isReversed)
           const StatusBadge(label: 'Reversed')

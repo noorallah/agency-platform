@@ -19,9 +19,14 @@ import zlib
 from base64 import a85decode
 from dataclasses import replace
 from decimal import Decimal
+from uuid import uuid4
 
 import pytest
+from sqlalchemy import create_engine
+from sqlalchemy.orm import Session
+from sqlalchemy.pool import StaticPool
 
+from app.document_framework.models import DocumentPrintTemplate
 from app.sales_invoice.services.invoice_pdf import (
     InvoiceDocument,
     InvoiceLineBlock,
@@ -30,6 +35,7 @@ from app.sales_invoice.services.invoice_pdf import (
     TemplateSettings,
     amount_in_words,
 )
+from app.sales_invoice.services.invoice_print_service import SalesInvoicePrintService
 
 
 def _text_of(pdf: bytes) -> str:
@@ -176,6 +182,42 @@ def test_a_firm_that_has_configured_nothing_still_gets_a_correct_bill() -> None:
     assert "TAX INVOICE" in printed
     assert "Certified that the particulars given above are true" in printed
     assert "Authorised signatory" in printed
+
+
+def test_a_firm_that_has_saved_no_print_settings_gets_the_statutory_copies() -> None:
+    """Three labelled copies by default, not one unlabelled page.
+
+    `copy_labels` was empty until the firm saved Print settings, so a first
+    print carried one copy with no banner (BL-31.14). The challan already
+    defaulted its three; the invoice defaults the set rule 48 names for
+    goods. A saved template still says what it says, even one copy.
+    """
+    engine = create_engine(
+        "sqlite://", connect_args={"check_same_thread": False}, poolclass=StaticPool
+    )
+    DocumentPrintTemplate.__table__.create(engine)
+    session = Session(engine)
+    firm_id = uuid4()
+
+    assert SalesInvoicePrintService(session)._template(firm_id).copy_labels == (
+        "ORIGINAL FOR RECIPIENT",
+        "DUPLICATE FOR TRANSPORTER",
+        "TRIPLICATE FOR SUPPLIER",
+    )
+
+    session.add(
+        DocumentPrintTemplate(
+            firm_id=firm_id,
+            document_type="SALES_INVOICE",
+            copy_labels=["ORIGINAL FOR RECIPIENT"],
+            created_by=firm_id,
+            updated_by=firm_id,
+        )
+    )
+    session.commit()
+    assert SalesInvoicePrintService(session)._template(firm_id).copy_labels == (
+        "ORIGINAL FOR RECIPIENT",
+    )
 
 
 def test_each_copy_is_labelled_and_printed_once() -> None:

@@ -4,6 +4,7 @@ import inspect
 import re
 from contextlib import nullcontext
 from datetime import date
+from decimal import Decimal
 from pathlib import Path
 from typing import get_args
 from uuid import UUID, uuid4
@@ -26,8 +27,11 @@ from app.core.security.jwt import TokenClaims
 from app.customers.models import Customer
 from app.firms.models import Firm
 from app.identity.models import Permission, Role, User, UserFirm
+from app.inventory.models import InventoryRecord
 from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.products.models import product as _product_models  # noqa: F401
+from app.products.schemas import ProductCreate
+from app.products.services import ProductService
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales.models import territory as _sales_models  # noqa: F401
 from app.search.api.router import global_search
@@ -646,4 +650,116 @@ def test_a_territory_node_is_listed_once_under_the_label_it_earns() -> None:
     assert sorted((item.entity_type, item.title) for item in hits.results) == [
         ("routes", "North Beat"),
         ("territories", "North Zone"),
+    ]
+
+
+def test_total_counts_every_match_and_later_pages_are_reached() -> None:
+    """`total` is how many rows matched, not how long the capped list was.
+
+    Each entity's list is cut at twenty, and `total` used to be the length of
+    those lists -- so 25 matching customers read as 20, and the pager stopped
+    short of the last five (D-RPT-20).
+    """
+    session = _session_factory()()
+    firm = _firm(session, "MANY")
+    actor = uuid4()
+    session.add_all(
+        [
+            Customer(
+                firm_id=firm.id,
+                code=f"BULK-{index:03d}",
+                customer_type="RETAIL",
+                name=f"Bulk Buyer {index:03d}",
+                display_name=f"Bulk Buyer {index:03d}",
+                currency_code="INR",
+                status="ACTIVE",
+                created_by=actor,
+                updated_by=actor,
+            )
+            for index in range(25)
+        ]
+    )
+    session.commit()
+    principal = _principal(uuid4(), permissions={"CUSTOMER_VIEW"}, firm_id=firm.id)
+
+    seen: list[str] = []
+    for page in range(1, 6):
+        result = SearchService(session).search(
+            query="Bulk",
+            principal=principal,
+            category="all",
+            page=page,
+            page_size=5,
+            entity_types={"customers"},
+        )
+        assert result.total == 25
+        assert len(result.results) == 5
+        seen.extend(item.id for item in result.results)
+    assert len(set(seen)) == 25
+
+
+def test_stock_is_found_by_its_products_name_and_code() -> None:
+    """A stock row is known by its product, not by its storage locator.
+
+    The inventory definition matched `storage_locator` alone, so typing a
+    product's name found none of its stock (D-RPT-20). Another firm's stock
+    of a product by the same name stays out.
+    """
+    session = _session_factory()()
+    session.add(
+        BusinessProfile(
+            code="GENERIC",
+            name="Generic",
+            industry_type="GENERIC",
+            status="ACTIVE",
+            is_default=True,
+            default_settings={},
+            created_by=uuid4(),
+            updated_by=uuid4(),
+        )
+    )
+    session.commit()
+    ours, theirs = _firm(session, "OURS"), _firm(session, "THEIRS")
+    products = ProductService(session)
+    for firm in (ours, theirs):
+        warehouse = Warehouse(
+            firm_id=firm.id,
+            branch_id=uuid4(),
+            code="MAIN",
+            name="Main",
+            display_name="Main",
+        )
+        session.add(warehouse)
+        session.commit()
+        for code, name in (("PARA-500", "Paracetamol 500"), ("IBU-200", "Ibuprofen")):
+            product = products.create_product(
+                ProductCreate.model_validate(
+                    {"code": code, "name": name, "product_type": "STOCK_ITEM"}
+                ),
+                firm_id=firm.id,
+                actor_id=uuid4(),
+            )
+            session.add(
+                InventoryRecord(
+                    firm_id=firm.id,
+                    branch_id=warehouse.branch_id,
+                    warehouse_id=warehouse.id,
+                    storage_locator=f"{firm.code}-{code}",
+                    product_id=product.id,
+                    current_quantity=Decimal("10"),
+                    available_quantity=Decimal("10"),
+                )
+            )
+        session.commit()
+
+    principal = _principal(uuid4(), permissions={"INVENTORY_VIEW"}, firm_id=ours.id)
+    assert _search_titles(session, principal, "inventory", "paracetamol") == [
+        "OURS-PARA-500"
+    ]
+    assert _search_titles(session, principal, "inventory", "IBU-200") == [
+        "OURS-IBU-200"
+    ]
+    # The locator still matches on its own.
+    assert _search_titles(session, principal, "inventory", "OURS-PARA") == [
+        "OURS-PARA-500"
     ]
