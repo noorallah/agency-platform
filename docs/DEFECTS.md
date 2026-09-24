@@ -240,7 +240,6 @@ the owner, recorded here as a decision and not as a defect.
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
-| D-TER-21 | Low | **`sales_territories.status` is read by nothing.** An INACTIVE round still tags a sale through `resolve_sales_scope` and is still called by the call list. Carved out of D-TER-16 on 2026-09-24 because it is a behaviour question rather than a trail or a key: whether deactivating a round should stop it tagging sales, stop it being called, or only hide it from the picker is the owner's to settle. | Live (D-TER-16's evidence) |
 
 ### Reports, the dashboard, global search and diagnostics -- found writing the data trail, 2026-09-23
 
@@ -290,6 +289,7 @@ or invoiced (D-RPT-11).
 
 | Id | Fixed | Summary | PR | Guard |
 | --- | --- | --- | --- | --- |
+| D-TER-21 | 2026-09-24 | `sales_territories.status` was read by nothing: an INACTIVE round still tagged new sales and was still called. Decided by the usual convention (owner asked for the industry standard): closed to new business, open to history. Nothing new derives it or its route, naming it is refused by name, its plans stand but call nobody until it is reactivated, and documents already tagged stand. | #635 | `test_an_inactive_round_takes_no_new_documents`, `test_an_inactive_round_calls_nobody` |
 | D-RPT-18 | 2026-09-24 | No report took a date range or a page and the desktop grid held the firm's whole history. The 36 dated report routes take `from_date`/`to_date` (inclusive, on the document's own date) and `page`/`page_size` (bounded, declared on the parameter) and answer `PaginatedResponse`; the 21 snapshots (pending, overdue, outstanding, back orders, reconciliations, balances, performance) take neither, since a window would hide the old item they exist to show. The desktop asks every dated report for a period (opening on the current month) and pages it a hundred at a time. | #632, #634 | one window test per module in 15 backend test files (`report_windows.py` helper); `a dated report is paged a hundred at a time`, `a snapshot report is neither dated nor paged` in `reports_test.dart` |
 | D-TER-22 | 2026-09-24 | `20260924_0157` failed on the platform store: the platform schema keeps a copy of `commission_rules` from before `product_id` and `product_category_id` existed (a firm-owned table nothing there reads or migrates), and the new key named those columns. Found by `migrate_all_stores.py --yes` -- 1 of 44 failed. Both keys are now built only where every column they name exists. | #631 | `migrate_all_stores.py --dry-run` reports every store at head; no unit test can see a stale table in a schema the unit suite does not build |
 | D-TER-19 | 2026-09-24 | `approved_by`, `approved_at`, `paid_by` and `allocated_on` were in the responses and on no screen. The Payouts grid's status cell carries a caption naming who adjusted, approved and paid and when (members by name, a former member by id); the Receipts and Payments tiles read "Cleared SI-… on <date>". | #628 | `a payout says who approved it and who paid it` in `commission_page_test.dart`; `a receipt says which invoice it cleared` in `settlements_test.dart` |

@@ -658,3 +658,28 @@ def test_a_beat_plan_in_the_bin_refuses_to_be_edited() -> None:
     session.rollback()
     row = service.get_beat_plan(plan, firm_scope=firm.id, include_deleted=True)
     assert row.name == "MON plan"
+
+
+def test_an_inactive_round_calls_nobody() -> None:
+    """D-TER-21: a round switched off keeps its plans and calls nobody."""
+    session = _session_factory()()
+    firm = _firm(session, "CALL9")
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    route = _route(service, firm.id, actor, "RT01")
+    customer = _customer(session, firm.id, "C1")
+    service.set_customers(
+        route,
+        TerritoryAssignCustomersRequest(customer_ids=[customer.id]),
+        firm_scope=firm.id,
+        actor_id=actor,
+    )
+    _plan(service, firm.id, actor, route, "MON")
+    assert service.call_list(firm_scope=firm.id, on_date=MONDAY).entries
+
+    node = session.get(SalesTerritoryNode, route)
+    assert node is not None
+    node.status = "INACTIVE"
+    session.commit()
+
+    assert service.call_list(firm_scope=firm.id, on_date=MONDAY).entries == []

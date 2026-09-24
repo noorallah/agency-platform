@@ -6397,6 +6397,12 @@ is either `customer_ids` (membership only) or `entries`
   listing them (D-TER-17). The two writes are not one transaction and cannot
   be -- they are different databases -- so the platform fact is committed
   first and the firm stores follow it.
+- **An INACTIVE round is closed to new business since #635 (D-TER-21).**
+  `status` was read by nothing. Now `resolve_sales_scope` derives neither an
+  inactive round nor its route on to a new document, naming one is refused
+  by name ("RT01 is inactive, so it takes no new documents"), and the call
+  list skips its plans until it is reactivated. Documents already tagged
+  with it stand, and the reports still show them.
 - **Audit:** `sales_territory.salesmen_set`. It carried `salesman_count`
   alone and since #615 also carries the ids on both sides and the `added` /
   `removed` lists (D-TER-16).

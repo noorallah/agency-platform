@@ -205,6 +205,13 @@ def _validated_territory(
     )
     if node is None:
         raise ValidationError("The selected territory does not belong to this firm.")
+    if node.status != "ACTIVE":
+        # Closed to new business, open to history: the documents already
+        # tagged with it stand, and nothing new may name it (D-TER-21).
+        raise ValidationError(
+            f"{node.code} is {node.status.lower()}, so it takes no new "
+            "documents. Reactivate it, or leave the territory blank."
+        )
     assigned = session.scalar(
         select(TerritoryCustomerAssignment.id).where(
             TerritoryCustomerAssignment.territory_id == territory_id,
@@ -223,11 +230,22 @@ def _validated_territory(
 
 def _derived_territory(session: Session, customer_id: UUID) -> UUID | None:
     """Derive the customer's territory, when there is one obvious answer."""
+    # Only a live, ACTIVE round: `sales_territories.status` was read by
+    # nothing, so a round switched off went on tagging every new sale
+    # (D-TER-21). A customer whose only round is inactive is on no round
+    # for new business, which is what deactivating it means.
     assignments = list(
         session.scalars(
-            select(TerritoryCustomerAssignment).where(
+            select(TerritoryCustomerAssignment)
+            .join(
+                SalesTerritoryNode,
+                SalesTerritoryNode.id == TerritoryCustomerAssignment.territory_id,
+            )
+            .where(
                 TerritoryCustomerAssignment.customer_id == customer_id,
                 TerritoryCustomerAssignment.is_deleted.is_(False),
+                SalesTerritoryNode.is_deleted.is_(False),
+                SalesTerritoryNode.status == "ACTIVE",
             )
         )
     )
@@ -397,6 +415,9 @@ def _route_profile_for(
     if territory_id is None:
         return None
     for node_id in (territory_id, *_ancestors(session, territory_id)):
+        if not _node_is_active(session, node_id):
+            # An inactive round's route is not a round any more (D-TER-21).
+            continue
         profile = session.scalar(
             select(TerritoryRouteProfile).where(
                 TerritoryRouteProfile.territory_id == node_id,
@@ -406,6 +427,17 @@ def _route_profile_for(
         if profile is not None and route_profile_in_force(profile, on_date):
             return profile.id
     return None
+
+
+def _node_is_active(session: Session, node_id: UUID) -> bool:
+    """Whether a territory node is live and ACTIVE."""
+    status = session.scalar(
+        select(SalesTerritoryNode.status).where(
+            SalesTerritoryNode.id == node_id,
+            SalesTerritoryNode.is_deleted.is_(False),
+        )
+    )
+    return status == "ACTIVE"
 
 
 def route_profile_in_force(

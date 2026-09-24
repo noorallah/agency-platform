@@ -2537,8 +2537,11 @@ class SalesTerritoryService:
                     SalesTerritoryNode.id == plan.territory_id,
                     # A retired round calls nobody. The node was read without
                     # this, so a route deleted from under its plan went on
-                    # being reported as running (D-TER-14).
+                    # being reported as running (D-TER-14). A round switched
+                    # off is closed the same way: its plans stand, and call
+                    # nobody until it is reactivated (D-TER-21).
                     SalesTerritoryNode.is_deleted.is_(False),
+                    SalesTerritoryNode.status == "ACTIVE",
                 )
             )
             if territory is None:
