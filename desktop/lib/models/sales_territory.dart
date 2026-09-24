@@ -578,8 +578,12 @@ class TerritoryRouteProfileRecord {
     required this.postalCodeId,
     required this.localityId,
     required this.workingDays,
+    this.id = '',
   });
 
+  /// The route's own id -- what a sales order's `route_id` and a promotion
+  /// condition on a route hold. It is not the territory node's id.
+  final String id;
   final String routeTypeId;
   final String routeTypeName;
   final String visitFrequency;
@@ -592,6 +596,7 @@ class TerritoryRouteProfileRecord {
 
   factory TerritoryRouteProfileRecord.fromJson(Json json) =>
       TerritoryRouteProfileRecord(
+        id: stringValue(json['id']),
         routeTypeId: stringValue(json['route_type_id']),
         routeTypeName: stringValue(json['route_type_name']),
         visitFrequency: stringValue(json['visit_frequency']),

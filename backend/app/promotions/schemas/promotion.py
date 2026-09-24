@@ -244,6 +244,11 @@ class PromotionConditionResponse(PromotionSchema):
     value_date: date | None
     value_boolean: bool | None
     value_json: list[object] | dict[str, object] | None
+    #: What the id in `value_text` names -- "CODE — name" for a product,
+    #: territory or route, the name for a category or customer -- so a screen
+    #: never has to show a bare id. `None` for a field that is not an id, or
+    #: an id that no longer resolves.
+    value_label: str | None = None
 
 
 class PromotionActionResponse(PromotionSchema):

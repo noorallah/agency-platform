@@ -386,6 +386,49 @@ def test_a_promotion_only_touches_the_lines_it_names() -> None:
     assert result.lines[1].discount_amount == Decimal("0.00")
 
 
+def test_a_condition_on_a_product_is_named_and_an_unknown_id_is_not() -> None:
+    """The response names the product a condition holds (BL-31.15).
+
+    An id nothing resolves is left unlabelled rather than guessed at, and a
+    field that is not an id is never labelled.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    milk = _product(session, firm_id=firm.id, code="MILK")
+    _promotion(
+        session,
+        firm_id=firm.id,
+        code="NAMED",
+        actions=[(PromotionActionType.LINE_DISCOUNT_PERCENT, {"percent": "10"})],
+        conditions=[
+            (
+                PromotionField.PRODUCT_ID,
+                PromotionConditionOperator.EQUALS,
+                {"value_text": str(milk.id)},
+            ),
+            (
+                PromotionField.CUSTOMER_ID,
+                PromotionConditionOperator.EQUALS,
+                {"value_text": str(uuid4())},
+            ),
+            (
+                PromotionField.LINE_QUANTITY,
+                PromotionConditionOperator.GREATER_OR_EQUAL,
+                {"value_number": Decimal("5")},
+            ),
+        ],
+    )
+    service = PromotionCrudService(session)
+    rows, _ = service.list_promotions(firm_scope=firm.id, page=1, page_size=20)
+
+    [response] = service.promotion_responses(rows)
+
+    labels = [condition.value_label for condition in response.conditions]
+    assert labels == ["MILK — Product MILK", None, None]
+    single = service.promotion_response(rows[0])
+    assert single.conditions[0].value_label == "MILK — Product MILK"
+
+
 def test_a_minimum_order_value_is_read_across_the_whole_document() -> None:
     """The condition every "spend 5,000 and save" offer is built from."""
     session = _session_factory()()

@@ -341,6 +341,9 @@ class TerritoryUpdate(TerritorySchema):
 
 
 class RouteProfileResponse(TerritorySchema):
+    #: The route's own id -- what a sales order's and a promotion condition's
+    #: `route_id` hold, which is not the territory node's id (BL-31.15).
+    id: UUID | None = None
     route_type_id: UUID | None
     route_type_name: str | None
     visit_frequency: str

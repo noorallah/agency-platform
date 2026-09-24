@@ -76,7 +76,7 @@ def list_promotions(
         status=status_value,
     )
     return PaginatedResponse(
-        data=[service.promotion_response(row) for row in rows],
+        data=service.promotion_responses(rows),
         pagination=params.metadata(total),
     )
 

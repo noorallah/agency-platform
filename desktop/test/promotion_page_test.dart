@@ -21,6 +21,7 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/pricing.dart';
+import 'package:agency_desktop/models/product.dart';
 import 'package:agency_desktop/ui/pricing/promotion_dialog.dart';
 import 'package:agency_desktop/ui/pricing/promotion_page.dart';
 import 'package:flutter/material.dart';
@@ -78,6 +79,28 @@ class _PromotionApi extends ApiClient {
   Json? savedBody;
   int? sentVersion;
   String? updatedId;
+
+  /// What the condition picker searches when it asks for products.
+  List<Product> catalogue = const <Product>[];
+  final List<String> productSearches = <String>[];
+
+  @override
+  Future<PagedResult<Product>> products({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+    ProductQuery filters = const ProductQuery(),
+  }) async {
+    productSearches.add(search);
+    final List<Product> hits = catalogue
+        .where((item) =>
+            item.code.contains(search.toUpperCase()) ||
+            item.name.toLowerCase().contains(search.toLowerCase()))
+        .toList();
+    return PagedResult<Product>(items: hits, total: hits.length);
+  }
 
   @override
   Future<PagedResult<PromotionRecord>> promotions({
@@ -197,6 +220,97 @@ void main() {
 
     expect(find.text('Quantity on the line is at least 25'), findsOneWidget);
     expect(find.textContaining('GREATER_OR_EQUAL'), findsNothing);
+  });
+
+  testWidgets('a condition on a product names the product, not its id',
+      (tester) async {
+    // A product condition was shown as a bare id (BL-31.15).
+    await _pumpPage(
+      tester,
+      _PromotionApi(rows: <PromotionRecord>[
+        _promotion(conditions: const <PromotionConditionRecord>[
+          PromotionConditionRecord(
+            fieldKey: 'product_id',
+            operator: 'EQUALS',
+            valueText: 'p-milk',
+            valueLabel: 'MILK — Milk',
+          ),
+        ]),
+      ]),
+      manage: false,
+    );
+    await tester.tap(find.text('TEN'));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Product is MILK — Milk'), findsOneWidget);
+    expect(find.textContaining('p-milk'), findsNothing);
+  });
+
+  testWidgets('a product is picked by name and sent by id', (tester) async {
+    final _PromotionApi api = _PromotionApi()
+      ..catalogue = <Product>[
+        Product.fromJson(
+            const <String, dynamic>{'id': 'p-milk', 'code': 'MILK', 'name': 'Milk'}),
+        Product.fromJson(
+            const <String, dynamic>{'id': 'p-tea', 'code': 'TEA', 'name': 'Tea'}),
+      ];
+    await _pumpDialog(
+      tester,
+      api,
+      existing: _promotion(conditions: const <PromotionConditionRecord>[
+        PromotionConditionRecord(
+          fieldKey: 'product_id',
+          operator: 'EQUALS',
+          valueText: 'p-old',
+          valueLabel: 'OLD — Old stock',
+        ),
+      ]),
+    );
+
+    // An existing condition opens with its name, not its id.
+    final Finder picker = find.widgetWithText(TextFormField, 'OLD — Old stock');
+    expect(picker, findsOneWidget);
+
+    await tester.enterText(picker, 'mil');
+    await tester.pumpAndSettle();
+    expect(api.productSearches, contains('mil'));
+    await tester.tap(find.text('MILK — Milk'));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    final List<dynamic> conditions = api.savedBody!['conditions'] as List;
+    expect((conditions.single as Map)['value_text'], 'p-milk');
+  });
+
+  testWidgets('a name typed but not picked is refused before it is sent',
+      (tester) async {
+    final _PromotionApi api = _PromotionApi();
+    await _pumpDialog(
+      tester,
+      api,
+      existing: _promotion(conditions: const <PromotionConditionRecord>[
+        PromotionConditionRecord(
+          fieldKey: 'product_id',
+          operator: 'EQUALS',
+          valueText: 'p-old',
+          valueLabel: 'OLD — Old stock',
+        ),
+      ]),
+    );
+
+    await tester.enterText(
+      find.widgetWithText(TextFormField, 'OLD — Old stock'),
+      'nothing like it',
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.savedBody, isNull);
+    expect(find.text('Pick one from the list.'), findsOneWidget);
   });
 
   testWidgets('a promotion that does not stack says it ends the stack',

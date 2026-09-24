@@ -9,6 +9,7 @@ A document priced in March has to stay explicable in September, and it cannot
 be if the offer behind it was quietly rewritten.
 """
 
+from collections.abc import Iterable
 from uuid import UUID, uuid4
 
 from sqlalchemy import func, select
@@ -16,6 +17,8 @@ from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError
+from app.customers.models import Customer
+from app.products.models import Product, ProductCategory
 from app.promotions.models import (
     Promotion,
     PromotionAction,
@@ -26,9 +29,22 @@ from app.promotions.schemas import (
     PromotionActionResponse,
     PromotionActionType,
     PromotionConditionResponse,
+    PromotionField,
     PromotionResponse,
     PromotionStatus,
     PromotionWrite,
+)
+from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
+
+#: The condition fields whose `value_text` holds the id of a master row.
+_ID_FIELDS = frozenset(
+    {
+        PromotionField.PRODUCT_ID.value,
+        PromotionField.PRODUCT_CATEGORY_ID.value,
+        PromotionField.CUSTOMER_ID.value,
+        PromotionField.TERRITORY_ID.value,
+        PromotionField.ROUTE_ID.value,
+    }
 )
 
 
@@ -371,6 +387,106 @@ class PromotionCrudService:
 
     def promotion_response(self, row: Promotion) -> PromotionResponse:
         """Build the API response for one promotion."""
+        return self.promotion_responses([row])[0]
+
+    def promotion_responses(self, rows: list[Promotion]) -> list[PromotionResponse]:
+        """Build the API responses for a page, naming every id a condition holds.
+
+        The ids are collected across the whole page and resolved with one read
+        per table, never one per condition.
+        """
+        labels = self._condition_labels(
+            condition for row in rows for condition in row.conditions
+        )
+        return [self._response(row, labels) for row in rows]
+
+    def _condition_labels(
+        self, conditions: Iterable[PromotionCondition]
+    ) -> dict[tuple[str, str], str]:
+        """Resolve the id-typed conditions to labels, keyed by (field, id)."""
+        wanted: dict[str, set[UUID]] = {key: set() for key in _ID_FIELDS}
+        for condition in conditions:
+            if condition.field_key not in _ID_FIELDS or not condition.value_text:
+                continue
+            try:
+                wanted[condition.field_key].add(UUID(condition.value_text.strip()))
+            except ValueError:
+                continue
+        labels: dict[tuple[str, str], str] = {}
+
+        def coded(code: str, name: str) -> str:
+            """Spell a master row the way every picker shows it."""
+            return f"{code} — {name}"
+
+        if ids := wanted[PromotionField.PRODUCT_ID.value]:
+            for product_id, code, name in self._session.execute(
+                select(Product.id, Product.code, Product.name).where(
+                    Product.id.in_(ids)
+                )
+            ):
+                labels[(PromotionField.PRODUCT_ID.value, str(product_id))] = coded(
+                    code, name
+                )
+        if ids := wanted[PromotionField.PRODUCT_CATEGORY_ID.value]:
+            for category_id, name in self._session.execute(
+                select(ProductCategory.id, ProductCategory.name).where(
+                    ProductCategory.id.in_(ids)
+                )
+            ):
+                labels[(PromotionField.PRODUCT_CATEGORY_ID.value, str(category_id))] = (
+                    name
+                )
+        if ids := wanted[PromotionField.CUSTOMER_ID.value]:
+            for customer_id, name in self._session.execute(
+                select(Customer.id, Customer.display_name).where(Customer.id.in_(ids))
+            ):
+                labels[(PromotionField.CUSTOMER_ID.value, str(customer_id))] = name
+        if ids := wanted[PromotionField.TERRITORY_ID.value]:
+            for node_id, code, name in self._session.execute(
+                select(
+                    SalesTerritoryNode.id,
+                    SalesTerritoryNode.code,
+                    SalesTerritoryNode.name,
+                ).where(SalesTerritoryNode.id.in_(ids))
+            ):
+                labels[(PromotionField.TERRITORY_ID.value, str(node_id))] = coded(
+                    code, name
+                )
+        if ids := wanted[PromotionField.ROUTE_ID.value]:
+            for route_id, code, name in self._session.execute(
+                select(
+                    TerritoryRouteProfile.id,
+                    SalesTerritoryNode.code,
+                    SalesTerritoryNode.name,
+                )
+                .join(
+                    SalesTerritoryNode,
+                    SalesTerritoryNode.id == TerritoryRouteProfile.territory_id,
+                )
+                .where(TerritoryRouteProfile.id.in_(ids))
+            ):
+                labels[(PromotionField.ROUTE_ID.value, str(route_id))] = coded(
+                    code, name
+                )
+        return labels
+
+    @staticmethod
+    def _label_for(
+        condition: PromotionCondition, labels: dict[tuple[str, str], str]
+    ) -> str | None:
+        """Return the resolved label of one condition, if it names a row."""
+        if condition.field_key not in _ID_FIELDS or not condition.value_text:
+            return None
+        try:
+            key = str(UUID(condition.value_text.strip()))
+        except ValueError:
+            return None
+        return labels.get((condition.field_key, key))
+
+    def _response(
+        self, row: Promotion, labels: dict[tuple[str, str], str]
+    ) -> PromotionResponse:
+        """Build one promotion's response from labels already resolved."""
         return PromotionResponse(
             id=row.id,
             firm_id=row.firm_id,
@@ -399,6 +515,7 @@ class PromotionCrudService:
                     value_date=item.value_date,
                     value_boolean=item.value_boolean,
                     value_json=item.value_json,
+                    value_label=self._label_for(item, labels),
                 )
                 for item in row.conditions
             ],
