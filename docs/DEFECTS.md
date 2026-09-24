@@ -283,7 +283,7 @@ or invoiced (D-RPT-11).
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
-| BL-31.14 | Low | **What a saved sales document does not show:** the resolved discount percentage, the coupon, and the product and tax-profile ids the order and invoice view dialogs print. One decision inside it: whether a coupon should apply to an order converted from a quotation. (Its "Line 1" item was fixed in #398; the Apply/Reverse labels and the default invoice copies in #625.) | As recorded 2026-09-13, not re-checked |
+| BL-31.14 | Low | **One decision left from "what a saved sales document does not show":** whether a coupon should apply to an order converted from a quotation -- the conversion forwards each quoted rate as a typed rate, which outranks every promotion. Owner's call. (The display items are fixed: "Line 1" in #398, the Apply/Reverse labels and default invoice copies in #625, the resolved rate and the coupon on a saved document in #626; the view dialogs resolve ids through `DocumentLineLabels`.) | Decision |
 | BL-31.15 | Low | **Small gaps from sections 10-13:** no source-module filter on Journal Entries; Ctrl+K hides a failing search; the Loyalty page cannot show one customer's balance; promotion conditions print raw; targets cannot name a salesman from the desktop; two reports missing from the catalogue. | As recorded 2026-09-13, not re-checked |
 
 ---
