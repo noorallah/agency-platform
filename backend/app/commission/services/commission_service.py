@@ -1305,15 +1305,26 @@ class CommissionService:
                 Decimal(str(total))
                 - Decimal(str(tax))
                 - Decimal(str(extras))
-                - Decimal(str(round_off)),
+                - Decimal(str(round_off))
+                # The bill's freight is in its grand total since D-SELL-37,
+                # and it is a pass-through, not a sale.
+                - Decimal(str(freight)),
             )
-            for invoice_id, total, tax, extras, round_off in self._session.execute(
+            for (
+                invoice_id,
+                total,
+                tax,
+                extras,
+                round_off,
+                freight,
+            ) in self._session.execute(
                 select(
                     SalesInvoice.id,
                     SalesInvoice.grand_total,
                     SalesInvoice.tax_total,
                     SalesInvoice.additional_charges,
                     SalesInvoice.round_off,
+                    SalesInvoice.freight_amount,
                 ).where(SalesInvoice.id.in_(invoice_ids))
             ).all()
         }

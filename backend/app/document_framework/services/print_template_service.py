@@ -14,7 +14,7 @@ from app.document_framework.schemas import (
     DocumentPrintTemplateResponse,
     DocumentPrintTemplateWrite,
 )
-from app.document_framework.services.print_support import PRINTABLE_DOCUMENT_TYPES
+from app.document_framework.services.printable_types import PRINTABLE_DOCUMENT_TYPES
 
 #: What a firm gets before it configures anything. Kept here rather than in the
 #: database so a new firm needs no seeding to print a correct bill.

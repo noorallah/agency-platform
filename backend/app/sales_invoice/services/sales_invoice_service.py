@@ -2011,8 +2011,15 @@ class SalesInvoiceService(TransactionalDocumentService):
                 actor_id=actor_id,
             )
             tax_amount = line_tax.total
+            # Freight is billed, not only taxed: the line's share of it is in
+            # what the line is worth, exactly as it is in what it was taxed on
+            # (D-SELL-37).
             net_amount = self._q(
-                gross_amount - discount_amount + charges_amount + tax_amount
+                gross_amount
+                - discount_amount
+                + charges_amount
+                + freight_share
+                + tax_amount
             )
             line = SalesInvoiceLine(
                 sales_invoice_id=row.id,
@@ -2085,11 +2092,15 @@ class SalesInvoiceService(TransactionalDocumentService):
             totals["total_current_invoice_quantity"] += invoice_quantity
             totals["total_free_quantity"] += free_quantity
             totals["line_discount_total"] += discount_amount
-            # subtotal is the taxable base: gross less discount, before tax and
-            # before charges. Line charges used to be folded in here, which made
-            # this module's subtotal mean something different from every other
-            # document's; they are carried separately and added to grand_total.
-            totals["subtotal"] += self._q(gross_amount - discount_amount)
+            # subtotal is the taxable base: gross less discount plus the line's
+            # share of the freight, before tax and before charges. Line charges
+            # used to be folded in here, which made this module's subtotal mean
+            # something different from every other document's; they are carried
+            # separately and added to grand_total. Freight was left out, so a
+            # bill taxed the delivery and never billed it (D-SELL-37).
+            totals["subtotal"] += self._q(
+                gross_amount - discount_amount + freight_share
+            )
             totals["line_charges_total"] += charges_amount
             totals["tax_total"] += tax_amount
         return {key: self._q(value) for key, value in totals.items()}
