@@ -28,10 +28,10 @@ class InventoryTransactionType(StrEnum):
     RESERVE was rejected as invalid, and filtering by RESERVATION was accepted
     and matched nothing.
 
-    Physical counts and damage write-offs are still not built, and are named in
-    ``docs/INVENTORY_FRAMEWORK.md`` as absent rather than here, where naming
-    them would make the API advertise them. `TRANSFER_OUT` and `TRANSFER_IN`
-    were in that category until warehouse transfers were built.
+    Every member here is written. A physical count posts each difference as an
+    ``ADJUSTMENT`` with ``reference_type`` ``PHYSICAL_COUNT`` rather than a
+    type of its own, and condemning stock is ``WRITE_OFF``; quarantine moves
+    stock between buckets as ``QUARANTINE_HOLD`` and ``QUARANTINE_RELEASE``.
     """
 
     OPENING_STOCK = "OPENING_STOCK"

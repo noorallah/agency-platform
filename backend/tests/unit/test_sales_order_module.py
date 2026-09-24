@@ -23,13 +23,17 @@ from app.core.security.authorization import Principal
 from app.core.security.jwt import TokenClaims
 from app.core.utils.dates import utc_now
 from app.customers.models import Customer
-from app.document_framework.models import DocumentTypeDefinition
+from app.document_framework.models import (
+    DocumentLifecycleEvent,
+    DocumentTypeDefinition,
+)
 from app.firms.models import Firm
 from app.identity.models import identity as _identity_models  # noqa: F401
 from app.inventory.models import InventoryTransaction
 from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.products.models import Product
-from app.promotions.models import Promotion, PromotionAction
+from app.promotions.models import Promotion, PromotionAction, PromotionRedemption
+from app.promotions.services.redemption_service import RedemptionService
 from app.sales.models import GeoCountry
 from app.sales.models import territory as _sales_models  # noqa: F401
 from app.sales_order.api.router import update_sales_order
@@ -1396,3 +1400,187 @@ def test_the_dated_order_reports_take_a_window_and_a_page() -> None:
         "/api/v1/sales-orders/reports/by-salesman",
         "/api/v1/sales-orders/reports/by-territory",
     )
+
+
+def _order_with_an_offer(
+    session: Session,
+) -> tuple[Firm, SalesOrder, SalesOrderService]:
+    """Raise a draft order that an active offer applies to."""
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    promotion = Promotion(
+        firm_id=firm.id,
+        code="BUY10GET1",
+        name="Buy ten, get one",
+        priority=100,
+        status="ACTIVE",
+        allow_stacking=True,
+        version_group_id=uuid4(),
+        version_number=1,
+    )
+    session.add(promotion)
+    session.flush()
+    session.add(
+        PromotionAction(
+            firm_id=firm.id,
+            promotion_id=promotion.id,
+            sequence=1,
+            action_type="FREE_PRODUCT",
+            parameters={
+                "buy_quantity": "10",
+                "free_quantity": "1",
+                "free_product_id": str(product.id),
+            },
+        )
+    )
+    session.commit()
+    service = SalesOrderService(session)
+    order = service.create_order(
+        SalesOrderCreate(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            order_date=utc_now().date(),
+            lines=[
+                SalesOrderLineWrite(
+                    line_number=1,
+                    product_id=product.id,
+                    quantity=Decimal("10"),
+                    unit_price=Decimal("100"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+    session.commit()
+    return firm, order, service
+
+
+def _claims(session: Session, order_id: UUID) -> list[PromotionRedemption]:
+    """Return the live offer claims an order holds."""
+    return list(
+        session.scalars(
+            select(PromotionRedemption).where(
+                PromotionRedemption.document_id == order_id,
+                PromotionRedemption.is_deleted.is_(False),
+            )
+        ).all()
+    )
+
+
+def test_a_draft_order_is_cancelled_not_closed() -> None:
+    """D-SELL-22: closing accepted a DRAFT and left its claims PENDING for ever."""
+    session = _session_factory()()
+    firm, order, service = _order_with_an_offer(session)
+    assert [row.status for row in _claims(session, order.id)] == ["PENDING"]
+
+    with pytest.raises(ValidationError, match="cancelled, not closed"):
+        service.close_order(order.id, firm_scope=firm.id, actor_id=uuid4())
+    assert order.status == SalesOrderStatus.DRAFT.value
+
+
+def test_closing_an_order_nothing_shipped_gives_back_its_offer() -> None:
+    """D-SELL-22: a closed order kept the offer it never used."""
+    session = _session_factory()()
+    firm, order, service = _order_with_an_offer(session)
+    service.approve_order(order.id, firm_scope=firm.id, actor_id=uuid4())
+    assert [row.status for row in _claims(session, order.id)] == ["CLAIMED"]
+
+    service.close_order(order.id, firm_scope=firm.id, actor_id=uuid4())
+
+    assert [row.status for row in _claims(session, order.id)] == ["REVERSED"]
+
+
+def test_a_re_priced_draft_stamps_the_claims_it_replaces() -> None:
+    """D-SELL-22: a replaced PENDING claim was deleted with no `deleted_at`."""
+    session = _session_factory()()
+    firm, order, _ = _order_with_an_offer(session)
+    [pending] = _claims(session, order.id)
+
+    RedemptionService(session).stage(
+        [],
+        firm_id=firm.id,
+        customer_id=order.customer_id,
+        document_type="SALES_ORDER",
+        document_id=order.id,
+        document_number=order.order_number,
+        on=order.order_date,
+        actor_id=uuid4(),
+    )
+
+    assert pending.is_deleted is True
+    assert pending.deleted_at is not None
+
+
+def test_the_order_snapshots_what_the_customer_owes_now() -> None:
+    """D-SELL-25: the snapshot was the opening balance, 0.00 on every order."""
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    customer.current_outstanding = Decimal("483.21")
+    session.commit()
+    product = _product(session, firm_id=firm.id)
+
+    row = SalesOrderService(session).create_order(
+        _order_for(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            product_id=product.id,
+        ),
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+
+    assert row.outstanding_balance_snapshot == Decimal("483.21")
+
+
+def test_an_approval_under_warning_records_the_credit_assessment() -> None:
+    """D-SELL-26: the WARN assessment was computed and thrown away."""
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    # 45,000 owed against a 50,000 limit: past the default 80% warning.
+    customer.current_outstanding = Decimal("45000")
+    session.commit()
+    product = _product(session, firm_id=firm.id)
+    service = SalesOrderService(session)
+    row = service.create_order(
+        _order_for(
+            customer_id=customer.id,
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            product_id=product.id,
+        ),
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+
+    service.approve_order(row.id, firm_scope=firm.id, actor_id=uuid4())
+
+    event = session.scalar(
+        select(DocumentLifecycleEvent).where(
+            DocumentLifecycleEvent.source_document_id == row.id,
+            DocumentLifecycleEvent.action == "APPROVED",
+        )
+    )
+    assert event is not None
+    warning = event.details_json["credit_warning"]
+    assert warning["status"] == "WARNING"
+    assert "credit limit" in (event.remarks or "")
+    audit = session.scalar(
+        select(AuditLog).where(
+            AuditLog.entity_id == row.id, AuditLog.action == "sales_order.approved"
+        )
+    )
+    assert audit is not None
+    assert audit.after_data is not None
+    assert "credit_warning" in audit.after_data

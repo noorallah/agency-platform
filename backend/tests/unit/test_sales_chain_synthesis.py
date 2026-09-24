@@ -606,6 +606,66 @@ def test_a_bill_naming_its_serials_ships_exactly_those_units() -> None:
     assert [unit.status for unit in units] == ["SOLD", "AVAILABLE", "SOLD"]
 
 
+def test_editing_a_draft_bill_restates_the_units_its_own_note_ships() -> None:
+    """D-SELL-33: an edited draft had nowhere to change its serial picks.
+
+    The chain moves the bill's picks onto the note it raises, so the saved
+    draft bills that note -- and an edit naming serials was refused as though
+    the note had shipped. The draft shows the units its note ships, and an
+    edit restates them there.
+    """
+    session = _session_factory()()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    setup.product.track_serial = True
+    units = [
+        SerialNumber(
+            firm_id=setup.firm.id,
+            product_id=setup.product.id,
+            warehouse_id=setup.warehouse.id,
+            branch_id=setup.branch.id,
+            serial_number=f"SKU-{n}",
+        )
+        for n in range(1, 4)
+    ]
+    session.add_all(units)
+    session.commit()
+    bill = setup.bare_bill(quantity=Decimal("2"))
+    bill.lines[0].serial_ids = [units[0].id, units[2].id]
+    service = SalesInvoiceService(session)
+    actor = uuid4()
+    invoice = service.create_invoice(bill, firm_id=setup.firm.id, actor_id=actor)
+
+    [line] = service.invoice_response(invoice).lines
+    assert line.picks_serials is True
+    assert sorted(item.serial_number for item in line.serials) == ["SKU-1", "SKU-3"]
+
+    service.update_invoice(
+        invoice.id,
+        SalesInvoiceCreate(
+            customer_id=setup.customer.id,
+            invoice_date=date(2026, 8, 4),
+            lines=[
+                SalesInvoiceLineWrite(
+                    source_document_type=line.source_document_type,
+                    source_document_id=line.source_document_id,
+                    source_document_line_id=line.source_document_line_id,
+                    line_number=1,
+                    current_invoice_quantity=Decimal("2"),
+                    serial_ids=[units[1].id, units[2].id],
+                )
+            ],
+        ),
+        firm_id=setup.firm.id,
+        actor_id=actor,
+    )
+    service.approve_invoice(invoice.id, firm_scope=setup.firm.id, actor_id=actor)
+
+    for unit in units:
+        session.refresh(unit)
+    assert [unit.status for unit in units] == ["AVAILABLE", "SOLD", "SOLD"]
+
+
 def test_switching_a_stage_off_does_not_move_an_existing_document() -> None:
     """Configuration governs new documents, never the ones already in flight.
 

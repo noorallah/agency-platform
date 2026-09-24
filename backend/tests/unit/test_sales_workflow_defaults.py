@@ -25,6 +25,7 @@ from sqlalchemy.orm import Session
 
 from app.branches.models import Branch, Warehouse
 from app.branches.services import BranchWarehouseService
+from app.common.audit.models import AuditLog
 from app.core.exceptions import ValidationError
 from app.firms.models import Firm
 from app.inventory.schemas import InventoryAdjustmentCreate
@@ -211,3 +212,20 @@ def test_the_default_branch_and_warehouse_cannot_be_deleted() -> None:
     _save(setup, default_branch_id=str(spare.id), default_warehouse_id=None)
     with pytest.raises(ValidationError, match="Branch SPARE is the default"):
         service.delete_branch(spare.id, firm_scope=setup.firm.id, actor_id=uuid4())
+
+
+def test_the_stages_are_audited_by_name() -> None:
+    """D-SELL-24: the stages were audited as bare CREATE / UPDATE."""
+    setup = _setup()
+    _save(setup)
+    _save(setup, delivery_note_stage=True)
+
+    actions = setup.session.scalars(
+        select(AuditLog.action).where(AuditLog.entity_type == "sales_workflow_settings")
+    ).all()
+    assert actions
+    assert set(actions) <= {
+        "sales_workflow_settings.created",
+        "sales_workflow_settings.updated",
+    }
+    assert actions[-1] == "sales_workflow_settings.updated"

@@ -14,6 +14,8 @@ from uuid import UUID
 from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session
 
+from app.batch_serial.schemas import PickedSerial
+from app.batch_serial.services.serial_trail_service import SerialTrailService
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader
@@ -83,6 +85,7 @@ from app.sales_invoice.schemas import (
     SalesInvoiceImportRequest,
     SalesInvoiceLineResponse,
     SalesInvoiceLineTaxResponse,
+    SalesInvoiceLineWrite,
     SalesInvoiceListFilters,
     SalesInvoiceNoteResponse,
     SalesInvoiceNoteWrite,
@@ -536,9 +539,13 @@ class SalesInvoiceService(TransactionalDocumentService):
         row = self.get_invoice(invoice_id, firm_scope=firm_id)
         if row.status != SalesInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft sales invoices can be updated.")
+        own_notes = self._notes_raised_by(row)
+        data = self._restate_own_serials(
+            data, row=row, own_notes=own_notes, firm_id=firm_id, actor_id=actor_id
+        )
         self._delete_children(row.id)
         header, source_rows, line_specs = self._prepare_invoice_sources(
-            data, firm_id, own_notes=self._notes_raised_by(row)
+            data, firm_id, own_notes=own_notes
         )
         row.customer_id = data.customer_id or header["customer_id"]
         row.branch_id = data.branch_id or header["branch_id"]
@@ -795,6 +802,50 @@ class SalesInvoiceService(TransactionalDocumentService):
             firm_id=firm_scope,
         )
         return row
+
+    def _restate_own_serials(
+        self,
+        data: SalesInvoiceCreate,
+        *,
+        row: SalesInvoice,
+        own_notes: frozenset[UUID],
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> SalesInvoiceCreate:
+        """Hand the units an edited draft names to the note it raised.
+
+        On create the chain moves a line's ``serial_ids`` onto the note it
+        raises; on an edit that note already exists, so the picks are
+        restated on it here and taken off the payload (D-SELL-33). Any other
+        line naming serials is still refused where the sources are read.
+        """
+        picks: dict[UUID, dict[UUID, list[UUID]]] = defaultdict(dict)
+        kept: list[SalesInvoiceLineWrite] = []
+        for line in data.lines:
+            if (
+                line.serial_ids is not None
+                and line.source_document_type == SalesInvoiceSourceType.DELIVERY_NOTE
+                and line.source_document_id in own_notes
+                and line.source_document_line_id is not None
+            ):
+                picks[line.source_document_id][
+                    line.source_document_line_id
+                ] = line.serial_ids
+                kept.append(line.model_copy(update={"serial_ids": None}))
+            else:
+                kept.append(line)
+        if not picks:
+            return data
+        notes = DeliveryNoteService(self._session)
+        for note_id, by_line in picks.items():
+            notes.restate_serial_picks(
+                note_id,
+                by_line,
+                firm_scope=firm_id,
+                raised_by_sales_invoice_id=row.id,
+                actor_id=actor_id,
+            )
+        return data.model_copy(update={"lines": kept})
 
     def _notes_raised_by(self, row: SalesInvoice) -> frozenset[UUID]:
         """Return the ids of the delivery notes this bill raised for itself."""
@@ -1263,6 +1314,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             customer_invoice_number=row.customer_invoice_number,
             current_id=row.id,
         )
+        picked = self._own_note_picks(row, lines)
         # One query for every product on the document rather than one per
         # line. `description` is nullable and the seeded documents leave it
         # null, so a client with only `product_id` to work with can label a
@@ -1313,7 +1365,12 @@ class SalesInvoiceService(TransactionalDocumentService):
             created_at=row.created_at,
             updated_at=row.updated_at,
             lines=[
-                self._line_response(item, taxes[item.id], products.get(item.product_id))
+                self._line_response(
+                    item,
+                    taxes[item.id],
+                    products.get(item.product_id),
+                    serials=picked.get(item.source_document_line_id),
+                )
                 for item in lines
             ],
             sources=[self._source_response(item) for item in sources],
@@ -3352,11 +3409,38 @@ class SalesInvoiceService(TransactionalDocumentService):
             ).all()
         }
 
+    def _own_note_picks(
+        self, row: SalesInvoice, lines: list[SalesInvoiceLine]
+    ) -> dict[UUID, list[PickedSerial]]:
+        """Return the units each serial-tracked line's own note ships.
+
+        Keyed by note line id, and only for a draft whose lines bill a note
+        the bill raised for itself -- the one case where the bill, not a
+        note somebody typed, names the units (D-SELL-33).
+        """
+        if row.status != SalesInvoiceStatus.DRAFT.value:
+            return {}
+        own = self._notes_raised_by(row)
+        if not own:
+            return {}
+        trail = SerialTrailService(self._session)
+        line_ids = [
+            item.source_document_line_id
+            for item in lines
+            if item.source_document_id in own and trail.is_serialised(item.product_id)
+        ]
+        if not line_ids:
+            return {}
+        picked = trail.picked_serials(line_ids)
+        return {line_id: picked.get(line_id, []) for line_id in line_ids}
+
     def _line_response(
         self,
         row: SalesInvoiceLine,
         taxes: list[SalesInvoiceLineTax] | None = None,
         product: Product | None = None,
+        *,
+        serials: list[PickedSerial] | None = None,
     ) -> SalesInvoiceLineResponse:
         return SalesInvoiceLineResponse(
             id=row.id,
@@ -3412,6 +3496,8 @@ class SalesInvoiceService(TransactionalDocumentService):
                 )
                 for component in (taxes or [])
             ],
+            picks_serials=serials is not None,
+            serials=serials or [],
             created_at=row.created_at,
             updated_at=row.updated_at,
         )

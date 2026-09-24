@@ -50,15 +50,20 @@ Future: Purchase · Sales · Manufacturing · Returns · Warranty
 | manufacturing_date | DATE | |
 | expiry_date | DATE | Required for medical/food |
 | best_before_date | DATE | |
-| quantity | DECIMAL | Total received |
-| available_qty | DECIMAL | Available for use |
-| reserved_qty | DECIMAL | Reserved for orders |
-| blocked_qty | DECIMAL | Blocked / quarantine |
-| damaged_qty | DECIMAL | Damaged stock |
+| shelf_life_days | INTEGER | |
 | status | ENUM | available, reserved, blocked, quarantine, expired, damaged, recalled, returned, destroyed |
 | remarks | TEXT | |
 | created_by / updated_by | UUID | Audit |
 | created_at / updated_at / deleted_at | TIMESTAMP | Soft delete |
+
+A batch holds **no quantity columns**. What a batch holds is the sum of its
+`inventories` rows (`inventories.batch_id`), bucket by bucket -- current,
+reserved, quarantine, damaged, blocked -- so there is one place a quantity
+lives and nothing to fall out of step with it.
+
+Creating, changing and deleting a batch, lot or serial number is audited as
+`batch.created` / `batch.updated` / `batch.deleted` (likewise `lot.*` and
+`serial_number.*`), with the record's fields in `after_data` (D-STK-10).
 
 ### Table: `lots`
 

@@ -255,7 +255,7 @@ class ProformaService(TransactionalDocumentService):
             document_type=document_type,
             document_id=row.id,
             document_number=row.proforma_number,
-            action="proforma.created",
+            action="CREATED",
             from_state=None,
             to_state=ProformaStatus.DRAFT.value,
             actor_id=actor_id,
@@ -349,6 +349,12 @@ class ProformaService(TransactionalDocumentService):
 
         """
         row = self.get_proforma(proforma_id, firm_scope=firm_scope)
+        if row.status == ProformaStatus.CANCELLED.value:
+            # A cancelled proforma was never issued; saying so misread it
+            # (D-SELL-28).
+            raise ValidationError(
+                f"{row.proforma_number} is cancelled and cannot be issued."
+            )
         if row.status != ProformaStatus.DRAFT.value:
             raise ValidationError(f"{row.proforma_number} has already been issued.")
         document_type, _ = self._ensure_document_setup(
@@ -363,7 +369,7 @@ class ProformaService(TransactionalDocumentService):
             document_type=document_type,
             document_id=row.id,
             document_number=row.proforma_number,
-            action="proforma.issued",
+            action="ISSUED",
             from_state=ProformaStatus.DRAFT.value,
             to_state=ProformaStatus.ISSUED.value,
             actor_id=actor_id,
@@ -421,7 +427,7 @@ class ProformaService(TransactionalDocumentService):
             document_type=document_type,
             document_id=row.id,
             document_number=row.proforma_number,
-            action="proforma.cancelled",
+            action="CANCELLED",
             from_state=was,
             to_state=ProformaStatus.CANCELLED.value,
             actor_id=actor_id,

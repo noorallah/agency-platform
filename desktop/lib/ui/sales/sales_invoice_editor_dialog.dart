@@ -205,9 +205,22 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       final double elsewhere = still.isEmpty
           ? 0
           : (double.tryParse(still.first.remainingQuantity) ?? 0);
+      // A serial-tracked line billing the note this bill raised for itself:
+      // the bill names its units, so the picker comes back with the units
+      // the note will ship already ticked (D-SELL-33).
+      final bool picks = line['picks_serials'] == true;
+      if (picks) {
+        _pickedSerials[lineId] = <String>[
+          for (final dynamic raw in (line['serials'] as List?) ?? const [])
+            if (raw is Map) '${raw['serial_id'] ?? ''}',
+        ];
+      }
       rebuilt.add(BillableLine(
         sourceDocumentLineId: lineId,
         lineNumber: (line['line_number'] as num?)?.toInt() ?? 0,
+        productId: '${line['product_id'] ?? ''}',
+        warehouseId: '${line['warehouse_id'] ?? ''}',
+        trackSerial: picks,
         description: '${line['description'] ?? ''}',
         sourceQuantity: '${line['delivered_quantity'] ?? own}',
         alreadyInvoicedQuantity: '0',
@@ -232,6 +245,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       _quantities[line.sourceDocumentLineId] = TextEditingController(
         text: '${_ownQuantities[line.sourceDocumentLineId] ?? 0}',
       );
+      if (line.trackSerial) _loadSerials(line.productId, line.warehouseId);
     }
     final double bill =
         double.tryParse('${invoice['bill_discount_percent'] ?? 0}') ?? 0;
@@ -438,8 +452,14 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   }
 
   /// Whether a document line is one this bill must name serials for.
+  ///
+  /// A new bill of an order names them; so does an edit of a draft whose line
+  /// bills the note that draft raised, which the server marks by setting
+  /// `picks_serials` -- the only way such a line gets [BillableLine.trackSerial]
+  /// when editing (D-SELL-33).
   bool _picksSerials(BillableDocument document, BillableLine line) =>
-      document.sourceDocumentType == 'SALES_ORDER' && line.trackSerial;
+      line.trackSerial &&
+      (document.sourceDocumentType == 'SALES_ORDER' || _editing);
 
   /// Where a direct bill's goods leave from, when the firm has said.
   String get _directWarehouse => _stages.defaultWarehouseId ?? '';
