@@ -34,7 +34,7 @@ from app.identity.models import User, UserFirm
 from app.identity.models import identity as _identity_models  # noqa: F401
 from app.inventory.models import inventory as _inventory_models  # noqa: F401
 from app.products.models import Product
-from app.sales.models import TerritoryRouteProfile
+from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales.models import territory as _sales_models  # noqa: F401
 from app.sales.schemas import (
     TerritoryAssignCustomersRequest,
@@ -760,3 +760,33 @@ def test_a_manager_who_has_left_is_not_inherited_either() -> None:
     scope = resolve_sales_scope(session, firm_id=firm.id, customer_id=customer.id)
 
     assert scope.salesman_id is None
+
+
+def test_an_inactive_round_takes_no_new_documents() -> None:
+    """D-TER-21: closed to new business, open to history.
+
+    `sales_territories.status` was read by nothing, so a round switched off
+    went on tagging every new sale and its route with it. Deactivating a
+    round now means: nothing new derives it, nothing new may name it, and
+    the documents already carrying it stand as they are.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    route = _territory(service, firm.id, actor, "RT01")
+    customer = _customer(session, firm.id)
+    _assign_customer(service, route, customer.id, firm.id, actor)
+    node = session.get(SalesTerritoryNode, route)
+    assert node is not None
+    node.status = "INACTIVE"
+    session.commit()
+
+    scope = resolve_sales_scope(session, firm_id=firm.id, customer_id=customer.id)
+    assert scope.territory_id is None
+    assert scope.route_id is None
+
+    with pytest.raises(ValidationError, match="RT01 is inactive"):
+        resolve_sales_scope(
+            session, firm_id=firm.id, customer_id=customer.id, territory_id=route
+        )
