@@ -765,6 +765,7 @@ def set_user_firm_roles(
 def list_user_global_roles(
     user_id: UUID,
     principal: RoleViewPrincipal,
+    caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),
 ) -> ApiResponse[IdentifierList]:
@@ -772,11 +773,15 @@ def list_user_global_roles(
 
     Readable by a firm administrator and not writable by them: these apply in
     their firm, so hiding them would under-report what the person can do
-    there, and letting them edit one would undo a platform decision.
+    there, and letting them edit one would undo a platform decision. Held to
+    the caller's firm like every other user read (D-IDN-10): it answered for
+    any user id to anybody holding `ROLE_VIEW`.
     """
     return ApiResponse(
         data=IdentifierList(
-            ids=_service(db, settings).list_user_global_role_ids(user_id)
+            ids=_service(db, settings).list_user_global_role_ids(
+                user_id, _firm_scope(principal, caller_scope)
+            )
         )
     )
 
@@ -1314,7 +1319,10 @@ def create_permission(
 )
 def get_permission(
     permission_id: UUID,
-    principal: PlatformPrincipal,
+    # The same gate as the list (D-IDN-10): reading one entry of the
+    # catalogue is no more than reading the page it sits on, and the service
+    # hides from a firm what it hides from the list.
+    principal: PermissionViewPrincipal,
     caller_scope: IdentityScope = None,
     db: Session = Depends(get_db),
     settings: Settings = Depends(get_request_settings),

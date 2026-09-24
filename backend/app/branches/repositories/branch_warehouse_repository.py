@@ -83,8 +83,9 @@ class BranchWarehouseRepository:
         excluding_id: UUID | None = None,
     ) -> UUID | None:
         """Return the id of a branch already using this code."""
+        # Live rows only (D-MST-11): a deleted branch releases its code.
         statement = select(Branch.id).where(
-            Branch.firm_id == firm_id, Branch.code == code
+            Branch.firm_id == firm_id, Branch.code == code, Branch.is_deleted.is_(False)
         )
         if excluding_id is not None:
             statement = statement.where(Branch.id != excluding_id)
@@ -98,8 +99,11 @@ class BranchWarehouseRepository:
         excluding_id: UUID | None = None,
     ) -> UUID | None:
         """Return the id of a warehouse already using this code."""
+        # Live rows only (D-MST-11): a deleted warehouse releases its code.
         statement = select(Warehouse.id).where(
-            Warehouse.firm_id == firm_id, Warehouse.code == code
+            Warehouse.firm_id == firm_id,
+            Warehouse.code == code,
+            Warehouse.is_deleted.is_(False),
         )
         if excluding_id is not None:
             statement = statement.where(Warehouse.id != excluding_id)

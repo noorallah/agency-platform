@@ -36,7 +36,9 @@ from app.branches.schemas import (
 from app.business.models import BusinessProfile
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.business.services import AttributeInput, AttributeService
-from app.common.audit.services import record_audit
+from app.common.audit.services import record_audit, record_change, row_state
+from app.common.display_names import display_name_after_edit
+from app.common.master_codes import assert_codes_free
 from app.common.master_references import (
     MasterReferences,
     assert_master_references,
@@ -47,6 +49,7 @@ from app.common.open_documents import (
     find_open_documents,
     find_stock_holdings,
 )
+from app.core.concurrency import assert_version
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.inventory.models import InventoryRecord
@@ -202,8 +205,16 @@ class BranchWarehouseService:
             is_default=bool(values.get("is_default", row.is_default)),
             exclude_id=row.id,
         )
+        previous_name = row.name
         for field, value in values.items():
             setattr(row, field, value)
+        row.display_name = display_name_after_edit(
+            current=row.display_name,
+            previous_name=previous_name,
+            name=row.name,
+            sent=data.display_name,
+            was_sent="display_name" in data.model_fields_set,
+        )
         row.updated_by = actor_id
         if "attributes" in data.model_fields_set:
             self._store_attributes(BranchAttributeValue, row, data.attributes, actor_id)
@@ -248,6 +259,7 @@ class BranchWarehouseService:
         row = self.get_branch(branch_id, firm_scope=firm_scope, include_deleted=True)
         if not row.is_deleted:
             return row
+        self._assert_branch_restorable(row)
         row.is_deleted = False
         row.deleted_at = None
         row.deleted_by = None
@@ -351,6 +363,7 @@ class BranchWarehouseService:
             )
             if not row.is_deleted:
                 continue
+            self._assert_branch_restorable(row)
             row.is_deleted = False
             row.deleted_at = None
             row.deleted_by = None
@@ -539,8 +552,16 @@ class BranchWarehouseService:
             is_default=bool(values.get("is_default", row.is_default)),
             exclude_id=row.id,
         )
+        previous_name = row.name
         for field, value in values.items():
             setattr(row, field, value)
+        row.display_name = display_name_after_edit(
+            current=row.display_name,
+            previous_name=previous_name,
+            name=row.name,
+            sent=data.display_name,
+            was_sent="display_name" in data.model_fields_set,
+        )
         row.updated_by = actor_id
         if "attributes" in data.model_fields_set:
             self._store_attributes(
@@ -589,6 +610,7 @@ class BranchWarehouseService:
         )
         if not row.is_deleted:
             return row
+        self._assert_warehouse_restorable(row)
         row.is_deleted = False
         row.deleted_at = None
         row.deleted_by = None
@@ -695,6 +717,7 @@ class BranchWarehouseService:
             )
             if not row.is_deleted:
                 continue
+            self._assert_warehouse_restorable(row)
             row.is_deleted = False
             row.deleted_at = None
             row.deleted_by = None
@@ -740,6 +763,12 @@ class BranchWarehouseService:
                 raise ValidationError(
                     "Parent storage node is invalid for this warehouse."
                 )
+        self._assert_storage_node_free(
+            warehouse_id=data.warehouse_id,
+            parent_id=data.parent_id,
+            code=data.code,
+            name=data.name,
+        )
         node = WarehouseStorageNode(
             warehouse_id=data.warehouse_id,
             parent_id=data.parent_id,
@@ -794,6 +823,14 @@ class BranchWarehouseService:
                 )
             if parent.path.startswith(f"{node.path}/"):
                 raise ValidationError("Circular storage hierarchy is not allowed.")
+        self._assert_storage_node_free(
+            warehouse_id=node.warehouse_id,
+            parent_id=data.parent_id,
+            code=data.code,
+            name=data.name,
+            excluding_id=node.id,
+        )
+        before = row_state(node)
         old_path = node.path
         new_path = self._build_path(parent.path if parent else None, data.code)
         node.parent_id = data.parent_id
@@ -807,6 +844,18 @@ class BranchWarehouseService:
         node.updated_by = actor_id
         if old_path != new_path:
             self._repath_descendants(node.warehouse_id, old_path, new_path)
+        # The edit wrote no trail (D-MST-11); the node's firm is its
+        # warehouse's.
+        warehouse = self.get_warehouse(node.warehouse_id, firm_scope=firm_scope)
+        record_change(
+            self._session,
+            action="warehouse.storage_node.updated",
+            entity_type="warehouse_storage_node",
+            row=node,
+            actor_id=actor_id,
+            before=before,
+            firm_id=warehouse.firm_id,
+        )
         self._commit_unique(
             "Storage node code or name already exists in this warehouse."
         )
@@ -927,6 +976,7 @@ class BranchWarehouseService:
         self, data: BranchTypeWrite, *, firm_id: UUID, actor_id: UUID
     ) -> BranchType:
         """Add a branch type."""
+        self._assert_type_free(BranchType, data, firm_id=firm_id)
         row = BranchType(
             firm_id=firm_id,
             code=data.code,
@@ -937,6 +987,16 @@ class BranchWarehouseService:
             updated_by=actor_id,
         )
         self._repository.add(row)
+        self._session.flush()
+        # Type writes left no trail at all (D-MST-11).
+        record_change(
+            self._session,
+            action="branch_type.created",
+            entity_type="branch_type",
+            row=row,
+            actor_id=actor_id,
+            firm_id=firm_id,
+        )
         self._commit_unique("Branch type code or name already exists in this firm.")
         return row
 
@@ -947,21 +1007,35 @@ class BranchWarehouseService:
         *,
         firm_id: UUID,
         actor_id: UUID,
+        expected_version: int | None = None,
     ) -> BranchType:
-        """Change a branch type."""
+        """Change a live branch type.
+
+        A retired one is not found (D-MST-11): this loaded deleted rows too and
+        cleared the flag, so an edit silently brought the type back.
+        """
         row = self._repository.get_branch_type(
-            branch_type_id, firm_id, include_deleted=True
+            branch_type_id, firm_id, include_deleted=False
         )
         if row is None:
             raise ResourceNotFoundError("Branch type not found.")
+        assert_version(row.version, expected_version)
+        self._assert_type_free(BranchType, data, firm_id=firm_id, excluding_id=row.id)
+        before = row_state(row)
         row.code = data.code
         row.name = data.name
         row.description = data.description
         row.is_active = data.is_active
         row.updated_by = actor_id
-        row.is_deleted = False
-        row.deleted_at = None
-        row.deleted_by = None
+        record_change(
+            self._session,
+            action="branch_type.updated",
+            entity_type="branch_type",
+            row=row,
+            actor_id=actor_id,
+            before=before,
+            firm_id=firm_id,
+        )
         self._commit_unique("Branch type code or name already exists in this firm.")
         return row
 
@@ -978,6 +1052,14 @@ class BranchWarehouseService:
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
         row.updated_by = actor_id
+        record_change(
+            self._session,
+            action="branch_type.deleted",
+            entity_type="branch_type",
+            row=row,
+            actor_id=actor_id,
+            firm_id=firm_id,
+        )
         self._session.commit()
 
     def list_warehouse_types(
@@ -990,6 +1072,7 @@ class BranchWarehouseService:
         self, data: WarehouseTypeWrite, *, firm_id: UUID, actor_id: UUID
     ) -> WarehouseType:
         """Add a warehouse type."""
+        self._assert_type_free(WarehouseType, data, firm_id=firm_id)
         row = WarehouseType(
             firm_id=firm_id,
             code=data.code,
@@ -1000,6 +1083,16 @@ class BranchWarehouseService:
             updated_by=actor_id,
         )
         self._repository.add(row)
+        self._session.flush()
+        # Type writes left no trail at all (D-MST-11).
+        record_change(
+            self._session,
+            action="warehouse_type.created",
+            entity_type="warehouse_type",
+            row=row,
+            actor_id=actor_id,
+            firm_id=firm_id,
+        )
         self._commit_unique("Warehouse type code or name already exists in this firm.")
         return row
 
@@ -1010,21 +1103,37 @@ class BranchWarehouseService:
         *,
         firm_id: UUID,
         actor_id: UUID,
+        expected_version: int | None = None,
     ) -> WarehouseType:
-        """Change a warehouse type."""
+        """Change a live warehouse type.
+
+        A retired one is not found (D-MST-11): this loaded deleted rows too and
+        cleared the flag, so an edit silently brought the type back.
+        """
         row = self._repository.get_warehouse_type(
-            warehouse_type_id, firm_id, include_deleted=True
+            warehouse_type_id, firm_id, include_deleted=False
         )
         if row is None:
             raise ResourceNotFoundError("Warehouse type not found.")
+        assert_version(row.version, expected_version)
+        self._assert_type_free(
+            WarehouseType, data, firm_id=firm_id, excluding_id=row.id
+        )
+        before = row_state(row)
         row.code = data.code
         row.name = data.name
         row.description = data.description
         row.is_active = data.is_active
         row.updated_by = actor_id
-        row.is_deleted = False
-        row.deleted_at = None
-        row.deleted_by = None
+        record_change(
+            self._session,
+            action="warehouse_type.updated",
+            entity_type="warehouse_type",
+            row=row,
+            actor_id=actor_id,
+            before=before,
+            firm_id=firm_id,
+        )
         self._commit_unique("Warehouse type code or name already exists in this firm.")
         return row
 
@@ -1041,6 +1150,14 @@ class BranchWarehouseService:
         row.deleted_at = utc_now()
         row.deleted_by = actor_id
         row.updated_by = actor_id
+        record_change(
+            self._session,
+            action="warehouse_type.deleted",
+            entity_type="warehouse_type",
+            row=row,
+            actor_id=actor_id,
+            firm_id=firm_id,
+        )
         self._session.commit()
 
     def _audit_bulk(
@@ -1257,6 +1374,72 @@ class BranchWarehouseService:
         if duplicate is not None:
             raise ConflictError("Warehouse code already exists in this firm.")
 
+    def _assert_branch_restorable(self, row: Branch) -> None:
+        """Refuse a restore into a code a live branch now holds (D-MST-11)."""
+        if self._repository.branch_duplicate_id(
+            row.firm_id, code=row.code, excluding_id=row.id
+        ):
+            raise ConflictError(
+                f"{row.code} cannot be restored: a live branch now holds its code."
+            )
+
+    def _assert_warehouse_restorable(self, row: Warehouse) -> None:
+        """Refuse a restore into a code a live warehouse now holds (D-MST-11)."""
+        if self._repository.warehouse_duplicate_id(
+            row.firm_id, code=row.code, excluding_id=row.id
+        ):
+            raise ConflictError(
+                f"{row.code} cannot be restored: a live warehouse now holds its "
+                "code."
+            )
+
+    def _assert_type_free(
+        self,
+        model: type[BranchType] | type[WarehouseType],
+        data: BranchTypeWrite | WarehouseTypeWrite,
+        *,
+        firm_id: UUID,
+        excluding_id: UUID | None = None,
+    ) -> None:
+        """Refuse a code or name a live type of the same kind already holds."""
+        label = "branch type" if model is BranchType else "warehouse type"
+        for column, value in (("code", data.code), ("name", data.name)):
+            assert_codes_free(
+                self._session,
+                model,
+                scope={"firm_id": firm_id},
+                values={column: value},
+                excluding_id=excluding_id,
+                message=f"A {label} with this {column} already exists.",
+            )
+
+    def _assert_storage_node_free(
+        self,
+        *,
+        warehouse_id: UUID,
+        parent_id: UUID | None,
+        code: str,
+        name: str,
+        excluding_id: UUID | None = None,
+    ) -> None:
+        """Refuse a code the warehouse, or a name the parent, already uses."""
+        assert_codes_free(
+            self._session,
+            WarehouseStorageNode,
+            scope={"warehouse_id": warehouse_id},
+            values={"code": code},
+            excluding_id=excluding_id,
+            message="A storage node with this code already exists in this warehouse.",
+        )
+        assert_codes_free(
+            self._session,
+            WarehouseStorageNode,
+            scope={"warehouse_id": warehouse_id, "parent_id": parent_id},
+            values={"name": name},
+            excluding_id=excluding_id,
+            message="A storage node with this name already exists at this level.",
+        )
+
     def _commit_unique(self, message: str) -> None:
         """Commit, turning a unique-key clash into a conflict."""
         try:
@@ -1280,7 +1463,10 @@ class BranchWarehouseService:
         )
         if "status" in values:
             values["status"] = data.status.value
-        if "display_name" in values or "name" in values:
+        # An edit decides the display name itself (D-MST-11), so a custom
+        # one survives a save that did not send it.
+        values.pop("display_name", None)
+        if not partial:
             values["display_name"] = data.display_name or data.name
         return values
 
@@ -1303,7 +1489,10 @@ class BranchWarehouseService:
         values.pop("branch_code", None)
         if "status" in values:
             values["status"] = data.status.value
-        if "display_name" in values or "name" in values:
+        # An edit decides the display name itself (D-MST-11), so a custom
+        # one survives a save that did not send it.
+        values.pop("display_name", None)
+        if not partial:
             values["display_name"] = data.display_name or data.name
         return values
 

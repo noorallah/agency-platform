@@ -352,6 +352,22 @@ class CustomerService:
         customer = self.get(customer_id, firm_scope=firm_scope, include_deleted=True)
         if not customer.is_deleted:
             return customer
+        # A delete released the code, GST and PAN (D-MST-11); a live customer
+        # may hold one now, and restoring into the clash is refused by name.
+        if (
+            self._repository.duplicate_id(
+                customer.firm_id,
+                code=customer.code,
+                gst_number=customer.gst_number,
+                pan_number=customer.pan_number,
+                excluding_id=customer.id,
+            )
+            is not None
+        ):
+            raise ConflictError(
+                f"{customer.code} cannot be restored: a live customer now holds "
+                "its code, GST number or PAN number."
+            )
         self._repost_reversed_opening_balance(customer, actor_id=actor_id)
         customer.is_deleted = False
         customer.deleted_at = None

@@ -16,7 +16,7 @@ from app.core.enums import PlatformAdminScope, TokenType
 from app.core.exceptions import AuthenticationError, AuthorizationError
 from app.core.security.jwt import JwtService, TokenClaims
 from app.core.utils.dates import utc_now
-from app.identity.models import User
+from app.identity.models import RefreshToken, User
 
 _bearer_scheme = HTTPBearer(auto_error=False)
 
@@ -91,6 +91,45 @@ class Principal:
         )
 
 
+#: How far a session's rotation chain is followed. An access token lives for
+#: minutes and each refresh adds one link, so a real chain is a handful long;
+#: the bound only stops a malformed chain from looping.
+_MAX_SESSION_CHAIN = 64
+
+
+def _session_ended(db: Session, session_id: object) -> bool:
+    """Return whether the sign-in an access token belongs to was signed out.
+
+    An access token names the refresh token issued beside it (`sid`). Signing
+    out revoked only the refresh token, so the access token went on working
+    for the rest of its fifteen minutes (D-IDN-10). The session is followed
+    along its rotations to the newest token: a rotated token has a successor
+    and the session goes on; a revoked token with none is a session that
+    ended. Everything that ends *every* session -- a password change, a
+    revoked role, a replayed token -- bumps `authorization_version`, which
+    is checked beside this. A token from before `sid` existed carries none
+    and is judged by the version alone.
+    """
+    if not isinstance(session_id, str):
+        return False
+    try:
+        token_id: UUID | None = UUID(session_id)
+    except ValueError:
+        return True
+    for _ in range(_MAX_SESSION_CHAIN):
+        row = db.execute(
+            select(RefreshToken.revoked_at, RefreshToken.replaced_by_id).where(
+                RefreshToken.id == token_id
+            )
+        ).first()
+        if row is None or row.revoked_at is None:
+            return False
+        if row.replaced_by_id is None:
+            return True
+        token_id = row.replaced_by_id
+    return False
+
+
 def get_current_principal(
     request: Request,
     credentials: HTTPAuthorizationCredentials | None = Depends(_bearer_scheme),
@@ -118,6 +157,7 @@ def get_current_principal(
         or (user.expires_at is not None and user.expires_at <= now)
         or int(extra_claims.get("authorization_version", 0))
         != user.authorization_version
+        or _session_ended(db, extra_claims.get("sid"))
     ):
         raise AuthenticationError()
     firm_id = _selected_firm_id(request)

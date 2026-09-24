@@ -364,3 +364,16 @@ def delete_firm(
     """Soft delete an unassigned firm."""
     FirmService(db).delete(firm_id, _actor_id(principal))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.post("/{firm_id}/restore", response_model=ApiResponse[FirmResponse])
+def restore_firm(
+    firm_id: UUID,
+    principal: PlatformPrincipal,
+    response: Response,
+    db: Session = Depends(get_db),
+) -> ApiResponse[FirmResponse]:
+    """Bring a deleted firm back to the store it wrote to (D-IDN-10)."""
+    firm = FirmService(db).restore(firm_id, _actor_id(principal))
+    set_etag(response, firm)
+    return ApiResponse(data=FirmResponse.model_validate(firm))

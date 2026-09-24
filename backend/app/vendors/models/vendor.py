@@ -12,6 +12,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     and_,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -25,8 +26,22 @@ class VendorCategory(BaseEntity):
 
     __tablename__ = "vendor_categories"
     __table_args__ = (
-        UniqueConstraint("firm_id", "code", name="UQ_vendor_categories_firm_code"),
-        UniqueConstraint("firm_id", "name", name="UQ_vendor_categories_firm_name"),
+        Index(
+            "UQ_vendor_categories_firm_code_active",
+            "firm_id",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
+        Index(
+            "UQ_vendor_categories_firm_name_active",
+            "firm_id",
+            "name",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
     )
 
     firm_id: Mapped[UUID] = mapped_column(
@@ -45,8 +60,22 @@ class VendorType(BaseEntity):
 
     __tablename__ = "vendor_types"
     __table_args__ = (
-        UniqueConstraint("firm_id", "code", name="UQ_vendor_types_firm_code"),
-        UniqueConstraint("firm_id", "name", name="UQ_vendor_types_firm_name"),
+        Index(
+            "UQ_vendor_types_firm_code_active",
+            "firm_id",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
+        Index(
+            "UQ_vendor_types_firm_name_active",
+            "firm_id",
+            "name",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
     )
 
     firm_id: Mapped[UUID] = mapped_column(
@@ -65,8 +94,22 @@ class Vendor(BaseEntity):
 
     __tablename__ = "vendors"
     __table_args__ = (
-        UniqueConstraint("firm_id", "code", name="UQ_vendors_firm_code"),
-        UniqueConstraint("firm_id", "gstin", name="UQ_vendors_firm_gstin"),
+        Index(
+            "UQ_vendors_firm_code_active",
+            "firm_id",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
+        Index(
+            "UQ_vendors_firm_gstin_active",
+            "firm_id",
+            "gstin",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
         Index("IX_vendors_firm_name", "firm_id", "name"),
         Index("IX_vendors_firm_status", "firm_id", "status"),
     )

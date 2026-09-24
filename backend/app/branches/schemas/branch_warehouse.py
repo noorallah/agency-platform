@@ -300,6 +300,8 @@ class BranchTypeResponse(BranchWarehouseSchema):
     description: str | None
     is_active: bool
     is_deleted: bool
+    #: The concurrency counter, echoed as `If-Match` on the next edit.
+    version: int
 
 
 class BranchResponse(BranchWarehouseSchema):
@@ -353,6 +355,8 @@ class WarehouseTypeResponse(BranchWarehouseSchema):
     description: str | None
     is_active: bool
     is_deleted: bool
+    #: The concurrency counter, echoed as `If-Match` on the next edit.
+    version: int
 
 
 class WarehouseResponse(BranchWarehouseSchema):

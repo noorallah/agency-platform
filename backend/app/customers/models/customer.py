@@ -16,6 +16,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     and_,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -40,8 +41,22 @@ class CustomerGroup(BaseEntity):
 
     __tablename__ = "customer_groups"
     __table_args__ = (
-        UniqueConstraint("firm_id", "code", name="UQ_customer_groups_firm_code"),
-        UniqueConstraint("firm_id", "name", name="UQ_customer_groups_firm_name"),
+        Index(
+            "UQ_customer_groups_firm_code_active",
+            "firm_id",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
+        Index(
+            "UQ_customer_groups_firm_name_active",
+            "firm_id",
+            "name",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
         Index("IX_customer_groups_firm_status", "firm_id", "is_active"),
     )
 
@@ -67,9 +82,30 @@ class Customer(BaseEntity):
 
     __tablename__ = "customers"
     __table_args__ = (
-        UniqueConstraint("firm_id", "code", name="UQ_customers_firm_code"),
-        UniqueConstraint("firm_id", "gst_number", name="UQ_customers_firm_gst_number"),
-        UniqueConstraint("firm_id", "pan_number", name="UQ_customers_firm_pan_number"),
+        Index(
+            "UQ_customers_firm_code_active",
+            "firm_id",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
+        Index(
+            "UQ_customers_firm_gst_number_active",
+            "firm_id",
+            "gst_number",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
+        Index(
+            "UQ_customers_firm_pan_number_active",
+            "firm_id",
+            "pan_number",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
         Index("IX_customers_firm_name", "firm_id", "name"),
         Index("IX_customers_firm_status", "firm_id", "status"),
     )

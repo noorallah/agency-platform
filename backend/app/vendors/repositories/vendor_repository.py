@@ -80,7 +80,11 @@ class VendorRepository:
         conditions = [Vendor.code == code]
         if gstin:
             conditions.append(Vendor.gstin == gstin)
-        statement = select(Vendor.id).where(Vendor.firm_id == firm_id, or_(*conditions))
+        # Live rows only (D-MST-11): a deleted vendor releases its code and
+        # GSTIN, as the partial keys do.
+        statement = select(Vendor.id).where(
+            Vendor.firm_id == firm_id, Vendor.is_deleted.is_(False), or_(*conditions)
+        )
         if excluding_id is not None:
             statement = statement.where(Vendor.id != excluding_id)
         return self._session.scalar(statement)

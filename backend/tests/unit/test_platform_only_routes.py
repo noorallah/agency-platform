@@ -94,6 +94,8 @@ _EXPECTED = frozenset(
         ("GET", "/api/v1/firms/{firm_id}"),
         ("PUT", "/api/v1/firms/{firm_id}"),
         ("POST", "/api/v1/firms/{firm_id}/provision"),
+        # Bringing a deleted firm back to the store it wrote to (D-IDN-10).
+        ("POST", "/api/v1/firms/{firm_id}/restore"),
         # Whether a firm is finished, and the one step that finishes it. Both
         # reach across every firm's store from the platform side, which is
         # what setting a firm up is; a firm administrator sees the result as
@@ -106,7 +108,6 @@ _EXPECTED = frozenset(
         # configurable per firm; the capabilities are not.
         ("POST", "/api/v1/permissions"),
         ("DELETE", "/api/v1/permissions/{permission_id}"),
-        ("GET", "/api/v1/permissions/{permission_id}"),
         ("PATCH", "/api/v1/permissions/{permission_id}"),
         # The platform dashboard: counts across every firm.
         ("GET", "/api/v1/dashboard"),
@@ -240,6 +241,9 @@ def test_every_declared_platform_only_route_still_exists() -> None:
         ("GET", "/api/v1/roles"),
         ("GET", "/api/v1/users"),
         ("GET", "/api/v1/permissions"),
+        # One entry of the catalogue is no more than the page it sits on
+        # (D-IDN-10); it was platform-only while the list took the view code.
+        ("GET", "/api/v1/permissions/{permission_id}"),
     ],
 )
 def test_the_identity_lists_are_reachable_with_a_permission(

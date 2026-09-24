@@ -158,7 +158,7 @@ class FirmMetadataReader:
             firm_id: The firm whose members to list.
 
         Returns:
-            The active, undeleted members.
+            The active, undeleted members whose account is switched on.
 
         """
         statement = (
@@ -169,6 +169,9 @@ class FirmMetadataReader:
                 UserFirm.is_active.is_(True),
                 UserFirm.is_deleted.is_(False),
                 User.is_deleted.is_(False),
+                # A switched-off account is nobody to assign work to
+                # (D-IDN-10): it cannot sign in, so it was listed and picked.
+                User.is_active.is_(True),
             )
             .order_by(User.full_name, User.email)
         )
@@ -209,6 +212,7 @@ class FirmMetadataReader:
                 UserFirm.is_active.is_(True),
                 UserFirm.is_deleted.is_(False),
                 User.is_deleted.is_(False),
+                User.is_active.is_(True),
             )
         )
         bind = self._session.get_bind()

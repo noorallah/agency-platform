@@ -177,6 +177,8 @@ class VendorWrite(VendorSchema):
     phone: str | None = Field(default=None, max_length=20)
     mobile: str | None = Field(default=None, max_length=20)
     remarks: str | None = None
+    #: Retired (D-MST-11): accepted so an older desktop's save still
+    #: succeeds, and never stored. Custom data is the typed `attributes`.
     business_attributes: dict[str, object] = Field(default_factory=dict)
     #: The six child collections. **`None` means "leave them alone"; `[]` means
     #: "remove them all".**
@@ -374,6 +376,8 @@ class VendorCategoryResponse(VendorSchema):
     description: str | None
     is_active: bool
     is_deleted: bool
+    #: The concurrency counter, echoed as `If-Match` on the next edit.
+    version: int
 
 
 class VendorTypeResponse(VendorSchema):
@@ -386,6 +390,8 @@ class VendorTypeResponse(VendorSchema):
     description: str | None
     is_active: bool
     is_deleted: bool
+    #: The concurrency counter, echoed as `If-Match` on the next edit.
+    version: int
 
 
 class VendorResponse(VendorSchema):

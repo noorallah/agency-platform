@@ -65,6 +65,7 @@ from app.identity.schemas.api import (
     UserUpdate,
 )
 from app.identity.system_seed import (
+    DESIGNATION_ONLY_PERMISSION_CODES,
     FIRM_ROLE_CODES,
     HIDDEN_SYSTEM_ROLE_CODES,
     PLATFORM_OPERATOR_PERMISSION_CODES,
@@ -136,6 +137,15 @@ blank afterwards.
 #: holder's alone: another administrator setting it would be a way to sign in
 #: as the one account every installation has (D-IDN-2).
 BOOTSTRAP_ADMIN_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
+#: How long after a refresh token is rotated a second presentation of it is
+#: taken for a race rather than a theft (D-IDN-10). Two windows of the desktop
+#: refreshing at once present the same token within milliseconds; the loser
+#: is refused and signs in again, instead of signing the person out on every
+#: device. The same leeway Auth0 and Okta offer for rotating refresh tokens.
+REFRESH_REUSE_GRACE = timedelta(seconds=30)
+#: What a firm-scoped caller is not shown of the permission catalogue: what a
+#: firm role may never be granted, and what no role may hold at all.
+_HIDDEN_FROM_FIRMS = PLATFORM_PERMISSION_CODES | DESIGNATION_ONLY_PERMISSION_CODES
 
 #: How far each platform designation reaches, narrowest first. An
 #: administrator may act on another account only when their own reach is at
@@ -885,9 +895,26 @@ class IdentityService:
         self, data: RoleCreate, actor_id: UUID, firm_scope: UUID | None = None
     ) -> Role:
         """Create a custom role; system classification cannot be client supplied."""
-        if self._session.scalar(select(Role.id).where(Role.code == data.code)):
-            raise ConflictError("A role with this code already exists.")
         self._assert_code_is_not_reserved(data.code)
+        # Unique among live roles in the same scope (D-IDN-9): a deleted role
+        # releases its code, and another firm's roles are none of this one's
+        # business -- the old check across every firm told one firm what
+        # another had called its roles.
+        same_scope = (
+            Role.firm_id.is_(None) if firm_scope is None else Role.firm_id == firm_scope
+        )
+        if self._session.scalar(
+            select(Role.id).where(
+                Role.code == data.code,
+                Role.is_deleted.is_(False),
+                same_scope,
+            )
+        ):
+            raise ConflictError(
+                "A role with this code already exists."
+                if firm_scope is None
+                else "This firm already has a role with this code."
+            )
         role = Role(
             **data.model_dump(),
             is_system=False,
@@ -1814,10 +1841,8 @@ class IdentityService:
             .where(Permission.is_deleted.is_(False))
         )
         if firm_scope is not None:
-            statement = statement.where(
-                Permission.code.not_in(PLATFORM_PERMISSION_CODES)
-            )
-            count = count.where(Permission.code.not_in(PLATFORM_PERMISSION_CODES))
+            statement = statement.where(Permission.code.not_in(_HIDDEN_FROM_FIRMS))
+            count = count.where(Permission.code.not_in(_HIDDEN_FROM_FIRMS))
         if search:
             condition = or_(
                 Permission.code.ilike(f"%{search.strip()}%"),
@@ -1835,7 +1860,7 @@ class IdentityService:
     ) -> Permission:
         """Return one visible permission."""
         permission = self._get_permission(permission_id)
-        if firm_scope is not None and permission.code in PLATFORM_PERMISSION_CODES:
+        if firm_scope is not None and permission.code in _HIDDEN_FROM_FIRMS:
             raise ResourceNotFoundError("Permission not found.")
         return permission
 
@@ -1893,6 +1918,23 @@ class IdentityService:
         if role.is_system:
             raise BusinessRuleError("System role assignments cannot be modified.")
         self._ensure_identifiers(Permission, permission_ids)
+        designation_only = sorted(
+            self._session.scalars(
+                select(Permission.code).where(
+                    Permission.id.in_(permission_ids),
+                    Permission.code.in_(DESIGNATION_ONLY_PERMISSION_CODES),
+                )
+            )
+        )
+        if designation_only:
+            # No role may hold these: the routes they name are the platform
+            # designation's, so a grant would promise nothing (D-IDN-10).
+            raise BusinessRuleError(
+                "These permissions belong to the platform administrator "
+                "designation and cannot be granted by a role: "
+                + ", ".join(designation_only)
+                + "."
+            )
         if firm_scope is not None:
             forbidden = self._session.scalar(
                 select(Permission.id).where(
@@ -2583,6 +2625,7 @@ class IdentityService:
                         .distinct()
                     )
                 )
+        session_id = uuid4()
         claims = {
             "roles": roles,
             "platform_admin": is_platform_admin,
@@ -2591,6 +2634,10 @@ class IdentityService:
             "firm_permissions": firm_permissions,
             "authorization_version": user.authorization_version,
             "password_change_required": user.force_password_change,
+            # The refresh token issued beside this access token: signing out
+            # revokes it, and `get_current_principal` then refuses this
+            # access token too rather than honouring it until it expires.
+            "sid": str(session_id),
         }
         access = self._jwt.generate_access_token(user.id, claims=claims)
         refresh = self._jwt.generate_refresh_token(user.id)
@@ -2602,7 +2649,10 @@ class IdentityService:
         )
         self._session.add(
             RefreshToken(
-                user_id=user.id, token_hash=_hash_token(refresh), expires_at=expiry
+                id=session_id,
+                user_id=user.id,
+                token_hash=_hash_token(refresh),
+                expires_at=expiry,
             )
         )
         return TokenResponse(
@@ -2627,7 +2677,17 @@ class IdentityService:
                 RefreshToken.revoked_at.is_not(None),
             )
         )
-        if replayed is None:
+        # Only a token that was **rotated** can be replayed (D-IDN-10). One
+        # revoked by signing out, a password change or an administrator has
+        # no successor, and presenting it again is a stale client rather than
+        # a stolen session. A rotation inside the grace window is two
+        # refreshes racing, not a theft.
+        if (
+            replayed is None
+            or replayed.revoked_at is None
+            or replayed.replaced_by_id is None
+            or utc_now() - as_utc(replayed.revoked_at) < REFRESH_REUSE_GRACE
+        ):
             return
         self._revoke_user_tokens(user_id)
         record_audit(
@@ -2941,11 +3001,21 @@ class IdentityService:
         return user
 
     def _assert_exclusive_firm_user(self, user_id: UUID, firm_id: UUID) -> None:
+        """Refuse a firm administrator editing somebody another firm also has.
+
+        Any live membership elsewhere counts, switched off or not (D-IDN-10):
+        a membership another firm suspended is still that firm's decision,
+        and counting only the active ones let this firm edit or delete the
+        account platform-wide out from under it.
+
+        Raises:
+            BusinessRuleError: If the user belongs to another firm.
+
+        """
         other_membership = self._session.scalar(
             select(UserFirm.id).where(
                 UserFirm.user_id == user_id,
                 UserFirm.firm_id != firm_id,
-                UserFirm.is_active.is_(True),
                 UserFirm.is_deleted.is_(False),
             )
         )
@@ -3104,14 +3174,19 @@ class IdentityService:
             )
         self._session.commit()
 
-    def list_user_global_role_ids(self, user_id: UUID) -> list[UUID]:
+    def list_user_global_role_ids(
+        self, user_id: UUID, firm_scope: UUID | None = None
+    ) -> list[UUID]:
         """Return the roles a user holds in every firm.
 
         Read by a firm administrator too, and shown to them **read-only**:
         these apply in their firm and are not theirs to change, so hiding them
         would under-report what the person can actually do there -- which is
-        what the old per-firm read did.
+        what the old per-firm read did. The user is resolved in the caller's
+        scope first, so a firm administrator asking about somebody outside
+        their firm gets a 404 rather than that person's roles.
         """
+        self._get_user(user_id, firm_scope, include_deleted=firm_scope is None)
         return list(
             self._session.scalars(
                 select(UserRole.role_id).where(

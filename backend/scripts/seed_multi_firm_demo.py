@@ -1264,7 +1264,6 @@ def _seed_vendors(
                 phone=_phone(index + 500),
                 mobile=_phone(index + 700),
                 remarks=f"Seeded supplier for {blueprint.business_style.lower()}",
-                business_attributes={"style": blueprint.business_style},
                 contacts=[
                     VendorContactInput(
                         name=f"{vendor_name} Contact",

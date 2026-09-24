@@ -321,9 +321,19 @@ Two combinations of those groups are load-bearing:
   and fails both on a new one added by accident and on a pinned one that quietly
   stops being platform-only.
 - **Permissions themselves are administered by the platform only.** `POST`,
-  `GET /{id}`, `PATCH` and `DELETE` on `/api/v1/permissions` are all
-  `require_platform_admin()`; only `GET /api/v1/permissions` takes
-  `PERMISSION_VIEW`.
+  `PATCH` and `DELETE` on `/api/v1/permissions` are `require_platform_admin()`;
+  the list and `GET /{id}` take `PERMISSION_VIEW`, and a firm is shown neither
+  the platform codes nor the designation-only ones.
+- **Eleven codes are designation-only and no role holds them**
+  (`DESIGNATION_ONLY_PERMISSION_CODES`): `FIRM_CREATE`, `FIRM_UPDATE`,
+  `FIRM_DELETE`, `FIRM_ACTIVATE`, `FIRM_DEACTIVATE`, `PERMISSION_CREATE`,
+  `PERMISSION_UPDATE`, `PERMISSION_DELETE`, `USER_RESET_PASSWORD`, `USER_LOCK`
+  and `USER_UNLOCK`. Their routes take the designation (or, for a lockout, the
+  lockout expires and switching an account off is `USER_UPDATE`), so a grant
+  promised nothing. They stay in the catalogue because the designation's
+  claim carries them and the desktop gates buttons on them;
+  `set_role_permissions` refuses them and `20260924_0161` retired every
+  existing grant (D-IDN-10).
 - **A firm's own directory of names is not a privilege.**
   `GET /api/v1/firm-members` is the one list of a firm's people, gated on
   membership and nothing else. *Acting* on a person is what needs a code.
@@ -397,7 +407,8 @@ new *capability*, one no existing code describes, needs the five steps above.
 
 At login, `IdentityService._issue_tokens` resolves the grants once and writes
 them into the access token. Nothing is re-read per request except the user's
-liveness and `authorization_version`.
+liveness, `authorization_version`, and whether the sign-in the token names
+(`sid`, the refresh token issued beside it) has been signed out.
 
 ```
 platform_admins row ───────────► "platform_admin": true
@@ -422,7 +433,7 @@ for **every firm the user is a member of**.
 | --- | --- | --- |
 | System firm role (e.g. `FIRM_ADMIN`), `firm_id` NULL | `firm_permissions[every membership]` — **except for a `PLATFORM` operator**, for whom it lands nowhere | Firm administrator in each of their firms, and nothing outside one |
 | System firm role, `firm_id = F` | `firm_permissions[F]` | Firm administrator in F alone |
-| Custom role, `firm_id` NULL | `permissions` (global) **and** `firm_permissions` | Applies with or without a firm selected |
+| Custom role, `firm_id` NULL | `permissions` (global) only | Applies with or without a firm selected, because `has_permission` reads the global set first |
 | Platform role (`PLATFORM_ADMIN`, `SUPPORT_ADMIN`, `LICENSE_ADMIN`, `SYSTEM_AUDITOR`), `firm_id` NULL | `permissions` (global) | Applies platform-wide |
 
 `Principal.has_permission` checks the global set, then the set for the firm in
@@ -529,6 +540,13 @@ whatever the global tier gave them in both.
 | --- | --- |
 | Roles changed, role edited, role permissions changed | `_revoke_user_tokens` / `_revoke_role_users` bump `users.authorization_version`; a token carrying the old number fails authentication on its next request |
 | Password change required | `force_password_change` puts `password_change_required` on the token, and **every** permission check and the platform-admin check fail until it is changed — a forced reset locks the whole application, not one screen |
+| Signed out | The access token carries `sid`, the id of the refresh token issued beside it. `get_current_principal` follows that token along its rotations; a revoked one with no successor is a session that ended, so the access token stops working with it rather than lasting out its fifteen minutes (D-IDN-10). Other devices are untouched |
+
+Refresh reuse detection revokes every session only for a token that was
+**rotated** (it has a successor) and presented again more than
+`REFRESH_REUSE_GRACE` (30 s) after the rotation. A token revoked by signing
+out has no successor, and a second presentation inside the window is two
+refreshes racing; both are refused without signing the person out everywhere.
 
 Other liveness checks on every request: the user must exist, not be soft-deleted,
 be `is_active`, and not be past `expires_at`. Account lockout is separate and

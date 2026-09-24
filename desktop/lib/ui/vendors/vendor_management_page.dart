@@ -1167,7 +1167,6 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
         'phone': _phone.text.trim(),
         'mobile': _mobile.text.trim(),
         'remarks': _remarks.text.trim(),
-        'business_attributes': const <String, dynamic>{},
         // Five of the six collections are edited here, so they are sent --
         // the API replaces rather than merges, and what is on screen is the
         // record. `attachments` stays **absent**, not empty: nothing in this

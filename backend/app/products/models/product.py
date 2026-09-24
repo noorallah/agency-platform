@@ -27,12 +27,22 @@ class ProductCategory(BaseEntity):
 
     __tablename__ = "product_categories"
     __table_args__ = (
-        UniqueConstraint("firm_id", "code", name="UQ_product_categories_firm_code"),
-        UniqueConstraint(
+        Index(
+            "UQ_product_categories_firm_code_active",
+            "firm_id",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
+        Index(
+            "UQ_product_categories_firm_name_parent_active",
             "firm_id",
             "name",
             "parent_id",
-            name="UQ_product_categories_firm_name_parent",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
         ),
         Index("IX_product_categories_firm_parent", "firm_id", "parent_id"),
         Index("IX_product_categories_firm_path", "firm_id", "path"),
@@ -67,7 +77,14 @@ class Product(BaseEntity):
 
     __tablename__ = "products"
     __table_args__ = (
-        UniqueConstraint("firm_id", "code", name="UQ_products_firm_code"),
+        Index(
+            "UQ_products_firm_code_active",
+            "firm_id",
+            "code",
+            unique=True,
+            postgresql_where=text("is_deleted = false"),
+            sqlite_where=text("is_deleted = 0"),
+        ),
         Index("IX_products_firm_name", "firm_id", "name"),
         Index("IX_products_firm_status", "firm_id", "status"),
         Index("IX_products_firm_barcode", "firm_id", "barcode"),
@@ -79,6 +96,7 @@ class Product(BaseEntity):
             "barcode",
             unique=True,
             postgresql_where=text("barcode IS NOT NULL AND is_deleted IS FALSE"),
+            sqlite_where=text("barcode IS NOT NULL AND is_deleted = 0"),
         ),
     )
 

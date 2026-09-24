@@ -39,7 +39,11 @@ class FirmCreate(FirmSchema):
     schema_name: str | None = Field(default=None, max_length=128)
     database_type: str | None = Field(default="postgresql", max_length=32)
     connection_profile: str | None = Field(default=None, max_length=64)
-    status: str = Field(default="ACTIVE", max_length=32)
+    #: Mirrors `is_active` and nothing else (D-IDN-10). It was free text that
+    #: nothing read, so `SUSPENDED` said one thing while the firm went on
+    #: trading. Either may be sent; the service keeps the two in step and
+    #: refuses a pair that disagrees.
+    status: Literal["ACTIVE", "INACTIVE"] | None = None
     is_active: bool = True
     notes: str | None = None
 
@@ -66,7 +70,6 @@ class FirmCreate(FirmSchema):
         "schema_name",
         "database_type",
         "connection_profile",
-        "status",
         mode="before",
     )
     @classmethod
@@ -77,11 +80,13 @@ class FirmCreate(FirmSchema):
         stripped = value.strip()
         return stripped or None
 
-    @field_validator("status", mode="after")
+    @field_validator("status", mode="before")
     @classmethod
-    def normalize_status(cls, value: str) -> str:
-        """Keep registry status values uppercase."""
-        return value.upper()
+    def normalize_status(cls, value: object) -> object:
+        """Accept any case and surrounding space; blank means not stated."""
+        if isinstance(value, str):
+            return value.strip().upper() or None
+        return value
 
     @field_validator("database_type", mode="after")
     @classmethod
@@ -109,7 +114,14 @@ class FirmCreate(FirmSchema):
 
 
 class FirmUpdate(FirmCreate):
-    """Complete replacement representation for an existing firm."""
+    """An edit of an existing firm.
+
+    The identifying fields stay required, as on create. Every optional field
+    is **left alone when omitted** and cleared only by an explicit null
+    (D-IDN-10): the service dumps what was sent, so leaving `is_active` out no
+    longer switches a firm back on, and leaving GST or PAN out no longer
+    erases them.
+    """
 
 
 class FirmProvisionResponse(FirmSchema):

@@ -43,6 +43,9 @@ class FirmService:
         """Create a uniquely coded firm and audit the mutation."""
         self._assert_unique(data.code, data.gst_number, data.pan_number)
         payload = data.model_dump()
+        payload["is_active"], payload["status"] = _active_and_status(
+            data.model_dump(exclude_unset=True), current_is_active=True
+        )
         payload, storage_payload = self._normalize_registry_defaults(payload)
         self._assert_storage_not_reserved(storage_payload)
         self._assert_storage_unclaimed(storage_payload, current_firm_id=None)
@@ -155,15 +158,34 @@ class FirmService:
         actor_id: UUID,
         expected_version: int | None = None,
     ) -> Firm:
-        """Replace an existing firm after uniqueness validation."""
+        """Edit an existing firm after uniqueness validation.
+
+        Only the fields the request sent move (D-IDN-10). This dumped the
+        whole write model, so an omitted `is_active` defaulted to true and
+        switched a switched-off firm back on, and omitted GST and PAN numbers
+        were cleared. Absent now means leave alone; an explicit null still
+        clears. Tenancy fields already inherited the firm's routing.
+        """
         firm = self.get(firm_id)
         assert_version(firm.version, expected_version)
-        self._assert_unique(data.code, data.gst_number, data.pan_number, firm.id)
+        sent = data.model_dump(exclude_unset=True)
+        values = {
+            field: getattr(firm, field)
+            for field in FirmUpdate.model_fields
+            if field not in _TENANCY_KEYS and field not in sent
+        } | sent
+        values["is_active"], values["status"] = _active_and_status(
+            sent, current_is_active=firm.is_active
+        )
+        self._assert_unique(
+            str(values["code"]),
+            _text_or_none(values.get("gst_number")),
+            _text_or_none(values.get("pan_number")),
+            firm.id,
+        )
         before = row_state(firm, exclude=_FIRM_AUDIT_EXCLUDE)
         mapping = self._storage_mapping(firm.id)
-        payload, storage_payload = self._normalize_registry_defaults(
-            data.model_dump(), mapping
-        )
+        payload, storage_payload = self._normalize_registry_defaults(values, mapping)
         self._assert_storage_unchanged(mapping, storage_payload)
         self._assert_storage_unclaimed(storage_payload, current_firm_id=firm.id)
         for field, value in payload.items():
@@ -248,6 +270,43 @@ class FirmService:
             after_data={"is_deleted": True},
         )
         self._session.commit()
+
+    def restore(self, firm_id: UUID, actor_id: UUID) -> Firm:
+        """Bring a deleted firm back (D-IDN-10: there was no way back).
+
+        Its storage mapping was deliberately left in place by `delete`, so the
+        firm resolves to the store it wrote to. Its code, GST and PAN are
+        released by a delete, so a live firm may have taken one since; that
+        is refused by name rather than restored into a clash.
+
+        Raises:
+            ResourceNotFoundError: If no deleted firm has this id.
+            ConflictError: If a live firm now holds its code, GST or PAN.
+
+        """
+        firm = self._session.scalar(
+            select(Firm).where(Firm.id == firm_id, Firm.is_deleted.is_(True))
+        )
+        if firm is None:
+            raise ResourceNotFoundError("Deleted firm not found.")
+        self._assert_unique(firm.code, firm.gst_number, firm.pan_number, firm.id)
+        firm.is_deleted = False
+        firm.deleted_at = None
+        firm.deleted_by = None
+        firm.updated_by = actor_id
+        firm.updated_date = utc_now()
+        record_audit(
+            self._session,
+            action="firm.restored",
+            entity_type="firm",
+            entity_id=firm.id,
+            actor_id=actor_id,
+            firm_id=firm.id,
+            before_data={"is_deleted": True},
+            after_data={"is_deleted": False, "code": firm.code},
+        )
+        self._session.commit()
+        return firm
 
     def list(
         self,
@@ -528,6 +587,36 @@ class FirmService:
         mapping.deleted_at = None
         mapping.deleted_by = None
         mapping.updated_by = actor_id
+
+
+def _text_or_none(value: object) -> str | None:
+    """Return a stored or sent text value, None when absent."""
+    return str(value) if value else None
+
+
+def _active_and_status(
+    sent: dict[str, object], *, current_is_active: bool
+) -> tuple[bool, str]:
+    """Resolve `is_active` and the `status` that mirrors it.
+
+    Either may be sent. A status alone sets the flag; neither keeps what the
+    firm has; both must agree.
+
+    Raises:
+        BusinessRuleError: If the two sent values disagree.
+
+    """
+    status = sent.get("status")
+    is_active = sent.get("is_active")
+    if is_active is None:
+        is_active = current_is_active if status is None else status == "ACTIVE"
+    active = bool(is_active)
+    if status is not None and (status == "ACTIVE") != active:
+        raise BusinessRuleError(
+            "status and is_active disagree: a firm is ACTIVE exactly when it "
+            "is active."
+        )
+    return active, "ACTIVE" if active else "INACTIVE"
 
 
 _TENANCY_KEYS = frozenset(
