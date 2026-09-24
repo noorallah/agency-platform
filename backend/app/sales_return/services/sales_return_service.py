@@ -1246,6 +1246,8 @@ class SalesReturnService(TransactionalDocumentService):
                 line_tax = self._charged_tax(charged, taxable=taxable)
             else:
                 line_tax = self._tax_amount(
+                    document_id=row.id,
+                    line_number=index,
                     return_date=return_date,
                     firm_id=firm_id,
                     business_profile_id=business_profile_id,
@@ -1936,6 +1938,8 @@ class SalesReturnService(TransactionalDocumentService):
         product_id: UUID,
         tax_profile_id: UUID | None,
         invoice_value: Decimal,
+        document_id: UUID | None = None,
+        line_number: int | None = None,
     ) -> _ReturnLineTax:
         """Work out the line's tax, and keep everything that decided it."""
         if invoice_value <= ZERO:
@@ -1982,6 +1986,8 @@ class SalesReturnService(TransactionalDocumentService):
             ),
             firm_scope=firm_id,
             actor_id=actor_id,
+            document_id=document_id,
+            line_number=line_number,
         )
         return _ReturnLineTax(
             total=self._q(response.total_tax_amount),

@@ -1245,6 +1245,8 @@ class PurchaseService(TransactionalDocumentService):
                 )
                 tax_profile_id = resolved.id if resolved else None
             tax_amount = self._line_tax_amount(
+                document_id=order.id,
+                line_number=idx,
                 firm_id=order.firm_id,
                 actor_id=actor_id,
                 tax_profile_id=tax_profile_id,
@@ -1598,6 +1600,8 @@ class PurchaseService(TransactionalDocumentService):
         product_id: UUID,
         purchase_date: date,
         taxable: Decimal,
+        document_id: UUID | None = None,
+        line_number: int | None = None,
     ) -> Decimal:
         """Line tax amount."""
         if tax_profile_id is None:
@@ -1626,6 +1630,8 @@ class PurchaseService(TransactionalDocumentService):
             ),
             firm_scope=firm_id,
             actor_id=actor_id,
+            document_id=document_id,
+            line_number=line_number,
         )
         return self._q(simulation.total_tax_amount)
 

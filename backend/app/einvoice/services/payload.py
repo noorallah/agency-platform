@@ -11,6 +11,7 @@ registered for a supply made today, which is the same rule that stops an
 invoice re-reading a customer's discount.
 """
 
+import re
 from decimal import Decimal
 from uuid import UUID
 
@@ -33,6 +34,7 @@ from app.tax.services.gst_buckets import (
     settle_to_ledger,
     split_components,
 )
+from app.tax.services.place_of_supply import gst_state_code
 
 #: The components the portal wants separated. A firm's tax framework may name
 #: them anything; these are the codes the return is filed under, matched on the
@@ -49,6 +51,36 @@ def _gstin(value: str | None) -> str | None:
     return token or None
 
 
+#: The state code the portal uses for a place of supply outside India.
+_FOREIGN = "96"
+#: What the portal takes in place of a GSTIN for a buyer who has none -- an
+#: overseas buyer (NIC IRP schema 1.1, BuyerDtls.Gstin).
+_UNREGISTERED = "URP"
+
+_POS_CODE = re.compile(r"\((\d{2})\)\s*$")
+
+
+def _place_of_supply_code(label: str | None) -> str | None:
+    """Return the state code the invoice's stored place of supply names.
+
+    The invoice keeps it as ``Karnataka (29)`` since D-CMP-15 -- the state the
+    tax was charged by. Older invoices keep a bare code or state name, which
+    is read the way the tax engine reads one.
+    """
+    text = (label or "").strip()
+    match = _POS_CODE.search(text)
+    if match:
+        return match.group(1)
+    if len(text) == 2 and text.isdigit():
+        return text
+    return gst_state_code(text) if text else None
+
+
+def _paise(value: Decimal | int | str) -> float:
+    """Return an amount at two decimals, which is all the portal accepts."""
+    return float(quantize_ledger(Decimal(str(value))))
+
+
 def _state_code(gstin: str | None) -> str | None:
     """Return the state code a GSTIN begins with.
 
@@ -60,6 +92,19 @@ def _state_code(gstin: str | None) -> str | None:
     if gstin is None or len(gstin) < 2 or not gstin[:2].isdigit():
         return None
     return gstin[:2]
+
+
+def _supply_type(*, export: bool, igst: Decimal) -> str:
+    """Return the portal's supply type for the document.
+
+    An export is EXPWP where IGST was paid on it and EXPWOP where it went
+    under a bond or LUT, which is what the tax the bill charged says. SEZ and
+    deemed exports need a marker no customer carries yet, so everything else
+    is B2B.
+    """
+    if export:
+        return "EXPWP" if igst > ZERO else "EXPWOP"
+    return "B2B"
 
 
 class EInvoicePayloadBuilder:
@@ -98,9 +143,14 @@ class EInvoicePayloadBuilder:
         )
         seller_gstin = _gstin(firm.gst_number)
         buyer_gstin = _gstin(getattr(customer, "gst_number", None))
+        # The place of supply is the document's, as it was charged -- not the
+        # buyer's GSTIN, which names where the buyer is registered and not
+        # where the goods went (D-CMP-13).
+        pos = _place_of_supply_code(invoice.place_of_supply) or _state_code(buyer_gstin)
+        export = pos == _FOREIGN
         if seller_gstin is None:
             problems.append("the firm has no GST number")
-        if buyer_gstin is None:
+        if buyer_gstin is None and not export:
             problems.append("the customer has no GST number")
         if invoice.status not in {"APPROVED", "CLOSED"}:
             problems.append("the invoice is not approved")
@@ -182,24 +232,28 @@ class EInvoicePayloadBuilder:
                     # are outside the taxable value -- the same rule the bill
                     # itself follows.
                     "FreeQty": float(line.free_quantity),
-                    "UnitPrice": float(line.unit_price),
-                    "TotAmt": float(quantize_money(Decimal(str(line.gross_amount)))),
-                    "Discount": float(
-                        quantize_money(
-                            Decimal(str(line.discount_amount))
-                            + Decimal(str(line.bill_discount_amount))
-                        )
+                    # Three decimals for a price, two for every amount: the
+                    # schema's own limits (D-CMP-13 found four going out).
+                    "UnitPrice": float(
+                        Decimal(str(line.unit_price)).quantize(Decimal("0.001"))
+                    ),
+                    "TotAmt": _paise(line.gross_amount),
+                    "Discount": _paise(
+                        Decimal(str(line.discount_amount))
+                        + Decimal(str(line.bill_discount_amount))
                     ),
                     # The portal has a field for it, and it is part of the
                     # assessable value above rather than an addition to it.
-                    "OthChrg": float(other_charges),
-                    "AssAmt": float(taxable),
+                    "OthChrg": _paise(other_charges),
+                    "AssAmt": _paise(taxable),
                     "GstRt": float(split.rate),
                 }
             )
             splits.append(split)
             taxables.append(taxable)
-            totals["taxable"] += taxable
+            # The sum of what each item declares, so AssVal is exactly the
+            # total of the AssAmt the portal adds up.
+            totals["taxable"] += quantize_ledger(taxable)
 
         # Registered at paise, adding up to what the journal credited: the
         # tax is rounded once as the invoice's sum and the odd paisa put on
@@ -212,7 +266,7 @@ class EInvoicePayloadBuilder:
             item["SgstAmt"] = float(filed.sgst)
             item["IgstAmt"] = float(filed.igst)
             item["CesAmt"] = float(filed.cess)
-            item["TotItemVal"] = float(quantize_ledger(taxable + filed.total))
+            item["TotItemVal"] = float(quantize_ledger(taxable) + filed.total)
             totals[_CGST] += filed.cgst
             totals[_SGST] += filed.sgst
             totals[_IGST] += filed.igst
@@ -224,11 +278,11 @@ class EInvoicePayloadBuilder:
             )
 
         seller_state = _state_code(seller_gstin)
-        buyer_state = _state_code(buyer_gstin)
-        # Intra-state supplies carry CGST and SGST, inter-state carries IGST.
-        # Read off the GSTINs rather than an address, so the two can never
-        # disagree about the same supply.
-        interstate = seller_state != buyer_state
+        buyer_state = _FOREIGN if export else _state_code(buyer_gstin)
+        # Intra-state supplies carry CGST and SGST, inter-state carries IGST,
+        # and which one it is turns on the place of supply (IGST Act s.7, 8)
+        # -- the seller's GSTIN against the state the document was charged by.
+        interstate = seller_state != pos
         if interstate and totals[_IGST] == ZERO and totals[_CGST] > ZERO:
             raise ValidationError(
                 "This is an inter-state supply but the invoice charged CGST "
@@ -244,7 +298,7 @@ class EInvoicePayloadBuilder:
             "Version": "1.1",
             "TranDtls": {
                 "TaxSch": "GST",
-                "SupTyp": "B2B",
+                "SupTyp": _supply_type(export=export, igst=totals[_IGST]),
                 "RegRev": "N",
                 "IgstOnIntra": "N",
             },
@@ -259,19 +313,27 @@ class EInvoicePayloadBuilder:
                 "Stcd": seller_state,
             },
             "BuyerDtls": {
-                "Gstin": buyer_gstin,
+                "Gstin": buyer_gstin if not export else _UNREGISTERED,
                 "LglNm": getattr(customer, "name", ""),
-                "Pos": buyer_state,
+                "Pos": pos,
                 "Stcd": buyer_state,
             },
             "ItemList": item_list,
             "ValDtls": {
-                "AssVal": float(quantize_money(totals["taxable"])),
+                "AssVal": _paise(totals["taxable"]),
                 "CgstVal": float(quantize_ledger(totals[_CGST])),
                 "SgstVal": float(quantize_ledger(totals[_SGST])),
                 "IgstVal": float(quantize_ledger(totals[_IGST])),
                 "CesVal": float(quantize_ledger(totals[_CESS])),
-                "TotInvVal": float(quantize_money(Decimal(str(invoice.grand_total)))),
+                # The bill discount is already inside each line's assessable
+                # value, so nothing is taken off again here.
+                "Discount": 0.0,
+                # What the bill adds outside the tax, and the rounding that
+                # brings it to a whole figure -- without them the parts did
+                # not add up to TotInvVal (D-CMP-13).
+                "OthChrg": _paise(invoice.additional_charges),
+                "RndOffAmt": _paise(invoice.round_off),
+                "TotInvVal": _paise(invoice.grand_total),
             },
         }
 

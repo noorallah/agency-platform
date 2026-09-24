@@ -213,6 +213,12 @@ from app.tax.schemas import (
     TaxStatus,
     TaxSystemWrite,
 )
+from app.tax.services.gst_template import INWARD_DOCUMENT_TYPES
+from app.tax.services.place_of_supply import (
+    FOREIGN_STATE_CODE,
+    PURCHASE_INTERSTATE,
+    SALES_INTERSTATE,
+)
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.models import (
@@ -2039,6 +2045,45 @@ def _seed_tax_framework(
                 ("SGST", Decimal("14")),
             ],
         ),
+        # The interstate twins the GST template gives every firm: without
+        # them a sale to another state had nothing to switch to, and every one
+        # was charged CGST and SGST (D-CMP-21).
+        (
+            "GST_5_INTERSTATE",
+            "GST 5% Interstate",
+            gst_system.id,
+            False,
+            date(2017, 7, 1),
+            None,
+            [("IGST", Decimal("5"))],
+        ),
+        (
+            "GST_12_INTERSTATE",
+            "GST 12% Interstate",
+            gst_system.id,
+            False,
+            date(2017, 7, 1),
+            None,
+            [("IGST", Decimal("12"))],
+        ),
+        (
+            "GST_18_INTERSTATE",
+            "GST 18% Interstate",
+            gst_system.id,
+            False,
+            date(2017, 7, 1),
+            None,
+            [("IGST", Decimal("18"))],
+        ),
+        (
+            "GST_28_INTERSTATE",
+            "GST 28% Interstate",
+            gst_system.id,
+            False,
+            date(2017, 7, 1),
+            None,
+            [("IGST", Decimal("28"))],
+        ),
         (
             "ZERO_RATED",
             "Zero Rated",
@@ -2172,6 +2217,58 @@ def _seed_tax_rules(
     profiles: dict[str, TaxProfile],
     actor_id: UUID,
 ) -> None:
+    """Seed the demo rule set, interstate rules included.
+
+    The GST template's shape (D-CMP-21): an export is a buyer outside India,
+    an interstate sale or purchase switches each slab to its IGST twin, input
+    credit is allowed on every inward document, and every condition names a
+    profile by its version-stable group rather than its id.
+    """
+
+    def interstate(slab: str, priority: int, *, inward: bool) -> tuple[
+        str,
+        str,
+        int,
+        list[tuple[str, TaxRuleConditionOperator, object, Decimal | None, None]],
+        list[TaxRuleActionWrite],
+    ]:
+        """Return one rule switching a local slab to its interstate twin."""
+        actions = [
+            TaxRuleActionWrite(
+                sequence=1,
+                action_type=TaxRuleActionType.APPLY_TAX_PROFILE,
+                target_tax_profile_id=profiles[f"GST_{slab}_INTERSTATE"].id,
+            )
+        ]
+        if inward:
+            actions.append(
+                TaxRuleActionWrite(
+                    sequence=2, action_type=TaxRuleActionType.INPUT_CREDIT_ALLOWED
+                )
+            )
+        return (
+            f"{'PURCHASE_' if inward else ''}INTERSTATE_GST_{slab}",
+            f"Interstate {'purchase' if inward else 'sale'} at {slab}% is IGST",
+            priority,
+            [
+                (
+                    "transaction_type",
+                    TaxRuleConditionOperator.EQUALS,
+                    PURCHASE_INTERSTATE if inward else SALES_INTERSTATE,
+                    None,
+                    None,
+                ),
+                (
+                    "tax_profile_group_code",
+                    TaxRuleConditionOperator.EQUALS,
+                    f"GST_{slab}",
+                    None,
+                    None,
+                ),
+            ],
+            actions,
+        )
+
     rule_definitions = (
         (
             "EXPORT_ZERO",
@@ -2179,9 +2276,9 @@ def _seed_tax_rules(
             1,
             [
                 (
-                    "transaction_type",
+                    "destination",
                     TaxRuleConditionOperator.EQUALS,
-                    "EXPORT",
+                    FOREIGN_STATE_CODE,
                     None,
                     None,
                 )
@@ -2194,9 +2291,9 @@ def _seed_tax_rules(
             2,
             [
                 (
-                    "transaction_type",
+                    "destination",
                     TaxRuleConditionOperator.EQUALS,
-                    "EXPORT",
+                    FOREIGN_STATE_CODE,
                     None,
                     None,
                 )
@@ -2215,9 +2312,9 @@ def _seed_tax_rules(
             3,
             [
                 (
-                    "tax_profile_id",
+                    "tax_profile_group_code",
                     TaxRuleConditionOperator.EQUALS,
-                    str(profiles["EXEMPT"].id),
+                    "EXEMPT",
                     None,
                     None,
                 )
@@ -2230,9 +2327,9 @@ def _seed_tax_rules(
             4,
             [
                 (
-                    "tax_profile_id",
+                    "tax_profile_group_code",
                     TaxRuleConditionOperator.EQUALS,
-                    str(profiles["ZERO_RATED"].id),
+                    "ZERO_RATED",
                     None,
                     None,
                 )
@@ -2250,7 +2347,16 @@ def _seed_tax_rules(
                     None,
                     Decimal("50000"),
                     None,
-                )
+                ),
+                # Within one state only: it applies a CGST + SGST band, and it
+                # outranks the interstate rules below.
+                (
+                    "transaction_type",
+                    TaxRuleConditionOperator.NOT_IN,
+                    [SALES_INTERSTATE, PURCHASE_INTERSTATE],
+                    None,
+                    None,
+                ),
             ],
             [
                 TaxRuleActionWrite(
@@ -2266,9 +2372,9 @@ def _seed_tax_rules(
             10,
             [
                 (
-                    "tax_profile_id",
+                    "tax_profile_group_code",
                     TaxRuleConditionOperator.EQUALS,
-                    str(profiles["GST_12"].id),
+                    "GST_12",
                     None,
                     None,
                 )
@@ -2287,9 +2393,9 @@ def _seed_tax_rules(
             11,
             [
                 (
-                    "tax_profile_id",
+                    "tax_profile_group_code",
                     TaxRuleConditionOperator.EQUALS,
-                    str(profiles["GST_5"].id),
+                    "GST_5",
                     None,
                     None,
                 )
@@ -2308,9 +2414,9 @@ def _seed_tax_rules(
             12,
             [
                 (
-                    "tax_profile_id",
+                    "tax_profile_group_code",
                     TaxRuleConditionOperator.EQUALS,
-                    str(profiles["GST_18"].id),
+                    "GST_18",
                     None,
                     None,
                 )
@@ -2330,8 +2436,8 @@ def _seed_tax_rules(
             [
                 (
                     "transaction_type",
-                    TaxRuleConditionOperator.EQUALS,
-                    "PURCHASE",
+                    TaxRuleConditionOperator.IN,
+                    list(INWARD_DOCUMENT_TYPES),
                     None,
                     None,
                 )
@@ -2342,6 +2448,17 @@ def _seed_tax_rules(
                 )
             ],
         ),
+        # Ahead of the standard rules (10-12), which match on the local group
+        # alone and would re-apply the local profile first. Sale and purchase
+        # twins share a priority: their transaction types never both match.
+        interstate("5", 6, inward=False),
+        interstate("12", 7, inward=False),
+        interstate("18", 8, inward=False),
+        interstate("28", 9, inward=False),
+        interstate("5", 6, inward=True),
+        interstate("12", 7, inward=True),
+        interstate("18", 8, inward=True),
+        interstate("28", 9, inward=True),
     )
     for code, name, priority, conditions, actions in rule_definitions:
         service.create_rule(
@@ -2361,11 +2478,17 @@ def _seed_tax_rules(
                         sequence=index,
                         field_key=field_key,
                         operator=operator,
-                        value_text=value_text,
+                        value_text=(
+                            None if isinstance(value_text, list) else value_text
+                        ),
                         value_number=value_number,
                         value_date=value_date,
                         value_boolean=None,
-                        value_json=None,
+                        value_json=(
+                            {"values": value_text}
+                            if isinstance(value_text, list)
+                            else None
+                        ),
                     )
                     for index, (
                         field_key,

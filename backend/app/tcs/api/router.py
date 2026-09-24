@@ -15,13 +15,19 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    ResolvedFirmScope,
+    firm_any_permission_scope,
+    firm_permission_scope,
+)
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.core.utils.dates import utc_now
 from app.tcs.schemas import (
+    TcsBuyerPosition,
     TcsCollectionResponse,
     TcsPreview,
     TcsSettingsResponse,
@@ -42,6 +48,12 @@ TcsViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("TCS_VIEW")]
 #: same reasoning as the credit-control policy: the role the rule constrains
 #: must not be able to switch it off.
 TcsManageScope = Annotated[ResolvedFirmScope, firm_permission_scope("TCS_MANAGE")]
+
+#: A report opens to whoever may read the module or holds `REPORT_VIEW`
+#: (D-RPT-4).
+TcsReportScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("TCS_VIEW", "REPORT_VIEW")
+]
 
 
 @router.get("/settings", response_model=ApiResponse[TcsSettingsResponse])
@@ -84,6 +96,29 @@ def preview(
     return ApiResponse(
         data=TcsService(db).preview(
             firm_id=scope.firm_id, customer_id=customer_id, amount=amount, on=on
+        )
+    )
+
+
+@router.get(
+    "/reports/charged-versus-due",
+    response_model=ApiResponse[list[TcsBuyerPosition]],
+)
+def charged_versus_due(
+    scope: TcsReportScope,
+    on: date | None = None,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[TcsBuyerPosition]]:
+    """Say, buyer by buyer, what was charged against what the section made due.
+
+    For the financial year ``on`` falls in, today's by default. A collection
+    is never rewritten, so a reversal or a back-dated receipt leaves a buyer
+    over- or under-collected until their next receipt; this is where that is
+    seen (D-CMP-21).
+    """
+    return ApiResponse(
+        data=TcsService(db).charged_versus_due(
+            firm_id=scope.firm_id, on=on or utc_now().date()
         )
     )
 

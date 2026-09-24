@@ -66,7 +66,6 @@ from app.tax.services.gst_buckets import (
     SGST,
     GstBuckets,
     TaxComponent,
-    intra_state_halves,
     settle_to_ledger,
     split_components,
 )
@@ -199,6 +198,15 @@ class _CreditNotes:
     registered: list[dict[str, object]] = field(default_factory=list)
     unregistered: list[_RateRow] = field(default_factory=list)
     unregistered_large: list[dict[str, object]] = field(default_factory=list)
+    #: Every credited line, to take off the HSN summary: Table 12 is declared
+    #: net of credit notes (GSTN FAQ on GSTR-1 Table 12; D-CMP-17).
+    hsn: list[tuple[Product | None, Decimal, Decimal, GstBuckets]] = field(
+        default_factory=list
+    )
+    #: Nil-rated, exempt and non-GST value a late cancellation gave back, as
+    #: (kind, taxable, interstate, registered) -- netted off Table 8 and 3B
+    #: 3.1(c)/(e) in the month of the cancellation (D-CMP-18).
+    untaxed: list[tuple[str, Decimal, bool, bool]] = field(default_factory=list)
 
 
 @dataclass(slots=True)
@@ -219,6 +227,11 @@ class _Credit:
     against_invoice_number: str
     rates: dict[Decimal, _RateRow]
     document_type: str
+    #: Each line as the HSN summary nets it: product, quantity, taxable
+    #: value and tax (D-CMP-17).
+    items: list[tuple[UUID | None, Decimal, Decimal, GstBuckets]] = field(
+        default_factory=list
+    )
 
     @property
     def taxable(self) -> Decimal:
@@ -363,6 +376,13 @@ class GstReturnService:
             )
             row = b2cs.setdefault(key, _RateRow(rate=credited.rate))
             row.subtract(credited.taxable, credited.buckets)
+        for product, quantity, taxable, buckets in credits.hsn:
+            # Table 12 is net of credit notes and returns (D-CMP-17).
+            self._fold_hsn(hsn, product, -quantity, -taxable, buckets.negated())
+        for kind, taxable, crossed, registered in credits.untaxed:
+            self._fold_nil(
+                nil, [(kind, -taxable)], interstate=crossed, registered=registered
+            )
 
         return {
             "gstin": seller_gstin,
@@ -474,6 +494,13 @@ class GstReturnService:
             self._fold_cancellation(
                 credits, invoice, customer, lines, cancelled_on, seller_state
             )
+        for kind, untaxed_value, _crossed, _registered in credits.untaxed:
+            # A late cancellation gives back its untaxed lines too, in the
+            # month it happened (D-CMP-18).
+            if kind == NON_GST:
+                non_gst -= untaxed_value
+            else:
+                nil_or_exempt -= untaxed_value
         # Both halves: 3B is a summary of what is payable, and an unregistered
         # buyer's credit reduces it exactly as a registered one does. Reading
         # only CDNR here is what left the two returns disagreeing.
@@ -769,21 +796,34 @@ class GstReturnService:
         """Declare a late cancellation the way a credit note for the whole bill is.
 
         A registered buyer's goes in CDNR against the bill it cancels; an
-        unregistered buyer's comes off B2CS, rate by rate.
+        unregistered buyer's comes off B2CS, rate by rate. Its nil-rated,
+        exempt and non-GST lines come off Table 8 and 3B 3.1(c)/(e) the same
+        month, as the bill put them there (D-CMP-18), and every line comes
+        off the HSN summary (D-CMP-17).
         """
+        gstin = (getattr(customer, "gst_number", None) or "").strip().upper()
         rates: dict[Decimal, _RateRow] = {}
-        for taxable, buckets, _product, _quantity, kind in lines:
-            # Only what was taxed is credited back: a nil-rated or exempt
-            # line was never in B2B / B2CS, so there is nothing there to
-            # reverse (D-CMP-10).
+        charged = GstBuckets()
+        untaxed: list[tuple[str, Decimal]] = []
+        for taxable, buckets, product, quantity, kind in lines:
+            credits.hsn.append((product, quantity, taxable, buckets))
+            # A nil-rated or exempt line was never in B2B / B2CS, so there is
+            # nothing there to reverse (D-CMP-10); it is Table 8's instead.
             if kind != TAXABLE:
+                untaxed.append((kind, taxable))
                 continue
+            charged = charged.plus(buckets)
             rates.setdefault(buckets.rate, _RateRow(rate=buckets.rate)).add(
                 taxable, buckets
             )
+        if untaxed:
+            # Placed exactly as the bill placed them in Table 8.
+            crossed = gstin[:2] != seller_state if gstin else charged.igst > ZERO
+            credits.untaxed.extend(
+                (kind, taxable, crossed, bool(gstin)) for kind, taxable in untaxed
+            )
         if not rates:
             return
-        gstin = (getattr(customer, "gst_number", None) or "").strip().upper()
         if not gstin:
             credits.unregistered.extend(rates.values())
             return
@@ -934,7 +974,24 @@ class GstReturnService:
         )
 
         answer = _CreditNotes()
+        products = self._products(
+            [
+                product_id
+                for credit in credits
+                for product_id, _, _, _ in credit.items
+                if product_id is not None
+            ]
+        )
         for credit in credits:
+            answer.hsn.extend(
+                (
+                    products.get(product_id) if product_id is not None else None,
+                    quantity,
+                    taxable,
+                    buckets,
+                )
+                for product_id, quantity, taxable, buckets in credit.items
+            )
             customer = customers.get(credit.customer_id)
             gstin = (getattr(customer, "gst_number", None) or "").strip().upper()
             buckets = credit.buckets
@@ -994,26 +1051,66 @@ class GstReturnService:
         invoice_numbers = self._invoice_numbers(
             [note.sales_invoice_id for note in notes]
         )
-        rates: dict[UUID, Decimal] = {}
+        lines_by_note: dict[UUID, list[CreditNoteLine]] = defaultdict(list)
         for line in self._session.scalars(
-            select(CreditNoteLine).where(
+            select(CreditNoteLine)
+            .where(
                 CreditNoteLine.credit_note_id.in_([note.id for note in notes]),
                 CreditNoteLine.is_deleted.is_(False),
             )
+            .order_by(CreditNoteLine.line_number.asc())
         ).all():
-            rates.setdefault(line.credit_note_id, Decimal(str(line.tax_rate_percent)))
+            lines_by_note[line.credit_note_id].append(line)
 
         answer: list[_Credit] = []
         for note in notes:
-            rate = rates.get(note.id, ZERO)
-            tax = Decimal(str(note.tax_amount))
-            # The note stores one tax figure, not a split. Re-split it the way
-            # the supply it credits was taxed, read off that invoice rather
-            # than off an address -- the same rule the place of supply uses,
-            # and the only one an unregistered buyer can be judged by at all.
+            # The note stores one tax figure per line, not a split. Re-split
+            # it the way the supply it credits was taxed, read off that
+            # invoice rather than off an address -- the same rule the place of
+            # supply uses, and the only one an unregistered buyer can be
+            # judged by at all.
             interstate = note.sales_invoice_id in crossed_a_border
-            # Halved at paise so the two add to what the journal credited.
-            central, state = intra_state_halves(tax)
+            lines = lines_by_note.get(note.id, [])
+            # Each line at its own rate (D-CMP-13): a note crediting a 5% and
+            # an 18% line was declared wholly at whichever came first.
+            parts: list[tuple[UUID | None, Decimal, Decimal, Decimal, Decimal]] = [
+                (
+                    line.product_id,
+                    Decimal(str(line.quantity)),
+                    Decimal(str(line.taxable_amount)),
+                    Decimal(str(line.tax_rate_percent)),
+                    Decimal(str(line.tax_amount)),
+                )
+                for line in lines
+            ] or [
+                (
+                    None,
+                    ZERO,
+                    Decimal(str(note.taxable_amount)),
+                    ZERO,
+                    Decimal(str(note.tax_amount)),
+                )
+            ]
+            # Settled at paise to what the note's journal credited, as an
+            # invoice's lines are (D-CMP-4).
+            settled = settle_to_ledger(
+                [
+                    GstBuckets(
+                        igst=tax if interstate else ZERO,
+                        cgst=ZERO if interstate else tax / 2,
+                        sgst=ZERO if interstate else tax / 2,
+                        rate=rate,
+                    )
+                    for _, _, _, rate, tax in parts
+                ]
+            )
+            rates: dict[Decimal, _RateRow] = {}
+            items: list[tuple[UUID | None, Decimal, Decimal, GstBuckets]] = []
+            for (product_id, quantity, taxable, rate, _), buckets in zip(
+                parts, settled, strict=True
+            ):
+                rates.setdefault(rate, _RateRow(rate=rate)).add(taxable, buckets)
+                items.append((product_id, quantity, taxable, buckets))
             answer.append(
                 _Credit(
                     number=note.credit_note_number,
@@ -1024,19 +1121,9 @@ class GstReturnService:
                     against_invoice_number=invoice_numbers.get(
                         note.sales_invoice_id, ""
                     ),
-                    rates={
-                        rate: _RateRow(
-                            rate=rate,
-                            taxable=Decimal(str(note.taxable_amount)),
-                            buckets=GstBuckets(
-                                igst=quantize_ledger(tax) if interstate else ZERO,
-                                cgst=ZERO if interstate else central,
-                                sgst=ZERO if interstate else state,
-                                rate=rate,
-                            ),
-                        )
-                    },
+                    rates=rates,
                     document_type="CREDIT_NOTE",
+                    items=[item for item in items if item[0] is not None],
                 )
             )
         return answer
@@ -1126,12 +1213,21 @@ class GstReturnService:
                     for line in ordered
                 ]
             )
+            items: list[tuple[UUID | None, Decimal, Decimal, GstBuckets]] = []
             for line, buckets in zip(ordered, settled, strict=True):
                 # What the line credited before tax: `net_amount` carries the
                 # tax, exactly as an invoice line's does.
                 taxable = Decimal(str(line.net_amount)) - Decimal(str(line.tax_amount))
                 rates.setdefault(buckets.rate, _RateRow(rate=buckets.rate)).add(
                     taxable, buckets
+                )
+                items.append(
+                    (
+                        line.product_id,
+                        Decimal(str(line.current_return_quantity)),
+                        taxable,
+                        buckets,
+                    )
                 )
                 if (
                     line.source_document_id in billed
@@ -1151,6 +1247,7 @@ class GstReturnService:
                     ),
                     rates=rates,
                     document_type="SALES_RETURN",
+                    items=items,
                 )
             )
         return answer

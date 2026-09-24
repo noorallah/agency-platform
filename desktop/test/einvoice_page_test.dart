@@ -341,4 +341,43 @@ void main() {
     expect(find.text('Raise e-way bill'), findsNothing);
     expect(find.text('Withdraw bill'), findsOneWidget);
   });
+
+  testWidgets('a withdrawn e-way bill can be raised again from the screen',
+      (tester) async {
+    // The service raises a fresh bill over a withdrawn one, but the screen
+    // offered Raise only where no bill row existed, so the second bill could
+    // be had through the API alone (D-CMP-13).
+    final _EInvoiceApi api = _EInvoiceApi(
+      registrations: <Json>[_sandboxRegistration()],
+      bill: <String, dynamic>{
+        'id': 'ewb-1',
+        'sales_invoice_id': 'inv-1',
+        'mode': 'SANDBOX',
+        'status': 'CANCELLED',
+        'eway_bill_number': 'SBX123456789',
+        'valid_until': '2026-09-05',
+        'distance_km': '450.00',
+        'transport_mode': 'ROAD',
+        'transporter_id': null,
+        'transporter_name': null,
+        'vehicle_number': 'MH12AB1234',
+        'error_code': null,
+        'error_message': null,
+      },
+    );
+    await _pump(tester, api);
+
+    expect(find.text('Raise bill again'), findsOneWidget);
+    expect(find.text('Withdraw bill'), findsNothing);
+
+    await tester.tap(find.text('SI-2026-2027-000004'));
+    await tester.pumpAndSettle();
+    final Finder toolbarRaise =
+        find.widgetWithText(OutlinedButton, 'Raise bill');
+    expect(tester.widget<OutlinedButton>(toolbarRaise).onPressed, isNotNull);
+
+    await tester.tap(find.text('Raise bill again'));
+    await tester.pumpAndSettle();
+    expect(find.widgetWithText(TextField, 'Distance (km)'), findsOneWidget);
+  });
 }

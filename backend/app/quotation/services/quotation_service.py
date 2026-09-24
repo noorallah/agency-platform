@@ -1153,6 +1153,8 @@ class QuotationService(TransactionalDocumentService):
             # what the customer is actually being asked to pay.
             taxable = self._q(gross - discount - bill_share + freight_share)
             tax = self._tax_amount(
+                document_id=row.id,
+                line_number=item.line_number,
                 quotation_date=row.quotation_date,
                 firm_id=row.firm_id,
                 actor_id=actor_id,
@@ -1294,6 +1296,8 @@ class QuotationService(TransactionalDocumentService):
         product_id: UUID,
         tax_profile_id: UUID | None,
         invoice_value: Decimal,
+        document_id: UUID | None = None,
+        line_number: int | None = None,
     ) -> Decimal:
         """Return the tax the offer would carry if billed on its own date."""
         if invoice_value <= ZERO:
@@ -1340,6 +1344,8 @@ class QuotationService(TransactionalDocumentService):
             ),
             firm_scope=firm_id,
             actor_id=actor_id,
+            document_id=document_id,
+            line_number=line_number,
         )
         return self._q(response.total_tax_amount)
 

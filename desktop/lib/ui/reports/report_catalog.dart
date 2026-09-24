@@ -673,6 +673,28 @@ const List<ReportDefinition> reportCatalog = [
     rowsKey: 'rows',
     openToReportView: false,
   ),
+  // A collection is never rewritten, so a reversed or back-dated receipt
+  // leaves a buyer over- or under-collected until they pay again; this is
+  // where that shows (D-CMP-21). The year today falls in: a snapshot.
+  ReportDefinition(
+    id: 'tcs-charged-versus-due',
+    label: 'TCS charged against due',
+    description: 'Each buyer this financial year: the tax collected at '
+        'source that was charged, against what their receipts made due.',
+    path: '/api/v1/tcs/reports/charged-versus-due',
+    permission: 'TCS_VIEW',
+    area: ReportArea.financial,
+    columns: [
+      ReportColumn(key: 'customer_name', label: 'Buyer'),
+      ReportColumn(
+          key: 'consideration_received', label: 'Received', numeric: true),
+      ReportColumn(key: 'taxable_due', label: 'Taxable due', numeric: true),
+      ReportColumn(key: 'tcs_due', label: 'TCS due', numeric: true),
+      ReportColumn(key: 'tcs_charged', label: 'TCS charged', numeric: true),
+      ReportColumn(key: 'difference', label: 'Difference', numeric: true),
+      ReportColumn(key: 'position', label: 'Position'),
+    ],
+  ),
 ];
 
 /// The reports belonging to one tab, narrowed to what `canRead` allows.

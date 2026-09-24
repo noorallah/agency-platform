@@ -1422,6 +1422,8 @@ class PurchaseReturnService(TransactionalDocumentService):
             )
             discount_amount = line_discount.amount
             tax_amount = self._tax_amount(
+                document_id=row.id,
+                line_number=index,
                 return_date=return_date,
                 firm_id=firm_id,
                 business_profile_id=business_profile_id,
@@ -1813,6 +1815,8 @@ class PurchaseReturnService(TransactionalDocumentService):
         product_id: UUID,
         tax_profile_id: UUID | None,
         invoice_value: Decimal,
+        document_id: UUID | None = None,
+        line_number: int | None = None,
     ) -> Decimal:
         if invoice_value <= ZERO:
             return ZERO
@@ -1858,7 +1862,13 @@ class PurchaseReturnService(TransactionalDocumentService):
                 "document_type": "PURCHASE_RETURN",
             },
         )
-        response = self._tax.simulate(request, firm_scope=firm_id, actor_id=actor_id)
+        response = self._tax.simulate(
+            request,
+            firm_scope=firm_id,
+            actor_id=actor_id,
+            document_id=document_id,
+            line_number=line_number,
+        )
         return self._q(response.total_tax_amount)
 
     def _source_quantity(

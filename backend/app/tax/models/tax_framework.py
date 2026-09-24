@@ -483,6 +483,14 @@ class TaxRuleExecutionLog(BaseEntity):
     )
     execution_mode: Mapped[str] = mapped_column(String(30), nullable=False)
     transaction_type: Mapped[str] = mapped_column(String(40), nullable=False)
+    # Which document line the tax was decided for (D-CMP-13). A line row is
+    # written after its tax is known, so it is named by its document and its
+    # line number -- the key document lines are reconciled on -- rather than by
+    # an id it does not have yet. A bare UUID like `source_document_line_id`:
+    # the document may be any of nine tables.
+    document_type: Mapped[str | None] = mapped_column(String(40))
+    document_id: Mapped[UUID | None] = mapped_column(UUIDType())
+    line_number: Mapped[int | None] = mapped_column(Integer)
     country_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("geo_countries.id", ondelete="RESTRICT")
     )

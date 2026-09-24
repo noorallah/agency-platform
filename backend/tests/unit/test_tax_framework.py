@@ -2055,3 +2055,240 @@ def test_the_template_matches_on_the_group_and_survives_a_rate_change() -> None:
         "GST_18_LOCAL",
         "EXEMPT",
     }
+
+
+def test_a_document_line_is_logged_as_one_and_a_what_if_is_not() -> None:
+    """D-CMP-13: every log read SIMULATION and named no document or line."""
+    session = _session_factory()()
+    firm = _firm(session)
+    gst_template.apply_india_gst_template(session, firm_id=firm.id, actor_id=uuid4())
+    session.commit()
+    local = session.scalar(select(TaxProfile).where(TaxProfile.code == "GST_18_LOCAL"))
+    assert local is not None
+    service = TaxRuleService(session)
+    document_id = uuid4()
+
+    def price(
+        context: dict[str, object],
+        *,
+        document: UUID | None = None,
+        line_number: int | None = None,
+        mode: str | None = None,
+    ) -> TaxRuleExecutionLog:
+        """Price one line and return the log it left."""
+        response = service.simulate(
+            TaxRuleSimulationRequest(
+                transaction_type="SALES_INVOICE",
+                transaction_date=date(2026, 9, 1),
+                tax_profile_id=local.id,
+                invoice_value=Decimal("1000"),
+                additional_context=context,
+            ),
+            firm_scope=firm.id,
+            actor_id=uuid4(),
+            document_id=document,
+            line_number=line_number,
+            execution_mode=mode,
+        )
+        session.flush()
+        row = session.scalars(
+            select(TaxRuleExecutionLog).where(
+                TaxRuleExecutionLog.result_payload.is_not(None)
+            )
+        ).all()[-1]
+        assert row.transaction_type == response.transaction_type
+        return row
+
+    line = price(
+        {"document_type": "SALES_INVOICE"}, document=document_id, line_number=3
+    )
+    assert line.execution_mode == "DOCUMENT"
+    assert (line.document_type, line.document_id, line.line_number) == (
+        "SALES_INVOICE",
+        document_id,
+        3,
+    )
+
+    # The endpoint says SIMULATION outright, whatever the body claims.
+    what_if = price({"document_type": "SALES_INVOICE"}, mode="SIMULATION")
+    assert what_if.execution_mode == "SIMULATION"
+    assert what_if.document_id is None
+    assert price({}).execution_mode == "SIMULATION"
+
+
+def test_the_template_rules_match_what_documents_send() -> None:
+    """D-CMP-13: EXPORT and PURCHASE were types no document sends.
+
+    A local goods receipt got no input credit, because only the order's
+    ``PURCHASE`` matched; and no export was ever zero rated, because nothing
+    sends ``EXPORT``. An export is a buyer outside India now.
+    """
+    session = _session_factory()()
+    firm, vendor_id = _inward_setup(
+        session, firm_gstin="33AABCU9603R1ZM", vendor_gstin="33AAACR5055K1Z5"
+    )
+    gst_template.apply_india_gst_template(session, firm_id=firm.id, actor_id=uuid4())
+    session.commit()
+    local = session.scalar(select(TaxProfile).where(TaxProfile.code == "GST_18_LOCAL"))
+    assert local is not None
+    service = TaxRuleService(session)
+    for document in gst_template.INWARD_DOCUMENT_TYPES:
+        priced = service.simulate(
+            TaxRuleSimulationRequest(
+                transaction_type=service.inward_transaction_type(
+                    document, firm_id=firm.id, branch_id=None, vendor_id=vendor_id
+                ),
+                transaction_date=date(2026, 9, 1),
+                tax_profile_id=local.id,
+                vendor_id=vendor_id,
+                invoice_value=Decimal("1000"),
+            ),
+            firm_scope=firm.id,
+            actor_id=uuid4(),
+        )
+        assert priced.input_credit_allowed is True, document
+
+    abroad = _session_factory()()
+    seller, buyer = _supplier_and_buyer(
+        abroad, firm_gstin="33AABCU9603R1ZM", address=("Dubai", "AE")
+    )
+    gst_template.apply_india_gst_template(abroad, firm_id=seller.id, actor_id=uuid4())
+    abroad.commit()
+    local_abroad = abroad.scalar(
+        select(TaxProfile).where(TaxProfile.code == "GST_18_LOCAL")
+    )
+    assert local_abroad is not None
+    rules = TaxRuleService(abroad)
+    export = rules.simulate(
+        TaxRuleSimulationRequest(
+            transaction_type=rules.outward_transaction_type(
+                "SALES_INVOICE", firm_id=seller.id, branch_id=None, customer_id=buyer.id
+            ),
+            transaction_date=date(2026, 9, 1),
+            tax_profile_id=local_abroad.id,
+            customer_id=buyer.id,
+            invoice_value=Decimal("1000"),
+        ),
+        firm_scope=seller.id,
+        actor_id=uuid4(),
+    )
+    assert export.zero_rated is True
+    assert export.total_tax_amount == Decimal("0")
+
+
+def _rules_migration() -> ModuleType:
+    """Load ``20260924_0159`` by path; the versions directory is no package."""
+    path = (
+        Path(__file__).resolve().parents[2]
+        / "alembic"
+        / "versions"
+        / "20260924_0159_tax_log_names_its_document_line.py"
+    )
+    spec = importlib.util.spec_from_file_location("_tax_log_0159", path)
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
+    spec.loader.exec_module(module)
+    return module
+
+
+def test_a_firm_templated_before_the_fix_has_its_two_rules_rewritten_once() -> None:
+    """``20260924_0159`` moves the old conditions onto what documents send."""
+    session = _session_factory()()
+    firm = _firm(session)
+    gst_template.apply_india_gst_template(session, firm_id=firm.id, actor_id=uuid4())
+    session.commit()
+    # Put the two conditions back the way the template used to write them.
+    for code, old in (("EXPORT_ZERO", "EXPORT"), ("PURCHASE_INPUT_CREDIT", "PURCHASE")):
+        rule = session.scalar(select(TaxRule).where(TaxRule.code == code))
+        assert rule is not None
+        condition = rule.conditions[0]
+        condition.field_key = "transaction_type"
+        condition.operator = "EQUALS"
+        condition.value_text = old
+        condition.value_json = None
+    session.commit()
+
+    migration = _rules_migration()
+    assert migration.rewrite_template_conditions(session.connection()) == 2
+    session.commit()
+    assert migration.rewrite_template_conditions(session.connection()) == 0
+
+    session.expire_all()
+    export = session.scalar(select(TaxRule).where(TaxRule.code == "EXPORT_ZERO"))
+    credit = session.scalar(
+        select(TaxRule).where(TaxRule.code == "PURCHASE_INPUT_CREDIT")
+    )
+    assert export is not None and credit is not None
+    assert (export.conditions[0].field_key, export.conditions[0].value_text) == (
+        "destination",
+        "96",
+    )
+    assert credit.conditions[0].operator == "IN"
+    assert credit.conditions[0].value_json == {
+        "values": list(gst_template.INWARD_DOCUMENT_TYPES)
+    }
+
+
+def test_an_interstate_rule_applies_the_rate_in_force_after_a_change() -> None:
+    """D-CMP-13: a rule's target profile is read as its group, not one version.
+
+    The interstate rules name the IGST profile by id, and a rate change mints
+    a new id under the same group -- so they went on applying the old rate.
+    """
+    session = _session_factory()()
+    firm, vendor_id, local_id = _template_firm_buying_from_karnataka(session)
+    old = session.scalar(
+        select(TaxProfile).where(TaxProfile.code == "GST_18_INTERSTATE")
+    )
+    igst = session.scalar(select(TaxComponent).where(TaxComponent.code == "IGST"))
+    assert old is not None and igst is not None
+    TaxFrameworkService(session).supersede_profile(
+        old.id,
+        TaxProfileWrite(
+            tax_system_id=old.tax_system_id,
+            code="GST_18_INTERSTATE_V2",
+            group_code="GST_18_INTERSTATE",
+            name="GST 18% Interstate, revised",
+            label="GST 18% Interstate",
+            status="ACTIVE",
+            effective_from=date(2026, 10, 1),
+            effective_to=None,
+            components=[
+                {
+                    "tax_component_id": igst.id,
+                    "percentage": "20",
+                    "calculation_order": 1,
+                    "included_in_price": False,
+                    "recoverable": True,
+                }
+            ],
+        ),
+        firm_scope=firm.id,
+        actor_id=uuid4(),
+    )
+    session.commit()
+    service = TaxRuleService(session)
+
+    def igst_on(day: date) -> Decimal:
+        """Price 1,000 bought from Karnataka on a day; return the IGST."""
+        priced = service.simulate(
+            TaxRuleSimulationRequest(
+                transaction_type=service.inward_transaction_type(
+                    "PURCHASE_INVOICE",
+                    firm_id=firm.id,
+                    branch_id=None,
+                    vendor_id=vendor_id,
+                ),
+                transaction_date=day,
+                tax_profile_id=local_id,
+                vendor_id=vendor_id,
+                invoice_value=Decimal("1000"),
+            ),
+            firm_scope=firm.id,
+            actor_id=uuid4(),
+        )
+        return priced.total_tax_amount
+
+    assert igst_on(date(2026, 9, 1)) == Decimal("180.0000")
+    assert igst_on(date(2026, 11, 1)) == Decimal("200.0000")
