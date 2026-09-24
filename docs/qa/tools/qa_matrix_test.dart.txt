@@ -1,0 +1,51 @@
+// Step 2 of 3. Copy to desktop/test/zz_qa_matrix_tmp_test.dart, set OUT to
+// the folder holding roles.json, run `flutter test test/zz_qa_matrix_tmp_test.dart`
+// from desktop/, then delete the copy. It asks the desktop's own visibility
+// rules which screens each firm role is offered, and records every screen's
+// permission codes: matrix.json and tabs.json.
+import 'dart:convert';
+import 'dart:io';
+
+import 'package:agency_desktop/core/security/permission_service.dart';
+import 'package:agency_desktop/ui/workspace/module_catalog.dart';
+import 'package:agency_desktop/ui/workspace/module_visibility.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+const String OUT = 'C:/path/to/out';
+
+PermissionService _svc(List<String> codes) {
+  final String payload = base64Url.encode(utf8.encode(jsonEncode({
+    'permissions': <String>[], 'roles': const <String>[],
+    'platform_admin': false, 'platform_admin_scope': null,
+    'firm_permissions': {'firm-1': codes},
+  })));
+  return PermissionService()..applyAccessToken('h.$payload.s', activeFirmId: 'firm-1');
+}
+
+void main() {
+  test('qa matrix and tabs', () {
+    final Map<String, dynamic> data = jsonDecode(File('$OUT/roles.json').readAsStringSync()) as Map<String, dynamic>;
+    final Map<String, dynamic> roles = data['roles'] as Map<String, dynamic>;
+    final Map<String, Object> matrix = {};
+    for (final String role in (data['firm_roles'] as List).cast<String>()) {
+      final PermissionService p = _svc((roles[role] as List).cast<String>());
+      final ModuleVisibility v = ModuleVisibility(permissions: p);
+      matrix[role] = {
+        for (final ModuleDefinition m in v.modules)
+          m.label: [for (final t in ModuleVisibility.tabsFor(m, p, hasActiveFirm: true)) t.label],
+      };
+    }
+    File('$OUT/matrix.json').writeAsStringSync(const JsonEncoder.withIndent(' ').convert(matrix));
+    final List<Object> tabs = [
+      for (final ModuleDefinition m in ModuleCatalog.modules)
+        {
+          'module': m.label, 'codes': m.requiredPermissions, 'platformOnly': m.requiresPlatformAdmin,
+          'tabs': [for (final t in m.tabs.where((t) => t.available)) {
+            'label': t.label, 'codes': t.requiredPermissions.isEmpty ? m.requiredPermissions : t.requiredPermissions,
+            'platformOnly': t.requiresPlatformAdmin, 'group': t.group,
+          }],
+        },
+    ];
+    File('$OUT/tabs.json').writeAsStringSync(const JsonEncoder.withIndent(' ').convert(tabs));
+  });
+}
