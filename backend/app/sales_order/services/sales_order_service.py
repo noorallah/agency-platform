@@ -2210,7 +2210,11 @@ class SalesOrderService(TransactionalDocumentService):
                     storage_node_id=line.storage_node_id,
                     product_id=line.product_id,
                     reference_number=row.order_number,
-                    transaction_date=utc_now().date(),
+                    # Dated when it was let go, but never before the hold it
+                    # undoes: an order dated ahead of today's UTC date showed
+                    # its release in the ledger a day before its reservation
+                    # (D-STK-7).
+                    transaction_date=max(row.order_date, utc_now().date()),
                     release_quantity=released,
                     entered_quantity=self._share(
                         entered_total, released, line.reserved_quantity, allocation

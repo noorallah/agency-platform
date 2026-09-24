@@ -37,9 +37,53 @@ from app.core.exceptions import (
     ValidationError,
 )
 from app.core.utils.dates import utc_now
+from app.inventory.models import InventoryRecord
 from app.inventory.schemas import BatchStockTotals
 from app.inventory.services import InventoryService
 from app.products.models import Product
+
+#: What an audit row records of each record, named like the rest of the
+#: platform's ``module.action`` rows rather than bare ``CREATE`` (D-STK-10).
+_AUDITED_FIELDS: dict[str, tuple[str, ...]] = {
+    "batch": (
+        "batch_number",
+        "product_id",
+        "status",
+        "manufacturing_date",
+        "expiry_date",
+        "best_before_date",
+        "supplier_batch",
+        "internal_batch",
+        "shelf_life_days",
+    ),
+    "lot": (
+        "lot_number",
+        "product_id",
+        "lot_type",
+        "status",
+        "quantity",
+        "production_date",
+        "expiry_date",
+    ),
+    "serial_number": (
+        "serial_number",
+        "product_id",
+        "batch_id",
+        "status",
+        "warranty_start",
+        "warranty_end",
+        "current_owner",
+    ),
+}
+
+
+def _snapshot(entity_type: str, record: object) -> dict[str, object]:
+    """Return the audited fields of a record, stringified for the trail."""
+    values: dict[str, object] = {}
+    for name in _AUDITED_FIELDS[entity_type]:
+        value = getattr(record, name, None)
+        values[name] = None if value is None else str(value)
+    return values
 
 
 class BatchSerialService:
@@ -273,11 +317,12 @@ class BatchSerialService:
             ) from exc
         record_audit(
             self._session,
-            action="CREATE",
+            action="batch.created",
             entity_type="batch",
             entity_id=record.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+            after_data=_snapshot("batch", record),
         )
         self._session.commit()
         return record
@@ -351,11 +396,12 @@ class BatchSerialService:
             ) from exc
         record_audit(
             self._session,
-            action="CREATE",
+            action="batch.created",
             entity_type="batch",
             entity_id=record.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+            after_data=_snapshot("batch", record),
         )
         return record
 
@@ -431,11 +477,12 @@ class BatchSerialService:
             ) from exc
         record_audit(
             self._session,
-            action="UPDATE",
+            action="batch.updated",
             entity_type="batch",
             entity_id=record.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+            after_data=_snapshot("batch", record),
             before_data=before,
         )
         self._session.commit()
@@ -450,11 +497,12 @@ class BatchSerialService:
         record.updated_by = actor_id
         record_audit(
             self._session,
-            action="DELETE",
+            action="batch.deleted",
             entity_type="batch",
             entity_id=record.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+            after_data=_snapshot("batch", record) | {"is_deleted": True},
         )
         self._session.commit()
 
@@ -520,13 +568,35 @@ class BatchSerialService:
         )
 
     def expiry_dashboard(self, *, firm_scope: UUID) -> ExpiryDashboard:
-        """Return expiry counts across the reporting windows."""
+        """Return expiry counts across the reporting windows.
+
+        Every card counts batches that still hold stock somewhere -- on the
+        shelf, in quarantine, damaged or blocked. A batch sold out months ago
+        is history, not something to act on, and counting it put empty
+        batches on every card (D-STK-8). "Expired today" is the batches whose
+        expiry date is today; "total expired" is every batch past it.
+        """
         today = utc_now().date()
         in_7 = today + timedelta(days=7)
         in_30 = today + timedelta(days=30)
+        holds_stock = (
+            select(InventoryRecord.id)
+            .where(
+                InventoryRecord.batch_id == BatchRecord.id,
+                InventoryRecord.is_deleted.is_(False),
+                (
+                    InventoryRecord.current_quantity
+                    + InventoryRecord.quarantine_quantity
+                    + InventoryRecord.damaged_quantity
+                    + InventoryRecord.blocked_quantity
+                )
+                > 0,
+            )
+            .exists()
+        )
 
         def _count(where_clauses: list[ColumnElement[bool]]) -> int:
-            """Count batches matching the extra conditions."""
+            """Count stock-holding batches matching the extra conditions."""
             return int(
                 self._session.scalar(
                     select(func.count())
@@ -534,13 +604,19 @@ class BatchSerialService:
                     .where(
                         BatchRecord.firm_id == firm_scope,
                         BatchRecord.is_deleted.is_(False),
+                        holds_stock,
                         *where_clauses,
                     )
                 )
                 or 0
             )
 
-        expired_today = _count([BatchRecord.expired_condition(today)])
+        expired_today = _count(
+            [
+                BatchRecord.status != "DESTROYED",
+                BatchRecord.expiry_date == today,
+            ]
+        )
         expire_in_7 = _count(
             [
                 BatchRecord.expiry_date.isnot(None),
@@ -674,11 +750,12 @@ class BatchSerialService:
             ) from exc
         record_audit(
             self._session,
-            action="CREATE",
+            action="lot.created",
             entity_type="lot",
             entity_id=record.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+            after_data=_snapshot("lot", record),
         )
         self._session.commit()
         return record
@@ -714,11 +791,12 @@ class BatchSerialService:
             ) from exc
         record_audit(
             self._session,
-            action="UPDATE",
+            action="lot.updated",
             entity_type="lot",
             entity_id=record.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+            after_data=_snapshot("lot", record),
         )
         self._session.commit()
         return record
@@ -732,11 +810,12 @@ class BatchSerialService:
         record.updated_by = actor_id
         record_audit(
             self._session,
-            action="DELETE",
+            action="lot.deleted",
             entity_type="lot",
             entity_id=record.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+            after_data=_snapshot("lot", record) | {"is_deleted": True},
         )
         self._session.commit()
 
@@ -852,11 +931,12 @@ class BatchSerialService:
             ) from exc
         record_audit(
             self._session,
-            action="CREATE",
+            action="serial_number.created",
             entity_type="serial_number",
             entity_id=record.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+            after_data=_snapshot("serial_number", record),
         )
         self._session.commit()
         return record
@@ -895,11 +975,12 @@ class BatchSerialService:
             ) from exc
         record_audit(
             self._session,
-            action="UPDATE",
+            action="serial_number.updated",
             entity_type="serial_number",
             entity_id=record.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+            after_data=_snapshot("serial_number", record),
         )
         self._session.commit()
         return record
@@ -915,10 +996,11 @@ class BatchSerialService:
         record.updated_by = actor_id
         record_audit(
             self._session,
-            action="DELETE",
+            action="serial_number.deleted",
             entity_type="serial_number",
             entity_id=record.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+            after_data=_snapshot("serial_number", record) | {"is_deleted": True},
         )
         self._session.commit()
