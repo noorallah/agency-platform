@@ -21,14 +21,16 @@ From a repository where the desktop client has been built, that produces:
 dist\windows\AgencyPlatform-1.0.0-Setup.exe
 ```
 
-and nothing else the customer needs. It runs five steps, and stops at the first
-failure rather than producing something questionable:
+and nothing else the customer needs: it is fully offline, and carries its own
+PostgreSQL. It runs six steps, and stops at the first failure rather than
+producing something questionable:
 
 | Step | What it does | Fails the build when |
 | --- | --- | --- |
-| Clean | empties `dist\staging` | — |
+| Clean | empties `dist\staging` and `dist\redist` | — |
+| Fetch | makes sure the three pinned build inputs are in the cache and match their SHA-256 (see below) | a download fails, or a file does not match its pinned hash |
 | Compile | Nuitka builds `agency-server.exe` from `app\cli.py` | Nuitka missing, compile fails, or the binary cannot answer `--version` |
-| Stage | copies the client, the compiled backend, the migrations and `.env.example` | the client is not built, or a named file is missing |
+| Stage | copies the client, the compiled backend, the migrations, `.env.example`, `install.ps1` and `server_setup.ps1`, the trimmed PostgreSQL under `pgsql\` and WinSW under `service\`; `vc_redist.x64.exe` goes to `dist\redist` | the client is not built, or a named file is missing |
 | Verify | `verify_release.ps1` inspects what was staged | source, secrets, tests or the dev toolchain reached the tree |
 | Installer | Inno Setup compiles `AgencyPlatform-<version>-Setup.exe` | Inno Setup missing, or it reports success without producing the file |
 
@@ -42,6 +44,27 @@ failure rather than producing something questionable:
 | `-SkipVerify` | skip the release check. For debugging a staging problem only. |
 | `-Jobs 2` | cap how many C compilations run at once. The build picks a number from free memory and prints it; this overrides that. |
 | `-LowMemory` | trade build speed for peak memory. The answer when the build is *killed* rather than failing. |
+| `-ClientDir <path>` | stage a desktop client built somewhere else -- a worktree that has not run `flutter build windows` itself. |
+| `-CacheDir <path>` | where the build inputs are kept. Defaults to `$env:AGENCY_BUILD_CACHE`, then `%LOCALAPPDATA%\agency-build-cache`. |
+
+### Build inputs, pinned and cached
+
+Three things in the installer are not built from this repository. Each is
+**pinned** in `packaging/build_installer.ps1` -- version, URL and SHA-256 --
+downloaded **once** into the cache, outside the repository, and checked against
+its hash on every build. A mismatch stops the build: it means the download was
+corrupted or the publisher changed the file, and the pin is not to be moved
+until somebody knows which.
+
+| Input | Pinned | Why |
+| --- | --- | --- |
+| PostgreSQL | EDB Windows x64 binaries zip, **17.11-1** (340 MB) | the private database. Extracted once into the cache; staged without pgAdmin, StackBuilder, docs, symbols, headers or PostgreSQL's own `test_*` programs -- 135 MB left. |
+| WinSW | **2.12.0**, `WinSW-x64.exe` | runs `agency-server.exe serve` as the service `AgencyPlatformServer`. 3.x is still alpha. |
+| Visual C++ runtime | 2015-2022 x64, **14.44.35211** | the client and the compiled server need it. The versioned URL `aka.ms/vs/17/release/vc_redist.x64.exe` redirected to on 2026-09-24, because the aka.ms link moves with every Visual Studio release. Setup runs it only when the machine's runtime is missing or older. |
+
+To move one forward, change the three values together and build once with
+network access. The cache is shared by every checkout and worktree on the
+machine; deleting it only costs the next build a download.
 
 **Budget memory, not time.** This is the constraint that actually bites: the
 compile was killed outright on a 16 GB machine with an IDE open, which leaves no
@@ -58,7 +81,8 @@ jobs.
 | Nuitka | compiles the backend | `cd backend; uv sync --group build` |
 | A C compiler | Nuitka emits C | MSVC (Visual Studio Build Tools). Nuitka offers to fetch MinGW if none is found; `--assume-yes-for-downloads` accepts. |
 | Flutter SDK | the desktop client | `cd desktop; flutter build windows --release` |
-| Inno Setup 6 | the installer | `winget install --id JRSoftware.InnoSetup` |
+| Inno Setup 6.3+ | the installer | `winget install --id JRSoftware.InnoSetup` (a per-user winget install under `%LOCALAPPDATA%\Programs` is found too) |
+| Internet, once | the build inputs above | only when the cache does not have them yet |
 
 `uv sync --group build` is deliberately separate from `--group dev`. The build
 group belongs on a build machine; the dev group belongs on a developer's; and a
@@ -186,6 +210,37 @@ decompiled, and not worth the fragility.
 
 ---
 
+## What Setup does
+
+`packaging/AgencyPlatform.iss` places files and asks one question; everything
+done to the machine itself is `packaging/server_setup.ps1`, whose exit code and
+output the `.iss` reads, and which calls `install.ps1 -ConfigureOnly` for the
+configuration rather than repeating it.
+
+| When | What |
+| --- | --- |
+| Before anything | refuses anything but 64-bit Windows 10/11, less than 4 GB of memory or 3 GB free on the system drive, and a **downgrade** (the installed version is read from the uninstall key) |
+| The question | **This PC: server and app** (default), with **Allow other PCs on this network to connect** (default off), or **App only**, which asks for the server's address and tests its `/health` |
+| Server, fresh | `initdb` into `C:\ProgramData\Agency Platform\pgdata` with a generated superuser password (a pwfile, deleted after; kept admin-only in `setup-superuser.tmp` only until configuration succeeds, so a re-run can finish a failed one); port 5433, `localhost` or also this PC's private subnets; logs to `logs\database\postgresql-%Y-%m-%d.log`; `pg_ctl register` as `AgencyPlatformDB` (NetworkService, automatic). Then `install.ps1 -ConfigureOnly -RequireNoFirms`: `.env` for localhost:5433 with `AGENCY_LOG_DIRECTORY` under ProgramData, `create-database`, `migrate-all --yes`, `firm-count` which must print 0. Then WinSW registers `AgencyPlatformServer`, `sc.exe` moves it to the virtual account `NT SERVICE\AgencyPlatformServer` with failure restarts at 10/30/60 s and a dependency on `AgencyPlatformDB`, the firewall rule (TCP 8000, private profile) if the box was ticked, and a wait of up to 90 s for `/health`. The sign-in goes to the finished page (with **Copy**) and to `first-login.txt`, Administrators and SYSTEM only |
+| Server, upgrade | **before any file is replaced**: stop the service, `pg_dump -Fc` every store `migrate-all --dry-run` lists on this PC to `backups\pre-upgrade-<old>-<stamp>\`, stop the database; a failed dump stops the upgrade with nothing changed. After: no initdb, no new password -- start the database, `migrate-all --yes`, start the service, check `/health` |
+| App only | writes `server_url` into `{app}\config\branding.json`; no PostgreSQL, no backend, no service |
+| Either | installs the bundled Visual C++ runtime when the machine's is missing or older |
+| Uninstall | stops and removes both services and the firewall rule, removes the program, and asks *Also delete all data (database, backups, logs)?*, default **No** |
+
+**Why a virtual account for the server.** `NT SERVICE\AgencyPlatformServer`
+exists only for this service, has no password to manage, and can touch only
+what Setup grants it: modify on `logs\` and `storage\`, read on `config\.env`.
+WinSW itself installs services as LocalSystem, so Setup changes the account
+afterwards with `sc.exe config obj=`, which is Windows' own documented route and
+needs nothing from WinSW. The database runs as NetworkService, as the PostgreSQL
+project's own installer does.
+
+Every run writes
+`C:\ProgramData\Agency Platform\logs\install\install-<version>-<yyyymmdd-HHmmss>.log`
+-- Setup's own lines, everything the scripts printed, and Inno Setup's log
+appended at the end -- and keeps the last ten. The administrator password never
+reaches it.
+
 ## What an install creates
 
 **In the database: the platform store and nothing else.** A fresh install runs
@@ -235,6 +290,13 @@ It refuses a tree containing:
 4. mypy, pytest, black, ruff or coverage anywhere in the bundle
 5. the known development passwords: `DemoAdmin@12345`, `Fixture@2026pw`,
    `Password@123`
+6. seeders, demo tooling, fixtures and tests, **by name whatever the
+   extension**: `generate_sample_data`, `generate_transaction_history`,
+   `seed_multi_firm_demo`, `seed_tax_sample_data`, `seed_finance_defaults`,
+   `verify_sample_data`, `reset_tenancy_layout`, `conftest`, anything with
+   `fixture` in its name, and `test_*` / `*_test`. Unlike check 1 it stays on
+   under `-SkipCompile`. It is why the staged PostgreSQL drops its own
+   `test_cloexec.exe` and `test_decoding.dll`.
 
 It is runnable on its own against any directory, which is the point — pointing
 it at an *installed* copy on a customer machine answers "what did we actually
@@ -296,14 +358,17 @@ things.
    seconds. Catches a file that should not ship.
 2. **A full build** — compile included. Catches a module Nuitka could not find,
    which is most of what goes wrong.
-3. **Install it on this machine.** Confirm the Start Menu entry, Add/Remove
-   Programs showing the publisher and version, and that the client reaches the
-   backend.
-4. **Install it again over the top.** `config\.env`, `logs\` and `storage\`
-   must survive, and the database must be untouched.
-5. **Uninstall.** The program goes; the database, the logs and the firm's
-   attachments stay. Removing those is a deliberate act by somebody who means
-   it.
+3. **Install it on a machine you can rebuild** -- since round 1 Setup creates
+   services, a firewall rule and a database cluster, so a development machine is
+   no longer a harmless place to try it. Confirm both services in
+   `services.msc`, the Start Menu entry, Add/Remove Programs showing the
+   publisher and version, and that the client reaches the backend.
+4. **Install a newer build over the top.** A `backups\pre-upgrade-*` folder
+   appears with one dump per store; `config\.env`, `pgdata\`, `logs\` and
+   `storage\` survive; no new password is shown.
+5. **Uninstall**, once answering **No** and once **Yes**. With No the program
+   and both services go and the data stays; with Yes `C:\ProgramData\Agency
+   Platform` goes too.
 6. **A clean virtual machine with no Python** — `where python` finds nothing.
    This is the only test that proves the compile was worth doing, and the only
    one that catches a dependency the build machine happened to have.

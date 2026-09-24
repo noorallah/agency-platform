@@ -17,6 +17,7 @@ class BrandingConfig {
     required this.copyright,
     required this.loginBackgroundColor,
     required this.loginAccentColor,
+    this.serverUrl = '',
   });
 
   final String appName;
@@ -31,6 +32,14 @@ class BrandingConfig {
   final String copyright;
   final Color loginBackgroundColor;
   final Color loginAccentColor;
+
+  /// The server this installation was pointed at, or empty.
+  ///
+  /// Written by Setup -- `http://127.0.0.1:8000` on the server PC, the typed
+  /// address on an app-only PC -- into the one file beside the executable, so
+  /// it holds for every Windows user of the machine. A user's own choice in
+  /// Application Settings still wins; this is the default they start from.
+  final String serverUrl;
 
   File? get logoFile => _existingFile(logoPath);
   File? get splashFile => _existingFile(splashPath);
@@ -119,6 +128,7 @@ class BrandingConfig {
       copyright: value('copyright'),
       loginBackgroundColor: _color(value('login_background_color')),
       loginAccentColor: _color(value('login_accent_color')),
+      serverUrl: optionalPath('server_url'),
     );
   }
 

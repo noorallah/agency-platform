@@ -397,6 +397,14 @@ class _LoginScreenState extends State<LoginScreen> {
                     icon: const Icon(Icons.bug_report_outlined),
                     label: const Text('Diagnostics report'),
                   ),
+                  const SizedBox(height: AppSpacing.sm),
+                  // The server's, the database's and this client's logs, in
+                  // one folder on an installed copy.
+                  OutlinedButton.icon(
+                    onPressed: DiagnosticsShare.openLogsFolder,
+                    icon: const Icon(Icons.folder_open_outlined),
+                    label: const Text('Open logs folder'),
+                  ),
                   if (CrashReporter.previousSessionEndedUnexpectedly)
                     Padding(
                       padding: const EdgeInsets.only(top: AppSpacing.sm),

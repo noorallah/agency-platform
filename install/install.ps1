@@ -62,6 +62,18 @@
   so that configuration has one implementation rather than a second copy living
   inside an installer script.
 
+.PARAMETER LogDirectory
+  Where the server writes its logs: AGENCY_LOG_DIRECTORY in the config\.env
+  this run writes. The Windows installer passes
+  C:\ProgramData\Agency Platform\logs, so the logs live beside the data rather
+  than under a read-only Program Files. Only used when config\.env is written.
+
+.PARAMETER RequireNoFirms
+  Refuse to finish unless `agency-server firm-count` prints 0 after the
+  migrations. The Windows installer passes it on a fresh install: a database
+  that already holds firms is not one this install created, and carrying on
+  would put a new configuration in front of somebody else's data.
+
 .PARAMETER DryRun
   Report every step and change nothing. Run this first on a machine you care
   about.
@@ -101,6 +113,8 @@ param(
   [string]$InstallDir,
   [switch]$ConfigureOnly,
   [switch]$SkipStart,
+  [string]$LogDirectory,
+  [switch]$RequireNoFirms,
   [switch]$DryRun
 )
 
@@ -548,6 +562,10 @@ if (Test-Path $script:EnvPath) {
       '^AGENCY_DATABASE_NAME=' { "AGENCY_DATABASE_NAME=$DatabaseName"; break }
       '^AGENCY_DATABASE_USERNAME=' { "AGENCY_DATABASE_USERNAME=$AppDatabaseUser"; break }
       '^# AGENCY_DATABASE_PORT=' { "AGENCY_DATABASE_PORT=$DatabasePort"; break }
+      '^AGENCY_LOG_DIRECTORY=' {
+        if ($LogDirectory) { "AGENCY_LOG_DIRECTORY=$LogDirectory" } else { $_ }
+        break
+      }
       default { $_ }
     }
   }
@@ -683,6 +701,23 @@ if ($DryRun) {
   Invoke-Agency -Arguments @('migrate-all', '--yes')
   if ($LASTEXITCODE -ne 0) { Stop-Install 'One or more stores failed to migrate.' 'The output above names which. Fix it and run this again -- it reports every store rather than stopping at the first.' }
   Write-Done 'every store is at head'
+
+  if ($RequireNoFirms) {
+    # A fresh install must find an empty registry. "Could not tell" is an
+    # error, never a zero: firm-count exits non-zero rather than printing
+    # anything when it cannot read the database.
+    $counted = @(Invoke-Agency -Arguments @('firm-count'))
+    if ($LASTEXITCODE -ne 0) {
+      Stop-Install 'Could not count the firms in the database.' ($counted -join "`n")
+    }
+    $firms = ($counted | ForEach-Object { "$_".Trim() } | Where-Object { $_ -match '^\d+$' } |
+      Select-Object -Last 1)
+    if ($firms -ne '0') {
+      Stop-Install "This database already holds $firms firm(s), so it is not a fresh install." `
+        'Setup will not put a new configuration in front of existing data. Restore that installation''s config\.env, or use an empty database.'
+    }
+    Write-Done 'the database holds no firm -- a fresh install'
+  }
 }
 
 # -- 6. Demo data (optional) ------------------------------------------------

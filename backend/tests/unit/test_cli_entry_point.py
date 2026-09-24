@@ -35,6 +35,8 @@ _CALLERS = [
     ["firm-count"],
     ["purge-retention", "--dry-run"],
     ["serve", "--host", "0.0.0.0", "--port", "8000"],
+    # The Windows service definition server_setup.ps1 writes for WinSW.
+    ["serve", "--host", "127.0.0.1", "--port", "8000"],
     ["serve", "--host", "127.0.0.1", "--port", "8000", "--reload"],
     [
         "serve",
@@ -113,11 +115,14 @@ def test_the_application_root_is_overridable() -> None:
             os.environ["AGENCY_APPLICATION_ROOT"] = previous
 
 
-#: The two scripts a customer machine runs. Everything they invoke has to
-#: exist in a build with no interpreter and no .py files.
+#: The scripts a customer machine runs. Everything they invoke has to exist in
+#: a build with no interpreter and no .py files. server_setup.ps1 is what the
+#: Windows installer runs to create the database, the services and the
+#: pre-upgrade backup, and it calls agency-server by subcommand like the others.
 _SHIPPED_SCRIPTS = (
     _REPO_ROOT / "install" / "install.ps1",
     _REPO_ROOT / "backend" / "scripts" / "start_backend.ps1",
+    _REPO_ROOT / "packaging" / "server_setup.ps1",
 )
 
 #: Ways of running Python that a built copy does not have. `sys.executable -m
