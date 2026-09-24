@@ -72,6 +72,7 @@ class _Api extends ApiClient {
   Future<PagedResult<LedgerAccount>> ledgerAccounts({
     String? accountGroupId,
     bool? isActive,
+    bool openToHandJournals = false,
   }) async =>
       PagedResult(items: [
         _account('a-1200', '1200', 'Inventory', 'ASSET'),

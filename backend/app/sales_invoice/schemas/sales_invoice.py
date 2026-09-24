@@ -468,6 +468,7 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     grand_total: Decimal
     approved_at: datetime | None
     closed_at: datetime | None
+    cancelled_at: datetime | None = None
     cancel_reason: str | None
     close_reason: str | None
     is_deleted: bool

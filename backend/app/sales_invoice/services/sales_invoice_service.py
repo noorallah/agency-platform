@@ -1119,6 +1119,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         before = row.status
         row.status = SalesInvoiceStatus.CANCELLED.value
         row.cancel_reason = reason
+        row.cancelled_at = utc_now()
         row.updated_by = actor_id
         if before == SalesInvoiceStatus.DRAFT.value and row.allow_direct_sales_order:
             self._withdraw_unshipped_notes(

@@ -998,6 +998,7 @@ class SettlementService(TransactionalDocumentService):
                     reference_number=f"{row.settlement_number}-REV",
                     remarks=reason,
                     commit=False,
+                    on=mirror.journal_date,
                 )
         if self.DIRECTION == SettlementDirection.RECEIPT:
             # The money is going back, so the tax collected on it goes back

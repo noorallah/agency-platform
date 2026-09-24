@@ -146,6 +146,9 @@ class SalesInvoice(BaseEntity):
     )
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    #: When it was cancelled, so an ageing as of an earlier day still
+    #: counts what was owed then (D-FIN-21).
+    cancelled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancel_reason: Mapped[str | None] = mapped_column(Text)
     close_reason: Mapped[str | None] = mapped_column(Text)
 

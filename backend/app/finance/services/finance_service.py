@@ -7,6 +7,7 @@ posting lives in :mod:`app.finance.services.journal_engine` and reporting in
 
 from collections.abc import Sequence
 from datetime import date
+from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import Select, func, or_, select
@@ -49,6 +50,43 @@ from app.finance.services.control_accounts import (
     PURPOSE_LABELS,
     ControlAccountService,
 )
+
+#: The editable fields each finance master's audit row records, before and
+#: after (D-FIN-13). The rows recorded ``name`` and ``is_active`` whatever was
+#: edited, so ticking an account's cost-centre requirement left two rows that
+#: read the same on both sides.
+PERIOD_AUDIT_FIELDS = ("code", "name", "description", "starts_on", "ends_on", "status")
+GROUP_AUDIT_FIELDS = (
+    "name",
+    "description",
+    "parent_group_id",
+    "sort_order",
+    "is_active",
+)
+ACCOUNT_AUDIT_FIELDS = (
+    "name",
+    "description",
+    "account_group_id",
+    "is_balance_sheet",
+    "is_profit_loss",
+    "requires_cost_center",
+    "requires_profit_center",
+    "is_active",
+)
+CENTRE_AUDIT_FIELDS = ("name", "description", "is_active")
+
+
+def audit_snapshot(row: object, fields: Sequence[str]) -> dict[str, object]:
+    """Return the named fields of a row as JSON-safe values for an audit row."""
+    snapshot: dict[str, object] = {}
+    for name in fields:
+        value = getattr(row, name)
+        if isinstance(value, UUID | Decimal):
+            value = str(value)
+        elif isinstance(value, date):
+            value = value.isoformat()
+        snapshot[name] = value
+    return snapshot
 
 
 class FinanceService:
@@ -332,7 +370,7 @@ class FinanceService:
         # A locked year freezes every period in it, reopening included -- the
         # lock is what makes a filed year's figures final (D-FIN-3).
         self._refuse_locked_year(period.financial_year_id, firm_id=firm_id)
-        before: dict[str, object] = {"status": period.status, "name": period.name}
+        before = audit_snapshot(period, PERIOD_AUDIT_FIELDS)
         # A locked period is frozen: the only edit it accepts is being reopened.
         # Compare on the stored string so the schema and model enums cannot drift.
         locked = period.status == PeriodStatus.LOCKED.value
@@ -356,6 +394,7 @@ class FinanceService:
             period.starts_on = starts_on
             period.ends_on = ends_on
         if data.status is not None:
+            self._assert_period_order(period, status=data.status.value, firm_id=firm_id)
             period.status = data.status.value
         period.updated_by = actor_id
         record_audit(
@@ -366,10 +405,95 @@ class FinanceService:
             actor_id=actor_id,
             firm_id=firm_id,
             before_data=before,
-            after_data={"status": period.status, "name": period.name},
+            after_data=audit_snapshot(period, PERIOD_AUDIT_FIELDS),
         )
         self._session.flush()
         return period
+
+    def delete_accounting_period(
+        self, period_id: UUID, *, firm_id: UUID, actor_id: UUID
+    ) -> None:
+        """Soft delete one accounting period that holds no journals (D-FIN-15).
+
+        No endpoint deleted a period, so a year that had any could never be
+        deleted either -- its own delete asks for its periods to go first.
+        A period anything was written into keeps its place.
+        """
+        period = self.get_accounting_period(period_id, firm_id=firm_id)
+        self._refuse_locked_year(period.financial_year_id, firm_id=firm_id)
+        journals = self._session.scalar(
+            select(func.count())
+            .select_from(JournalEntry)
+            .where(
+                JournalEntry.accounting_period_id == period.id,
+                JournalEntry.is_deleted.is_(False),
+            )
+        )
+        if journals:
+            raise ValidationError(
+                f"Accounting period {period.code} holds {journals} journal "
+                f"entr{'y' if journals == 1 else 'ies'}, so it cannot be deleted."
+            )
+        self._soft_delete(period, actor_id=actor_id)
+        record_audit(
+            self._session,
+            action="finance.accounting_period.deleted",
+            entity_type="accounting_period",
+            entity_id=period.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            before_data=audit_snapshot(period, PERIOD_AUDIT_FIELDS),
+        )
+        self._session.flush()
+
+    def _assert_period_order(
+        self, period: AccountingPeriod, *, status: str, firm_id: UUID
+    ) -> None:
+        """Close periods oldest first and reopen them newest first (D-FIN-15).
+
+        A posting carries its movement into every later period's stored
+        balance, so with periods closed in any order a closed month still
+        moved whenever an earlier open one was posted into. Decided by the
+        usual convention: a period closes only once every earlier one is
+        closed, and reopens only while every later one is open.
+        """
+        if status == period.status:
+            return
+        opening = status == PeriodStatus.OPEN.value
+        base = self._active(select(AccountingPeriod), AccountingPeriod, firm_id)
+        if opening:
+            blocker = self._session.scalar(
+                base.where(
+                    AccountingPeriod.starts_on > period.ends_on,
+                    AccountingPeriod.status != PeriodStatus.OPEN.value,
+                )
+                .order_by(AccountingPeriod.starts_on.desc())
+                .limit(1)
+            )
+            if blocker is not None:
+                raise ValidationError(
+                    f"{blocker.code}, which comes after it, is "
+                    f"{blocker.status.lower()}. Reopen the later periods "
+                    f"first, newest first, before reopening {period.code}."
+                )
+            return
+        if period.status != PeriodStatus.OPEN.value:
+            # CLOSED to LOCKED, or back: the period is shut either way.
+            return
+        blocker = self._session.scalar(
+            base.where(
+                AccountingPeriod.ends_on < period.starts_on,
+                AccountingPeriod.status == PeriodStatus.OPEN.value,
+            )
+            .order_by(AccountingPeriod.starts_on.asc())
+            .limit(1)
+        )
+        if blocker is not None:
+            raise ValidationError(
+                f"{blocker.code}, which comes before it, is still open. Close "
+                f"the earlier periods first, oldest first, before closing "
+                f"{period.code}."
+            )
 
     # ------------------------------------------------------------------
     # Account groups
@@ -441,11 +565,26 @@ class FinanceService:
     ) -> AccountGroup:
         """Apply a partial update to one account group."""
         group = self.get_account_group(group_id, firm_id=firm_id)
-        before = {"name": group.name, "is_active": group.is_active}
+        before = audit_snapshot(group, GROUP_AUDIT_FIELDS)
         if data.parent_group_id is not None:
             if data.parent_group_id == group.id:
                 raise ValidationError("An account group cannot be its own parent.")
-            self.get_account_group(data.parent_group_id, firm_id=firm_id)
+            parent = self.get_account_group(data.parent_group_id, firm_id=firm_id)
+            # D-FIN-15: the create asked this and the edit did not, so a group
+            # could move under another type, or under its own descendant --
+            # a loop no report walking the tree would ever leave.
+            if parent.account_type != group.account_type:
+                raise ValidationError(
+                    "An account group must share its parent's account type."
+                )
+            ancestor: AccountGroup | None = parent
+            while ancestor is not None and ancestor.parent_group_id is not None:
+                if ancestor.parent_group_id == group.id:
+                    raise ValidationError(
+                        f"{parent.code} sits under {group.code}, so it cannot "
+                        f"also be {group.code}'s parent."
+                    )
+                ancestor = self._session.get(AccountGroup, ancestor.parent_group_id)
             group.parent_group_id = data.parent_group_id
         if data.name is not None:
             group.name = data.name
@@ -464,7 +603,7 @@ class FinanceService:
             actor_id=actor_id,
             firm_id=firm_id,
             before_data=before,
-            after_data={"name": group.name, "is_active": group.is_active},
+            after_data=audit_snapshot(group, GROUP_AUDIT_FIELDS),
         )
         self._session.flush()
         return group
@@ -561,7 +700,7 @@ class FinanceService:
     ) -> LedgerAccount:
         """Apply a partial update to one ledger account."""
         account = self.get_ledger_account(account_id, firm_id=firm_id)
-        before = {"name": account.name, "is_active": account.is_active}
+        before = audit_snapshot(account, ACCOUNT_AUDIT_FIELDS)
         if data.account_group_id is not None:
             group = self.get_account_group(data.account_group_id, firm_id=firm_id)
             if group.account_type != account.account_type:
@@ -607,7 +746,7 @@ class FinanceService:
             actor_id=actor_id,
             firm_id=firm_id,
             before_data=before,
-            after_data={"name": account.name, "is_active": account.is_active},
+            after_data=audit_snapshot(account, ACCOUNT_AUDIT_FIELDS),
         )
         self._session.flush()
         return account
@@ -668,6 +807,7 @@ class FinanceService:
         )
         if centre is None:
             raise ResourceNotFoundError("Cost centre not found.")
+        before = audit_snapshot(centre, CENTRE_AUDIT_FIELDS)
         if data.name is not None:
             centre.name = data.name
         if data.description is not None:
@@ -682,7 +822,8 @@ class FinanceService:
             entity_id=centre.id,
             actor_id=actor_id,
             firm_id=firm_id,
-            after_data={"name": centre.name, "is_active": centre.is_active},
+            before_data=before,
+            after_data=audit_snapshot(centre, CENTRE_AUDIT_FIELDS),
         )
         self._session.flush()
         return centre
@@ -739,6 +880,7 @@ class FinanceService:
         )
         if centre is None:
             raise ResourceNotFoundError("Profit centre not found.")
+        before = audit_snapshot(centre, CENTRE_AUDIT_FIELDS)
         if data.name is not None:
             centre.name = data.name
         if data.description is not None:
@@ -753,7 +895,8 @@ class FinanceService:
             entity_id=centre.id,
             actor_id=actor_id,
             firm_id=firm_id,
-            after_data={"name": centre.name, "is_active": centre.is_active},
+            before_data=before,
+            after_data=audit_snapshot(centre, CENTRE_AUDIT_FIELDS),
         )
         self._session.flush()
         return centre

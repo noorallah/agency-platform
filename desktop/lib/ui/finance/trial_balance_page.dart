@@ -240,10 +240,16 @@ class _TrialBalancePageState extends State<TrialBalancePage> {
               DataColumn(label: Text('Code')),
               DataColumn(label: Text('Account')),
               DataColumn(label: Text('Type')),
-              DataColumn(label: Text('Opening'), numeric: true),
+              // The standard layout (D-FIN-18): opening and closing each
+              // split by side, the movement between them, every column
+              // totalled. The Total row used to put closing balances under
+              // the movement columns.
+              DataColumn(label: Text('Opening Dr'), numeric: true),
+              DataColumn(label: Text('Opening Cr'), numeric: true),
               DataColumn(label: Text('Debit'), numeric: true),
               DataColumn(label: Text('Credit'), numeric: true),
-              DataColumn(label: Text('Closing'), numeric: true),
+              DataColumn(label: Text('Closing Dr'), numeric: true),
+              DataColumn(label: Text('Closing Cr'), numeric: true),
             ],
             rows: [
               for (final TrialBalanceLine line in _report.lines)
@@ -251,10 +257,12 @@ class _TrialBalancePageState extends State<TrialBalancePage> {
                   DataCell(Text(line.accountCode)),
                   DataCell(Text(line.accountName)),
                   DataCell(Text(line.accountType)),
-                  DataCell(Text(line.openingBalance)),
+                  DataCell(Text(line.openingDebit)),
+                  DataCell(Text(line.openingCredit)),
                   DataCell(Text(line.periodDebit)),
                   DataCell(Text(line.periodCredit)),
-                  DataCell(Text(line.closingBalance)),
+                  DataCell(Text(line.closingDebit)),
+                  DataCell(Text(line.closingCredit)),
                 ]),
                   DataRow(
                     color: WidgetStatePropertyAll(
@@ -264,10 +272,12 @@ class _TrialBalancePageState extends State<TrialBalancePage> {
                       const DataCell(Text('')),
                       const DataCell(Text('Total')),
                       const DataCell(Text('')),
-                      const DataCell(Text('')),
+                      DataCell(Text(_report.totalOpeningDebit)),
+                      DataCell(Text(_report.totalOpeningCredit)),
+                      DataCell(Text(_report.totalPeriodDebit)),
+                      DataCell(Text(_report.totalPeriodCredit)),
                       DataCell(Text(_report.totalDebit)),
                       DataCell(Text(_report.totalCredit)),
-                      const DataCell(Text('')),
                     ],
                   ),
                 ],

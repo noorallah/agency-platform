@@ -171,10 +171,15 @@ class TestReassign:
         session.commit()
 
         assert service.resolve(firm.id, ControlAccountPurpose.INVENTORY) == stock.id
-        row = session.scalar(
-            select(AuditLog).where(AuditLog.action == "control_account.assigned")
+        # The seed's own mappings are audited too since D-FIN-13, so the
+        # re-pointing is the row that names the new account.
+        row = next(
+            audit
+            for audit in session.scalars(
+                select(AuditLog).where(AuditLog.action == "control_account.assigned")
+            ).all()
+            if (audit.after_data or {}).get("ledger_account_id") == str(stock.id)
         )
-        assert row is not None
         assert row.after_data is not None
         assert row.after_data["purpose"] == "INVENTORY"
         assert row.before_data is not None

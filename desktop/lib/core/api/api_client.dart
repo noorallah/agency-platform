@@ -3284,6 +3284,10 @@ class ApiClient {
         FinancialYear.fromJson,
       );
 
+  /// Delete a period nothing was written into (D-FIN-15).
+  Future<void> deleteAccountingPeriod(String id) =>
+      request('DELETE', '/api/v1/finance/accounting-periods/$id');
+
   /// Open or close one period.
   Future<AccountingPeriod> setPeriodStatus(String id, String status) async =>
       AccountingPeriod.fromJson(
@@ -4779,9 +4783,13 @@ class ApiClient {
   // The list endpoints return a plain list rather than a page, so they are
   // wrapped into a `PagedResult` here instead of pretending the server paginates.
 
+  /// [openToHandJournals] asks the server to leave out every account a
+  /// hand journal is refused on -- the sub-ledger and CONTROL accounts -- so
+  /// the journal editor offers only what it can save (D-FIN-20).
   Future<PagedResult<LedgerAccount>> ledgerAccounts({
     String? accountGroupId,
     bool? isActive,
+    bool openToHandJournals = false,
   }) async {
     final Json response = await request(
       'GET',
@@ -4789,6 +4797,7 @@ class ApiClient {
       query: {
         if (accountGroupId != null) 'account_group_id': accountGroupId,
         if (isActive != null) 'is_active': '$isActive',
+        if (openToHandJournals) 'open_to_hand_journals': 'true',
       },
     );
     final List<LedgerAccount> items =
@@ -5151,6 +5160,34 @@ class ApiClient {
       JournalEntry.fromJson(
         _unwrapMap(
           await request('POST', '/api/v1/finance/journal-entries', body: data),
+        ),
+      );
+
+  /// Edit a hand-written draft; `lines`, when sent, replaces them all.
+  Future<JournalEntry> updateJournalEntry(String id, Json data) async =>
+      JournalEntry.fromJson(
+        _unwrapMap(
+          await request(
+            'PATCH',
+            '/api/v1/finance/journal-entries/$id',
+            body: data,
+          ),
+        ),
+      );
+
+  /// Delete a hand-written draft. Its reference stays taken.
+  Future<void> deleteJournalEntry(String id) =>
+      request('DELETE', '/api/v1/finance/journal-entries/$id');
+
+  /// Turn a hand-written draft away at review. It stays on record, final.
+  Future<JournalEntry> rejectJournalEntry(String id, {String? reason}) async =>
+      JournalEntry.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/finance/journal-entries/$id/reject',
+            body: {if (reason != null && reason.isNotEmpty) 'reason': reason},
+          ),
         ),
       );
 

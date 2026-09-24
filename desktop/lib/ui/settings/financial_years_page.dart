@@ -51,6 +51,10 @@ class _FinancialYearsPageState extends State<FinancialYearsPage> {
       widget.permissions.hasPermission('FINANCIAL_YEAR_CLOSE') ||
       widget.permissions.hasPermission('FINANCIAL_YEAR_REOPEN');
 
+  /// Deleting an empty period is gated like the year's own delete.
+  bool get _canDelete =>
+      widget.permissions.hasPermission('FINANCIAL_YEAR_CREATE');
+
   @override
   void initState() {
     super.initState();
@@ -99,6 +103,47 @@ class _FinancialYearsPageState extends State<FinancialYearsPage> {
         if (period.financialYearId == year.id) period,
     ]..sort((a, b) => a.periodNumber.compareTo(b.periodNumber));
     return rows;
+  }
+
+  /// Delete a period nothing was written into (D-FIN-15). Without it a
+  /// year that had periods could never be deleted.
+  Future<void> _deletePeriod(AccountingPeriod period) async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Delete ${period.name}?'),
+        content: const Text(
+          'Only a period that holds no journal entries can be deleted.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: const Text('Delete'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _loading = true);
+    try {
+      await widget.api.deleteAccountingPeriod(period.id);
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        '${period.name} deleted.',
+        kind: AppNotificationKind.success,
+      );
+      await _load();
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      setState(() => _error = exception.message);
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
   }
 
   Future<void> _setStatus(AccountingPeriod period, String status) async {
@@ -239,6 +284,12 @@ class _FinancialYearsPageState extends State<FinancialYearsPage> {
                 child: Text(isOpen ? 'Close' : 'Open'),
               ),
             ],
+            if (_canDelete && !year.isLocked)
+              IconButton(
+                tooltip: 'Delete period',
+                onPressed: () => unawaited(_deletePeriod(period)),
+                icon: const Icon(Icons.delete_outline),
+              ),
           ]),
         );
       },

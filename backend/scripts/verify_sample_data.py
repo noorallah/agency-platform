@@ -21,6 +21,11 @@ demo -- each one is a defect that shipped, not a hypothetical:
   ledger is the state the module exists to prevent.
 * **Every approved invoice posted.** Posting is meant to fail the approval
   rather than be skipped, so an approved invoice with no journal means it was.
+* **TCS and loyalty payable against their sub-ledgers**, and **payables and
+  GRNI moved by their documents alone** (D-FIN-16).
+
+Every sum is taken **per firm**. The shared store holds several firms, and a
+store-wide sum let one firm's difference cancel another's (D-FIN-16).
 
 It reports every store rather than stopping at the first failure, and exits
 non-zero if any check failed -- the same shape as `migrate_all_stores.py`,
@@ -77,6 +82,8 @@ class _Result:
     checked: int = 0
     failures: list[str] = field(default_factory=list)
     skipped: str | None = None
+    #: Firm id to code, so a message in the shared store names its firm.
+    firm_names: dict[str, str] = field(default_factory=dict)
 
 
 def _stores(platform: DatabaseManager, settings: Settings) -> list[_Store]:
@@ -132,11 +139,21 @@ def _stores(platform: DatabaseManager, settings: Settings) -> list[_Store]:
     return list(stores.values())
 
 
-def _check_store(store: _Store) -> _Result:
+def _firm_names(platform: DatabaseManager) -> dict[str, str]:
+    """Return every firm's code by id, read from the platform registry."""
+    schema = platform.config.default_schema or "platform"
+    with platform.sessions(schema=schema).session() as session:
+        return {
+            str(firm_id): code
+            for firm_id, code in session.execute(select(Firm.id, Firm.code)).all()
+        }
+
+
+def _check_store(store: _Store, firm_names: dict[str, str] | None = None) -> _Result:
     """Run every check against one store."""
     from sqlalchemy import create_engine
 
-    result = _Result(label=store.label)
+    result = _Result(label=store.label, firm_names=dict(firm_names or {}))
     engine = create_engine(store.database_url)
     with engine.connect() as connection:
         connection.execute(text(f'SET search_path TO "{store.schema_name}"'))
@@ -154,54 +171,83 @@ def _check_store(store: _Store) -> _Result:
         _every_period_balances(connection, result)
         _balances_are_chained(connection, result)
         _customers_against_the_ledger(connection, result)
+        # Both tables arrived later than the rest; an older store lacks them.
+        for table, check in (
+            ("tcs_collections", _tcs_against_the_ledger),
+            ("loyalty_entries", _loyalty_against_the_ledger),
+        ):
+            if connection.execute(
+                text(
+                    "SELECT COUNT(*) FROM information_schema.tables "
+                    "WHERE table_schema = :schema AND table_name = :table"
+                ),
+                {"schema": store.schema_name, "table": table},
+            ).scalar():
+                check(connection, result)
+        _payables_moved_by_documents(connection, result)
         _settlements_reached_the_ledger(connection, result)
         _approved_invoices_posted(connection, result)
     engine.dispose()
     return result
 
 
-def _control_balance(connection: object, purpose: str) -> Decimal | None:
-    """Return what the firm's account for one purpose currently holds."""
-    row = connection.execute(  # type: ignore[attr-defined]
+def _control_balances(connection: object, purpose: str) -> dict[str, Decimal]:
+    """Return what each firm's account for one purpose holds, debit positive.
+
+    Keyed by firm, because a store-wide sum let one firm's drift cancel
+    another's in the shared store (D-FIN-16). A firm with no mapping for the
+    purpose is absent.
+    """
+    rows = connection.execute(  # type: ignore[attr-defined]
         text(
-            "SELECT COALESCE(SUM(p.debit_amount - p.credit_amount), 0) "
-            "FROM gl_postings p "
-            "JOIN firm_control_accounts c "
-            "  ON c.ledger_account_id = p.ledger_account_id "
-            " AND c.is_deleted = false AND c.purpose = :purpose "
-            "WHERE p.is_deleted = false"
+            "SELECT c.firm_id, COALESCE(SUM(p.debit_amount - p.credit_amount), 0) "
+            "FROM firm_control_accounts c "
+            "LEFT JOIN gl_postings p "
+            "  ON p.ledger_account_id = c.ledger_account_id "
+            " AND p.firm_id = c.firm_id AND p.is_deleted = false "
+            "WHERE c.is_deleted = false AND c.purpose = :purpose "
+            "GROUP BY c.firm_id"
         ),
         {"purpose": purpose},
-    ).scalar()
-    return None if row is None else Decimal(str(row))
+    ).all()
+    return {str(firm_id): Decimal(str(value)) for firm_id, value in rows}
+
+
+def _per_firm(connection: object, sql: str) -> dict[str, Decimal]:
+    """Run a ``SELECT firm_id, amount ... GROUP BY firm_id`` into a dict."""
+    return {
+        str(firm_id): Decimal(str(value or 0))
+        for firm_id, value in connection.execute(text(sql)).all()  # type: ignore[attr-defined]
+    }
+
+
+def _firm(result: _Result, firm_id: str) -> str:
+    """Name a firm in a message, by code where the registry gave one."""
+    return result.firm_names.get(firm_id, firm_id[:8])
 
 
 def _stock_against_the_ledger(connection: object, result: _Result) -> None:
-    """Stock value and the inventory control account must agree."""
+    """Stock value and the inventory control account must agree, per firm."""
     result.checked += 1
-    stock = Decimal(
-        str(
-            connection.execute(  # type: ignore[attr-defined]
-                text(
-                    "SELECT COALESCE(SUM(total_value), 0) FROM product_valuations "
-                    "WHERE is_deleted = false"
-                )
-            ).scalar()
-        )
+    stock = _per_firm(
+        connection,
+        "SELECT firm_id, COALESCE(SUM(total_value), 0) FROM product_valuations "
+        "WHERE is_deleted = false GROUP BY firm_id",
     )
-    ledger = _control_balance(connection, "INVENTORY")
-    if ledger is None:
-        return
-    drift = stock - ledger
-    if abs(drift) > ROUNDING_TOLERANCE:
-        result.failures.append(
-            f"stock value {stock} against inventory account {ledger}, "
-            f"out by {drift} -- a movement changed stock without posting"
-            f"{_unmirrored_receipt_note(connection, drift)}"
-        )
+    ledger = _control_balances(connection, "INVENTORY")
+    for firm_id in sorted(ledger):
+        held = stock.get(firm_id, Decimal("0"))
+        drift = held - ledger[firm_id]
+        if abs(drift) > ROUNDING_TOLERANCE:
+            result.failures.append(
+                f"{_firm(result, firm_id)}: stock value {held} against inventory "
+                f"account {ledger[firm_id]}, out by {drift} -- a movement "
+                "changed stock without posting"
+                f"{_unmirrored_receipt_note(connection, drift, firm_id)}"
+            )
 
 
-def _unmirrored_receipt_note(connection: object, drift: Decimal) -> str:
+def _unmirrored_receipt_note(connection: object, drift: Decimal, firm_id: str) -> str:
     """Name the usual cause when the numbers say it is the usual cause.
 
     Cancelling a completed goods receipt reversed the stock and left the
@@ -219,7 +265,7 @@ def _unmirrored_receipt_note(connection: object, drift: Decimal) -> str:
             "FROM inventory_transactions t "
             "JOIN stock_ledger_entries s "
             "  ON s.transaction_id = t.id AND s.is_deleted = false "
-            "WHERE t.is_deleted = false "
+            "WHERE t.is_deleted = false AND t.firm_id = :firm_id "
             "  AND t.transaction_type = 'GOODS_RECEIPT_REVERSAL' "
             "  AND NOT EXISTS ("
             "    SELECT 1 FROM journal_entries j "
@@ -228,7 +274,8 @@ def _unmirrored_receipt_note(connection: object, drift: Decimal) -> str:
             "       AND j.is_deleted = false "
             "       AND j.reversal_of_id IS NOT NULL "
             "       AND g.grn_number = t.reference_number)"
-        )
+        ),
+        {"firm_id": firm_id},
     ).scalar()
     value = Decimal(str(unmirrored or 0))
     if value == 0:
@@ -321,25 +368,112 @@ def _customers_against_the_ledger(connection: object, result: _Result) -> None:
     advance to hand back.
     """
     result.checked += 1
-    owed, advance = (
-        Decimal(str(value))
-        for value in connection.execute(  # type: ignore[attr-defined]
-            text(
-                "SELECT COALESCE(SUM(current_outstanding), 0), "
-                "COALESCE(SUM(unapplied_advance_balance), 0) "
-                "FROM customers WHERE is_deleted = false"
-            )
-        ).one()
+    owed = _per_firm(
+        connection,
+        "SELECT firm_id, COALESCE(SUM(current_outstanding), 0) FROM customers "
+        "WHERE is_deleted = false GROUP BY firm_id",
     )
-    ledger = _control_balance(connection, "ACCOUNTS_RECEIVABLE")
-    if ledger is None:
-        return
-    drift = owed - advance - ledger
-    if abs(drift) > ROUNDING_TOLERANCE:
-        held = f" less {advance} of advances" if advance else ""
+    advances = _per_firm(
+        connection,
+        "SELECT firm_id, COALESCE(SUM(unapplied_advance_balance), 0) "
+        "FROM customers WHERE is_deleted = false GROUP BY firm_id",
+    )
+    ledger = _control_balances(connection, "ACCOUNTS_RECEIVABLE")
+    for firm_id in sorted(ledger):
+        balance = owed.get(firm_id, Decimal("0"))
+        advance = advances.get(firm_id, Decimal("0"))
+        drift = balance - advance - ledger[firm_id]
+        if abs(drift) > ROUNDING_TOLERANCE:
+            held = f" less {advance} of advances" if advance else ""
+            result.failures.append(
+                f"{_firm(result, firm_id)}: customers owe {balance}{held} against "
+                f"receivable account {ledger[firm_id]}, out by {drift} -- a "
+                "balance moved without a journal"
+            )
+
+
+def _tcs_against_the_ledger(connection: object, result: _Result) -> None:
+    """TCS collected must be what the collections posted to TCS payable.
+
+    Only the collections' own journals are compared: paying the tax over to
+    the government is a hand journal on the same account, and is meant to
+    reduce it.
+    """
+    result.checked += 1
+    collected = _per_firm(
+        connection,
+        "SELECT firm_id, COALESCE(SUM(tcs_amount), 0) FROM tcs_collections "
+        "WHERE is_deleted = false AND status = 'COLLECTED' GROUP BY firm_id",
+    )
+    posted = _per_firm(
+        connection,
+        "SELECT c.firm_id, COALESCE(SUM(p.credit_amount - p.debit_amount), 0) "
+        "FROM firm_control_accounts c "
+        "JOIN gl_postings p ON p.ledger_account_id = c.ledger_account_id "
+        " AND p.firm_id = c.firm_id AND p.is_deleted = false "
+        "JOIN journal_entries j ON j.id = p.journal_entry_id "
+        " AND j.source_module = 'tcs' "
+        "WHERE c.is_deleted = false AND c.purpose = 'TCS_PAYABLE' "
+        "GROUP BY c.firm_id",
+    )
+    for firm_id in sorted(set(collected) | set(posted)):
+        drift = collected.get(firm_id, Decimal("0")) - posted.get(firm_id, Decimal("0"))
+        if abs(drift) > ROUNDING_TOLERANCE:
+            result.failures.append(
+                f"{_firm(result, firm_id)}: TCS collected "
+                f"{collected.get(firm_id, Decimal('0'))} against "
+                f"{posted.get(firm_id, Decimal('0'))} posted to TCS payable, "
+                f"out by {drift}"
+            )
+
+
+def _loyalty_against_the_ledger(connection: object, result: _Result) -> None:
+    """Points held must be worth what the loyalty payable account owes."""
+    result.checked += 1
+    held = _per_firm(
+        connection,
+        "SELECT firm_id, COALESCE(SUM(CASE WHEN points > 0 THEN amount "
+        "ELSE -amount END), 0) FROM loyalty_entries WHERE is_deleted = false "
+        "GROUP BY firm_id",
+    )
+    ledger = _control_balances(connection, "LOYALTY_PAYABLE")
+    for firm_id in sorted(ledger):
+        owes = -ledger[firm_id]
+        drift = held.get(firm_id, Decimal("0")) - owes
+        if abs(drift) > ROUNDING_TOLERANCE:
+            result.failures.append(
+                f"{_firm(result, firm_id)}: points held are worth "
+                f"{held.get(firm_id, Decimal('0'))} against loyalty payable "
+                f"{owes}, out by {drift}"
+            )
+
+
+def _payables_moved_by_documents(connection: object, result: _Result) -> None:
+    """Payables and GRNI must move only through the documents that keep them.
+
+    Re-deriving either from the documents is a report of its own; what this
+    asks is the way they have actually drifted -- a journal written by hand
+    on an account a sub-ledger keeps (D-FIN-11), which moves the ledger with
+    nothing underneath it.
+    """
+    result.checked += 1
+    rows = connection.execute(  # type: ignore[attr-defined]
+        text(
+            "SELECT c.firm_id, c.purpose, COUNT(DISTINCT j.id) "
+            "FROM firm_control_accounts c "
+            "JOIN gl_postings p ON p.ledger_account_id = c.ledger_account_id "
+            " AND p.firm_id = c.firm_id AND p.is_deleted = false "
+            "JOIN journal_entries j ON j.id = p.journal_entry_id "
+            " AND j.source_module IS NULL "
+            "WHERE c.is_deleted = false "
+            "  AND c.purpose IN ('ACCOUNTS_PAYABLE', 'GOODS_RECEIVED_NOT_INVOICED') "
+            "GROUP BY c.firm_id, c.purpose"
+        )
+    ).all()
+    for firm_id, purpose, journals in rows:
         result.failures.append(
-            f"customers owe {owed}{held} against receivable account {ledger}, "
-            f"out by {drift} -- a balance moved without a journal"
+            f"{_firm(result, str(firm_id))}: {journals} hand journal(s) moved "
+            f"{purpose.replace('_', ' ').lower()}, which only its documents may"
         )
 
 
@@ -396,11 +530,12 @@ def main() -> int:
     settings = Settings()
     platform = DatabaseManager.from_settings(settings)
     stores = _stores(platform, settings)
+    firm_names = _firm_names(platform)
     print(f"{len(stores)} store(s) to check.\n")
 
     failed = 0
     for store in stores:
-        result = _check_store(store)
+        result = _check_store(store, firm_names)
         if result.skipped is not None:
             print(f"  {result.label}: skipped -- {result.skipped}")
             continue

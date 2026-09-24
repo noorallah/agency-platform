@@ -1130,6 +1130,7 @@ class CustomerService:
         reference_number: str | None = None,
         remarks: str | None = None,
         commit: bool = True,
+        on: date | None = None,
     ) -> CustomerReceivableTransaction:
         """Undo one receivable transaction by its own recorded deltas.
 
@@ -1147,6 +1148,8 @@ class CustomerService:
             remarks: Why it was reversed.
             commit: Whether to commit, so a caller inside a larger unit of
                 work can keep the whole thing atomic.
+            on: The day the reversal carries -- the caller's mirror journal
+                date, which is what the statement must agree with (D-FIN-17).
 
         Returns:
             The reversal row.
@@ -1197,7 +1200,7 @@ class CustomerService:
             amount=original.amount,
             outstanding_delta=-original.outstanding_delta,
             advance_delta=-original.advance_delta,
-            transaction_date=original.transaction_date,
+            transaction_date=on or self._reversal_date(original),
             reference_type="reversal",
             reference_id=original.id,
             reference_number=reference_number or original.reference_number,
@@ -1221,6 +1224,30 @@ class CustomerService:
         if commit:
             self._session.commit()
         return row
+
+    def _reversal_date(self, original: CustomerReceivableTransaction) -> date:
+        """Return the day a reversal row carries: the day of its journal.
+
+        It carried the original's date (D-FIN-17), so a statement already sent
+        for a month changed when something in it was cancelled later, and
+        never agreed with 1100 at that month end. The mirror journal is dated
+        the day it happened; the row takes that date when the original's
+        journal has been reversed, and otherwise the same rule the journal
+        engine applies -- today, never before the original.
+        """
+        if original.journal_entry_id is not None:
+            mirrored = self._session.scalar(
+                select(JournalEntry.journal_date)
+                .where(
+                    JournalEntry.reversal_of_id == original.journal_entry_id,
+                    JournalEntry.is_deleted.is_(False),
+                )
+                .order_by(JournalEntry.created_at.desc())
+                .limit(1)
+            )
+            if mirrored is not None:
+                return mirrored
+        return max(utc_now().date(), original.transaction_date)
 
     def _record_receivable_transaction(
         self,
