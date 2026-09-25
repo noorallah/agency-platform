@@ -66,6 +66,7 @@ from app.products.models import Product
 from app.uom.models import ConversionRule
 from app.uom.services.uom_service import (
     assert_quantity_fits_unit,
+    missing_conversion_message,
     quantize_by_rule,
     round_by_rule,
 )
@@ -4027,7 +4028,12 @@ class InventoryService:
         ).first()
         if rule is None:
             raise ValidationError(
-                "No active conversion rule is configured for the selected UOM."
+                missing_conversion_message(
+                    self._session,
+                    product_id=product_id,
+                    from_uom_id=entered_uom_id,
+                    to_uom_id=target_uom_id,
+                )
             )
         # The rule's own rounding, which the line was stored with.
         base_quantity = round_by_rule(entered, rule)
