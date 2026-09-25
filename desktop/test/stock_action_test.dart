@@ -48,7 +48,9 @@ void main() {
       );
     });
 
-    test('no reference, because the movement has to be findable later', () {
+    // D-QA-16: a blank reference is numbered by the server, so it is no
+    // longer a reason to refuse; a one-character one still is.
+    test('no reference is fine: the server numbers the movement', () {
       expect(
         validateStockAction(
           action: StockAction.writeOff,
@@ -56,7 +58,19 @@ void main() {
           available: 10,
           reference: '',
         ),
-        contains('reference'),
+        isNull,
+      );
+    });
+
+    test('a reference too short for the server', () {
+      expect(
+        validateStockAction(
+          action: StockAction.writeOff,
+          quantity: '5',
+          available: 10,
+          reference: 'X',
+        ),
+        contains('two characters'),
       );
     });
 

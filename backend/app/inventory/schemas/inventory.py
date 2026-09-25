@@ -471,7 +471,8 @@ class StockWriteOffCreate(InventorySchema):
     quantity: Decimal = Field(gt=0, max_digits=18)
     entered_quantity: Decimal | None = Field(default=None, gt=0, max_digits=18)
     entered_uom_id: UUID | None = None
-    reference_number: str = Field(min_length=2, max_length=80)
+    #: Optional: left out, the movement is numbered from its series (D-QA-16).
+    reference_number: str | None = Field(default=None, min_length=2, max_length=80)
     transaction_date: date
     remarks: str | None = None
 
@@ -499,7 +500,8 @@ class StockQuarantineCreate(InventorySchema):
     batch_id: UUID | None = None
     action: QuarantineAction
     quantity: Decimal = Field(gt=0, max_digits=18)
-    reference_number: str = Field(min_length=2, max_length=80)
+    #: Optional: left out, the movement is numbered from its series (D-QA-16).
+    reference_number: str | None = Field(default=None, min_length=2, max_length=80)
     transaction_date: date
     remarks: str | None = None
 
@@ -527,7 +529,8 @@ class StockTransferCreate(InventorySchema):
     quantity: Decimal = Field(gt=0, max_digits=18)
     entered_quantity: Decimal | None = Field(default=None, gt=0, max_digits=18)
     entered_uom_id: UUID | None = None
-    reference_number: str = Field(min_length=2, max_length=80)
+    #: Optional: left out, the movement is numbered from its series (D-QA-16).
+    reference_number: str | None = Field(default=None, min_length=2, max_length=80)
     transaction_date: date
     remarks: str | None = None
 
@@ -557,7 +560,8 @@ class InventoryAdjustmentCreate(InventorySchema):
     quantity: Decimal = Field(max_digits=18)
     entered_quantity: Decimal | None = Field(default=None, max_digits=18)
     entered_uom_id: UUID | None = None
-    reference_number: str = Field(min_length=2, max_length=80)
+    #: Optional: left out, the movement is numbered from its series (D-QA-16).
+    reference_number: str | None = Field(default=None, min_length=2, max_length=80)
     reference_type: str = Field(default="ADJUSTMENT", min_length=2, max_length=40)
     transaction_date: date
     remarks: str | None = None

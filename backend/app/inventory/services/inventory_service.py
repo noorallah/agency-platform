@@ -61,6 +61,7 @@ from app.inventory.schemas import (
     StockTransferCreate,
     StockWriteOffCreate,
 )
+from app.inventory.services.movement_numbering import MovementNumbering
 from app.products.models import Product
 from app.uom.models import ConversionRule
 from app.uom.services.uom_service import (
@@ -1407,7 +1408,9 @@ class InventoryService:
         # somebody already doubted it, so it is the likeliest thing going.
         from_quarantine = min(base_quantity, inventory.quarantine_quantity)
         from_current = base_quantity - from_quarantine
-        reference = data.reference_number.strip().upper()
+        reference = self._movement_reference(
+            data, "WRITE_OFF", firm_id=firm_scope, actor_id=actor_id
+        )
         reason = data.reason.value
         narration = (
             f"{reason.title()}: {data.remarks}"
@@ -1526,7 +1529,9 @@ class InventoryService:
                     else InventoryTransactionType.QUARANTINE_RELEASE.value
                 ),
                 batch_id=data.batch_id,
-                reference_number=data.reference_number.strip().upper(),
+                reference_number=self._movement_reference(
+                    data, "QUARANTINE", firm_id=firm_scope, actor_id=actor_id
+                ),
                 reference_type="QUARANTINE",
                 transaction_date=data.transaction_date,
                 quantity=data.quantity,
@@ -1631,7 +1636,9 @@ class InventoryService:
         held_average = self.valuation_for(
             firm_scope=firm_scope, product_id=data.product_id
         ).average_cost
-        reference = data.reference_number.strip().upper()
+        reference = self._movement_reference(
+            data, "TRANSFER", firm_id=firm_scope, actor_id=actor_id
+        )
         outbound = self._stage_movement(
             source,
             actor_id=actor_id,
@@ -1742,13 +1749,24 @@ class InventoryService:
         none of the others behind. Committing per adjustment left a sheet
         still DRAFT beside stock and journals it had already moved (D-STK-3).
         """
+        # Filled once here, so the movement and its journal carry the same
+        # number rather than each drawing one.
+        data = data.model_copy(
+            update={
+                "reference_number": self._movement_reference(
+                    data, "ADJUSTMENT", firm_id=firm_scope, actor_id=actor_id
+                )
+            }
+        )
         transaction, value_delta = self.stage_adjustment_movement(
             data, firm_scope=firm_scope, actor_id=actor_id
         )
         DocumentPostingService(self._session).post_stock_adjustment(
             firm_id=firm_scope,
             transaction_id=transaction.id,
-            reference_number=data.reference_number.strip().upper(),
+            reference_number=self._movement_reference(
+                data, "ADJUSTMENT", firm_id=firm_scope, actor_id=actor_id
+            ),
             transaction_date=data.transaction_date,
             value_delta=value_delta,
             actor_id=actor_id,
@@ -1810,7 +1828,9 @@ class InventoryService:
             movement=_Movement(
                 transaction_type=InventoryTransactionType.ADJUSTMENT.value,
                 batch_id=data.batch_id,
-                reference_number=data.reference_number.strip().upper(),
+                reference_number=self._movement_reference(
+                    data, "ADJUSTMENT", firm_id=firm_scope, actor_id=actor_id
+                ),
                 reference_type=data.reference_type.strip().upper(),
                 transaction_date=data.transaction_date,
                 quantity=abs(base_quantity),
@@ -3830,6 +3850,31 @@ class InventoryService:
         )
         if warehouse is None:
             raise ValidationError("Warehouse does not belong to the selected branch.")
+
+    def _movement_reference(
+        self,
+        data: (
+            StockWriteOffCreate
+            | StockQuarantineCreate
+            | StockTransferCreate
+            | InventoryAdjustmentCreate
+        ),
+        kind: str,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> str:
+        """Return the typed reference, or the next number of ``kind``'s series.
+
+        Returns what was typed whenever something was, so calling it again on a
+        movement already numbered hands back the same number (D-QA-16).
+        """
+        return MovementNumbering(self._session, kind).reference(
+            data.reference_number,
+            firm_id=firm_id,
+            on=data.transaction_date,
+            actor_id=actor_id,
+        )
 
     def _assert_unique_opening_reference(
         self, firm_id: UUID, reference_number: str, excluding_id: UUID | None = None

@@ -76,7 +76,8 @@ void main() {
     );
     await tester.pumpAndSettle();
     await tester.enterText(find.widgetWithText(TextField, 'Quantity'), '10');
-    await tester.enterText(find.widgetWithText(TextField, 'Reference'), 'TRF-1');
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Reference (optional)'), 'TRF-1');
     await tester.tap(find.text('Move it to'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('WHL_DC - Bulk').last);

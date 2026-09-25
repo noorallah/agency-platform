@@ -2180,3 +2180,111 @@ def test_a_reversal_is_dated_when_the_goods_moved_back() -> None:
     stock = session.get(InventoryRecord, receipt.inventory_id)
     assert stock is not None
     assert stock.last_transaction_at == reversal.transaction_date
+
+
+def test_a_movement_left_unnumbered_takes_the_next_number_of_its_series() -> None:
+    """A transfer with no typed reference is numbered, both legs alike (D-QA-16).
+
+    Every other document took its number from a series while a stock movement
+    made the user invent one, so references were ad hoc and could repeat.
+    """
+    session = _session_factory()()
+    firm = _firm(session, "NUMST")
+    profile = _profile(session, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(session, firm, profile)
+    far = Warehouse(
+        firm_id=firm.id,
+        branch_id=branch.id,
+        code="WH-FAR",
+        name="Far Warehouse",
+        display_name="Far Warehouse",
+        created_by=uuid4(),
+        updated_by=uuid4(),
+    )
+    session.add(far)
+    session.commit()
+    actor_id = uuid4()
+    service = InventoryService(session)
+    service.record_goods_receipt(
+        firm_scope=firm.id,
+        actor_id=actor_id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+        storage_node_id=None,
+        product_id=product.id,
+        reference_number="GRN-NUM",
+        transaction_date=date(2026, 8, 1),
+        total_quantity=Decimal("10"),
+        unit_cost=Decimal("15.00"),
+    )
+
+    def transfer() -> tuple[str, str]:
+        outbound, inbound = service.transfer_stock(
+            StockTransferCreate(
+                branch_id=branch.id,
+                from_warehouse_id=warehouse.id,
+                to_warehouse_id=far.id,
+                product_id=product.id,
+                quantity=Decimal("1"),
+                transaction_date=date(2026, 8, 2),
+            ),
+            firm_scope=firm.id,
+            actor_id=actor_id,
+        )
+        return outbound.reference_number, inbound.reference_number
+
+    first_out, first_in = transfer()
+    second_out, _ = transfer()
+
+    assert first_out.startswith("ST"), first_out
+    assert first_in == first_out, "the two legs are one movement"
+    assert second_out != first_out, "the series moves on"
+
+
+def test_an_unnumbered_adjustment_and_its_journal_share_one_number() -> None:
+    """The movement and the journal it posts carry the same issued number."""
+    session = _session_factory()()
+    firm = _firm(session, "NUMADJ")
+    profile = _profile(session, firm.id)
+    branch, warehouse, product = _branch_warehouse_product(session, firm, profile)
+    actor_id = uuid4()
+    seed_finance_setup(
+        session,
+        firm_id=firm.id,
+        year_starts_on=date(2026, 4, 1),
+        actor_id=actor_id,
+    )
+    session.commit()
+    service = InventoryService(session)
+    service.record_goods_receipt(
+        firm_scope=firm.id,
+        actor_id=actor_id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+        storage_node_id=None,
+        product_id=product.id,
+        reference_number="GRN-NUMADJ",
+        transaction_date=date(2026, 8, 1),
+        total_quantity=Decimal("10"),
+        unit_cost=Decimal("20.00"),
+    )
+
+    movement = service.create_adjustment(
+        InventoryAdjustmentCreate(
+            branch_id=branch.id,
+            warehouse_id=warehouse.id,
+            product_id=product.id,
+            quantity=Decimal("-2"),
+            transaction_date=date(2026, 8, 2),
+        ),
+        firm_scope=firm.id,
+        actor_id=actor_id,
+    )
+
+    assert movement.reference_number.startswith("ADJ"), movement.reference_number
+    journals = session.scalar(
+        select(func.count())
+        .select_from(JournalEntry)
+        .where(JournalEntry.reference_number == movement.reference_number)
+    )
+    assert journals == 1, "one number, drawn once, on both records"
