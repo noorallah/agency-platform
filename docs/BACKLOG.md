@@ -3534,3 +3534,32 @@ order, goods receipt, return, stock action) opens with them filled in.
 
 **Depends on:** D-QA-17's fix (an order must name a warehouse before
 approval), which this makes painless rather than replaces.
+
+## 45. A scheduled daily backup (D-QA-4) -- parked, half built
+
+Nothing backs up the database on a schedule: `backups\` fills only when Setup
+runs an upgrade, so a firm that never upgrades has no backup, and a disk
+failure loses everything (D-QA-4, found in the laptop QA round 2026-09-25).
+
+**Built, on branch `fix/d-qa-4-daily-backup` (pushed, not merged):**
+`packaging/server_setup.ps1` shares the pre-upgrade backup's store list and
+dump loop (`Get-BackupPlan`, `Write-StoreDumps`), adds `-Action DailyBackup`
+(an online `pg_dump -Fc` of every store into `backups\daily\<stamp>\`, a
+`.complete` marker, keeps the newest 7, Administrators and SYSTEM only, log in
+`logs\backup\daily-<date>.log`), registers a SYSTEM scheduled task "Agency
+Platform daily backup" at 02:00 with catch-up on every install, upgrade and
+repair, and removes it on uninstall.
+
+**Checked:** the script parses; the failure path (database unreachable) exits
+1 with a clear message, keeps the earlier backups and clears the unfinished
+folder on the next run; the folder ACL is admin-only.
+
+**Still to do before merging:**
+1. A successful run against a live database (the throwaway-cluster test was
+   not finished), including retention with more than `-KeepDaily` runs.
+2. The task registering on a real install: run Setup on the laptop, then
+   `Get-ScheduledTask 'Agency Platform daily backup'` and a manual
+   `Start-ScheduledTask`.
+3. A restore procedure in `docs/INSTALL_GUIDE.md` (stop the server service,
+   `pg_restore --clean --if-exists -d <database> <file>` per store, start it).
+4. Move D-QA-4 to Fixed in `docs/DEFECTS.md`.
