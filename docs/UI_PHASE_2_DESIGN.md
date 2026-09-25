@@ -106,8 +106,8 @@ the same arrangement.
 
 ```
 +----------------------------------------------------------------------------------------+
-| QA01 Traders v | Home  Sell v  Buy v  Stock v  Accounts v  Masters v  Reports v  Admin v |  menu bar 40 px
-|                |                   [ Search or jump to...  Ctrl+K ]  [+ New v] [?] [SN v]|  (one row when wide)
+| Agency | Home  Sell v  Buy v  Stock v  Accounts v  Masters v  Reports v  Admin v         |  menu bar 40 px
+|        |       [ Search or jump to...  Ctrl+K ]  [+ New v]  [QA01 Traders v] [?] [SN v]  |  (one row when wide)
 +----------------------------------------------------------------------------------------+
 | Sales Order SO-QA01-0012 x | Invoices x | Stock Ledger x |                               |  open tabs 32 px
 +----------------------------------------------------------------------------------------+
@@ -122,9 +122,12 @@ the same arrangement.
 +----------------------------------------------------------------------------------------+
 ```
 
-- **Menu bar, 40 px**: firm switcher on the left, then the **eight areas**,
-  then the **command box**, **+ New** (quick create), help and the user menu
-  on the right. On a wide screen it is one row; at 1366 px the command box
+- **Menu bar, 40 px**: the product mark on the left, then the **eight
+  areas**, then the **command box**, **+ New** (quick create), the **firm
+  switcher**, help and the user menu on the right. The firm is changed
+  rarely, so it sits beside the profile rather than first (owner,
+  2026-09-25) -- but it stays **visible**, showing the current firm's name,
+  because working in the wrong firm is the costly mistake. On a wide screen it is one row; at 1366 px the command box
   may sit on the same row in a shorter form. When the window is too narrow
   for all eight, the ones that do not fit fold into **More v**.
 - **No sidebar at all**: the grid gets the full width of the window.
@@ -161,8 +164,8 @@ Clicking **Sell v** in the menu bar drops a panel down over the page, **in
 columns**, not a tree (a "mega menu"):
 
 ```
-| QA01 Traders v | Home  [Sell v]  Buy v  Stock v  Accounts v  Masters v ...
-+----------------+---------------------------------------------------------+
+| Agency | Home  [Sell v]  Buy v  Stock v  Accounts v  Masters v ...
++--------+-----------------------------------------------------------------+
                  | DOCUMENTS            PRICING            FIELD SALES     |
                  |  Quotations           Price Lists        Territories    |
                  |  Sales Orders   *     Promotions         Routes & Beats |
@@ -248,7 +251,7 @@ the page says where you are **three times**:
 The same page in phase 2:
 
 ```
-| QA01 Traders v | Home  Sell v  Buy v  Stock v  Accounts v  [Masters v]  Reports v  Admin v   [Search Ctrl+K] [SN] |
+| Agency | Home  Sell v  Buy v  Stock v  Accounts v  [Masters v]  Reports v  Admin v  [Search Ctrl+K] [QA01 Traders v] [SN] |
 | Customers x | Products x |                                                                                     |
 | Customers   Active 1 | On hold 0 | Over limit 0   [+ filter]   / search          [Groups] [...]  [+ New] |
 |  Code   | Name        | GST             | Phone         | City    | Status  | Credit limit | Balance     |
