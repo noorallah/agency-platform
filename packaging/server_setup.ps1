@@ -81,6 +81,9 @@ $AdminAccount = 'platform-admin@agency.local'
 $SidAdministrators = '*S-1-5-32-544'
 $SidSystem = '*S-1-5-18'
 $SidNetworkService = '*S-1-5-20'
+$SidUsers = '*S-1-5-32-545'
+$SidAuthenticatedUsers = '*S-1-5-11'
+$SidEveryone = '*S-1-1-0'
 $ServiceAccount = "NT SERVICE\$ServerService"
 
 $InstallDir = $InstallDir.TrimEnd('\')
@@ -174,6 +177,39 @@ function Protect-AdminOnly {
   $code = Invoke-Native -File 'icacls.exe' -Quiet -Arguments @(
     $Path, '/inheritance:r', '/grant:r', "${SidAdministrators}:F", "${SidSystem}:F")
   if ($code -ne 0) { Write-Log "  warning: could not restrict $Path" }
+}
+
+function Protect-DataRoot {
+  <#
+    The data folder holds the raw database files, the attachments and every
+    pre-upgrade dump. Left to inherit from ProgramData, every local Windows
+    user can read and create files in it, which reads every firm's data
+    without signing in (D-QA-3). So: nothing inherited, Administrators and
+    SYSTEM full control, and each service granted only the folder it writes.
+    Run on every install and upgrade, so an existing install is corrected too.
+  #>
+  $code = Invoke-Native -File 'icacls.exe' -Quiet -Arguments @(
+    $DataRoot, '/inheritance:r', '/grant:r', "${SidAdministrators}:(OI)(CI)F", "${SidSystem}:(OI)(CI)F")
+  if ($code -ne 0) { Stop-Setup "Could not restrict $DataRoot." ($script:NativeOutput -join ' ') }
+  # Explicit grants an earlier install or another tool may have left. Only
+  # explicit entries are removed; logs\client keeps its own users-modify.
+  foreach ($dir in @($DataRoot, $PgData, $Logs, (Join-Path $DataRoot 'storage'), (Join-Path $DataRoot 'backups'))) {
+    if (-not (Test-Path -LiteralPath $dir)) { continue }
+    Invoke-Native -File 'icacls.exe' -Quiet -Arguments @(
+      $dir, '/remove:g', $SidUsers, $SidAuthenticatedUsers, $SidEveryone) | Out-Null
+  }
+  # Every user's desktop client writes under logs\client (the .iss grants it
+  # users-modify); list-only on logs itself lets the Start-menu "logs"
+  # shortcut open, while the server's and the database's logs stay closed.
+  Grant-Access -Path $Logs -Account $SidUsers -Rights 'RX'
+  Grant-Access -Path (Join-Path $Logs 'client') -Account $SidUsers -Rights '(OI)(CI)M'
+  # The database runs as NetworkService. Initialize-Cluster grants this on a
+  # fresh cluster; repeating it here covers an upgrade whatever its history.
+  if (Test-Path -LiteralPath $PgData) {
+    Grant-Access -Path $PgData -Account $SidNetworkService -Rights '(OI)(CI)M'
+  }
+  Grant-Access -Path (Join-Path $Logs 'database') -Account $SidNetworkService -Rights '(OI)(CI)M'
+  Write-Log "  $DataRoot restricted to Administrators, SYSTEM and the two services"
 }
 
 function Grant-Access {
@@ -532,6 +568,7 @@ function Invoke-Server {
       (Join-Path $DataRoot 'storage'), (Join-Path $DataRoot 'backups'))) {
     New-Item -ItemType Directory -Force -Path $dir | Out-Null
   }
+  Protect-DataRoot
 
   $envExists = Test-Path -LiteralPath $EnvPath
   $hasCluster = Test-Path -LiteralPath (Join-Path $PgData 'PG_VERSION')
