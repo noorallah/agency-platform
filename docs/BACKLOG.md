@@ -3498,3 +3498,39 @@ renewal instead; the installed version keeps working either way.
 **Depends on:** the installer's upgrade and rollback path, licensing (the
 *updates until* date), code signing, and somewhere to host the release feed
 and installers (the same place as the phase 2 licence service).
+
+## 44. A user's own default branch and warehouse
+
+Asked for by the owner on 2026-09-25, during the laptop QA round (W39-W43),
+after a sales order was approved with no warehouse and its stock was reserved
+in an empty one (D-QA-17).
+
+**What exists.** One default per **firm**: `sales_workflow_settings`
+`default_branch_id` / `default_warehouse_id`, plus an `is_default` flag on
+branches and warehouses. Nothing per **user**.
+
+**What is asked.** Each person can set the branch and warehouse they usually
+work from -- a counter clerk at STORE2, a salesman at the head office -- and
+every new document (quotation, sales order, delivery note, invoice, purchase
+order, goods receipt, return, stock action) opens with them filled in.
+
+**Rules, by the usual convention:**
+
+1. **Order of precedence** when a form opens: the source document's own
+   value (a delivery note continues its order's warehouse) -> the user's
+   default -> the firm's default -> blank. A default only **fills** a field; the
+   user can always change it, and nothing is ever chosen silently at save or
+   approval (that is D-QA-17).
+2. **Stored per user per firm** -- a person in two firms has a default in
+   each -- on the server with the other user preferences, so it follows them
+   to another PC. Set from the user's own preferences screen; an administrator
+   may also set it on the user's record.
+3. **Validated on save and on use**: it must be a live branch/warehouse of that
+   firm, and the warehouse must belong to the branch. One that has since been
+   retired is ignored with a notice, not used.
+4. **Not a restriction.** It says where someone usually works, not where they
+   may work. Limiting a user to certain branches or warehouses is a separate
+   access-control feature and should not be smuggled in through this.
+
+**Depends on:** D-QA-17's fix (an order must name a warehouse before
+approval), which this makes painless rather than replaces.
