@@ -29,12 +29,7 @@ import '../workspace/printed_document.dart';
 import '../../models/document_framework.dart';
 
 /// A destination in the Purchases module -- one sidebar entry each.
-enum PurchaseSection {
-  dashboard,
-  purchaseOrders,
-  analytics,
-  settings,
-}
+enum PurchaseSection { dashboard, purchaseOrders, analytics, settings }
 
 /// A named view over the one purchase order list.
 ///
@@ -173,9 +168,9 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
   bool get _canRestore => widget.permissions.hasPermission('PURCHASE_RESTORE');
   bool get _canImport => widget.permissions.hasPermission('PURCHASE_IMPORT');
   bool get _canExport => widget.permissions.hasPermission('PURCHASE_EXPORT');
+
   /// Approving, and closing, both take `PURCHASE_APPROVE`.
-  bool get _canApprove =>
-      widget.permissions.hasPermission('PURCHASE_APPROVE');
+  bool get _canApprove => widget.permissions.hasPermission('PURCHASE_APPROVE');
   bool get _canCancel => widget.permissions.hasPermission('PURCHASE_CANCEL');
 
   static const Map<String, bool> _defaultColumns = <String, bool>{
@@ -285,9 +280,9 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     _visibleColumns = {
       ..._defaultColumns,
       if (raw['visible_columns'] is Map)
-        ...Map<String, dynamic>.from(raw['visible_columns'] as Map).map(
-          (key, value) => MapEntry(key, value == true),
-        ),
+        ...Map<String, dynamic>.from(
+          raw['visible_columns'] as Map,
+        ).map((key, value) => MapEntry(key, value == true)),
     };
     _savedViews = ((raw['saved_views'] as List?) ?? const [])
         .whereType<Map>()
@@ -352,18 +347,27 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     );
     final List<PlatformUser> buyers = await _lookup(
       () => fetchAllPages(
-        (page) => widget.api
-            .users(page: page, search: '', sortBy: 'email', descending: false),
+        (page) => widget.api.users(
+          page: page,
+          search: '',
+          sortBy: 'email',
+          descending: false,
+        ),
       ),
     );
     final List<TaxProfileRecord> taxProfiles = await _lookup(
       () => fetchAllPages(
         (page) => widget.api.taxProfiles(
-            page: page, search: '', sortBy: 'name', descending: false),
+          page: page,
+          search: '',
+          sortBy: 'name',
+          descending: false,
+        ),
       ),
     );
-    final List<UomRecord> uoms =
-        await _lookup(() => widget.api.uoms(includeInactive: false));
+    final List<UomRecord> uoms = await _lookup(
+      () => widget.api.uoms(includeInactive: false),
+    );
     final List<StorageNodeRecord> storageNodes = [];
     for (final WarehouseRecord warehouse in warehouses) {
       try {
@@ -439,7 +443,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         _total = 0;
         _selected = null;
         _selectedIds = <String>{};
-        });
+      });
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -490,9 +494,10 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     final String query = _search.text.trim();
     if (query.isEmpty) return;
     setState(() {
-      _savedSearches = [query, ..._savedSearches.where((item) => item != query)]
-          .take(12)
-          .toList();
+      _savedSearches = [
+        query,
+        ..._savedSearches.where((item) => item != query),
+      ].take(12).toList();
     });
     await _persistPreferences();
     if (!mounted) return;
@@ -540,8 +545,10 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     );
   }
 
-  Future<void> _openEditor(PurchaseDialogMode mode,
-      [PurchaseOrder? seed]) async {
+  Future<void> _openEditor(
+    PurchaseDialogMode mode, [
+    PurchaseOrder? seed,
+  ]) async {
     if (mode == PurchaseDialogMode.create && !_canCreate) return;
     if (mode == PurchaseDialogMode.edit && (!_canUpdate || seed == null)) {
       return;
@@ -707,9 +714,8 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     final _PurchaseExportRequest? request =
         await showDialog<_PurchaseExportRequest>(
       context: context,
-      builder: (_) => _PurchaseExportDialog(
-        hasSelection: _selectedIds.isNotEmpty,
-      ),
+      builder: (_) =>
+          _PurchaseExportDialog(hasSelection: _selectedIds.isNotEmpty),
     );
     if (request == null) return;
     final List<PurchaseOrder> scoped = switch (request.scope) {
@@ -746,20 +752,18 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     final xls.Sheet sheet = workbook['PurchaseOrders'];
     sheet.appendRow(_exportHeaders.map(xls.TextCellValue.new).toList());
     for (final PurchaseOrder item in items) {
-      sheet.appendRow(
-        [
-          xls.TextCellValue(item.poNumber),
-          xls.TextCellValue(_labelForVendor(item.vendorId)),
-          xls.TextCellValue(_labelForBranch(item.branchId)),
-          xls.TextCellValue(_labelForWarehouse(item.warehouseId)),
-          xls.TextCellValue(item.purchaseDate),
-          xls.TextCellValue(item.expectedDeliveryDate),
-          xls.TextCellValue(item.purchaseType),
-          xls.TextCellValue(item.priority),
-          xls.TextCellValue(item.status),
-          xls.TextCellValue(item.grandTotal),
-        ],
-      );
+      sheet.appendRow([
+        xls.TextCellValue(item.poNumber),
+        xls.TextCellValue(_labelForVendor(item.vendorId)),
+        xls.TextCellValue(_labelForBranch(item.branchId)),
+        xls.TextCellValue(_labelForWarehouse(item.warehouseId)),
+        xls.TextCellValue(item.purchaseDate),
+        xls.TextCellValue(item.expectedDeliveryDate),
+        xls.TextCellValue(item.purchaseType),
+        xls.TextCellValue(item.priority),
+        xls.TextCellValue(item.status),
+        xls.TextCellValue(item.grandTotal),
+      ]);
     }
     return workbook.encode() ?? const <int>[];
   }
@@ -799,9 +803,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     final _PurchaseSavedViewSelection? selection =
         await showDialog<_PurchaseSavedViewSelection>(
       context: context,
-      builder: (_) => _ColumnChooserDialog(
-        visibleColumns: _visibleColumns,
-      ),
+      builder: (_) => _ColumnChooserDialog(visibleColumns: _visibleColumns),
     );
     if (selection == null) return;
     setState(() {
@@ -954,8 +956,6 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
       )
       .fullName
       .ifEmpty(id);
-
-
 
   List<PurchaseOrder> get _dashboardRecentOrders => _orders.take(5).toList();
 
@@ -1122,10 +1122,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
             ),
           ),
           const SizedBox(height: 16),
-          SizedBox(
-            height: 420,
-            child: _buildOrdersGrid(showStatusOnly: false),
-          ),
+          SizedBox(height: 420, child: _buildOrdersGrid(showStatusOnly: false)),
         ],
       ),
     );
@@ -1180,11 +1177,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     try {
       final List<int> pdf = await widget.api.purchaseOrderPdf(order.id);
       if (!mounted) return;
-      await printDocument(
-        context,
-        bytes: pdf,
-        documentName: order.poNumber,
-      );
+      await printDocument(context, bytes: pdf, documentName: order.poNumber);
     } on ApiException catch (exception) {
       if (!mounted) return;
       NotificationService.show(
@@ -1224,9 +1217,8 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
       action: widget.onNavigateToSection == null
           ? null
           : FilledButton.tonalIcon(
-              onPressed: () => widget.onNavigateToSection!(
-                PurchaseSection.purchaseOrders,
-              ),
+              onPressed: () =>
+                  widget.onNavigateToSection!(PurchaseSection.purchaseOrders),
               icon: const Icon(Icons.shopping_cart_outlined),
               label: const Text('Open Purchase Orders'),
             ),
@@ -1262,9 +1254,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
               child: Card(
                 clipBehavior: Clip.antiAlias,
                 child: _savedViews.isEmpty
-                    ? const Center(
-                        child: Text('No saved purchase views.'),
-                      )
+                    ? const Center(child: Text('No saved purchase views.'))
                     : ListView.separated(
                         itemCount: _savedViews.length,
                         separatorBuilder: (_, __) => const Divider(height: 1),
@@ -1336,13 +1326,19 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     try {
       await action();
       if (!mounted) return;
-      NotificationService.show(context, done,
-          kind: AppNotificationKind.success);
+      NotificationService.show(
+        context,
+        done,
+        kind: AppNotificationKind.success,
+      );
       await _load();
     } on ApiException catch (exception) {
       if (!mounted) return;
-      NotificationService.show(context, exception.message,
-          kind: AppNotificationKind.error);
+      NotificationService.show(
+        context,
+        exception.message,
+        kind: AppNotificationKind.error,
+      );
     }
   }
 
@@ -1362,8 +1358,10 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     // 2026-08-16 nothing performed those steps: the status was whatever the
     // creator typed, so SUBMITTED could not be reached and the Open Orders
     // tab was empty for every firm.
-    final bool canSubmitSelected =
-        selected != null && !selected.isDeleted && selected.isDraft && _canUpdate;
+    final bool canSubmitSelected = selected != null &&
+        !selected.isDeleted &&
+        selected.isDraft &&
+        _canUpdate;
     final bool canApproveSelected = selected != null &&
         !selected.isDeleted &&
         selected.isSubmitted &&
@@ -1431,8 +1429,10 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
               ? null
               : () => _requestStatusAction(
                     title: 'Cancel purchase order',
-                    action: (reason) => widget.api
-                        .cancelPurchaseOrder(selected.id, reason: reason),
+                    action: (reason) => widget.api.cancelPurchaseOrder(
+                      selected.id,
+                      reason: reason,
+                    ),
                     successMessage: 'Purchase order cancelled.',
                   ),
           icon: const Icon(Icons.cancel_outlined),
@@ -1447,8 +1447,10 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
               ? null
               : () => _requestStatusAction(
                     title: 'Close purchase order',
-                    action: (reason) => widget.api
-                        .closePurchaseOrder(selected.id, reason: reason),
+                    action: (reason) => widget.api.closePurchaseOrder(
+                      selected.id,
+                      reason: reason,
+                    ),
                     successMessage: 'Purchase order closed.',
                   ),
           icon: const Icon(Icons.task_alt_outlined),
@@ -1530,10 +1532,8 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
               },
               itemBuilder: (_) => _recentSearches
                   .map(
-                    (entry) => PopupMenuItem<String>(
-                      value: entry,
-                      child: Text(entry),
-                    ),
+                    (entry) =>
+                        PopupMenuItem<String>(value: entry, child: Text(entry)),
                   )
                   .toList(),
               child: const Icon(Icons.history),
@@ -1554,9 +1554,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
                 : _savedSearches
                     .map(
                       (entry) => PopupMenuItem<String>(
-                        value: entry,
-                        child: Text(entry),
-                      ),
+                          value: entry, child: Text(entry)),
                     )
                     .toList(),
             child: const Icon(Icons.bookmark_outline),
@@ -1601,10 +1599,12 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
               label: 'Vendor',
               value: _vendorId,
               items: _vendors
-                  .map((item) => DropdownMenuItem<String>(
-                        value: item.id,
-                        child: Text(item.displayName.ifEmpty(item.name)),
-                      ))
+                  .map(
+                    (item) => DropdownMenuItem<String>(
+                      value: item.id,
+                      child: Text(item.displayName.ifEmpty(item.name)),
+                    ),
+                  )
                   .toList(),
               onChanged: (value) => setState(() => _vendorId = value),
             ),
@@ -1625,10 +1625,12 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
               label: 'Branch',
               value: _branchId,
               items: _branches
-                  .map((item) => DropdownMenuItem<String>(
-                        value: item.id,
-                        child: Text(item.displayName.ifEmpty(item.name)),
-                      ))
+                  .map(
+                    (item) => DropdownMenuItem<String>(
+                      value: item.id,
+                      child: Text(item.displayName.ifEmpty(item.name)),
+                    ),
+                  )
                   .toList(),
               onChanged: (value) => setState(() => _branchId = value),
             ),
@@ -1636,10 +1638,12 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
               label: 'Warehouse',
               value: _warehouseId,
               items: _warehouses
-                  .map((item) => DropdownMenuItem<String>(
-                        value: item.id,
-                        child: Text(item.displayName.ifEmpty(item.name)),
-                      ))
+                  .map(
+                    (item) => DropdownMenuItem<String>(
+                      value: item.id,
+                      child: Text(item.displayName.ifEmpty(item.name)),
+                    ),
+                  )
                   .toList(),
               onChanged: (value) => setState(() => _warehouseId = value),
             ),
@@ -1647,10 +1651,12 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
               label: 'Buyer',
               value: _buyerId,
               items: _buyers
-                  .map((item) => DropdownMenuItem<String>(
-                        value: item.id,
-                        child: Text(item.fullName.ifEmpty(item.email)),
-                      ))
+                  .map(
+                    (item) => DropdownMenuItem<String>(
+                      value: item.id,
+                      child: Text(item.fullName.ifEmpty(item.email)),
+                    ),
+                  )
                   .toList(),
               onChanged: (value) => setState(() => _buyerId = value),
             ),
@@ -1996,8 +2002,7 @@ class PurchaseOrderEditorDialog extends StatefulWidget {
 
   bool get isReadOnly => mode == PurchaseDialogMode.view;
   bool get isCreating =>
-      mode == PurchaseDialogMode.create ||
-      mode == PurchaseDialogMode.duplicate;
+      mode == PurchaseDialogMode.create || mode == PurchaseDialogMode.duplicate;
 
   @override
   State<PurchaseOrderEditorDialog> createState() =>
@@ -2010,11 +2015,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
     try {
       final List<int> pdf = await widget.api.purchaseOrderPdf(order.id);
       if (!mounted) return;
-      await printDocument(
-        context,
-        bytes: pdf,
-        documentName: order.poNumber,
-      );
+      await printDocument(context, bytes: pdf, documentName: order.poNumber);
     } on ApiException catch (exception) {
       if (!mounted) return;
       NotificationService.show(
@@ -2050,11 +2051,32 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
   Future<List<PurchaseOrderHistoryRecord>>? _loadHistory() =>
       _draft.id.isEmpty ? null : widget.api.purchaseOrderHistory(_draft.id);
 
+  /// The firm's default branch, else the first listed.
+  ///
+  /// The branch's default warehouse is what the goods are received into, so
+  /// it is what a new order names; the first of the list was the newest
+  /// warehouse, whatever the firm had marked default (D-QA-17). The first
+  /// remains only for a firm that has marked none, because this form shows
+  /// the first item of an unset field and would otherwise display a
+  /// warehouse the order does not hold.
+  String _defaultBranchId() =>
+      preferredBranchId(widget.branches) ??
+      widget.branches.firstOrNull?.id ??
+      '';
+
+  String _defaultWarehouseId(String branchId) =>
+      preferredWarehouseId(
+        widget.warehouses,
+        branchId: branchId.isEmpty ? null : branchId,
+      ) ??
+      widget.warehouses.firstOrNull?.id ??
+      '';
+
   PurchaseOrder _blankOrder() => PurchaseOrder(
         id: '',
         firmId: '',
-        branchId: widget.branches.firstOrNull?.id ?? '',
-        warehouseId: widget.warehouses.firstOrNull?.id ?? '',
+        branchId: _defaultBranchId(),
+        warehouseId: _defaultWarehouseId(_defaultBranchId()),
         vendorId: widget.vendors.firstOrNull?.id ?? '',
         buyerId: widget.buyers.firstOrNull?.id ?? '',
         taxProfileId: '',
@@ -2133,12 +2155,8 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
         lines: source.lines
             .asMap()
             .entries
-            .map(
-              (entry) => entry.value.copyWith(
-                id: '',
-                lineNumber: entry.key + 1,
-              ),
-            )
+            .map((entry) =>
+                entry.value.copyWith(id: '', lineNumber: entry.key + 1))
             .toList(),
         deliverySchedules: source.deliverySchedules
             .map((item) => item.copyWith(id: ''))
@@ -2302,8 +2320,9 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
                               ? const SizedBox(
                                   width: 16,
                                   height: 16,
-                                  child:
-                                      CircularProgressIndicator(strokeWidth: 2),
+                                  child: CircularProgressIndicator(
+                                    strokeWidth: 2,
+                                  ),
                                 )
                               : const Icon(Icons.save_outlined),
                           label: Text(_saving ? 'Saving...' : 'Save'),
@@ -2320,134 +2339,144 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
   }
 
   Widget _buildGeneralTab() => Wrap(
-          spacing: 16,
-          runSpacing: 16,
-          children: [
-            _dropdownField(
-              label: 'Vendor',
-              value: _draft.vendorId,
-              readOnly: widget.isReadOnly,
-              items: widget.vendors
-                  .map((item) => DropdownMenuItem<String>(
-                        value: item.id,
-                        child: Text(item.displayName.ifEmpty(item.name)),
-                      ))
-                  .toList(),
-              onChanged: (value) =>
-                  setState(() => _draft = _draft.copyWith(vendorId: value)),
+        spacing: 16,
+        runSpacing: 16,
+        children: [
+          _dropdownField(
+            label: 'Vendor',
+            value: _draft.vendorId,
+            readOnly: widget.isReadOnly,
+            items: widget.vendors
+                .map(
+                  (item) => DropdownMenuItem<String>(
+                    value: item.id,
+                    child: Text(item.displayName.ifEmpty(item.name)),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) =>
+                setState(() => _draft = _draft.copyWith(vendorId: value)),
+          ),
+          _dropdownField(
+            label: 'Branch',
+            value: _draft.branchId,
+            readOnly: widget.isReadOnly,
+            items: widget.branches
+                .map(
+                  (item) => DropdownMenuItem<String>(
+                    value: item.id,
+                    child: Text(item.displayName.ifEmpty(item.name)),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) =>
+                setState(() => _draft = _draft.copyWith(branchId: value)),
+          ),
+          _dropdownField(
+            label: 'Warehouse',
+            value: _draft.warehouseId,
+            readOnly: widget.isReadOnly,
+            items: widget.warehouses
+                .map(
+                  (item) => DropdownMenuItem<String>(
+                    value: item.id,
+                    child: Text(item.displayName.ifEmpty(item.name)),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) =>
+                setState(() => _draft = _draft.copyWith(warehouseId: value)),
+          ),
+          _dropdownField(
+            label: 'Buyer',
+            value: _draft.buyerId,
+            readOnly: widget.isReadOnly,
+            items: widget.buyers
+                .map(
+                  (item) => DropdownMenuItem<String>(
+                    value: item.id,
+                    child: Text(item.fullName.ifEmpty(item.email)),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) =>
+                setState(() => _draft = _draft.copyWith(buyerId: value)),
+          ),
+          _dropdownField(
+            label: 'Purchase Type',
+            value: _draft.purchaseType,
+            readOnly: widget.isReadOnly,
+            items: _PurchaseManagementPageState._purchaseTypes
+                .map(
+                  (item) => DropdownMenuItem<String>(
+                    value: item,
+                    child: Text(item.replaceAll('_', ' ')),
+                  ),
+                )
+                .toList(),
+            onChanged: (value) =>
+                setState(() => _draft = _draft.copyWith(purchaseType: value)),
+          ),
+          _textField(
+            label: 'Reference Number',
+            value: _draft.referenceNumber,
+            readOnly: widget.isReadOnly,
+            onChanged: (value) => setState(
+                () => _draft = _draft.copyWith(referenceNumber: value)),
+          ),
+          _textField(
+            label: 'Purchase Date',
+            value: _draft.purchaseDate,
+            readOnly: widget.isReadOnly,
+            onChanged: (value) =>
+                setState(() => _draft = _draft.copyWith(purchaseDate: value)),
+          ),
+          _textField(
+            label: 'Expected Delivery',
+            value: _draft.expectedDeliveryDate,
+            readOnly: widget.isReadOnly,
+            onChanged: (value) => setState(
+              () => _draft = _draft.copyWith(expectedDeliveryDate: value),
             ),
-            _dropdownField(
-              label: 'Branch',
-              value: _draft.branchId,
-              readOnly: widget.isReadOnly,
-              items: widget.branches
-                  .map((item) => DropdownMenuItem<String>(
-                        value: item.id,
-                        child: Text(item.displayName.ifEmpty(item.name)),
-                      ))
-                  .toList(),
-              onChanged: (value) =>
-                  setState(() => _draft = _draft.copyWith(branchId: value)),
-            ),
-            _dropdownField(
-              label: 'Warehouse',
-              value: _draft.warehouseId,
-              readOnly: widget.isReadOnly,
-              items: widget.warehouses
-                  .map((item) => DropdownMenuItem<String>(
-                        value: item.id,
-                        child: Text(item.displayName.ifEmpty(item.name)),
-                      ))
-                  .toList(),
-              onChanged: (value) =>
-                  setState(() => _draft = _draft.copyWith(warehouseId: value)),
-            ),
-            _dropdownField(
-              label: 'Buyer',
-              value: _draft.buyerId,
-              readOnly: widget.isReadOnly,
-              items: widget.buyers
-                  .map((item) => DropdownMenuItem<String>(
-                        value: item.id,
-                        child: Text(item.fullName.ifEmpty(item.email)),
-                      ))
-                  .toList(),
-              onChanged: (value) =>
-                  setState(() => _draft = _draft.copyWith(buyerId: value)),
-            ),
-            _dropdownField(
-              label: 'Purchase Type',
-              value: _draft.purchaseType,
-              readOnly: widget.isReadOnly,
-              items: _PurchaseManagementPageState._purchaseTypes
-                  .map((item) => DropdownMenuItem<String>(
-                        value: item,
-                        child: Text(item.replaceAll('_', ' ')),
-                      ))
-                  .toList(),
-              onChanged: (value) =>
-                  setState(() => _draft = _draft.copyWith(purchaseType: value)),
-            ),
-            _textField(
-              label: 'Reference Number',
-              value: _draft.referenceNumber,
-              readOnly: widget.isReadOnly,
-              onChanged: (value) => setState(
-                  () => _draft = _draft.copyWith(referenceNumber: value)),
-            ),
-            _textField(
-              label: 'Purchase Date',
-              value: _draft.purchaseDate,
-              readOnly: widget.isReadOnly,
-              onChanged: (value) =>
-                  setState(() => _draft = _draft.copyWith(purchaseDate: value)),
-            ),
-            _textField(
-              label: 'Expected Delivery',
-              value: _draft.expectedDeliveryDate,
-              readOnly: widget.isReadOnly,
-              onChanged: (value) => setState(
-                () => _draft = _draft.copyWith(expectedDeliveryDate: value),
-              ),
-            ),
-            _dropdownField(
-              label: 'Priority',
-              value: _draft.priority,
-              readOnly: widget.isReadOnly,
-              items: const [
-                DropdownMenuItem(value: 'LOW', child: Text('LOW')),
-                DropdownMenuItem(value: 'NORMAL', child: Text('NORMAL')),
-                DropdownMenuItem(value: 'HIGH', child: Text('HIGH')),
-                DropdownMenuItem(value: 'URGENT', child: Text('URGENT')),
-              ],
-              onChanged: (value) =>
-                  setState(() => _draft = _draft.copyWith(priority: value)),
-            ),
-            _textField(
-              label: 'Vendor Contact',
-              value: _draft.vendorContact,
-              readOnly: widget.isReadOnly,
-              onChanged: (value) => setState(
-                  () => _draft = _draft.copyWith(vendorContact: value)),
-            ),
-            _textField(
-              label: 'Vendor Address',
-              value: _draft.vendorAddress,
-              readOnly: widget.isReadOnly,
-              maxLines: 3,
-              onChanged: (value) => setState(
-                  () => _draft = _draft.copyWith(vendorAddress: value)),
-            ),
-            _textField(
-              label: 'Remarks',
-              value: _draft.remarks,
-              readOnly: widget.isReadOnly,
-              maxLines: 3,
-              onChanged: (value) =>
-                  setState(() => _draft = _draft.copyWith(remarks: value)),
-            ),
-          ],
-        );
+          ),
+          _dropdownField(
+            label: 'Priority',
+            value: _draft.priority,
+            readOnly: widget.isReadOnly,
+            items: const [
+              DropdownMenuItem(value: 'LOW', child: Text('LOW')),
+              DropdownMenuItem(value: 'NORMAL', child: Text('NORMAL')),
+              DropdownMenuItem(value: 'HIGH', child: Text('HIGH')),
+              DropdownMenuItem(value: 'URGENT', child: Text('URGENT')),
+            ],
+            onChanged: (value) =>
+                setState(() => _draft = _draft.copyWith(priority: value)),
+          ),
+          _textField(
+            label: 'Vendor Contact',
+            value: _draft.vendorContact,
+            readOnly: widget.isReadOnly,
+            onChanged: (value) =>
+                setState(() => _draft = _draft.copyWith(vendorContact: value)),
+          ),
+          _textField(
+            label: 'Vendor Address',
+            value: _draft.vendorAddress,
+            readOnly: widget.isReadOnly,
+            maxLines: 3,
+            onChanged: (value) =>
+                setState(() => _draft = _draft.copyWith(vendorAddress: value)),
+          ),
+          _textField(
+            label: 'Remarks',
+            value: _draft.remarks,
+            readOnly: widget.isReadOnly,
+            maxLines: 3,
+            onChanged: (value) =>
+                setState(() => _draft = _draft.copyWith(remarks: value)),
+          ),
+        ],
+      );
 
   Widget _buildItemsTab() => Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -2491,219 +2520,244 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
             physics: const NeverScrollableScrollPhysics(),
             separatorBuilder: (_, __) => const SizedBox(height: 12),
             itemBuilder: (context, index) {
-                final PurchaseOrderLine line = _draft.lines[index];
-                return Card(
-                  clipBehavior: Clip.antiAlias,
-                  child: Padding(
-                    padding: const EdgeInsets.all(16),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Row(
-                          children: [
-                            Text(
-                              'Line ${index + 1}',
-                              style: Theme.of(context).textTheme.titleMedium,
+              final PurchaseOrderLine line = _draft.lines[index];
+              return Card(
+                clipBehavior: Clip.antiAlias,
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Row(
+                        children: [
+                          Text(
+                            'Line ${index + 1}',
+                            style: Theme.of(context).textTheme.titleMedium,
+                          ),
+                          const Spacer(),
+                          if (!widget.isReadOnly)
+                            IconButton(
+                              tooltip: 'Remove line',
+                              onPressed: _draft.lines.length == 1
+                                  ? null
+                                  : () => _removeLine(index),
+                              icon: const Icon(Icons.delete_outline),
                             ),
-                            const Spacer(),
-                            if (!widget.isReadOnly)
-                              IconButton(
-                                tooltip: 'Remove line',
-                                onPressed: _draft.lines.length == 1
-                                    ? null
-                                    : () => _removeLine(index),
-                                icon: const Icon(Icons.delete_outline),
-                              ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 16,
-                          runSpacing: 16,
-                          children: [
-                            _dropdownField(
-                              label: 'Product',
-                              value: line.productId,
-                              readOnly: widget.isReadOnly,
-                              items: widget.products
-                                  .map((item) => DropdownMenuItem<String>(
-                                        value: item.id,
-                                        child: Text(item.name),
-                                      ))
-                                  .toList(),
-                              onChanged: (value) => _updateLine(
-                                index,
-                                _withProduct(line, value),
-                              ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 16,
+                        runSpacing: 16,
+                        children: [
+                          _dropdownField(
+                            label: 'Product',
+                            value: line.productId,
+                            readOnly: widget.isReadOnly,
+                            items: widget.products
+                                .map(
+                                  (item) => DropdownMenuItem<String>(
+                                    value: item.id,
+                                    child: Text(item.name),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (value) =>
+                                _updateLine(index, _withProduct(line, value)),
+                          ),
+                          _textField(
+                            label: 'Description',
+                            value: line.description,
+                            readOnly: widget.isReadOnly,
+                            onChanged: (value) => _updateLine(
+                              index,
+                              line.copyWith(description: value),
                             ),
-                            _textField(
-                              label: 'Description',
-                              value: line.description,
-                              readOnly: widget.isReadOnly,
-                              onChanged: (value) =>
-                                  _updateLine(index, line.copyWith(description: value)),
+                          ),
+                          // Units by code, defaulted from the product the
+                          // moment it is chosen. These were text boxes
+                          // labelled "Purchase UOM ID" and "Inventory UOM
+                          // ID", so a line in any unit but the default
+                          // meant pasting a UUID.
+                          _dropdownField(
+                            label: 'Purchase UOM',
+                            value: line.purchaseUomId,
+                            readOnly: widget.isReadOnly,
+                            items: _unitItems(line.purchaseUomId),
+                            onChanged: (value) => _updateLine(
+                              index,
+                              line.copyWith(purchaseUomId: value),
                             ),
-                            // Units by code, defaulted from the product the
-                            // moment it is chosen. These were text boxes
-                            // labelled "Purchase UOM ID" and "Inventory UOM
-                            // ID", so a line in any unit but the default
-                            // meant pasting a UUID.
-                            _dropdownField(
-                              label: 'Purchase UOM',
-                              value: line.purchaseUomId,
-                              readOnly: widget.isReadOnly,
-                              items: _unitItems(line.purchaseUomId),
-                              onChanged: (value) =>
-                                  _updateLine(index, line.copyWith(purchaseUomId: value)),
+                          ),
+                          _dropdownField(
+                            label: 'Inventory UOM',
+                            value: line.inventoryUomId,
+                            readOnly: widget.isReadOnly,
+                            items: _unitItems(line.inventoryUomId),
+                            onChanged: (value) => _updateLine(
+                              index,
+                              line.copyWith(inventoryUomId: value),
                             ),
-                            _dropdownField(
-                              label: 'Inventory UOM',
-                              value: line.inventoryUomId,
-                              readOnly: widget.isReadOnly,
-                              items: _unitItems(line.inventoryUomId),
-                              onChanged: (value) =>
-                                  _updateLine(index, line.copyWith(inventoryUomId: value)),
+                          ),
+                          _textField(
+                            label: 'Quantity',
+                            value: line.orderedQuantity,
+                            readOnly: widget.isReadOnly,
+                            onChanged: (value) => _updateLine(
+                              index,
+                              line.copyWith(orderedQuantity: value),
                             ),
-                            _textField(
-                              label: 'Quantity',
-                              value: line.orderedQuantity,
-                              readOnly: widget.isReadOnly,
-                              onChanged: (value) =>
-                                  _updateLine(index, line.copyWith(orderedQuantity: value)),
+                          ),
+                          _textField(
+                            label: 'Free Quantity',
+                            value: line.freeQuantity,
+                            readOnly: widget.isReadOnly,
+                            onChanged: (value) => _updateLine(
+                              index,
+                              line.copyWith(freeQuantity: value),
                             ),
-                            _textField(
-                              label: 'Free Quantity',
-                              value: line.freeQuantity,
-                              readOnly: widget.isReadOnly,
-                              onChanged: (value) =>
-                                  _updateLine(index, line.copyWith(freeQuantity: value)),
+                          ),
+                          _textField(
+                            label: 'Unit Price',
+                            value: line.unitPrice,
+                            readOnly: widget.isReadOnly,
+                            onChanged: (value) => _updateLine(
+                                index, line.copyWith(unitPrice: value)),
+                          ),
+                          _textField(
+                            label: 'Discount %',
+                            value: line.discountPercent,
+                            readOnly: widget.isReadOnly,
+                            onChanged: (value) => _updateLine(
+                              index,
+                              line.copyWith(discountPercent: value),
                             ),
-                            _textField(
-                              label: 'Unit Price',
-                              value: line.unitPrice,
-                              readOnly: widget.isReadOnly,
-                              onChanged: (value) =>
-                                  _updateLine(index, line.copyWith(unitPrice: value)),
+                          ),
+                          _textField(
+                            label: 'Discount Amount',
+                            value: line.discountAmount,
+                            readOnly: widget.isReadOnly,
+                            onChanged: (value) => _updateLine(
+                              index,
+                              line.copyWith(discountAmount: value),
                             ),
-                            _textField(
-                              label: 'Discount %',
-                              value: line.discountPercent,
-                              readOnly: widget.isReadOnly,
-                              onChanged: (value) => _updateLine(
-                                index,
-                                line.copyWith(discountPercent: value),
-                              ),
+                          ),
+                          _dropdownField(
+                            label: 'Tax Profile',
+                            value: line.taxProfileId,
+                            readOnly: widget.isReadOnly,
+                            items: widget.taxProfiles
+                                .map(
+                                  (item) => DropdownMenuItem<String>(
+                                    value: item.id,
+                                    child: Text(item.label.ifEmpty(item.name)),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (value) => _updateLine(
+                              index,
+                              line.copyWith(taxProfileId: value),
                             ),
-                            _textField(
-                              label: 'Discount Amount',
-                              value: line.discountAmount,
-                              readOnly: widget.isReadOnly,
-                              onChanged: (value) => _updateLine(
-                                index,
-                                line.copyWith(discountAmount: value),
-                              ),
+                          ),
+                          _dropdownField(
+                            label: 'Warehouse',
+                            value: line.warehouseId.ifEmpty(_draft.warehouseId),
+                            readOnly: widget.isReadOnly,
+                            items: widget.warehouses
+                                .map(
+                                  (item) => DropdownMenuItem<String>(
+                                    value: item.id,
+                                    child: Text(
+                                      item.displayName.ifEmpty(item.name),
+                                    ),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (value) => _updateLine(
+                              index,
+                              line.copyWith(warehouseId: value),
                             ),
-                            _dropdownField(
-                              label: 'Tax Profile',
-                              value: line.taxProfileId,
-                              readOnly: widget.isReadOnly,
-                              items: widget.taxProfiles
-                                  .map((item) => DropdownMenuItem<String>(
-                                        value: item.id,
-                                        child: Text(item.label.ifEmpty(item.name)),
-                                      ))
-                                  .toList(),
-                              onChanged: (value) =>
-                                  _updateLine(index, line.copyWith(taxProfileId: value)),
+                          ),
+                          _dropdownField(
+                            label: 'Storage Area',
+                            value: line.storageNodeId,
+                            readOnly: widget.isReadOnly,
+                            items: widget.storageNodes
+                                .where(
+                                  (item) =>
+                                      item.warehouseId ==
+                                      line.warehouseId
+                                          .ifEmpty(_draft.warehouseId),
+                                )
+                                .map(
+                                  (item) => DropdownMenuItem<String>(
+                                    value: item.id,
+                                    child: Text(item.path.ifEmpty(item.name)),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (value) => _updateLine(
+                              index,
+                              line.copyWith(storageNodeId: value),
                             ),
-                            _dropdownField(
-                              label: 'Warehouse',
-                              value: line.warehouseId.ifEmpty(_draft.warehouseId),
-                              readOnly: widget.isReadOnly,
-                              items: widget.warehouses
-                                  .map((item) => DropdownMenuItem<String>(
-                                        value: item.id,
-                                        child: Text(item.displayName.ifEmpty(item.name)),
-                                      ))
-                                  .toList(),
-                              onChanged: (value) =>
-                                  _updateLine(index, line.copyWith(warehouseId: value)),
+                          ),
+                          _textField(
+                            label: 'Remarks',
+                            value: line.remarks,
+                            readOnly: widget.isReadOnly,
+                            onChanged: (value) => _updateLine(
+                                index, line.copyWith(remarks: value)),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 12,
+                        children: [
+                          _switchTile(
+                            label: 'Batch Required',
+                            value: line.batchRequired,
+                            enabled: !widget.isReadOnly,
+                            onChanged: (value) => _updateLine(
+                              index,
+                              line.copyWith(batchRequired: value),
                             ),
-                            _dropdownField(
-                              label: 'Storage Area',
-                              value: line.storageNodeId,
-                              readOnly: widget.isReadOnly,
-                              items: widget.storageNodes
-                                  .where(
-                                    (item) =>
-                                        item.warehouseId ==
-                                        line.warehouseId.ifEmpty(_draft.warehouseId),
-                                  )
-                                  .map((item) => DropdownMenuItem<String>(
-                                        value: item.id,
-                                        child: Text(item.path.ifEmpty(item.name)),
-                                      ))
-                                  .toList(),
-                              onChanged: (value) =>
-                                  _updateLine(index, line.copyWith(storageNodeId: value)),
+                          ),
+                          _switchTile(
+                            label: 'Expiry Required',
+                            value: line.expiryRequired,
+                            enabled: !widget.isReadOnly,
+                            onChanged: (value) => _updateLine(
+                              index,
+                              line.copyWith(expiryRequired: value),
                             ),
-                            _textField(
-                              label: 'Remarks',
-                              value: line.remarks,
-                              readOnly: widget.isReadOnly,
-                              onChanged: (value) =>
-                                  _updateLine(index, line.copyWith(remarks: value)),
+                          ),
+                          _switchTile(
+                            label: 'Serial Required',
+                            value: line.serialRequired,
+                            enabled: !widget.isReadOnly,
+                            onChanged: (value) => _updateLine(
+                              index,
+                              line.copyWith(serialRequired: value),
                             ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 12,
-                          children: [
-                            _switchTile(
-                              label: 'Batch Required',
-                              value: line.batchRequired,
-                              enabled: !widget.isReadOnly,
-                              onChanged: (value) => _updateLine(
-                                index,
-                                line.copyWith(batchRequired: value),
-                              ),
-                            ),
-                            _switchTile(
-                              label: 'Expiry Required',
-                              value: line.expiryRequired,
-                              enabled: !widget.isReadOnly,
-                              onChanged: (value) => _updateLine(
-                                index,
-                                line.copyWith(expiryRequired: value),
-                              ),
-                            ),
-                            _switchTile(
-                              label: 'Serial Required',
-                              value: line.serialRequired,
-                              enabled: !widget.isReadOnly,
-                              onChanged: (value) => _updateLine(
-                                index,
-                                line.copyWith(serialRequired: value),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 12),
-                        Wrap(
-                          spacing: 24,
-                          runSpacing: 8,
-                          children: [
-                            Text('Gross: ${line.grossAmount.ifEmpty('-')}'),
-                            Text('Tax: ${line.taxAmount.ifEmpty('-')}'),
-                            Text('Net: ${line.netAmount.ifEmpty('-')}'),
-                            Text('Base Qty: ${line.baseQuantity.ifEmpty('-')}'),
-                          ],
-                        ),
-                      ],
-                    ),
+                          ),
+                        ],
+                      ),
+                      const SizedBox(height: 12),
+                      Wrap(
+                        spacing: 24,
+                        runSpacing: 8,
+                        children: [
+                          Text('Gross: ${line.grossAmount.ifEmpty('-')}'),
+                          Text('Tax: ${line.taxAmount.ifEmpty('-')}'),
+                          Text('Net: ${line.netAmount.ifEmpty('-')}'),
+                          Text('Base Qty: ${line.baseQuantity.ifEmpty('-')}'),
+                        ],
+                      ),
+                    ],
                   ),
-                );
+                ),
+              );
             },
           ),
         ],
@@ -2768,22 +2822,28 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
                               label: 'Delivery Date',
                               value: schedule.deliveryDate,
                               readOnly: widget.isReadOnly,
-                              onChanged: (value) =>
-                                  _updateSchedule(index, schedule.copyWith(deliveryDate: value)),
+                              onChanged: (value) => _updateSchedule(
+                                index,
+                                schedule.copyWith(deliveryDate: value),
+                              ),
                             ),
                             _textField(
                               label: 'Quantity',
                               value: schedule.quantity,
                               readOnly: widget.isReadOnly,
-                              onChanged: (value) =>
-                                  _updateSchedule(index, schedule.copyWith(quantity: value)),
+                              onChanged: (value) => _updateSchedule(
+                                index,
+                                schedule.copyWith(quantity: value),
+                              ),
                             ),
                             _textField(
                               label: 'Remarks',
                               value: schedule.remarks,
                               readOnly: widget.isReadOnly,
-                              onChanged: (value) =>
-                                  _updateSchedule(index, schedule.copyWith(remarks: value)),
+                              onChanged: (value) => _updateSchedule(
+                                index,
+                                schedule.copyWith(remarks: value),
+                              ),
                             ),
                             if (!widget.isReadOnly)
                               IconButton(
@@ -2814,17 +2874,16 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
                       'Tax and total values are supplied by the existing backend calculation engine.',
                 ),
                 const SizedBox(height: 16),
-                EnterpriseTotalsPanel(
-                  totals: _documentTotalsSnapshot(),
-                ),
+                EnterpriseTotalsPanel(totals: _documentTotalsSnapshot()),
                 const SizedBox(height: 16),
                 Wrap(
                   spacing: 24,
                   runSpacing: 16,
                   children: [
-                    DetailLine('Tax Profile',
-                            _labelForTaxProfile(_draft.taxProfileId))
-                        .toWidget(),
+                    DetailLine(
+                      'Tax Profile',
+                      _labelForTaxProfile(_draft.taxProfileId),
+                    ).toWidget(),
                   ],
                 ),
                 const SizedBox(height: 20),
@@ -2897,7 +2956,8 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
                                 ),
                                 actions: [
                                   FilledButton(
-                                    onPressed: () => Navigator.of(context).pop(),
+                                    onPressed: () =>
+                                        Navigator.of(context).pop(),
                                     child: const Text('Close'),
                                   ),
                                 ],
@@ -3063,8 +3123,9 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
           ? await widget.api.createPurchaseOrder(_draft)
           : await widget.api.updatePurchaseOrder(_draft);
       if (!mounted) return;
-      Navigator.of(context)
-          .pop(PurchaseEditorOutcome(order: saved, saved: true));
+      Navigator.of(
+        context,
+      ).pop(PurchaseEditorOutcome(order: saved, saved: true));
     } on ApiException catch (exception) {
       if (!mounted) return;
       // The envelope's sentence plus the fields it names: "The request
@@ -3123,9 +3184,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
         lines: lines
             .asMap()
             .entries
-            .map(
-              (entry) => entry.value.copyWith(lineNumber: entry.key + 1),
-            )
+            .map((entry) => entry.value.copyWith(lineNumber: entry.key + 1))
             .toList(),
       ),
     );
@@ -3244,9 +3303,10 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
   /// Choosing a product fills its default units into a line that has none,
   /// so the ordinary case needs no unit chosen at all.
   PurchaseOrderLine _withProduct(PurchaseOrderLine line, String productId) {
-    final Product? product = widget.products
-        .cast<Product?>()
-        .firstWhere((p) => p?.id == productId, orElse: () => null);
+    final Product? product = widget.products.cast<Product?>().firstWhere(
+          (p) => p?.id == productId,
+          orElse: () => null,
+        );
     return line.copyWith(
       productId: productId,
       purchaseUomId: line.purchaseUomId.isNotEmpty || product == null
@@ -3493,7 +3553,10 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
           .map((item) => item.name)
           .toList()
           .isNotEmpty
-      ? widget.products.where((item) => item.id == id).map((item) => item.name).first
+      ? widget.products
+          .where((item) => item.id == id)
+          .map((item) => item.name)
+          .first
       : id;
 
   String _taxProfileLabel(String id) => widget.taxProfiles
@@ -3501,7 +3564,10 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
           .map((item) => item.label)
           .toList()
           .isNotEmpty
-      ? widget.taxProfiles.where((item) => item.id == id).map((item) => item.label).first
+      ? widget.taxProfiles
+          .where((item) => item.id == id)
+          .map((item) => item.label)
+          .first
       : id;
 
   bool _toolbarActionEnabled(DocumentToolbarAction action) => switch (action) {
@@ -3613,9 +3679,9 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
   /// Close, telling the workspace whether anything moved.
   ///
   /// `null` means nothing happened and the grid can be left alone.
-  void _close() => Navigator.of(context).pop(
-        _acted ? PurchaseEditorOutcome(order: _draft, saved: false) : null,
-      );
+  void _close() => Navigator.of(
+        context,
+      ).pop(_acted ? PurchaseEditorOutcome(order: _draft, saved: false) : null);
 }
 
 class PurchaseImportWizard extends StatefulWidget {
@@ -3657,10 +3723,7 @@ class _PurchaseImportWizardState extends State<PurchaseImportWizard> {
     if (widget.initialFileName?.trim().isNotEmpty == true &&
         widget.initialFileBytes != null) {
       unawaited(
-        _setFile(
-          widget.initialFileName!.trim(),
-          widget.initialFileBytes!,
-        ),
+        _setFile(widget.initialFileName!.trim(), widget.initialFileBytes!),
       );
     }
   }
@@ -3689,10 +3752,7 @@ class _PurchaseImportWizardState extends State<PurchaseImportWizard> {
     });
     try {
       final List<Map<String, String>> rows =
-          InventoryImportFileParser.parseBytes(
-        fileName: name,
-        bytes: bytes,
-      );
+          InventoryImportFileParser.parseBytes(fileName: name, bytes: bytes);
       final _PurchaseImportPreview preview = _PurchaseImportPreview.build(
         rows: rows,
         requiredHeaders: widget.requiredHeaders,
@@ -3818,7 +3878,8 @@ class _PurchaseImportWizardState extends State<PurchaseImportWizard> {
                               )
                             : const Icon(Icons.play_arrow_outlined),
                         label: Text(
-                            _error == null ? 'Start Import' : 'Retry Import'),
+                          _error == null ? 'Start Import' : 'Retry Import',
+                        ),
                       ),
                     ],
                   ),
@@ -3836,7 +3897,8 @@ class _PurchaseImportWizardState extends State<PurchaseImportWizard> {
                       child: _preview == null
                           ? const Center(
                               child: Text(
-                                  'Select a purchase import file to preview.'),
+                                'Select a purchase import file to preview.',
+                              ),
                             )
                           : ListView(
                               padding: const EdgeInsets.all(16),
@@ -3870,8 +3932,10 @@ class _PurchaseImportWizardState extends State<PurchaseImportWizard> {
                                   scrollDirection: Axis.horizontal,
                                   child: DataTable(
                                     columns: _preview!.headers
-                                        .map((header) =>
-                                            DataColumn(label: Text(header)))
+                                        .map(
+                                          (header) =>
+                                              DataColumn(label: Text(header)),
+                                        )
                                         .toList(),
                                     rows: _preview!.rows
                                         .take(5)
@@ -3996,9 +4060,9 @@ class _NoteDialogState extends State<_NoteDialog> {
           FilledButton(
             onPressed: () {
               if (_controller.text.trim().isEmpty) return;
-              Navigator.of(context).pop(
-                _NoteDraft(type: _type, note: _controller.text.trim()),
-              );
+              Navigator.of(
+                context,
+              ).pop(_NoteDraft(type: _type, note: _controller.text.trim()));
             },
             child: const Text('Add'),
           ),
@@ -4016,8 +4080,9 @@ class _ColumnChooserDialog extends StatefulWidget {
 }
 
 class _ColumnChooserDialogState extends State<_ColumnChooserDialog> {
-  late final Map<String, bool> _columns =
-      Map<String, bool>.from(widget.visibleColumns);
+  late final Map<String, bool> _columns = Map<String, bool>.from(
+    widget.visibleColumns,
+  );
   final TextEditingController _viewName = TextEditingController();
 
   @override
@@ -4043,8 +4108,7 @@ class _ColumnChooserDialogState extends State<_ColumnChooserDialog> {
                           value: entry.value,
                           title: Text(entry.key.toUpperCase()),
                           onChanged: (value) => setState(
-                            () => _columns[entry.key] = value ?? false,
-                          ),
+                              () => _columns[entry.key] = value ?? false),
                         ),
                       )
                       .toList(),
@@ -4108,15 +4172,18 @@ class _PurchaseExportDialogState extends State<_PurchaseExportDialog> {
                   if (widget.hasSelection)
                     const DropdownMenuItem(
                       value: _PurchaseExportScope.selected,
-                      child: Text('Selected rows', overflow: TextOverflow.ellipsis),
+                      child: Text('Selected rows',
+                          overflow: TextOverflow.ellipsis),
                     ),
                   const DropdownMenuItem(
                     value: _PurchaseExportScope.currentView,
-                    child: Text('Current view', overflow: TextOverflow.ellipsis),
+                    child:
+                        Text('Current view', overflow: TextOverflow.ellipsis),
                   ),
                   const DropdownMenuItem(
                     value: _PurchaseExportScope.filteredView,
-                    child: Text('Filtered view', overflow: TextOverflow.ellipsis),
+                    child:
+                        Text('Filtered view', overflow: TextOverflow.ellipsis),
                   ),
                 ],
                 onChanged: (value) => setState(() => _scope = value ?? _scope),
@@ -4142,9 +4209,9 @@ class _PurchaseExportDialogState extends State<_PurchaseExportDialog> {
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.of(context).pop(
-              _PurchaseExportRequest(scope: _scope, format: _format),
-            ),
+            onPressed: () => Navigator.of(
+              context,
+            ).pop(_PurchaseExportRequest(scope: _scope, format: _format)),
             child: const Text('Export'),
           ),
         ],
@@ -4307,10 +4374,7 @@ class _PurchaseImportPreview {
 }
 
 class _PurchaseSavedView {
-  const _PurchaseSavedView({
-    required this.name,
-    required this.visibleColumns,
-  });
+  const _PurchaseSavedView({required this.name, required this.visibleColumns});
 
   final String name;
   final Map<String, bool> visibleColumns;
@@ -4323,10 +4387,7 @@ class _PurchaseSavedView {
         ),
       );
 
-  Json toJson() => {
-        'name': name,
-        'visible_columns': visibleColumns,
-      };
+  Json toJson() => {'name': name, 'visible_columns': visibleColumns};
 }
 
 class _PurchaseSavedViewSelection {
@@ -4340,10 +4401,7 @@ class _PurchaseSavedViewSelection {
 }
 
 class _PurchaseExportRequest {
-  const _PurchaseExportRequest({
-    required this.scope,
-    required this.format,
-  });
+  const _PurchaseExportRequest({required this.scope, required this.format});
 
   final _PurchaseExportScope scope;
   final String format;

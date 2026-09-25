@@ -1512,3 +1512,61 @@ def test_a_coupon_reaches_an_order_that_began_as_a_quotation() -> None:
         "inherited": "promotion 10.0000",
         "typed": "percent 4.0000",
     }
+
+
+def test_a_quotation_must_name_where_it_ships_from() -> None:
+    """No warehouse is guessed downstream, because none is left unnamed.
+
+    D-QA-17 read, on the laptop, as an order with no warehouse whose approval
+    fell back on one. The server never allowed that: the header warehouse is
+    required on the quotation and on the order, and the order view simply
+    never printed it. Pinned so the requirement cannot quietly loosen.
+    """
+    session = _session_factory()()
+    setup = _Setup(session)
+    body = setup.payload().model_dump()
+    body.pop("warehouse_id")
+    with pytest.raises(ValueError, match="warehouse_id"):
+        QuotationCreate.model_validate(body)
+
+
+def test_approving_a_converted_order_reserves_in_the_quoted_warehouse() -> None:
+    """The reservation lands where the quotation said, not in a newer store.
+
+    D-QA-17: the firm had MAIN and a STORE2 added later in the same branch.
+    The desktop's quotation form took the newest warehouse, and approval then
+    reserved in it -- correctly, since that is what the order named. What the
+    server owes is that the warehouse chosen on the offer is the one the order
+    carries and the one its approval holds stock in, whatever else the branch
+    has.
+    """
+    session = _session_factory()()
+    setup = _Setup(session)
+    session.add(
+        Warehouse(
+            firm_id=setup.firm.id,
+            branch_id=setup.branch.id,
+            code="STORE2",
+            name="Store 2",
+            display_name="Store 2",
+            status="ACTIVE",
+        )
+    )
+    session.commit()
+    row = setup.accepted()
+
+    _, order = setup.service.convert_quotation(
+        row.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+    )
+    assert order.warehouse_id == setup.warehouse.id
+    SalesOrderService(session).approve_order(
+        order.id, firm_scope=setup.firm.id, actor_id=setup.actor_id
+    )
+
+    held = session.scalars(
+        select(InventoryTransaction.warehouse_id).where(
+            InventoryTransaction.reference_number == order.order_number
+        )
+    ).all()
+    assert held, "approval reserved nothing"
+    assert set(held) == {setup.warehouse.id}

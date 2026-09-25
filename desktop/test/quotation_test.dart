@@ -252,6 +252,7 @@ class _QuoteApi extends ApiClient {
             'name': 'Main',
             'display_name': 'Main warehouse',
             'status': 'ACTIVE',
+            'branch_id': 'branch-1',
           })
         ],
         total: 1,

@@ -142,10 +142,14 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
     final Quotation? existing = widget.existing;
     _customerId = existing?.customerId ??
         (widget.customers.isEmpty ? null : widget.customers.first.id);
-    _branchId = existing?.branchId ??
-        (widget.branches.isEmpty ? null : widget.branches.first.id);
+    // The firm's default branch and that branch's default warehouse -- the
+    // order converted from this quotation ships from it, and approving that
+    // order reserves the stock there. The first of each list was the newest,
+    // so a second warehouse added by hand became where every quote shipped
+    // from (D-QA-17).
+    _branchId = existing?.branchId ?? preferredBranchId(widget.branches);
     _warehouseId = existing?.warehouseId ??
-        (widget.warehouses.isEmpty ? null : widget.warehouses.first.id);
+        preferredWarehouseId(widget.warehouses, branchId: _branchId);
     if (existing != null) {
       _reference.text = existing.customerReference;
       _paymentTerms.text = existing.paymentTerms;
@@ -159,10 +163,10 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
       // editor learned in plan item 10.7).
       final bool billTyped = existing.billDiscountSource.isEmpty ||
           existing.billDiscountSource == 'typed';
-      _billDiscount.text = billTyped &&
-              (double.tryParse(existing.billDiscountPercent) ?? 0) > 0
-          ? existing.billDiscountPercent
-          : '';
+      _billDiscount.text =
+          billTyped && (double.tryParse(existing.billDiscountPercent) ?? 0) > 0
+              ? existing.billDiscountPercent
+              : '';
       // The delivery charge that was asked for, not what was left of it: a
       // free-shipping offer's share comes off again on save if the offer
       // still applies, and is charged if it no longer does. Never filling the
@@ -182,21 +186,23 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
         // depends on the quantity and the day, and re-sending it as typed
         // froze a ladder at its first step (plan item 9.2, 2026-09-13).
         final bool typed = discountWasTyped(line.discountSource);
-        _lines.add(_LineDraft(
-          productId: line.productId,
-          quantity: line.quantity,
-          unitPrice: line.unitPrice,
-          discount: typed ? line.discountPercent : '',
-          lastRate: typed ? '' : line.discountPercent,
-          lastSource: typed ? '' : line.discountSource,
-          free: (double.tryParse(line.freeQuantity) ?? 0) > 0
-              ? line.freeQuantity
-              : '',
-        )
-          ..discountEdited = typed
-          // What the offer holds is what was agreed; re-reading the product
-          // master would rewrite a price somebody negotiated.
-          ..priceEdited = true);
+        _lines.add(
+          _LineDraft(
+            productId: line.productId,
+            quantity: line.quantity,
+            unitPrice: line.unitPrice,
+            discount: typed ? line.discountPercent : '',
+            lastRate: typed ? '' : line.discountPercent,
+            lastSource: typed ? '' : line.discountSource,
+            free: (double.tryParse(line.freeQuantity) ?? 0) > 0
+                ? line.freeQuantity
+                : '',
+          )
+            ..discountEdited = typed
+            // What the offer holds is what was agreed; re-reading the product
+            // master would rewrite a price somebody negotiated.
+            ..priceEdited = true,
+        );
       }
     }
     if (_lines.isEmpty) _lines.add(_newLine());
@@ -241,10 +247,7 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
   _LineDraft _newLine() {
     final String? productId =
         widget.products.isEmpty ? null : widget.products.first.id;
-    return _LineDraft(
-      productId: productId,
-      unitPrice: _priceOf(productId),
-    );
+    return _LineDraft(productId: productId, unitPrice: _priceOf(productId));
   }
 
   /// The chosen customer's standing discount, or empty where they have none.
@@ -295,6 +298,30 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
       // each says what silence takes; typing the rate in would make it an
       // explicit override and outrank the arrangement it was quoting.
     });
+  }
+
+  /// The warehouses of the chosen branch: an order's warehouse must belong
+  /// to its branch, so offering another branch's is offering a refusal.
+  List<WarehouseRecord> _branchWarehouses() {
+    final String? branchId = _branchId;
+    if (branchId == null) return widget.warehouses;
+    return widget.warehouses
+        .where(
+          (WarehouseRecord item) =>
+              item.branchId == branchId || item.id == _warehouseId,
+        )
+        .toList(growable: false);
+  }
+
+  /// The warehouse to show once [branchId] is chosen: the one already chosen
+  /// if it belongs there, else that branch's default.
+  String? _warehouseFor(String? branchId) {
+    for (final WarehouseRecord item in widget.warehouses) {
+      if (item.id == _warehouseId && item.branchId == branchId) {
+        return _warehouseId;
+      }
+    }
+    return preferredWarehouseId(widget.warehouses, branchId: branchId);
   }
 
   @override
@@ -447,88 +474,96 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(children: [
-            Expanded(
-              child: DropdownButtonFormField<String>(
-                isExpanded: true,
-                key: ValueKey<String>('quotation-line-product-$index'),
-                initialValue: line.productId,
-                decoration: InputDecoration(labelText: 'Product ${index + 1}'),
-                items: [
-                  for (final Product item in widget.products)
-                    DropdownMenuItem(
-                      value: item.id,
-                      child: Text('${item.code}  ${item.name}',
-                          overflow: TextOverflow.ellipsis),
-                    ),
-                ],
-                validator: (value) =>
-                    value == null ? 'Choose a product.' : null,
-                onChanged: (value) => _chooseProduct(line, value),
+          Row(
+            children: [
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  key: ValueKey<String>('quotation-line-product-$index'),
+                  initialValue: line.productId,
+                  decoration: InputDecoration(
+                    labelText: 'Product ${index + 1}',
+                  ),
+                  items: [
+                    for (final Product item in widget.products)
+                      DropdownMenuItem(
+                        value: item.id,
+                        child: Text(
+                          '${item.code}  ${item.name}',
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                  ],
+                  validator: (value) =>
+                      value == null ? 'Choose a product.' : null,
+                  onChanged: (value) => _chooseProduct(line, value),
+                ),
               ),
-            ),
-            IconButton(
-              onPressed: removable ? () => _removeLine(index) : null,
-              icon: const Icon(Icons.close, size: 18),
-              tooltip: removable
-                  ? 'Remove this line'
-                  : 'A quotation needs at least one line',
-            ),
-          ]),
+              IconButton(
+                onPressed: removable ? () => _removeLine(index) : null,
+                icon: const Icon(Icons.close, size: 18),
+                tooltip: removable
+                    ? 'Remove this line'
+                    : 'A quotation needs at least one line',
+              ),
+            ],
+          ),
           const SizedBox(height: AppSpacing.sm),
-          Row(children: [
-            Expanded(
-              child: TextFormField(
-                controller: line.quantity,
-                decoration: const InputDecoration(labelText: 'Quantity'),
-                keyboardType: TextInputType.number,
-                validator: (value) => _positive(value, 'quantity'),
-                onChanged: (_) => setState(() {}),
-              ),
-            ),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: TextFormField(
-                controller: line.free,
-                decoration: const InputDecoration(labelText: 'Free'),
-                keyboardType: TextInputType.number,
-                validator: _freeQuantity,
-                onChanged: (_) => setState(() {}),
-              ),
-            ),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: TextFormField(
-                controller: line.unitPrice,
-                decoration: InputDecoration(
-                  labelText: 'Unit price',
-                  helperText: _priceHelper(line),
-                  helperMaxLines: 2,
+          Row(
+            children: [
+              Expanded(
+                child: TextFormField(
+                  controller: line.quantity,
+                  decoration: const InputDecoration(labelText: 'Quantity'),
+                  keyboardType: TextInputType.number,
+                  validator: (value) => _positive(value, 'quantity'),
+                  onChanged: (_) => setState(() {}),
                 ),
-                keyboardType: TextInputType.number,
-                validator: (value) => _positive(value, 'price'),
-                // onChanged fires only for typing, never for the programmatic
-                // fill above, which is what keeps the two distinguishable.
-                onChanged: (_) => setState(() => line.priceEdited = true),
               ),
-            ),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: TextFormField(
-                controller: line.discount,
-                decoration: InputDecoration(
-                  labelText: 'Discount %',
-                  helperText: _discountHelper(line),
-                  helperMaxLines: 2,
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: TextFormField(
+                  controller: line.free,
+                  decoration: const InputDecoration(labelText: 'Free'),
+                  keyboardType: TextInputType.number,
+                  validator: _freeQuantity,
+                  onChanged: (_) => setState(() {}),
                 ),
-                keyboardType: TextInputType.number,
-                validator: _percentage,
-                // onChanged fires only for typing, never for the programmatic
-                // fill above, which is what makes the two distinguishable.
-                onChanged: (_) => setState(() => line.discountEdited = true),
               ),
-            ),
-          ]),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: TextFormField(
+                  controller: line.unitPrice,
+                  decoration: InputDecoration(
+                    labelText: 'Unit price',
+                    helperText: _priceHelper(line),
+                    helperMaxLines: 2,
+                  ),
+                  keyboardType: TextInputType.number,
+                  validator: (value) => _positive(value, 'price'),
+                  // onChanged fires only for typing, never for the programmatic
+                  // fill above, which is what keeps the two distinguishable.
+                  onChanged: (_) => setState(() => line.priceEdited = true),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: TextFormField(
+                  controller: line.discount,
+                  decoration: InputDecoration(
+                    labelText: 'Discount %',
+                    helperText: _discountHelper(line),
+                    helperMaxLines: 2,
+                  ),
+                  keyboardType: TextInputType.number,
+                  validator: _percentage,
+                  // onChanged fires only for typing, never for the programmatic
+                  // fill above, which is what makes the two distinguishable.
+                  onChanged: (_) => setState(() => line.discountEdited = true),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: AppSpacing.xs),
           Align(
             alignment: Alignment.centerRight,
@@ -579,8 +614,10 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
                         for (final Customer item in widget.customers)
                           DropdownMenuItem(
                             value: item.id,
-                            child: Text('${item.code} - ${item.displayName}',
-                                overflow: TextOverflow.ellipsis),
+                            child: Text(
+                              '${item.code} - ${item.displayName}',
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                       ],
                       validator: (value) =>
@@ -596,14 +633,16 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
                         labelText: 'These prices stand until',
                         helperText: 'Past this date it cannot become an order.',
                       ),
-                      child: Row(children: [
-                        Expanded(child: Text(_iso(_validUntil))),
-                        TextButton.icon(
-                          onPressed: _pickValidUntil,
-                          icon: const Icon(Icons.event, size: 18),
-                          label: const Text('Change'),
-                        ),
-                      ]),
+                      child: Row(
+                        children: [
+                          Expanded(child: Text(_iso(_validUntil))),
+                          TextButton.icon(
+                            onPressed: _pickValidUntil,
+                            icon: const Icon(Icons.event, size: 18),
+                            label: const Text('Change'),
+                          ),
+                        ],
+                      ),
                     ),
                     const SizedBox(height: AppSpacing.md),
                     for (int index = 0; index < _lines.length; index += 1)
@@ -655,70 +694,89 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
                       style: Theme.of(context).textTheme.bodySmall,
                     ),
                     const SizedBox(height: AppSpacing.md),
-                    Row(children: [
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          isExpanded: true,
-                          initialValue: _branchId,
-                          decoration:
-                              const InputDecoration(labelText: 'Branch'),
-                          items: [
-                            for (final BranchRecord item in widget.branches)
-                              DropdownMenuItem(
-                                value: item.id,
-                                child: Text('${item.code} - ${item.displayName}',
-                                    overflow: TextOverflow.ellipsis),
-                              ),
-                          ],
-                          validator: (value) =>
-                              value == null ? 'Choose a branch.' : null,
-                          onChanged: (value) =>
-                              setState(() => _branchId = value),
-                        ),
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      Expanded(
-                        child: DropdownButtonFormField<String>(
-                          isExpanded: true,
-                          initialValue: _warehouseId,
-                          decoration: const InputDecoration(
-                            labelText: 'Ships from',
-                            helperText: 'Nothing is reserved from it.',
+                    Row(
+                      children: [
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            isExpanded: true,
+                            initialValue: _branchId,
+                            decoration: const InputDecoration(
+                              labelText: 'Branch',
+                            ),
+                            items: [
+                              for (final BranchRecord item in widget.branches)
+                                DropdownMenuItem(
+                                  value: item.id,
+                                  child: Text(
+                                    '${item.code} - ${item.displayName}',
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                            ],
+                            validator: (value) =>
+                                value == null ? 'Choose a branch.' : null,
+                            onChanged: (value) => setState(() {
+                              _branchId = value;
+                              _warehouseId = _warehouseFor(value);
+                            }),
                           ),
-                          items: [
-                            for (final WarehouseRecord item
-                                in widget.warehouses)
-                              DropdownMenuItem(
-                                value: item.id,
-                                child: Text('${item.code} - ${item.displayName}',
-                                    overflow: TextOverflow.ellipsis),
-                              ),
-                          ],
-                          validator: (value) =>
-                              value == null ? 'Choose a warehouse.' : null,
-                          onChanged: (value) =>
-                              setState(() => _warehouseId = value),
                         ),
-                      ),
-                    ]),
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: DropdownButtonFormField<String>(
+                            // Keyed on the branch, so choosing another branch
+                            // shows that branch's warehouse rather than keeping
+                            // the field's first value.
+                            key: ValueKey<String>(
+                              'quotation-warehouse-${_branchId ?? ''}',
+                            ),
+                            isExpanded: true,
+                            initialValue: _warehouseId,
+                            decoration: const InputDecoration(
+                              labelText: 'Ships from',
+                              helperText: 'Nothing is reserved from it.',
+                            ),
+                            items: [
+                              for (final WarehouseRecord item
+                                  in _branchWarehouses())
+                                DropdownMenuItem(
+                                  value: item.id,
+                                  child: Text(
+                                    '${item.code} - ${item.displayName}',
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                ),
+                            ],
+                            validator: (value) =>
+                                value == null ? 'Choose a warehouse.' : null,
+                            onChanged: (value) =>
+                                setState(() => _warehouseId = value),
+                          ),
+                        ),
+                      ],
+                    ),
                     const SizedBox(height: AppSpacing.md),
-                    Row(children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: _paymentTerms,
-                          decoration: const InputDecoration(
-                              labelText: 'Payment terms'),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _paymentTerms,
+                            decoration: const InputDecoration(
+                              labelText: 'Payment terms',
+                            ),
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      Expanded(
-                        child: TextFormField(
-                          controller: _deliveryTerms,
-                          decoration: const InputDecoration(
-                              labelText: 'Delivery terms'),
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _deliveryTerms,
+                            decoration: const InputDecoration(
+                              labelText: 'Delivery terms',
+                            ),
+                          ),
                         ),
-                      ),
-                    ]),
+                      ],
+                    ),
                     const SizedBox(height: AppSpacing.md),
                     TextFormField(
                       controller: _reference,
