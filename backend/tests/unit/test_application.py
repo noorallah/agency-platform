@@ -1,6 +1,7 @@
 """Tests for the application composition root."""
 
 import asyncio
+from pathlib import Path
 
 from fastapi import FastAPI
 from pydantic import TypeAdapter
@@ -9,6 +10,13 @@ from app.api.routers.health import HealthStatus, get_health
 from app.core.config.settings import Environment, Settings
 from app.core.responses.models import ApiResponse
 from app.main import create_app
+
+#: The release version, declared once at the repository root.
+_VERSION = (
+    (Path(__file__).resolve().parents[3] / "VERSION")
+    .read_text(encoding="utf-8")
+    .strip()
+)
 
 
 def test_application_factory_registers_foundation_routes() -> None:
@@ -68,7 +76,7 @@ def test_health_endpoint_returns_operational_status() -> None:
     assert payload["data"] == {
         "status": "healthy",
         "environment": "testing",
-        "version": "1.0.0",
+        "version": _VERSION,
     }
     assert payload["message"] is None
     assert payload["requestId"] is None
