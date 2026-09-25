@@ -28,6 +28,7 @@ in the source.
 | `11_COMPLIANCE` | GSTR-1, GSTR-3B, e-invoice and e-way bill sandbox, TCS | 7 | 3 |
 | `12_FINANCE_AND_REPORTS` | Ledger, journals, statements, periods, reports, audit, diagnostics | 21 | 17 |
 | `13_CROSS_CUTTING` | Permissions enforced by the server, two people editing one record | 17 | |
+| `14_TEST_DATA` | The values to type for every firm, person, master and case (written by hand) | | |
 
 In all: **225 detailed cases, 98 screen checks and 11 role checks**. The
 installation itself is tested separately by `docs/INSTALLER_QA_CHECKLIST.md`,
@@ -45,6 +46,9 @@ makes a good first pass before this suite.
    Cases about keeping firms apart, and about people in two firms, need it.
 4. **Hire one user per job template** in QA01, as `01_ROLES_AND_ACCESS`
    describes. Most cases name the job they sign in as.
+5. **Take every value from `14_TEST_DATA`**: the firms (it adds a few
+   beyond QA01 and QA02), the people and their passwords, the masters, the
+   documents each *Preparation* stands for, and the values for each case.
 
 ## Reading a case
 
