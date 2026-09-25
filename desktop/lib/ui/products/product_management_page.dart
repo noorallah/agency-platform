@@ -503,8 +503,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         'qr_code': product.qrCode.isEmpty ? null : product.qrCode,
         'name': product.name,
         'short_name': product.shortName.isEmpty ? null : product.shortName,
-        'description':
-            product.description.isEmpty ? null : product.description,
+        'description': product.description.isEmpty ? null : product.description,
         'product_type': product.productType,
         'status': status ?? product.status,
         'category_id': (categoryId ?? product.categoryId).isEmpty
@@ -531,8 +530,9 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         'default_dispatch_uom_id': product.defaultDispatchUomId.isEmpty
             ? null
             : product.defaultDispatchUomId,
-        'minimum_sales_uom_id':
-            product.minimumSalesUomId.isEmpty ? null : product.minimumSalesUomId,
+        'minimum_sales_uom_id': product.minimumSalesUomId.isEmpty
+            ? null
+            : product.minimumSalesUomId,
         'weight': product.weight.isEmpty ? null : product.weight,
         'volume': product.volume.isEmpty ? null : product.volume,
         'length': product.length.isEmpty ? null : product.length,
@@ -542,9 +542,8 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         'allow_decimal': product.allowDecimal,
         'purchase_price':
             product.purchasePrice.isEmpty ? null : product.purchasePrice,
-        'selling_price': sellingPrice ?? (product.sellingPrice.isEmpty
-            ? null
-            : product.sellingPrice),
+        'selling_price': sellingPrice ??
+            (product.sellingPrice.isEmpty ? null : product.sellingPrice),
         'mrp': product.mrp.isEmpty ? null : product.mrp,
         'remarks': product.remarks.isEmpty ? null : product.remarks,
         'track_batch': product.trackBatch,
@@ -749,8 +748,9 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
             product,
             _payloadFromExisting(
               product,
-              categoryId:
-                  operation.categoryId.isEmpty ? product.categoryId : operation.categoryId,
+              categoryId: operation.categoryId.isEmpty
+                  ? product.categoryId
+                  : operation.categoryId,
             ),
           );
         }
@@ -1196,7 +1196,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
               cells: (product) => [
                 product.code,
                 product.name,
-                product.productType,
+                productCodeLabel(product.productType),
                 product.brand,
                 _categoryLabel(product.categoryId),
                 product.isDeleted ? 'DELETED' : product.status,
@@ -1356,12 +1356,22 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
           decoration: InputDecoration(labelText: label),
           items: [
             const DropdownMenuItem(value: null, child: Text('Any')),
-            ...values.map(
-                (item) => DropdownMenuItem(value: item, child: Text(item))),
+            ...values.map((item) => DropdownMenuItem(
+                value: item, child: Text(productCodeLabel(item)))),
           ],
           onChanged: onChanged,
         ),
       );
+}
+
+/// A stored code as people say it: `STOCK_ITEM` reads "Stock item".
+///
+/// The product type and status dropdowns showed the raw codes (D-QA-12). The
+/// value sent to the server is still the code; only the label changes.
+String productCodeLabel(String code) {
+  if (code.isEmpty) return code;
+  final String spaced = code.replaceAll('_', ' ').toLowerCase();
+  return '${spaced[0].toUpperCase()}${spaced.substring(1)}';
 }
 
 enum ProductDialogMode { create, view, edit }
@@ -1524,7 +1534,8 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     _baseUomId = product?.baseUomId ?? _knownUom(defaults?.baseUomId);
     _inventoryUomId =
         product?.inventoryUomId ?? _knownUom(defaults?.inventoryUomId);
-    _purchaseUomId = product?.purchaseUomId ?? _knownUom(defaults?.purchaseUomId);
+    _purchaseUomId =
+        product?.purchaseUomId ?? _knownUom(defaults?.purchaseUomId);
     _salesUomId = product?.salesUomId ?? _knownUom(defaults?.salesUomId);
     _prefilledUnits = product == null &&
         [_baseUomId, _inventoryUomId, _purchaseUomId, _salesUomId]
@@ -1599,7 +1610,9 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
 
   /// Read a stored value out of whichever typed column holds it.
   String _storedValue(ProductAttributeValueRecord value) {
-    if (value.valueBoolean != null) return value.valueBoolean! ? 'true' : 'false';
+    if (value.valueBoolean != null) {
+      return value.valueBoolean! ? 'true' : 'false';
+    }
     if (value.valueDate.isNotEmpty) return value.valueDate;
     if (value.valueNumber.isNotEmpty) return value.valueNumber;
     return value.valueText;
@@ -1843,7 +1856,8 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
                   .map(
                     (category) => DropdownMenuItem(
                       value: category.id,
-                      child: Text(category.name, overflow: TextOverflow.ellipsis),
+                      child:
+                          Text(category.name, overflow: TextOverflow.ellipsis),
                     ),
                   )
                   .toList(),
@@ -2190,12 +2204,16 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
               items: [
                 const DropdownMenuItem<String>(
                   value: '',
-                  child: Text('No tax profile', overflow: TextOverflow.ellipsis),
+                  child:
+                      Text('No tax profile', overflow: TextOverflow.ellipsis),
                 ),
                 ..._metadata.taxProfiles.map(
                   (profile) => DropdownMenuItem<String>(
-                    value: profile.groupCode.isEmpty ? profile.code : profile.groupCode,
-                    child: Text('${profile.label} (${profile.code})', overflow: TextOverflow.ellipsis),
+                    value: profile.groupCode.isEmpty
+                        ? profile.code
+                        : profile.groupCode,
+                    child: Text('${profile.label} (${profile.code})',
+                        overflow: TextOverflow.ellipsis),
                   ),
                 ),
               ],
@@ -2477,7 +2495,8 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
           initialValue: value,
           decoration: InputDecoration(labelText: label),
           items: values
-              .map((item) => DropdownMenuItem(value: item, child: Text(item)))
+              .map((item) => DropdownMenuItem(
+                  value: item, child: Text(productCodeLabel(item))))
               .toList(),
           onChanged: _readOnly ? null : onChanged,
         ),
@@ -2811,7 +2830,8 @@ class _BulkOperationDialogState extends State<_BulkOperationDialog> {
                   ),
                   DropdownMenuItem(
                     value: _BulkOperationKind.restore,
-                    child: Text('Bulk restore', overflow: TextOverflow.ellipsis),
+                    child:
+                        Text('Bulk restore', overflow: TextOverflow.ellipsis),
                   ),
                   DropdownMenuItem(
                     value: _BulkOperationKind.export,
@@ -2819,15 +2839,18 @@ class _BulkOperationDialogState extends State<_BulkOperationDialog> {
                   ),
                   DropdownMenuItem(
                     value: _BulkOperationKind.statusChange,
-                    child: Text('Bulk status change', overflow: TextOverflow.ellipsis),
+                    child: Text('Bulk status change',
+                        overflow: TextOverflow.ellipsis),
                   ),
                   DropdownMenuItem(
                     value: _BulkOperationKind.categoryChange,
-                    child: Text('Bulk category change', overflow: TextOverflow.ellipsis),
+                    child: Text('Bulk category change',
+                        overflow: TextOverflow.ellipsis),
                   ),
                   DropdownMenuItem(
                     value: _BulkOperationKind.priceUpdate,
-                    child: Text('Bulk price update', overflow: TextOverflow.ellipsis),
+                    child: Text('Bulk price update',
+                        overflow: TextOverflow.ellipsis),
                   ),
                 ],
                 onChanged: (value) => setState(() => _kind = value ?? _kind),
@@ -2857,7 +2880,8 @@ class _BulkOperationDialogState extends State<_BulkOperationDialog> {
                       .map(
                         (category) => DropdownMenuItem(
                           value: category.id,
-                          child: Text(category.name, overflow: TextOverflow.ellipsis),
+                          child: Text(category.name,
+                              overflow: TextOverflow.ellipsis),
                         ),
                       )
                       .toList(),
