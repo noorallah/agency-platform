@@ -224,6 +224,37 @@ the filter tile. Phase 2 folds **all of it into the page bar**:
 At 1366 x 768 this is what gives the ~16 rows in 4.1; today's cards and
 filter tile alone take the height of about five rows.
 
+#### Worked example: Customers, from the owner's screenshot
+
+The owner circled everything above the Customers grid (2026-09-25). On that
+screen, about **480 px of a ~1,100 px window** sit above the first row, and
+the page says where you are **three times**:
+
+| Band today | What it holds | Phase 2 |
+| --- | --- | --- |
+| Header bar | back / forward, "Masters", firm, user | the **menu bar** (firm, areas, search, user) |
+| Breadcrumb | Workspace > Masters > Customer Management | gone -- the open menu area and the tab say it |
+| Title + description | "Customer Management", "Manage firm-scoped customer masters..." | title in the page bar; description behind (i) |
+| Search + toolbar | a wide search box, New, view, edit, delete, refresh, export, settings, Groups | one page-bar line: counters, chips, `/` search, New, **...** for the rest |
+| Filters tile | a collapsed "Filters" row | a **+** chip opening a drawer |
+| Status bar **and** a second system bar | "1 record / Ready", then Online, user, firm, API, DB, configured, version | **one** status bar: records, selection, pager; connection shown as one dot, details on hover |
+| Row actions column | view, edit, more on every row | kept only as **...** on hover; double-click / Enter opens, the toolbar acts on the selection |
+
+The same page in phase 2:
+
+```
+| QA01 Traders v | Home  Sell v  Buy v  Stock v  Accounts v  [Masters v]  Reports v  Admin v   [Search Ctrl+K] [SN] |
+| Customers x | Products x |                                                                                     |
+| Customers   Active 1 | On hold 0 | Over limit 0   [+ filter]   / search          [Groups] [...]  [+ New] |
+|  Code   | Name        | GST             | Phone         | City    | Status  | Credit limit | Balance     |
+|  QA-C1  | QA Retail   |                 | +911111111111 | Madras  | Active  |         0.00 |        0.00 |
+|  ... the rest of the window is rows ...                                                              |
+| 1 record  |  0 selected  |  Page 1 of 1                                                    (o) online |
+```
+
+From the menu bar to the first row: **about 120 px instead of 480**, the
+difference being roughly twenty more customers on screen.
+
 ### 4.6 Daily screens: fast, and familiar
 
 Most of a customer's day is spent on a few screens. They get extra care, and
