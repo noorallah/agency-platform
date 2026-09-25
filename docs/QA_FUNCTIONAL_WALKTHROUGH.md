@@ -77,7 +77,7 @@ From here on, work as the **firm administrator** unless a step says otherwise.
 | ID | Step | Expected | Result | Notes |
 | --- | --- | --- | --- | --- |
 | W12 | Masters → **Warehouses** → New: code `STORE2`, name *Back Store*, under branch HO. Save | Listed beside MAIN | Not run | |
-| W13 | Masters → **Products** → New: code `QA-P1`, name *Test Soap*, type goods, base, inventory, purchase and sales unit **PIECE**, tax profile **GST 18 local**, HSN code `3401` and selling price 150 if the form offers them. Create a category when the form asks for one. Save | Saved. Reopen it: each unit and the tax profile read as names, not codes or ids | Not run | |
+| W13 | Masters → **Products** → New: code `QA-P1`, name *Test Soap*, Product type **Stock item** (the default), base, inventory, purchase and sales unit **PIECE**, tax profile **GST 18 local**, HSN code `3401` and selling price 150 if the form offers them. Create a category when the form asks for one. Save | Saved. Reopen it: each unit and the tax profile read as names, not codes or ids | Not run | |
 | W14 | Masters → **Vendors** → New: code `QA-V1`, name *QA Supplies*, a phone, one address. Save | Saved and listed | Not run | |
 | W15 | Edit QA-V1, change **only** the phone. Save and reopen | The phone changed; the address and everything else are still there | Not run | |
 | W16 | Masters → **Customers** → New: code `QA-C1`, name *QA Retail*, type Business, currency INR, no GST number, no credit limit, one billing address in Tamil Nadu. Save | Saved and listed with outstanding 0.00 | Not run | |
