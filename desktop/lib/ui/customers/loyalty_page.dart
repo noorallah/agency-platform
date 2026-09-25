@@ -16,6 +16,7 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../workspace/desktop_framework.dart';
+import 'loyalty_adjust_dialog.dart';
 import 'loyalty_settings_dialog.dart';
 
 /// Show a firm's scheme and every movement of credit under it.
@@ -51,6 +52,11 @@ class _LoyaltyPageState extends State<LoyaltyPage> {
   /// Spending or writing off a customer's credit is money, so it is its
   /// own authority rather than part of reading the register.
   bool get _mayManage => widget.permissions.hasPermission('LOYALTY_MANAGE');
+
+  /// Granting points by hand is writing off a receivable once they are spent,
+  /// so the route asks the scheme's own code rather than [_mayManage]'s.
+  bool get _mayAdjust =>
+      widget.permissions.hasPermission('LOYALTY_MANAGE_SETTINGS');
 
   @override
   void initState() {
@@ -111,6 +117,26 @@ class _LoyaltyPageState extends State<LoyaltyPage> {
     }
   }
 
+  /// Correct a balance by hand, starting from the customer on screen.
+  Future<void> _adjust() async {
+    final String? name = _customers
+        .where((customer) => customer.key == _customerId)
+        .map((customer) => customer.value)
+        .firstOrNull;
+    final bool? saved = await showDialog<bool>(
+      context: context,
+      builder: (_) => LoyaltyAdjustDialog(
+        api: widget.api,
+        customerId: _customerId,
+        customerName: name,
+      ),
+    );
+    if (saved != true || !mounted) return;
+    NotificationService.show(context, 'Balance adjusted.',
+        kind: AppNotificationKind.success);
+    await _load();
+  }
+
   /// Open the scheme, and re-read the banner if it changed.
   ///
   /// The banner beside the ledger states the rate, so leaving it stale after a
@@ -156,6 +182,11 @@ class _LoyaltyPageState extends State<LoyaltyPage> {
             onPressed: _mayManage ? _expire : null,
             icon: const Icon(Icons.timer_off_outlined),
             label: const Text('Expire lapsed'),
+          ),
+          OutlinedButton.icon(
+            onPressed: _mayAdjust ? _adjust : null,
+            icon: const Icon(Icons.exposure_outlined),
+            label: const Text('Adjust points'),
           ),
           // Offered to anyone who can read the scheme, not only to whoever may
           // change it: the banner beside this states the rate, and somebody
@@ -227,22 +258,26 @@ class _LoyaltyPageState extends State<LoyaltyPage> {
       padding: const EdgeInsets.fromLTRB(
           AppSpacing.md, 0, AppSpacing.md, AppSpacing.md),
       child: Row(children: [
-        SizedBox(
-          width: 320,
-          child: DropdownButton<String?>(
-            value: _customerId,
-            isExpanded: true,
-            items: [
-              const DropdownMenuItem<String?>(
-                  value: null, child: Text('Everyone')),
-              for (final MapEntry<String, String> customer in _customers)
-                DropdownMenuItem<String?>(
-                    value: customer.key, child: Text(customer.value)),
-            ],
-            onChanged: (value) {
-              setState(() => _customerId = value);
-              _load();
-            },
+        // Up to 320, but it gives way: the search strip narrows as the
+        // toolbar beside it grows, and a fixed width overflowed it.
+        Flexible(
+          child: ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 320),
+            child: DropdownButton<String?>(
+              value: _customerId,
+              isExpanded: true,
+              items: [
+                const DropdownMenuItem<String?>(
+                    value: null, child: Text('Everyone')),
+                for (final MapEntry<String, String> customer in _customers)
+                  DropdownMenuItem<String?>(
+                      value: customer.key, child: Text(customer.value)),
+              ],
+              onChanged: (value) {
+                setState(() => _customerId = value);
+                _load();
+              },
+            ),
           ),
         ),
         const SizedBox(width: AppSpacing.md),

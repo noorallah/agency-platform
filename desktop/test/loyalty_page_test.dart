@@ -56,10 +56,15 @@ class _LoyaltyApi extends ApiClient {
   }) async {
     if (path.endsWith('/settings')) {
       if (method == 'PUT') {
-        written.add(Map<String, dynamic>.from(body ?? const <String, dynamic>{}));
+        written
+            .add(Map<String, dynamic>.from(body ?? const <String, dynamic>{}));
         return <String, dynamic>{'data': settings};
       }
       return <String, dynamic>{'data': settings};
+    }
+    if (method == 'POST' && path.endsWith('/loyalty/adjust')) {
+      written.add(Map<String, dynamic>.from(body ?? const <String, dynamic>{}));
+      return <String, dynamic>{'data': _entry(kind: 'ADJUSTED')};
     }
     if (path.endsWith('/loyalty/entries')) {
       final String? customer = query?['customer_id'];
@@ -145,7 +150,8 @@ void main() {
     await _pump(tester, _LoyaltyApi(settings: _settings()));
 
     // The server sends four decimals; the banner must not repeat them.
-    expect(find.textContaining('2 points per 100, worth 1 each'), findsOneWidget);
+    expect(
+        find.textContaining('2 points per 100, worth 1 each'), findsOneWidget);
     expect(find.textContaining('expire after 24 months'), findsOneWidget);
   });
 
@@ -295,5 +301,53 @@ void main() {
         findsOneWidget);
     expect(find.textContaining('below the floor'), findsOneWidget);
     expect(find.textContaining('Patel Traders'), findsNothing);
+  });
+
+  // D-QA-8: the adjustment route existed and no screen called it.
+  testWidgets('adjusting points needs the scheme permission', (tester) async {
+    await _pump(tester, _LoyaltyApi(settings: _settings(), entries: [_entry()]),
+        permissions:
+            _permissions(perms: const ['LOYALTY_VIEW', 'LOYALTY_MANAGE']));
+
+    final OutlinedButton adjust =
+        tester.widget(find.widgetWithText(OutlinedButton, 'Adjust points'));
+    expect(adjust.onPressed, isNull,
+        reason: 'granting points is writing off a receivable once spent, so '
+            'it takes LOYALTY_MANAGE_SETTINGS, which spending credit does not');
+  });
+
+  testWidgets('a balance is corrected with signed points and a reason',
+      (tester) async {
+    final _LoyaltyApi api =
+        _LoyaltyApi(settings: _settings(), entries: [_entry()]);
+    await _pump(tester, api,
+        permissions: _permissions(
+            perms: const ['LOYALTY_VIEW', 'LOYALTY_MANAGE_SETTINGS']));
+    await tester.tap(find.byType(DropdownButton<String?>));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Kumar Stores').last);
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(OutlinedButton, 'Adjust points'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const ValueKey('loyalty-adjust-points')), '-5');
+    await tester.tap(find.text('Record adjustment'));
+    await tester.pumpAndSettle();
+    expect(api.written, isEmpty, reason: 'no reason given yet');
+
+    await tester.enterText(find.byKey(const ValueKey('loyalty-adjust-reason')),
+        'Credited twice on SI-4');
+    await tester.tap(find.text('Record adjustment'));
+    await tester.pumpAndSettle();
+
+    expect(api.written, hasLength(1));
+    expect(api.written.single, <String, dynamic>{
+      'customer_id': 'c-1',
+      'points': '-5',
+      'reason': 'Credited twice on SI-4',
+    });
+    expect(find.text('Adjust points'), findsOneWidget,
+        reason: 'the dialog closed, only the toolbar button remains');
   });
 }

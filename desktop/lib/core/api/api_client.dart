@@ -4151,6 +4151,22 @@ class ApiClient {
         },
       ));
 
+  /// Correct a customer's balance by hand: signed [points], and why.
+  Future<Json> adjustLoyalty({
+    required String customerId,
+    required String points,
+    required String reason,
+  }) async =>
+      _unwrapMap(await request(
+        'POST',
+        '/api/v1/loyalty/adjust',
+        body: <String, dynamic>{
+          'customer_id': customerId,
+          'points': points,
+          'reason': reason,
+        },
+      ));
+
   /// Write off points that have run out of time. Safe to run twice.
   Future<Json> expireLoyalty() async =>
       _unwrapMap(await request('POST', '/api/v1/loyalty/expire'));
