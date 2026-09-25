@@ -111,7 +111,7 @@ promotion, or the customer's standing rate).
 
 - **Preconditions:** As *selling-delivered*, plus the first note billed and approved, as in the preparation table.
 - **Steps:** select the invoice → **Print settings** icon → How many copies **2**, Copy 1 label / Copy 2 label (they prefill ORIGINAL FOR RECIPIENT / DUPLICATE FOR TRANSPORTER) → save → **Print**.
-- **Expect:** the PDF carries the CGST/SGST split, an HSN column, the HSN-wise summary, "AMOUNT CHARGEABLE, IN WORDS", and two labelled copies. Saving print settings needs `SETTINGS_UPDATE`, which the firm admin holds. *(The prepared firm and customer carry no GSTIN and the product no HSN, so those cells print empty; QA01's did.)*
+- **Expect:** the PDF carries the CGST/SGST split, an HSN column, the HSN-wise summary, "AMOUNT CHARGEABLE, IN WORDS", and two labelled copies. Saving print settings needs `SETTINGS_UPDATE`, which the firm admin holds. *(Whichever of the firm's GSTIN, the customer's GSTIN and the product's HSN are blank on your firm print empty on the copy; check the ones that are blank on yours rather than assuming all three are. The prepared product carries no HSN, so that column is always empty here; Vijaya carries no GSTIN either way.)*
 ### TC-SELL-013 — Receipts charge TCS; an excess with nothing else owed becomes an advance
 
 - **Preconditions:** As *selling-delivered*, plus the first note billed and approved, as in the preparation table.
@@ -120,7 +120,7 @@ promotion, or the customer's standing rate).
   2. Record Receipt again: Amount **341.61**, type **241.61** into Apply → Record receipt. Customers → C01.
 - **Expect**
   - Step 1: the TCS notice (small text under **Against order (optional)**) charges **1%** — Vijaya has no PAN — **2.42** on 241.60. "RC-… recorded and posted to the ledger."; the row reads "Cleared SI-…". Outstanding **244.03** (483.21 − 241.60 + 2.42).
-  - Step 2: TCS **3.42**; the running line says 100.00 left over before saving. The invoice drops out of the outstanding list. Customers: Outstanding **3.42** (this receipt's TCS) and Advance **97.58** — the excess over everything owed. *(QA01's Vijaya owed on older bills, so there the excess came off the account instead; this firm has none.)*
+  - Step 2: TCS **3.42**; the running line says 100.00 left over before saving. The invoice drops out of the outstanding list. Customers: Outstanding **3.42** (this receipt's TCS) and Advance **97.58** — the excess over everything owed. *(WHOLE01's Vijaya owed on older bills, so there the excess came off the account instead; this firm has none.)*
 ### TC-SELL-014 — Applying an advance posts nothing; reversing a receipt puts everything back
 
 - **Preconditions:** As *selling-invoiced*, plus the two receipts and the second invoice in the preparation table. (the second receipt has 100.00 unallocated; Vijaya: Outstanding 679.91, Advance 97.58.)

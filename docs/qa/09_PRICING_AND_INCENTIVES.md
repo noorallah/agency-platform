@@ -37,7 +37,7 @@ commission uses `commission-firm`:
 
 - **Preconditions:** The selling firm described in this section's preparation table: customers, product, price lists and promotions as listed there.
 - **Steps:** Sales → **Promotions** → select `BULK5` → Edit → change only the Description → Save. Read the list and the selected row's pane.
-- **Expect:** "Promotion BULK5 saved as a new revision; the one you opened is now inactive."; a second BULK5 row appears. The pane reads "BULK5 · revision 2 · applies at 10" and "Applies when: line_quantity GREATER_OR_EQUAL 25.0000". An active offer is superseded, never rewritten — and its claims and limits follow the version group, not the row.
+- **Expect:** "Promotion BULK5 saved as a new revision; the one you opened is now inactive."; a second BULK5 row appears. The pane reads "BULK5 · revision 2 · applies at 10" and, in the plain English the desktop now words conditions in, "Applies when: Quantity on the line is at least 25". An active offer is superseded, never rewritten — and its claims and limits follow the version group, not the row.
 ### TC-INCENT-003 — Promotion reports count a claim once, at approval
 
 - **Preconditions:** As *selling-firm*, plus the order described in the preparation table, approved. (one approved order used coupon `WELCOME10`.)
@@ -61,11 +61,11 @@ commission uses `commission-firm`:
   4. Use points again, 5000.
   5. Reports → Operational Reports → **Points about to lapse**.
 - **Expect**
-  - Step 1: the banner "2 points per 100, worth 1 each and expire after 24 months. At least 50 before any can be spent."; the balances report lists Vijaya with **200** points worth 200.00.
+  - Step 1: the banner "2 points per 100, worth 1 each and expire after 24 months. At least 50 before any can be spent."; the balances report lists Vijaya with **200** points worth 200.00 — **more if your build ran the loyalty scheme setup before approving her invoices**: points are earned at approval, not credited afterward, so an invoice approved while the scheme was already on adds its own 2 per 100 on top of the 200 credited here.
   - Step 2: "100 points used on SI-…".
   - Step 3: Dr **2600 Loyalty Payable 100.00** / Cr **1100 Trade Receivables 100.00**. Outstanding **383.21** — 100 lower; the invoice's total and tax unchanged: the bill is **settled**, not discounted.
   - Step 4: refused outright: "That customer holds 100.0000 points, not 5000.0000." No journal.
-  - Step 5: **empty** — nothing in this store is within 90 days of lapsing. *(QA01's aged batches, and the oldest-first spending they showed, need points two years old; a preparation cannot age them.)*
+  - Step 5: **empty** — nothing in this store is within 90 days of lapsing. *(WHOLE01's aged batches, and the oldest-first spending they showed, need points two years old; a preparation cannot age them.)*
 ### TC-INCENT-006 — Commission blends rates per line, and a ladder's floor is a round number
 
 - **Preconditions:** As *territory-firm*, plus commission rules, targets and three collected sales, as in the preparation table.

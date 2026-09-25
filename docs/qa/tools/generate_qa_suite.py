@@ -40,7 +40,7 @@ PREP = {
     "shared-member-roles": "As *shared-member*, with the QA01/QA02 member holding a role in each tier.",
     "invoiced": "A firm administrator of QA01, and one sale taken to an approved invoice: order, dispatched delivery note, approved invoice.",
     "loyalty-viewer": "A QA01 user hired with the *Sales Manager* job template.",
-    "cashier": "A QA01 user holding the CASHIER role only, and a customer with an outstanding invoice.",
+    "cashier": "A QA01 user holding the CASHIER role only, and a customer to record a receipt against.",
     "accountant": "A QA01 user hired with the *Accounts* job template (role ACCOUNTANT only).",
     "outsider": "The platform administrator, a firm administrator of QA01, and a cashier who belongs to QA02 only.",
     "outsider-added": "As *outsider*, with the QA02 cashier already added to QA01 as *Counter Sales*.",
@@ -154,7 +154,12 @@ def generic(text: str) -> str:
     t = re.sub(r"(?<![\w`])fixture(s?)(?![\w`])", r"preparation\1", t)
     t = t.replace("the four demo firms, ", "").replace(", the demo firm, ELEC01, MEDI01", "")
     t = t.replace("the demo firms included, ", "")
-    t = t.replace("WHOLE01", "QA01").replace("this run's own", "yours")
+    # WHOLE01 is a distinct demo firm, not a synonym for TEST01/QA01 -- mapping
+    # it to QA01 made a list naming both ("TEST01, TEST02, WHOLE01, ...") print
+    # QA01 twice (D-QA-9). Left as WHOLE01: 00_README's convention already
+    # tells the reader to read a demo firm's name as "any other firm on this
+    # installation", the same as ELEC01, MEDI01 and FOOD01 beside it.
+    t = t.replace("this run's own", "yours")
     return t
 
 
@@ -188,8 +193,12 @@ def convert_body(body: str) -> str:
         if skipping_known:
             i += 1
             continue
-        if s.startswith("```"):
-            # skip whole code block (SQL / powershell)
+        if s.startswith("```sql") or s.startswith("```powershell"):
+            # Skip a developer-only code block. A bare ``` fence (no language
+            # tag) is kept -- those hold the handful of plain HTTP requests a
+            # tester with a REST client can actually send, and blanket-
+            # stripping every fence used to take those with the SQL, leaving
+            # a "Steps (HTTP)" line with no request under it (D-QA-9).
             i += 1
             while i < len(lines) and not lines[i].strip().startswith("```"):
                 i += 1

@@ -155,7 +155,7 @@ fifteen minutes.
   1. On the sign-in screen, try `nobody.<suffix>@fixtures.local` / `Wrong@Password1`.
   2. Try the fixture's **Target** with `Wrong@Password1` **four** times.
   3. A fifth time.
-  4. Now the **right** password, `Fixture@2026pw`.
+  4. Now the fixture's password (the right one).
   5. Watch the banner.
 - **Expect**
   - Steps 1–2: "Invalid email or password." every time, the unknown address included, and each takes **about as long** as the others (~2 seconds on this machine, measured) — a wrong address and a wrong password must not feel different.
@@ -173,7 +173,7 @@ fifteen minutes.
 - **Steps**
   1. Lock the fixture's **Target** with five wrong passwords (TC-SESS-003 steps 2–3).
   2. Sign in as the fixture's **Firm admin** → Users → Edit **Lock Target (<suffix>)** → tick **Clear login lock (Account Lock)** → Save.
-  3. Sign in as the target with `Fixture@2026pw`.
+  3. Sign in as the target with the fixture's password.
 - **Expect:** step 3 signs in at once — the lock cleared and the failed count reset. *(2.9's other way, waiting fifteen minutes, ends the same; TC-SESS-003 step 5 shows it.)*
 - **Data (HTTP):** the form sends `PATCH /api/v1/users/{id}` with `{"unlock": true}`.
   Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §15.3 — `users.locked_until` null, `failed_login_attempts` 0, `authorization_version` +1; audit `user.updated` with TEST01 — a before (name, active flag) and no after, so the unlock itself is not named.
@@ -223,7 +223,7 @@ fifteen minutes.
 - **Fixture:** `lock-target`
 - **Steps**
   1. As the fixture's **Platform admin**, delete the target. Users → **Status** filter → **Deleted** → open them.
-  2. **Restore** (dialog footer). Sign in as the target with `Fixture@2026pw`.
+  2. **Restore** (dialog footer). Sign in as the target with the fixture's password.
   3. Delete the target again; create a **new** account with the same address; Status → Deleted → open the old one → Restore.
 - **Expect**
   - Step 1: status **Deleted**, Edit and Delete dead, View opens.
@@ -485,8 +485,8 @@ warehouse rename its capability flags.
 
 - **Covers:** plan 5.6
 - **Fixture:** `branch-master` — in **TEST02**: `<SUFFIX>-BR`, Keep Branch, default, GST registered, 1 Keep Street / Keep Nagar, City <suffix>.
-- **Steps:** sign in as the fixture's **TEST02 admin** → Masters → Branches → Edit `<SUFFIX>-BR` → rename to `Kept Branch renamed` → Save → reopen.
-- **Expect:** both street lines, the city (and its state), **GST registration**, the PAN and **Default** are all unchanged.
+- **Steps:** sign in as the fixture's **TEST02 admin** → Masters → Branches → Edit `<SUFFIX>-BR` → rename to `Kept Branch renamed` → Save → reopen. **(HTTP)** `GET /api/v1/branches/{id}` to check the PAN — the desktop branch form has no PAN field, so the screen cannot show it survived.
+- **Expect:** both street lines, the city (and its state), **GST registration** and **Default** are all unchanged on screen; the HTTP call shows the PAN unchanged too.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §16.16 in `test_fixtures_2` — the update is partial and reads `is_default` with the row as its fallback, so the flag survives a rename; `display_name` is the one field recomputed from the name (D-MST-11); audit `branch.updated` with the code and status.
 - **Leaves:** the branch renamed.
 
@@ -603,8 +603,8 @@ name.
 - **Covers:** plan 6.7
 - **Fixture:** `firm-admin`
 - **Steps:** as the fixture's **Firm admin**, Administration → Configuration → Tax Configuration → **Rule Simulator**. Transaction type `SALES_INVOICE`, tax profile `GST_18_LOCAL`, invoice value `1000` → Run Simulation. Then transaction type `SALES_INTERSTATE` → Run.
-- **Expect:** local — no rule matched, CGST 9% = 90 and SGST 9% = 90, total **180**. Interstate — matched rule **`INTERSTATE_GST_18`**, one component IGST 18% = 180, total **180**, and the trace shows the rule matched. (TEST01's rules come from the GST template, the same six the demo firms carry.)
-- **Data (HTTP):** `POST /api/v1/tax-framework/simulate` with the same values → `total_tax_amount` 180 both times; `matched_rule_id` null, then INTERSTATE_GST_18's id. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §13.4 in `test_fixtures` — each run writes one `tax_rule_execution_logs` row (`execution_mode` SIMULATION, the trace in `evaluation_trace`: all six rules tried for the local run, four for the interstate one, which stops at the match) and an audit `tax.rule.simulated`. No document ever sends `SALES_INTERSTATE`, so a real bill to another state is charged CGST and SGST (D-CMP-1), and if INTERSTATE_GST_18 has been edited the match may be an old version (D-CMP-3).
+- **Expect:** local — no rule matched, CGST 9% = 90 and SGST 9% = 90, total **180**. Interstate — matched rule **`INTERSTATE_GST_18`**, one component IGST 18% = 180, total **180**, and the trace shows the rule matched. (TEST01's rules come from the GST template, the same nine the demo firms carry.)
+- **Data (HTTP):** `POST /api/v1/tax-framework/simulate` with the same values → `total_tax_amount` 180 both times; `matched_rule_id` null, then INTERSTATE_GST_18's id. Tables: `docs/DATA_TRAIL_BY_OPERATION.md` §13.4 in `test_fixtures` — each run writes one `tax_rule_execution_logs` row (`execution_mode` SIMULATION, the trace in `evaluation_trace`: all nine rules tried for the local run, four for the interstate one, which stops at the match) and an audit `tax.rule.simulated`. No document ever sends `SALES_INTERSTATE`, so a real bill to another state is charged CGST and SGST (D-CMP-1), and if INTERSTATE_GST_18 has been edited the match may be an old version (D-CMP-3).
 - **Leaves:** unchanged.
 
 ### TC-CONF-006 — A product's own conversion outranks the firm-wide one
@@ -699,7 +699,7 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 - **Covers:** plan 7.8
 - **Fixture:** `po-invoiced`
 - **Steps:** as the fixture's **Firm admin**, Goods Receipts → select the **receipt of 6** (the one the fixture invoiced) → **Cancel**.
-- **Expect:** refused — "Goods receipt GRN-… has been invoiced, so cancelling it would leave the accrual and the payable disagreeing. Cancel the purchase invoice first, or raise a purchase return." Nothing changes. *(A purchase invoice cannot be raised from the desktop — BACKLOG §31.9 — which is why the fixture raises it.)*
+- **Expect:** refused — "Goods receipt GRN-… has been invoiced, so cancelling it would leave the accrual and the payable disagreeing. Cancel the purchase invoice first, or raise a purchase return." Nothing changes.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §9.7 — the refusal writes nothing, not even an audit row, and the receipt's `version` does not move; its query shows the invoice holding the receipt. What the fixture's invoice wrote is §9.8–9.9.
 - **Leaves:** unchanged.
 
@@ -995,7 +995,7 @@ promotion, or the customer's standing rate).
 - **Covers:** plan 9.17
 - **Fixture:** `selling-invoiced`
 - **Steps:** select the invoice → **Print settings** icon → How many copies **2**, Copy 1 label / Copy 2 label (they prefill ORIGINAL FOR RECIPIENT / DUPLICATE FOR TRANSPORTER) → save → **Print**.
-- **Expect:** the PDF carries the CGST/SGST split, an HSN column, the HSN-wise summary, "AMOUNT CHARGEABLE, IN WORDS", and two labelled copies. Saving print settings needs `SETTINGS_UPDATE`, which the firm admin holds. *(The fixture's firm and customer carry no GSTIN and the product no HSN, so those cells print empty; WHOLE01's did.)*
+- **Expect:** the PDF carries the CGST/SGST split, an HSN column, the HSN-wise summary, "AMOUNT CHARGEABLE, IN WORDS", and two labelled copies. Saving print settings needs `SETTINGS_UPDATE`, which the firm admin holds. *(Whichever of the firm's GSTIN, the customer's GSTIN and the product's HSN are blank on your firm print empty on the copy; check the ones that are blank on yours rather than assuming all three are. The fixture's product carries no HSN, so that column is always empty here; Vijaya carries no GSTIN either way.)*
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §11.13 — one `document_print_templates` row (`document_type` SALES_INVOICE, `copy_labels` a JSON list), audit `document_print_template.created` or `.updated`; printing writes nothing.
 - **Leaves:** the firm's print settings for invoices.
 
@@ -1093,7 +1093,7 @@ commission uses `commission-firm`:
 - **Covers:** plan 10.3
 - **Fixture:** `selling-firm`
 - **Steps:** Sales → **Promotions** → select `BULK5` → Edit → change only the Description → Save. Read the list and the selected row's pane.
-- **Expect:** "Promotion BULK5 saved as a new revision; the one you opened is now inactive."; a second BULK5 row appears. The pane reads "BULK5 · revision 2 · applies at 10" and "Applies when: line_quantity GREATER_OR_EQUAL 25.0000". An active offer is superseded, never rewritten — and its claims and limits follow the version group, not the row.
+- **Expect:** "Promotion BULK5 saved as a new revision; the one you opened is now inactive."; a second BULK5 row appears. The pane reads "BULK5 · revision 2 · applies at 10" and, in the plain English the desktop now words conditions in, "Applies when: Quantity on the line is at least 25". An active offer is superseded, never rewritten — and its claims and limits follow the version group, not the row.
 - **Leaves:** BULK5 at revision 2.
 
 ### TC-INCENT-003 — Promotion reports count a claim once, at approval
@@ -1127,7 +1127,7 @@ commission uses `commission-firm`:
   4. Use points again, 5000.
   5. Reports → Operational Reports → **Points about to lapse**.
 - **Expect**
-  - Step 1: the banner "2 points per 100, worth 1 each and expire after 24 months. At least 50 before any can be spent."; the balances report lists Vijaya with **200** points worth 200.00.
+  - Step 1: the banner "2 points per 100, worth 1 each and expire after 24 months. At least 50 before any can be spent."; the balances report lists Vijaya with **200** points worth 200.00 — **more if your build ran the loyalty scheme setup before approving her invoices**: points are earned at approval, not credited afterward, so an invoice approved while the scheme was already on adds its own 2 per 100 on top of the 200 credited here.
   - Step 2: "100 points used on SI-…".
   - Step 3: Dr **2600 Loyalty Payable 100.00** / Cr **1100 Trade Receivables 100.00**. Outstanding **383.21** — 100 lower; the invoice's total and tax unchanged: the bill is **settled**, not discounted.
   - Step 4: refused outright: "That customer holds 100.0000 points, not 5000.0000." No journal.
@@ -1799,7 +1799,7 @@ offered to every firm; cases count only the eleven.
 
 - **Covers:** plan 17.10
 - **Fixture:** `firm-admin`
-- **Steps (HTTP)** — find the `PLATFORM_ADMIN` role's id (`select id from platform.roles where code = 'PLATFORM_ADMIN'`; a firm admin's role list never shows it). As the fixture's firm admin, with `X-Firm-ID` of TEST01: `POST /api/v1/user-templates` `{"code": "<suffix>-bad", "name": "Bad", "role_ids": ["<that id>"]}`.
+- **Steps (HTTP)** — as the platform administrator, `GET /api/v1/roles?search=PLATFORM_ADMIN` to find its id (a firm admin's own role list never shows it). Then, as the fixture's firm admin, with `X-Firm-ID` of TEST01: `POST /api/v1/user-templates` `{"code": "<suffix>-bad", "name": "Bad", "role_ids": ["<that id>"]}`.
 - **Expect:** **422**, "A template cannot bundle platform or cross-firm roles." Nothing created. That role carries every permission code; a template able to name it would be a second door onto the same room.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.7 — the refusal writes nothing.
 - **Leaves:** a firm admin user.
@@ -1859,7 +1859,7 @@ digit, symbol.
 - **Covers:** plan 18.7
 - **Fixture:** `clone-source`
 - **Steps**
-  1. As the fixture's **Firm admin**, make a clone of **Source Seller (<suffix>)** as in TC-HIRE-002 step 1.
+  1. As the fixture's **Firm admin**, Hire like this person on **Source Seller (<suffix>)**: `Clone Test Two <suffix>`, `<suffix>.clone2@fixtures.local`, `Welcome@12345` → Create. A second clone, with its own address: TC-HIRE-002 has already taken `<suffix>.clone@fixtures.local`.
   2. Edit the clone: add `CUSTOMER_SUPPORT` under Roles in this firm → Save & Close.
   3. Open **Source Seller (<suffix>)**; close without saving.
 - **Expect:** the clone holds `SALES_EXECUTIVE` and `CUSTOMER_SUPPORT`; the source still holds exactly `SALES_EXECUTIVE`.
@@ -2691,7 +2691,7 @@ own roles and templates without anybody writing code.
 - **Steps**
   1. Sign in as the fixture's **Firm admin**, TEST01 selected.
   2. Administration → **Users** → **New**.
-  3. Full name anything; email `<suffix>.hire@fixtures.local`; **Initial password** `Fixture@2026pw` (twelve or more characters — the form does not say which rule it refused on if shorter).
+  3. Full name anything; email `<suffix>.hire@fixtures.local`; **Initial password** the fixture's password (twelve or more characters — the form does not say which rule it refused on if shorter).
   4. **Job template** → the fixture's **Job template**. Leave **Roles** empty. Firms as prefilled. **Save.**
   5. Select the new row → **Roles by firm**.
 - **Expect:** one section, TEST01, holding **only** `Night Desk <suffix>`.
@@ -2938,9 +2938,9 @@ being signed in and nothing else.
 - **Steps (HTTP)** — sign in as the fixture's user and send:
   ```
   PUT /api/v1/me/primary-firm
-  { "firm_id": "<WHOLE01's id>" }
+  { "firm_id": "<the id of a firm this account does not belong to>" }
   ```
-  WHOLE01's id is in `GET /api/v1/firms` as a platform administrator, or in `platform.firms`.
+  Get that id as a platform administrator, from `GET /api/v1/firms`, choosing one this account is not a member of.
 - **Expect:** **422**, "You can only make a firm you belong to your primary firm." Nothing changes.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.4 — the refusal writes nothing.
 - **Leaves:** a two-firm user.
@@ -2991,7 +2991,7 @@ being signed in and nothing else.
   3. New password `Short@1` (under twelve characters).
   4. New password `LongEnoughPassw0rd` (no symbol).
   5. Current password `Wrong@Password1`, new password `Str0ng-Passw0rd!` twice.
-  6. Current password `Fixture@2026pw`, new password `Str0ng-Passw0rd!` twice.
+  6. Current password: the fixture's password, new password `Str0ng-Passw0rd!` twice.
 - **Expect**
   - Step 3: refused beside the box, **"Use at least 12 characters."** — nothing sent.
   - Step 4: **"Include a symbol."** — nothing sent. (The desktop checks the same rules the server enforces: twelve characters, upper, lower, digit, symbol.)
@@ -3076,7 +3076,7 @@ dedicated one leaves its schema behind. Provisioning runs the migrations, so
 - **Covers:** plan 27.5, 27.6, 27.7, 27.9
 - **Fixture:** `platform-admin`
 - **Steps (HTTP)** — sign in as the fixture's platform admin and send `POST /api/v1/firms`, each time with `name`, `country: "IN"`, `currency_code: "INR"`, `financial_year_start: "2026-04-01"` and `deployment_mode: "SHARED"`, varying one thing:
-  1. `code: "WHOLE01"`
+  1. `code: "TEST01"` (a firm that already exists — on an installed copy, use one of your own)
   2. `code: "BAD CODE"`
   3. `code: "<SUFFIX>-Z"`, `country: "IND"`
   4. `code: "<SUFFIX>-Y"`, `deployment_mode: "DATABASE"`, `database_name: "fx_nope"`, `connection_profile: "NOPE"`
@@ -3084,7 +3084,7 @@ dedicated one leaves its schema behind. Provisioning runs the migrations, so
   1. **409**, "Firm code, GST number, or PAN number already exists." Unique among *live* firms only — a deleted firm releases its code.
   2. **422**, the code "should match pattern `^[A-Z0-9_-]+$`" — no spaces, no dots.
   3. **422**, country "should have at most 2 characters".
-  4. **422**, "Connection profile 'NOPE' is not configured. Configured profiles: REMOTE_A." Refused at creation, not at first use — otherwise the firm would provision nothing and fail far from the request that caused it.
+  4. **422**, "Connection profile 'NOPE' is not configured. Configured profiles: <this installation's own list, from `config/.env`>." Refused at creation, not at first use — otherwise the firm would provision nothing and fail far from the request that caused it. (This machine's own list is `REMOTE_A`; an installed copy sees whichever profiles its own `.env` names, which may be none.)
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.8 — every refusal writes nothing — but a SCHEMA firm naming `firm_shared` or `platform` is **not** refused (D-IDN-4).
 - **Leaves:** nothing; every request was refused.
 
@@ -3114,7 +3114,7 @@ dedicated one leaves its schema behind. Provisioning runs the migrations, so
 - **Covers:** plan 27.14
 - **Fixture:** `unprovisioned-firm`
 - **Steps (HTTP)** — as the fixture's platform admin, `GET /api/v1/firms/{id}` for the fixture's firm, then `PUT` it back with `name`, `code`, `country`, `currency_code`, `financial_year_start` as read and `deployment_mode: "SHARED"`.
-- **Expect:** **422**, "Firm storage routing cannot be changed after creation (currently SCHEMA/fx_<suffix>_u). Migrate the firm's data first." Nothing moves a firm's rows between stores.
+- **Expect:** **422**, "Firm storage routing cannot be changed after creation (currently SCHEMA/<the schema the server chose for this firm>). Migrate the firm's data first." — the schema name in the message is whatever the server picked at creation, not a fixed string. Nothing moves a firm's rows between stores.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.8 — the refusal writes nothing; an edit that keeps the routing is a full replacement — an omitted `is_active` is true, omitted GST and PAN are cleared (D-IDN-10).
 - **Leaves:** the firm, unchanged.
 
@@ -3190,7 +3190,7 @@ dedicated one leaves its schema behind. Provisioning runs the migrations, so
   2. **(HTTP)** `POST /api/v1/firms/{id}/apply-tax-template` again; then once more with `{"template": "US"}`.
   3. Open this firm → Administration → Configuration → **Tax Configuration**.
 - **Expect**
-  - Step 1: "GST set up: 8 tax profiles and 6 rules." Tax re-reads as "1 tax system, 8 profiles, 6 rules", and **Geography flips to done** ("1 country in the store") — the template adds India to a store that has no country.
+  - Step 1: "GST set up: 8 tax profiles and 9 rules." Tax re-reads as "1 tax system, 8 profiles, 9 rules", and **Geography flips to done** ("1 country in the store") — the template adds India to a store that has no country.
   - Step 2: "The firm already has a tax system; nothing was created.", `already_configured: true`. With `US`: **422**, only `IN_GST` exists. One `firm.tax_template_applied` audit row, not two.
   - Step 3: the system, four components and eight profiles, editable.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §13.2 — audit `firm.tax_template_applied` on the platform with the firm (§15.10); a second press writes nothing.
@@ -3262,7 +3262,7 @@ dedicated one leaves its schema behind. Provisioning runs the migrations, so
 - **Covers:** plan 27.26
 - **Fixture:** `ready-firm`
 - **Steps:** sign in as the fixture's **Platform admin** → Administration → Firms → the fixture's firm → **Set up**.
-- **Expect:** **Finished. Every step is done.** — "24 accounts, 1 financial year, 12 periods, all 24 control accounts mapped, and a period open today"; Assigned: WHOLESALE; 1 tax system, 8 profiles, 6 rules; 1 country; 1 branch, 1 warehouse; **2 members**. No buttons. The contrast with TC-FIRM-007 is the point.
+- **Expect:** **Finished. Every step is done.** — "24 accounts, 1 financial year, 12 periods, all 24 control accounts mapped, and a period open today"; Assigned: WHOLESALE; 1 tax system, 8 profiles, 9 rules; 1 country; 1 branch, 1 warehouse; **2 members**. No buttons. The contrast with TC-FIRM-007 is the point.
 - **Data:** `docs/DATA_TRAIL_BY_OPERATION.md` §15.9 — reads only.
 - **Leaves:** the firm, unchanged.
 
