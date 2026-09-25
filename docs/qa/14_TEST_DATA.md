@@ -191,7 +191,7 @@ Interstate**, **GST 12% Local**, **GST 12% Interstate**, **GST 18% Local**,
 The GST template adds the country India and nothing under it. The address
 pickers need a state, district and city. **Writing places needs the
 platform administrator**: sign in as `platform-admin@agency.local`, switch
-into the firm, then **Sales → Places**. Open *India*, then **New** at each
+into the firm, then **Masters → Places**. Open *India*, then **New** at each
 level; each asks for a **Code** and a **Name**.
 
 | Firm | State (code, name) | District (code, name) | City (code, name) | Postal code |

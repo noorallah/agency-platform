@@ -1950,6 +1950,10 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           hasActiveFirm: hasActiveFirm,
           section: BranchWarehouseSection.settings,
         ),
+      'geography-masters' => GeographyMasterPage(
+          api: widget.api,
+          permissions: widget.permissions,
+        ),
       _ => WorkspaceEmptyState(
           title:
               '${visibleTabs.firstWhere((tab) => tab.id == tabId).label} is coming soon',
@@ -1973,6 +1977,7 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
         'warehouse-types' => 'Warehouse Type Management',
         'branch-types' => 'Branch Type Management',
         'branch-warehouse-settings' => 'Branch & Warehouse Settings',
+        'geography-masters' => 'Places',
         _ => 'Firm Management',
       },
       description: switch (tabId) {
@@ -2002,6 +2007,9 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
         'branch-types' => 'Manage reusable branch type masters.',
         'branch-warehouse-settings' =>
           'Configure future-ready branch and warehouse defaults.',
+        'geography-masters' =>
+          'The shared geography every address and route hangs off: country to '
+              'locality.',
         'firm-settings' =>
           'Configure the active firm\'s business profile and related settings.',
         _ => 'Manage organization records and future firm configuration.',
@@ -2022,6 +2030,7 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           'warehouse-types' => 'Warehouse Type Management',
           'branch-types' => 'Branch Type Management',
           'branch-warehouse-settings' => 'Branch & Warehouse Settings',
+          'geography-masters' => 'Places',
           _ => 'Firm Management',
         },
       ],
@@ -2091,10 +2100,6 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           permissions: widget.permissions,
         ),
       'route-builder' => RouteBuilderPage(
-          api: widget.api,
-          permissions: widget.permissions,
-        ),
-      'geography-masters' => GeographyMasterPage(
           api: widget.api,
           permissions: widget.permissions,
         ),
@@ -2176,11 +2181,6 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           'Route Builder',
           'Find outlets by pin code or street, put them on a round, and set '
               'the order they are called in.',
-        ),
-      'geography-masters' => (
-          'Places',
-          'The shared geography every address and route hangs off: country to '
-              'locality.',
         ),
       'price-lists' => (
           'Price Lists',

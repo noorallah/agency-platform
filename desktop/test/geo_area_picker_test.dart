@@ -150,4 +150,27 @@ void main() {
     );
     expect(find.text('Nepal'), findsWidgets);
   });
+
+  // D-QA-13: only countries and states are seeded, so on a fresh install the
+  // District list stays empty after a state is chosen. With no word of why,
+  // the tester read it as a broken field.
+  testWidgets('an empty rung says which place has none and where to add them',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 1000);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(_Harness(requested: <String>[]));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('No districts'), findsNothing,
+        reason: 'nothing is said about a rung whose parent is not chosen');
+
+    await _choose(tester, 0, 'India');
+    await _choose(tester, 1, 'Tamil Nadu');
+
+    expect(
+      find.text('No districts in Tamil Nadu yet. A platform administrator '
+          'adds them under Masters → Places.'),
+      findsOneWidget,
+    );
+  });
 }

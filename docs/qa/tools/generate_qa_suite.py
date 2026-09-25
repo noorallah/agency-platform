@@ -109,7 +109,7 @@ FILES = [
      [("Sales", ["Price Lists", "Promotions", "Commission", "Targets"]), ("Masters", ["Loyalty"])]),
     ("10_TERRITORY", "Territory, routes and beats",
      ["Territory, routes and beats"],
-     [("Sales", ["Geography", "Route Types", "Beat Plans", "Call Lists", "Coverage", "Route Builder", "Places"])]),
+     [("Sales", ["Geography", "Route Types", "Beat Plans", "Call Lists", "Coverage", "Route Builder"]), ("Masters", ["Places"])]),
     ("11_COMPLIANCE", "Compliance: GST returns, e-invoices and TCS",
      ["Compliance — GST returns, e-invoices and TCS"],
      [("Sales", ["E-Invoice", "GST Returns", "TCS"])]),

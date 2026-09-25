@@ -463,6 +463,15 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['BRANCH_VIEW', 'WAREHOUSE_VIEW'],
           requiresAnyPermission: true,
         ),
+        // Reference data every address picks from, so it lives with the other
+        // masters. It sat under Sales, where a tester looking for why the
+        // District list was empty never found it (D-QA-13). Same id, so a
+        // stored workspace still resolves.
+        ModuleTabDefinition(
+          id: 'geography-masters',
+          label: 'Places',
+          requiredPermissions: ['TERRITORY_VIEW'],
+        ),
         ModuleTabDefinition(
           id: 'financial-years',
           label: 'Financial Years',
@@ -567,11 +576,6 @@ abstract final class ModuleCatalog {
         ModuleTabDefinition(
           id: 'route-builder',
           label: 'Route Builder',
-          requiredPermissions: ['TERRITORY_VIEW'],
-        ),
-        ModuleTabDefinition(
-          id: 'geography-masters',
-          label: 'Places',
           requiredPermissions: ['TERRITORY_VIEW'],
         ),
       ],
@@ -1479,6 +1483,12 @@ abstract final class ModuleCatalog {
                 path: 'branch-warehouse-settings',
               ),
           ],
+        ),
+      if (visibleTabIds.contains('geography-masters'))
+        const WorkspaceNavigationNode(
+          label: 'Places',
+          path: 'geography-masters',
+          icon: Icons.public_outlined,
         ),
       // Configuration in one place, the way Administration already groups
       // its own. These three sat loose at the bottom of Masters, level with
