@@ -332,6 +332,14 @@ begin
   Result := InstalledVersion <> '';
 end;
 
+{ The same version run again. It is still an upgrade underneath -- the server is
+  stopped, backed up, its files replaced and its services, database and folder
+  permissions set again -- but it is said as a repair, and asked first (D-QA-2). }
+function IsRepair: Boolean;
+begin
+  Result := IsUpgrade and (CompareVersions(InstalledVersion, '{#AppVersion}') = 0);
+end;
+
 function InitializeSetup: Boolean;
 var
   Memory, Disk: Int64;
@@ -371,6 +379,19 @@ begin
         'already been upgraded past what this version understands.',
         mbCriticalError, MB_OK, IDOK);
       Result := False;
+    end else if IsRepair then begin
+      { A silent run repairs: that is what a scripted re-run is for. }
+      if SuppressibleTaskDialogMsgBox(
+          '{#AppName} {#AppVersion} is already installed.',
+          'Repair installs its files again and sets up its services, database and ' +
+          'folder permissions again. The database is backed up first, and your data ' +
+          'and passwords are kept.' + NL + NL +
+          'Cancel leaves everything as it is.',
+          mbConfirmation, MB_OKCANCEL, ['Repair', 'Cancel'], 0, IDOK) <> IDOK then begin
+        InstallLog('Cancelled at the repair question.');
+        Result := False;
+      end else
+        InstallLog('Same version: repairing.');
     end;
   end else
     InstallLog('No earlier installation found: a fresh install.');
@@ -632,7 +653,10 @@ begin
   Result := '';
   if not IsUpgrade or IsClient then Exit;
   ExtractTemporaryFile('server_setup.ps1');
-  WizardForm.PreparingLabel.Caption := 'Backing up the database before the upgrade...';
+  if IsRepair then
+    WizardForm.PreparingLabel.Caption := 'Backing up the database before the repair...'
+  else
+    WizardForm.PreparingLabel.Caption := 'Backing up the database before the upgrade...';
   if not RunSetupScript(ExpandConstant('{tmp}\server_setup.ps1'),
       '-Action Backup -PreviousVersion "' + InstalledVersion + '"') then
     Result := 'The backup taken before an upgrade failed, so nothing was changed.' + NL + NL +
@@ -754,6 +778,10 @@ begin
       'Run this Setup again once that is fixed. The full log is ' + InstallLogPath + '.'
   else if AdminPassword <> '' then
     ShowCredentials
+  else if IsRepair then
+    WizardForm.FinishedLabel.Caption :=
+      '{#AppName} {#AppVersion} is repaired, and its server is running again. ' +
+      'Sign in as before.'
   else
     WizardForm.FinishedLabel.Caption :=
       '{#AppName} is upgraded to {#AppVersion}, and its server is running again. ' +
