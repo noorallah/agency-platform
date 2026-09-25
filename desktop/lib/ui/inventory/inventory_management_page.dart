@@ -55,7 +55,15 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
   static const int _rowsPerPage = 20;
   static const String _preferencesKey = 'inventory_management';
 
-  static const List<String> _statusValues = ['', 'ACTIVE', 'INACTIVE', 'ARCHIVED', 'DRAFT', 'POSTED'];
+  static const List<String> _statusValues = [
+    '',
+    'ACTIVE',
+    'INACTIVE',
+    'ARCHIVED',
+    'DRAFT',
+    'POSTED'
+  ];
+
   /// Every `transaction_type` the server writes, and what to call it.
   ///
   /// The server filters on the exact string and accepts any, so a type it
@@ -856,7 +864,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
                   .map(
                     (value) => DropdownMenuItem<String>(
                       value: value.isEmpty ? null : value,
-                      child: Text(value.isEmpty ? 'All' : value, overflow: TextOverflow.ellipsis),
+                      child: Text(value.isEmpty ? 'All' : value,
+                          overflow: TextOverflow.ellipsis),
                     ),
                   )
                   .toList(),
@@ -1419,7 +1428,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
       context: context,
       builder: (context) => StockActionDialog(
         action: action,
-        productLabel: row.productName.isEmpty ? row.productCode : row.productName,
+        productLabel:
+            row.productName.isEmpty ? row.productCode : row.productName,
         warehouseLabel: row.warehouseName,
         sourceWarehouseId: row.warehouseId,
         available: double.tryParse(row.availableQuantity) ?? 0,
@@ -1823,7 +1833,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         child: DropdownButtonFormField<String>(
           // Never hand the dropdown a value its list does not hold: that is
           // an assertion, not a blank field.
-          initialValue: items.any((item) => itemId(item) == value) ? value : null,
+          initialValue:
+              items.any((item) => itemId(item) == value) ? value : null,
           isExpanded: true,
           decoration: InputDecoration(labelText: label),
           items: [
@@ -1877,7 +1888,7 @@ class _AdjustmentDraft {
         'storage_node_id': storageNodeId,
         'product_id': productId,
         'quantity': num.parse(quantity),
-        'reference_number': referenceNumber,
+        if (referenceNumber.isNotEmpty) 'reference_number': referenceNumber,
         'reference_type': 'ADJUSTMENT',
         'transaction_date': transactionDate,
         if (remarks.trim().isNotEmpty) 'remarks': remarks.trim(),
@@ -1916,8 +1927,9 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog> {
   late String? _productId = widget.initialProductId ??
       (widget.products.isEmpty ? null : widget.products.first.id);
   final TextEditingController _quantity = TextEditingController();
-  final TextEditingController _reference =
-      TextEditingController(text: 'ADJ-001');
+  // Blank: the server numbers the adjustment from its series. A prefilled
+  // ADJ-001 was sent as-is by every adjustment nobody retyped (D-QA-16).
+  final TextEditingController _reference = TextEditingController();
   final TextEditingController _date = TextEditingController(
       text: DateTime.now().toIso8601String().split('T').first);
   final TextEditingController _remarks = TextEditingController();
@@ -1977,7 +1989,8 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog> {
                       .map(
                         (item) => DropdownMenuItem<String>(
                           value: item.id,
-                          child: Text('${item.code} - ${item.name}', overflow: TextOverflow.ellipsis),
+                          child: Text('${item.code} - ${item.name}',
+                              overflow: TextOverflow.ellipsis),
                         ),
                       )
                       .toList(),
@@ -2007,7 +2020,8 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog> {
                       .map(
                         (item) => DropdownMenuItem<String>(
                           value: item.id,
-                          child: Text('${item.code} - ${item.name}', overflow: TextOverflow.ellipsis),
+                          child: Text('${item.code} - ${item.name}',
+                              overflow: TextOverflow.ellipsis),
                         ),
                       )
                       .toList(),
@@ -2029,7 +2043,8 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog> {
                     ..._storageNodes.map(
                       (item) => DropdownMenuItem<String>(
                         value: item.id,
-                        child: Text('${item.code} - ${item.name}', overflow: TextOverflow.ellipsis),
+                        child: Text('${item.code} - ${item.name}',
+                            overflow: TextOverflow.ellipsis),
                       ),
                     ),
                   ],
@@ -2044,7 +2059,8 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog> {
                       .map(
                         (item) => DropdownMenuItem<String>(
                           value: item.id,
-                          child: Text('${item.code} - ${item.name}', overflow: TextOverflow.ellipsis),
+                          child: Text('${item.code} - ${item.name}',
+                              overflow: TextOverflow.ellipsis),
                         ),
                       )
                       .toList(),
@@ -2067,7 +2083,10 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog> {
                 const SizedBox(height: 12),
                 TextField(
                   controller: _reference,
-                  decoration: const InputDecoration(labelText: 'Reference'),
+                  decoration: const InputDecoration(
+                    labelText: 'Reference (optional)',
+                    helperText: 'Leave blank to number it from the series',
+                  ),
                 ),
                 const SizedBox(height: 12),
                 TextField(
@@ -2101,7 +2120,6 @@ class _AdjustmentDialogState extends State<_AdjustmentDialog> {
                   _warehouseId == null ||
                   _productId == null ||
                   _quantity.text.trim().isEmpty ||
-                  _reference.text.trim().isEmpty ||
                   _date.text.trim().isEmpty) {
                 return;
               }
@@ -2327,7 +2345,8 @@ class _OpeningStockDialogState extends State<_OpeningStockDialog> {
                             .map(
                               (item) => DropdownMenuItem<String>(
                                 value: item.id,
-                                child: Text('${item.code} - ${item.name}', overflow: TextOverflow.ellipsis),
+                                child: Text('${item.code} - ${item.name}',
+                                    overflow: TextOverflow.ellipsis),
                               ),
                             )
                             .toList(),
@@ -2353,7 +2372,8 @@ class _OpeningStockDialogState extends State<_OpeningStockDialog> {
                             .map(
                               (item) => DropdownMenuItem<String>(
                                 value: item.id,
-                                child: Text('${item.code} - ${item.name}', overflow: TextOverflow.ellipsis),
+                                child: Text('${item.code} - ${item.name}',
+                                    overflow: TextOverflow.ellipsis),
                               ),
                             )
                             .toList(),
@@ -2623,7 +2643,8 @@ class _OpeningStockLineEditorState extends State<_OpeningStockLineEditor> {
                     .map(
                       (item) => DropdownMenuItem<String>(
                         value: item.id,
-                        child: Text('${item.code} - ${item.name}', overflow: TextOverflow.ellipsis),
+                        child: Text('${item.code} - ${item.name}',
+                            overflow: TextOverflow.ellipsis),
                       ),
                     )
                     .toList(),
@@ -2656,7 +2677,8 @@ class _OpeningStockLineEditorState extends State<_OpeningStockLineEditor> {
                   ...widget.storageNodes.map(
                     (item) => DropdownMenuItem<String>(
                       value: item.id,
-                      child: Text('${item.code} - ${item.name}', overflow: TextOverflow.ellipsis),
+                      child: Text('${item.code} - ${item.name}',
+                          overflow: TextOverflow.ellipsis),
                     ),
                   ),
                 ],

@@ -42,8 +42,13 @@ String? validateStockAction({
   String? destinationWarehouseId,
   String? sourceWarehouseId,
 }) {
-  if (reference.trim().length < 2) {
-    return 'Give it a reference, so the movement can be found later.';
+  // Optional: left blank, the server numbers the movement from its series
+  // (D-QA-16). Typed, it is the paper slip's number, and the server's
+  // two-character floor applies.
+  final String typed = reference.trim();
+  if (typed.isNotEmpty && typed.length < 2) {
+    return 'A reference needs at least two characters, or leave it blank '
+        'to have it numbered.';
   }
   final double amount = double.tryParse(quantity.trim()) ?? 0;
   if (amount <= 0) return 'Enter how much is moving.';
@@ -120,10 +125,9 @@ class _StockActionDialogState extends State<StockActionDialog> {
       };
 
   /// What this action can draw on, which is not the same for a release.
-  double get _available =>
-      widget.action == StockAction.quarantine && _releasing
-          ? widget.quarantined
-          : widget.available;
+  double get _available => widget.action == StockAction.quarantine && _releasing
+      ? widget.quarantined
+      : widget.available;
 
   void _save() {
     final String? problem = validateStockAction(
@@ -140,7 +144,8 @@ class _StockActionDialogState extends State<StockActionDialog> {
     }
     Navigator.of(context).pop(<String, dynamic>{
       'quantity': _quantity.text.trim(),
-      'reference_number': _reference.text.trim(),
+      if (_reference.text.trim().isNotEmpty)
+        'reference_number': _reference.text.trim(),
       'transaction_date': _when.toIso8601String().substring(0, 10),
       if (_remarks.text.trim().isNotEmpty) 'remarks': _remarks.text.trim(),
       if (widget.action == StockAction.transfer)
@@ -199,8 +204,8 @@ class _StockActionDialogState extends State<StockActionDialog> {
                   child: TextField(
                     controller: _reference,
                     decoration: const InputDecoration(
-                      labelText: 'Reference',
-                      hintText: 'TRF-0001',
+                      labelText: 'Reference (optional)',
+                      helperText: 'Blank: numbered from the series',
                     ),
                   ),
                 ),
@@ -243,7 +248,8 @@ class _StockActionDialogState extends State<StockActionDialog> {
                   if (warehouse.id != widget.sourceWarehouseId)
                     DropdownMenuItem<String>(
                       value: warehouse.id,
-                      child: Text(warehouse.label, overflow: TextOverflow.ellipsis),
+                      child: Text(warehouse.label,
+                          overflow: TextOverflow.ellipsis),
                     ),
               ],
               onChanged: (value) => setState(() => _destination = value ?? ''),
@@ -255,8 +261,10 @@ class _StockActionDialogState extends State<StockActionDialog> {
               initialValue: _reason,
               decoration: const InputDecoration(labelText: 'Reason'),
               items: const [
-                DropdownMenuItem<String>(value: 'DAMAGE', child: Text('Damage')),
-                DropdownMenuItem<String>(value: 'EXPIRY', child: Text('Expiry')),
+                DropdownMenuItem<String>(
+                    value: 'DAMAGE', child: Text('Damage')),
+                DropdownMenuItem<String>(
+                    value: 'EXPIRY', child: Text('Expiry')),
                 DropdownMenuItem<String>(value: 'LOSS', child: Text('Loss')),
               ],
               onChanged: (value) => setState(() => _reason = value ?? 'DAMAGE'),
