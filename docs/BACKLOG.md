@@ -3563,3 +3563,43 @@ folder on the next run; the folder ACL is admin-only.
 3. A restore procedure in `docs/INSTALL_GUIDE.md` (stop the server service,
    `pg_restore --clean --if-exists -d <database> <file>` per store, start it).
 4. Move D-QA-4 to Fixed in `docs/DEFECTS.md`.
+
+## 46. Import products, customers and vendors from a file, with templates
+
+Owner's note, 2026-09-25: a firm moving from other software (Tally, Excel,
+another ERP) needs to bring its masters in from a file, and a template to
+fill in. **Important for onboarding; build when scheduled.**
+
+**What exists today:**
+
+| Master | Server import | Desktop | Template |
+| --- | --- | --- | --- |
+| Products | `POST /api/v1/products/import` -- JSON, CSV or XLSX | Import wizard takes **pasted JSON only**, no file picker | none |
+| Customers | `POST /api/v1/customers/import` -- JSON only | toolbar **Import** does nothing (`customer_management_page.dart`, `ToolbarAction.import` falls through) | none |
+| Vendors | `POST /api/v1/vendors/import` -- JSON only | no import | none |
+
+The pattern to copy is the inventory import (`inventory_import_wizard.dart`,
+`InventoryImportFileParser`, which already reads XLSX, and
+`inventory_import_samples.dart`): file pick, preview, validation before
+anything is written, cancel and retry.
+
+**To build, the same shape for all three (one PR per master, products first):**
+1. **Download template**: XLSX (CSV too) whose headings are exactly the
+   fields the write schema accepts, one example row, and a notes sheet --
+   required columns, allowed codes, date and number formats.
+2. **Import**: pick a CSV/XLSX file; one shared desktop wizard for the three.
+3. **Preview and check** every row before saving -- missing or duplicate
+   code, unknown category / unit / tax profile / customer group, bad
+   GSTIN, PAN or phone -- each with its row number, and the errors
+   downloadable so the file can be fixed and re-run.
+4. **All or nothing**: stage then commit once (CLAUDE.md, "bulk and import
+   endpoints are a second implementation": same audit writes and guards as
+   the single-row path).
+5. **Update existing by code** as an option, so a migration can be re-run and
+   corrected.
+6. References (category, unit, tax profile, group, geography) matched by code
+   or name and **reported, never guessed** when missing; headings matched
+   ignoring case and spacing, so an export from other software needs little
+   editing.
+7. Opening balances for customers and vendors in the same file where the
+   write schema already takes them; opening stock stays with its own import.
