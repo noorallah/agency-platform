@@ -91,31 +91,38 @@ smaller than the window they sit in.
 
 ## 4. The proposed shell
 
-### 4.1 Layout
+### 4.1 Layout -- a top menu bar (agreed 2026-09-25)
+
+The owner chose the **top menu bar** over a left rail on 2026-09-25: users
+come from Tally, Busy and Marg, which put the menu across the top; the
+screens are wide tables that want the whole width; and eight areas fit across
+a 1366 px laptop. Xero, NetSuite, Odoo, SAP Fiori and Business Central use
+the same arrangement.
 
 ```
-+----+------------------------------------------------------------------------------+
-|    | [QA01 Traders v]  [ Search or jump to...  Ctrl+K ]      [+ New v]  [?] [SN v] |  top bar 44 px
-| A  +------------------------------------------------------------------------------+
-| R  | Sales Order SO-QA01-0012 x | Invoices x | Stock Ledger x |                       |  open tabs 32 px
-| E  +------------------------------------------------------------------------------+
-| A  | Sales Orders  >  Open          [Filters: Status=Open x] [Branch=HO x] [+]  (i)  |  page bar 44 px
-|    |                                              [Approve] [Print] [...]  [+ New]  |
-| R  +------------------------------------------------------------------------------+
-| A  |  #  | Number        | Date       | Customer          | Amount    | Status     |
-| I  |  1  | SO-QA01-0012  | 25-09-2026 | QA Retail         |  1,770.00 | Approved   |
-| L  |  2  | ...                                                                       |
-|    |  ... about 16 rows at 34 px ...                                               |
-| 56 |                                                                               |
-| px +------------------------------------------------------------------------------+
-|    | 128 records  |  3 selected  |  Page 1 of 7  < >  |  Ready                     |  status bar 28 px
-+----+------------------------------------------------------------------------------+
++----------------------------------------------------------------------------------------+
+| QA01 Traders v | Home  Sell v  Buy v  Stock v  Accounts v  Masters v  Reports v  Admin v |  menu bar 40 px
+|                |                   [ Search or jump to...  Ctrl+K ]  [+ New v] [?] [SN v]|  (one row when wide)
++----------------------------------------------------------------------------------------+
+| Sales Order SO-QA01-0012 x | Invoices x | Stock Ledger x |                               |  open tabs 32 px
++----------------------------------------------------------------------------------------+
+| Sales Orders > Open    [Status=Open x] [Branch=HO x] [+]  (i)  [Approve] [Print] [+ New] |  page bar 44 px
++----------------------------------------------------------------------------------------+
+|  #  | Number        | Date       | Customer          | Branch | Amount    | Status     |
+|  1  | SO-QA01-0012  | 25-09-2026 | QA Retail         | HO     |  1,770.00 | Approved   |
+|  2  | ...                                                                              |
+|  ... about 16 rows at 34 px, across the full width of the window ...                 |
++----------------------------------------------------------------------------------------+
+| 128 records  |  3 selected  |  Page 1 of 7  < >  |  Ready                               |  status bar 28 px
++----------------------------------------------------------------------------------------+
 ```
 
-- **Area rail, 56 px**, icons with a short label under each. It is always
-  visible, and too narrow to cost anything.
-- **Top bar, 44 px**: firm switcher, the **command box**, **+ New** (quick
-  create), help, user menu.
+- **Menu bar, 40 px**: firm switcher on the left, then the **eight areas**,
+  then the **command box**, **+ New** (quick create), help and the user menu
+  on the right. On a wide screen it is one row; at 1366 px the command box
+  may sit on the same row in a shorter form. When the window is too narrow
+  for all eight, the ones that do not fit fold into **More v**.
+- **No sidebar at all**: the grid gets the full width of the window.
 - **Open tabs, 32 px**: every screen or document opened stays as a tab, so a
   sales order and its invoice can be switched between without navigating.
   Closeable, reorderable, remembered per user.
@@ -128,7 +135,7 @@ against 8 today.
 
 ### 4.2 Eight areas instead of nineteen modules
 
-| Area (rail) | Contains (today's modules and tabs) |
+| Area (menu bar) | Contains (today's modules and tabs) |
 | --- | --- |
 | **Home** | role dashboard, to-do, favourites, recent |
 | **Sell** | Quotations, Sales Orders, Delivery Notes, Sales Invoices, Sales Returns, Proforma, Credit Notes, Receipts; Price Lists, Promotions, Loyalty; Territory, Routes, Beats, Call lists |
@@ -143,29 +150,31 @@ The exact placement of every one of the 94 screens is a table to agree
 (appendix A, to be written once section 8 is agreed); a role only ever sees
 the areas and items its permissions allow, as today.
 
-### 4.3 The flyout menu (replaces the long tree)
+### 4.3 The drop-down panel (replaces the long tree)
 
-Clicking **Sell** on the rail opens a panel over the page, **in columns**,
-not a tree:
+Clicking **Sell v** in the menu bar drops a panel down over the page, **in
+columns**, not a tree (a "mega menu"):
 
 ```
-+----+--------------------------------------------------------------+
-|Sell| DOCUMENTS            PRICING            FIELD SALES           |
-| *  |  Quotations           Price Lists        Territories          |
-|    |  Sales Orders   *     Promotions         Routes & Beats       |
-|    |  Delivery Notes       Loyalty            Call Lists           |
-|    |  Sales Invoices                          Coverage             |
-|    |  Sales Returns        MONEY                                   |
-|    |  Proforma             Receipts                                |
-|    |  Credit Notes         Customer Statements                     |
-|    |                                                              |
-|    |  * = favourite (click the star to pin)     Esc closes         |
-+----+--------------------------------------------------------------+
+| QA01 Traders v | Home  [Sell v]  Buy v  Stock v  Accounts v  Masters v ...
++----------------+---------------------------------------------------------+
+                 | DOCUMENTS            PRICING            FIELD SALES     |
+                 |  Quotations           Price Lists        Territories    |
+                 |  Sales Orders   *     Promotions         Routes & Beats |
+                 |  Delivery Notes       Loyalty            Call Lists     |
+                 |  Sales Invoices                          Coverage       |
+                 |  Sales Returns        MONEY                             |
+                 |  Proforma             Receipts                          |
+                 |  Credit Notes         Customer Statements               |
+                 |                                                         |
+                 |  * = favourite (click the star)          Esc closes     |
+                 +---------------------------------------------------------+
 ```
 
 - Everything in an area is visible **at once** -- no scrolling, no expanding.
-- It closes on choice, on Esc, or on clicking away. A **pin** keeps it open
-  as a narrow panel for someone who prefers that.
+- It closes on choice, on Esc, or on clicking away. Moving the mouse along the
+  menu bar while a panel is open switches to the next area's panel, as a
+  Windows menu bar does; the keyboard's arrow keys do the same.
 - Favourites (star) appear on **Home** and at the top of the command box.
 
 ### 4.4 The command box (Ctrl+K, also Alt+G for Tally users)
@@ -218,13 +227,13 @@ Built from the same permissions the menu uses.
 | Keys | Does |
 | --- | --- |
 | Ctrl+K or Alt+G | command box |
-| Alt+1 ... Alt+8 | open an area's flyout |
+| Alt+1 ... Alt+8, or Alt then arrows | open an area's drop-down panel |
 | Ctrl+N | new record on the current list |
 | Ctrl+S / Ctrl+Enter | save / save and close |
 | Ctrl+Tab, Ctrl+W | next tab, close tab |
 | F2 | edit the selected row |
 | / | focus the list's search |
-| Esc | close the flyout, drawer or panel |
+| Esc | close the drop-down, drawer or panel |
 
 ---
 
@@ -244,8 +253,8 @@ Built from the same permissions the menu uses.
 ## 6. How it would be built (after agreement)
 
 1. **Shell first**, behind a switch in Settings ("New layout, preview"), so
-   phase 1 stays the default and testers can compare: rail, top bar,
-   flyouts, command box, tabs.
+   phase 1 stays the default and testers can compare: menu bar, drop-down
+   panels, command box, tabs.
 2. **Page frame**: one-line page bar, chips, status-bar pager, density. Every
    list screen gains it at once because they share `ManagementWorkspaceLayout`.
 3. **Documents as full-page tabs**, one document type at a time, starting
@@ -270,8 +279,8 @@ Recommended answers first; each can be changed.
 
 | # | Question | Recommended | Alternative |
 | --- | --- | --- | --- |
-| 1 | Menu style | **Icon rail + flyout in columns** (4.1, 4.3) | Top horizontal menu bar per area (Odoo style), no rail at all |
-| 2 | Number of areas | **Eight** (4.2) | Keep 19 modules, only make the menu flyout |
+| 1 | Menu style | **Agreed 2026-09-25: top menu bar with drop-down panels in columns** (4.1, 4.3) | (Not chosen) a 56 px icon rail on the left with fly-out panels |
+| 2 | Number of areas | **Eight** (4.2) -- also what makes the top bar fit | Keep 19 modules (would not fit across the top) |
 | 3 | Open screens as tabs | **Yes**, up to about 10, remembered | Single screen at a time, as today |
 | 4 | Documents | **Full-page tab** | Keep dialogs, but full-size |
 | 5 | Command box also for actions ("new sales order") | **Yes** | Screens and records only |
@@ -280,6 +289,6 @@ Recommended answers first; each can be changed.
 | 8 | Role homes | **Yes**, one per seeded role family | One dashboard for everyone |
 | 9 | Roll-out | **Preview switch, then replace** (section 6) | Replace in one release |
 
-Next: agree or change the nine answers; then appendix A (every screen's
+Next: agree or change the remaining eight answers (1 is agreed); then appendix A (every screen's
 area, group and label) and clickable mock-ups of the shell, a list and a
 sales order are prepared for review before any code.
