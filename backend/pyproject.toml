@@ -1,6 +1,6 @@
 [project]
 name = "agency-platform-backend"
-version = "1.0.0"
+version = "1.0.1"
 description = "Enterprise agency management system backend."
 readme = "README.md"
 requires-python = ">=3.13"
