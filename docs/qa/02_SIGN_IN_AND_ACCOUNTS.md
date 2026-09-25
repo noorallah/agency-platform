@@ -43,7 +43,7 @@ fifteen minutes.
   1. On the sign-in screen, try `nobody.qa@qa.test` / `Wrong@Password1`.
   2. Try the prepared **Target** with `Wrong@Password1` **four** times.
   3. A fifth time.
-  4. Now the **right** password, `a password you choose`.
+  4. Now the prepared password (the right one).
   5. Watch the banner.
 - **Expect**
   - Steps 1–2: "Invalid email or password." every time, the unknown address included, and each takes **about as long** as the others (~2 seconds on this machine, measured) — a wrong address and a wrong password must not feel different.
@@ -56,7 +56,7 @@ fifteen minutes.
 - **Steps**
   1. Lock the prepared **Target** with five wrong passwords (TC-SESS-003 steps 2–3).
   2. Sign in as the prepared **Firm admin** → Users → Edit **Lock Target (qa)** → tick **Clear login lock (Account Lock)** → Save.
-  3. Sign in as the target with `a password you choose`.
+  3. Sign in as the target with the prepared password.
 - **Expect:** step 3 signs in at once — the lock cleared and the failed count reset. *(2.9's other way, waiting fifteen minutes, ends the same; TC-SESS-003 step 5 shows it.)*
 ### TC-SESS-005 — Inactive and expired accounts are told why
 
@@ -89,7 +89,7 @@ fifteen minutes.
 - **Preconditions:** The platform administrator, a firm administrator of QA01, and an ordinary QA01 user to act on.
 - **Steps**
   1. As the prepared **Platform admin**, delete the target. Users → **Status** filter → **Deleted** → open them.
-  2. **Restore** (dialog footer). Sign in as the target with `a password you choose`.
+  2. **Restore** (dialog footer). Sign in as the target with the prepared password.
   3. Delete the target again; create a **new** account with the same address; Status → Deleted → open the old one → Restore.
 - **Expect**
   - Step 1: status **Deleted**, Edit and Delete dead, View opens.
@@ -176,7 +176,7 @@ one of its entries.
   4. Open **Sales Orders**.
   5. Open the firm control again and pick **Platform**.
 - **Expect**
-  - Step 2: a **Platform** entry at the top with a tick beside it, then **every active firm** — QA01, QA02, QA01, ELEC01, MEDI01, FOOD01 among them — **although this account is a member of none**.
+  - Step 2: a **Platform** entry at the top with a tick beside it, then **every active firm** — QA01, QA02, WHOLE01, ELEC01, MEDI01, FOOD01 among them — **although this account is a member of none**.
   - Step 3: a notification names QA01. The sidebar grows **Masters, Sales, Quotations, Sales Orders, Delivery Notes, Sales Invoices, Sales Returns, Purchases, Purchase Invoices, Purchase Returns, Goods Receipts, Inventory, Finance, Reports**. Administration gains its configuration tabs (Numbering Series through Industry Templates). **Licensing goes away** — it is a platform screen.
   - Step 4: the screen **loads** with no error — whatever orders preparations have raised in QA01, or none. Before the fix this module was offered and this screen failed.
   - Step 5: **"Working on the platform. No firm is selected."** The firm-owned modules go away again.
@@ -236,6 +236,11 @@ being signed in and nothing else.
 
 - **Preconditions:** An ordinary user who is a member of QA01 and QA02, with a role in each.
 - **Steps (HTTP)** — sign in as the prepared user and send:
+  ```
+  PUT /api/v1/me/primary-firm
+  { "firm_id": "<the id of a firm this account does not belong to>" }
+  ```
+  Get that id as a platform administrator, from `GET /api/v1/firms`, choosing one this account is not a member of.
 - **Expect:** **422**, "You can only make a firm you belong to your primary firm." Nothing changes.
 ### TC-ME-005 — My profile, for somebody who cannot read the user list
 
@@ -269,7 +274,7 @@ being signed in and nothing else.
   3. New password `Short@1` (under twelve characters).
   4. New password `LongEnoughPassw0rd` (no symbol).
   5. Current password `Wrong@Password1`, new password `Str0ng-Passw0rd!` twice.
-  6. Current password `a password you choose`, new password `Str0ng-Passw0rd!` twice.
+  6. Current password: the prepared password, new password `Str0ng-Passw0rd!` twice.
 - **Expect**
   - Step 3: refused beside the box, **"Use at least 12 characters."** — nothing sent.
   - Step 4: **"Include a symbol."** — nothing sent. (The desktop checks the same rules the server enforces: twelve characters, upper, lower, digit, symbol.)

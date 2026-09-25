@@ -101,8 +101,8 @@ warehouse rename its capability flags.
 ### TC-MAST-004 — A rename keeps a branch's address, city, GST registration and default flag
 
 - **Preconditions:** A firm administrator of QA02 with a default branch and warehouse, and two import files (one valid, one with a bad row). (in **QA02**: `QA-BR`, Keep Branch, default, GST registered, 1 Keep Street / Keep Nagar, City qa.)
-- **Steps:** sign in as the prepared **QA02 admin** → Masters → Branches → Edit `QA-BR` → rename to `Kept Branch renamed` → Save → reopen.
-- **Expect:** both street lines, the city (and its state), **GST registration**, the PAN and **Default** are all unchanged.
+- **Steps:** sign in as the prepared **QA02 admin** → Masters → Branches → Edit `QA-BR` → rename to `Kept Branch renamed` → Save → reopen. **(HTTP)** `GET /api/v1/branches/{id}` to check the PAN — the desktop branch form has no PAN field, so the screen cannot show it survived.
+- **Expect:** both street lines, the city (and its state), **GST registration** and **Default** are all unchanged on screen; the HTTP call shows the PAN unchanged too.
 ### TC-MAST-005 — A rename keeps a warehouse's capacity and capability flags
 
 - **Preconditions:** A firm administrator of QA02 with a default branch and warehouse, and two import files (one valid, one with a bad row). (`QA-WH`, Keep Warehouse, 1000 SQFT, default; on: temperature controlled, cold storage, receiving area, dispatch area, inspection area, loading dock; off: hazardous, returns area, packing area.)

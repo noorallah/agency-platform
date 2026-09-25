@@ -51,7 +51,7 @@ step and does four of them.
 
 - **Preconditions:** The platform administrator (`platform-admin@agency.local`), who belongs to no firm.
 - **Steps (HTTP)** — sign in as the prepared platform admin and send `POST /api/v1/firms`, each time with `name`, `country: "IN"`, `currency_code: "INR"`, `financial_year_start: "2026-04-01"` and `deployment_mode: "SHARED"`, varying one thing:
-  1. `code: "QA01"`
+  1. `code: "QA01"` (a firm that already exists — on an installed copy, use one of your own)
   2. `code: "BAD CODE"`
   3. `code: "QA-Z"`, `country: "IND"`
   4. `code: "QA-Y"`, `deployment_mode: "DATABASE"`, `database_name: "fx_nope"`, `connection_profile: "NOPE"`
@@ -59,7 +59,7 @@ step and does four of them.
   1. **409**, "Firm code, GST number, or PAN number already exists." Unique among *live* firms only — a deleted firm releases its code.
   2. **422**, the code "should match pattern `^[A-Z0-9_-]+$`" — no spaces, no dots.
   3. **422**, country "should have at most 2 characters".
-  4. **422**, "Connection profile 'NOPE' is not configured. Configured profiles: REMOTE_A." Refused at creation, not at first use — otherwise the firm would provision nothing and fail far from the request that caused it.
+  4. **422**, "Connection profile 'NOPE' is not configured. Configured profiles: <this installation's own list, from `config/.env`>." Refused at creation, not at first use — otherwise the firm would provision nothing and fail far from the request that caused it. (This machine's own list is `REMOTE_A`; an installed copy sees whichever profiles its own `.env` names, which may be none.)
 ### TC-FIRM-004 — A dedicated firm cannot be opened until it is provisioned
 
 - **Preconditions:** The platform administrator, and a new firm created with deployment mode **SCHEMA** whose storage has not been provisioned.
@@ -75,7 +75,7 @@ step and does four of them.
 
 - **Preconditions:** The platform administrator, and a new firm created with deployment mode **SCHEMA** whose storage has not been provisioned.
 - **Steps (HTTP)** — as the prepared platform admin, `GET /api/v1/firms/{id}` for the prepared firm, then `PUT` it back with `name`, `code`, `country`, `currency_code`, `financial_year_start` as read and `deployment_mode: "SHARED"`.
-- **Expect:** **422**, "Firm storage routing cannot be changed after creation (currently SCHEMA/fx_qa_u). Migrate the firm's data first." Nothing moves a firm's rows between stores.
+- **Expect:** **422**, "Firm storage routing cannot be changed after creation (currently SCHEMA/<the schema the server chose for this firm>). Migrate the firm's data first." — the schema name in the message is whatever the server picked at creation, not a fixed string. Nothing moves a firm's rows between stores.
 ### TC-FIRM-006 — The setup panel on a firm whose storage is not built
 
 - **Preconditions:** The platform administrator, and a new firm created with deployment mode **SCHEMA** whose storage has not been provisioned.
@@ -126,7 +126,7 @@ step and does four of them.
   2. **(HTTP)** `POST /api/v1/firms/{id}/apply-tax-template` again; then once more with `{"template": "US"}`.
   3. Open this firm → Administration → Configuration → **Tax Configuration**.
 - **Expect**
-  - Step 1: "GST set up: 8 tax profiles and 6 rules." Tax re-reads as "1 tax system, 8 profiles, 6 rules", and **Geography flips to done** ("1 country in the store") — the template adds India to a store that has no country.
+  - Step 1: "GST set up: 8 tax profiles and 9 rules." Tax re-reads as "1 tax system, 8 profiles, 9 rules", and **Geography flips to done** ("1 country in the store") — the template adds India to a store that has no country.
   - Step 2: "The firm already has a tax system; nothing was created.", `already_configured: true`. With `US`: **422**, only `IN_GST` exists. One `firm.tax_template_applied` audit row, not two.
   - Step 3: the system, four components and eight profiles, editable.
 ### TC-FIRM-010 — Assigning the business profile from the panel
@@ -172,7 +172,7 @@ step and does four of them.
 
 - **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
 - **Steps:** sign in as the prepared **Platform admin** → Administration → Firms → the prepared firm → **Set up**.
-- **Expect:** **Finished. Every step is done.** — "24 accounts, 1 financial year, 12 periods, all 24 control accounts mapped, and a period open today"; Assigned: WHOLESALE; 1 tax system, 8 profiles, 6 rules; 1 country; 1 branch, 1 warehouse; **2 members**. No buttons. The contrast with TC-FIRM-007 is the point.
+- **Expect:** **Finished. Every step is done.** — "24 accounts, 1 financial year, 12 periods, all 24 control accounts mapped, and a period open today"; Assigned: WHOLESALE; 1 tax system, 8 profiles, 9 rules; 1 country; 1 branch, 1 warehouse; **2 members**. No buttons. The contrast with TC-FIRM-007 is the point.
 ### TC-FIRM-015 — Control accounts: held once something has posted
 
 - **Preconditions:** A finished firm (every Set up step done, Wholesale profile), its firm administrator, a Viewer, two product categories, a customer, and one 500.00 cash receipt recorded from that customer.
@@ -294,7 +294,7 @@ name.
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
 - **Steps:** as the prepared **Firm admin**, Administration → Configuration → Tax Configuration → **Rule Simulator**. Transaction type `SALES_INVOICE`, tax profile `GST_18_LOCAL`, invoice value `1000` → Run Simulation. Then transaction type `SALES_INTERSTATE` → Run.
-- **Expect:** local — no rule matched, CGST 9% = 90 and SGST 9% = 90, total **180**. Interstate — matched rule **`INTERSTATE_GST_18`**, one component IGST 18% = 180, total **180**, and the trace shows the rule matched. (QA01's rules come from the GST template, the same six the demo firms carry.)
+- **Expect:** local — no rule matched, CGST 9% = 90 and SGST 9% = 90, total **180**. Interstate — matched rule **`INTERSTATE_GST_18`**, one component IGST 18% = 180, total **180**, and the trace shows the rule matched. (QA01's rules come from the GST template, the same nine the demo firms carry.)
 ### TC-CONF-006 — A product's own conversion outranks the firm-wide one
 
 - **Preconditions:** A finished firm, a vendor, and a product with its own PACK to KG conversion rule. (`QA-DET` is bought in PACK and stocked in KG, with its own PACK→KG rule at factor **1**.)

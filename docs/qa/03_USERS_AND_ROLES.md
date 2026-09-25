@@ -216,7 +216,7 @@ digit, symbol.
 
 - **Preconditions:** A firm administrator of QA01, and a QA01 salesperson to hire somebody like.
 - **Steps**
-  1. As the prepared **Firm admin**, make a clone of **Source Seller (qa)** as in TC-HIRE-002 step 1.
+  1. As the prepared **Firm admin**, Hire like this person on **Source Seller (qa)**: `Clone Test Two qa`, `qa.clone2@qa.test`, `Welcome@12345` → Create. A second clone, with its own address: TC-HIRE-002 has already taken `qa.clone@qa.test`.
   2. Edit the clone: add `CUSTOMER_SUPPORT` under Roles in this firm → Save & Close.
   3. Open **Source Seller (qa)**; close without saving.
 - **Expect:** the clone holds `SALES_EXECUTIVE` and `CUSTOMER_SUPPORT`; the source still holds exactly `SALES_EXECUTIVE`.
@@ -335,6 +335,7 @@ offered to every firm; cases count only the eleven.
 ### TC-TMPL-011 — A template cannot bundle a platform role
 
 - **Preconditions:** A firm administrator of QA01 (a user hired with the *Firm Administrator* job template).
+- **Steps (HTTP)** — as the platform administrator, `GET /api/v1/roles?search=PLATFORM_ADMIN` to find its id (a firm admin's own role list never shows it). Then, as the prepared firm admin, with `X-Firm-ID` of QA01: `POST /api/v1/user-templates` `{"code": "qa-bad", "name": "Bad", "role_ids": ["<that id>"]}`.
 - **Expect:** **422**, "A template cannot bundle platform or cross-firm roles." Nothing created. That role carries every permission code; a template able to name it would be a second door onto the same room.
 ---
 
@@ -541,7 +542,7 @@ own roles and templates without anybody writing code.
 - **Steps**
   1. Sign in as the prepared **Firm admin**, QA01 selected.
   2. Administration → **Users** → **New**.
-  3. Full name anything; email `qa.hire@qa.test`; **Initial password** `a password you choose` (twelve or more characters — the form does not say which rule it refused on if shorter).
+  3. Full name anything; email `qa.hire@qa.test`; **Initial password** the prepared password (twelve or more characters — the form does not say which rule it refused on if shorter).
   4. **Job template** → the prepared **Job template**. Leave **Roles** empty. Firms as prefilled. **Save.**
   5. Select the new row → **Roles by firm**.
 - **Expect:** one section, QA01, holding **only** `Night Desk qa`.

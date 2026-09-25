@@ -33,12 +33,13 @@ fixture script that built every case's starting point
 5. **Codes are typed in capitals**, phone numbers **without spaces**
    (`+919840011001`, not `+91 98400 11001`: the product refuses spaces), and
    amounts without the thousands comma (`50000`, not `50,000`).
-6. **Some set-up has no screen yet.** Four set-up steps can only be done
-   with a REST client such as Postman, or by the developer: product
-   categories, one coupon-only promotion, a loyalty credit and the
-   platform designation. Each is marked **(HTTP)**
-   with the exact request, and section H lists them. If you have neither,
-   mark the cases that need them `Blocked` and say why.
+6. **One set-up step still has no screen.** Product categories (#663),
+   coupon-only promotions (#662) and a loyalty credit (#664) were HTTP-only
+   when this sheet was first written; each now has a screen and is built
+   that way below. **Only the platform designation** still needs a REST
+   client such as Postman, or the developer — there is deliberately no
+   route for it. It is marked **(HTTP)** with the exact request. If you have
+   neither, mark the cases that need it `Blocked` and say why.
 
 ### Which records are shared, and which are separate
 
@@ -328,7 +329,8 @@ prices on **Pricing**.
 | Record | Values | Used by |
 | --- | --- | --- |
 | Warehouse `STORE2` | Warehouse Name *Back Store*, Branch *HO - Head Office*, nothing else | W12, W32-W34 |
-| Product `QA-P1` | Product name *Test Soap*; Base, Inventory, Purchase and Sales UOM **PIECE**; Tax profile **GST 18% Local**; HSN / SAC `3401`; Purchase price `100`; Selling price `150`; Category blank (see H) | W13-W67 |
+| Product category `SOAP` | *Soap*, made first under Masters → Product Categories, parent blank | W13 |
+| Product `QA-P1` | Product name *Test Soap*; Category **Soap**; Base, Inventory, Purchase and Sales UOM **PIECE**; Tax profile **GST 18% Local**; HSN / SAC `3401`; Purchase price `100`; Selling price `150` | W13-W67 |
 | Vendor `QA-V1` | Vendor Name *QA Supplies*; Phone `+919840011001`; GSTIN `33AABCQ1101E1ZC`; one address: type Office, line 1 *18 SIDCO Industrial Estate*, place India, Tamil Nadu, Chennai, Chennai | W14, W15 (new phone `+919840011002`), W19-W29 |
 | Customer `QA-C1` | Customer name *QA Retail*; Business; INR; Phone `+919841022001`; no GST number; Credit limit `0` (0 means no limit); one address: Billing, line 1 *45 Anna Salai*, City Chennai, State Tamil Nadu, Postal code `600002`, Country `IN` | W16, W17 (new phone `+919841022002`), W35-W63 |
 
@@ -348,7 +350,7 @@ prices on **Pricing**.
 | Product `QA-P3` | *Write Off Item qa*; as `QA-P` | TC-STOCK-003 (the case says `QA-P`) |
 | Product `QA-P4` | *Count Item qa*; as `QA-P` | TC-STOCK-004 (the case says `QA-P - Fixture Product qa`) |
 | Product `QA-PS` | *Sold Item qa*; as `QA-P` | the *invoiced* sale (D2): TC-GRANT-001, TC-ISO-003, TC-CUST-005; TC-CUST-004's order (the case says `QA-P`) |
-| Product category `QA-PC` | *Shelf qa*. **(HTTP) only**: `POST /api/v1/products/categories` with `X-Firm-ID` of QA01 and `{"code": "QA-PC", "name": "Shelf qa"}` | `QA-PM` |
+| Product category `QA-PC` | Masters → **Product Categories** → New: Category code `QA-PC`, Name *Shelf qa*, Parent category blank, Active ticked | `QA-PM` |
 | Product `QA-PM` | *Slot Check qa*; Category *Shelf qa*; Base, Inventory and Sales UOM **PIECE**, Purchase UOM **BOX**; GST 18% Local; Selling `100` | TC-MAST-003, 008, TC-FIN-006 |
 | Packaging level on `QA-PM` (Administration → Configuration → UOM & Packaging → **Packaging Levels**) | Level name *Case*; UOM **CASE**; factor to base `12`; barcode `8906012345678` | TC-MAST-008 (type this barcode) |
 | Customer `QA-CM` | *Master Check qa*; Phone `+919800000100`; **Financial** tab: Customer group *Retailer qa*, Credit limit `50000`, Default discount % `7.5`, Payment terms (days) `30`; **Address**: Billing, line 1 *12 Fixture Street*, place India, Tamil Nadu, Chennai, Chennai, Postal code `600001`, default billing; **Contacts**: *Fixture Contact*, mobile `+919800000101`, Primary | TC-CUST-001..004, 006, TC-CONC-001, 003 |
@@ -386,7 +388,7 @@ That is expected; nothing else in QA02 relies on HO being the default.
 | Promotion `BULK5` (Sales → Promotions → New) | Name *Bulk5*; Applies at `10`; Status Active; From `2020-01-01`; Other promotions may still apply **on**. Gives: Percent off each line, Percent `7.5`. Applies when (**Add condition**): When *Quantity on the line*, Test *is at least*, Value `25` | TC-SELL-004, TC-INCENT-001, 002, 004 |
 | Promotion `BIGORDER` | Name *Bigorder*; Applies at `20`; Active; From `2020-01-01`; Other promotions may still apply **off** (the dialog then says *This offer ends the stack*). Gives: Amount off the whole bill, Amount `200`. Applies when: *Order value* *is at least* `4500` | TC-INCENT-004 |
 | Promotion `CLEARANCE` | Name *Clearance*; Applies at `30`; Active; From `2020-01-01`; stacking on. Gives: Percent off each line, `1`. Applies when: *Quantity on the line* *is at least* `40` | TC-INCENT-004 |
-| Promotion `WELCOME` | **(HTTP) only**, because the desktop has no *coupon only* switch: `POST /api/v1/promotions` with `X-Firm-ID` of QA03 and `{"code": "WELCOME", "name": "Welcome", "priority": 40, "status": "ACTIVE", "effective_from": "2020-01-01", "requires_coupon": true, "conditions": [], "actions": [{"action_type": "LINE_DISCOUNT_PERCENT", "percent": "2.5"}]}`. Made on screen instead, it applies to every line and every pricing case fails | TC-SELL-006, 007, 010, TC-INCENT-003, TC-CONC-005 |
+| Promotion `WELCOME` | Sales → Promotions → New: Code `WELCOME`; Name *Welcome*; Applies at `40`; Status Active; From `2020-01-01`. Tick **Only with a coupon** (the switch reads "Applies only when the customer presents one of this offer's coupons"). Gives: Percent off each line, Percent `2.5`. No conditions | TC-SELL-006, 007, 010, TC-INCENT-003, TC-CONC-005 |
 | Coupons (Sales → Promotions → **Coupons** → New) | Offer *WELCOME*; Code `WELCOME10`; Total claims allowed blank. Then Offer *WELCOME*; Code `WELCOME10B`; Total claims allowed blank | as WELCOME |
 | TCS (Sales → TCS → **Settings**) | Collect under section 206C(1H) **on**; Preceding year turnover `150000000`; Threshold `0`; Rate `0.1`; Rate without a PAN `1` | TC-SELL-013, 014, TC-COMP-007 |
 | Loyalty (Masters → Loyalty → **Scheme settings**) | Scheme is running **on**; points per 100 `2`; worth `1` each; Minimum to redeem `50`; Points expire **on**, after `24` months | TC-INCENT-005 |
@@ -443,7 +445,7 @@ not real until saved once).
 
 | Record | Values | Used by |
 | --- | --- | --- |
-| Product categories | **(HTTP) only**, twice, with `X-Firm-ID` of QAR1: `POST /api/v1/products/categories` `{"code": "FXAMB", "name": "Fixture Ambient"}` and `{"code": "FXCHL", "name": "Fixture Chilled"}` | TC-FIELD-001..006, 011 |
+| Product categories | Masters → **Product Categories** → New, twice: Category code `FXAMB`, Name *Fixture Ambient*; then Category code `FXCHL`, Name *Fixture Chilled*. Parent blank, Active ticked on both | TC-FIELD-001..006, 011 |
 | Customer `FXCUST` | *Fixture Customer qa*; nothing else | the 500.00 receipt |
 | Receipt | Finance → Receipts → Record Receipt: `FXCUST`, amount `500.00`, method **Cash**, narration *Opening receipt to lock two accounts* | TC-FIRM-015 |
 | Vendor `QA-V` | *Pack Supplier qa* | TC-CONF-006, TC-FIELD-009 |
@@ -517,16 +519,18 @@ on it not having happened yet.
 | `selling-delivered` | Delivery note on S-ORD, Delivering `5`, MAIN, Save, Approve, Dispatch. Then another, Delivering `7`, Save, Approve, Dispatch. (TC-SELL-009 does exactly this) | S-ORD DELIVERED |
 | `selling-invoiced` | Bill the note for 5: Sales Invoices → New Invoice → Bill this delivery note → the note for 5, Bill `5`, Create draft, Approve. (TC-SELL-011 does this) | Total **483.21** |
 | `selling-paid` | Receipt `241.60` Bank, apply `241.60` to that invoice; receipt `341.61` Bank, apply `241.61` (TC-SELL-013 does both). Then bill the note for 7 the same way: Bill `7`, Create draft, Approve | Second invoice **676.49**; Vijaya owes 679.91 with an advance of 97.58 |
-| `loyalty-points` | **(HTTP)** `POST /api/v1/loyalty/adjust` with `X-Firm-ID` of QA03 and `{"customer_id": "<QA-C01's id>", "points": "200", "reason": "Goodwill credit for QA"}`. No screen credits points by hand | Masters → Loyalty lists Vijaya |
+| `loyalty-points` | Masters → **Loyalty** → **Adjust points** (needs `LOYALTY_MANAGE_SETTINGS`): customer `QA-C01` *Vijaya Stores qa*, Points `200`, Reason *Goodwill credit for QA* → save | Masters → Loyalty lists Vijaya |
 | `policy-firm` | Customers → **Settings**: When a customer reaches their limit **Warn, then block**; warn at `80`; block at `100`. Edit `QA-C02`: Credit limit `1000`. Sales Orders → New Order: `QA-C02`, MAIN, `QA-DET` `20` at `84`, Create draft, **do not approve** (**S-BLK**). Sales Invoices → **Sales stages** icon: Delivery note **off**. Sales Orders → New Order: `QA-C01`, MAIN, `QA-DET` `4` at `84`, Create draft, Approve (**S-FOUR**) | Run last in QA03, and switch both back afterwards (E, 08, step 10) |
 
 ### D5. Stock-in for QA03 to QA07
 
-Opening Stock on the desktop has no unit cost, batch or expiry field, so
-stock typed there is carried at nothing and the cost-of-goods journals the
-cases look for would be zero. Bring stock in by a purchase instead:
-purchase order from the firm's stock vendor, HO, MAIN, today; Submit,
-Approve; one goods receipt accepting everything into MAIN; Complete.
+Opening Stock now takes a unit cost, a batch number and an expiry date on
+each line (#658), so a balance typed there is no longer carried at nothing.
+These preparations still bring stock in by a purchase, though: several
+cases (TC-BUY-007, TC-FIN-005 and others) read the purchasing reports
+themselves, which a purchase writes to and Opening Stock does not — purchase
+order from the firm's stock vendor, HO, MAIN, today; Submit, Approve; one
+goods receipt accepting everything into MAIN; Complete.
 
 | Firm | Vendor | Lines on the order (unit price) | On the goods receipt |
 | --- | --- | --- | --- |
@@ -904,14 +908,14 @@ The walkthrough gives most of its own values; these fill the rest.
 | W4 | Wholesale |
 | W9 | Full name *QA01 Admin (qa)*, `admin@qa01.test`, `QaTest@2026pw`, Require password change off, Job template Firm Administrator, Firms QA01 |
 | W12 | C1, `STORE2` |
-| W13 | C1, `QA-P1`. There is no category to choose unless one was made by HTTP; leave it blank |
+| W13 | C1, category `SOAP` made first, then `QA-P1` with that category |
 | W14, W15 | C1, `QA-V1`; new phone `+919840011002` |
 | W16, W17 | C1, `QA-C1`; new phone `+919841022002` |
 | W19 | Today; `QA-P1` `10` at `100` |
 | W22, W24 | Accepted `4`; then `6` |
 | W25, W27 | Supplier invoice numbers `QA-V1-INV-001` (the receipt of 6), `QA-V1-INV-002` (the receipt of 4), dated today |
 | W28 | `1180.00`, Bank, reference `NEFT-QA-1180`, Oldest first |
-| W32, W34 | `2`, references `QA-W32`, `QA-W34` |
+| W32, W34 | `2`, reference left blank both times (optional; the transfer is numbered `ST-…` on its own) |
 | W35 | `QA-C1`, `QA-P1` `4`, `150` |
 | W36 | Accept reason *Customer confirmed by phone* |
 | W40 | Reason `awaiting cheque` |
@@ -948,84 +952,136 @@ The walkthrough gives most of its own values; these fill the rest.
 Written down, not fixed: the generated files are regenerated from their
 sources rather than edited.
 
-**Things with no screen yet.** These can only be done by HTTP or by the
-developer, which is why the cases that need them may be `Blocked`:
+**Things with no screen when this sheet was first written.** Four of the
+five were fixed in the merges listed below and are built on screen
+throughout this sheet now; only the fifth still needs HTTP or the developer,
+which is why the cases that need it may be `Blocked`:
 
-1. **Product categories cannot be created on the desktop.** The product
-   form offers a Category dropdown but nothing adds to it. Needed for
-   `QA-PM` (TC-MAST-003) and QAR1's `FXAMB` and `FXCHL` (the TC-FIELD
-   cases). Walkthrough W13's *Create a category when the form asks for one*
-   cannot happen; the category is optional, so leave it blank.
-2. **A promotion cannot be made coupon-only on the desktop.** The
-   Promotions dialog has no such switch, so `WELCOME` needs HTTP (C4).
-3. **Loyalty points cannot be credited by hand on the desktop.** The
-   adjustment route exists but no screen calls it (TC-INCENT-005).
-4. **The platform designation has no route**, by design (B2).
-5. **Opening Stock on the desktop takes no unit cost, batch or expiry.**
-   Stock typed there is valued at nothing, so this sheet brings stock in by
-   purchase (D5). The same gap means an installed copy's first stock count
-   carries no value.
+1. **Fixed 2026-09-25 (#663): Product categories can now be created on the
+   desktop**, Masters → **Product Categories**. Built there for `QA-PM`
+   (TC-MAST-003) and QAR1's `FXAMB` and `FXCHL` (the TC-FIELD cases) in C2
+   and C8 above. Walkthrough W13 now creates `QA-P1`'s category the same way.
+2. **Fixed 2026-09-25 (#662): a promotion can now be made coupon-only on
+   the desktop.** The Promotions dialog has an **Only with a coupon**
+   switch, plus **Total uses** and **Uses per customer**; `WELCOME` is built
+   on screen in C4 above.
+3. **Fixed 2026-09-25 (#664): loyalty points can now be credited by hand
+   on the desktop.** Masters → Loyalty → **Adjust points** (needs
+   `LOYALTY_MANAGE_SETTINGS`); used for the `loyalty-points` preparation
+   in D4 above (TC-INCENT-005).
+4. **The platform designation has no route**, by design (B2). Still open —
+   this is deliberate, not a gap to close.
+5. **Fixed 2026-09-25 (#658): Opening Stock now takes a unit cost, a batch
+   number and an expiry date.** A balance typed there is no longer carried
+   at nothing. D5 above still brings QA03 to QA07's opening stock in by a
+   purchase, because those cases read the purchasing reports themselves,
+   which only a purchase writes to.
 
 **Generator and wording glitches in the generated files.**
 
-6. `02_SIGN_IN_AND_ACCOUNTS.md`, TC-PLAT-003, line 179: *QA01, QA02, QA01,
-   ELEC01, MEDI01, FOOD01*. QA01 appears twice; the source said TEST01,
-   TEST02 and a third firm.
-7. `02`, TC-ME-004: the **Steps (HTTP)** line has no request under it. The
-   request is in E, 02.
-8. `03`, TC-TMPL-011: no Steps at all, only an Expect. The request is in
-   E, 03.
-9. *a password you choose* appears where the developer's fixture printed a
-   fixed password (TC-SESS-003, 004, 008, TC-ME-008, TC-ROLE-006). It
-   means the prepared account's password: `QaTest@2026pw` here.
+6. **Fixed 2026-09-25:** `02_SIGN_IN_AND_ACCOUNTS.md`, TC-PLAT-003 read
+   *QA01, QA02, QA01, ELEC01, MEDI01, FOOD01* — QA01 twice, because the
+   generator mapped `WHOLE01` to `QA01` the same as `TEST01`. `WHOLE01` is
+   a distinct demo firm, not a synonym for `TEST01`/QA01; the generator no
+   longer maps it, so the line now reads *QA01, QA02, WHOLE01, ELEC01,
+   MEDI01, FOOD01* — read `WHOLE01` as "any other firm on this
+   installation", same as the other three beside it (`00_README.md`).
+7. **Fixed 2026-09-25:** `02`, TC-ME-004's **Steps (HTTP)** line had no
+   request under it — `convert_body` stripped every fenced code block,
+   including the bare (non-SQL) ones that hold an actual HTTP request for a
+   tester to send. The generator now only strips ```` ```sql ```` and
+   ```` ```powershell ```` blocks, so the request renders.
+8. **Fixed 2026-09-25:** `03`, TC-TMPL-011 had no Steps at all, only an
+   Expect — its one line named a raw SQL lookup (`select id from
+   platform.roles where …`), which the generator's developer-only filter
+   dropped whole. The source now finds the role id over the API instead
+   (`GET /api/v1/roles?search=PLATFORM_ADMIN`, as the platform
+   administrator), so the step survives and needs no database access.
+9. **Fixed 2026-09-25:** *a password you choose* appeared where the
+   developer's fixture used a fixed password that a QA account also has a
+   fixed value for (TC-SESS-003, 004, 008, TC-ME-008, TC-ROLE-006). The
+   source now says "the fixture's password", which reads as "the prepared
+   password" here — `QaTest@2026pw` per B1/B3.
 10. Several preconditions describe the wrong preparation for the case, a
     side effect of one sentence per preparation: TC-CUST-002 and 003 carry
     TC-CUST-001's full description of `QA-CM`; TC-MAST-004 to 007 all say
     *two import files*, TC-STOCK-005 to 007 all say *two orders* and
     *batches*; TC-STOCK-007's precondition describes a Pharmacy firm when
-    the case only needs the platform admin to switch firms.
+    the case only needs the platform admin to switch firms. Left: every
+    case sharing a fixture shares its one precondition sentence by design: the
+    alternative is a paragraph of preparation text per case rather than per
+    fixture. Read past what a case's own steps do not use.
 11. `07`, TC-STOCK-005 step 1 says search Batches for `QA-B`: correct only
     because the fixture named the batches `QA-B1` to `QA-B3`, which reads
     like the purchasing product `QA-B`. This sheet keeps those batch
-    numbers so the case reads as written.
-12. `03`, TC-HIRE-003 reuses the email `qa.clone@qa.test` that TC-HIRE-002
-    just used. Use `qa.clone2@qa.test`.
-13. `06`, TC-BUY-005 says a purchase invoice cannot be raised from the
-    desktop (BACKLOG 31.9). The desktop now has **Purchase Invoices → New**
-    with a Goods Receipt picker (the walkthrough's W25 uses it); the note is
-    out of date.
-14. `04`, TC-FIRM-003 expects *Configured profiles: REMOTE_A*: that is the
-    developer's machine. An installed copy has no extra server profiles.
-15. `04`, TC-FIRM-005 expects the message to name `fx_qa_u`, the fixture's
-    schema name; an installed copy names the schema the server chose.
+    numbers so the case reads as written. Left: not a wording error, just a
+    coincidence worth flagging.
+12. **Fixed 2026-09-25:** `03`, TC-HIRE-003 reused the email
+    `qa.clone@qa.test` that TC-HIRE-002 had just taken. The source now has
+    it hire a second clone, `qa.clone2@qa.test` / *Clone Test Two qa*,
+    naming the collision so the step reads correctly on its own.
+13. **Fixed 2026-09-25:** `06`, TC-BUY-005 said a purchase invoice could not
+    be raised from the desktop (BACKLOG 31.9). The desktop now has
+    **Purchase Invoices → New** with a Goods Receipt picker (the
+    walkthrough's W25 uses it); the stale note is removed from the source.
+14. **Fixed 2026-09-25:** `04`, TC-FIRM-003 expected *Configured profiles:
+    REMOTE_A*, this machine's own value. The source now says the message
+    names whichever profiles the installation's own `config/.env` lists
+    (which may be none), and case 1's duplicate-code probe now names
+    `TEST01` (read `QA01` here) rather than the demo firm `WHOLE01`, which
+    does not exist on an installed copy to collide with.
+15. **Fixed 2026-09-25:** `04`, TC-FIRM-005 expected the message to name
+    `fx_qa_u`, the fixture's own schema name. The source now says the
+    schema name in the message is whatever the server chose at creation,
+    not a fixed string.
 16. `09`, TC-INCENT-005 step 1 expects Vijaya to hold exactly **200**
-    points, but the invoice of 483.21 also earns 9.66 at 2 per 100
-    (points are earned when an invoice is approved). Expect about 209.66
-    in a fresh run.
+    points; on this sheet she also earns 9.66 from the 483.21 invoice at 2
+    per 100, because C4 switches the loyalty scheme on before that invoice
+    is approved (points are earned at approval). **Partly fixed 2026-09-25:**
+    the source case now says so and gives the base 200 as a floor rather
+    than an exact count, but the later steps' exact figures (100 spent,
+    100 remaining) still assume no extra was earned — expect about 209.66
+    and 109.66 in a fresh run of this sheet, and adjust steps 2–4's numbers
+    to match if you check them closely.
 17. `04`, TC-ISO-002 is titled *Two firms in their own schemas*. With QA01
     and QA02 both sharing the store, it checks the same thing as
-    TC-ISO-001; the separate-schema case is covered by QAR1.
-18. **The GST template now makes nine rules, not six.** Walkthrough W7 and
-    TC-FIRM-009 and 014 expect *8 tax profiles and 6 rules*; the template
-    in the code creates the six sales rules plus three for inter-state
-    purchases. Record the message the screen shows.
-19. `04`, TC-MAST-004 expects the branch's **PAN** to survive a rename, but
-    the desktop branch form has no PAN field; only a branch made by HTTP
-    carries one. Check the other fields.
-20. `12`, TC-CASH-002's precondition asks for *a customer with an
-    outstanding invoice*; the developer's preparation made the customer
-    only, and nothing in the case uses an invoice.
+    TC-ISO-001; the separate-schema case is covered by QAR1. Left: an
+    artifact of this sheet reusing QA01/QA02 for both the plain pair and
+    the shared pair (§ *Which records are shared*), not a wording bug in
+    the source.
+18. **Fixed 2026-09-25: the GST template makes nine rules, not six**, and
+    the source case text and the walkthrough (W7) now both say so. The
+    original six (export zero-rating, the three interstate slab switches,
+    exempt-stays-exempt, purchase input credit) gained three more when
+    interstate purchases were given their own input-credit rules (D-CMP-14);
+    TC-FIRM-009 and 014 read "8 tax profiles and 9 rules" and "1 tax
+    system, 8 profiles, 9 rules". Record the message the screen actually
+    shows.
+19. **Fixed 2026-09-25:** `04`, TC-MAST-004 expected the branch's **PAN**
+    to survive a rename, but the desktop branch form has no PAN field to
+    show it did. The source case now adds an **(HTTP)**
+    `GET /api/v1/branches/{id}` check for the PAN alongside the on-screen
+    check of everything else.
+20. **Fixed 2026-09-25:** `12`, TC-CASH-002's precondition asked for *a
+    customer with an outstanding invoice*; the case uses no invoice. The
+    generator's `cashier` precondition now says "a customer to record a
+    receipt against".
 21. `12`, TC-FIN-005 says the purchase reports are empty (*this store bought
     nothing*). On this sheet QA03 buys its opening stock (D5), so they each
-    list that one order.
+    list that one order. Left: a consequence of this sheet always buying
+    stock in through a real purchase (D5) rather than a database seed, not
+    a wording bug in the source case.
 22. The walkthrough's GST number `33ABCDE1234F1Z5` does not have a valid
     check character (a valid one ends `Z7`). The product accepts it
     because it checks GST numbers for uniqueness only; kept so W55 reads as
     written.
-23. The suite's Expect for TC-SELL-012 says *the prepared firm and customer
-    carry no GSTIN*. On this sheet QA03 has a GST number, so it prints on
-    the bill; Vijaya still has none.
-24. `09`, TC-INCENT-002 expects the pane to read *Applies when:
-    line_quantity GREATER_OR_EQUAL 25.0000*. The desktop now words
-    conditions in plain English, so expect *Quantity on the line is at
-    least 25*.
+23. **Fixed 2026-09-25:** the suite's Expect for TC-SELL-012 said *the
+    prepared firm and customer carry no GSTIN*. On this sheet QA03 has a
+    GST number, so it prints on the bill; Vijaya still has none. The source
+    now says to check whichever of the firm's GSTIN, the customer's GSTIN
+    and the product's HSN are actually blank on your own build, rather than
+    assuming all three are.
+24. **Fixed 2026-09-25:** `09`, TC-INCENT-002 expected the pane to read
+    *Applies when: line_quantity GREATER_OR_EQUAL 25.0000*. The desktop now
+    words conditions in plain English, and the source case now says
+    *Quantity on the line is at least 25*.

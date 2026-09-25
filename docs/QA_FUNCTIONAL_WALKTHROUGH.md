@@ -64,7 +64,7 @@ Sign in as `platform-admin@agency.local`. The header reads **Platform**.
 | W4 | Business profile row: choose **Wholesale** → **Assign** | *Business profile set to Wholesale.* Row reads *Assigned: WHOLESALE* | Not run | |
 | W5 | Books row → **Open the books** | Notice names the year starting 2026-04-01. Row reads 24 accounts, 1 financial year, 12 periods, all 24 control accounts mapped. Verdict becomes **Can post documents** | Not run | |
 | W6 | Press **Open the books** again if still offered, else skip | Nothing is created a second time | Not run | |
-| W7 | Tax row → **Apply GST template** | *GST set up: 8 tax profiles and 6 rules.* Geography turns done as well, with 1 country | Not run | |
+| W7 | Tax row → **Apply GST template** | *GST set up: 8 tax profiles and 9 rules.* Geography turns done as well, with 1 country | Not run | |
 | W8 | Branches and warehouses → **Create head office and main warehouse** | *Created branch HO and warehouse MAIN.* Row reads 1 branch, 1 warehouse | Not run | |
 | W9 | Administration → **Users** → **New**: your name, an email such as `admin@qa01.test`, a password, **Job template** *Firm Administrator*, firm QA01. Save | Created. People on the Set up panel now counts 1 member | Not run | |
 | W10 | **Set up** again | **Finished. Every step is done.** No buttons left | Not run | |
@@ -76,8 +76,8 @@ From here on, work as the **firm administrator** unless a step says otherwise.
 
 | ID | Step | Expected | Result | Notes |
 | --- | --- | --- | --- | --- |
-| W12 | Masters → **Warehouses** → New: code `STORE2`, name *Back Store*, under branch HO. Save | Listed beside MAIN | Not run | |
-| W13 | Masters → **Products** → New: code `QA-P1`, name *Test Soap*, Product type **Stock item** (the default), base, inventory, purchase and sales unit **PIECE**, tax profile **GST 18 local**, HSN code `3401` and selling price 150 if the form offers them. Create a category when the form asks for one. Save | Saved. Reopen it: each unit and the tax profile read as names, not codes or ids | Not run | |
+| W12 | Masters → **Branch & Warehouse** → **Warehouses** → New. This creates a **warehouse**; in its **Branch** field choose `HO`. Code `STORE2`, name *Back Store*. Save | Listed beside MAIN | Not run | |
+| W13 | Masters → **Product Categories** → New: code `SOAP`, name *Soap*. Save. Then Masters → **Products** → New: code `QA-P1`, name *Test Soap*, Product type **Stock item** (the default), category **Soap**, base, inventory, purchase and sales unit **PIECE**, tax profile **GST 18 local**, HSN code `3401` and selling price 150 if the form offers them. Save | Saved. Reopen it: each unit, the tax profile and the category read as names, not codes or ids | Not run | |
 | W14 | Masters → **Vendors** → New: code `QA-V1`, name *QA Supplies*, a phone, one address. Save | Saved and listed | Not run | |
 | W15 | Edit QA-V1, change **only** the phone. Save and reopen | The phone changed; the address and everything else are still there | Not run | |
 | W16 | Masters → **Customers** → New: code `QA-C1`, name *QA Retail*, type Business, currency INR, no GST number, no credit limit, one billing address in Tamil Nadu. Save | Saved and listed with outstanding 0.00 | Not run | |
@@ -92,11 +92,11 @@ From here on, work as the **firm administrator** unless a step says otherwise.
 | W20 | Select the draft and look at the toolbar | **Approve is not offered**, only Submit: an order cannot be approved before it is submitted | Not run | |
 | W21 | **Submit**, then **Approve** | Two notices, submitted and approved. Status **APPROVED** | Not run | |
 | W22 | Goods Receipts → New → pick the order. Set Accepted to **4**, warehouse MAIN → Save → select it → **Complete** | Saved as a draft first, with a notice that completing posts the stock. Then **COMPLETED**. The order reads **PARTIALLY_RECEIVED** | Not run | |
-| W23 | Inventory → **Inventory**, filter QA-P1 | MAIN holds **4** | Not run | |
+| W23 | Inventory → **Stock** → **Inventory**, filter QA-P1 | MAIN holds **4** | Not run | |
 | W24 | Goods Receipts → New against the same order | Accepted defaults to the remaining **6**. Save and Complete: the order reads **RECEIVED**, MAIN holds **10** | Not run | |
-| W25 | Purchase Invoices → **New** → pick the receipt of **6**. Approve it | Approved. Total **708.00**: 600.00 plus 18% GST | Not run | |
+| W25 | Purchase Invoices → **New** → pick the receipt of **6**. Type **Supplier Invoice Number** `QA-V1-INV-001` and today for both **Supplier Invoice Date** and **Invoice Date** — all three are required. Approve it | Approved. Total **708.00**: 600.00 plus 18% GST | Not run | |
 | W26 | Goods Receipts → the receipt of 6 → **Cancel** | Refused: it has been invoiced, and the message says to cancel the purchase invoice first or raise a return | Not run | |
-| W27 | Purchase Invoices → New → pick the receipt of **4**. Approve it | Approved. Total **472.00** | Not run | |
+| W27 | Purchase Invoices → New → pick the receipt of **4**. Type **Supplier Invoice Number** `QA-V1-INV-002` and today for both dates. Approve it | Approved. Total **472.00** | Not run | |
 | W28 | Finance → **Payments** → **Record Payment**: paid to QA-V1, amount **1,180.00**, method Bank, oldest first → Record | A notice that `PY-…` was recorded and posted. Open Record Payment again for QA-V1: no bills left to pay | Not run | |
 | W29 | Finance → **Journal Entries**, search `PY-` → **View** | The payment debits Accounts Payable and credits Bank, 1,180.00 each | Not run | |
 
@@ -104,11 +104,11 @@ From here on, work as the **firm administrator** unless a step says otherwise.
 
 | ID | Step | Expected | Result | Notes |
 | --- | --- | --- | --- | --- |
-| W30 | Inventory → **Stock Ledger**, filter QA-P1 | Two `GOODS_RECEIPT` rows, +4 and +6, each naming its receipt, the balance ending at **10** | Not run | |
-| W31 | Inventory → **Stock Summary** | QA-P1 **10**, agreeing with the Inventory tab | Not run | |
-| W32 | Inventory → select the MAIN row for QA-P1 → **Transfer** 2 to STORE2 | MAIN **8**, STORE2 **2**, total still 10 | Not run | |
+| W30 | Inventory → **Stock** → **Stock Ledger**, filter QA-P1 | Two `GOODS_RECEIPT` rows, +4 and +6, each naming its receipt, the balance ending at **10** | Not run | |
+| W31 | Inventory → **Stock** → **Stock Summary** | QA-P1 **10**, agreeing with the Inventory tab | Not run | |
+| W32 | Inventory → **Stock** → **Inventory**, select the MAIN row for QA-P1 → **Transfer** 2 to STORE2. **Reference** is optional; leave it blank | MAIN **8**, STORE2 **2**, total still 10. Blank reference: numbered from its own series (`ST-…`) | Not run | |
 | W33 | Finance → Journal Entries, newest first | **No** entry for the transfer: moving stock between warehouses posts nothing to the books | Not run | |
-| W34 | Transfer the 2 back from STORE2 to MAIN | MAIN **10**, STORE2 0 | Not run | |
+| W34 | Transfer the 2 back from STORE2 to MAIN, reference left blank again | MAIN **10**, STORE2 0. A second `ST-…` number, not the first reused | Not run | |
 
 ## 5. Selling
 
@@ -118,12 +118,12 @@ From here on, work as the **firm administrator** unless a step says otherwise.
 | W36 | **Mark as sent** → **Customer accepted** (give a reason) → **Convert to order** | Three notices; the last says the quotation became `SO-…` and that approving the order reserves the stock | Not run | |
 | W37 | Look at the quotation's toolbar again | **Convert to order** is gone: a quotation converts once | Not run | |
 | W38 | **Sales Orders** → the new order → **Approve** | **APPROVED**. No credit warning, since QA-C1 has no limit | Not run | |
-| W39 | Inventory → Inventory, QA-P1 | MAIN: current **10**, reserved **4**, available **6** | Not run | |
+| W39 | Inventory → **Stock** → **Inventory**, QA-P1 | MAIN: current **10**, reserved **4**, available **6** | Not run | |
 | W40 | Sales Orders → the order → **Hold**, reason *awaiting cheque* | Status *APPROVED (on hold)* | Not run | |
 | W41 | **Delivery Notes** → New → the order → Save | Refused: the order is on hold, naming the reason. Reserved stays 4 | Not run | |
 | W42 | Sales Orders → the order → **Release** | Status back to plain **APPROVED** | Not run | |
 | W43 | Delivery Notes → New → the order: delivering **4**, warehouse MAIN → Save → **Approve** → **Dispatch** | Created as a draft, with a notice that dispatching moves the stock. After Dispatch: **DISPATCHED**, the order **DELIVERED** | Not run | |
-| W44 | Inventory → Inventory, QA-P1 | MAIN current **6**, reserved **0** | Not run | |
+| W44 | Inventory → **Stock** → **Inventory**, QA-P1 | MAIN current **6**, reserved **0** | Not run | |
 | W45 | Stock Ledger, QA-P1 | A `DISPATCH` row of **−4** naming the delivery note | Not run | |
 | W46 | **Sales Invoices** → New Invoice → **Bill this delivery note** → the note. Type **5** into Bill | Refused before sending: only 4 left to bill | Not run | |
 | W47 | Set Bill to **4** → Create draft → **Approve** | **APPROVED**. Taxable **600.00**, CGST **54.00**, SGST **54.00**, total **708.00** | Not run | |
@@ -149,7 +149,7 @@ From here on, work as the **firm administrator** unless a step says otherwise.
 | --- | --- | --- | --- | --- |
 | W58 | **Sales Returns** → New Return → against the invoice, line 1, back into MAIN, quantity **5** → Create draft | Refused: only 4 went out on this line | Not run | |
 | W59 | Quantity **1** → Create draft → **Approve** → **Complete** | Completed with a notice of 1 back on the shelf and **177.00** credited to the customer (150 plus 18%) | Not run | |
-| W60 | Inventory → Inventory, QA-P1 | MAIN **7**. The Stock Ledger shows a `SALES_RETURN` of +1 | Not run | |
+| W60 | Inventory → **Stock** → **Inventory**, QA-P1 | MAIN **7**. The Stock Ledger shows a `SALES_RETURN` of +1 | Not run | |
 | W61 | Masters → Customers → QA-C1 | **177.00** in the customer's favour, shown as an advance or a credit balance. Note which | Not run | |
 | W62 | Sales → **Credit Notes** → Raise credit note: the invoice, line 1, reason *Rate difference*, credit before tax **50** → Raise → **Approve** | The row reads **59.00 (tax 9.00)**: 18%, the rate that line was charged | Not run | |
 | W63 | Raise another on the same line for **1,000** | Refused: a credit note cannot credit more than the line was charged, naming what the line was charged and what is already credited | Not run | |

@@ -66,7 +66,7 @@ screen reads once when opened: **Refresh** after acting elsewhere.
 
 - **Preconditions:** As *po-received*, plus an **approved** supplier invoice for the receipt of 6 (708.00 with GST).
 - **Steps:** as the prepared **Firm admin**, Goods Receipts → select the **receipt of 6** (the one the preparation invoiced) → **Cancel**.
-- **Expect:** refused — "Goods receipt GRN-… has been invoiced, so cancelling it would leave the accrual and the payable disagreeing. Cancel the purchase invoice first, or raise a purchase return." Nothing changes. *(A purchase invoice cannot be raised from the desktop — BACKLOG §31.9 — which is why the preparation raises it.)*
+- **Expect:** refused — "Goods receipt GRN-… has been invoiced, so cancelling it would leave the accrual and the payable disagreeing. Cancel the purchase invoice first, or raise a purchase return." Nothing changes.
 ### TC-BUY-006 — Returning damaged goods to the supplier
 
 - **Preconditions:** As *po-approved*, plus goods receipts of **4** and **6** against it, both completed: 10 on hand in MAIN.

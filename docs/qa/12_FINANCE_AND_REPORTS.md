@@ -109,12 +109,12 @@ Balance, Profit & Loss, Balance Sheet.
 
 ### TC-CASH-001 — A cashier gets Finance, holding Receipts and Payments only
 
-- **Preconditions:** A QA01 user holding the CASHIER role only, and a customer with an outstanding invoice. (`CASHIER` alone, no job template. That combination is the whole setup: the seeded Counter Sales template pairs CASHIER with BILLING_EXECUTIVE, which is what hid the bug.)
+- **Preconditions:** A QA01 user holding the CASHIER role only, and a customer to record a receipt against. (`CASHIER` alone, no job template. That combination is the whole setup: the seeded Counter Sales template pairs CASHIER with BILLING_EXECUTIVE, which is what hid the bug.)
 - **Steps:** sign in as the prepared **Cashier**; read the sidebar; open Finance.
 - **Expect:** **Finance** is in the sidebar (before the fix the sidebar was empty), with exactly **Receipts** and **Payments**. **None** of Chart of Accounts, Control Accounts, Cost Centres, Profit Centres, Journal Entries, Ledgers, Trial Balance, Profit & Loss, Balance Sheet, Refunds. Widening the module without gating its tabs would have handed a cashier the ledger.
 ### TC-CASH-002 — Recording a receipt, with a searchable party picker
 
-- **Preconditions:** A QA01 user holding the CASHIER role only, and a customer with an outstanding invoice.
+- **Preconditions:** A QA01 user holding the CASHIER role only, and a customer to record a receipt against.
 - **Steps**
   1. As the prepared **Cashier**, Finance → Receipts → **Record Receipt**.
   2. In the party picker, type part of the prepared customer code (`QA-TI`); clear it; type part of its name (`Till Customer`); then type `zzzz-nobody`.

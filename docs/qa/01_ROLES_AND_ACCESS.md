@@ -29,17 +29,17 @@ names it.
 
 | Job template | Roles | Screens offered |
 | --- | --- | --- |
-| Firm Administrator | FIRM_ADMIN | 87 |
-| Firm Manager | FIRM_MANAGER | 81 |
+| Firm Administrator | FIRM_ADMIN | 88 |
+| Firm Manager | FIRM_MANAGER | 82 |
 | Counter Sales | CASHIER, BILLING_EXECUTIVE | 10 |
 | Field Sales | SALES_EXECUTIVE | 17 |
-| Sales Manager | SALES_MANAGER | 26 |
+| Sales Manager | SALES_MANAGER | 27 |
 | Warehouse | INVENTORY_MANAGER | 14 |
 | Purchasing | PURCHASE_EXECUTIVE | 9 |
 | Purchase Manager | PURCHASE_MANAGER | 9 |
-| Accounts | ACCOUNTANT | 21 |
-| Customer Support | CUSTOMER_SUPPORT | 3 |
-| Read Only | VIEWER | 76 |
+| Accounts | ACCOUNTANT | 22 |
+| Customer Support | CUSTOMER_SUPPORT | 4 |
+| Read Only | VIEWER | 77 |
 
 ## R01. Firm Administrator
 
@@ -67,6 +67,7 @@ Roles: `FIRM_ADMIN`. 164 permission codes.
 | Masters | Statements | `CUSTOMER_CREATE`, `CUSTOMER_DELETE`, `CUSTOMER_EXPORT`, `CUSTOMER_IMPORT`, `CUSTOMER_MANAGE_SETTINGS`, `CUSTOMER_RESTORE`, `CUSTOMER_UPDATE` | Not run | |
 | Masters | Loyalty | `LOYALTY_MANAGE`, `LOYALTY_MANAGE_SETTINGS` | Not run | |
 | Masters | Products | `PRODUCT_ATTRIBUTE_MANAGE`, `PRODUCT_CREATE`, `PRODUCT_DELETE`, `PRODUCT_EXPORT`, `PRODUCT_IMPORT`, `PRODUCT_PRICING_MANAGE`, `PRODUCT_RESTORE`, `PRODUCT_TAX_MANAGE`, `PRODUCT_UPDATE`, `PRODUCT_VIEW_COST_PRICE` | Not run | |
+| Masters | Product Categories | `PRODUCT_ATTRIBUTE_MANAGE`, `PRODUCT_CREATE`, `PRODUCT_DELETE`, `PRODUCT_EXPORT`, `PRODUCT_IMPORT`, `PRODUCT_PRICING_MANAGE`, `PRODUCT_RESTORE`, `PRODUCT_TAX_MANAGE`, `PRODUCT_UPDATE`, `PRODUCT_VIEW_COST_PRICE` | Not run | |
 | Masters | Vendors | `VENDOR_CREATE`, `VENDOR_DELETE`, `VENDOR_EXPORT`, `VENDOR_IMPORT`, `VENDOR_MANAGE_BANK_DETAILS`, `VENDOR_MANAGE_CATEGORIES`, `VENDOR_RESTORE`, `VENDOR_UPDATE`, `VENDOR_VIEW_FINANCIAL_DETAILS` | Not run | |
 | Masters | Vendor Categories | `VENDOR_CREATE`, `VENDOR_DELETE`, `VENDOR_EXPORT`, `VENDOR_IMPORT`, `VENDOR_MANAGE_BANK_DETAILS`, `VENDOR_MANAGE_CATEGORIES`, `VENDOR_RESTORE`, `VENDOR_UPDATE`, `VENDOR_VIEW_FINANCIAL_DETAILS` | Not run | |
 | Masters | Vendor Types | `VENDOR_CREATE`, `VENDOR_DELETE`, `VENDOR_EXPORT`, `VENDOR_IMPORT`, `VENDOR_MANAGE_BANK_DETAILS`, `VENDOR_MANAGE_CATEGORIES`, `VENDOR_RESTORE`, `VENDOR_UPDATE`, `VENDOR_VIEW_FINANCIAL_DETAILS` | Not run | |
@@ -76,6 +77,7 @@ Roles: `FIRM_ADMIN`. 164 permission codes.
 | Masters | Warehouse Types | `WAREHOUSE_CREATE`, `WAREHOUSE_DELETE`, `WAREHOUSE_RESTORE`, `WAREHOUSE_UPDATE` | Not run | |
 | Masters | Branch Types | `BRANCH_CREATE`, `BRANCH_DELETE`, `BRANCH_RESTORE`, `BRANCH_UPDATE`, `BRANCH_WAREHOUSE_EXPORT`, `BRANCH_WAREHOUSE_IMPORT` | Not run | |
 | Masters | Settings | `BRANCH_CREATE`, `BRANCH_DELETE`, `BRANCH_RESTORE`, `BRANCH_UPDATE`, `BRANCH_WAREHOUSE_EXPORT`, `BRANCH_WAREHOUSE_IMPORT`, `WAREHOUSE_CREATE`, `WAREHOUSE_DELETE`, `WAREHOUSE_RESTORE`, `WAREHOUSE_UPDATE` | Not run | |
+| Masters | Places | `TERRITORY_ASSIGN_CUSTOMERS`, `TERRITORY_ASSIGN_SALESMEN`, `TERRITORY_CREATE`, `TERRITORY_DELETE`, `TERRITORY_EXPORT`, `TERRITORY_IMPORT`, `TERRITORY_RESTORE`, `TERRITORY_UPDATE` | Not run | |
 | Masters | Financial Years | `FINANCIAL_YEAR_CLOSE`, `FINANCIAL_YEAR_CREATE`, `FINANCIAL_YEAR_REOPEN` | Not run | |
 | Sales | Geography | `TERRITORY_ASSIGN_CUSTOMERS`, `TERRITORY_ASSIGN_SALESMEN`, `TERRITORY_CREATE`, `TERRITORY_DELETE`, `TERRITORY_EXPORT`, `TERRITORY_IMPORT`, `TERRITORY_RESTORE`, `TERRITORY_UPDATE` | Not run | |
 | Sales | Price Lists | `PRICE_LIST_MANAGE` | Not run | |
@@ -92,7 +94,6 @@ Roles: `FIRM_ADMIN`. 164 permission codes.
 | Sales | Call Lists | `TERRITORY_ASSIGN_CUSTOMERS`, `TERRITORY_ASSIGN_SALESMEN`, `TERRITORY_CREATE`, `TERRITORY_DELETE`, `TERRITORY_EXPORT`, `TERRITORY_IMPORT`, `TERRITORY_RESTORE`, `TERRITORY_UPDATE` | Not run | |
 | Sales | Coverage | `TERRITORY_ASSIGN_CUSTOMERS`, `TERRITORY_ASSIGN_SALESMEN`, `TERRITORY_CREATE`, `TERRITORY_DELETE`, `TERRITORY_EXPORT`, `TERRITORY_IMPORT`, `TERRITORY_RESTORE`, `TERRITORY_UPDATE` | Not run | |
 | Sales | Route Builder | `TERRITORY_ASSIGN_CUSTOMERS`, `TERRITORY_ASSIGN_SALESMEN`, `TERRITORY_CREATE`, `TERRITORY_DELETE`, `TERRITORY_EXPORT`, `TERRITORY_IMPORT`, `TERRITORY_RESTORE`, `TERRITORY_UPDATE` | Not run | |
-| Sales | Places | `TERRITORY_ASSIGN_CUSTOMERS`, `TERRITORY_ASSIGN_SALESMEN`, `TERRITORY_CREATE`, `TERRITORY_DELETE`, `TERRITORY_EXPORT`, `TERRITORY_IMPORT`, `TERRITORY_RESTORE`, `TERRITORY_UPDATE` | Not run | |
 | Quotations | (the module itself) | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
 | Sales Orders | (the module itself) | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
 | Delivery Notes | Delivery Notes | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
@@ -158,6 +159,7 @@ Roles: `FIRM_MANAGER`. 150 permission codes.
 | Masters | Statements | `CUSTOMER_CREATE`, `CUSTOMER_DELETE`, `CUSTOMER_EXPORT`, `CUSTOMER_IMPORT`, `CUSTOMER_MANAGE_SETTINGS`, `CUSTOMER_RESTORE`, `CUSTOMER_UPDATE` | Not run | |
 | Masters | Loyalty | `LOYALTY_MANAGE`, `LOYALTY_MANAGE_SETTINGS` | Not run | |
 | Masters | Products | `PRODUCT_ATTRIBUTE_MANAGE`, `PRODUCT_CREATE`, `PRODUCT_DELETE`, `PRODUCT_EXPORT`, `PRODUCT_IMPORT`, `PRODUCT_PRICING_MANAGE`, `PRODUCT_RESTORE`, `PRODUCT_TAX_MANAGE`, `PRODUCT_UPDATE`, `PRODUCT_VIEW_COST_PRICE` | Not run | |
+| Masters | Product Categories | `PRODUCT_ATTRIBUTE_MANAGE`, `PRODUCT_CREATE`, `PRODUCT_DELETE`, `PRODUCT_EXPORT`, `PRODUCT_IMPORT`, `PRODUCT_PRICING_MANAGE`, `PRODUCT_RESTORE`, `PRODUCT_TAX_MANAGE`, `PRODUCT_UPDATE`, `PRODUCT_VIEW_COST_PRICE` | Not run | |
 | Masters | Vendors | `VENDOR_CREATE`, `VENDOR_DELETE`, `VENDOR_EXPORT`, `VENDOR_IMPORT`, `VENDOR_MANAGE_BANK_DETAILS`, `VENDOR_MANAGE_CATEGORIES`, `VENDOR_RESTORE`, `VENDOR_UPDATE`, `VENDOR_VIEW_FINANCIAL_DETAILS` | Not run | |
 | Masters | Vendor Categories | `VENDOR_CREATE`, `VENDOR_DELETE`, `VENDOR_EXPORT`, `VENDOR_IMPORT`, `VENDOR_MANAGE_BANK_DETAILS`, `VENDOR_MANAGE_CATEGORIES`, `VENDOR_RESTORE`, `VENDOR_UPDATE`, `VENDOR_VIEW_FINANCIAL_DETAILS` | Not run | |
 | Masters | Vendor Types | `VENDOR_CREATE`, `VENDOR_DELETE`, `VENDOR_EXPORT`, `VENDOR_IMPORT`, `VENDOR_MANAGE_BANK_DETAILS`, `VENDOR_MANAGE_CATEGORIES`, `VENDOR_RESTORE`, `VENDOR_UPDATE`, `VENDOR_VIEW_FINANCIAL_DETAILS` | Not run | |
@@ -167,6 +169,7 @@ Roles: `FIRM_MANAGER`. 150 permission codes.
 | Masters | Warehouse Types | `WAREHOUSE_CREATE`, `WAREHOUSE_DELETE`, `WAREHOUSE_RESTORE`, `WAREHOUSE_UPDATE` | Not run | |
 | Masters | Branch Types | `BRANCH_CREATE`, `BRANCH_DELETE`, `BRANCH_RESTORE`, `BRANCH_UPDATE`, `BRANCH_WAREHOUSE_EXPORT`, `BRANCH_WAREHOUSE_IMPORT` | Not run | |
 | Masters | Settings | `BRANCH_CREATE`, `BRANCH_DELETE`, `BRANCH_RESTORE`, `BRANCH_UPDATE`, `BRANCH_WAREHOUSE_EXPORT`, `BRANCH_WAREHOUSE_IMPORT`, `WAREHOUSE_CREATE`, `WAREHOUSE_DELETE`, `WAREHOUSE_RESTORE`, `WAREHOUSE_UPDATE` | Not run | |
+| Masters | Places | `TERRITORY_ASSIGN_CUSTOMERS`, `TERRITORY_ASSIGN_SALESMEN`, `TERRITORY_CREATE`, `TERRITORY_DELETE`, `TERRITORY_EXPORT`, `TERRITORY_IMPORT`, `TERRITORY_RESTORE`, `TERRITORY_UPDATE` | Not run | |
 | Masters | Financial Years | `FINANCIAL_YEAR_CLOSE`, `FINANCIAL_YEAR_CREATE`, `FINANCIAL_YEAR_REOPEN` | Not run | |
 | Sales | Geography | `TERRITORY_ASSIGN_CUSTOMERS`, `TERRITORY_ASSIGN_SALESMEN`, `TERRITORY_CREATE`, `TERRITORY_DELETE`, `TERRITORY_EXPORT`, `TERRITORY_IMPORT`, `TERRITORY_RESTORE`, `TERRITORY_UPDATE` | Not run | |
 | Sales | Price Lists | `PRICE_LIST_MANAGE` | Not run | |
@@ -183,7 +186,6 @@ Roles: `FIRM_MANAGER`. 150 permission codes.
 | Sales | Call Lists | `TERRITORY_ASSIGN_CUSTOMERS`, `TERRITORY_ASSIGN_SALESMEN`, `TERRITORY_CREATE`, `TERRITORY_DELETE`, `TERRITORY_EXPORT`, `TERRITORY_IMPORT`, `TERRITORY_RESTORE`, `TERRITORY_UPDATE` | Not run | |
 | Sales | Coverage | `TERRITORY_ASSIGN_CUSTOMERS`, `TERRITORY_ASSIGN_SALESMEN`, `TERRITORY_CREATE`, `TERRITORY_DELETE`, `TERRITORY_EXPORT`, `TERRITORY_IMPORT`, `TERRITORY_RESTORE`, `TERRITORY_UPDATE` | Not run | |
 | Sales | Route Builder | `TERRITORY_ASSIGN_CUSTOMERS`, `TERRITORY_ASSIGN_SALESMEN`, `TERRITORY_CREATE`, `TERRITORY_DELETE`, `TERRITORY_EXPORT`, `TERRITORY_IMPORT`, `TERRITORY_RESTORE`, `TERRITORY_UPDATE` | Not run | |
-| Sales | Places | `TERRITORY_ASSIGN_CUSTOMERS`, `TERRITORY_ASSIGN_SALESMEN`, `TERRITORY_CREATE`, `TERRITORY_DELETE`, `TERRITORY_EXPORT`, `TERRITORY_IMPORT`, `TERRITORY_RESTORE`, `TERRITORY_UPDATE` | Not run | |
 | Quotations | (the module itself) | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
 | Sales Orders | (the module itself) | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
 | Delivery Notes | Delivery Notes | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_MANAGE_SETTINGS`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_TARGET_MANAGE`, `SALES_UPDATE` | Not run | |
@@ -254,6 +256,7 @@ Roles: `SALES_EXECUTIVE`. 6 permission codes.
 | --- | --- | --- | --- | --- |
 | Masters | Customers | none beyond viewing | Not run | |
 | Masters | Statements | none beyond viewing | Not run | |
+| Masters | Places | none beyond viewing | Not run | |
 | Sales | Geography | none beyond viewing | Not run | |
 | Sales | GST Returns | `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE` | Not run | |
 | Sales | Route Types | none beyond viewing | Not run | |
@@ -261,7 +264,6 @@ Roles: `SALES_EXECUTIVE`. 6 permission codes.
 | Sales | Call Lists | none beyond viewing | Not run | |
 | Sales | Coverage | none beyond viewing | Not run | |
 | Sales | Route Builder | none beyond viewing | Not run | |
-| Sales | Places | none beyond viewing | Not run | |
 | Quotations | (the module itself) | `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE` | Not run | |
 | Sales Orders | (the module itself) | `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE` | Not run | |
 | Delivery Notes | Delivery Notes | `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE` | Not run | |
@@ -282,6 +284,8 @@ Roles: `SALES_MANAGER`. 35 permission codes.
 | Masters | Statements | `CUSTOMER_CREATE`, `CUSTOMER_DELETE`, `CUSTOMER_EXPORT`, `CUSTOMER_IMPORT`, `CUSTOMER_RESTORE`, `CUSTOMER_UPDATE` | Not run | |
 | Masters | Loyalty | `LOYALTY_MANAGE` | Not run | |
 | Masters | Products | none beyond viewing | Not run | |
+| Masters | Product Categories | none beyond viewing | Not run | |
+| Masters | Places | `TERRITORY_ASSIGN_CUSTOMERS` | Not run | |
 | Sales | Geography | `TERRITORY_ASSIGN_CUSTOMERS` | Not run | |
 | Sales | Promotions | none beyond viewing | Not run | |
 | Sales | Commission | none beyond viewing | Not run | |
@@ -296,7 +300,6 @@ Roles: `SALES_MANAGER`. 35 permission codes.
 | Sales | Call Lists | `TERRITORY_ASSIGN_CUSTOMERS` | Not run | |
 | Sales | Coverage | `TERRITORY_ASSIGN_CUSTOMERS` | Not run | |
 | Sales | Route Builder | `TERRITORY_ASSIGN_CUSTOMERS` | Not run | |
-| Sales | Places | `TERRITORY_ASSIGN_CUSTOMERS` | Not run | |
 | Quotations | (the module itself) | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_UPDATE` | Not run | |
 | Sales Orders | (the module itself) | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_UPDATE` | Not run | |
 | Delivery Notes | Delivery Notes | `SALES_APPROVE`, `SALES_CANCEL`, `SALES_CREATE`, `SALES_EXPORT`, `SALES_IMPORT`, `SALES_INVOICE_CREATE`, `SALES_ORDER_CREATE`, `SALES_QUOTATION_CREATE`, `SALES_RETURN`, `SALES_UPDATE` | Not run | |
@@ -375,6 +378,7 @@ Roles: `ACCOUNTANT`. 25 permission codes.
 | Masters | Customers | `CUSTOMER_MANAGE_SETTINGS` | Not run | |
 | Masters | Statements | `CUSTOMER_MANAGE_SETTINGS` | Not run | |
 | Masters | Products | none beyond viewing | Not run | |
+| Masters | Product Categories | none beyond viewing | Not run | |
 | Masters | Vendors | `VENDOR_VIEW_FINANCIAL_DETAILS` | Not run | |
 | Masters | Vendor Categories | `VENDOR_VIEW_FINANCIAL_DETAILS` | Not run | |
 | Masters | Vendor Types | `VENDOR_VIEW_FINANCIAL_DETAILS` | Not run | |
@@ -405,6 +409,7 @@ Roles: `CUSTOMER_SUPPORT`. 3 permission codes.
 | Masters | Customers | `CUSTOMER_UPDATE` | Not run | |
 | Masters | Statements | `CUSTOMER_UPDATE` | Not run | |
 | Masters | Products | none beyond viewing | Not run | |
+| Masters | Product Categories | none beyond viewing | Not run | |
 
 **Not offered:** Administration, Sales, Quotations, Sales Orders, Delivery Notes, Sales Invoices, Sales Returns, Purchases, Purchase Invoices, Purchase Returns, Goods Receipts, Inventory, Finance, Reports, Licensing, Settings. Check each is absent from the sidebar.
 
@@ -425,6 +430,7 @@ Roles: `VIEWER`. 37 permission codes.
 | Masters | Statements | none beyond viewing | Not run | |
 | Masters | Loyalty | none beyond viewing | Not run | |
 | Masters | Products | none beyond viewing | Not run | |
+| Masters | Product Categories | none beyond viewing | Not run | |
 | Masters | Vendors | none beyond viewing | Not run | |
 | Masters | Vendor Categories | none beyond viewing | Not run | |
 | Masters | Vendor Types | none beyond viewing | Not run | |
@@ -433,6 +439,7 @@ Roles: `VIEWER`. 37 permission codes.
 | Masters | Warehouse Types | none beyond viewing | Not run | |
 | Masters | Branch Types | none beyond viewing | Not run | |
 | Masters | Settings | none beyond viewing | Not run | |
+| Masters | Places | none beyond viewing | Not run | |
 | Masters | Financial Years | none beyond viewing | Not run | |
 | Masters | Firm Settings | none beyond viewing | Not run | |
 | Sales | Geography | none beyond viewing | Not run | |
@@ -450,7 +457,6 @@ Roles: `VIEWER`. 37 permission codes.
 | Sales | Call Lists | none beyond viewing | Not run | |
 | Sales | Coverage | none beyond viewing | Not run | |
 | Sales | Route Builder | none beyond viewing | Not run | |
-| Sales | Places | none beyond viewing | Not run | |
 | Quotations | (the module itself) | none beyond viewing | Not run | |
 | Sales Orders | (the module itself) | none beyond viewing | Not run | |
 | Delivery Notes | Delivery Notes | none beyond viewing | Not run | |
