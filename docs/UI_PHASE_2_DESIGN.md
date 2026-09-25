@@ -361,6 +361,36 @@ Rows and fonts do not grow with the window; the density setting decides
 them. Nothing is sized in fixed pixels except the thin bars (menu, tabs, page
 bar, status bar).
 
+### 4.12 Every menu follows permissions (owner, 2026-09-25)
+
+Phase 2 adds more ways to reach a screen than phase 1 had. **Every one of them
+shows only what the signed-in user may use in the current firm** -- the same
+three checks the sidebar applies today, from the one module catalogue:
+the user's **permission codes**, the firm's **business profile** (a module or
+feature the profile does not run is not offered), and **firm context**
+(firm-only screens need a firm chosen; platform-only screens need the platform
+designation).
+
+| Place | What is filtered |
+| --- | --- |
+| Menu bar | an area appears only if at least one of its items is allowed; an empty area is not shown at all |
+| Drop-down panels and **More** | only allowed items; a column (group) with none left disappears |
+| Open tabs | a tab restored from last time is dropped if its screen is no longer allowed (role changed, other firm) |
+| Command box | screens, records and actions alike -- a record is found only if its list may be viewed, an action only if it may be done |
+| **+ New** (both) | only record types the user may create |
+| Favourites and recent | hidden while not allowed, kept for when they are again |
+| Home | cards, figures and to-do items only from modules the role may view (a storeman sees no receivables) |
+| Page bar | counters, chips and actions (Approve, Delete, Export...) follow their own permission, as buttons do today |
+| Keyboard shortcuts | F8, F6, Alt+C... do nothing, with a short "not allowed" note, when the target is not allowed |
+| Links inside screens | a link to a screen the user cannot open is plain text |
+
+When the user switches firm or their roles change, every one of these
+recalculates at once; nothing stays on screen from the previous firm.
+
+**The server stays the authority.** Hiding is for a clean screen, not for
+security -- every endpoint keeps checking its own permission as it does today,
+so a hidden item reached any other way is still refused.
+
 ## 5. What does not change
 
 - The **module catalogue** stays the single source of screens; phase 2 adds
