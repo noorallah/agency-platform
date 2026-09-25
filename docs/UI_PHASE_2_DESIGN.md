@@ -496,6 +496,52 @@ Next: agree or change the open answers (1 and 10 are agreed); then appendix A (e
 area, group and label) and clickable mock-ups of the shell, a list and a
 sales order are prepared for review before any code.
 
+## 9. Open topics, decided screen by screen
+
+Agreed with the owner on 2026-09-25: the shell, navigation, page bar, Settings
+and permissions above are the frame; the topics below are **decided screen by
+screen during implementation**, each shown to the owner on its first screen
+before it is repeated on the rest. Where one needs a decision, it is added to
+section 8 at that point.
+
+**Before or with the first screens**
+
+1. **Master forms** (customer, product, vendor) -- full-page tab or side
+   panel; their inner tabs (addresses, contacts, bank, attributes); where
+   validation errors show.
+2. **Printing and sharing** -- preview, A4 and thermal, copies, send as PDF
+   by email or WhatsApp. Billing depends on it.
+3. **Reports screen** -- filters, totals, drill-down from a figure to the
+   documents behind it, export and print.
+4. **Messages** -- saved, errors, "unsaved changes -- leave anyway?",
+   connection lost, credit-limit warnings, approval prompts: one look
+   everywhere.
+5. **Record history** -- a timeline on each document (created, approved,
+   printed, who changed what) and its attachments.
+6. **Open decisions** in section 8.
+
+**With the screens they touch**
+
+7. **Look and feel** -- colours, fonts, logo, light and dark; one
+   high-detail mock-up to approve before the shell is coded.
+8. **Indian formats as rules** -- lakh/crore grouping (1,12,050.00),
+   dd-mm-yyyy, the rupee sign, amount in words on bills.
+9. **Windows display scaling** -- 125 % and 150 % scaling and larger text
+   (see D-QA-1).
+10. **Branch and warehouse context** -- a user's own default (BACKLOG section
+    44) and where it shows beside the firm switcher.
+11. **First run** -- a new firm's set-up checklist and the empty screens a
+    new customer meets first.
+12. **Help** -- F1 on any screen, a shortcut sheet, a short "what is new"
+    tour when phase 2 is switched on.
+13. **Import screens** (BACKLOG section 46) in the same design.
+
+**Later**
+
+14. Very large lists (paging or endless scroll, loading placeholders).
+15. Approvals and notifications (a bell: "3 orders waiting for you").
+16. Phone and tablet -- outside phase 2; the Android build stays for viewing.
+
 ---
 
 ## Appendix A. Every phase 1 screen, and where it goes
