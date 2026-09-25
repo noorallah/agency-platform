@@ -87,10 +87,12 @@ class SalesInvoiceManagementPage extends StatefulWidget {
   final Future<void> Function()? onOpenGlobalSearch;
 
   @override
-  State<SalesInvoiceManagementPage> createState() => _SalesInvoiceManagementPageState();
+  State<SalesInvoiceManagementPage> createState() =>
+      _SalesInvoiceManagementPageState();
 }
 
-class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage> {
+class _SalesInvoiceManagementPageState
+    extends State<SalesInvoiceManagementPage> {
   final TextEditingController _search = TextEditingController();
   late SalesInvoiceView _view = widget.initialView;
   bool _loading = false;
@@ -124,7 +126,6 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
     super.dispose();
   }
 
-
   /// Whether the signed-in user may run this lifecycle action.
   ///
   /// The backend gates approve, close, complete and dispatch on
@@ -139,14 +140,19 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
         DocumentToolbarAction.archive ||
         DocumentToolbarAction.requestApproval =>
           _mayApprove(),
-        DocumentToolbarAction.cancel || DocumentToolbarAction.reject =>
+        DocumentToolbarAction.cancel ||
+        DocumentToolbarAction.reject =>
           widget.permissions.hasPermission('SALES_CANCEL'),
-        DocumentToolbarAction.newDocument =>
-          widget.permissions.hasPermission('SALES_CREATE'),
-        DocumentToolbarAction.save =>
-          widget.permissions.hasPermission('SALES_UPDATE'),
+        DocumentToolbarAction.newDocument => widget.permissions.hasPermission(
+            'SALES_CREATE',
+          ),
+        DocumentToolbarAction.save => widget.permissions.hasPermission(
+            'SALES_UPDATE',
+          ),
         DocumentToolbarAction.exportDocument =>
-          widget.permissions.hasPermission('SALES_EXPORT'),
+          widget.permissions.hasPermission(
+            'SALES_EXPORT',
+          ),
         _ => true,
       };
 
@@ -176,7 +182,8 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
   }
 
   Future<void> _load({int? requestedPage}) async {
-    if (!widget.hasActiveFirm || !widget.permissions.hasPermission('SALES_VIEW')) {
+    if (!widget.hasActiveFirm ||
+        !widget.permissions.hasPermission('SALES_VIEW')) {
       return;
     }
     setState(() {
@@ -201,10 +208,11 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
       ]);
       final Map<String, dynamic> summary = _unwrap(responses[0]);
       final Map<String, dynamic> page = _unwrap(responses[1]);
-      final List<Map<String, dynamic>> rows = ((page['data'] as List?) ?? const [])
-          .whereType<Map>()
-          .map((item) => Map<String, dynamic>.from(item))
-          .toList(growable: false);
+      final List<Map<String, dynamic>> rows =
+          ((page['data'] as List?) ?? const [])
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList(growable: false);
       final Object? pagination = page['pagination'];
       final int total = pagination is Map
           ? (pagination['total_records'] as num?)?.toInt() ?? rows.length
@@ -236,11 +244,19 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
     final Map<String, dynamic>? selected = _selected;
     if (selected == null) return;
     try {
-      await widget.api.documentAction('sales-invoices', selected['id'] as String, suffix);
+      await widget.api.documentAction(
+        'sales-invoices',
+        selected['id'] as String,
+        suffix,
+      );
       await _load();
     } on ApiException catch (error) {
       if (!mounted) return;
-      NotificationService.show(context, error.message, kind: AppNotificationKind.error);
+      NotificationService.show(
+        context,
+        error.message,
+        kind: AppNotificationKind.error,
+      );
     }
   }
 
@@ -268,6 +284,7 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
         party: '${row['customer_name'] ?? ''}',
         partyLabel: 'Customer',
         reference: (row['reference_number'] as String?) ?? '',
+        branch: _labels.branch('${row['branch_id'] ?? ''}'),
         remarks: (row['remarks'] as String?) ?? '',
       );
 
@@ -316,8 +333,11 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
       );
       history = ((timeline['data'] as List?) ?? const [])
           .whereType<Map>()
-          .map((item) =>
-              DocumentTimelineSnapshot.fromJson(Map<String, dynamic>.from(item)))
+          .map(
+            (item) => DocumentTimelineSnapshot.fromJson(
+              Map<String, dynamic>.from(item),
+            ),
+          )
           .toList(growable: false);
     } on ApiException {
       history = const [];
@@ -363,13 +383,15 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
             if (_loading) const LinearProgressIndicator(minHeight: 2),
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
-              child: SummaryCards(children: [
-                _card('Total', '${_summary['total'] ?? 0}'),
-                _card('Draft', '${_summary['draft'] ?? 0}'),
-                _card('Approved', '${_summary['approved'] ?? 0}'),
-                _card('Pending', '${_summary['pending_invoices'] ?? 0}'),
-                _card('Overdue', '${_summary['overdue_invoices'] ?? 0}'),
-              ]),
+              child: SummaryCards(
+                children: [
+                  _card('Total', '${_summary['total'] ?? 0}'),
+                  _card('Draft', '${_summary['draft'] ?? 0}'),
+                  _card('Approved', '${_summary['approved'] ?? 0}'),
+                  _card('Pending', '${_summary['pending_invoices'] ?? 0}'),
+                  _card('Overdue', '${_summary['overdue_invoices'] ?? 0}'),
+                ],
+              ),
             ),
             // Bounded, so the layout below has a height to divide.
             Expanded(child: _buildGridWorkspace()),
@@ -381,10 +403,8 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
   Future<void> _newInvoice() async {
     final bool? created = await showDialog<bool>(
       context: context,
-      builder: (_) => SalesInvoiceEditorDialog(
-        api: widget.api,
-        today: DateTime.now(),
-      ),
+      builder: (_) =>
+          SalesInvoiceEditorDialog(api: widget.api, today: DateTime.now()),
     );
     if (created != true) return;
     if (!mounted) return;
@@ -427,11 +447,7 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
         invoice['id'] as String,
       );
       if (!mounted) return;
-      await printDocument(
-        context,
-        bytes: pdf,
-        documentName: number,
-      );
+      await printDocument(context, bytes: pdf, documentName: number);
     } on ApiException catch (exception) {
       if (!mounted) return;
       NotificationService.show(
@@ -472,9 +488,7 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
           segments: [
             for (final SalesInvoiceView view in SalesInvoiceView.values)
               ButtonSegment<SalesInvoiceView>(
-                value: view,
-                label: Text(view.label),
-              ),
+                  value: view, label: Text(view.label)),
           ],
           selected: <SalesInvoiceView>{_view},
           onSelectionChanged:
@@ -542,8 +556,9 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
             Padding(
               padding: const EdgeInsets.only(left: 8),
               child: FilledButton.icon(
-                onPressed:
-                    widget.hasActiveFirm ? () => unawaited(_newInvoice()) : null,
+                onPressed: widget.hasActiveFirm
+                    ? () => unawaited(_newInvoice())
+                    : null,
                 icon: const Icon(Icons.add, size: 18),
                 label: const Text('New Invoice'),
               ),
@@ -609,8 +624,10 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
                   _loading ||
                   !widget.permissions.hasPermission('LOYALTY_MANAGE') ||
                   // Only an approved bill owes anything to settle.
-                  const <String>{'DRAFT', 'CANCELLED'}
-                      .contains('${_selected?['status'] ?? ''}')
+                  const <String>{
+                    'DRAFT',
+                    'CANCELLED',
+                  }.contains('${_selected?['status'] ?? ''}')
               ? null
               : () => unawaited(_redeem(_selected!)),
           icon: const Icon(Icons.card_giftcard, size: 18),
@@ -631,8 +648,11 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
       held = await widget.api.loyaltyBalance(customerId);
     } on ApiException catch (error) {
       if (!mounted) return;
-      NotificationService.show(context, error.message,
-          kind: AppNotificationKind.error);
+      NotificationService.show(
+        context,
+        error.message,
+        kind: AppNotificationKind.error,
+      );
       return;
     }
     if (!mounted) return;
@@ -669,8 +689,11 @@ class _SalesInvoiceManagementPageState extends State<SalesInvoiceManagementPage>
       await _load();
     } on ApiException catch (error) {
       if (!mounted) return;
-      NotificationService.show(context, error.message,
-          kind: AppNotificationKind.error);
+      NotificationService.show(
+        context,
+        error.message,
+        kind: AppNotificationKind.error,
+      );
     }
   }
 

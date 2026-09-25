@@ -1,4 +1,5 @@
 import '../../core/api/api_client.dart';
+import '../../models/branch_warehouse.dart';
 import '../../models/product.dart';
 import '../../models/tax_framework.dart';
 import '../../models/uom_packaging.dart';
@@ -16,11 +17,19 @@ class DocumentLineLabels {
     this.products = const <Product>[],
     this.units = const <UomRecord>[],
     this.taxProfiles = const <TaxProfileRecord>[],
+    this.branches = const <BranchRecord>[],
+    this.warehouses = const <WarehouseRecord>[],
   });
 
   final List<Product> products;
   final List<UomRecord> units;
   final List<TaxProfileRecord> taxProfiles;
+
+  /// For the header: where the document was raised and ships from. The
+  /// sales order view printed '-' under Warehouse for every order because it
+  /// was never told, which read as an order with no warehouse (D-QA-17).
+  final List<BranchRecord> branches;
+  final List<WarehouseRecord> warehouses;
 
   /// Read the three lists a view resolves ids against.
   ///
@@ -32,6 +41,8 @@ class DocumentLineLabels {
     List<Product> products = const <Product>[];
     List<UomRecord> units = const <UomRecord>[];
     List<TaxProfileRecord> profiles = const <TaxProfileRecord>[];
+    List<BranchRecord> branches = const <BranchRecord>[];
+    List<WarehouseRecord> warehouses = const <WarehouseRecord>[];
     try {
       products = (await api.products(page: 1, pageSize: 100)).items;
     } on ApiException {
@@ -47,10 +58,22 @@ class DocumentLineLabels {
     } on ApiException {
       // As above.
     }
+    try {
+      branches = (await api.branches(page: 1, pageSize: 100)).items;
+    } on ApiException {
+      // As above.
+    }
+    try {
+      warehouses = (await api.warehouses(page: 1, pageSize: 100)).items;
+    } on ApiException {
+      // As above.
+    }
     return DocumentLineLabels(
       products: products,
       units: units,
       taxProfiles: profiles,
+      branches: branches,
+      warehouses: warehouses,
     );
   }
 
@@ -77,6 +100,26 @@ class DocumentLineLabels {
     if (id.isEmpty) return '';
     for (final TaxProfileRecord profile in taxProfiles) {
       if (profile.id == id) return profile.code;
+    }
+    return id;
+  }
+
+  /// `CODE - Name` for a known branch; the id as given otherwise.
+  String branch(String id) {
+    if (id.isEmpty) return '';
+    for (final BranchRecord branch in branches) {
+      if (branch.id == id) return '${branch.code} - ${branch.displayName}';
+    }
+    return id;
+  }
+
+  /// `CODE - Name` for a known warehouse; the id as given otherwise.
+  String warehouse(String id) {
+    if (id.isEmpty) return '';
+    for (final WarehouseRecord warehouse in warehouses) {
+      if (warehouse.id == id) {
+        return '${warehouse.code} - ${warehouse.displayName}';
+      }
     }
     return id;
   }

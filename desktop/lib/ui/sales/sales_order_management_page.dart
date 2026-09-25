@@ -34,7 +34,8 @@ class SalesOrderManagementPage extends StatefulWidget {
   final Future<void> Function()? onOpenGlobalSearch;
 
   @override
-  State<SalesOrderManagementPage> createState() => _SalesOrderManagementPageState();
+  State<SalesOrderManagementPage> createState() =>
+      _SalesOrderManagementPageState();
 }
 
 class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
@@ -70,7 +71,6 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
     super.dispose();
   }
 
-
   /// Whether the signed-in user may run this lifecycle action.
   ///
   /// The backend gates approve, close, complete and dispatch on
@@ -85,14 +85,19 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         DocumentToolbarAction.archive ||
         DocumentToolbarAction.requestApproval =>
           _mayApprove(),
-        DocumentToolbarAction.cancel || DocumentToolbarAction.reject =>
+        DocumentToolbarAction.cancel ||
+        DocumentToolbarAction.reject =>
           widget.permissions.hasPermission('SALES_CANCEL'),
-        DocumentToolbarAction.newDocument =>
-          widget.permissions.hasPermission('SALES_CREATE'),
-        DocumentToolbarAction.save =>
-          widget.permissions.hasPermission('SALES_UPDATE'),
+        DocumentToolbarAction.newDocument => widget.permissions.hasPermission(
+            'SALES_CREATE',
+          ),
+        DocumentToolbarAction.save => widget.permissions.hasPermission(
+            'SALES_UPDATE',
+          ),
         DocumentToolbarAction.exportDocument =>
-          widget.permissions.hasPermission('SALES_EXPORT'),
+          widget.permissions.hasPermission(
+            'SALES_EXPORT',
+          ),
         _ => true,
       };
 
@@ -122,7 +127,8 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
   }
 
   Future<void> _load({int? requestedPage}) async {
-    if (!widget.hasActiveFirm || !widget.permissions.hasPermission('SALES_VIEW')) {
+    if (!widget.hasActiveFirm ||
+        !widget.permissions.hasPermission('SALES_VIEW')) {
       return;
     }
     setState(() {
@@ -146,10 +152,11 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
       ]);
       final Map<String, dynamic> summary = _unwrap(responses[0]);
       final Map<String, dynamic> page = _unwrap(responses[1]);
-      final List<Map<String, dynamic>> rows = ((page['data'] as List?) ?? const [])
-          .whereType<Map>()
-          .map((item) => Map<String, dynamic>.from(item))
-          .toList(growable: false);
+      final List<Map<String, dynamic>> rows =
+          ((page['data'] as List?) ?? const [])
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList(growable: false);
       final Object? pagination = page['pagination'];
       final int total = pagination is Map
           ? (pagination['total_records'] as num?)?.toInt() ?? rows.length
@@ -185,7 +192,10 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
     if (selected == null) return;
     try {
       await widget.api.documentAction(
-          'sales-orders', selected['id'] as String, suffix);
+        'sales-orders',
+        selected['id'] as String,
+        suffix,
+      );
       await _load();
     } on ApiException catch (error) {
       // The server's refusal is the only thing that says why -- a credit
@@ -206,7 +216,8 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
   /// The check has to run *before* the call: once the order is approved the
   /// exposure already includes it, and asking afterwards with the same amount
   /// would count the order twice.
-  Future<void> _warnOnCredit(Map<String, dynamic> order) => warnOnCreditExposure(
+  Future<void> _warnOnCredit(Map<String, dynamic> order) =>
+      warnOnCreditExposure(
         context,
         widget.api,
         customerId: order['customer_id'] as String?,
@@ -222,6 +233,11 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         status: '${row['status'] ?? 'DRAFT'}',
         reference: (row['reference_number'] as String?) ?? '',
         coupon: (row['coupon_code'] as String?) ?? '',
+        // Where it ships from is where approval reserved the stock; leaving
+        // it out printed '-' and read as an order with no warehouse
+        // (D-QA-17).
+        branch: _labels.branch('${row['branch_id'] ?? ''}'),
+        warehouse: _labels.warehouse('${row['warehouse_id'] ?? ''}'),
         remarks: (row['remarks'] as String?) ?? '',
       );
 
@@ -235,7 +251,9 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         grandTotal: '${row['grand_total'] ?? '0'}',
       );
 
-  List<DocumentLineSnapshot> _linesFor(Map<String, dynamic> row) =>
+  List<DocumentLineSnapshot> _linesFor(
+    Map<String, dynamic> row,
+  ) =>
       ((row['lines'] as List?) ?? const []).whereType<Map>().map((line) {
         final Map<String, dynamic> item = Map<String, dynamic>.from(line);
         return DocumentLineSnapshot(
@@ -277,8 +295,11 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
       );
       history = ((timeline['data'] as List?) ?? const [])
           .whereType<Map>()
-          .map((item) =>
-              DocumentTimelineSnapshot.fromJson(Map<String, dynamic>.from(item)))
+          .map(
+            (item) => DocumentTimelineSnapshot.fromJson(
+              Map<String, dynamic>.from(item),
+            ),
+          )
           .toList(growable: false);
     } on ApiException {
       history = const [];
@@ -310,13 +331,15 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
             if (_loading) const LinearProgressIndicator(minHeight: 2),
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
-              child: SummaryCards(children: [
-                _card('Total', '${_summary['total'] ?? 0}'),
-                _card('Draft', '${_summary['draft'] ?? 0}'),
-                _card('Approved', '${_summary['approved'] ?? 0}'),
-                _card('Cancelled', '${_summary['cancelled'] ?? 0}'),
-                _card('Closed', '${_summary['closed'] ?? 0}'),
-              ]),
+              child: SummaryCards(
+                children: [
+                  _card('Total', '${_summary['total'] ?? 0}'),
+                  _card('Draft', '${_summary['draft'] ?? 0}'),
+                  _card('Approved', '${_summary['approved'] ?? 0}'),
+                  _card('Cancelled', '${_summary['cancelled'] ?? 0}'),
+                  _card('Closed', '${_summary['closed'] ?? 0}'),
+                ],
+              ),
             ),
             // Bounded, so the layout below has a height to divide.
             Expanded(child: _buildGridWorkspace()),
@@ -526,8 +549,11 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
       await _load();
     } on ApiException catch (error) {
       if (!mounted) return;
-      NotificationService.show(context, error.message,
-          kind: AppNotificationKind.error);
+      NotificationService.show(
+        context,
+        error.message,
+        kind: AppNotificationKind.error,
+      );
     }
   }
 
@@ -543,8 +569,11 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
       await _load();
     } on ApiException catch (error) {
       if (!mounted) return;
-      NotificationService.show(context, error.message,
-          kind: AppNotificationKind.error);
+      NotificationService.show(
+        context,
+        error.message,
+        kind: AppNotificationKind.error,
+      );
     }
   }
 
@@ -552,10 +581,8 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
   Future<void> _newOrder() async {
     final bool? created = await showDialog<bool>(
       context: context,
-      builder: (_) => SalesOrderEditorDialog(
-        api: widget.api,
-        today: DateTime.now(),
-      ),
+      builder: (_) =>
+          SalesOrderEditorDialog(api: widget.api, today: DateTime.now()),
     );
     if (created != true) return;
     if (!mounted) return;

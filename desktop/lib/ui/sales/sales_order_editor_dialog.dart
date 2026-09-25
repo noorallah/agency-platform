@@ -228,14 +228,22 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   Future<void> _load() async {
     try {
       final List<dynamic> loaded = await Future.wait<dynamic>(<Future<dynamic>>[
-        fetchAllPages<Customer>((int page) =>
-            widget.api.customers(page: page, pageSize: maxApiPageSize)),
-        fetchAllPages<Product>((int page) =>
-            widget.api.products(page: page, pageSize: maxApiPageSize)),
-        fetchAllPages<BranchRecord>((int page) =>
-            widget.api.branches(page: page, pageSize: maxApiPageSize)),
-        fetchAllPages<WarehouseRecord>((int page) =>
-            widget.api.warehouses(page: page, pageSize: maxApiPageSize)),
+        fetchAllPages<Customer>(
+          (int page) =>
+              widget.api.customers(page: page, pageSize: maxApiPageSize),
+        ),
+        fetchAllPages<Product>(
+          (int page) =>
+              widget.api.products(page: page, pageSize: maxApiPageSize),
+        ),
+        fetchAllPages<BranchRecord>(
+          (int page) =>
+              widget.api.branches(page: page, pageSize: maxApiPageSize),
+        ),
+        fetchAllPages<WarehouseRecord>(
+          (int page) =>
+              widget.api.warehouses(page: page, pageSize: maxApiPageSize),
+        ),
         // Not paged: one firm's people, and the endpoint answers them all.
         widget.api.firmMembers(),
       ]);
@@ -257,10 +265,12 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
           // the firm says which. The customer is left unchosen: it is the
           // point of the document, and defaulting it means an order can be
           // raised for the wrong shop by not touching the field.
-          _branchId = _defaultOf<BranchRecord>(
-              _branches, (BranchRecord item) => item.isDefault, (item) => item.id);
-          _warehouseId = _defaultOf<WarehouseRecord>(_warehouses,
-              (WarehouseRecord item) => item.isDefault, (item) => item.id);
+          //
+          // The warehouse is the chosen branch's default, never the first
+          // default in a newest-first list: with two branches that could be
+          // another branch's, which the server refuses (D-QA-17).
+          _branchId = preferredBranchId(_branches);
+          _warehouseId = preferredWarehouseId(_warehouses, branchId: _branchId);
         }
         if (_lines.isEmpty) _lines.add(_newLine());
       });
@@ -273,17 +283,17 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
     }
   }
 
-  /// The one the firm marked as its default, or the first, or none at all.
-  String? _defaultOf<T>(
-    List<T> rows,
-    bool Function(T) isDefault,
-    String Function(T) idOf,
-  ) {
-    if (rows.isEmpty) return null;
-    for (final T row in rows) {
-      if (isDefault(row)) return idOf(row);
+  /// The warehouse to show once [branchId] is chosen: the one already chosen
+  /// if it belongs there, else that branch's default. An order's warehouse
+  /// must belong to its branch, so keeping another branch's is keeping a
+  /// refusal.
+  String? _warehouseFor(String? branchId) {
+    for (final WarehouseRecord item in _warehouses) {
+      if (item.id == _warehouseId && item.branchId == branchId) {
+        return _warehouseId;
+      }
     }
-    return idOf(rows.first);
+    return preferredWarehouseId(_warehouses, branchId: branchId);
   }
 
   Json _unwrap(Json response) {
@@ -305,7 +315,8 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
     _salesmanId = _blankToNull(stringValue(order['salesman_id']));
     _branchId = _blankToNull(stringValue(order['branch_id']));
     _warehouseId = _blankToNull(stringValue(order['warehouse_id']));
-    _orderDate = DateTime.tryParse(stringValue(order['order_date'])) ?? _orderDate;
+    _orderDate =
+        DateTime.tryParse(stringValue(order['order_date'])) ?? _orderDate;
     _deliveryDate = DateTime.tryParse(stringValue(order['delivery_date']));
     _customerReference.text = stringValue(order['customer_reference']);
     _reference.text = stringValue(order['reference_number']);
@@ -325,8 +336,9 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
           : 'Last taken off: ${trimDiscountRate(billAmount)} by a promotion. '
               'Blank prices it afresh.';
     } else {
-      _billDiscountPercent.text =
-          _positiveOrBlank(order['bill_discount_percent']);
+      _billDiscountPercent.text = _positiveOrBlank(
+        order['bill_discount_percent'],
+      );
       _billDiscountAmount.text = billAmount;
       _billResolvedHelper = '';
     }
@@ -341,26 +353,29 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
         order['lines'] is List ? order['lines'] as List : const [];
     for (final dynamic raw in lines) {
       final Json line = Map<String, dynamic>.from(raw as Map);
-      _lines.add(_LineDraft(
-        productId: _blankToNull(stringValue(line['product_id'])),
-        quantity: stringValue(line['quantity']),
-        unitPrice: stringValue(line['unit_price']),
-        free: _positiveOrBlank(line['free_quantity']),
-        // A typed rate is echoed **including a zero**, because the document
-        // is the record of what was agreed. A rate the server resolved is
-        // priced afresh: re-sending it as typed froze a ladder at its first
-        // step (plan item 9.2, 2026-09-13). Only the rate, never the amount
-        // beside it: a flat amount wins over a rate and would pin the
-        // discount to a figure that no longer matches once the quantity
-        // moves.
-        discountPercent: discountWasTyped(stringValue(line['discount_source']))
-            ? stringValue(line['discount_percent'])
-            : '',
-        lastRate: discountWasTyped(stringValue(line['discount_source']))
-            ? ''
-            : stringValue(line['discount_percent']),
-        lastSource: stringValue(line['discount_source']),
-      )..priceEdited = true);
+      _lines.add(
+        _LineDraft(
+          productId: _blankToNull(stringValue(line['product_id'])),
+          quantity: stringValue(line['quantity']),
+          unitPrice: stringValue(line['unit_price']),
+          free: _positiveOrBlank(line['free_quantity']),
+          // A typed rate is echoed **including a zero**, because the document
+          // is the record of what was agreed. A rate the server resolved is
+          // priced afresh: re-sending it as typed froze a ladder at its first
+          // step (plan item 9.2, 2026-09-13). Only the rate, never the amount
+          // beside it: a flat amount wins over a rate and would pin the
+          // discount to a figure that no longer matches once the quantity
+          // moves.
+          discountPercent:
+              discountWasTyped(stringValue(line['discount_source']))
+                  ? stringValue(line['discount_percent'])
+                  : '',
+          lastRate: discountWasTyped(stringValue(line['discount_source']))
+              ? ''
+              : stringValue(line['discount_percent']),
+          lastSource: stringValue(line['discount_source']),
+        )..priceEdited = true,
+      );
     }
   }
 
@@ -369,7 +384,8 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   /// A stored figure as the box should read it: blank when it is nothing.
   /// The delivery charge an order asked for, blank where it asked none.
   String _askedFreight(Json order) {
-    final double charged = double.tryParse(stringValue(order['freight_amount'])) ?? 0;
+    final double charged =
+        double.tryParse(stringValue(order['freight_amount'])) ?? 0;
     final double waived =
         double.tryParse(stringValue(order['freight_waived_amount'])) ?? 0;
     if (waived <= 0) return _positiveOrBlank(order['freight_amount']);
@@ -636,11 +652,15 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
         ),
     ];
     if (selected != null && !options.any((option) => option.id == selected)) {
-      items.add(DropdownMenuItem<String>(
-        value: selected,
-        child: const Text('On the order, no longer listed',
-            overflow: TextOverflow.ellipsis),
-      ));
+      items.add(
+        DropdownMenuItem<String>(
+          value: selected,
+          child: const Text(
+            'On the order, no longer listed',
+            overflow: TextOverflow.ellipsis,
+          ),
+        ),
+      );
     }
     return items;
   }
@@ -729,108 +749,113 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Row(children: [
-            Expanded(
-              child: _picker(
-                key: ValueKey<String>('sales-order-line-product-$index'),
-                label: 'Product ${index + 1}',
-                value: line.productId,
-                options: <({String id, String label})>[
-                  for (final Product item in _products)
-                    (id: item.id, label: '${item.code}  ${item.name}'),
-                ],
-                onChanged: (String? value) => _chooseProduct(line, value),
-                emptyMessage: 'Choose a product.',
+          Row(
+            children: [
+              Expanded(
+                child: _picker(
+                  key: ValueKey<String>('sales-order-line-product-$index'),
+                  label: 'Product ${index + 1}',
+                  value: line.productId,
+                  options: <({String id, String label})>[
+                    for (final Product item in _products)
+                      (id: item.id, label: '${item.code}  ${item.name}'),
+                  ],
+                  onChanged: (String? value) => _chooseProduct(line, value),
+                  emptyMessage: 'Choose a product.',
+                ),
               ),
-            ),
-            IconButton(
-              onPressed: removable ? () => _removeLine(index) : null,
-              icon: const Icon(Icons.close, size: 18),
-              tooltip: removable
-                  ? 'Remove this line'
-                  : 'An order needs at least one line',
-            ),
-          ]),
+              IconButton(
+                onPressed: removable ? () => _removeLine(index) : null,
+                icon: const Icon(Icons.close, size: 18),
+                tooltip: removable
+                    ? 'Remove this line'
+                    : 'An order needs at least one line',
+              ),
+            ],
+          ),
           const SizedBox(height: AppSpacing.sm),
-          Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Expanded(
-              child: TextFormField(
-                controller: line.quantity,
-                enabled: !_locked,
-                decoration: const InputDecoration(labelText: 'Quantity'),
-                keyboardType: TextInputType.number,
-                validator: (String? value) => _positive(value, 'quantity'),
-                onChanged: (_) => setState(() {}),
-              ),
-            ),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: TextFormField(
-                controller: line.free,
-                enabled: !_locked,
-                decoration: const InputDecoration(
-                  labelText: 'Free',
-                  helperText: 'Outside the price and the tax.',
-                  helperMaxLines: 2,
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: TextFormField(
+                  controller: line.quantity,
+                  enabled: !_locked,
+                  decoration: const InputDecoration(labelText: 'Quantity'),
+                  keyboardType: TextInputType.number,
+                  validator: (String? value) => _positive(value, 'quantity'),
+                  onChanged: (_) => setState(() {}),
                 ),
-                keyboardType: TextInputType.number,
-                validator: _quantityOrBlank,
-                onChanged: (_) => setState(() {}),
               ),
-            ),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: TextFormField(
-                controller: line.unitPrice,
-                enabled: !_locked,
-                decoration: InputDecoration(
-                  labelText: 'Unit price',
-                  helperText: _priceHelper(line),
-                  helperMaxLines: 2,
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: TextFormField(
+                  controller: line.free,
+                  enabled: !_locked,
+                  decoration: const InputDecoration(
+                    labelText: 'Free',
+                    helperText: 'Outside the price and the tax.',
+                    helperMaxLines: 2,
+                  ),
+                  keyboardType: TextInputType.number,
+                  validator: _quantityOrBlank,
+                  onChanged: (_) => setState(() {}),
                 ),
-                keyboardType: TextInputType.number,
-                validator: (String? value) => _positive(value, 'price'),
-                // onChanged fires only for typing, never for the programmatic
-                // fill above, which is what keeps the two distinguishable.
-                onChanged: (_) => setState(() => line.priceEdited = true),
               ),
-            ),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: TextFormField(
-                controller: line.discountPercent,
-                enabled: !_locked,
-                decoration: InputDecoration(
-                  labelText: 'Discount %',
-                  helperText: line.lastRate.isNotEmpty
-                      ? lastPricedHelper(line.lastRate, line.lastSource)
-                      : _customerDiscount.isEmpty
-                          ? 'Blank takes the arrangement on file.'
-                          : "Blank takes this customer's $_customerDiscount%.",
-                  helperMaxLines: 2,
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: TextFormField(
+                  controller: line.unitPrice,
+                  enabled: !_locked,
+                  decoration: InputDecoration(
+                    labelText: 'Unit price',
+                    helperText: _priceHelper(line),
+                    helperMaxLines: 2,
+                  ),
+                  keyboardType: TextInputType.number,
+                  validator: (String? value) => _positive(value, 'price'),
+                  // onChanged fires only for typing, never for the programmatic
+                  // fill above, which is what keeps the two distinguishable.
+                  onChanged: (_) => setState(() => line.priceEdited = true),
                 ),
-                keyboardType: TextInputType.number,
-                validator: _percentage,
-                onChanged: (_) => setState(() {}),
               ),
-            ),
-            const SizedBox(width: AppSpacing.md),
-            Expanded(
-              child: TextFormField(
-                controller: line.discountAmount,
-                enabled: !_locked,
-                decoration: const InputDecoration(
-                  labelText: 'Discount amount',
-                  helperText: 'Beats the percentage.',
-                  helperMaxLines: 2,
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: TextFormField(
+                  controller: line.discountPercent,
+                  enabled: !_locked,
+                  decoration: InputDecoration(
+                    labelText: 'Discount %',
+                    helperText: line.lastRate.isNotEmpty
+                        ? lastPricedHelper(line.lastRate, line.lastSource)
+                        : _customerDiscount.isEmpty
+                            ? 'Blank takes the arrangement on file.'
+                            : "Blank takes this customer's $_customerDiscount%.",
+                    helperMaxLines: 2,
+                  ),
+                  keyboardType: TextInputType.number,
+                  validator: _percentage,
+                  onChanged: (_) => setState(() {}),
                 ),
-                keyboardType: TextInputType.number,
-                validator: (String? value) =>
-                    _discountAmount(value, line.gross, 'the line'),
-                onChanged: (_) => setState(() {}),
               ),
-            ),
-          ]),
+              const SizedBox(width: AppSpacing.md),
+              Expanded(
+                child: TextFormField(
+                  controller: line.discountAmount,
+                  enabled: !_locked,
+                  decoration: const InputDecoration(
+                    labelText: 'Discount amount',
+                    helperText: 'Beats the percentage.',
+                    helperMaxLines: 2,
+                  ),
+                  keyboardType: TextInputType.number,
+                  validator: (String? value) =>
+                      _discountAmount(value, line.gross, 'the line'),
+                  onChanged: (_) => setState(() {}),
+                ),
+              ),
+            ],
+          ),
           const SizedBox(height: AppSpacing.xs),
           Align(
             alignment: Alignment.centerRight,
@@ -857,19 +882,21 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
           helperText: helperText,
           helperMaxLines: 2,
         ),
-        child: Row(children: [
-          Expanded(child: Text(value, overflow: TextOverflow.ellipsis)),
-          if (onClear != null)
-            TextButton(
-              onPressed: _locked ? null : onClear,
-              child: const Text('Clear'),
+        child: Row(
+          children: [
+            Expanded(child: Text(value, overflow: TextOverflow.ellipsis)),
+            if (onClear != null)
+              TextButton(
+                onPressed: _locked ? null : onClear,
+                child: const Text('Clear'),
+              ),
+            TextButton.icon(
+              onPressed: _locked ? null : onPick,
+              icon: const Icon(Icons.event, size: 18),
+              label: const Text('Change'),
             ),
-          TextButton.icon(
-            onPressed: _locked ? null : onPick,
-            icon: const Icon(Icons.event, size: 18),
-            label: const Text('Change'),
-          ),
-        ]),
+          ],
+        ),
       );
 
   Widget _body(ThemeData theme) => Form(
@@ -883,8 +910,9 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
                 MaterialBanner(
                   // A notice, not a refusal: the theme colours banners as
                   // errors, and this one is the exception.
-                  backgroundColor:
-                      Theme.of(context).colorScheme.surfaceContainerHighest,
+                  backgroundColor: Theme.of(
+                    context,
+                  ).colorScheme.surfaceContainerHighest,
                   contentTextStyle: Theme.of(context).textTheme.bodyMedium,
                   content: Text(
                     'This order is $_status, so it can no longer be rewritten. '
@@ -913,142 +941,172 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
                     'it will ship from.',
               ),
               const SizedBox(height: AppSpacing.md),
-              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Expanded(
-                  flex: 2,
-                  child: _picker(
-                    key: const ValueKey<String>('sales-order-customer'),
-                    label: 'Customer',
-                    value: _customerId,
-                    options: <({String id, String label})>[
-                      for (final Customer item in _customers)
-                        (id: item.id, label: '${item.code} - ${item.displayName}'),
-                    ],
-                    // Fixed while correcting: an order for a different shop is
-                    // a different order, and its credit was checked against
-                    // this one.
-                    onChanged: _editing
-                        ? (String? value) {}
-                        : (String? value) => setState(() => _customerId = value),
-                    emptyMessage: 'Choose a customer.',
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  flex: 2,
-                  child: _optionalPicker(
-                    key: const ValueKey<String>('sales-order-salesman'),
-                    label: 'Salesman',
-                    blankLabel: 'Nobody',
-                    helperText: 'Who took the order. Left blank, the '
-                        "customer's round supplies one where they are on a "
-                        'round; otherwise what this order collects earns '
-                        'nobody commission.',
-                    value: _salesmanId,
-                    options: <({String id, String label})>[
-                      for (final FirmMember item in _members)
-                        (id: item.userId, label: item.label),
-                    ],
-                    onChanged: (String? value) =>
-                        setState(() => _salesmanId = value),
-                  ),
-                ),
-              ]),
-              const SizedBox(height: AppSpacing.md),
-              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Expanded(
-                  child: _picker(
-                    key: const ValueKey<String>('sales-order-branch'),
-                    label: 'Branch',
-                    value: _branchId,
-                    options: <({String id, String label})>[
-                      for (final BranchRecord item in _branches)
-                        (id: item.id, label: '${item.code} - ${item.displayName}'),
-                    ],
-                    onChanged: (String? value) =>
-                        setState(() => _branchId = value),
-                    emptyMessage: 'Choose a branch.',
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: _picker(
-                    key: const ValueKey<String>('sales-order-warehouse'),
-                    label: 'Ships from',
-                    helperText: 'Stock is committed here on approval.',
-                    value: _warehouseId,
-                    options: <({String id, String label})>[
-                      for (final WarehouseRecord item in _warehouses)
-                        (id: item.id, label: '${item.code} - ${item.displayName}'),
-                    ],
-                    onChanged: (String? value) =>
-                        setState(() => _warehouseId = value),
-                    emptyMessage: 'Choose a warehouse.',
-                  ),
-                ),
-              ]),
-              const SizedBox(height: AppSpacing.md),
-              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Expanded(
-                  child: _dateField(
-                    label: 'Order taken on',
-                    value: _iso(_orderDate),
-                    helperText: 'The date the rules and rates are read at.',
-                    onPick: _pickOrderDate,
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: _dateField(
-                    label: 'Wanted by',
-                    value: _deliveryDate == null
-                        ? 'Not promised'
-                        : _iso(_deliveryDate!),
-                    helperText: 'Optional. Nothing is scheduled from it.',
-                    onPick: _pickDeliveryDate,
-                    onClear: _deliveryDate == null
-                        ? null
-                        : () => setState(() => _deliveryDate = null),
-                  ),
-                ),
-              ]),
-              const SizedBox(height: AppSpacing.md),
-              Row(children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: _customerReference,
-                    enabled: !_locked,
-                    decoration: const InputDecoration(
-                      labelText: "Customer's reference",
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    flex: 2,
+                    child: _picker(
+                      key: const ValueKey<String>('sales-order-customer'),
+                      label: 'Customer',
+                      value: _customerId,
+                      options: <({String id, String label})>[
+                        for (final Customer item in _customers)
+                          (
+                            id: item.id,
+                            label: '${item.code} - ${item.displayName}',
+                          ),
+                      ],
+                      // Fixed while correcting: an order for a different shop is
+                      // a different order, and its credit was checked against
+                      // this one.
+                      onChanged: _editing
+                          ? (String? value) {}
+                          : (String? value) =>
+                              setState(() => _customerId = value),
+                      emptyMessage: 'Choose a customer.',
                     ),
                   ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: TextFormField(
-                    controller: _reference,
-                    enabled: !_locked,
-                    decoration:
-                        const InputDecoration(labelText: 'Our reference'),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: TextFormField(
-                    controller: _coupon,
-                    enabled: !_locked,
-                    decoration: const InputDecoration(
-                      labelText: 'Coupon',
-                      // A code that matches nothing leaves the order saveable
-                      // and simply gives no benefit -- worth saying, so a typo
-                      // is not mistaken for a broken offer.
-                      helperText: 'Unrecognised codes are ignored',
-                      helperMaxLines: 2,
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    flex: 2,
+                    child: _optionalPicker(
+                      key: const ValueKey<String>('sales-order-salesman'),
+                      label: 'Salesman',
+                      blankLabel: 'Nobody',
+                      helperText: 'Who took the order. Left blank, the '
+                          "customer's round supplies one where they are on a "
+                          'round; otherwise what this order collects earns '
+                          'nobody commission.',
+                      value: _salesmanId,
+                      options: <({String id, String label})>[
+                        for (final FirmMember item in _members)
+                          (id: item.userId, label: item.label),
+                      ],
+                      onChanged: (String? value) =>
+                          setState(() => _salesmanId = value),
                     ),
-                    textCapitalization: TextCapitalization.characters,
                   ),
-                ),
-              ]),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: _picker(
+                      key: const ValueKey<String>('sales-order-branch'),
+                      label: 'Branch',
+                      value: _branchId,
+                      options: <({String id, String label})>[
+                        for (final BranchRecord item in _branches)
+                          (
+                            id: item.id,
+                            label: '${item.code} - ${item.displayName}',
+                          ),
+                      ],
+                      onChanged: (String? value) => setState(() {
+                        _branchId = value;
+                        _warehouseId = _warehouseFor(value);
+                      }),
+                      emptyMessage: 'Choose a branch.',
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    // Rebuilt when the branch changes, so the field shows the
+                    // warehouse the branch change chose rather than its first.
+                    child: KeyedSubtree(
+                      key: ValueKey<String>(
+                        'sales-order-warehouse-of-${_branchId ?? ''}',
+                      ),
+                      child: _picker(
+                        key: const ValueKey<String>('sales-order-warehouse'),
+                        label: 'Ships from',
+                        helperText: 'Stock is committed here on approval.',
+                        value: _warehouseId,
+                        options: <({String id, String label})>[
+                          for (final WarehouseRecord item in _warehouses)
+                            (
+                              id: item.id,
+                              label: '${item.code} - ${item.displayName}',
+                            ),
+                        ],
+                        onChanged: (String? value) =>
+                            setState(() => _warehouseId = value),
+                        emptyMessage: 'Choose a warehouse.',
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: _dateField(
+                      label: 'Order taken on',
+                      value: _iso(_orderDate),
+                      helperText: 'The date the rules and rates are read at.',
+                      onPick: _pickOrderDate,
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: _dateField(
+                      label: 'Wanted by',
+                      value: _deliveryDate == null
+                          ? 'Not promised'
+                          : _iso(_deliveryDate!),
+                      helperText: 'Optional. Nothing is scheduled from it.',
+                      onPick: _pickDeliveryDate,
+                      onClear: _deliveryDate == null
+                          ? null
+                          : () => setState(() => _deliveryDate = null),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: AppSpacing.md),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _customerReference,
+                      enabled: !_locked,
+                      decoration: const InputDecoration(
+                        labelText: "Customer's reference",
+                      ),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _reference,
+                      enabled: !_locked,
+                      decoration:
+                          const InputDecoration(labelText: 'Our reference'),
+                    ),
+                  ),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _coupon,
+                      enabled: !_locked,
+                      decoration: const InputDecoration(
+                        labelText: 'Coupon',
+                        // A code that matches nothing leaves the order saveable
+                        // and simply gives no benefit -- worth saying, so a typo
+                        // is not mistaken for a broken offer.
+                        helperText: 'Unrecognised codes are ignored',
+                        helperMaxLines: 2,
+                      ),
+                      textCapitalization: TextCapitalization.characters,
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: AppSpacing.xl),
               const SectionHeader(
                 title: 'What was ordered',
@@ -1069,67 +1127,71 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
               const SizedBox(height: AppSpacing.sm),
               // Below the lines and above the total, because it is a deal
               // struck on the whole order rather than a property of any line.
-              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Expanded(
-                  child: TextFormField(
-                    controller: _billDiscountPercent,
-                    enabled: !_locked,
-                    decoration: const InputDecoration(
-                      labelText: 'Discount on the whole order %',
-                      helperText: 'Comes off what the lines discounted to, and '
-                          'the tax falls with it.',
-                      helperMaxLines: 2,
-                    ),
-                    keyboardType: TextInputType.number,
-                    validator: _percentage,
-                    onChanged: (_) => setState(() {}),
-                  ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: TextFormField(
-                    controller: _billDiscountAmount,
-                    enabled: !_locked,
-                    decoration: InputDecoration(
-                      labelText: 'Discount on the whole order',
-                      helperText: _billResolvedHelper.isNotEmpty &&
-                              _billDiscountAmount.text.trim().isEmpty
-                          ? _billResolvedHelper
-                          : 'A flat figure. Beats the percentage.',
-                      helperMaxLines: 2,
-                    ),
-                    keyboardType: TextInputType.number,
-                    validator: (String? value) => _discountAmount(
-                      value,
-                      _lines.fold<double>(
-                        0,
-                        (double running, _LineDraft line) =>
-                            running + line.netOfDiscount,
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: TextFormField(
+                      controller: _billDiscountPercent,
+                      enabled: !_locked,
+                      decoration: const InputDecoration(
+                        labelText: 'Discount on the whole order %',
+                        helperText:
+                            'Comes off what the lines discounted to, and '
+                            'the tax falls with it.',
+                        helperMaxLines: 2,
                       ),
-                      'the order',
+                      keyboardType: TextInputType.number,
+                      validator: _percentage,
+                      onChanged: (_) => setState(() {}),
                     ),
-                    onChanged: (_) => setState(() {}),
                   ),
-                ),
-                const SizedBox(width: AppSpacing.md),
-                Expanded(
-                  child: TextFormField(
-                    controller: _freightAmount,
-                    enabled: !_locked,
-                    decoration: const InputDecoration(
-                      labelText: 'Delivery charge',
-                      // Said plainly, because it is the opposite of what the
-                      // field beside it does and the difference decides the
-                      // tax.
-                      helperText: 'Split across the lines and taxed with '
-                          'them.',
-                      helperMaxLines: 2,
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _billDiscountAmount,
+                      enabled: !_locked,
+                      decoration: InputDecoration(
+                        labelText: 'Discount on the whole order',
+                        helperText: _billResolvedHelper.isNotEmpty &&
+                                _billDiscountAmount.text.trim().isEmpty
+                            ? _billResolvedHelper
+                            : 'A flat figure. Beats the percentage.',
+                        helperMaxLines: 2,
+                      ),
+                      keyboardType: TextInputType.number,
+                      validator: (String? value) => _discountAmount(
+                        value,
+                        _lines.fold<double>(
+                          0,
+                          (double running, _LineDraft line) =>
+                              running + line.netOfDiscount,
+                        ),
+                        'the order',
+                      ),
+                      onChanged: (_) => setState(() {}),
                     ),
-                    keyboardType: TextInputType.number,
-                    onChanged: (_) => setState(() {}),
                   ),
-                ),
-              ]),
+                  const SizedBox(width: AppSpacing.md),
+                  Expanded(
+                    child: TextFormField(
+                      controller: _freightAmount,
+                      enabled: !_locked,
+                      decoration: const InputDecoration(
+                        labelText: 'Delivery charge',
+                        // Said plainly, because it is the opposite of what the
+                        // field beside it does and the difference decides the
+                        // tax.
+                        helperText: 'Split across the lines and taxed with '
+                            'them.',
+                        helperMaxLines: 2,
+                      ),
+                      keyboardType: TextInputType.number,
+                      onChanged: (_) => setState(() {}),
+                    ),
+                  ),
+                ],
+              ),
               const SizedBox(height: AppSpacing.sm),
               Text(
                 'Ordered before tax: ${_beforeTax.toStringAsFixed(2)}. Tax is '
@@ -1168,12 +1230,15 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
       footer: _locked || nothingToOrder
           ? Padding(
               padding: const EdgeInsets.all(AppSpacing.lg),
-              child: Row(mainAxisAlignment: MainAxisAlignment.end, children: [
-                TextButton(
-                  onPressed: () => Navigator.of(context).pop(false),
-                  child: const Text('Close'),
-                ),
-              ]),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  TextButton(
+                    onPressed: () => Navigator.of(context).pop(false),
+                    child: const Text('Close'),
+                  ),
+                ],
+              ),
             )
           : null,
       body: _loading

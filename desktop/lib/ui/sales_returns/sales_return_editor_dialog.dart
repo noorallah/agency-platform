@@ -67,7 +67,11 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
   void initState() {
     super.initState();
     if (widget.documents.isNotEmpty) _selectDocument(widget.documents.first);
-    if (widget.warehouses.isNotEmpty) _warehouseId = widget.warehouses.first.id;
+    // The firm's default warehouse, or the only one; with several and no
+    // single default the form asks. The first of the list was the newest,
+    // so returned goods landed in whichever warehouse was added last
+    // (D-QA-17).
+    _warehouseId = preferredWarehouseId(widget.warehouses);
   }
 
   @override
@@ -193,8 +197,9 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
           'damaged_quantity': _damaged.text.trim(),
           'scrap_quantity': _scrap.text.trim(),
           if (_returnable.serialTracked) 'serial_ids': [..._picked],
-          if (_reason.text.trim().isNotEmpty) 'reason_code': _reason.text.trim(),
-        }
+          if (_reason.text.trim().isNotEmpty)
+            'reason_code': _reason.text.trim(),
+        },
       ],
     };
   }
@@ -256,12 +261,15 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
                             in document?.lines ?? const <ReturnableLine>[])
                           DropdownMenuItem(
                             value: item.id,
-                            child: Text(item.label,
-                                overflow: TextOverflow.ellipsis),
+                            child: Text(
+                              item.label,
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                       ],
-                      validator: (value) =>
-                          value == null ? 'Choose the line that came back.' : null,
+                      validator: (value) => value == null
+                          ? 'Choose the line that came back.'
+                          : null,
                       onChanged: (value) => _selectLine(
                         document?.lines.firstWhere((item) => item.id == value),
                       ),
@@ -278,50 +286,57 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
                         for (final WarehouseRecord item in widget.warehouses)
                           DropdownMenuItem(
                             value: item.id,
-                            child: Text('${item.code} - ${item.displayName}',
-                                overflow: TextOverflow.ellipsis),
+                            child: Text(
+                              '${item.code} - ${item.displayName}',
+                              overflow: TextOverflow.ellipsis,
+                            ),
                           ),
                       ],
                       validator: (value) =>
                           value == null ? 'Choose a warehouse.' : null,
-                      onChanged: (value) => setState(() => _warehouseId = value),
+                      onChanged: (value) =>
+                          setState(() => _warehouseId = value),
                     ),
                     const SizedBox(height: AppSpacing.md),
-                    Row(children: [
-                      Expanded(
-                        child: TextFormField(
-                          controller: _quantity,
-                          decoration: const InputDecoration(
-                            labelText: 'Quantity returned',
+                    Row(
+                      children: [
+                        Expanded(
+                          child: TextFormField(
+                            controller: _quantity,
+                            decoration: const InputDecoration(
+                              labelText: 'Quantity returned',
+                            ),
+                            keyboardType: TextInputType.number,
+                            validator: _validateQuantity,
+                            onChanged: (_) => setState(() {}),
                           ),
-                          keyboardType: TextInputType.number,
-                          validator: _validateQuantity,
-                          onChanged: (_) => setState(() {}),
                         ),
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      Expanded(
-                        child: TextFormField(
-                          controller: _damaged,
-                          decoration:
-                              const InputDecoration(labelText: 'Of which damaged'),
-                          keyboardType: TextInputType.number,
-                          validator: _validateCondition,
-                          onChanged: (_) => setState(() {}),
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _damaged,
+                            decoration: const InputDecoration(
+                              labelText: 'Of which damaged',
+                            ),
+                            keyboardType: TextInputType.number,
+                            validator: _validateCondition,
+                            onChanged: (_) => setState(() {}),
+                          ),
                         ),
-                      ),
-                      const SizedBox(width: AppSpacing.md),
-                      Expanded(
-                        child: TextFormField(
-                          controller: _scrap,
-                          decoration:
-                              const InputDecoration(labelText: 'Of which scrap'),
-                          keyboardType: TextInputType.number,
-                          validator: _validateCondition,
-                          onChanged: (_) => setState(() {}),
+                        const SizedBox(width: AppSpacing.md),
+                        Expanded(
+                          child: TextFormField(
+                            controller: _scrap,
+                            decoration: const InputDecoration(
+                              labelText: 'Of which scrap',
+                            ),
+                            keyboardType: TextInputType.number,
+                            validator: _validateCondition,
+                            onChanged: (_) => setState(() {}),
+                          ),
                         ),
-                      ),
-                    ]),
+                      ],
+                    ),
                     const SizedBox(height: AppSpacing.sm),
                     // The consequence of the three numbers above, said in
                     // words: what actually returns to the sellable shelf.

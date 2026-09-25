@@ -105,8 +105,11 @@ class BranchRecord {
         createdAt: stringValue(json['created_at']),
         attributes: (json['attributes'] as List? ?? const [])
             .whereType<Map>()
-            .map((item) => ProductAttributeValueRecord.fromJson(
-                Map<String, dynamic>.from(item)))
+            .map(
+              (item) => ProductAttributeValueRecord.fromJson(
+                Map<String, dynamic>.from(item),
+              ),
+            )
             .toList(),
       );
 }
@@ -224,8 +227,11 @@ class WarehouseRecord {
         hasLoadingDock: boolValue(json['has_loading_dock']),
         attributes: (json['attributes'] as List? ?? const [])
             .whereType<Map>()
-            .map((item) => ProductAttributeValueRecord.fromJson(
-                Map<String, dynamic>.from(item)))
+            .map(
+              (item) => ProductAttributeValueRecord.fromJson(
+                Map<String, dynamic>.from(item),
+              ),
+            )
             .toList(),
         isDeleted: boolValue(json['is_deleted']),
         createdAt: stringValue(json['created_at']),
@@ -368,4 +374,42 @@ class WarehouseQuery {
         if (countryId?.isNotEmpty == true) 'country_id': countryId!,
         if (includeDeleted) 'include_deleted': 'true',
       };
+}
+
+/// The branch a new document starts on: the one the firm marked default.
+///
+/// A firm with a single branch has chosen it by having it. With several and
+/// none marked, nothing is chosen, so the form asks rather than guessing.
+/// Never the first of the list: the list comes back newest first, so "first"
+/// meant whichever branch somebody added last (D-QA-17).
+String? preferredBranchId(List<BranchRecord> branches) {
+  for (final BranchRecord branch in branches) {
+    if (branch.isDefault) return branch.id;
+  }
+  return branches.length == 1 ? branches.single.id : null;
+}
+
+/// The warehouse a new document ships from, receives into or returns to.
+///
+/// The chosen branch's default warehouse, since a document's warehouse must
+/// belong to its branch. With no branch, the firm's one default warehouse
+/// when there is exactly one. Otherwise a warehouse that is the only
+/// candidate, or nothing -- the form then asks. Never the first of the list:
+/// warehouses are listed newest first, so a quotation raised in a firm that
+/// had just added a second warehouse shipped from it, and approving the order
+/// reserved stock the new warehouse did not hold (D-QA-17).
+String? preferredWarehouseId(
+  List<WarehouseRecord> warehouses, {
+  String? branchId,
+}) {
+  final List<WarehouseRecord> candidates = branchId == null
+      ? warehouses
+      : warehouses
+          .where((WarehouseRecord item) => item.branchId == branchId)
+          .toList(growable: false);
+  final List<WarehouseRecord> defaults = candidates
+      .where((WarehouseRecord item) => item.isDefault)
+      .toList(growable: false);
+  if (defaults.length == 1) return defaults.single.id;
+  return candidates.length == 1 ? candidates.single.id : null;
 }

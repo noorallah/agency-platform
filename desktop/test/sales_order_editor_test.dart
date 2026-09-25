@@ -150,6 +150,7 @@ class _OrderApi extends ApiClient {
           'name': 'Main Store',
           'display_name': 'Main Store',
           'is_default': true,
+          'branch_id': 'b1',
         },
       ]);
     }
