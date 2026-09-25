@@ -174,6 +174,34 @@ _UOM_REFERENCES_CHECKED_ABOVE = frozenset(
 )
 
 
+def missing_conversion_message(
+    session: Session,
+    *,
+    product_id: UUID | None,
+    from_uom_id: UUID,
+    to_uom_id: UUID,
+) -> str:
+    """Say which product and which two units have no rule, and what to do.
+
+    "No active conversion rule is configured for this UOM pair" named neither
+    the product nor the units, so a tester on a goods receipt could not act on
+    it (D-QA-14).
+    """
+
+    def unit(uom_id: UUID) -> str:
+        row = session.get(Uom, uom_id)
+        return row.code if row is not None else "an unknown unit"
+
+    product = session.get(Product, product_id) if product_id is not None else None
+    source, target = unit(from_uom_id), unit(to_uom_id)
+    subject = f"{product.code}: no" if product is not None else "No"
+    return (
+        f"{subject} active conversion rule converts {source} to {target}. "
+        f"Add one under Units -> Conversion Rules, or enter the quantity in "
+        f"{target}."
+    )
+
+
 class UomService:
     """Coordinate UOM masters, conversions, and product packaging hierarchy."""
 
@@ -1304,7 +1332,12 @@ class UomService:
         ).first()
         if exact is None:
             raise ValidationError(
-                "No active conversion rule is configured for this UOM pair."
+                missing_conversion_message(
+                    self._session,
+                    product_id=product_id,
+                    from_uom_id=from_uom_id,
+                    to_uom_id=to_uom_id,
+                )
             )
         return exact
 

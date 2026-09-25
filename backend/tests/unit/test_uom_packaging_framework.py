@@ -1248,3 +1248,37 @@ def test_a_firm_cannot_change_a_shared_unit_but_can_its_own_fields() -> None:
     )
     assert renamed.data is not None
     assert renamed.data.name == "Box of ten"
+
+
+def test_a_missing_rule_names_the_product_and_both_units() -> None:
+    """The refusal says which product and which units, and what to do (D-QA-14).
+
+    "No active conversion rule is configured for this UOM pair" named neither,
+    so a tester on a goods receipt could not act on it.
+    """
+    session = _session_factory()()
+    service = UomService(session)
+    actor_id = uuid4()
+    firm = _firm(session)
+    product = _product(session, firm.id, code="QA-P1")
+    piece = service.create_uom(
+        UomCreate(code="piece", name="Piece", symbol="pc"), actor_id=actor_id
+    )
+    box = service.create_uom(UomCreate(code="box", name="Box"), actor_id=actor_id)
+
+    with pytest.raises(ValidationError) as refused:
+        service.convert_quantity(
+            ConversionRequest(
+                quantity=Decimal("2"),
+                from_uom_id=box.id,
+                to_uom_id=piece.id,
+                product_id=product.id,
+                conversion_date=date(2026, 8, 2),
+            ),
+            firm_scope=firm.id,
+        )
+
+    message = str(refused.value)
+    assert "QA-P1" in message
+    assert "BOX to PIECE" in message
+    assert "Conversion Rules" in message
