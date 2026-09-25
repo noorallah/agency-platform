@@ -1894,6 +1894,10 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: hasActiveFirm,
         ),
+      'product-categories' => ResourceManagementPage<ProductCategoryRecord>(
+          api: widget.api,
+          definition: productCategoryDefinition(widget.api, widget.permissions),
+        ),
       'vendor-categories' => ResourceManagementPage<VendorClassification>(
           api: widget.api,
           definition: vendorClassificationDefinition(
@@ -1959,6 +1963,7 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
         'customer-statements' => 'Customer Statements',
         'loyalty' => 'Loyalty',
         'products' => 'Product Management',
+        'product-categories' => 'Product Categories',
         'vendors' => 'Vendor Management',
         'vendor-categories' => 'Vendor Categories',
         'vendor-types' => 'Vendor Types',
@@ -1980,6 +1985,9 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
               'buy next. Spending it settles a bill; it does not discount one.',
         'products' =>
           'Manage profile-driven product masters with dynamic attributes.',
+        'product-categories' =>
+          'Group products into a tree, for the product form, reports and '
+              'category rules.',
         'vendors' =>
           'Manage enterprise vendor masters with contacts, addresses, banking, and tax details.',
         'vendor-categories' => 'Group vendors by what they supply.',
@@ -2004,6 +2012,7 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
         switch (tabId) {
           'customers' => 'Customer Management',
           'products' => 'Product Management',
+          'product-categories' => 'Product Categories',
           'vendors' => 'Vendor Management',
           'vendor-categories' => 'Vendor Categories',
           'vendor-types' => 'Vendor Types',
@@ -3873,7 +3882,8 @@ ResourceDefinition<PlatformUser> userDefinition(
     // saved in no firm, and pressing Save again answered 409 on the email.
     // The words were right and the moment was wrong. Found 2026-09-16 walking
     // the independent cases (D-20-1).
-    saveRefusal: (values, isCreating) => _rolesWithoutAFirm(values, permissions),
+    saveRefusal: (values, isCreating) =>
+        _rolesWithoutAFirm(values, permissions),
     saveAssignments: (id, values) async {
       // **Memberships first.** A role needs an active membership -- the token
       // is built per membership, so a grant without one reaches nobody and
@@ -4717,6 +4727,73 @@ ResourceDefinition<VendorClassification> vendorClassificationDefinition(
     },
   );
 }
+
+/// The firm's product categories, a tree a product is filed under.
+///
+/// The product form asks for a category and the backend has always had the
+/// full set of category routes, but nothing in the desktop could create one,
+/// so a fresh firm's product form offered an empty list (D-QA-6). The routes
+/// check `PRODUCT_UPDATE` for every write, so that is what each action asks.
+ResourceDefinition<ProductCategoryRecord> productCategoryDefinition(
+  ApiClient api,
+  PermissionService permissions,
+) =>
+    ResourceDefinition(
+      title: 'Product Categories',
+      resource: 'products/categories',
+      description: 'Group products into a tree, for the product form, '
+          'reports and category rules.',
+      searchHint: 'Search categories by code or name',
+      headers: const ['Code', 'Name', 'Path', 'Active'],
+      cells: (ProductCategoryRecord row) => [
+        row.code,
+        row.name,
+        row.path,
+        row.isActive ? 'Yes' : 'No',
+      ],
+      id: (ProductCategoryRecord row) => row.id,
+      load: api.productCategoryPage,
+      canUseAction: (action, _) => _canUseResourceAction(
+        permissions,
+        action,
+        view: const ['PRODUCT_VIEW'],
+        create: const ['PRODUCT_UPDATE'],
+        update: const ['PRODUCT_UPDATE'],
+        delete: const ['PRODUCT_UPDATE'],
+      ),
+      fields: const [
+        FieldSpec(
+          key: 'code',
+          label: 'Category code',
+          required: true,
+          helperText: '2-50 characters: A-Z, 0-9, underscore or hyphen.',
+        ),
+        FieldSpec(key: 'name', label: 'Name', required: true),
+        FieldSpec(
+          key: 'parent_id',
+          label: 'Parent category',
+          optionsResource: 'products/categories',
+          singleSelection: true,
+          helperText: 'Leave empty for a top-level category.',
+        ),
+        FieldSpec(key: 'is_active', label: 'Active', boolean: true),
+      ],
+      initialValues: (ProductCategoryRecord? row) => row == null
+          ? <String, dynamic>{'is_active': true}
+          : <String, dynamic>{
+              'code': row.code,
+              'name': row.name,
+              'parent_id': row.parentId,
+              'is_active': row.isActive,
+            },
+      // The update replaces the node, so every field is sent both ways.
+      payload: (values, isCreating) => {
+        'code': values['code'],
+        'name': values['name'],
+        'parent_id': _blankToNull(values['parent_id']),
+        'is_active': values['is_active'],
+      },
+    );
 
 /// The rules that make an attribute mandatory for a product category.
 ///

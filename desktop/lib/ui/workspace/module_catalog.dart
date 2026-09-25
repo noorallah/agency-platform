@@ -148,8 +148,10 @@ class ModuleDefinition {
   /// See [ModuleTabDefinition.group]. The order matters twice: the first
   /// visible member is the entry's path, and the tab strip inside the page
   /// lists them in this order.
-  List<ModuleTabDefinition> groupMembers(String group) =>
-      [for (final ModuleTabDefinition tab in tabs) if (tab.group == group) tab];
+  List<ModuleTabDefinition> groupMembers(String group) => [
+        for (final ModuleTabDefinition tab in tabs)
+          if (tab.group == group) tab
+      ];
 }
 
 abstract final class ModuleCatalog {
@@ -408,6 +410,11 @@ abstract final class ModuleCatalog {
         ModuleTabDefinition(
           id: 'products',
           label: 'Products',
+          requiredPermissions: ['PRODUCT_VIEW'],
+        ),
+        ModuleTabDefinition(
+          id: 'product-categories',
+          label: 'Product Categories',
           requiredPermissions: ['PRODUCT_VIEW'],
         ),
         ModuleTabDefinition(
@@ -998,7 +1005,11 @@ abstract final class ModuleCatalog {
       // the workspace from the one role that exists to read what is in it.
       // The tabs carry their own codes, so seeing the module is not seeing
       // both trails.
-      requiredPermissions: ['SETTINGS_VIEW', 'AUDIT_LOG_VIEW', 'DIAGNOSTICS_VIEW'],
+      requiredPermissions: [
+        'SETTINGS_VIEW',
+        'AUDIT_LOG_VIEW',
+        'DIAGNOSTICS_VIEW'
+      ],
       requiresAnyPermission: true,
       tabs: [
         ModuleTabDefinition(
@@ -1391,6 +1402,14 @@ abstract final class ModuleCatalog {
           path: 'products',
           icon: Icons.inventory_2_outlined,
         ),
+      // The product form asks for a category; until D-QA-6 nothing on the
+      // desktop could create one.
+      if (visibleTabIds.contains('product-categories'))
+        const WorkspaceNavigationNode(
+          label: 'Product Categories',
+          path: 'product-categories',
+          icon: Icons.account_tree_outlined,
+        ),
       // Vendors and the two masters a vendor record points at. `category_id`
       // and `type_id` have been columns on `vendors` from the start and the
       // API has always accepted both; until 2026-08-22 neither could be set,
@@ -1572,13 +1591,13 @@ abstract final class ModuleCatalog {
                 label: 'Opening Stock',
                 path: 'opening-stock',
               ),
-              // Physical Count had a page and a permission gate but no way in,
-              // the same orphan as Masters' Statements (docs/BACKLOG.md 20).
-              if (visibleTabIds.contains('physical-counts'))
-                const WorkspaceNavigationNode(
-                  label: 'Physical Count',
-                  path: 'physical-counts',
-                ),
+            // Physical Count had a page and a permission gate but no way in,
+            // the same orphan as Masters' Statements (docs/BACKLOG.md 20).
+            if (visibleTabIds.contains('physical-counts'))
+              const WorkspaceNavigationNode(
+                label: 'Physical Count',
+                path: 'physical-counts',
+              ),
             if (visibleTabIds.contains('stock-ledger'))
               const WorkspaceNavigationNode(
                 label: 'Stock Ledger',
