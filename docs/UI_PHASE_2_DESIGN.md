@@ -77,13 +77,18 @@ smaller than the window they sit in.
 
 1. **Data first.** On a 1366 x 768 laptop a list shows **at least 15 rows**,
    and data takes **at least 70 % of the height**.
-2. **Any screen in two actions**, without scrolling a menu: click area →
+2. **Any window size (owner, 2026-09-25).** Nothing is built for a fixed
+   screen. Every screen fills whatever window it is given -- a laptop, a
+   full-HD or wider monitor, half a screen beside another program -- and uses
+   the extra room for more rows and columns. 1366 x 768 is the **smallest
+   size tested**, not the size designed for. See 4.11.
+3. **Any screen in two actions**, without scrolling a menu: click area →
    click item, or Ctrl+K → type → Enter.
-3. **Keyboard complete.** Every list and every document can be driven without
+4. **Keyboard complete.** Every list and every document can be driven without
    the mouse, the way Tally users expect.
-4. **Nothing permanent that is not data.** Menus fly out and close;
+5. **Nothing permanent that is not data.** Menus fly out and close;
    descriptions become a help icon; side panels open on request.
-5. **Same rules, same data.** Permissions, business-profile module gating and
+6. **Same rules, same data.** Permissions, business-profile module gating and
    the module catalogue stay exactly as they are (they are correct and
    tested); phase 2 changes how they are *shown*.
 
@@ -331,6 +336,28 @@ Built from the same permissions the menu uses.
 
 ---
 
+### 4.11 Adapting to the window
+
+Every rule here is relative, so the same screen works from a small laptop
+window to a wide monitor:
+
+| As the window narrows | What gives way, in this order |
+| --- | --- |
+| Menu bar | areas that do not fit fold into **More v** (right to left); the command box shortens to an icon last |
+| Page bar | the search box shrinks, then becomes the `/` key only; counters and chips that do not fit fold into **+**; actions fold into **...**, New stays |
+| Lists | each column has a priority; low-priority columns (GST, credit limit, HSN, discount...) drop first; the grid scrolls sideways only after that; the user's own column choice always wins |
+| Documents | header fields reflow from four columns to one; the recent-documents panel hides behind a button; the totals footer wraps but stays visible |
+| Home | cards reflow into fewer columns, then one |
+
+| As the window grows | What it gets |
+| --- | --- |
+| Height | more rows -- never bigger gaps |
+| Width | more columns (the hidden ones come back), then the optional side panel (row preview, recent documents) opens by default |
+
+Rows and fonts do not grow with the window; the density setting decides
+them. Nothing is sized in fixed pixels except the thin bars (menu, tabs, page
+bar, status bar).
+
 ## 5. What does not change
 
 - The **module catalogue** stays the single source of screens; phase 2 adds
@@ -368,7 +395,9 @@ permission gating, 1366 x 768 overflow tests) extended to the new shell.
 - A counter clerk bills a known customer for three known products in
   **under 30 seconds**.
 - No band above any grid except the page bar.
-- No screen overflows from 1366 x 768 up (as today).
+- No screen overflows at any window size from 1366 x 768 up, and the
+  grid always takes the rest of the window (tested at 1366 x 768,
+  1920 x 1080, 2560 x 1440 and a half-width window).
 
 ## 8. Decisions for the owner
 
@@ -388,6 +417,10 @@ Recommended answers first; each can be changed.
 | 10 | Summary cards and filters above lists | **Agreed in principle 2026-09-25: moved into the page bar as clickable counters and chips; cards only on Home** (4.5) | Keep a collapsible summary strip |
 | 11 | Tally voucher keys (F8, F9, F6, F5, F7) on daily screens | **Yes** (4.6) | Only Ctrl-based shortcuts |
 | 12 | Which screens count as "daily" | **The nine listed in 4.6**, confirmed per role | Owner's own list |
+
+Clickable wireframes of the shell, the Customers list (with today's screen
+beside it), a billing screen and a role home: `dist\windows\Design\UI phase 2
+wireframes.html` -- they fill the browser window and adapt as it is resized.
 
 Next: agree or change the open answers (1 and 10 are agreed); then appendix A (every screen's
 area, group and label) and clickable mock-ups of the shell, a list and a
