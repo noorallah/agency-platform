@@ -54,7 +54,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)]
-  [ValidateSet('Backup', 'Server', 'Client', 'Uninstall')]
+  [ValidateSet('Backup', 'DailyBackup', 'Server', 'Client', 'Uninstall')]
   [string]$Action,
   [Parameter(Mandatory = $true)][string]$InstallDir,
   [string]$DataRoot = (Join-Path $env:ProgramData 'Agency Platform'),
@@ -62,7 +62,9 @@ param(
   [string]$PreviousVersion = 'unknown',
   [switch]$AllowLan,
   [string]$ServerUrl,
-  [switch]$DeleteData
+  [switch]$DeleteData,
+  # How many daily backups -DailyBackup keeps; older ones are deleted.
+  [int]$KeepDaily = 7
 )
 
 $ErrorActionPreference = 'Stop'
@@ -74,6 +76,7 @@ $ServerDisplayName = 'Agency Platform Server'
 $DbPort = 5433
 $ApiPort = 8000
 $FirewallRule = 'AgencyPlatformServer-TCP-8000'
+$BackupTask = 'Agency Platform daily backup'
 $AdminAccount = 'platform-admin@agency.local'
 
 # Well-known SIDs, so nothing here depends on the display language of Windows:
@@ -118,10 +121,14 @@ function Write-Log {
   }
 }
 
+# What a stop is called in the log. The .iss finds "Install stopped:"; the
+# scheduled backup says what it is instead.
+$StopWord = 'Install stopped'
+
 function Stop-Setup {
   <# The .iss shows everything from "Install stopped:" to the end. #>
   param([string]$Problem, [string]$Fix)
-  Write-Log "Install stopped: $Problem"
+  Write-Log "${StopWord}: $Problem"
   if ($Fix) { Write-Log "  $Fix" }
   exit 1
 }
@@ -481,26 +488,23 @@ function Set-Firewall {
 
 # -- Actions ------------------------------------------------------------------
 
-function Invoke-Backup {
-  if (-not (Test-Path -LiteralPath $EnvPath)) {
-    Write-Log 'No config\.env: nothing is installed to back up.'
-    return
-  }
-  Write-Log "Backing up before the upgrade from $PreviousVersion"
-  Stop-ServiceAndWait $ServerService
-  if (Get-ServiceOrNull $DbService) {
-    Start-ServiceAndWait $DbService
-    Wait-Database
-  }
-
+function Get-BackupPlan {
+  <#
+    Everything a dump needs: where the database is, as whom, which stores, and
+    which pg_dump. Every store comes from the registry, by the installed
+    program's own dry run -- the same enumeration migrate-all will upgrade.
+  #>
   $envValues = Read-EnvFile
-  $dbHost = if ($envValues['AGENCY_DATABASE_HOST']) { $envValues['AGENCY_DATABASE_HOST'] } else { 'localhost' }
-  $dbPortValue = if ($envValues['AGENCY_DATABASE_PORT']) { $envValues['AGENCY_DATABASE_PORT'] } else { '5432' }
-  $user = $envValues['AGENCY_DATABASE_USERNAME']
+  $plan = [pscustomobject]@{
+    Host     = if ($envValues['AGENCY_DATABASE_HOST']) { $envValues['AGENCY_DATABASE_HOST'] } else { 'localhost' }
+    Port     = if ($envValues['AGENCY_DATABASE_PORT']) { $envValues['AGENCY_DATABASE_PORT'] } else { '5432' }
+    User     = $envValues['AGENCY_DATABASE_USERNAME']
+    Password = $envValues['AGENCY_DATABASE_PASSWORD']
+    Targets  = @()
+    PgDump   = $null
+  }
   $defaultDatabase = $envValues['AGENCY_DATABASE_NAME']
 
-  # Every store this server uses, from the registry, by the installed
-  # program's own dry run -- the same enumeration migrate-all will upgrade.
   $targets = @()
   if (Test-Path -LiteralPath $AgencyServer) {
     $code = Invoke-Native -File $AgencyServer -Arguments @('migrate-all', '--dry-run') -WorkingDirectory $Backend
@@ -522,6 +526,7 @@ function Invoke-Backup {
     if (-not $defaultDatabase) { Stop-Setup 'config\.env names no database, so there is nothing to back up.' }
     $targets += [pscustomobject]@{ Database = $defaultDatabase; Schema = $null }
   }
+  $plan.Targets = $targets
 
   $pgDump = Join-Path $PgBin 'pg_dump.exe'
   if (-not (Test-Path -LiteralPath $pgDump)) {
@@ -529,37 +534,128 @@ function Invoke-Backup {
     # PostgreSQL the customer installed; its pg_dump is the one to use.
     $found = Get-ChildItem "$env:ProgramFiles\PostgreSQL\*\bin\pg_dump.exe" -ErrorAction SilentlyContinue |
       Sort-Object FullName -Descending | Select-Object -First 1
-    if (-not $found) { Stop-Setup 'No pg_dump was found to take the pre-upgrade backup.' 'Install the PostgreSQL client tools, or back up by hand, then run Setup again.' }
+    if (-not $found) { Stop-Setup 'No pg_dump was found to take the backup.' 'Install the PostgreSQL client tools, or back up by hand.' }
     $pgDump = $found.FullName
   }
+  $plan.PgDump = $pgDump
+  return $plan
+}
 
-  $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
-  $folder = Join-Path $DataRoot "backups\pre-upgrade-$PreviousVersion-$stamp"
-  New-Item -ItemType Directory -Force -Path $folder | Out-Null
-  Protect-AdminOnly $folder
-
-  $env:PGPASSWORD = $envValues['AGENCY_DATABASE_PASSWORD']
+function Write-StoreDumps {
+  <# One custom-format dump per store into $Folder; stops on the first failure. #>
+  param($Plan, [string]$Folder, [string]$FailureFix)
+  New-Item -ItemType Directory -Force -Path $Folder | Out-Null
+  Protect-AdminOnly $Folder
+  $env:PGPASSWORD = $Plan.Password
   try {
-    foreach ($target in $targets) {
+    foreach ($target in $Plan.Targets) {
       $name = if ($target.Schema) { "$($target.Database)--$($target.Schema).dump" } else { "$($target.Database).dump" }
-      $file = Join-Path $folder $name
-      $arguments = @('-h', $dbHost, '-p', $dbPortValue, '-U', $user, '-d', $target.Database,
+      $file = Join-Path $Folder $name
+      $arguments = @('-h', $Plan.Host, '-p', $Plan.Port, '-U', $Plan.User, '-d', $target.Database,
         '-Fc', '--no-password', '-f', $file)
       if ($target.Schema) { $arguments += @('-n', $target.Schema) }
       Write-Log "  pg_dump $($target.Database)/$(if ($target.Schema) { $target.Schema } else { '*' })"
-      $code = Invoke-Native -File $pgDump -Arguments $arguments
+      $code = Invoke-Native -File $Plan.PgDump -Arguments $arguments
       if ($code -ne 0 -or -not (Test-Path -LiteralPath $file) -or (Get-Item -LiteralPath $file).Length -eq 0) {
-        Stop-Setup "The backup of $($target.Database) failed, so the upgrade was not started." "Nothing was changed. The partial backup is in $folder."
+        Stop-Setup "The backup of $($target.Database) failed." $FailureFix
       }
     }
   } finally {
     Remove-Item Env:\PGPASSWORD -ErrorAction SilentlyContinue
   }
+}
+
+function Invoke-Backup {
+  if (-not (Test-Path -LiteralPath $EnvPath)) {
+    Write-Log 'No config\.env: nothing is installed to back up.'
+    return
+  }
+  Write-Log "Backing up before the upgrade from $PreviousVersion"
+  Stop-ServiceAndWait $ServerService
+  if (Get-ServiceOrNull $DbService) {
+    Start-ServiceAndWait $DbService
+    Wait-Database
+  }
+
+  $plan = Get-BackupPlan
+  $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+  $folder = Join-Path $DataRoot "backups\pre-upgrade-$PreviousVersion-$stamp"
+  Write-StoreDumps -Plan $plan -Folder $folder `
+    -FailureFix "The upgrade was not started and nothing was changed. The partial backup is in $folder."
   Write-Log "Backup written to $folder"
 
   # The binaries under {app}\pgsql are about to be replaced, and a running
   # postgres.exe holds them open.
   Stop-ServiceAndWait $DbService
+}
+
+function Invoke-DailyBackup {
+  <#
+    The scheduled backup (D-QA-4). Before it, backups\ filled only when Setup
+    ran an upgrade, so a firm that never upgraded had no backup at all.
+    pg_dump reads a consistent snapshot of a running database, so nothing is
+    stopped: people keep working through it. Keeps the newest $KeepDaily.
+  #>
+  $script:StopWord = 'Backup failed'
+  if (-not (Test-Path -LiteralPath $EnvPath)) { Stop-Setup 'No config\.env: nothing is installed to back up.' }
+  $daily = Join-Path $DataRoot 'backups\daily'
+  $stamp = Get-Date -Format 'yyyyMMdd-HHmmss'
+  $folder = Join-Path $daily $stamp
+  Write-Log "Daily backup into $folder"
+  # A run that failed left a folder with no .complete marker. It is not a
+  # backup: retention ignores it, and the next run clears it away here.
+  if (Test-Path -LiteralPath $daily) {
+    Get-ChildItem -LiteralPath $daily -Directory |
+      Where-Object { -not (Test-Path -LiteralPath (Join-Path $_.FullName '.complete')) } |
+      ForEach-Object {
+        Remove-Item -LiteralPath $_.FullName -Recurse -Force -ErrorAction SilentlyContinue
+        Write-Log "  removed the unfinished backup $($_.Name)"
+      }
+  }
+  $plan = Get-BackupPlan
+  Write-StoreDumps -Plan $plan -Folder $folder -FailureFix 'The earlier daily backups are kept. See this log.'
+  [System.IO.File]::WriteAllText((Join-Path $folder '.complete'), "$stamp`r`n")
+  Write-Log "Backup written to $folder"
+
+  $complete = @(Get-ChildItem -LiteralPath $daily -Directory |
+    Where-Object { Test-Path -LiteralPath (Join-Path $_.FullName '.complete') } |
+    Sort-Object Name -Descending)
+  foreach ($old in ($complete | Select-Object -Skip $KeepDaily)) {
+    Remove-Item -LiteralPath $old.FullName -Recurse -Force -ErrorAction SilentlyContinue
+    Write-Log "  removed the old backup $($old.Name)"
+  }
+}
+
+function Register-DailyBackup {
+  <#
+    A Windows scheduled task, as SYSTEM, every day at 02:00 -- and as soon as
+    the PC is next on if it was off then. Registered again on every install,
+    upgrade and repair, so an existing install gains it and a moved install
+    points at the right script.
+  #>
+  $scriptPath = Join-Path $InstallDir 'packaging\server_setup.ps1'
+  if (-not (Test-Path -LiteralPath $scriptPath)) {
+    Write-Log "  warning: $scriptPath is missing, so no daily backup is scheduled"
+    return
+  }
+  $powershell = Join-Path $env:SystemRoot 'System32\WindowsPowerShell\v1.0\powershell.exe'
+  $arguments = "-NoProfile -ExecutionPolicy Bypass -File `"$scriptPath`" -Action DailyBackup " +
+    "-InstallDir `"$InstallDir`" -DataRoot `"$DataRoot`""
+  try {
+    $action = New-ScheduledTaskAction -Execute $powershell -Argument $arguments
+    $trigger = New-ScheduledTaskTrigger -Daily -At '02:00'
+    $principal = New-ScheduledTaskPrincipal -UserId 'S-1-5-18' -LogonType ServiceAccount -RunLevel Highest
+    $settings = New-ScheduledTaskSettingsSet -StartWhenAvailable -AllowStartIfOnBatteries `
+      -DontStopIfGoingOnBatteries -ExecutionTimeLimit (New-TimeSpan -Hours 2)
+    Register-ScheduledTask -TaskName $BackupTask -Action $action -Trigger $trigger -Principal $principal `
+      -Settings $settings -Force `
+      -Description "Backs up every Agency Platform database to $DataRoot\backups\daily, keeping the last $KeepDaily." |
+      Out-Null
+    Write-Log "Daily backup scheduled at 02:00 into $DataRoot\backups\daily (keeps $KeepDaily)"
+  } catch {
+    # The product works without it; say so loudly rather than fail the install.
+    Write-Log "  warning: the daily backup could not be scheduled: $($_.Exception.Message)"
+  }
 }
 
 function Invoke-Server {
@@ -676,6 +772,7 @@ function Invoke-Server {
   Write-Log 'The server is answering.'
 
   [System.IO.File]::WriteAllText($ReadyMarker, "Database set up by Setup.`r`n")
+  Register-DailyBackup
   Remove-Item -LiteralPath $SuperuserFile -Force -ErrorAction SilentlyContinue
   Set-DesktopServerUrl -Url "http://127.0.0.1:$ApiPort"
 
@@ -711,6 +808,7 @@ function Invoke-Uninstall {
     if (Get-ServiceOrNull $DbService) { Invoke-Native -File 'sc.exe' -Arguments @('delete', $DbService) | Out-Null }
   }
   Remove-NetFirewallRule -Name $FirewallRule -ErrorAction SilentlyContinue
+  Unregister-ScheduledTask -TaskName $BackupTask -Confirm:$false -ErrorAction SilentlyContinue
   if ($DeleteData) {
     Write-Log "Deleting all data under $DataRoot"
     Remove-Item -LiteralPath $DataRoot -Recurse -Force -ErrorAction SilentlyContinue
@@ -724,6 +822,14 @@ function Invoke-Uninstall {
 
 switch ($Action) {
   'Backup' { Invoke-Backup }
+  'DailyBackup' {
+    if (-not $LogFile) {
+      $backupLogs = Join-Path $Logs 'backup'
+      New-Item -ItemType Directory -Force -Path $backupLogs | Out-Null
+      $LogFile = Join-Path $backupLogs ("daily-{0}.log" -f (Get-Date -Format 'yyyyMMdd'))
+    }
+    Invoke-DailyBackup
+  }
   'Server' { Invoke-Server }
   'Client' {
     if (-not $ServerUrl) { Stop-Setup 'No server address was given.' }
