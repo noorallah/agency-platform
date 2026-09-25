@@ -467,7 +467,6 @@ class ApiClient {
       _list('/api/v1/user-templates', UserTemplate.fromJson, page, search,
           pageSize: pageSize, sortBy: sortBy, descending: descending);
 
-
   /// Finds somebody who already has an account, to hire them into this firm.
   ///
   /// Two callers, two answers. For a **firm** caller it is a lookup, not a
@@ -644,6 +643,7 @@ class ApiClient {
     String sortBy = 'created_at',
     bool descending = true,
     String? status,
+
     /// Retired rows are hidden by default, which is right for a picker.
     /// A screen offering to bring one back has to be able to show it.
     bool includeDeleted = false,
@@ -701,6 +701,7 @@ class ApiClient {
     String sortBy = 'created_at',
     bool descending = true,
     String? taxSystemId,
+
     /// Retired rows are hidden by default, which is right for a picker.
     /// A screen offering to bring one back has to be able to show it.
     bool includeDeleted = false,
@@ -759,6 +760,7 @@ class ApiClient {
     String sortBy = 'created_at',
     bool descending = true,
     String? taxSystemId,
+
     /// Retired rows are hidden by default, which is right for a picker.
     /// A screen offering to bring one back has to be able to show it.
     bool includeDeleted = false,
@@ -1207,7 +1209,8 @@ class ApiClient {
       items: data is List
           ? data
               .whereType<Map>()
-              .map((item) => CustomerGroup.fromJson(Map<String, dynamic>.from(item)))
+              .map((item) =>
+                  CustomerGroup.fromJson(Map<String, dynamic>.from(item)))
               .toList()
           : const [],
       total: _totalOf(response),
@@ -1216,7 +1219,8 @@ class ApiClient {
 
   Future<CustomerGroup> createCustomerGroup(Json body) async =>
       CustomerGroup.fromJson(
-        _unwrapMap(await request('POST', '/api/v1/customers/groups', body: body)),
+        _unwrapMap(
+            await request('POST', '/api/v1/customers/groups', body: body)),
       );
 
   Future<CustomerGroup> updateCustomerGroup(
@@ -2055,7 +2059,8 @@ class ApiClient {
         )),
       );
 
-  Future<void> deletePackagingLevel(String productId, String levelId) => request(
+  Future<void> deletePackagingLevel(String productId, String levelId) =>
+      request(
         'DELETE',
         '/api/v1/uom-framework/products/$productId/packaging-levels/$levelId',
       );
@@ -2447,6 +2452,37 @@ class ApiClient {
         .map((item) =>
             ProductCategoryRecord.fromJson(Map<String, dynamic>.from(item)))
         .toList();
+  }
+
+  /// Every category, inactive ones too, as one page for the categories screen.
+  ///
+  /// The endpoint returns the whole tree unpaged and has no search, so the
+  /// search is applied here. `sortBy` and `descending` are accepted because
+  /// `ResourceDefinition.load` requires the shape; the tree is ordered by path.
+  Future<PagedResult<ProductCategoryRecord>> productCategoryPage({
+    int page = 1,
+    String search = '',
+    String sortBy = 'path',
+    bool descending = false,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/products/categories',
+      query: const {'include_inactive': 'true'},
+    );
+    final dynamic data = response['data'];
+    final String needle = search.trim().toLowerCase();
+    final List<ProductCategoryRecord> rows = (data is List ? data : const [])
+        .whereType<Map>()
+        .map((item) =>
+            ProductCategoryRecord.fromJson(Map<String, dynamic>.from(item)))
+        .where((row) =>
+            needle.isEmpty ||
+            row.code.toLowerCase().contains(needle) ||
+            row.name.toLowerCase().contains(needle))
+        .toList()
+      ..sort((a, b) => a.path.compareTo(b.path));
+    return PagedResult(items: rows, total: rows.length);
   }
 
   Future<Product> createProduct(Json data) async => Product.fromJson(_unwrapMap(
@@ -3572,7 +3608,8 @@ class ApiClient {
           status,
           ReturnableDocument.fromDeliveryNote,
           keep: (Json row) =>
-              status != 'CLOSED' || stringValue(row['dispatched_at']).isNotEmpty,
+              status != 'CLOSED' ||
+              stringValue(row['dispatched_at']).isNotEmpty,
         ),
       for (final String status in const <String>['APPROVED', 'CLOSED'])
         _returnable(
@@ -3924,7 +3961,8 @@ class ApiClient {
   }
 
   /// What the portal knows about one invoice, or null where it knows nothing.
-  Future<EInvoiceRegistrationRecord?> einvoiceRegistration(String invoiceId) async {
+  Future<EInvoiceRegistrationRecord?> einvoiceRegistration(
+      String invoiceId) async {
     final Json response =
         await request('GET', '/api/v1/einvoice/invoices/$invoiceId');
     final dynamic data = response['data'];
@@ -3976,8 +4014,8 @@ class ApiClient {
 
   // ---- tax collected at source ----------------------------------------
 
-  Future<TcsSettings> tcsSettings() async =>
-      TcsSettings.fromJson(_unwrapMap(await request('GET', '/api/v1/tcs/settings')));
+  Future<TcsSettings> tcsSettings() async => TcsSettings.fromJson(
+      _unwrapMap(await request('GET', '/api/v1/tcs/settings')));
 
   /// Save the policy. An omitted field is left alone server-side, so only
   /// what the form actually edits is sent.
@@ -4031,7 +4069,8 @@ class ApiClient {
       items: data is List
           ? data
               .whereType<Map>()
-              .map((item) => ProformaRecord.fromJson(Map<String, dynamic>.from(item)))
+              .map((item) =>
+                  ProformaRecord.fromJson(Map<String, dynamic>.from(item)))
               .toList()
           : const [],
       total: _totalOf(response),
@@ -4349,8 +4388,8 @@ class ApiClient {
       items: data is List
           ? data
               .whereType<Map>()
-              .map((item) =>
-                  CommissionRuleRecord.fromJson(Map<String, dynamic>.from(item)))
+              .map((item) => CommissionRuleRecord.fromJson(
+                  Map<String, dynamic>.from(item)))
               .toList()
           : const [],
       total: _totalOf(response),
@@ -4359,7 +4398,8 @@ class ApiClient {
 
   Future<CommissionRuleRecord> createCommissionRule(Json body) async =>
       CommissionRuleRecord.fromJson(
-        _unwrapMap(await request('POST', '/api/v1/commission/rules', body: body)),
+        _unwrapMap(
+            await request('POST', '/api/v1/commission/rules', body: body)),
       );
 
   Future<CommissionRuleRecord> updateCommissionRule(
@@ -4401,6 +4441,7 @@ class ApiClient {
 
   Future<Json> create(String resource, Json body) =>
       request('POST', '/api/v1/$resource', body: body);
+
   /// [expectedVersion] rides along as `If-Match` for the resources that
   /// publish a version -- route types among them, which are written through
   /// this generic helper rather than a named method.
