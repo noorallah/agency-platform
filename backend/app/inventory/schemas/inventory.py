@@ -362,6 +362,9 @@ class OpeningStockLineResponse(InventorySchema):
     storage_node_name: str | None = None
     business_profile_id: UUID | None
     quantity: Decimal
+    #: Returned so a draft reopened for editing sends it back; without it the
+    #: replace-on-update would quietly revalue the stock at zero.
+    unit_cost: Decimal | None = None
     entered_quantity: Decimal | None = None
     entered_uom_id: UUID | None = None
     conversion_version: int | None = None
