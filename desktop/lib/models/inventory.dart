@@ -1,7 +1,10 @@
 import 'entities.dart';
 
 List<Json> _objects(dynamic value) => value is List
-    ? value.whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList()
+    ? value
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList()
     : const [];
 
 String _numberValue(dynamic value) {
@@ -174,7 +177,8 @@ class InventorySummaryRecord {
         inTransitQuantity: _numberValue(json['in_transit_quantity']),
         lowStockCount: (json['low_stock_count'] as num?)?.toInt() ?? 0,
         outOfStockCount: (json['out_of_stock_count'] as num?)?.toInt() ?? 0,
-        negativeStockCount: (json['negative_stock_count'] as num?)?.toInt() ?? 0,
+        negativeStockCount:
+            (json['negative_stock_count'] as num?)?.toInt() ?? 0,
       );
 }
 
@@ -338,21 +342,29 @@ class InventoryTransactionRecord {
         reservedQuantityDelta: _numberValue(json['reserved_quantity_delta']),
         blockedQuantityDelta: _numberValue(json['blocked_quantity_delta']),
         damagedQuantityDelta: _numberValue(json['damaged_quantity_delta']),
-        quarantineQuantityDelta: _numberValue(json['quarantine_quantity_delta']),
+        quarantineQuantityDelta:
+            _numberValue(json['quarantine_quantity_delta']),
         inTransitQuantityDelta: _numberValue(json['in_transit_quantity_delta']),
-        previousCurrentQuantity: _numberValue(json['previous_current_quantity']),
+        previousCurrentQuantity:
+            _numberValue(json['previous_current_quantity']),
         newCurrentQuantity: _numberValue(json['new_current_quantity']),
-        previousReservedQuantity: _numberValue(json['previous_reserved_quantity']),
+        previousReservedQuantity:
+            _numberValue(json['previous_reserved_quantity']),
         newReservedQuantity: _numberValue(json['new_reserved_quantity']),
-        previousAvailableQuantity: _numberValue(json['previous_available_quantity']),
+        previousAvailableQuantity:
+            _numberValue(json['previous_available_quantity']),
         newAvailableQuantity: _numberValue(json['new_available_quantity']),
-        previousBlockedQuantity: _numberValue(json['previous_blocked_quantity']),
+        previousBlockedQuantity:
+            _numberValue(json['previous_blocked_quantity']),
         newBlockedQuantity: _numberValue(json['new_blocked_quantity']),
-        previousDamagedQuantity: _numberValue(json['previous_damaged_quantity']),
+        previousDamagedQuantity:
+            _numberValue(json['previous_damaged_quantity']),
         newDamagedQuantity: _numberValue(json['new_damaged_quantity']),
-        previousQuarantineQuantity: _numberValue(json['previous_quarantine_quantity']),
+        previousQuarantineQuantity:
+            _numberValue(json['previous_quarantine_quantity']),
         newQuarantineQuantity: _numberValue(json['new_quarantine_quantity']),
-        previousInTransitQuantity: _numberValue(json['previous_in_transit_quantity']),
+        previousInTransitQuantity:
+            _numberValue(json['previous_in_transit_quantity']),
         newInTransitQuantity: _numberValue(json['new_in_transit_quantity']),
         remarks: stringValue(json['remarks']),
         createdAt: stringValue(json['created_at']),
@@ -372,6 +384,9 @@ class OpeningStockLineRecord {
     required this.storageNodeName,
     required this.businessProfileId,
     required this.quantity,
+    this.unitCost = '',
+    this.batchNumber = '',
+    this.expiryDate = '',
     required this.minimumLevel,
     required this.maximumLevel,
     required this.reorderLevel,
@@ -390,6 +405,12 @@ class OpeningStockLineRecord {
   final String storageNodeName;
   final String businessProfileId;
   final String quantity;
+
+  /// What one unit was worth on day one; empty when none was given, which
+  /// values the stock at zero.
+  final String unitCost;
+  final String batchNumber;
+  final String expiryDate;
   final String minimumLevel;
   final String maximumLevel;
   final String reorderLevel;
@@ -408,6 +429,9 @@ class OpeningStockLineRecord {
         storageNodeName: stringValue(json['storage_node_name']),
         businessProfileId: stringValue(json['business_profile_id']),
         quantity: _numberValue(json['quantity']),
+        unitCost: stringValue(json['unit_cost']),
+        batchNumber: stringValue(json['batch_number']),
+        expiryDate: stringValue(json['expiry_date']),
         minimumLevel: stringValue(json['minimum_level']),
         maximumLevel: stringValue(json['maximum_level']),
         reorderLevel: stringValue(json['reorder_level']),
@@ -458,7 +482,8 @@ class OpeningStockBatchRecord {
 
   bool get isPosted => status.toUpperCase() == 'POSTED';
 
-  factory OpeningStockBatchRecord.fromJson(Json json) => OpeningStockBatchRecord(
+  factory OpeningStockBatchRecord.fromJson(Json json) =>
+      OpeningStockBatchRecord(
         id: stringValue(json['id']),
         firmId: stringValue(json['firm_id']),
         branchId: stringValue(json['branch_id']),
@@ -473,7 +498,9 @@ class OpeningStockBatchRecord {
         status: stringValue(json['status']),
         remarks: stringValue(json['remarks']),
         postedAt: stringValue(json['posted_at']),
-        lines: _objects(json['lines']).map(OpeningStockLineRecord.fromJson).toList(),
+        lines: _objects(json['lines'])
+            .map(OpeningStockLineRecord.fromJson)
+            .toList(),
         createdAt: stringValue(json['created_at']),
         updatedAt: stringValue(json['updated_at']),
       );
@@ -508,7 +535,8 @@ class InventoryQuery {
         if (status?.isNotEmpty == true) 'status': status!,
         if (branchId?.isNotEmpty == true) 'branch_id': branchId!,
         if (warehouseId?.isNotEmpty == true) 'warehouse_id': warehouseId!,
-        if (storageNodeId?.isNotEmpty == true) 'storage_node_id': storageNodeId!,
+        if (storageNodeId?.isNotEmpty == true)
+          'storage_node_id': storageNodeId!,
         if (productId?.isNotEmpty == true) 'product_id': productId!,
         if (businessProfileId?.isNotEmpty == true)
           'business_profile_id': businessProfileId!,
@@ -543,14 +571,18 @@ class InventoryTransactionQuery {
   final String? transactionTo;
 
   Map<String, String> toQuery() => {
-        if (transactionType?.isNotEmpty == true) 'transaction_type': transactionType!,
+        if (transactionType?.isNotEmpty == true)
+          'transaction_type': transactionType!,
         if (branchId?.isNotEmpty == true) 'branch_id': branchId!,
         if (warehouseId?.isNotEmpty == true) 'warehouse_id': warehouseId!,
-        if (storageNodeId?.isNotEmpty == true) 'storage_node_id': storageNodeId!,
+        if (storageNodeId?.isNotEmpty == true)
+          'storage_node_id': storageNodeId!,
         if (productId?.isNotEmpty == true) 'product_id': productId!,
-        if (referenceNumber?.isNotEmpty == true) 'reference_number': referenceNumber!,
+        if (referenceNumber?.isNotEmpty == true)
+          'reference_number': referenceNumber!,
         if (referenceType?.isNotEmpty == true) 'reference_type': referenceType!,
-        if (transactionFrom?.isNotEmpty == true) 'transaction_from': transactionFrom!,
+        if (transactionFrom?.isNotEmpty == true)
+          'transaction_from': transactionFrom!,
         if (transactionTo?.isNotEmpty == true) 'transaction_to': transactionTo!,
       };
 }

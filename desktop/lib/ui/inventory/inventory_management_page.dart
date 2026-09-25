@@ -2159,6 +2159,9 @@ class _OpeningStockLineDraft {
     this.productId,
     this.storageNodeId,
     this.quantity = '',
+    this.unitCost = '',
+    this.batchNumber = '',
+    this.expiryDate = '',
     this.minimumLevel = '',
     this.maximumLevel = '',
     this.reorderLevel = '',
@@ -2169,6 +2172,12 @@ class _OpeningStockLineDraft {
   String? productId;
   String? storageNodeId;
   String quantity;
+
+  /// Blank values the stock at zero and posts nothing to the ledger, so the
+  /// dialog asks before saving a line without one.
+  String unitCost;
+  String batchNumber;
+  String expiryDate;
   String minimumLevel;
   String maximumLevel;
   String reorderLevel;
@@ -2181,6 +2190,9 @@ class _OpeningStockLineDraft {
         storageNodeId:
             record.storageNodeId.isEmpty ? null : record.storageNodeId,
         quantity: record.quantity,
+        unitCost: record.unitCost,
+        batchNumber: record.batchNumber,
+        expiryDate: record.expiryDate,
         minimumLevel: record.minimumLevel,
         maximumLevel: record.maximumLevel,
         reorderLevel: record.reorderLevel,
@@ -2192,6 +2204,9 @@ class _OpeningStockLineDraft {
         'product_id': productId,
         'storage_node_id': storageNodeId,
         'quantity': num.parse(quantity),
+        if (unitCost.trim().isNotEmpty) 'unit_cost': num.parse(unitCost.trim()),
+        if (batchNumber.trim().isNotEmpty) 'batch_number': batchNumber.trim(),
+        if (expiryDate.trim().isNotEmpty) 'expiry_date': expiryDate.trim(),
         if (minimumLevel.trim().isNotEmpty)
           'minimum_level': num.parse(minimumLevel.trim()),
         if (maximumLevel.trim().isNotEmpty)
@@ -2252,6 +2267,10 @@ class _OpeningStockDialogState extends State<_OpeningStockDialog> {
           <_OpeningStockLineDraft>[_OpeningStockLineDraft()];
   List<StorageNodeRecord> _storageNodes = const [];
   String? _validationError;
+
+  /// Set once the user has been told which lines carry no cost; a second
+  /// press of Save then means "yes, value them at zero".
+  bool _zeroCostAcknowledged = false;
 
   List<WarehouseRecord> get _filteredWarehouses => _branchId == null
       ? widget.warehouses
@@ -2438,6 +2457,36 @@ class _OpeningStockDialogState extends State<_OpeningStockDialog> {
                   });
                   return;
                 }
+                final String unitCost = line.unitCost.trim();
+                final num? cost =
+                    unitCost.isEmpty ? null : num.tryParse(unitCost);
+                if (unitCost.isNotEmpty && (cost == null || cost < 0)) {
+                  setState(() {
+                    _validationError =
+                        'Unit cost must be a number of zero or more.';
+                  });
+                  return;
+                }
+                final Product? product = widget.products
+                    .where((item) => item.id == productId)
+                    .firstOrNull;
+                if (product != null &&
+                    product.trackBatch &&
+                    line.batchNumber.trim().isEmpty) {
+                  setState(() {
+                    _validationError =
+                        '${product.code} is batch-tracked: give its batch number.';
+                  });
+                  return;
+                }
+                final String expiry = line.expiryDate.trim();
+                if (expiry.isNotEmpty &&
+                    !RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(expiry)) {
+                  setState(() {
+                    _validationError = 'Expiry date must be YYYY-MM-DD.';
+                  });
+                  return;
+                }
                 final String key = '$productId::${line.storageNodeId ?? ''}';
                 if (!keys.add(key)) {
                   setState(() {
@@ -2446,6 +2495,22 @@ class _OpeningStockDialogState extends State<_OpeningStockDialog> {
                   });
                   return;
                 }
+              }
+              final List<int> uncosted = [
+                for (int index = 0; index < _lines.length; index++)
+                  if ((num.tryParse(_lines[index].unitCost.trim()) ?? 0) == 0)
+                    index + 1,
+              ];
+              if (uncosted.isNotEmpty && !_zeroCostAcknowledged) {
+                setState(() {
+                  _zeroCostAcknowledged = true;
+                  _validationError = 'Line ${uncosted.join(', ')} has no unit '
+                      'cost, so that stock will be valued at zero and nothing '
+                      'posts to the ledger. Enter a cost, or press '
+                      '${widget.existing == null ? 'Save' : 'Update'} again '
+                      'to keep it at zero.';
+                });
+                return;
               }
               if (_branchId == null ||
                   _warehouseId == null ||
@@ -2497,6 +2562,12 @@ class _OpeningStockLineEditor extends StatefulWidget {
 class _OpeningStockLineEditorState extends State<_OpeningStockLineEditor> {
   late final TextEditingController _quantity =
       TextEditingController(text: widget.line.quantity);
+  late final TextEditingController _unitCost =
+      TextEditingController(text: widget.line.unitCost);
+  late final TextEditingController _batchNumber =
+      TextEditingController(text: widget.line.batchNumber);
+  late final TextEditingController _expiryDate =
+      TextEditingController(text: widget.line.expiryDate);
   late final TextEditingController _minimum =
       TextEditingController(text: widget.line.minimumLevel);
   late final TextEditingController _maximum =
@@ -2511,6 +2582,9 @@ class _OpeningStockLineEditorState extends State<_OpeningStockLineEditor> {
   @override
   void dispose() {
     _quantity.dispose();
+    _unitCost.dispose();
+    _batchNumber.dispose();
+    _expiryDate.dispose();
     _minimum.dispose();
     _maximum.dispose();
     _reorder.dispose();
@@ -2553,7 +2627,21 @@ class _OpeningStockLineEditorState extends State<_OpeningStockLineEditor> {
                       ),
                     )
                     .toList(),
-                onChanged: (value) => widget.line.productId = value,
+                onChanged: (value) {
+                  widget.line.productId = value;
+                  // Start from the product's purchase price, the usual book
+                  // value for day-one stock; the user can overwrite it.
+                  final String cost = widget.products
+                          .where((item) => item.id == value)
+                          .firstOrNull
+                          ?.purchasePrice ??
+                      '';
+                  if (_unitCost.text.trim().isEmpty &&
+                      (num.tryParse(cost) ?? 0) > 0) {
+                    _unitCost.text = cost;
+                    widget.line.unitCost = cost;
+                  }
+                },
               ),
               const SizedBox(height: 12),
               DropdownButtonFormField<String>(
@@ -2587,9 +2675,13 @@ class _OpeningStockLineEditorState extends State<_OpeningStockLineEditor> {
                   const SizedBox(width: 12),
                   Expanded(
                     child: TextField(
-                      controller: _minimum,
-                      decoration: const InputDecoration(labelText: 'Minimum'),
-                      onChanged: (value) => widget.line.minimumLevel = value,
+                      key: ValueKey('opening-unit-cost-${widget.index}'),
+                      controller: _unitCost,
+                      decoration: const InputDecoration(
+                        labelText: 'Unit cost',
+                        helperText: 'Blank values this stock at zero',
+                      ),
+                      onChanged: (value) => widget.line.unitCost = value,
                     ),
                   ),
                 ],
@@ -2599,12 +2691,52 @@ class _OpeningStockLineEditorState extends State<_OpeningStockLineEditor> {
                 children: [
                   Expanded(
                     child: TextField(
+                      key: ValueKey('opening-batch-${widget.index}'),
+                      controller: _batchNumber,
+                      decoration: const InputDecoration(
+                        labelText: 'Batch number',
+                        helperText: 'Needed for a batch-tracked product',
+                      ),
+                      onChanged: (value) => widget.line.batchNumber = value,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
+                      key: ValueKey('opening-expiry-${widget.index}'),
+                      controller: _expiryDate,
+                      decoration: const InputDecoration(
+                        labelText: 'Expiry date',
+                        hintText: 'YYYY-MM-DD',
+                      ),
+                      onChanged: (value) => widget.line.expiryDate = value,
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _minimum,
+                      decoration: const InputDecoration(labelText: 'Minimum'),
+                      onChanged: (value) => widget.line.minimumLevel = value,
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: TextField(
                       controller: _maximum,
                       decoration: const InputDecoration(labelText: 'Maximum'),
                       onChanged: (value) => widget.line.maximumLevel = value,
                     ),
                   ),
-                  const SizedBox(width: 12),
+                ],
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: [
                   Expanded(
                     child: TextField(
                       controller: _reorder,
@@ -2613,11 +2745,7 @@ class _OpeningStockLineEditorState extends State<_OpeningStockLineEditor> {
                       onChanged: (value) => widget.line.reorderLevel = value,
                     ),
                   ),
-                ],
-              ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
+                  const SizedBox(width: 12),
                   Expanded(
                     child: TextField(
                       controller: _safety,
@@ -2626,15 +2754,13 @@ class _OpeningStockLineEditorState extends State<_OpeningStockLineEditor> {
                       onChanged: (value) => widget.line.safetyStock = value,
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: TextField(
-                      controller: _remarks,
-                      decoration: const InputDecoration(labelText: 'Remarks'),
-                      onChanged: (value) => widget.line.remarks = value,
-                    ),
-                  ),
                 ],
+              ),
+              const SizedBox(height: 12),
+              TextField(
+                controller: _remarks,
+                decoration: const InputDecoration(labelText: 'Remarks'),
+                onChanged: (value) => widget.line.remarks = value,
               ),
             ],
           ),

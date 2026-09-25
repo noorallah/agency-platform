@@ -3203,6 +3203,7 @@ class InventoryService:
                 "storage_node_name": self._lookup_storage_name(row.storage_node_id),
                 "business_profile_id": row.business_profile_id,
                 "quantity": row.quantity,
+                "unit_cost": row.unit_cost,
                 "entered_quantity": row.entered_quantity,
                 "entered_uom_id": row.entered_uom_id,
                 "conversion_version": row.conversion_version,

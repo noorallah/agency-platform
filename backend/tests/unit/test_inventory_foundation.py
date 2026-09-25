@@ -1234,6 +1234,8 @@ def test_opening_stock_is_credited_to_equity() -> None:
         firm_id=firm.id,
         actor_id=actor_id,
     )
+    # The draft reads its cost back, or reopening it to edit loses the value.
+    assert batch.lines[0].unit_cost == Decimal("12.50")
     service.post_opening_stock_batch(batch.id, firm_scope=firm.id, actor_id=actor_id)
 
     postings = {
