@@ -961,8 +961,23 @@ class ManagementWorkspaceLayout extends StatelessWidget {
   /// view is one click and always visible; a filter is a form.
   final Widget? viewBar;
 
+  /// The most of the workspace's height an expanded [filterPanel] may take.
+  ///
+  /// Unbounded, a panel with a dozen fields on a short or highly scaled
+  /// display took nearly all of it, and the grid below was left a sliver with
+  /// no reachable rows (D-QA-15). Past this share the panel scrolls itself.
+  static const double filterPanelMaxShare = 0.45;
+
   @override
-  Widget build(BuildContext context) => Column(children: [
+  Widget build(BuildContext context) => LayoutBuilder(
+        builder: (context, outer) => _build(
+          outer.hasBoundedHeight
+              ? outer.maxHeight * filterPanelMaxShare
+              : double.infinity,
+        ),
+      );
+
+  Widget _build(double filterMaxHeight) => Column(children: [
         Padding(
           padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
           child: LayoutBuilder(
@@ -985,7 +1000,11 @@ class ManagementWorkspaceLayout extends StatelessWidget {
             },
           ),
         ),
-        if (filterPanel != null) filterPanel!,
+        if (filterPanel != null)
+          ConstrainedBox(
+            constraints: BoxConstraints(maxHeight: filterMaxHeight),
+            child: SingleChildScrollView(child: filterPanel!),
+          ),
         if (viewBar != null)
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 12, 24, 0),
