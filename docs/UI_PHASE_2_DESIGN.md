@@ -124,7 +124,7 @@ the same arrangement.
 
 - **Menu bar, 40 px**: the product mark on the left, then the **eight
   areas**, then the **command box**, **+ New** (quick create), the **firm
-  switcher**, help and the user menu on the right. The firm is changed
+  switcher**, the **Settings gear**, help and the user menu on the right. The firm is changed
   rarely, so it sits beside the profile rather than first (owner,
   2026-09-25) -- but it stays **visible**, showing the current firm's name,
   because working in the wrong firm is the costly mistake. On a wide screen it is one row; at 1366 px the command box
@@ -152,11 +152,13 @@ against 8 today.
 | **Accounts** | Ledger, Journals, Financial Years, GST Returns, E-Invoice, TCS, Commission |
 | **Masters** | Customers, Vendors, Products, Product Categories, Units, Tax, Branches and Warehouses, Places |
 | **Reports** | the report catalogue, searchable, with favourites |
-| **Admin** | Firms, Users, Roles, Business Profiles, Settings, Audit, Licensing |
+| **Admin** | Users, Roles, Permissions, Firms, Business Profiles, Audit, Diagnostics, Licensing |
+| **Settings** (the gear in the menu bar, not an area) | every setting, gathered in one place by topic -- see 4.13 |
 
-The exact placement of every one of the 94 screens is a table to agree
-(appendix A, to be written once section 8 is agreed); a role only ever sees
-the areas and items its permissions allow, as today.
+**No phase 1 screen is dropped.** Appendix A places every one of them
+(all 94 catalogue screens, the single-screen modules, and the settings that
+today open as dialogs inside other screens). A role only ever sees the areas
+and items its permissions allow, as today (4.12).
 
 ### 4.3 The drop-down panel (replaces the long tree)
 
@@ -391,6 +393,40 @@ recalculates at once; nothing stays on screen from the previous firm.
 security -- every endpoint keeps checking its own permission as it does today,
 so a hidden item reached any other way is still refused.
 
+### 4.13 Settings: one place, by topic (owner, 2026-09-25)
+
+Phase 1 has settings in **six different modules** (Tax Settings under
+Administration; Branch & Warehouse Settings, Firm Settings and Financial Years
+under Masters; Purchase Settings; Inventory Settings) and **five more as
+dialogs** inside other screens (sales workflow on Sales Invoices, credit
+control on Customers, the loyalty scheme on Loyalty, TCS on the TCS page, print
+settings on three document lists), plus Application Settings on the sign-in
+screen. Nobody can find them all.
+
+Phase 2 gathers them behind the **Settings gear** in the menu bar -- the
+convention of Zoho, Odoo, QuickBooks and Xero. Settings is the one page that
+keeps a list of sections down its left side, because it is a page somebody
+visits to look through, not a place they work:
+
+| Section | What it holds (phase 1 home in brackets) |
+| --- | --- |
+| **Firm** | Firm Settings (Masters), Financial Years (Masters), Numbering Series (Administration) |
+| **Selling** | Sales workflow stages (dialog on Sales Invoices), Credit control (dialog on Customers), Loyalty scheme (dialog on Loyalty), TCS (dialog on TCS) |
+| **Buying** | Purchase Settings (Purchases) |
+| **Stock** | Inventory Settings (Inventory), Branch & Warehouse Settings (Masters) |
+| **Tax** | Tax Configuration, Tax Rules, Rule Simulator, Execution Log, Tax Settings (all Administration) |
+| **Business profile** | Feature Management, Module Configuration, Attribute Definitions, Mandatory Attributes, Profile Assignment, Industry Templates (Administration) |
+| **Printing** | print settings for invoices, delivery notes and purchase orders (dialogs on three lists) |
+| **This PC and me** | server address (Application Settings), theme, density, landing page, export format, printer -- per user and per PC |
+
+- Each section and each setting follows permissions (4.12): a sales manager
+  sees Selling but not Tax; a user with no settings permission sees only
+  **This PC and me**.
+- A screen that has settings of its own keeps a **Settings** item under its
+  page bar's **...**, which opens the gear page at that section -- so the
+  setting is findable both ways.
+- The Ctrl+K box finds every setting by name ("credit limit", "numbering").
+
 ## 5. What does not change
 
 - The **module catalogue** stays the single source of screens; phase 2 adds
@@ -450,6 +486,7 @@ Recommended answers first; each can be changed.
 | 10 | Summary cards and filters above lists | **Agreed in principle 2026-09-25: moved into the page bar as clickable counters and chips; cards only on Home** (4.5) | Keep a collapsible summary strip |
 | 11 | Tally voucher keys (F8, F9, F6, F5, F7) on daily screens | **Yes** (4.6) | Only Ctrl-based shortcuts |
 | 12 | Which screens count as "daily" | **The nine listed in 4.6**, confirmed per role | Owner's own list |
+| 13 | Settings | **Agreed 2026-09-25: one Settings page behind a gear, by topic** (4.13), every phase 1 screen kept (appendix A) | Leave each setting in its module |
 
 Clickable wireframes of the shell, the Customers list (with today's screen
 beside it), a billing screen and a role home: `dist\windows\Design\UI phase 2
@@ -458,3 +495,121 @@ wireframes.html` -- they fill the browser window and adapt as it is resized.
 Next: agree or change the open answers (1 and 10 are agreed); then appendix A (every screen's
 area, group and label) and clickable mock-ups of the shell, a list and a
 sales order are prepared for review before any code.
+
+---
+
+## Appendix A. Every phase 1 screen, and where it goes
+
+Compiled from `module_catalog.dart` on 2026-09-25: 19 modules, every tab, and
+the settings dialogs. **Nothing is removed**; a screen only moves. A test in
+phase 2 will read the catalogue and fail if any phase 1 screen has no place.
+
+| Phase 1 (module > screen) | Phase 2 (area > group > item) |
+| --- | --- |
+| Dashboard | Home |
+| Quotations | Sell > Documents > Quotations |
+| Sales Orders | Sell > Documents > Sales Orders |
+| Delivery Notes > Delivery Notes | Sell > Documents > Delivery Notes |
+| Sales Invoices > Sales Invoices | Sell > Documents > Sales Invoices |
+| Sales Returns | Sell > Documents > Sales Returns |
+| Sales > Proforma | Sell > Documents > Proforma |
+| Sales > Credit Notes | Sell > Documents > Credit Notes |
+| Finance > Receipts | Sell > Money > Receipts |
+| Finance > Refunds | Sell > Money > Refunds |
+| Masters > Statements | Sell > Money > Customer Statements |
+| Sales > Price Lists | Sell > Pricing > Price Lists |
+| Sales > Promotions | Sell > Pricing > Promotions |
+| Masters > Loyalty | Sell > Pricing > Loyalty |
+| Sales > Commission | Sell > Incentives > Commission |
+| Sales > Targets | Sell > Incentives > Targets |
+| Sales > Geography (territories) | Sell > Field sales > Territories |
+| Sales > Route Types | Sell > Field sales > Route Types |
+| Sales > Beat Plans | Sell > Field sales > Beat Plans |
+| Sales > Call Lists | Sell > Field sales > Call Lists |
+| Sales > Coverage | Sell > Field sales > Coverage |
+| Sales > Route Builder | Sell > Field sales > Route Builder |
+| Purchases > Purchase Orders | Buy > Documents > Purchase Orders |
+| Goods Receipts > Receipts | Buy > Documents > Goods Receipts |
+| Purchase Invoices | Buy > Documents > Purchase Invoices |
+| Purchase Returns | Buy > Documents > Purchase Returns |
+| Finance > Payments | Buy > Money > Payments |
+| Purchases > Dashboard | Buy > Insight > Purchase Dashboard |
+| Purchases > Analytics | Buy > Insight > Purchase Analytics |
+| Inventory > Inventory | Stock > Stock > Inventory |
+| Inventory > Stock Summary | Stock > Stock > Stock Summary |
+| Inventory > Stock Search | Stock > Stock > Stock Search |
+| Inventory > Stock Ledger | Stock > Stock > Stock Ledger |
+| Inventory > Transactions | Stock > Stock > Transactions |
+| Inventory > Opening Stock | Stock > Movements > Opening Stock |
+| Inventory > Physical Count | Stock > Movements > Physical Count |
+| Inventory > Batches | Stock > Tracking > Batches |
+| Inventory > Lots | Stock > Tracking > Lots |
+| Inventory > Serial Numbers | Stock > Tracking > Serial Numbers |
+| Inventory > Expiry Monitor | Stock > Tracking > Expiry Monitor |
+| Inventory > Import | Stock > Data > Import |
+| Inventory > Export | Stock > Data > Export |
+| Finance > Chart of Accounts | Accounts > Books > Chart of Accounts |
+| Finance > Journal Entries | Accounts > Books > Journal Entries |
+| Finance > Ledgers | Accounts > Books > Ledgers |
+| Finance > Trial Balance | Accounts > Statements > Trial Balance |
+| Finance > Profit & Loss | Accounts > Statements > Profit & Loss |
+| Finance > Balance Sheet | Accounts > Statements > Balance Sheet |
+| Finance > Control Accounts | Accounts > Structure > Control Accounts |
+| Finance > Cost Centres | Accounts > Structure > Cost Centres |
+| Finance > Profit Centres | Accounts > Structure > Profit Centres |
+| Sales > GST Returns | Accounts > Tax filing > GST Returns |
+| Sales > E-Invoice | Accounts > Tax filing > E-Invoice |
+| Sales > TCS | Accounts > Tax filing > TCS |
+| Masters > Customers | Masters > Parties > Customers |
+| Masters > Vendors | Masters > Parties > Vendors |
+| Masters > Vendor Categories | Masters > Parties > Vendor Categories |
+| Masters > Vendor Types | Masters > Parties > Vendor Types |
+| Masters > Products | Masters > Items > Products |
+| Masters > Product Categories | Masters > Items > Product Categories |
+| Administration > Units of Measure | Masters > Items > Units of Measure |
+| Administration > UOM Groups | Masters > Items > UOM Groups |
+| Administration > Packaging Types | Masters > Items > Packaging Types |
+| Administration > Packaging Levels | Masters > Items > Packaging Levels |
+| Administration > Conversion Rules | Masters > Items > Conversion Rules |
+| Masters > Branches | Masters > Organisation > Branches |
+| Masters > Warehouses | Masters > Organisation > Warehouses |
+| Masters > Storage Areas | Masters > Organisation > Storage Areas |
+| Masters > Branch Types | Masters > Organisation > Branch Types |
+| Masters > Warehouse Types | Masters > Organisation > Warehouse Types |
+| Masters > Places | Masters > Organisation > Places |
+| Reports > Operational Reports | Reports > Operational |
+| Reports > Financial Reports | Reports > Financial |
+| Administration > Users | Admin > People > Users |
+| Administration > Roles | Admin > People > Roles |
+| Administration > Permissions | Admin > People > Permissions |
+| Administration > User Templates | Admin > People > User Templates |
+| Administration > User-Firm Assignments | Admin > People > User-Firm Assignments |
+| Administration > Firms | Admin > Firms > Firms |
+| Administration > Business Profiles | Admin > Firms > Business Profiles |
+| Settings > Audit Logs | Admin > System > Audit Logs |
+| Settings > Diagnostics | Admin > System > Diagnostics |
+| Licensing | Admin > System > Licensing |
+| Masters > Firm Settings | Settings > Firm |
+| Masters > Financial Years | Settings > Firm |
+| Administration > Numbering Series | Settings > Firm |
+| Sales Invoices: sales workflow dialog | Settings > Selling |
+| Customers: credit control dialog | Settings > Selling |
+| Loyalty: scheme settings dialog | Settings > Selling |
+| TCS: settings dialog | Settings > Selling |
+| Purchases > Settings | Settings > Buying |
+| Inventory > Settings | Settings > Stock |
+| Masters > Branch & Warehouse Settings | Settings > Stock |
+| Administration > Tax Configuration | Settings > Tax |
+| Administration > Tax Rules | Settings > Tax |
+| Administration > Rule Simulator | Settings > Tax |
+| Administration > Execution Log | Settings > Tax |
+| Administration > Tax Settings | Settings > Tax |
+| Administration > Feature Management | Settings > Business profile |
+| Administration > Module Configuration | Settings > Business profile |
+| Administration > Attribute Definitions | Settings > Business profile |
+| Administration > Mandatory Attributes | Settings > Business profile |
+| Administration > Profile Assignment | Settings > Business profile |
+| Administration > Industry Templates | Settings > Business profile |
+| Print settings dialogs (invoices, delivery notes, purchase orders) | Settings > Printing |
+| Sign-in screen: Application Settings | Settings > This PC and me (and still on the sign-in screen) |
+
