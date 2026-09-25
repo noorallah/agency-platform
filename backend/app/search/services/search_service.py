@@ -582,7 +582,7 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
     SearchDefinition(
         "geo_masters",
         GeoCountry,
-        "sales",
+        "masters",
         "geography-masters",
         "public",
         "TERRITORY_VIEW",
@@ -595,7 +595,7 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
     SearchDefinition(
         "geo_masters",
         GeoState,
-        "sales",
+        "masters",
         "geography-masters",
         "map",
         "TERRITORY_VIEW",
@@ -608,7 +608,7 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
     SearchDefinition(
         "geo_masters",
         GeoDistrict,
-        "sales",
+        "masters",
         "geography-masters",
         "location_city",
         "TERRITORY_VIEW",
@@ -621,7 +621,7 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
     SearchDefinition(
         "geo_masters",
         GeoCity,
-        "sales",
+        "masters",
         "geography-masters",
         "location_on",
         "TERRITORY_VIEW",
@@ -634,7 +634,7 @@ _DEFINITIONS: tuple[SearchDefinition, ...] = (
     SearchDefinition(
         "geo_masters",
         GeoLocality,
-        "sales",
+        "masters",
         "geography-masters",
         "pin_drop",
         "TERRITORY_VIEW",

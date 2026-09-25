@@ -119,9 +119,7 @@ class _GeoAreaPickerState extends State<GeoAreaPicker> {
     final Map<GeoLevel, String> next = Map<GeoLevel, String>.from(widget.value);
     next[level] = id ?? '';
     // Everything below a changed rung stops meaning anything.
-    for (GeoLevel? below = level.child;
-        below != null;
-        below = below.child) {
+    for (GeoLevel? below = level.child; below != null; below = below.child) {
       next.remove(below);
       _options.remove(below);
     }
@@ -183,6 +181,31 @@ class _GeoAreaPickerState extends State<GeoAreaPicker> {
     ];
   }
 
+  /// What to say under a rung that loaded and offers nothing.
+  ///
+  /// Only countries and states are seeded; districts and everything below are
+  /// typed in by a platform administrator. An empty District list with no word
+  /// of that read as a broken field (D-QA-13), so the rung says which parent
+  /// has none yet and where they are added.
+  String? _emptyHint(GeoLevel level) {
+    if (_loading) return null;
+    final List<GeoPlaceRecord>? rows = _options[level];
+    if (rows == null || rows.any((row) => row.isActive)) return null;
+    const String where =
+        'A platform administrator adds them under Masters → Places.';
+    final GeoLevel? parent = level.parent;
+    final String parentId = _parentIdFor(level);
+    if (parent == null || parentId.isEmpty) {
+      return 'No ${level.plural.toLowerCase()} yet. $where';
+    }
+    final String parentName = (_options[parent] ?? const <GeoPlaceRecord>[])
+            .where((row) => row.id == parentId)
+            .map((row) => parent == GeoLevel.postalCode ? row.code : row.name)
+            .firstOrNull ??
+        'this ${parent.label.toLowerCase()}';
+    return 'No ${level.plural.toLowerCase()} in $parentName yet. $where';
+  }
+
   @override
   Widget build(BuildContext context) => Wrap(
         spacing: 8,
@@ -196,12 +219,8 @@ class _GeoAreaPickerState extends State<GeoAreaPicker> {
                 initialValue: widget.value[level] ?? '',
                 decoration: InputDecoration(
                   labelText: level.label,
-                  helperText: level == widget.levels.first &&
-                          (_options[level]?.isEmpty ?? true) &&
-                          !_loading
-                      ? 'No places defined — a platform administrator '
-                          'maintains these under Sales → Places.'
-                      : null,
+                  helperText: _emptyHint(level),
+                  helperMaxLines: 3,
                 ),
                 // A rung whose parent is unset has nothing to offer, so it is
                 // disabled rather than showing an empty list that looks broken.
