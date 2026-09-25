@@ -58,8 +58,9 @@ class PriceListRecord {
   }
 
   /// How long it stands, read as a person would say it.
-  String get windowLabel =>
-      effectiveTo.isEmpty ? 'from $effectiveFrom' : '$effectiveFrom to $effectiveTo';
+  String get windowLabel => effectiveTo.isEmpty
+      ? 'from $effectiveFrom'
+      : '$effectiveFrom to $effectiveTo';
 
   factory PriceListRecord.fromJson(Json json) => PriceListRecord(
         id: stringValue(json['id']),
@@ -120,7 +121,6 @@ class PriceListItemRecord {
       );
 }
 
-
 /// One offer a firm runs: who it is for, what it gives, and when.
 ///
 /// Unlike a price list, promotions **stack**. Several can apply to one order,
@@ -137,6 +137,9 @@ class PromotionRecord {
     this.priority = 100,
     this.status = 'DRAFT',
     this.allowStacking = true,
+    this.requiresCoupon = false,
+    this.maxRedemptions,
+    this.maxRedemptionsPerCustomer,
     this.effectiveFrom = '',
     this.effectiveTo = '',
     this.versionNumber = 1,
@@ -159,6 +162,13 @@ class PromotionRecord {
 
   /// False ends the stack: the offers behind this one do not apply.
   final bool allowStacking;
+
+  /// True when the offer applies only to a customer who presents a coupon.
+  final bool requiresCoupon;
+
+  /// Null is no limit, which is a different answer from zero.
+  final int? maxRedemptions;
+  final int? maxRedemptionsPerCustomer;
   final String effectiveFrom;
   final String effectiveTo;
 
@@ -176,6 +186,10 @@ class PromotionRecord {
         priority: (json['priority'] as num?)?.toInt() ?? 100,
         status: stringValue(json['status']),
         allowStacking: boolValue(json['allow_stacking'], fallback: true),
+        requiresCoupon: boolValue(json['requires_coupon']),
+        maxRedemptions: (json['max_redemptions'] as num?)?.toInt(),
+        maxRedemptionsPerCustomer:
+            (json['max_redemptions_per_customer'] as num?)?.toInt(),
         effectiveFrom: stringValue(json['effective_from']),
         effectiveTo: stringValue(json['effective_to']),
         versionNumber: (json['version_number'] as num?)?.toInt() ?? 1,
@@ -274,8 +288,8 @@ String describePromotionCondition(PromotionConditionRecord condition) {
   final String value = condition.valueLabel.isNotEmpty
       ? condition.valueLabel
       : condition.valueText.isNotEmpty
-      ? condition.valueText
-      : _plainNumber(condition.valueNumber);
+          ? condition.valueText
+          : _plainNumber(condition.valueNumber);
   return '$field $test $value';
 }
 
@@ -337,10 +351,10 @@ class PromotionActionRecord {
         if (percent.trim().isNotEmpty) 'percent': percent.trim(),
         if (amount.trim().isNotEmpty) 'amount': amount.trim(),
         if (buyQuantity.trim().isNotEmpty) 'buy_quantity': buyQuantity.trim(),
-        if (freeQuantity.trim().isNotEmpty) 'free_quantity': freeQuantity.trim(),
+        if (freeQuantity.trim().isNotEmpty)
+          'free_quantity': freeQuantity.trim(),
       };
 }
-
 
 /// A code a customer presents to claim an offer.
 ///

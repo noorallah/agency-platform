@@ -52,9 +52,16 @@ class _PromotionDialogState extends State<PromotionDialog> {
   final TextEditingController _priority = TextEditingController(text: '100');
   final TextEditingController _from = TextEditingController();
   final TextEditingController _to = TextEditingController();
+  final TextEditingController _maxRedemptions = TextEditingController();
+  final TextEditingController _maxPerCustomer = TextEditingController();
 
   String _status = 'DRAFT';
   bool _allowStacking = true;
+
+  /// Off, the offer applies to every sale it matches; on, only to a customer
+  /// presenting one of its coupons. The screen had no switch, so an offer
+  /// meant for coupon holders reached everybody (D-QA-7).
+  bool _requiresCoupon = false;
   List<_ActionDraft> _actions = <_ActionDraft>[_ActionDraft()];
   List<_ConditionDraft> _conditions = <_ConditionDraft>[];
   bool _saving = false;
@@ -79,6 +86,9 @@ class _PromotionDialogState extends State<PromotionDialog> {
     _to.text = row.effectiveTo;
     _status = _statuses.contains(row.status) ? row.status : 'DRAFT';
     _allowStacking = row.allowStacking;
+    _requiresCoupon = row.requiresCoupon;
+    _maxRedemptions.text = row.maxRedemptions?.toString() ?? '';
+    _maxPerCustomer.text = row.maxRedemptionsPerCustomer?.toString() ?? '';
     _actions = row.actions.isEmpty
         ? <_ActionDraft>[_ActionDraft()]
         : row.actions.map(_ActionDraft.from).toList();
@@ -93,6 +103,8 @@ class _PromotionDialogState extends State<PromotionDialog> {
     _priority.dispose();
     _from.dispose();
     _to.dispose();
+    _maxRedemptions.dispose();
+    _maxPerCustomer.dispose();
     super.dispose();
   }
 
@@ -104,6 +116,12 @@ class _PromotionDialogState extends State<PromotionDialog> {
         'priority': int.tryParse(_priority.text.trim()) ?? 100,
         'status': _status,
         'allow_stacking': _allowStacking,
+        // Sent every time: an update replaces the offer, so leaving these
+        // out would clear a coupon rule or a limit set anywhere else.
+        'requires_coupon': _requiresCoupon,
+        'max_redemptions': int.tryParse(_maxRedemptions.text.trim()),
+        'max_redemptions_per_customer':
+            int.tryParse(_maxPerCustomer.text.trim()),
         if (_from.text.trim().isNotEmpty) 'effective_from': _from.text.trim(),
         if (_to.text.trim().isNotEmpty) 'effective_to': _to.text.trim(),
         'conditions': [
@@ -115,6 +133,16 @@ class _PromotionDialogState extends State<PromotionDialog> {
             _actions[index].toJson(index + 1),
         ],
       };
+
+  /// Blank is no limit; anything else must be a whole number of 1 or more.
+  String? _optionalLimit(String? value) {
+    final String text = value?.trim() ?? '';
+    if (text.isEmpty) return null;
+    final int? parsed = int.tryParse(text);
+    return parsed == null || parsed < 1
+        ? 'A whole number of 1 or more, or blank'
+        : null;
+  }
 
   Future<void> _save() async {
     if (!(_form.currentState?.validate() ?? false)) return;
@@ -140,8 +168,7 @@ class _PromotionDialogState extends State<PromotionDialog> {
       setState(() {
         // The dialog stays open, so the typing survives a refusal and the
         // message says so.
-        _error =
-            saveFailureMessage(error, 'promotion', changesKept: true);
+        _error = saveFailureMessage(error, 'promotion', changesKept: true);
         _saving = false;
       });
     }
@@ -207,8 +234,7 @@ class _PromotionDialogState extends State<PromotionDialog> {
                       child: DropdownButtonFormField<String>(
                         isExpanded: true,
                         initialValue: _status,
-                        decoration:
-                            const InputDecoration(labelText: 'Status'),
+                        decoration: const InputDecoration(labelText: 'Status'),
                         items: [
                           for (final String value in _statuses)
                             DropdownMenuItem(value: value, child: Text(value)),
@@ -252,6 +278,47 @@ class _PromotionDialogState extends State<PromotionDialog> {
                         : 'This offer ends the stack: nothing after it applies.',
                     style: theme.textTheme.bodySmall,
                   ),
+                ),
+                SwitchListTile(
+                  key: const ValueKey('promotion-requires-coupon'),
+                  contentPadding: EdgeInsets.zero,
+                  value: _requiresCoupon,
+                  onChanged: (value) => setState(() => _requiresCoupon = value),
+                  title: const Text('Only with a coupon'),
+                  subtitle: Text(
+                    _requiresCoupon
+                        ? 'Applies only when the customer presents one of '
+                            "this offer's coupons. Mint them under Coupons."
+                        : 'Applies to every sale that meets the conditions.',
+                    style: theme.textTheme.bodySmall,
+                  ),
+                ),
+                Row(
+                  children: [
+                    Expanded(
+                      child: TextFormField(
+                        key: const ValueKey('promotion-max-redemptions'),
+                        validator: _optionalLimit,
+                        controller: _maxRedemptions,
+                        decoration: const InputDecoration(
+                          labelText: 'Total uses',
+                          helperText: 'Blank = no limit',
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: AppSpacing.md),
+                    Expanded(
+                      child: TextFormField(
+                        key: const ValueKey('promotion-max-per-customer'),
+                        validator: _optionalLimit,
+                        controller: _maxPerCustomer,
+                        decoration: const InputDecoration(
+                          labelText: 'Uses per customer',
+                          helperText: 'Blank = no limit',
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
                 const SizedBox(height: AppSpacing.md),
                 Text('Gives', style: theme.textTheme.titleSmall),
@@ -559,8 +626,7 @@ class _ActionDraft {
   _ActionDraft();
 
   factory _ActionDraft.from(PromotionActionRecord record) {
-    final _ActionDraft draft = _ActionDraft()
-      ..actionType = record.actionType;
+    final _ActionDraft draft = _ActionDraft()..actionType = record.actionType;
     draft.percent.text = record.percent;
     draft.amount.text = record.amount;
     draft.buyQuantity.text = record.buyQuantity;

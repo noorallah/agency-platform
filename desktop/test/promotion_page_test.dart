@@ -188,7 +188,8 @@ Future<void> _pumpDialog(
 void main() {
   testWidgets('the list says what each offer gives and where it applies',
       (tester) async {
-    await _pumpPage(tester, _PromotionApi(rows: <PromotionRecord>[_promotion()]));
+    await _pumpPage(
+        tester, _PromotionApi(rows: <PromotionRecord>[_promotion()]));
 
     expect(find.text('TEN'), findsOneWidget);
     // The benefit is spelled out rather than shown as an action code: nobody
@@ -250,10 +251,16 @@ void main() {
   testWidgets('a product is picked by name and sent by id', (tester) async {
     final _PromotionApi api = _PromotionApi()
       ..catalogue = <Product>[
-        Product.fromJson(
-            const <String, dynamic>{'id': 'p-milk', 'code': 'MILK', 'name': 'Milk'}),
-        Product.fromJson(
-            const <String, dynamic>{'id': 'p-tea', 'code': 'TEA', 'name': 'Tea'}),
+        Product.fromJson(const <String, dynamic>{
+          'id': 'p-milk',
+          'code': 'MILK',
+          'name': 'Milk'
+        }),
+        Product.fromJson(const <String, dynamic>{
+          'id': 'p-tea',
+          'code': 'TEA',
+          'name': 'Tea'
+        }),
       ];
     await _pumpDialog(
       tester,
@@ -379,7 +386,8 @@ void main() {
     await _pumpDialog(tester, api);
 
     await tester.enterText(find.widgetWithText(TextFormField, 'Code'), 'NEW');
-    await tester.enterText(find.widgetWithText(TextFormField, 'Name'), 'New offer');
+    await tester.enterText(
+        find.widgetWithText(TextFormField, 'Name'), 'New offer');
     await tester.tap(find.widgetWithText(FilledButton, 'Save'));
     await tester.pumpAndSettle();
 
@@ -399,17 +407,18 @@ void main() {
   });
 
   testWidgets('the coupon list says how much of each is left', (tester) async {
-    final _PromotionApi api = _PromotionApi(rows: <PromotionRecord>[_promotion()])
-      ..coupons = const <PromotionCouponRecord>[
-        PromotionCouponRecord(
-          id: 'c-1',
-          promotionId: 'promo-1',
-          promotionCode: 'TEN',
-          code: 'SAVE10',
-          maxRedemptions: 100,
-          redemptionCount: 37,
-        ),
-      ];
+    final _PromotionApi api =
+        _PromotionApi(rows: <PromotionRecord>[_promotion()])
+          ..coupons = const <PromotionCouponRecord>[
+            PromotionCouponRecord(
+              id: 'c-1',
+              promotionId: 'promo-1',
+              promotionCode: 'TEN',
+              code: 'SAVE10',
+              maxRedemptions: 100,
+              redemptionCount: 37,
+            ),
+          ];
     await _pumpPage(tester, api);
 
     await tester.tap(find.text('Coupons'));
@@ -440,5 +449,64 @@ void main() {
 
     expect(find.text('5 used'), findsOneWidget);
     expect(find.text('No limit'), findsOneWidget);
+  });
+
+  // D-QA-7: the dialog had no coupon-only switch, so an offer meant for
+  // coupon holders applied to everyone, and every pricing case after it failed.
+  testWidgets('an offer can be made coupon-only, with limits', (tester) async {
+    final _PromotionApi api = _PromotionApi();
+    await _pumpDialog(tester, api, existing: _promotion());
+
+    await tester.tap(find.byKey(const ValueKey('promotion-requires-coupon')));
+    await tester.enterText(
+        find.byKey(const ValueKey('promotion-max-redemptions')), '100');
+    await tester.enterText(
+        find.byKey(const ValueKey('promotion-max-per-customer')), '1');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.savedBody?['requires_coupon'], isTrue);
+    expect(api.savedBody?['max_redemptions'], 100);
+    expect(api.savedBody?['max_redemptions_per_customer'], 1);
+  });
+
+  testWidgets('an edit keeps the coupon rule and limits it was read with',
+      (tester) async {
+    final _PromotionApi api = _PromotionApi();
+    const PromotionRecord base = PromotionRecord(
+      id: 'promo-1',
+      code: 'CPN',
+      name: 'Coupon offer',
+      version: 2,
+      status: 'ACTIVE',
+      requiresCoupon: true,
+      maxRedemptions: 50,
+      actions: <PromotionActionRecord>[
+        PromotionActionRecord(
+            actionType: 'LINE_DISCOUNT_PERCENT', percent: '10'),
+      ],
+    );
+    await _pumpDialog(tester, api, existing: base);
+
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    // An update replaces the offer: a field left out would be cleared.
+    expect(api.savedBody?['requires_coupon'], isTrue);
+    expect(api.savedBody?['max_redemptions'], 50);
+    expect(api.savedBody?['max_redemptions_per_customer'], isNull);
+  });
+
+  testWidgets('a limit of zero is refused before it is sent', (tester) async {
+    final _PromotionApi api = _PromotionApi();
+    await _pumpDialog(tester, api, existing: _promotion());
+
+    await tester.enterText(
+        find.byKey(const ValueKey('promotion-max-redemptions')), '0');
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.savedBody, isNull);
+    expect(find.text('A whole number of 1 or more, or blank'), findsOneWidget);
   });
 }
