@@ -3603,3 +3603,25 @@ anything is written, cancel and retry.
    editing.
 7. Opening balances for customers and vendors in the same file where the
    write schema already takes them; opening stock stays with its own import.
+
+## 47. The window's title bar buttons barely show on hover (D-QA-1) -- parked
+
+Owner, 2026-09-26, on the laptop after the 1.0.1 upgrade: minimize, maximize
+and close are now all present (the original D-QA-1 symptom, no minimize or
+resize button, is gone). What remains: hovering **close** turns it red, but
+**minimize** and **maximize** get only Windows 11's very light grey, which on
+the white title bar is nearly invisible, so they feel absent. The title bar is
+the standard Windows one (`windows/runner/win32_window.cpp`, `window_manager`
+0.5); Windows draws these buttons, the same as in Notepad.
+
+**Options (owner to choose when scheduled):**
+1. **Phase 1, small:** colour the title bar (`DwmSetWindowAttribute` with
+   `DWMWA_CAPTION_COLOR` and `DWMWA_TEXT_COLOR`, Windows 11), e.g. the phase 2
+   menu bar's dark grey with white text, so Windows draws a visible hover on
+   all three. One runner change, next Setup.
+2. **Phase 2:** no separate Windows title bar -- our own minimize, maximize
+   and close at the right end of the top menu bar (as VS Code, Teams and Edge
+   do), with a clear hover, gaining about 30 px of height for the grid.
+
+Also still open: the window and taskbar icon is the default Flutter logo
+until the owner supplies the product `.ico`.
