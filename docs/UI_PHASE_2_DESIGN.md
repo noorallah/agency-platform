@@ -193,11 +193,74 @@ Screens (all 94, by name and by synonyms: "bill" finds Sales Invoices),
 records (today's global search), and actions (create, approve, print).
 Recent entries first.
 
-### 4.5 List screens
+### 4.5 Nothing above the grid but one line (owner, 2026-09-25)
 
-- **Filter chips** in the page bar replace the collapsible filter tile; "+"
-  opens a filter drawer on the right. Saved views ("My open orders") are
-  chips too.
+The owner's note after going through every screen: filters and summaries take
+a lot of each page, and that space should go to the work. Today, above the
+grid, a list can stack a breadcrumb, a title and a description, a row of
+summary cards (`SummaryMetricCard`, 230 px wide with 20 px padding, about
+100 px tall -- on Inventory, Purchases and the Dashboard) or a summary strip
+(orders, invoices, receipts, delivery notes), the search and toolbar row and
+the filter tile. Phase 2 folds **all of it into the page bar**:
+
+```
+| Sales Invoices   Open 12 | Overdue 3 | Rs 4.2 L this month   [Status=Open x] [+]  / search   [Print] [+ New] |
+```
+
+- **Summary figures become counters in the page bar** -- small, one line,
+  and **clickable**: clicking "Overdue 3" filters the list to those three. A
+  figure that is not a filter ("Rs 4.2 L this month") is plain text. The
+  full set of cards and charts lives on **Home**, where somebody goes to look
+  at numbers, not on the list where they go to work.
+- **Filters are chips** in the same line; **+** opens a filter drawer from
+  the right, which closes again. Saved views are chips too.
+- **Search** is the `/` key or the small box in the line, not a full-width
+  band.
+- **Actions** sit at the right end of the same line; the rarely used ones
+  under **...**.
+- A screen may not add a band above its grid. Anything that wants one is a
+  counter, a chip, or belongs on Home.
+
+At 1366 x 768 this is what gives the ~16 rows in 4.1; today's cards and
+filter tile alone take the height of about five rows.
+
+### 4.6 Daily screens: fast, and familiar
+
+Most of a customer's day is spent on a few screens. They get extra care, and
+they should feel like the software the customer used before (Tally, Busy,
+Marg), so the work is done quickly without training.
+
+**The daily screens** (to confirm per role in appendix A): Sales Invoice
+(billing), Receipt, Sales Order, Quotation, Delivery Note, Purchase entry
+(receipt and invoice), Payment, Stock enquiry, Customer ledger / statement.
+
+For each of them:
+
+1. **Opens ready to type.** The menu item or its key opens a new entry with
+   the cursor in the first field -- the list is one key away, not in the way.
+2. **Pick by typing.** Customer by code, name or phone; product by code, name
+   or barcode; the first few letters narrow the list, Enter takes it. A
+   master that is missing can be created **inline** (Alt+C, as in Tally)
+   without leaving the document.
+3. **What the user needs at the line, on the line.** Available stock, last
+   price charged to this customer, and the applicable discount shown beside
+   the product as it is picked -- no second screen.
+4. **Enter moves forward**, a new line appears after the last, and the
+   totals footer (taxable, GST, round-off, total, amount in words) is always
+   visible.
+5. **Save, print and start the next in one key** (for billing counters),
+   plus Save and Save-and-close.
+6. **Recent documents** of the same kind in a narrow panel that can be
+   hidden, to repeat or check the last bill.
+7. **Voucher keys** a Tally user knows, as an option to agree: F8 sales,
+   F9 purchase, F6 receipt, F5 payment, F7 journal.
+
+The measure is time: a counter clerk should bill a known customer for three
+known products **in under 30 seconds without the mouse**.
+
+### 4.7 List screens
+
+- Filters, counters and search as in 4.5.
 - **Density**: compact (34 px) by default below 900 px of height,
   comfortable above; the user can switch. (The three densities already exist
   in `design_tokens.dart`.)
@@ -206,7 +269,7 @@ Recent entries first.
   opens it fully.
 - Column chooser, sort, and CSV/XLSX export stay as today.
 
-### 4.6 Documents (orders, invoices, receipts)
+### 4.8 Documents (orders, invoices, receipts)
 
 - Open **as a tab, full page**, not as a dialog.
 - Header fields in a compact **two- or three-column grid**, lines in an
@@ -215,14 +278,14 @@ Recent entries first.
 - Actions in the page bar follow the status: Save, Approve, Print, Convert
   to...; the document's timeline and attachments in a collapsible right panel.
 
-### 4.7 Home per role
+### 4.9 Home per role
 
 A counter clerk, a storeman, an accountant and an owner get different homes:
 today's numbers (sales, receipts due, stock below reorder), their to-do
 (orders to approve, deliveries pending), favourites and recent documents.
 Built from the same permissions the menu uses.
 
-### 4.8 Keyboard
+### 4.10 Keyboard
 
 | Keys | Does |
 | --- | --- |
@@ -271,6 +334,9 @@ permission gating, 1366 x 768 overflow tests) extended to the new shell.
 - Any screen reachable in **<= 2 clicks or one Ctrl+K search**, never a
   scroll through a menu.
 - A sales order can be entered start to finish **without the mouse**.
+- A counter clerk bills a known customer for three known products in
+  **under 30 seconds**.
+- No band above any grid except the page bar.
 - No screen overflows from 1366 x 768 up (as today).
 
 ## 8. Decisions for the owner
@@ -288,7 +354,10 @@ Recommended answers first; each can be changed.
 | 7 | Default density on laptops | **Compact (34 px)** | Comfortable (42 px) |
 | 8 | Role homes | **Yes**, one per seeded role family | One dashboard for everyone |
 | 9 | Roll-out | **Preview switch, then replace** (section 6) | Replace in one release |
+| 10 | Summary cards and filters above lists | **Agreed in principle 2026-09-25: moved into the page bar as clickable counters and chips; cards only on Home** (4.5) | Keep a collapsible summary strip |
+| 11 | Tally voucher keys (F8, F9, F6, F5, F7) on daily screens | **Yes** (4.6) | Only Ctrl-based shortcuts |
+| 12 | Which screens count as "daily" | **The nine listed in 4.6**, confirmed per role | Owner's own list |
 
-Next: agree or change the remaining eight answers (1 is agreed); then appendix A (every screen's
+Next: agree or change the open answers (1 and 10 are agreed); then appendix A (every screen's
 area, group and label) and clickable mock-ups of the shell, a list and a
 sales order are prepared for review before any code.
