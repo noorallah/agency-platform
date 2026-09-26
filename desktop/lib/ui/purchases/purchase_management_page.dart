@@ -395,6 +395,11 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
   }
 
   Future<void> _load({int? requestedPage}) async {
+    // Read before any await: whether to pick the first row (phase 1 only).
+    // Phase 2 (option C, owner 2026-09-27): nothing is picked for the user --
+    // the selection bar opens when somebody clicks a row, and stays with it.
+    final bool pickFirst =
+        context.getInheritedWidgetOfExactType<Phase2Scope>() == null;
     if (!widget.hasActiveFirm || !_canView) {
       return;
     }
@@ -424,7 +429,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         selected =
             orders.items.where((item) => item.id == selected!.id).firstOrNull;
       }
-      if (selected == null && orders.items.isNotEmpty) {
+      if (selected == null && pickFirst && orders.items.isNotEmpty) {
         selected = orders.items.first;
       }
       if (!mounted) return;
@@ -1144,6 +1149,18 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
               )
             : _buildSearchPanel(),
         lineChips: Phase2Scope.of(context) ? [_viewsChip()] : const [],
+        // Option C (owner, 2026-09-27): the order's actions on a bar that
+        // names it, above the grid.
+        selectionBar: true,
+        selection: _selected == null
+            ? null
+            : SelectionSummary.document(
+                number: _selected!.poNumber,
+                party: _labelForVendor(_selected!.vendorId),
+                status: _selected!.status,
+                total: _selected!.grandTotal,
+                onClear: () => setState(() => _selected = null),
+              ),
         filterPanel: _buildFilterPanel(),
         viewBar: widget.section == PurchaseSection.purchaseOrders &&
                 !Phase2Scope.of(context)

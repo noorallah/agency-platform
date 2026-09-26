@@ -375,6 +375,18 @@ class _EInvoicePageState extends State<EInvoicePage> {
           ],
         ],
       ),
+      // Option C (owner, 2026-09-27): the registration's actions on a bar
+      // that names it, above the grid. No total rides on the record or the
+      // grid, so the bar names only the number, party and status.
+      selectionBar: true,
+      selection: chosen == null
+          ? null
+          : SelectionSummary.document(
+              number: chosen.invoiceNumber,
+              party: chosen.customerName,
+              status: chosen.status,
+              onClear: () => setState(() => _selectedId = null),
+            ),
       searchPanel: const SizedBox.shrink(),
       primaryContent: _content(),
       statusBar: WorkspaceStatusBar(

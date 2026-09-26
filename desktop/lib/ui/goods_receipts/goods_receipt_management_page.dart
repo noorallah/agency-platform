@@ -170,6 +170,11 @@ class _GoodsReceiptManagementPageState
   }
 
   Future<void> _load({int? requestedPage}) async {
+    // Read before any await: whether to pick the first row (phase 1 only).
+    // Phase 2 (option C, owner 2026-09-27): nothing is picked for the user --
+    // the selection bar opens when somebody clicks a row, and stays with it.
+    final bool pickFirst =
+        context.getInheritedWidgetOfExactType<Phase2Scope>() == null;
     if (!widget.hasActiveFirm ||
         !widget.permissions.hasPermission('PURCHASE_VIEW')) {
       return;
@@ -202,7 +207,7 @@ class _GoodsReceiptManagementPageState
             receipts.items.where((item) => item.id == selected!.id).toList();
         selected = matches.isEmpty ? null : matches.first;
       }
-      if (selected == null && receipts.items.isNotEmpty) {
+      if (selected == null && pickFirst && receipts.items.isNotEmpty) {
         selected = receipts.items.first;
       }
       List<DocumentTimelineSnapshot> history = const [];
@@ -455,6 +460,18 @@ class _GoodsReceiptManagementPageState
           hintText: 'Search GRN number, purchase order...',
           onSearch: (_) => _load(requestedPage: 1),
         ),
+        // Option C (owner, 2026-09-27): the receipt's actions on a bar that
+        // names it, above the grid. No vendor name rides on the record or the
+        // grid, so the bar names only the number, status and total.
+        selectionBar: true,
+        selection: _selected == null
+            ? null
+            : SelectionSummary.document(
+                number: _selected!.grnNumber,
+                status: _selected!.status,
+                total: _selected!.grandTotal,
+                onClear: () => setState(() => _selected = null),
+              ),
         // Phase 2's counters are the views (4.5); a second row
         // of the same choices would repeat them.
         viewBar: Phase2Scope.of(context) ? null : _buildViewBar(),

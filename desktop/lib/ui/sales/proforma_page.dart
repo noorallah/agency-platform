@@ -314,6 +314,18 @@ class _ProformaPageState extends State<ProformaPage> {
           ),
         ],
       ),
+      // Option C (owner, 2026-09-27): the proforma's actions on a bar that
+      // names it, above the grid.
+      selectionBar: true,
+      selection: selected == null
+          ? null
+          : SelectionSummary.document(
+              number: selected.proformaNumber,
+              party: selected.customerName,
+              status: selected.status,
+              total: selected.grandTotal,
+              onClear: () => setState(() => _selectedId = null),
+            ),
       // Phase 2: the note is on the detail pane, where it is said again; on
       // the one line it wrapped into three.
       searchPanel: phase2

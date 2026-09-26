@@ -195,6 +195,11 @@ class _PurchaseInvoiceManagementPageState
       };
 
   Future<void> _load({int? requestedPage}) async {
+    // Read before any await: whether to pick the first row (phase 1 only).
+    // Phase 2 (option C, owner 2026-09-27): nothing is picked for the user --
+    // the selection bar opens when somebody clicks a row, and stays with it.
+    final bool pickFirst =
+        context.getInheritedWidgetOfExactType<Phase2Scope>() == null;
     if (!widget.hasActiveFirm ||
         !widget.permissions.hasPermission('PURCHASE_VIEW')) {
       return;
@@ -228,7 +233,7 @@ class _PurchaseInvoiceManagementPageState
             invoices.where((item) => item.id == selectedId).toList();
         selected = matches.isEmpty ? null : matches.first;
       }
-      if (selected == null && invoices.isNotEmpty) {
+      if (selected == null && pickFirst && invoices.isNotEmpty) {
         selected = invoices.first;
       }
       List<DocumentTimelineSnapshot> history = const [];
@@ -309,6 +314,18 @@ class _PurchaseInvoiceManagementPageState
           hintText: 'Search invoice number, supplier invoice...',
           onSearch: (_) => _load(requestedPage: 1),
         ),
+        // Option C (owner, 2026-09-27): the invoice's actions on a bar that
+        // names it, above the grid. No vendor name rides on the record or
+        // the grid, so the bar names only the number, status and total.
+        selectionBar: true,
+        selection: _selected == null
+            ? null
+            : SelectionSummary.document(
+                number: _selected!.invoiceNumber,
+                status: _selected!.status,
+                total: _selected!.grandTotal,
+                onClear: () => setState(() => _selected = null),
+              ),
         // Inside the frame rather than instead of it: the workspace still
         // names itself and its breadcrumbs when no firm is chosen, which is
         // what tells the user where they are while they choose one.
