@@ -5,6 +5,8 @@ import 'package:agency_desktop/models/goods_receipt.dart';
 import 'package:agency_desktop/models/product.dart';
 import 'package:agency_desktop/models/purchase.dart';
 import 'package:agency_desktop/ui/goods_receipts/goods_receipt_editor_dialog.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
+    show Phase2Scope;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -80,11 +82,16 @@ class _ReceiptApi extends ApiClient {
   }
 }
 
-Future<void> _openEditor(WidgetTester tester, _ReceiptApi api) async {
+Future<void> _openEditor(
+  WidgetTester tester,
+  _ReceiptApi api, {
+  bool phase2 = false,
+}) async {
+  Widget scoped(Widget child) => phase2 ? Phase2Scope(child: child) : child;
   await tester.pumpWidget(
     MaterialApp(
       home: Scaffold(
-        body: GoodsReceiptEditorDialog(
+        body: scoped(GoodsReceiptEditorDialog(
           api: api,
           purchaseOrders: [_order()],
           warehouses: [
@@ -101,7 +108,7 @@ Future<void> _openEditor(WidgetTester tester, _ReceiptApi api) async {
               'name': 'Amoxicillin 500mg',
             }),
           ],
-        ),
+        )),
       ),
     ),
   );
@@ -203,5 +210,43 @@ void main() {
       findsOneWidget,
     );
     expect(api.sent, isNull);
+  });
+
+  testWidgets('phase 2 receives on one screen, the lines as a table', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _ReceiptApi api = _ReceiptApi();
+    await _openEditor(tester, api, phase2: true);
+    expect(find.text('No purchase order chosen'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('goods-receipt-order')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('PO-2026-000001').last);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    // Ten ordered, four in: six due, six accepted at 25 = 150.
+    expect(find.byKey(const ValueKey('document-side-panel')), findsOneWidget);
+    expect(find.text('150.00'), findsWidgets);
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('goods-receipt-batch-po-1-0')),
+      'B-2026-07',
+    );
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('goods-receipt-accepted-po-1-0')),
+      '5',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('125.00'), findsWidgets);
+
+    await tester.tap(find.byKey(const ValueKey('goods-receipt-save')));
+    await tester.pumpAndSettle();
+    final Json line = (api.sent!['lines'] as List<dynamic>).single as Json;
+    expect(line['current_receipt_quantity'], '5');
+    expect(line['batch_number'], 'B-2026-07');
+    expect(line['warehouse_id'], 'wh-1');
   });
 }
