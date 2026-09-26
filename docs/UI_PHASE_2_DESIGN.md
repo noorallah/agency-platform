@@ -395,6 +395,13 @@ holds the warehouse the line leaves from, the batches it is expected to come off
 (earliest expiry first, decided at dispatch), the serial numbers going out, and
 remarks. Valued at the order's rates; the sales invoice is the priced document.
 
+**Sales returns (2026-09-26)** take a delivery note or a sales invoice and show
+**every** line of it, so one return brings back several products (the phase 1
+dialog took one line per return). Each line starts at nothing coming back;
+returning, damaged and scrap are typed in the row, what goes back on the shelf is
+worked out. Priced as typed by `POST /sales-returns/preview`; the total is the
+credit to the customer. Serial numbers coming back are picked in the side panel.
+
 ### 4.9 Home per role
 
 A counter clerk, a storeman, an accountant and an owner get different homes:
