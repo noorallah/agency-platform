@@ -138,6 +138,7 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
           sourceType: document.sourceType.code,
           sourceLineId: line.id,
         ),
+        preview: widget.api.previewSalesReturn,
       ),
     );
     if (payload == null) return;

@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
@@ -6,7 +9,12 @@ import '../../models/batch_serial.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
 import '../../models/sales_return.dart';
+import '../../models/document_preview.dart';
+import '../../phase2/document_page.dart';
+import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
+
+part 'sales_return_editor_phase2.dart';
 
 /// Raising a return against goods that already went out.
 ///
@@ -22,6 +30,7 @@ class SalesReturnEditorDialog extends StatefulWidget {
     required this.warehouses,
     required this.today,
     this.loadSerials,
+    this.preview,
   });
 
   final List<ReturnableDocument> documents;
@@ -38,6 +47,10 @@ class SalesReturnEditorDialog extends StatefulWidget {
     ReturnableDocument document,
     ReturnableLine line,
   )? loadSerials;
+
+  /// Price a draft as saving it would (`POST /sales-returns/preview`); the
+  /// phase 2 screen calls it as lines are typed. Null leaves it unpriced.
+  final Future<SalesReturnPreviewRecord> Function(Json draft)? preview;
 
   @override
   State<SalesReturnEditorDialog> createState() =>
@@ -63,6 +76,45 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
   bool _loadingSerials = false;
   String? _serialProblem;
 
+  /// Phase 2: every line of the chosen document, the return as the server
+  /// priced it last, and the line the side panel follows.
+  List<_ReturnLineDraft> _drafts = const [];
+  SalesReturnPreviewRecord? _preview;
+  int _current = 0;
+  String? _phase2Problem;
+  Timer? _previewTimer;
+  int _previewSerial = 0;
+  bool _phase2 = false;
+
+  void _setState(VoidCallback change) => setState(change);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _phase2 = Phase2Scope.of(context);
+  }
+
+  /// Price the return again once the typing pauses; only the latest answer
+  /// lands. A return nothing is coming back on is not sent.
+  void _schedulePreview() {
+    final previewer = widget.preview;
+    if (!_phase2 || previewer == null) return;
+    _previewTimer?.cancel();
+    _previewTimer = Timer(const Duration(milliseconds: 350), () async {
+      final Json? draft = _phase2Payload(pricing: true);
+      if (draft == null || !mounted) return;
+      final int serial = ++_previewSerial;
+      try {
+        final SalesReturnPreviewRecord priced = await previewer(draft);
+        if (!mounted || serial != _previewSerial) return;
+        setState(() => _preview = priced);
+      } on ApiException {
+        // A return the server refuses as it stands keeps the last figures;
+        // saving it says why.
+      }
+    });
+  }
+
   @override
   void initState() {
     super.initState();
@@ -76,6 +128,7 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
 
   @override
   void dispose() {
+    _previewTimer?.cancel();
     _quantity.dispose();
     _damaged.dispose();
     _scrap.dispose();
@@ -90,6 +143,7 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
       _document = document;
       _line = document.lines.isEmpty ? null : document.lines.first;
     });
+    _phase2Document(document);
     _loadSerials();
   }
 
@@ -206,6 +260,8 @@ class _SalesReturnEditorDialogState extends State<SalesReturnEditorDialog> {
 
   @override
   Widget build(BuildContext context) {
+    // Phase 2: the one-screen return (the documents' approved layout).
+    if (Phase2Scope.of(context)) return _phase2Page(context);
     final ReturnableDocument? document = _document;
     return WorkspaceDialog(
       title: 'New sales return',
