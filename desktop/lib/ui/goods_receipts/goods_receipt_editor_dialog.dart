@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/business/business_features.dart';
@@ -10,7 +11,11 @@ import '../../models/entities.dart';
 import '../../models/goods_receipt.dart';
 import '../../models/product.dart';
 import '../../models/purchase.dart';
+import '../../phase2/document_page.dart';
+import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
+
+part 'goods_receipt_editor_phase2.dart';
 
 /// One line being received, as the storeman is editing it.
 ///
@@ -154,6 +159,11 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
   bool _loadingLines = false;
   String? _error;
 
+  /// Phase 2: the line the side panel follows.
+  int _current = 0;
+
+  void _setState(VoidCallback change) => setState(change);
+
   bool get _isEditing => widget.existing != null;
 
   @override
@@ -167,7 +177,31 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
       _vehicleNumber = current.vehicleNumber;
       _remarks = current.remarks;
       final PurchaseOrder? order = _orderOf(current.purchaseOrderId);
-      if (order != null) unawaited(_selectOrder(order));
+      if (order != null) {
+        unawaited(_selectOrder(order));
+      } else {
+        unawaited(_fetchOrder(current.purchaseOrderId));
+      }
+    }
+  }
+
+  /// Read the draft's order when the list did not hand it over -- it had not
+  /// finished loading, or the order has since left the receivable list. The
+  /// draft's lines are that order's lines, so without it the editor would
+  /// show a receipt against nothing.
+  Future<void> _fetchOrder(String orderId) async {
+    setState(() => _loadingLines = true);
+    try {
+      final PurchaseOrder order = await widget.api.purchaseOrder(orderId);
+      if (!mounted) return;
+      await _selectOrder(order);
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      setState(() {
+        _loadingLines = false;
+        _error = 'Could not read the purchase order this receipt was raised '
+            'against: ${exception.message}';
+      });
     }
   }
 
@@ -375,7 +409,10 @@ class _GoodsReceiptEditorDialogState extends State<GoodsReceiptEditorDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => WorkspaceDialog(
+  Widget build(BuildContext context) => Phase2Scope.of(context)
+      // Phase 2: the one-screen receipt (the documents' approved layout).
+      ? _phase2Page(context)
+      : WorkspaceDialog(
         title: 'New Goods Receipt',
         subtitle: _order == null
             ? 'Choose a purchase order to receive against'

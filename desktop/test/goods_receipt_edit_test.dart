@@ -57,6 +57,11 @@ class _Api extends ApiClient {
       sentVersion = expectedVersion;
       return <String, dynamic>{'data': _receiptJson()};
     }
+    // The order itself, read when the list did not hand it over.
+    if (path == '/api/v1/purchases/po-1') {
+      calls.add('$method $path');
+      return <String, dynamic>{'data': _orderJson()};
+    }
     // Earlier completed receipts against the order: none.
     return <String, dynamic>{
       'data': const <Json>[],
@@ -120,7 +125,7 @@ Json _receiptJson({String receiptQuantity = '40'}) => <String, dynamic>{
     };
 
 Future<void> _openEditor(WidgetTester tester, _Api api,
-    {GoodsReceiptRecord? existing}) async {
+    {GoodsReceiptRecord? existing, bool orderListed = true}) async {
   tester.view.physicalSize = const Size(1600, 1100);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
@@ -128,7 +133,9 @@ Future<void> _openEditor(WidgetTester tester, _Api api,
     home: Scaffold(
       body: GoodsReceiptEditorDialog(
         api: api,
-        purchaseOrders: <PurchaseOrder>[PurchaseOrder.fromJson(_orderJson())],
+        purchaseOrders: <PurchaseOrder>[
+          if (orderListed) PurchaseOrder.fromJson(_orderJson()),
+        ],
         warehouses: const [],
         products: const [],
         existing: existing,
@@ -139,6 +146,23 @@ Future<void> _openEditor(WidgetTester tester, _Api api,
 }
 
 void main() {
+  testWidgets('a draft whose order the list had not loaded reads it itself',
+      (tester) async {
+    final _Api api = _Api();
+    await _openEditor(
+      tester,
+      api,
+      existing: GoodsReceiptRecord.fromJson(_receiptJson()),
+      orderListed: false,
+    );
+
+    // Edit was pressed before the list finished loading its receivable
+    // orders; the draft still opens against its own order and counts.
+    expect(api.calls, contains('GET /api/v1/purchases/po-1'));
+    expect(find.text('40'), findsWidgets);
+    expect(find.text('No purchase order chosen'), findsNothing);
+  });
+
   testWidgets('a draft opens with what was already counted', (tester) async {
     final _Api api = _Api();
     await _openEditor(

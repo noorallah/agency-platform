@@ -365,6 +365,14 @@ header, so nothing the phase 1 dialog offered is lost. Send for approval, Approv
 and Print are on the top line when the status allows them. Priced by
 `POST /purchases/preview`.
 
+**Goods receipts (2026-09-26)** are the same screen for what arrived. The lines
+are the order's lines: ordered, received before, still due, then accepted, free,
+rejected, damaged and batch, typed in the table (an accepted figure over what is
+due turns red). The side panel holds the rest of the current line: the warehouse
+it went to, expiry and manufacturing dates where the firm uses them, and remarks,
+plus the receipt's totals. The receipt is not priced by the server: it is valued
+at the order's rates, and the supplier's bill is a purchase invoice.
+
 ### 4.9 Home per role
 
 A counter clerk, a storeman, an accountant and an owner get different homes:
