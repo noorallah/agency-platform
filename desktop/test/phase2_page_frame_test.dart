@@ -307,4 +307,30 @@ void main() {
     );
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets("a list's status goes into the window's one bottom bar",
+      (tester) async {
+    final ValueNotifier<Widget?> left = ValueNotifier(null);
+    addTearDown(left.dispose);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Phase2Scope(
+          child: Phase2StatusScope(
+            left: left,
+            alive: () => true,
+            child: const Column(children: [
+              Expanded(child: SizedBox.expand(key: _grid)),
+              WorkspaceStatusBar(total: 12, selected: true, selectedCount: 1),
+            ]),
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    // Nothing drawn here: no second bar above the window's.
+    expect(find.text('12 records'), findsNothing);
+    await tester.pumpWidget(MaterialApp(home: Scaffold(body: left.value!)));
+    expect(find.text('12 records'), findsOneWidget);
+    expect(find.text('1 selected'), findsOneWidget);
+  });
 }

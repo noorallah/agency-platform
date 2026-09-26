@@ -225,6 +225,11 @@ class _DesktopShellState extends State<DesktopShell> {
   ListViewRequest? _viewRequest;
   int _viewRequests = 0;
 
+  /// The left of the phase 2 bottom bar: what the screen on show says about
+  /// itself. Cleared on every change of screen, so a list's count never
+  /// lingers under the next screen.
+  final ValueNotifier<Widget?> _statusLeft = ValueNotifier(null);
+
   /// The screen on show before the latest route change -- the tab that a
   /// change made from inside a page belongs to.
   String? _shownPath;
@@ -295,6 +300,7 @@ class _DesktopShellState extends State<DesktopShell> {
 
   @override
   void dispose() {
+    _statusLeft.dispose();
     _documents.dispose();
     _healthTimer?.cancel();
     widget.session.removeListener(_sessionChanged);
@@ -325,6 +331,7 @@ class _DesktopShellState extends State<DesktopShell> {
 
   void _routeChanged() {
     widget.session.registerActivity();
+    _statusLeft.value = null;
     _followRouteInTabs();
     if (mounted) setState(() {});
   }
@@ -654,19 +661,6 @@ class _DesktopShellState extends State<DesktopShell> {
               const SizedBox(width: 8),
               _firmOnBar(),
               const SizedBox(width: 6),
-              ConnectionDot(
-                online: _health.backend == ConnectionStateIndicator.online &&
-                    _health.database == ConnectionStateIndicator.online,
-                checking: _health.backend == ConnectionStateIndicator.checking,
-                details: [
-                  'Server: ${_health.backend.name}',
-                  'Database: ${_health.database.name}',
-                  if (widget.session.userLabel != null)
-                    'Signed in: ${widget.session.userLabel}',
-                  widget.session.baseUrl,
-                  '${widget.branding.companyName} ${widget.branding.version}',
-                ].join('\n'),
-              ),
               // Phase 1 kept it at the foot of the sidebar, which phase 2
               // does not have.
               ThemeSelector(
@@ -702,28 +696,96 @@ class _DesktopShellState extends State<DesktopShell> {
           // half entered is still there when somebody comes back to it.
           Expanded(
             child: Phase2Scope(
-              child: DocumentTabsScope(
-                controller: _documents,
-                child: ListViewRequestScope(
-                  request: _viewRequest,
-                  child: IndexedStack(
-                    index: activeIndex,
-                    children: [
-                      page,
-                      for (final OpenDocument document in documents)
-                        DocumentNavigator(
-                          key: ValueKey(document.id),
-                          document: document,
-                        ),
-                    ],
+              child: Phase2StatusScope(
+                left: _statusLeft,
+                alive: () => mounted,
+                child: DocumentTabsScope(
+                  controller: _documents,
+                  child: ListViewRequestScope(
+                    request: _viewRequest,
+                    child: IndexedStack(
+                      index: activeIndex,
+                      children: [
+                        page,
+                        for (final OpenDocument document in documents)
+                          DocumentNavigator(
+                            key: ValueKey(document.id),
+                            document: document,
+                          ),
+                      ],
+                    ),
                   ),
                 ),
               ),
             ),
           ),
+          _phase2StatusBar(),
         ]),
       ),
     );
+  }
+
+  /// The wireframe's bottom bar: the screen's own line at the left -- a
+  /// list's records and selection, the role on Home -- and the connection
+  /// at the right, details on hover.
+  Widget _phase2StatusBar() {
+    final ThemeData theme = Theme.of(context);
+    final bool onHome = _activeDocument == null &&
+        _router.current.path == MenuLayout.homeRoute;
+    return Container(
+      key: const ValueKey('phase2-status-bar'),
+      height: 28,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        border: Border(top: BorderSide(color: theme.colorScheme.outlineVariant)),
+      ),
+      child: DefaultTextStyle.merge(
+        style: theme.textTheme.bodySmall
+            ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+        child: Row(children: [
+          Expanded(
+            child: onHome
+                ? Text(_roleLabel(), key: const ValueKey('status-role'))
+                : _activeDocument != null
+                    ? const SizedBox.shrink()
+                    : ValueListenableBuilder<Widget?>(
+                        valueListenable: _statusLeft,
+                        builder: (context, line, _) =>
+                            line ?? const SizedBox.shrink(),
+                      ),
+          ),
+          ConnectionDot(
+            onChrome: false,
+            online: _health.backend == ConnectionStateIndicator.online &&
+                _health.database == ConnectionStateIndicator.online,
+            checking: _health.backend == ConnectionStateIndicator.checking,
+            details: [
+              'Server: ${_health.backend.name}',
+              'Database: ${_health.database.name}',
+              if (widget.session.userLabel != null)
+                'Signed in: ${widget.session.userLabel}',
+              widget.session.baseUrl,
+              '${widget.branding.companyName} ${widget.branding.version}',
+            ].join('\n'),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  /// Who the user is in this firm, as the wireframe's Home says "Owner": the
+  /// names of the roles they hold here, or "Platform administrator".
+  String _roleLabel() {
+    final CurrentUser? user = widget.session.currentUser;
+    final String? firmId = widget.session.currentFirm?.id;
+    final List<String> names = [
+      for (final MyRole role in user?.roles ?? const <MyRole>[])
+        if (role.firmId == null || role.firmId == firmId) role.name,
+    ];
+    if (names.isNotEmpty) return names.toSet().join(', ');
+    if (widget.permissions.isPlatformAdmin) return 'Platform administrator';
+    return '';
   }
 
   Widget _applicationHeader(AppModule section) => Material(

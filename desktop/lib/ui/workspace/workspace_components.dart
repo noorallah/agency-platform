@@ -2494,11 +2494,33 @@ class WorkspaceStatusBar extends StatelessWidget {
   final String? message;
 
   @override
-  Widget build(BuildContext context) => Material(
+  Widget build(BuildContext context) {
+    // Phase 2: the window has one bottom bar (the wireframe's), and this
+    // list's line goes into it rather than making a second bar above it.
+    final Phase2StatusScope? bar =
+        Phase2Scope.of(context) ? Phase2StatusScope.of(context) : null;
+    if (bar != null) {
+      bar.publish(Row(mainAxisSize: MainAxisSize.min, children: [
+        Text('$total record${total == 1 ? '' : 's'}'),
+        if (selected) ...[
+          const SizedBox(width: 18),
+          Text('${selectedCount ?? 1} selected'),
+        ],
+        if (message != null) ...[
+          const SizedBox(width: 18),
+          Text(message!),
+        ],
+      ]));
+      return const SizedBox.shrink();
+    }
+    return _bar(context);
+  }
+
+  Widget _bar(BuildContext context) => Material(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
         child: Padding(
-          // Phase 2 keeps it to one thin line: it is the only status bar
-          // there, the connection having moved to a dot on the menu bar.
+          // Phase 2 without the window's bar (a page on its own) keeps it
+          // to one thin line.
           padding: Phase2Scope.of(context)
               ? const EdgeInsets.symmetric(horizontal: 12, vertical: 4)
               : const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
