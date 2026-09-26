@@ -442,6 +442,15 @@ class _DeliveryNoteManagementPageState
           controller: _search,
           hintText: 'Search note number, customer, sales order...',
           onSearch: (_) => _load(requestedPage: 1),
+          filters: [
+            ColumnsButton(
+              onPressed: () async {
+                if (await _columns.choose(context) && mounted) {
+                  setState(() {});
+                }
+              },
+            ),
+          ],
         ),
         primaryContent: !widget.hasActiveFirm
             ? const StandardEmptyState(type: EmptyStateType.noFirmSelected)
@@ -639,28 +648,77 @@ class _DeliveryNoteManagementPageState
     }
   }
 
+  /// Every column the list can show; the Columns button picks among them
+  /// (owner, 2026-09-27), remembered per screen on this PC.
+  late final ColumnChoice<_DeliveryNoteRecord> _columns = ColumnChoice(
+    preferences: widget.preferences,
+    stateKey: 'delivery-notes.grid',
+    columns: [
+      ChoosableColumn(
+        column: const GridColumn(key: 'number', label: 'Note Number'),
+        cell: (item) => item.deliveryNoteNumber,
+        required: true,
+      ),
+      // Whose document it is (owner, 2026-09-27); kept at any width.
+      ChoosableColumn(
+        column: const GridColumn(key: 'customer', label: 'Customer', priority: 1),
+        cell: (item) => item.customerName,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'order', label: 'Sales Order'),
+        cell: (item) => item.salesOrderReference,
+        shownByDefault: true,
+      ),
+      // One date: the delivery's, with the minute it was entered.
+      ChoosableColumn(
+        column: const GridColumn(key: 'date', label: 'Delivery Date'),
+        cell: (item) => documentDateStamp(item.deliveryDate, item.createdAt),
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'vehicle', label: 'Vehicle'),
+        cell: (item) => item.vehicle,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'driver', label: 'Driver'),
+        cell: (item) => item.driver,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'quantity', label: 'Quantity Delivered', numeric: true),
+        cell: (item) => item.quantity,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'status', label: 'Status'),
+        cell: (item) => item.status,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'subtotal', label: 'Taxable Value', numeric: true),
+        cell: (item) => item.subtotal,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'tax', label: 'Tax', numeric: true),
+        cell: (item) => item.taxTotal,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'total', label: 'Grand Total'),
+        cell: (item) => item.grandTotal,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'remarks', label: 'Remarks'),
+        cell: (item) => item.remarks,
+      ),
+    ],
+  );
+
   Widget _buildNoteGrid() => EnterpriseDataGrid<_DeliveryNoteRecord>(
-        columns: const [
-          GridColumn(key: 'number', label: 'Note Number'),
-          // Whose document it is (owner, 2026-09-27); kept at any width.
-          GridColumn(key: 'customer', label: 'Customer', priority: 1),
-          GridColumn(key: 'order', label: 'Sales Order'),
-          // One date: the delivery's, with the minute it was entered.
-          GridColumn(key: 'date', label: 'Delivery Date'),
-          GridColumn(key: 'status', label: 'Status'),
-          GridColumn(key: 'total', label: 'Grand Total'),
-        ],
+        columns: _columns.gridColumns,
         items: _notes,
         id: (item) => item.id,
         selectedId: _selected?.id,
-        cells: (item) => [
-          item.deliveryNoteNumber,
-          item.customerName,
-          item.salesOrderReference,
-          documentDateStamp(item.deliveryDate, item.createdAt),
-          item.status,
-          item.grandTotal,
-        ],
+        cells: _columns.cells,
         onSelect: _selectNote,
         onOpen: (item) => unawaited(_openNote(item)),
         total: _total,
@@ -770,6 +828,9 @@ class _DeliveryNoteRecord {
     required this.warehouseId,
     required this.remarks,
     required this.lines,
+    this.vehicle = '',
+    this.driver = '',
+    this.quantity = '',
   });
 
   final String id;
@@ -788,6 +849,11 @@ class _DeliveryNoteRecord {
   final String warehouseId;
   final String remarks;
   final List<_DeliveryNoteLine> lines;
+
+  /// For the list's optional columns (owner, 2026-09-27).
+  final String vehicle;
+  final String driver;
+  final String quantity;
 
   factory _DeliveryNoteRecord.fromJson(Json json) {
     final List<_DeliveryNoteLine> lines = (json['lines'] is List)
@@ -814,6 +880,9 @@ class _DeliveryNoteRecord {
       warehouseId: stringValue(json['warehouse_id']),
       remarks: stringValue(json['remarks']),
       lines: lines,
+      vehicle: stringValue(json['vehicle']),
+      driver: stringValue(json['driver']),
+      quantity: stringValue(json['total_current_delivery_quantity']),
     );
   }
 

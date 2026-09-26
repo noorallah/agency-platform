@@ -544,6 +544,15 @@ class _SalesInvoiceManagementPageState
           controller: _search,
           hintText: 'Search invoice number, customer, reference...',
           onSearch: (_) => _load(requestedPage: 1),
+          filters: [
+            ColumnsButton(
+              onPressed: () async {
+                if (await _columns.choose(context) && mounted) {
+                  setState(() {});
+                }
+              },
+            ),
+          ],
         ),
         primaryContent: !widget.hasActiveFirm
             ? const StandardEmptyState(type: EmptyStateType.noFirmSelected)
@@ -857,28 +866,89 @@ class _SalesInvoiceManagementPageState
             : () => unawaited(_run(action, suffix)),
       );
 
+  /// Every column the list can show; the Columns button picks among them
+  /// (owner, 2026-09-27), remembered per screen on this PC.
+  late final ColumnChoice<Map<String, dynamic>> _columns = ColumnChoice(
+    preferences: widget.preferences,
+    stateKey: 'sales-invoices.grid',
+    columns: [
+      ChoosableColumn(
+        column: const GridColumn(key: 'number', label: 'Invoice Number'),
+        cell: (item) => '${item['invoice_number'] ?? '-'}',
+        required: true,
+      ),
+      // Whose document it is (owner, 2026-09-27); kept at any width.
+      ChoosableColumn(
+        column: const GridColumn(key: 'customer', label: 'Customer', priority: 1),
+        cell: (item) => '${item['customer_name'] ?? ''}',
+        shownByDefault: true,
+      ),
+      // One date: the invoice's, with the minute it was entered.
+      ChoosableColumn(
+        column: const GridColumn(key: 'date', label: 'Invoice Date'),
+        cell: (item) => documentDateStamp(item['invoice_date'], item['created_at']),
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'due', label: 'Due Date'),
+        cell: (item) => '${item['due_date'] ?? ''}',
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'terms', label: 'Payment Terms'),
+        cell: (item) => '${item['payment_terms'] ?? ''}',
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'reference', label: 'Reference'),
+        cell: (item) => '${item['reference_number'] ?? ''}',
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'customer_invoice', label: "Customer's Reference"),
+        cell: (item) => '${item['customer_invoice_number'] ?? ''}',
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'supply', label: 'Place of Supply'),
+        cell: (item) => '${item['place_of_supply'] ?? ''}',
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'status', label: 'Status'),
+        cell: (item) => '${item['status'] ?? ''}',
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'subtotal', label: 'Taxable Value', numeric: true),
+        cell: (item) => '${item['subtotal'] ?? ''}',
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'tax', label: 'Tax', numeric: true),
+        cell: (item) => '${item['tax_total'] ?? ''}',
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'discount', label: 'Line Discounts', numeric: true),
+        cell: (item) => '${item['line_discount_total'] ?? ''}',
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'freight', label: 'Freight', numeric: true),
+        cell: (item) => '${item['freight_amount'] ?? ''}',
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'total', label: 'Grand Total'),
+        cell: (item) => '${item['grand_total'] ?? '0'}',
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'remarks', label: 'Remarks'),
+        cell: (item) => '${item['remarks'] ?? ''}',
+      ),
+    ],
+  );
+
   Widget _buildInvoiceGrid() => EnterpriseDataGrid<Map<String, dynamic>>(
-        columns: const [
-          GridColumn(key: 'number', label: 'Invoice Number'),
-          // Whose document it is (owner, 2026-09-27); kept at any width.
-          GridColumn(key: 'customer', label: 'Customer', priority: 1),
-          // One date: the invoice's, with the minute it was entered.
-          GridColumn(key: 'date', label: 'Invoice Date'),
-          GridColumn(key: 'reference', label: 'Reference'),
-          GridColumn(key: 'status', label: 'Status'),
-          GridColumn(key: 'total', label: 'Grand Total'),
-        ],
+        columns: _columns.gridColumns,
         items: _invoices,
         id: (item) => '${item['id']}',
         selectedId: _selected == null ? null : '${_selected!['id']}',
-        cells: (item) => [
-          '${item['invoice_number'] ?? '-'}',
-          '${item['customer_name'] ?? ''}',
-          documentDateStamp(item['invoice_date'], item['created_at']),
-          '${item['reference_number'] ?? ''}',
-          '${item['status'] ?? ''}',
-          '${item['grand_total'] ?? '0'}',
-        ],
+        cells: _columns.cells,
         onSelect: _selectInvoice,
         onOpen: (item) => unawaited(_openInvoice(item)),
         total: _total,
