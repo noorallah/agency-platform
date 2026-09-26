@@ -46,7 +46,26 @@ class _OrdersApi extends ApiClient {
       };
     }
     if (path == '/api/v1/sales-orders') {
-      statuses.add(query?['status'] ?? '');
+      final String status = query?['status'] ?? '';
+      statuses.add(status);
+      // The whole list answers slowly and the drafts at once -- the order
+      // the owner saw them arrive in, which let the whole list land last.
+      if (status.isEmpty) {
+        await Future<void>.delayed(const Duration(milliseconds: 200));
+      }
+      final List<Json> rows = [
+        {
+          'id': status.isEmpty ? 'o-all' : 'o-draft',
+          'order_number': status.isEmpty ? 'SO-EVERY-ORDER' : 'SO-DRAFT-ONLY',
+          'status': status.isEmpty ? 'APPROVED' : 'DRAFT',
+          'order_date': '2026-09-26',
+          'grand_total': '100.00',
+        },
+      ];
+      return <String, dynamic>{
+        'data': rows,
+        'pagination': <String, dynamic>{'total_records': rows.length},
+      };
     }
     return <String, dynamic>{
       'data': const <Json>[],
@@ -98,6 +117,12 @@ void main() {
           path: 'salesOrders', view: 'draft', serial: 1),
     );
     expect(api.statuses.last, 'DRAFT');
+    // What is on screen, not only what was asked for: the whole list arrived
+    // after the drafts and must not have replaced them.
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pumpAndSettle();
+    expect(find.text('SO-DRAFT-ONLY'), findsWidgets);
+    expect(find.text('SO-EVERY-ORDER'), findsNothing);
     final SummaryCount draft = tester
         .widget(find.byKey(const ValueKey('view-counter-draft')));
     expect(draft.selected, isTrue);

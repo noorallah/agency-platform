@@ -133,9 +133,15 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
     if (_selected != null) unawaited(_load());
   }
 
+  /// Which load is the latest: opened on a report for a reason, the screen
+  /// asks for its first report and then for the one it was opened for, and
+  /// the first answer must not land on top of the second.
+  int _loads = 0;
+
   Future<void> _load({int page = 1}) async {
     final ReportDefinition? report = _selected;
     if (report == null || !widget.hasActiveFirm || !_canRead(report)) return;
+    final int load = ++_loads;
     setState(() {
       _loading = true;
       _error = null;
@@ -153,20 +159,20 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
             : null,
         rowsKey: report.rowsKey,
       );
-      if (!mounted) return;
+      if (!mounted || load != _loads) return;
       setState(() {
         _rows = result.rows;
         _total = result.total;
         _page = page;
       });
     } on ApiException catch (exception) {
-      if (!mounted) return;
+      if (!mounted || load != _loads) return;
       setState(() {
         _error = exception.message;
         _rows = const [];
       });
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && load == _loads) setState(() => _loading = false);
     }
   }
 
