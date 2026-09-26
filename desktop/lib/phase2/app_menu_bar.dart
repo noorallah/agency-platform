@@ -84,6 +84,7 @@ class AppMenuBar extends StatelessWidget {
                 SubmenuButton(
                   key: const ValueKey('menu-area-settings'),
                   style: barIconStyle(context),
+                  menuStyle: panelStyle(context),
                   alignmentOffset: const Offset(-420, 0),
                   menuChildren: [_AreaPanel(area: settings!, onOpen: onOpen)],
                   child: Tooltip(
@@ -157,9 +158,11 @@ class AppMenuBar extends StatelessWidget {
             SubmenuButton(
               key: const ValueKey('menu-area-more'),
               style: _barButtonStyle(context, false),
+              menuStyle: panelStyle(context),
               menuChildren: [
                 for (final MenuAreaSpec area in folded)
                   SubmenuButton(
+                    menuStyle: panelStyle(context),
                     menuChildren: [_AreaPanel(area: area, onOpen: onOpen)],
                     child: Text(area.label),
                   ),
@@ -185,6 +188,7 @@ class AppMenuBar extends StatelessWidget {
     return SubmenuButton(
       key: ValueKey('menu-area-${area.id}'),
       style: _barButtonStyle(context, current),
+      menuStyle: panelStyle(context),
       menuChildren: [_AreaPanel(area: area, onOpen: onOpen)],
       // "Sell ▾": an area that drops a panel says so, as the wireframe does.
       child: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -242,59 +246,126 @@ class _AreaPanel extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
+    final List<MenuGroupSpec> everyday =
+        area.groups.where((group) => !group.configuration).toList();
+    final List<MenuGroupSpec> setup =
+        area.groups.where((group) => group.configuration).toList();
+    final bool labelled =
+        area.groups.length > 1 || area.groups.first.label != area.label;
     return Padding(
       padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          for (final MenuGroupSpec group in area.groups)
-            Padding(
-              padding: const EdgeInsets.only(right: 16),
-              child: IntrinsicWidth(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (area.groups.length > 1 || group.label != area.label)
+      child: IntrinsicHeight(
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final MenuGroupSpec group in everyday)
+              _column(context, group, labelled: labelled),
+            // Configuration apart from the everyday masters: a line, then a
+            // shaded block headed CONFIGURATION -- the lists set up once and
+            // rarely opened again (owner, 2026-09-26).
+            if (setup.isNotEmpty) ...[
+              if (everyday.isNotEmpty)
+                Container(
+                  width: 1,
+                  margin: const EdgeInsets.only(right: 12),
+                  color: scheme.outlineVariant,
+                ),
+              DecoratedBox(
+                key: const ValueKey('menu-configuration'),
+                decoration: BoxDecoration(
+                  color: scheme.surfaceContainerLow,
+                  borderRadius: BorderRadius.circular(6),
+                ),
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 6, 0, 4),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
-                        child: Text(
-                          group.label.toUpperCase(),
-                          style: theme.textTheme.labelSmall?.copyWith(
-                            color: scheme.onSurfaceVariant,
-                            letterSpacing: .6,
-                            fontWeight: FontWeight.w600,
+                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+                        child: Row(mainAxisSize: MainAxisSize.min, children: [
+                          Icon(Icons.tune,
+                              size: 14, color: scheme.onSurfaceVariant),
+                          const SizedBox(width: 6),
+                          Text(
+                            'CONFIGURATION',
+                            style: theme.textTheme.labelSmall?.copyWith(
+                              color: scheme.onSurfaceVariant,
+                              letterSpacing: .6,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
-                        ),
+                        ]),
                       ),
-                    for (final MenuItemSpec item in group.items)
-                      MenuItemButton(
-                        key: ValueKey('menu-item-${item.path}'),
-                        style: ButtonStyle(
-                          minimumSize:
-                              const WidgetStatePropertyAll(Size(160, 34)),
-                          // 4.14: a pointed-at item is outlined in the
-                          // accent, not only tinted -- a tint alone is the
-                          // faint hover D-QA-1 reported.
-                          shape: WidgetStateProperty.resolveWith((states) =>
-                              RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(5),
-                                side: states.contains(WidgetState.hovered) ||
-                                        states.contains(WidgetState.focused)
-                                    ? BorderSide(
-                                        color: scheme.primary, width: 1.5)
-                                    : BorderSide.none,
-                              )),
-                        ),
-                        onPressed: () => onOpen(item),
-                        child: Text(item.label),
+                      Row(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          for (final MenuGroupSpec group in setup)
+                            _column(context, group, labelled: true),
+                        ],
                       ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-        ],
+            ],
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _column(
+    BuildContext context,
+    MenuGroupSpec group, {
+    required bool labelled,
+  }) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    return Padding(
+      padding: const EdgeInsets.only(right: 16),
+      child: IntrinsicWidth(
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (labelled)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
+                child: Text(
+                  group.label.toUpperCase(),
+                  style: theme.textTheme.labelSmall?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                    letterSpacing: .6,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            for (final MenuItemSpec item in group.items)
+              MenuItemButton(
+                key: ValueKey('menu-item-${item.path}'),
+                style: ButtonStyle(
+                  minimumSize: const WidgetStatePropertyAll(Size(160, 34)),
+                  // 4.14: a pointed-at item is outlined in the accent, not
+                  // only tinted -- a tint alone is the faint hover D-QA-1
+                  // reported.
+                  shape: WidgetStateProperty.resolveWith((states) =>
+                      RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(5),
+                        side: states.contains(WidgetState.hovered) ||
+                                states.contains(WidgetState.focused)
+                            ? BorderSide(color: scheme.primary, width: 1.5)
+                            : BorderSide.none,
+                      )),
+                ),
+                onPressed: () => onOpen(item),
+                child: Text(item.label),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -659,4 +730,25 @@ class FirmOnBar extends StatelessWidget {
       ),
     );
   }
+}
+
+/// The wireframe's drop-down panel: the page's white, a light grey edge, the
+/// corners rounded, a soft shadow -- not the framework's default frame, which
+/// drew a heavy dark border round every panel.
+MenuStyle panelStyle(BuildContext context) {
+  final ColorScheme scheme = Theme.of(context).colorScheme;
+  return MenuStyle(
+    backgroundColor: WidgetStatePropertyAll(scheme.surfaceContainerLowest),
+    surfaceTintColor: const WidgetStatePropertyAll(Colors.transparent),
+    elevation: const WidgetStatePropertyAll(6),
+    shadowColor: WidgetStatePropertyAll(Colors.black.withValues(alpha: .25)),
+    padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+    side: WidgetStatePropertyAll(BorderSide(color: scheme.outlineVariant)),
+    shape: WidgetStatePropertyAll(
+      RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: scheme.outlineVariant),
+      ),
+    ),
+  );
 }
