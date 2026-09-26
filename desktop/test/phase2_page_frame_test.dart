@@ -94,7 +94,8 @@ void main() {
   testWidgets('a screen with tabs keeps them on the title line',
       (tester) async {
     final double without = await _gridTop(tester, phase2: true);
-    final double withTabs = await _gridTop(tester, phase2: true, withTabs: true);
+    final double withTabs =
+        await _gridTop(tester, phase2: true, withTabs: true);
     // Beside the title, not on a row of their own: the page grows only by
     // how much taller a tab button is than the title text.
     expect(
@@ -365,5 +366,82 @@ void main() {
     expect(find.byKey(const ValueKey('grid-heading-line')), findsOneWidget);
     // Amounts in Indian digits.
     expect(find.text('1,12,050'), findsNWidgets(2));
+  });
+
+  Future<void> customersGrid(WidgetTester tester, double width) async {
+    tester.view.physicalSize = Size(width, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Phase2Scope(
+          child: EnterpriseDataGrid<String>(
+            items: const ['a'],
+            total: 1,
+            pageOffset: 0,
+            // The wireframe's Customers: GST is p3, Phone p2, Credit limit p3.
+            columns: const [
+              GridColumn(key: 'code', label: 'Code'),
+              GridColumn(key: 'name', label: 'Name'),
+              GridColumn(key: 'gst', label: 'GST'),
+              GridColumn(key: 'phone', label: 'Phone'),
+              GridColumn(key: 'city', label: 'City'),
+              GridColumn(key: 'status', label: 'Status'),
+              GridColumn(key: 'limit', label: 'Credit limit', numeric: true),
+              GridColumn(key: 'balance', label: 'Balance', numeric: true),
+            ],
+            id: (item) => item,
+            cells: (item) => [
+              'C-0001',
+              'Sri Lakshmi General Stores and Wholesale Traders',
+              '33AABCS1234F1Z5',
+              '+91 98400 12345',
+              'Coimbatore',
+              'ON_HOLD',
+              '250000.00',
+              '112050.00',
+            ],
+            onSelect: (_) {},
+            onPageChanged: (_) {},
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+  }
+
+  testWidgets('a narrow window drops the least important columns first',
+      (tester) async {
+    await customersGrid(tester, 2400);
+    for (final String heading in ['GST', 'Phone', 'Credit limit']) {
+      expect(find.text(heading), findsOneWidget, reason: heading);
+    }
+    // A status reads as words, as the wireframe.
+    expect(find.text('On hold'), findsOneWidget);
+
+    await customersGrid(tester, 1100);
+    // p3 goes first, then p2; the code, name, status and balance stay.
+    expect(find.text('GST'), findsNothing);
+    expect(find.text('Credit limit'), findsNothing);
+    for (final String heading in [
+      'Code',
+      'Name',
+      'City',
+      'Status',
+      'Balance'
+    ]) {
+      expect(find.text(heading), findsOneWidget, reason: heading);
+    }
+    // Nothing scrolls sideways while dropping columns is enough.
+    final ScrollPosition sideways = tester
+        .state<ScrollableState>(find
+            .descendant(
+              of: find.byType(EnterpriseDataGrid<String>),
+              matching: find.byType(Scrollable),
+            )
+            .last)
+        .position;
+    expect(sideways.maxScrollExtent, 0);
+    expect(tester.takeException(), isNull);
   });
 }

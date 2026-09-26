@@ -362,6 +362,15 @@ window to a wide monitor:
 | Height | more rows -- never bigger gaps |
 | Width | more columns (the hidden ones come back), then the optional side panel (row preview, recent documents) opens by default |
 
+**Column priority as built (2026-09-26).** `GridColumn.priority` is 1 (always
+stays), 2 (goes next) or 3 (goes first). A screen may set it; otherwise it is
+read from the heading -- GST, HSN, MRP, PAN, e-mail, credit limit, created and
+notes are 3; phone, brand, type, group, territory, branch and warehouse are 2;
+the leading column and everything else is 1. Among equals the rightmost goes
+first. A status column reads as words ("On hold", not ON_HOLD), as the
+wireframe; a long value ends in "..." at 260 px rather than holding its column
+open.
+
 Rows and fonts do not grow with the window; the density setting decides
 them. Nothing is sized in fixed pixels except the thin bars (menu, tabs, page
 bar, status bar).
