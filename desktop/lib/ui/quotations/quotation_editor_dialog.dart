@@ -1,12 +1,19 @@
-import 'package:flutter/material.dart';
+import 'dart:async';
 
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+
+import '../../core/api/api_client.dart' show ApiException;
 import '../../core/design/design_tokens.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
 import '../../models/entities.dart';
 import '../../models/product.dart';
 import '../../models/quotation.dart';
+import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
+
+part 'quotation_editor_phase2.dart';
 
 /// One line of the offer, while it is being typed.
 ///
@@ -97,7 +104,17 @@ class QuotationEditorDialog extends StatefulWidget {
     required this.warehouses,
     required this.today,
     this.existing,
+    this.preview,
   });
+
+  /// Set on the payload a phase 2 editor hands back when "Save & print" was
+  /// chosen; the list strips it, saves, then prints what it saved.
+  static const String printAfterSave = '_print_after_save';
+
+  /// Prices the offer as saving would, and saves nothing (phase 2): what the
+  /// new-quotation screen shows as its lines are typed. Null leaves the
+  /// figures to the save, as phase 1 always did.
+  final Future<QuotationPreviewRecord> Function(Json payload)? preview;
 
   final List<Customer> customers;
   final List<Product> products;
@@ -132,6 +149,68 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
   String? _branchId;
   String? _warehouseId;
   late DateTime _validUntil;
+
+  /// Phase 2: the offer as the server priced it last, and the line the side
+  /// panel follows.
+  QuotationPreviewRecord? _preview;
+  int _current = 0;
+  Timer? _previewTimer;
+  int _previewSerial = 0;
+  bool _previewAsked = false;
+
+  void _setState(VoidCallback change) => setState(change);
+
+  /// Price the offer again shortly: every change asks once the typing
+  /// pauses, and only the latest answer lands.
+  void _schedulePreview() {
+    final Future<QuotationPreviewRecord> Function(Json)? preview =
+        widget.preview;
+    if (preview == null) return;
+    _previewTimer?.cancel();
+    _previewTimer = Timer(const Duration(milliseconds: 350), () async {
+      final Json? draft = _draftPayload();
+      if (draft == null || !mounted) return;
+      final int serial = ++_previewSerial;
+      try {
+        final QuotationPreviewRecord priced = await preview(draft);
+        if (!mounted || serial != _previewSerial) return;
+        setState(() => _preview = priced);
+      } on ApiException {
+        // A half-typed offer the server refuses (a price of nothing, say):
+        // keep the last figures until it can be priced again.
+      }
+    });
+  }
+
+  /// The payload as it stands, without asking the form to show its errors:
+  /// null while it could not be priced at all.
+  Json? _draftPayload() {
+    if (_customerId == null || _branchId == null || _warehouseId == null) {
+      return null;
+    }
+    for (final _LineDraft line in _lines) {
+      if (line.productId == null) return null;
+      if ((double.tryParse(line.quantity.text.trim()) ?? 0) <= 0) return null;
+      if ((double.tryParse(line.unitPrice.text.trim()) ?? 0) <= 0) return null;
+      final String discount = line.discount.text.trim();
+      if (discount.isNotEmpty) {
+        final double? rate = double.tryParse(discount);
+        if (rate == null || rate < 0 || rate > 100) return null;
+      }
+    }
+    return _buildPayload();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    if (!_previewAsked && Phase2Scope.of(context)) {
+      _previewAsked = true;
+      // The customer a new offer opens on fills its terms as a chosen one.
+      if (widget.existing == null) _fillFromCustomer();
+      _schedulePreview();
+    }
+  }
 
   @override
   void initState() {
@@ -326,6 +405,7 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
 
   @override
   void dispose() {
+    _previewTimer?.cancel();
     for (final _LineDraft line in _lines) {
       line.dispose();
     }
@@ -421,6 +501,10 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
 
   Json? _payload() {
     if (!(_form.currentState?.validate() ?? false)) return null;
+    return _buildPayload();
+  }
+
+  Json? _buildPayload() {
     if (_customerId == null) return null;
     if (_branchId == null || _warehouseId == null) return null;
     if (_lines.any((_LineDraft line) => line.productId == null)) return null;
@@ -579,6 +663,8 @@ class _QuotationEditorDialogState extends State<QuotationEditorDialog> {
 
   @override
   Widget build(BuildContext context) {
+    // Phase 2: the approved one-screen quotation (wireframe view 7).
+    if (Phase2Scope.of(context)) return _phase2Page(context);
     final bool revising = widget.existing != null;
     return WorkspaceDialog(
       title: revising

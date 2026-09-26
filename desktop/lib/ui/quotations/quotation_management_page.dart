@@ -168,9 +168,13 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
         warehouses: warehouses,
         today: widget.today ?? DateTime.now(),
         existing: existing,
+        // Phase 2's screen prices the offer as it is typed.
+        preview: Phase2Scope.of(context) ? widget.api.previewQuotation : null,
       ),
     );
     if (payload == null) return;
+    final bool printAfter =
+        payload.remove(QuotationEditorDialog.printAfterSave) == true;
     try {
       final Quotation saved = existing == null
           ? await widget.api.createQuotation(payload)
@@ -188,6 +192,7 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
             : '${saved.quotationNumber} revised.',
         kind: AppNotificationKind.success,
       );
+      if (printAfter) await _printQuotation(saved);
       await _load(requestedPage: existing == null ? 1 : _page);
     } on ApiException catch (exception) {
       if (!mounted) return;
