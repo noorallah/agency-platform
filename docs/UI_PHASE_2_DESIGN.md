@@ -356,6 +356,15 @@ saving would -- `POST /quotations/preview`, `/sales-orders/preview`,
 `/sales-invoices/preview` stage the document and roll it back -- so what is shown
 is what is stored. Each editor keeps its own state, payload and rules.
 
+**Purchase orders (2026-09-26)** use the same pieces with the vendor in place of
+the customer. The side panel shows the last price this vendor billed (with a "Use
+the last price" button), the stock where the order is received, the vendor's GSTIN
+and phone, and what approval needs. A new line starts at the product's purchase
+price. Delivery schedule, notes and files, and history sit on a strip under the
+header, so nothing the phase 1 dialog offered is lost. Send for approval, Approve
+and Print are on the top line when the status allows them. Priced by
+`POST /purchases/preview`.
+
 ### 4.9 Home per role
 
 A counter clerk, a storeman, an accountant and an owner get different homes:

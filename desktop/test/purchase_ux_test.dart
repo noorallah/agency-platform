@@ -5,6 +5,7 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/branch_warehouse.dart';
+import 'package:agency_desktop/models/document_preview.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/product.dart';
 import 'package:agency_desktop/models/purchase.dart';
@@ -13,6 +14,8 @@ import 'package:agency_desktop/models/uom_packaging.dart';
 import 'package:agency_desktop/models/vendor.dart';
 import 'package:agency_desktop/ui/purchases/purchase_management_page.dart';
 import 'package:agency_desktop/ui/workspace/module_catalog.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
+    show Phase2Scope;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -361,6 +364,85 @@ void main() {
     expect(find.text('u-kg'), findsNothing, reason: 'no raw unit id on the view');
     expect(find.text('KG'), findsWidgets);
   });
+
+  testWidgets('phase 2 draws the order on one screen priced as it is typed',
+      (tester) async {
+    _setDesktopSurface(tester);
+    final _PricingPurchaseApi api = _PricingPurchaseApi();
+    PurchaseEditorOutcome? outcome;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (BuildContext context) => TextButton(
+            onPressed: () async {
+              outcome = await Navigator.of(context).push<PurchaseEditorOutcome>(
+                MaterialPageRoute<PurchaseEditorOutcome>(
+                  builder: (_) => Scaffold(
+                    body: Phase2Scope(
+                      child: PurchaseOrderEditorDialog(
+                        api: api,
+                        mode: PurchaseDialogMode.create,
+                        order: null,
+                        vendors: const [_vendor],
+                        branches: const [_branch],
+                        warehouses: const [_warehouse],
+                        products: const [_product],
+                        buyers: const [],
+                        taxProfiles: const [],
+                        storageNodes: const [],
+                        canSubmit: true,
+                        canApprove: true,
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    // Vendor, branch and warehouse are filled, and the first line starts at
+    // the product's purchase price, so it is priced at once.
+    expect(api.previews, isNotEmpty);
+    expect(api.previews.last['lines'][0]['unit_price'], '100');
+    expect(find.text('PO-0002 (new)'), findsOneWidget);
+    expect(find.byKey(const ValueKey('document-side-panel')), findsOneWidget);
+    expect(find.text('Last from this vendor'), findsOneWidget);
+
+    // Five at 100: 500 taxable, 90 tax, 590.
+    final Finder quantity = find
+        .descendant(
+          of: find.byKey(const ValueKey<String>('purchase-order-line-0')),
+          matching: find.byType(EditableText),
+        )
+        .at(1);
+    await tester.enterText(quantity, '5');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(api.previews.last['lines'][0]['ordered_quantity'], '5');
+    expect(find.text('590.00'), findsWidgets);
+
+    // The vendor's last price is one press away.
+    await tester
+        .tap(find.byKey(const ValueKey('purchase-order-use-last-price')));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(api.previews.last['lines'][0]['unit_price'], '95.00');
+
+    await tester.tap(find.byKey(const ValueKey('purchase-order-save')));
+    await tester.pumpAndSettle();
+    expect(api.created?.lines.single.orderedQuantity, '5');
+    expect(api.created?.lines.single.unitPrice, '95.00');
+    expect(outcome?.saved, isTrue);
+  });
 }
 
 /// Double-click the seeded row, which is how the workspace opens a document.
@@ -413,6 +495,60 @@ Future<void> _pumpWorkspace(
     ),
   );
   await tester.pumpAndSettle();
+}
+
+/// The order screen's server in phase 2: prices each draft at 18% within
+/// the state, and records what was sent.
+class _PricingPurchaseApi extends _PurchaseApi {
+  final List<Json> previews = <Json>[];
+  PurchaseOrder? created;
+
+  @override
+  Future<PurchaseOrderPreviewRecord> previewPurchaseOrder(
+    PurchaseOrder order,
+  ) async {
+    previews.add(order.toCreateJson());
+    final PurchaseOrderLine line = order.lines.first;
+    final double gross = (double.tryParse(line.orderedQuantity) ?? 0) *
+        (double.tryParse(line.unitPrice) ?? 0);
+    final double tax = gross * .18;
+    final Json priced = order.toCreateJson()
+      ..['po_number'] = 'PO-0002'
+      ..['subtotal'] = gross.toStringAsFixed(2)
+      ..['line_discount_total'] = '0'
+      ..['tax_total'] = tax.toStringAsFixed(2)
+      ..['grand_total'] = (gross + tax).toStringAsFixed(2)
+      ..['lines'] = [
+        {
+          ...line.toWriteJson(),
+          'line_number': 1,
+          'gross_amount': gross.toStringAsFixed(2),
+          'discount_amount': '0',
+          'tax_amount': tax.toStringAsFixed(2),
+          'net_amount': (gross + tax).toStringAsFixed(2),
+        },
+      ];
+    return PurchaseOrderPreviewRecord(
+      order: PurchaseOrder.fromJson(priced),
+      interstate: false,
+      lines: const [
+        DocumentPreviewLine(
+          lineNumber: 1,
+          productId: 'product-1',
+          lastPrice: '95.00',
+          lastInvoiceNumber: 'PINV-7',
+          lastInvoiceDate: '2026-07-20',
+          availableQuantity: '12',
+        ),
+      ],
+    );
+  }
+
+  @override
+  Future<PurchaseOrder> createPurchaseOrder(PurchaseOrder order) async {
+    created = order;
+    return order.copyWith(id: 'po-2', poNumber: 'PO-0002');
+  }
 }
 
 class _PurchaseApi extends ApiClient {
