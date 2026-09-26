@@ -3671,3 +3671,31 @@ every part cut to the user's role (`desktop/lib/phase2/home_page.dart`).
    and goods receipts; today it lists invoices.
 6. Candidates owners have asked of similar products: collections due this
    week, top customers, stock value, cash and bank balances, GST due.
+
+## 50. Profit and loss for a financial year or chosen months
+
+Owner, 2026-09-26: Profit & Loss shows one month at a time; it should also
+show a whole financial year, or the months a user picks.
+
+**What exists:** `GET /api/v1/finance/profit-loss?accounting_period_id=`
+takes exactly one accounting period (a month) and returns that month with a
+year-to-date column beside it (`GeneralLedgerService.profit_and_loss`). The
+desktop page (`desktop/lib/ui/finance/profit_loss_page.dart`) offers one
+period picker. So a full year is only readable as the last month's
+year-to-date column, and a quarter or any other span not at all.
+
+**To build when scheduled** (the Tally / Zoho / Busy convention):
+1. **Server:** accept a range -- `from_period_id` and `to_period_id` (or a
+   `financial_year_id` for the whole year) -- and sum income and expense over
+   every period in it. Periods stay the unit, so a range can never cut a
+   month in half or cross into another financial year's closing.
+2. **Screen:** a period chooser with presets -- This month, Last month, This
+   quarter, This financial year, Last financial year -- and "Custom" for a
+   from-month and a to-month.
+3. **Columns:** the chosen span, and optionally month by month across the
+   span (one column per month with a total), which is how owners compare
+   months side by side.
+4. **Comparison:** the same span last year beside it, as a second column.
+5. The same range choice suits the Trial Balance and the ledger statement,
+   which are also one-period today; decide together when this is scheduled.
+
