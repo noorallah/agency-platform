@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../core/design/design_tokens.dart';
+
 import 'menu_layout.dart';
 
 /// Where Home's figures come from -- the endpoints each list's own screens and
@@ -99,7 +101,7 @@ class Phase2HomePage extends StatefulWidget {
     'chart': 'Sales, last 14 days',
     'recent': 'Recent invoices',
     'todo': 'To do',
-    'screens': 'Your screens',
+    'screens': 'Favourites',
   };
 
   static const String salesInvoices = 'salesInvoices/sales-invoices';
@@ -420,7 +422,10 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
       padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
       child: Row(children: [
         Text(
-          widget.userName == null ? greeting : '$greeting, ${widget.userName}',
+          // As the wireframe: the greeting alone. A user's name is often the
+          // firm's own ("MarketBridge ... Admin") and the chip beside it
+          // already names the firm, so it read twice.
+          greeting,
           style: theme.textTheme.titleMedium
               ?.copyWith(fontWeight: FontWeight.w600),
         ),
@@ -597,7 +602,8 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
                                       child: Container(
                                         key: ValueKey('home-bar-$i'),
                                         decoration: BoxDecoration(
-                                          color: theme.colorScheme.primary,
+                                          color: context.semanticColors
+                                              .chartBar,
                                           borderRadius:
                                               const BorderRadius.vertical(
                                                   top: Radius.circular(4)),
@@ -699,31 +705,48 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
             if (MenuLayout.itemFor(path) case final MenuItemSpec item) item,
       ];
 
-  Widget _yourScreens(BuildContext context) => _Section(
-        title: 'YOUR SCREENS',
-        child: LayoutBuilder(builder: (context, constraints) {
-          final double width = (constraints.maxWidth - 6) / 2;
-          return Wrap(spacing: 6, runSpacing: 6, children: [
-            for (final MenuItemSpec item in _screens())
-              SizedBox(
-                width: width,
-                child: OutlinedButton(
+  /// The wireframe's FAVOURITES: plain boxes of dark text in two columns.
+  /// Until the star of 4.3 lets somebody choose, they are the daily screens
+  /// of 4.6 the user may open.
+  Widget _yourScreens(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return _Section(
+      title: 'FAVOURITES',
+      child: LayoutBuilder(builder: (context, constraints) {
+        final double width = (constraints.maxWidth - 6) / 2;
+        return Wrap(spacing: 6, runSpacing: 6, children: [
+          for (final MenuItemSpec item in _screens())
+            SizedBox(
+              width: width,
+              child: Material(
+                color: scheme.surfaceContainerLowest,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(6),
+                  side: BorderSide(color: scheme.outlineVariant),
+                ),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
                   key: ValueKey('home-open-${item.path}'),
-                  style: OutlinedButton.styleFrom(
-                    alignment: Alignment.centerLeft,
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 10, vertical: 12),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(6)),
+                  onTap: () => widget.onOpen(item),
+                  child: Padding(
+                    padding: const EdgeInsets.all(8),
+                    child: Text(
+                      item.label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodyMedium
+                          ?.copyWith(color: scheme.onSurface),
+                    ),
                   ),
-                  onPressed: () => widget.onOpen(item),
-                  child: Text(item.label,
-                      maxLines: 1, overflow: TextOverflow.ellipsis),
                 ),
               ),
-          ]);
-        }),
-      );
+            ),
+        ]);
+      }),
+    );
+  }
 
   Widget _row(
     BuildContext context, {
