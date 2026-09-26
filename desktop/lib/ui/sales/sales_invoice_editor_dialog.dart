@@ -6,6 +6,7 @@ import 'package:flutter/services.dart';
 import '../../core/api/api_client.dart';
 import '../../core/api/concurrency.dart';
 import '../../core/design/design_tokens.dart';
+import '../../core/notifications/notification_service.dart';
 import '../../models/batch_serial.dart';
 import '../../models/entities.dart';
 import '../../models/customer.dart';
@@ -15,6 +16,7 @@ import '../../models/document_preview.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/printed_document.dart';
 
 part 'sales_invoice_editor_phase2.dart';
 
@@ -453,7 +455,9 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     };
   }
 
-  Future<void> _save() async {
+  /// Save the bill; with [print], hand the saved bill to the printer before
+  /// the screen closes -- what a counter does with every bill.
+  Future<void> _save({bool print = false}) async {
     final Json? payload = _payload();
     if (payload == null) {
       setState(() => _error = 'Bill at least one line.');
@@ -470,16 +474,41 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     });
     try {
       final String? id = widget.invoiceId;
+      final Json response;
       if (id == null) {
-        await widget.api.createSalesInvoice(payload);
+        response = await widget.api.createSalesInvoice(payload);
       } else {
-        await widget.api.updateSalesInvoice(
+        response = await widget.api.updateSalesInvoice(
           id,
           payload,
           expectedVersion: (_existing?['version'] as num?)?.toInt(),
         );
       }
       if (!mounted) return;
+      if (print) {
+        final dynamic saved = response['data'];
+        final String savedId =
+            saved is Map ? stringValue(saved['id']) : (id ?? '');
+        final String number =
+            saved is Map ? stringValue(saved['invoice_number']) : 'invoice';
+        if (savedId.isNotEmpty) {
+          try {
+            final List<int> pdf = await widget.api.salesInvoicePdf(savedId);
+            if (!mounted) return;
+            await printDocument(context, bytes: pdf, documentName: number);
+          } on ApiException catch (error) {
+            // Saved either way: the bill is there to print from the list.
+            if (mounted) {
+              NotificationService.show(
+                context,
+                'Saved, but it could not be printed: ${error.message}',
+                kind: AppNotificationKind.warning,
+              );
+            }
+          }
+          if (!mounted) return;
+        }
+      }
       Navigator.of(context).pop(true);
     } on ApiException catch (error) {
       if (!mounted) return;

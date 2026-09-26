@@ -50,6 +50,13 @@ DOCUMENT_TYPE = "SALES_RETURN"
 DEFAULT_TITLE = "CREDIT NOTE"
 
 
+#: What a credit note that does not stand says across its top, by status.
+NOT_FINAL: dict[str, str] = {
+    "DRAFT": "DRAFT - NO CREDIT GIVEN YET",
+    "CANCELLED": "CANCELLED - NO CREDIT GIVEN",
+}
+
+
 class CreditNotePrintService:
     """Render one sales return as the credit note the customer is sent."""
 
@@ -148,6 +155,8 @@ class CreditNotePrintService:
             references.append(("Reason", row.return_reason))
 
         return InvoiceDocument(
+            # A draft credits nobody yet, and a cancelled one never will.
+            not_final=NOT_FINAL.get(row.status),
             number=row.return_number,
             date=row.return_date.strftime("%d %b %Y"),
             due_date=None,

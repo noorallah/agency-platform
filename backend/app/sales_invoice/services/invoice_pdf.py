@@ -202,6 +202,11 @@ class InvoiceDocument:
     number_label: str = "Invoice no."
     date_label: str = "Invoice date"
     words_label: str = "AMOUNT CHARGEABLE, IN WORDS"
+    #: Said across the top of every copy when the document is not what its
+    #: title claims yet -- a draft bill is not a tax invoice, and a copy that
+    #: looked like one could be handed to a customer before it was approved
+    #: and posted. None for a document that stands.
+    not_final: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -332,7 +337,7 @@ class InvoicePdfRenderer:
     ) -> list[object]:
         """Build the flowables for a single copy of the bill."""
         story: list[object] = [
-            self._title_bar(width, copy_label),
+            self._title_bar(width, copy_label, document.not_final),
             Spacer(1, 4),
             self._parties(document, width),
             Spacer(1, 2),
@@ -347,9 +352,17 @@ class InvoicePdfRenderer:
         story.append(KeepTogether(self._footer(document, width)))
         return story
 
-    def _title_bar(self, width: float, copy_label: str) -> Table:
-        """Draw the banner, saying which copy this is where a firm prints several."""
+    def _title_bar(
+        self, width: float, copy_label: str, not_final: str | None = None
+    ) -> Table:
+        """Draw the banner, saying which copy this is where a firm prints several.
+
+        A document that does not stand yet says so in the banner itself, where
+        nobody can miss it or cut it off.
+        """
         rows = [[Paragraph(self._template.title_text, self._title)]]
+        if not_final:
+            rows.insert(0, [Paragraph(not_final, self._title)])
         if copy_label:
             rows.append([Paragraph(copy_label, self._copy)])
         table = Table(rows, colWidths=[width])

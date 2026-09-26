@@ -50,6 +50,13 @@ DEFAULT_COPIES: tuple[str, ...] = (
 )
 
 
+#: What a bill that does not stand says across its top, by status.
+NOT_FINAL: dict[str, str] = {
+    "DRAFT": "DRAFT - NOT A TAX INVOICE - NOT YET APPROVED",
+    "CANCELLED": "CANCELLED - NOT A TAX INVOICE",
+}
+
+
 class SalesInvoicePrintService:
     """Render one invoice, with the firm's template around it."""
 
@@ -166,6 +173,9 @@ class SalesInvoicePrintService:
             )
 
         return InvoiceDocument(
+            # A draft has not been approved or posted, and a cancelled bill
+            # charges nobody: neither may pass for a tax invoice on paper.
+            not_final=NOT_FINAL.get(invoice.status),
             number=invoice.invoice_number,
             date=invoice.invoice_date.strftime("%d %b %Y"),
             due_date=(

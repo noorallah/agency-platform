@@ -437,6 +437,14 @@ the three prices, the margin they leave (following the boxes as they are typed,
 and saying so when the selling price is above MRP), stock on hand and the record's
 dates.
 
+**Printing (2026-09-26, section 9 item 2), first part.** The invoice screen has
+**Save & print** (Ctrl+P): the bill is saved and the saved bill goes to the Windows
+print dialog, which already gives the preview, the printer, pages and "Microsoft
+Print to PDF". A firm's copies (Original / Duplicate / Triplicate) and A4 or A5 come
+from Print settings, as before. A draft prints marked "DRAFT - NOT A TAX INVOICE"
+until it is approved (D-SELL-38). Still open: an 80 mm thermal roll layout for
+counter billing, and sending the PDF by email or WhatsApp.
+
 ### 4.9 Home per role
 
 A counter clerk, a storeman, an accountant and an owner get different homes:

@@ -51,6 +51,9 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
         const SingleActivator(LogicalKeyboardKey.keyS, control: true): () {
           if (!_saving) unawaited(_save());
         },
+        const SingleActivator(LogicalKeyboardKey.keyP, control: true): () {
+          if (!_saving) unawaited(_save(print: true));
+        },
         const SingleActivator(LogicalKeyboardKey.enter, control: true): () {
           if (!_direct) return;
           _setState(() => _directLines.add(_DirectLine()));
@@ -71,13 +74,21 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                   'Draft',
                 ],
                 hint: _direct
-                    ? 'Enter next field  ·  Ctrl+Enter new line  ·  Ctrl+S save'
-                    : 'Enter next field  ·  Ctrl+S save',
+                    ? 'Ctrl+Enter new line  ·  Ctrl+S save  ·  Ctrl+P print'
+                    : 'Enter next field  ·  Ctrl+S save  ·  Ctrl+P print',
                 actions: [
                   TextButton(
                     onPressed:
                         _saving ? null : () => Navigator.of(context).pop(false),
                     child: const Text('Cancel'),
+                  ),
+                  // A draft prints marked "not a tax invoice" until it is
+                  // approved; the list prints the final copy.
+                  OutlinedButton(
+                    key: const ValueKey('sales-invoice-save-print'),
+                    onPressed:
+                        _saving ? null : () => unawaited(_save(print: true)),
+                    child: const Text('Save & print'),
                   ),
                   FilledButton(
                     key: const ValueKey('sales-invoice-save'),
