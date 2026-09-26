@@ -6,7 +6,7 @@ import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/report.dart';
 import 'package:agency_desktop/ui/reports/report_catalog.dart';
 import 'package:agency_desktop/ui/reports/reports_workspace.dart';
-import 'package:agency_desktop/ui/workspace/desktop_framework.dart' show ListViewRequest, ListViewRequestScope;
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart' show ListViewRequest, ListViewRequestScope, Phase2Scope, EnterpriseDataGrid;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -457,5 +457,39 @@ void main() {
       );
       expect(api.requested, isNot(contains('/api/v1/sales-invoices/reports/overdue')));
     });
+  });
+
+  testWidgets('phase 2 draws a report as a list: words, Yes/No, Indian digits',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _ReportApi api = _ReportApi(rows: [
+      {
+        'quotation_number': 'QT-1',
+        'status': 'CONVERTED',
+        'is_expired': false,
+        'grand_total': '112050.4168',
+      },
+    ]);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Phase2Scope(
+          child: ReportsWorkspace(
+            api: api,
+            permissions: _permissionsFor(const ['REPORT_VIEW']),
+            hasActiveFirm: true,
+            tabId: 'operational',
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.byType(EnterpriseDataGrid<Json>), findsOneWidget);
+    expect(find.text('Converted'), findsOneWidget);
+    expect(find.text('No'), findsOneWidget);
+    expect(find.text('1,12,050.42'), findsOneWidget);
+    expect(find.text('false'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 }
