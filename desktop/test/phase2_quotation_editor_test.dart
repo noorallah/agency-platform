@@ -150,7 +150,7 @@ void main() {
     expect(find.text('QT-2026-2027-000012 (new)'), findsOneWidget);
     // 50 x 26 = 1,300 taxable; 18% = 234; the side panel says where from.
     expect(find.text('1,534.00'), findsWidgets);
-    expect(find.byKey(const ValueKey('quotation-side-panel')), findsOneWidget);
+    expect(find.byKey(const ValueKey('document-side-panel')), findsOneWidget);
     expect(find.text('82.50'), findsOneWidget);
     expect(find.textContaining('One thousand five hundred thirty four'),
         findsOneWidget);

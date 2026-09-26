@@ -343,6 +343,19 @@ server now sends each product's stock and counts low stock and no price.
 - Actions in the page bar follow the status: Save, Approve, Print, Convert
   to...; the document's timeline and attachments in a collapsible right panel.
 
+
+**As built (2026-09-26).** The owner approved the quotation wireframe (view 7) and
+asked for the same on orders and invoices. All three are one screen drawn from the
+same pieces (`desktop/lib/phase2/document_page.dart`): the top line with the number
+and the buttons, a header that fills itself from the customer (marked "auto"), the
+lines as a table, the terms, the totals with the amount in words, and a side panel
+for the line being typed (rate and discount and where they came from, last price to
+this customer, the CGST/SGST or IGST split, stock, the customer's balance, and on a
+bill the serial numbers going out). Every change is priced by the server exactly as
+saving would -- `POST /quotations/preview`, `/sales-orders/preview`,
+`/sales-invoices/preview` stage the document and roll it back -- so what is shown
+is what is stored. Each editor keeps its own state, payload and rules.
+
 ### 4.9 Home per role
 
 A counter clerk, a storeman, an accountant and an owner get different homes:
