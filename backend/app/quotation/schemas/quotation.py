@@ -253,6 +253,11 @@ class QuotationResponse(QuotationSchema):
     id: UUID
     firm_id: UUID
     customer_id: UUID
+    #: Whose quotation it is, so the list can say so rather than show only a
+    #: number and a total (owner, 2026-09-27). Empty for a customer since
+    #: removed.
+    customer_name: str = ""
+    customer_code: str = ""
     salesman_id: UUID | None
     territory_id: UUID | None
     branch_id: UUID
