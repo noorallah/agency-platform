@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/design/design_tokens.dart';
+import '../../phase2/document_tabs.dart';
 import 'workspace_interactions.dart';
 
 class WorkspaceDialogTab {
@@ -36,6 +37,7 @@ class WorkspaceDialog extends StatelessWidget {
   final ValueChanged<int>? onTabChanged;
   final Widget? footer;
   final bool loading;
+
   /// What Cancel, the header cross and Escape all do.
   ///
   /// Optional, and **closing the dialog is what happens when it is omitted**.
@@ -79,6 +81,60 @@ class WorkspaceDialog extends StatelessWidget {
                   ),
                 ]),
               ));
+    // Phase 2 (UI_PHASE_2_DESIGN.md 4.8): a document open in a tab is the
+    // page, not a dialog floating over one -- same body, same buttons, a
+    // compact title line and the buttons fixed along the bottom.
+    final bool page = DocumentTabScope.of(context);
+    final Widget header = page
+        ? _pageHeader(context, dismiss)
+        : Material(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(
+                horizontal: AppSpacing.xl,
+                vertical: AppSpacing.lg,
+              ),
+              child: Row(children: [
+                if (icon != null) ...[
+                  Icon(icon),
+                  const SizedBox(width: AppSpacing.md),
+                ],
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(title,
+                          style: Theme.of(context).textTheme.headlineSmall),
+                      if (subtitle != null) Text(subtitle!),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Close',
+                  onPressed: loading ? null : dismiss,
+                  icon: const Icon(Icons.close),
+                ),
+              ]),
+            ),
+          );
+    final Widget content = SelectionArea(
+      child: WorkspaceShortcuts(
+        bindings: WorkspaceShortcutBindings(
+          save: loading ? null : onSave,
+          cancel: loading ? null : dismiss,
+        ),
+        child: Column(children: [
+          header,
+          ..._rest(context, safeSelectedTab, effectiveFooter),
+        ]),
+      ),
+    );
+    if (page) {
+      return Material(
+        color: Theme.of(context).colorScheme.surface,
+        child: content,
+      );
+    }
     return Dialog(
       insetPadding: const EdgeInsets.all(AppDimensions.dialogInset),
       clipBehavior: Clip.antiAlias,
@@ -90,109 +146,113 @@ class WorkspaceDialog extends StatelessWidget {
         // labels, helper text, validation messages, read-only values. Safe
         // inside a route: SelectableRegion needs an Overlay ancestor and the
         // Navigator provides one.
-        child: SelectionArea(
-          child: WorkspaceShortcuts(
-            bindings: WorkspaceShortcutBindings(
-              save: loading ? null : onSave,
-              cancel: loading ? null : dismiss,
+        child: content,
+      ),
+    );
+  }
+
+  /// Everything below the title: the tab strip, the body, and the footer.
+  List<Widget> _rest(
+    BuildContext context,
+    int safeSelectedTab,
+    Widget? effectiveFooter,
+  ) =>
+      [
+        if (tabs.isNotEmpty)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: SingleChildScrollView(
+              padding: const EdgeInsets.fromLTRB(
+                AppSpacing.xl,
+                AppSpacing.md,
+                AppSpacing.xl,
+                0,
+              ),
+              scrollDirection: Axis.horizontal,
+              child: SegmentedButton<int>(
+                segments: [
+                  for (int index = 0; index < tabs.length; index++)
+                    ButtonSegment(value: index, label: Text(tabs[index].label)),
+                ],
+                selected: {safeSelectedTab},
+                showSelectedIcon: false,
+                onSelectionChanged: onTabChanged == null
+                    ? null
+                    : (selection) => onTabChanged!(selection.first),
+              ),
             ),
-            child: Column(children: [
-              Material(
-                color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: AppSpacing.xl,
-                    vertical: AppSpacing.lg,
-                  ),
-                  child: Row(children: [
-                    if (icon != null) ...[
-                      Icon(icon),
-                      const SizedBox(width: AppSpacing.md),
-                    ],
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
+          ),
+        Expanded(
+          child: Stack(children: [
+            Positioned.fill(
+              child: AbsorbPointer(
+                absorbing: loading,
+                child: tabs.isEmpty
+                    ? body
+                    : IndexedStack(
+                        index: safeSelectedTab,
                         children: [
-                          Text(title,
-                              style: Theme.of(context).textTheme.headlineSmall),
-                          if (subtitle != null) Text(subtitle!),
+                          for (final WorkspaceDialogTab tab in tabs) tab.child,
                         ],
                       ),
-                    ),
-                    IconButton(
-                      tooltip: 'Close',
-                      onPressed: loading ? null : dismiss,
-                      icon: const Icon(Icons.close),
-                    ),
-                  ]),
+              ),
+            ),
+            if (loading)
+              Positioned.fill(
+                child: ColoredBox(
+                  color:
+                      Theme.of(context).colorScheme.scrim.withValues(alpha: .2),
+                  child: const Center(child: CircularProgressIndicator()),
                 ),
               ),
-              if (tabs.isNotEmpty)
-                Align(
-                  alignment: Alignment.centerLeft,
-                  child: SingleChildScrollView(
-                    padding: const EdgeInsets.fromLTRB(
-                      AppSpacing.xl,
-                      AppSpacing.md,
-                      AppSpacing.xl,
-                      0,
-                    ),
-                    scrollDirection: Axis.horizontal,
-                    child: SegmentedButton<int>(
-                      segments: [
-                        for (int index = 0; index < tabs.length; index++)
-                          ButtonSegment(
-                              value: index, label: Text(tabs[index].label)),
-                      ],
-                      selected: {safeSelectedTab},
-                      showSelectedIcon: false,
-                      onSelectionChanged: onTabChanged == null
-                          ? null
-                          : (selection) => onTabChanged!(selection.first),
-                    ),
-                  ),
-                ),
-              Expanded(
-                child: Stack(children: [
-                  Positioned.fill(
-                    child: AbsorbPointer(
-                      absorbing: loading,
-                      child: tabs.isEmpty
-                          ? body
-                          : IndexedStack(
-                              index: safeSelectedTab,
-                              children: [
-                                for (final WorkspaceDialogTab tab in tabs)
-                                  tab.child,
-                              ],
-                            ),
-                    ),
-                  ),
-                  if (loading)
-                    Positioned.fill(
-                      child: ColoredBox(
-                        color: Theme.of(context)
-                            .colorScheme
-                            .scrim
-                            .withValues(alpha: .2),
-                        child: const Center(child: CircularProgressIndicator()),
-                      ),
-                    ),
-                ]),
-              ),
-              // A dialog that can be saved gets a visible way to save it. The
-              // callback was wired only to a keyboard shortcut, so a dialog
-              // passing `onSave` and no footer offered no button at all --
-              // which shipped in two of them before anybody noticed.
-              if (effectiveFooter != null)
-                Material(
-                  color: Theme.of(context).colorScheme.surfaceContainerHighest,
-                  child: effectiveFooter,
-                ),
-            ]),
-          ),
+          ]),
         ),
-      ),
+        // A dialog that can be saved gets a visible way to save it. The
+        // callback was wired only to a keyboard shortcut, so a dialog
+        // passing `onSave` and no footer offered no button at all --
+        // which shipped in two of them before anybody noticed.
+        if (effectiveFooter != null)
+          Material(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            child: effectiveFooter,
+          ),
+      ];
+
+  /// A document tab's title line: one line, the subtitle beside the title
+  /// rather than under it, as the rest of phase 2's page line.
+  Widget _pageHeader(BuildContext context, VoidCallback dismiss) {
+    final ThemeData theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 8, 8, 4),
+      child: Row(children: [
+        if (icon != null) ...[
+          Icon(icon, size: 20, color: theme.colorScheme.onSurfaceVariant),
+          const SizedBox(width: AppSpacing.sm),
+        ],
+        Text(
+          title,
+          style: theme.textTheme.titleMedium
+              ?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        if (subtitle != null) ...[
+          const SizedBox(width: AppSpacing.md),
+          Expanded(
+            child: Text(
+              subtitle!,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+            ),
+          ),
+        ] else
+          const Spacer(),
+        IconButton(
+          tooltip: 'Close (Esc)',
+          onPressed: loading ? null : dismiss,
+          icon: const Icon(Icons.close),
+        ),
+      ]),
     );
   }
 }

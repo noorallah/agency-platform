@@ -594,42 +594,70 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    return AlertDialog(
-      title: Text(_editing ? 'Edit draft invoice' : 'New Invoice'),
-      content: SizedBox(
-        width: 720,
-        child: _loading
-            ? const Center(
-                child: Padding(
-                  padding: EdgeInsets.all(32),
-                  child: CircularProgressIndicator(),
-                ),
-              )
-            : _direct
-                ? _directForm(theme)
-                : _billable.isEmpty && !_editing
-                    ? const WorkspaceEmptyState(
-                        title: 'Nothing is waiting to be billed',
-                        message: 'Dispatch a delivery note and it appears '
-                            'here. A note that has already been invoiced in '
-                            'full does not.',
-                      )
-                    : _form_(theme),
+    final String title = _editing ? 'Edit draft invoice' : 'New Invoice';
+    final Widget content = _loading
+        ? const Center(
+            child: Padding(
+              padding: EdgeInsets.all(32),
+              child: CircularProgressIndicator(),
+            ),
+          )
+        : _direct
+            ? _directForm(theme)
+            : _billable.isEmpty && !_editing
+                ? const WorkspaceEmptyState(
+                    title: 'Nothing is waiting to be billed',
+                    message: 'Dispatch a delivery note and it appears '
+                        'here. A note that has already been invoiced in '
+                        'full does not.',
+                  )
+                : _form_(theme);
+    final List<Widget> actions = [
+      TextButton(
+        onPressed: _saving ? null : () => Navigator.of(context).pop(false),
+        child: const Text('Cancel'),
       ),
-      actions: [
-        TextButton(
-          onPressed: _saving ? null : () => Navigator.of(context).pop(false),
-          child: const Text('Cancel'),
+      FilledButton(
+        onPressed: _saving || (!_direct && _billable.isEmpty && !_editing)
+            ? null
+            : _save,
+        child: Text(
+          _saving ? 'Saving…' : (_editing ? 'Save' : 'Create draft'),
         ),
-        FilledButton(
-          onPressed: _saving || (!_direct && _billable.isEmpty && !_editing)
-              ? null
-              : _save,
-          child: Text(
-            _saving ? 'Saving…' : (_editing ? 'Save' : 'Create draft'),
+      ),
+    ];
+    // Phase 2 (4.8): a bill open in a tab is the page, its buttons fixed
+    // along the bottom; phase 1 keeps the dialog it always was.
+    if (DocumentTabScope.of(context)) {
+      return WorkspaceDialog(
+        title: title,
+        icon: Icons.receipt_outlined,
+        onClose: _saving ? null : () => Navigator.of(context).pop(false),
+        body: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 960),
+              child: content,
+            ),
           ),
         ),
-      ],
+        footer: Padding(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Row(children: [
+            const Spacer(),
+            actions[0],
+            const SizedBox(width: AppSpacing.md),
+            actions[1],
+          ]),
+        ),
+      );
+    }
+    return AlertDialog(
+      title: Text(title),
+      content: SizedBox(width: 720, child: content),
+      actions: actions,
     );
   }
 

@@ -11,6 +11,7 @@ import 'package:agency_desktop/phase2/home_page.dart';
 import 'package:agency_desktop/ui/desktop_shell.dart';
 import 'package:agency_desktop/phase2/app_menu_bar.dart';
 import 'package:agency_desktop/ui/workspace/enterprise_sidebar.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:agency_desktop/ui/workspace/module_catalog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -167,6 +168,52 @@ void main() {
         context.semanticColors.onChrome);
     // Phase 1 kept Appearance at the foot of its sidebar.
     expect(find.byTooltip('Appearance'), findsOneWidget);
+    await _unmount(tester);
+  });
+
+  testWidgets('a document is a tab: kept while away, closed by its own save',
+      (tester) async {
+    await _pumpShell(tester, workspace: null);
+    final BuildContext home = tester.element(find.byType(Phase2HomePage));
+    bool? saved;
+    showDocument<bool>(
+      home,
+      title: 'New sales order',
+      builder: (context) => WorkspaceDialog(
+        title: 'New sales order',
+        body: const Padding(
+          padding: EdgeInsets.all(16),
+          child: TextField(key: ValueKey('order-remarks')),
+        ),
+        onSave: () => Navigator.of(context).pop(true),
+        saveLabel: 'Create draft',
+      ),
+    ).then((value) => saved = value);
+    await tester.pump();
+    await tester.pump();
+
+    // Its own tab, on show; the screen beneath is kept, not shown.
+    expect(find.byKey(const ValueKey('open-screen-doc:1')), findsOneWidget);
+    expect(find.byType(Phase2HomePage), findsNothing);
+    await tester.enterText(
+        find.byKey(const ValueKey('order-remarks')), 'deliver by Friday');
+
+    // Away and back: what was typed is still there.
+    await tester.tap(find.byKey(const ValueKey('open-screen-home')));
+    await tester.pump();
+    expect(find.byType(Phase2HomePage), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('open-screen-doc:1')));
+    await tester.pump();
+    expect(find.text('deliver by Friday'), findsOneWidget);
+
+    // Its own Save closes the tab and hands the result back.
+    await tester.tap(find.text('Create draft'));
+    await tester.pump();
+    await tester.pump();
+    expect(saved, isTrue);
+    expect(find.byKey(const ValueKey('open-screen-doc:1')), findsNothing);
+    expect(find.byType(Phase2HomePage), findsOneWidget);
+    expect(tester.takeException(), isNull);
     await _unmount(tester);
   });
 }
