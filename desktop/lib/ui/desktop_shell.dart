@@ -774,7 +774,27 @@ class _DesktopShellState extends State<DesktopShell> {
             path != MenuLayout.homeRoute && _pathAllowed(path),
         source: _ShellHomeSource(widget.session.api),
         onOpen: _openFromMenu,
+        hidden: _homeHidden(),
+        onCustomise: (hidden) async {
+          await widget.preferences.saveWorkspaceState(
+            _homeStateKey,
+            {'hidden': hidden.toList()..sort()},
+          );
+          if (mounted) setState(() {});
+        },
       );
+
+  /// Where Home's Customise choice is kept, per PC and user like the rest of
+  /// the workspace state.
+  static const String _homeStateKey = 'phase2.home';
+
+  Set<String> _homeHidden() => {
+        for (final dynamic id
+            in (widget.preferences.workspaceState(_homeStateKey)['hidden']
+                    as List?) ??
+                const [])
+          if (id is String) id,
+      };
 
   /// Who is signed in, their profile, and signing out.
   Widget _profileMenu({Color? iconColor}) => PopupMenuButton<String>(
