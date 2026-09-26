@@ -283,7 +283,9 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
   }
 
   Future<void> _load({int? requestedPage}) async {
-    if (!widget.hasActiveFirm) {
+    // Also reached after an await -- `_bootstrap` loads the lookups first --
+    // by which time the screen may have been closed.
+    if (!widget.hasActiveFirm || !mounted) {
       return;
     }
     setState(() {

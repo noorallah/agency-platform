@@ -156,26 +156,39 @@ class _UomManagementPageState extends State<UomManagementPage> {
     if (!widget.hasActiveFirm) {
       return const StandardEmptyState(type: EmptyStateType.noFirmSelected);
     }
+    final bool phase2 = Phase2Scope.of(context);
     return ManagementWorkspaceLayout(
-      toolbar: Wrap(
-        spacing: 8,
-        children: [
-          if (_canCreateCurrent)
-            FilledButton.icon(
-              onPressed: _openCreateDialog,
-              icon: const Icon(Icons.add),
-              label: const Text('Add'),
+      // Phase 2: Refresh as the line's icon and "+ New" last, as every list.
+      toolbar: phase2
+          ? WorkspaceToolbar(
+              actions: [
+                ToolbarAction.refresh,
+                if (_canCreateCurrent) ToolbarAction.newItem,
+              ],
+              isEnabled: (_) => !_loading,
+              onAction: (action) => action == ToolbarAction.newItem
+                  ? _openCreateDialog()
+                  : _load(),
+            )
+          : Wrap(
+              spacing: 8,
+              children: [
+                if (_canCreateCurrent)
+                  FilledButton.icon(
+                    onPressed: _openCreateDialog,
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add'),
+                  ),
+                OutlinedButton.icon(
+                  onPressed: _load,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Refresh'),
+                ),
+              ],
             ),
-          OutlinedButton.icon(
-            onPressed: _load,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Refresh'),
-          ),
-        ],
-      ),
       searchPanel: SearchFilterPanel(
         controller: _search,
-        hintText: _subtitle,
+        hintText: phase2 ? 'Search code or name' : _subtitle,
         onSearch: (_) => _load(requestedPage: 1),
       ),
       primaryContent: _buildContent(),
@@ -963,7 +976,8 @@ class _ConversionRuleDialogState extends State<ConversionRuleDialog> {
                   decoration: const InputDecoration(labelText: 'From unit'),
                   items: _unitItems(),
                   onChanged: (v) => setState(() => _fromUomId = v),
-                  validator: (v) => v == null ? 'Choose the unit converted from' : null,
+                  validator: (v) =>
+                      v == null ? 'Choose the unit converted from' : null,
                 ),
                 const SizedBox(height: 10),
                 DropdownButtonFormField<String>(
@@ -985,7 +999,8 @@ class _ConversionRuleDialogState extends State<ConversionRuleDialog> {
                       const TextInputType.numberWithOptions(decimal: true),
                   decoration: const InputDecoration(
                     labelText: 'Factor',
-                    helperText: 'How many of the "to" unit one "from" unit holds.',
+                    helperText:
+                        'How many of the "to" unit one "from" unit holds.',
                   ),
                   validator: (v) {
                     final double? parsed = double.tryParse((v ?? '').trim());
@@ -1011,7 +1026,8 @@ class _ConversionRuleDialogState extends State<ConversionRuleDialog> {
                   decoration: const InputDecoration(labelText: 'Status'),
                   items: const [
                     DropdownMenuItem(value: 'ACTIVE', child: Text('ACTIVE')),
-                    DropdownMenuItem(value: 'INACTIVE', child: Text('INACTIVE')),
+                    DropdownMenuItem(
+                        value: 'INACTIVE', child: Text('INACTIVE')),
                   ],
                   onChanged: (v) => setState(() => _status = v ?? 'ACTIVE'),
                 ),

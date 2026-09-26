@@ -204,22 +204,33 @@ class _PackagingLevelsPageState extends State<PackagingLevelsPage> {
       );
     }
     return ManagementWorkspaceLayout(
-      toolbar: Wrap(
-        spacing: 8,
-        children: [
-          if (_mayManage)
-            FilledButton.icon(
-              onPressed: _product == null ? null : () => _edit(),
-              icon: const Icon(Icons.add),
-              label: const Text('Add level'),
+      // Phase 2: Refresh as the line's icon and "+ New" last, as every list.
+      toolbar: Phase2Scope.of(context)
+          ? WorkspaceToolbar(
+              actions: [
+                ToolbarAction.refresh,
+                if (_mayManage) ToolbarAction.newItem,
+              ],
+              isEnabled: (_) => _product != null,
+              onAction: (action) =>
+                  action == ToolbarAction.newItem ? _edit() : _reloadLevels(),
+            )
+          : Wrap(
+              spacing: 8,
+              children: [
+                if (_mayManage)
+                  FilledButton.icon(
+                    onPressed: _product == null ? null : () => _edit(),
+                    icon: const Icon(Icons.add),
+                    label: const Text('Add level'),
+                  ),
+                OutlinedButton.icon(
+                  onPressed: _product == null ? null : _reloadLevels,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Refresh'),
+                ),
+              ],
             ),
-          OutlinedButton.icon(
-            onPressed: _product == null ? null : _reloadLevels,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Refresh'),
-          ),
-        ],
-      ),
       searchPanel: _scanBox(),
       primaryContent: _loading
           ? const Center(child: CircularProgressIndicator())
@@ -279,8 +290,7 @@ class _PackagingLevelsPageState extends State<PackagingLevelsPage> {
                     controller: _scan,
                     decoration: const InputDecoration(
                       labelText: 'Scan or type a code',
-                      helperText:
-                          'Any level of any product in this firm, or a '
+                      helperText: 'Any level of any product in this firm, or a '
                           "product's own barcode.",
                       isDense: true,
                     ),
@@ -400,8 +410,8 @@ class _PackagingLevelDialogState extends State<_PackagingLevelDialog> {
   final GlobalKey<FormState> _form = GlobalKey<FormState>();
   late final TextEditingController _name =
       TextEditingController(text: widget.level?.levelName ?? '');
-  late final TextEditingController _factor = TextEditingController(
-      text: widget.level?.conversionToBaseFactor ?? '1');
+  late final TextEditingController _factor =
+      TextEditingController(text: widget.level?.conversionToBaseFactor ?? '1');
   late final TextEditingController _barcode =
       TextEditingController(text: widget.level?.barcode ?? '');
   late final TextEditingController _gtin =
@@ -410,9 +420,8 @@ class _PackagingLevelDialogState extends State<_PackagingLevelDialog> {
       TextEditingController(text: widget.level?.ean ?? '');
   late final TextEditingController _upc =
       TextEditingController(text: widget.level?.upc ?? '');
-  late String? _uomId = widget.level?.uomId.isEmpty ?? true
-      ? null
-      : widget.level!.uomId;
+  late String? _uomId =
+      widget.level?.uomId.isEmpty ?? true ? null : widget.level!.uomId;
   late String? _parentId = widget.level?.parentLevelId.isEmpty ?? true
       ? null
       : widget.level!.parentLevelId;
@@ -479,9 +488,8 @@ class _PackagingLevelDialogState extends State<_PackagingLevelDialog> {
   Widget build(BuildContext context) {
     // A level cannot be its own parent, and the list is the other rungs of
     // this product's hierarchy.
-    final List<PackagingLevelRecord> parents = widget.levels
-        .where((row) => row.id != widget.level?.id)
-        .toList();
+    final List<PackagingLevelRecord> parents =
+        widget.levels.where((row) => row.id != widget.level?.id).toList();
     return AlertDialog(
       title: Text(widget.level == null
           ? 'Add a packaging level'
@@ -500,9 +508,8 @@ class _PackagingLevelDialogState extends State<_PackagingLevelDialog> {
                     labelText: 'Level name',
                     hintText: 'BOX, CARTON, PALLET',
                   ),
-                  validator: (value) => (value ?? '').trim().isEmpty
-                      ? 'Name the level.'
-                      : null,
+                  validator: (value) =>
+                      (value ?? '').trim().isEmpty ? 'Name the level.' : null,
                 ),
                 TextFormField(
                   controller: _factor,
@@ -512,7 +519,8 @@ class _PackagingLevelDialogState extends State<_PackagingLevelDialog> {
                   ),
                   keyboardType: TextInputType.number,
                   validator: (value) {
-                    final double? parsed = double.tryParse((value ?? '').trim());
+                    final double? parsed =
+                        double.tryParse((value ?? '').trim());
                     if (parsed == null) return 'Enter a number.';
                     // A level holding nothing cannot be scanned into a
                     // quantity, which is the whole purpose of recording it.
@@ -545,7 +553,8 @@ class _PackagingLevelDialogState extends State<_PackagingLevelDialog> {
                     for (final PackagingLevelRecord row in parents)
                       DropdownMenuItem(
                         value: row.id,
-                        child: Text(row.levelName, overflow: TextOverflow.ellipsis),
+                        child: Text(row.levelName,
+                            overflow: TextOverflow.ellipsis),
                       ),
                   ],
                   onChanged: (value) => setState(() => _parentId = value),
@@ -575,8 +584,8 @@ class _PackagingLevelDialogState extends State<_PackagingLevelDialog> {
                     padding: const EdgeInsets.only(top: AppSpacing.md),
                     child: Text(
                       _error!,
-                      style: TextStyle(
-                          color: Theme.of(context).colorScheme.error),
+                      style:
+                          TextStyle(color: Theme.of(context).colorScheme.error),
                     ),
                   ),
               ],
