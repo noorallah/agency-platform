@@ -1090,8 +1090,7 @@ class WorkspaceToolbar extends StatelessWidget {
     final List<ToolbarAction> shown =
         actions.where((action) => isVisible?.call(action) ?? true).toList();
     final bool hasNew = shown.contains(ToolbarAction.newItem);
-    final List<ToolbarAction> icons =
-        _everyDay.where(shown.contains).toList();
+    final List<ToolbarAction> icons = _everyDay.where(shown.contains).toList();
     final List<ToolbarAction> rest = shown
         .where((action) =>
             action != ToolbarAction.newItem && !_everyDay.contains(action))
@@ -1724,7 +1723,8 @@ class Phase2ButtonTheme extends StatelessWidget {
     final ColorScheme scheme = theme.colorScheme;
     final RoundedRectangleBorder shape =
         RoundedRectangleBorder(borderRadius: BorderRadius.circular(5));
-    const EdgeInsets padding = EdgeInsets.symmetric(horizontal: 12, vertical: 6);
+    const EdgeInsets padding =
+        EdgeInsets.symmetric(horizontal: 12, vertical: 6);
     const Size size = Size(0, 32);
     final TextStyle? text = theme.textTheme.bodyMedium?.copyWith(fontSize: 13);
     return Theme(
@@ -1795,7 +1795,8 @@ class _Phase2IconAction extends StatelessWidget {
           tapTargetSize: MaterialTapTargetSize.shrinkWrap,
           visualDensity: VisualDensity.compact,
           foregroundColor: danger ? scheme.error : scheme.onSurface,
-          disabledForegroundColor: scheme.onSurfaceVariant.withValues(alpha: .45),
+          disabledForegroundColor:
+              scheme.onSurfaceVariant.withValues(alpha: .45),
           backgroundColor: scheme.surfaceContainerLowest,
           side: BorderSide(color: scheme.outlineVariant),
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
@@ -1840,6 +1841,7 @@ class GridColumn {
     this.visible = true,
     this.tooltip,
     this.numeric = false,
+    this.priority,
   });
   final String key;
   final String label;
@@ -1850,6 +1852,78 @@ class GridColumn {
   /// An amount or a count. Phase 2 right-aligns it and groups its digits the
   /// Indian way (1,12,050.00), as the wireframe's Credit limit and Balance.
   final bool numeric;
+
+  /// How much the column matters when the window is narrow (design 4.11):
+  /// 1 always stays, 2 goes next, 3 goes first. Phase 2 drops columns from 3
+  /// up, rightmost first, until the table fits, and scrolls sideways only
+  /// when even the 1s do not. Null takes [effectivePriority]'s reading of
+  /// the heading.
+  final int? priority;
+
+  /// Columns a narrow window can spare first: tax numbers, audit dates,
+  /// contact details and notes -- the wireframe's p3 (GST, HSN, MRP).
+  static const Set<String> _spareFirst = {
+    'created',
+    'created at',
+    'created on',
+    'updated',
+    'updated at',
+    'modified',
+    'gst',
+    'gstin',
+    'gst number',
+    'gst no',
+    'pan',
+    'hsn',
+    'hsn code',
+    'hsn/sac',
+    'mrp',
+    'email',
+    'e-mail',
+    'remarks',
+    'notes',
+    'description',
+    'reference',
+    'ref',
+    'credit limit',
+    'barcode',
+  };
+
+  /// Columns that go next: the wireframe's p2 (Phone, Brand).
+  static const Set<String> _spareNext = {
+    'phone',
+    'mobile',
+    'contact',
+    'brand',
+    'type',
+    'group',
+    'territory',
+    'route',
+    'branch',
+    'warehouse',
+    'owner',
+    'salesperson',
+    'sales person',
+    'created by',
+    'due date',
+  };
+
+  /// The priority phase 2 uses: the one given, else read from the heading.
+  /// The leading column -- the code or number a row is known by -- always
+  /// stays.
+  int effectivePriority({required bool leading}) {
+    if (priority != null) return priority!;
+    if (leading) return 1;
+    final String name = label.trim().toLowerCase();
+    if (_spareFirst.contains(name)) return 3;
+    if (_spareNext.contains(name)) return 2;
+    return 1;
+  }
+
+  /// A status column: phase 2 writes its value as plain words ("On hold"),
+  /// as the wireframe does, rather than as a code in capitals.
+  bool get isStatus =>
+      label.trim().toLowerCase() == 'status' || key.toLowerCase() == 'status';
 }
 
 class EnterpriseDataGrid<T> extends StatefulWidget {
@@ -1942,8 +2016,123 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
   List<MapEntry<int, GridColumn>> get _visibleColumns => widget.columns
       .asMap()
       .entries
-      .where((entry) => entry.value.visible)
+      .where((entry) => entry.value.visible && !_dropped.contains(entry.key))
       .toList();
+
+  /// The widest a phase 2 cell grows.
+  static const double _maxCellWidth = 260;
+
+  /// Columns phase 2 has left out because the window is too narrow for them
+  /// (design 4.11), by index into `widget.columns`. Worked out afresh on
+  /// every layout from the width the grid is given.
+  Set<int> _dropped = const {};
+
+  /// Each column's natural width, measured from its heading and this page's
+  /// values. Cached per page, because the grid rebuilds on every hover.
+  List<double>? _widths;
+  Object? _widthsFor;
+
+  /// Plain words for a status code: ON_HOLD becomes "On hold".
+  static String _statusWords(String value) {
+    final String trimmed = value.trim();
+    if (!RegExp(r'^[A-Z][A-Z0-9_ ]*$').hasMatch(trimmed)) return value;
+    final String words = trimmed.replaceAll('_', ' ').toLowerCase();
+    return words[0].toUpperCase() + words.substring(1);
+  }
+
+  /// The width each column would like, its heading and values measured in
+  /// the grid's own type (13 px cells, 12 px bold headings); a long value is
+  /// capped so one address cannot hold a column open.
+  List<double> _naturalWidths(BuildContext context) {
+    final TextScaler scaler = MediaQuery.textScalerOf(context);
+    final Object key = Object.hashAll([
+      identityHashCode(widget.items),
+      widget.items.length,
+      for (final GridColumn column in widget.columns) column.label,
+      scaler.scale(13),
+    ]);
+    final List<double>? cached = _widths;
+    if (cached != null && _widthsFor == key) return cached;
+    final TextTheme text = Theme.of(context).textTheme;
+    final TextStyle cell =
+        (text.bodyMedium ?? const TextStyle()).copyWith(fontSize: 13);
+    final TextStyle heading = (text.labelMedium ?? const TextStyle())
+        .copyWith(fontSize: 12, fontWeight: FontWeight.w600);
+    double measure(String value, TextStyle style) {
+      final TextPainter painter = TextPainter(
+        text: TextSpan(text: value, style: style),
+        textDirection: TextDirection.ltr,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      final double width = painter.width;
+      painter.dispose();
+      return width;
+    }
+
+    final List<List<String>> rows = [
+      for (final T item in widget.items) widget.cells(item),
+    ];
+    final List<double> widths = [];
+    for (int i = 0; i < widget.columns.length; i++) {
+      final GridColumn column = widget.columns[i];
+      double width =
+          measure(column.label, heading) + (column.onSort == null ? 0 : 18);
+      for (final List<String> values in rows) {
+        if (i >= values.length) continue;
+        final String raw = values[i];
+        final String shown = column.numeric
+            ? _grouped(raw)
+            : column.isStatus
+                ? _statusWords(raw)
+                : raw;
+        final double value = measure(shown, cell);
+        if (value > width) width = value;
+      }
+      widths.add(width.clamp(0, _maxCellWidth).toDouble());
+    }
+    _widths = widths;
+    _widthsFor = key;
+    return widths;
+  }
+
+  /// Phase 2: which columns to leave out so the table fits [available] --
+  /// lowest priority first and, among equals, rightmost first. The column a
+  /// row is known by is never dropped.
+  Set<int> _columnsToDrop(BuildContext context, double available) {
+    if (!_phase2 || !available.isFinite) return const {};
+    final List<double> widths = _naturalWidths(context);
+    final List<int> shown = [
+      for (int i = 0; i < widget.columns.length; i++)
+        if (widget.columns[i].visible) i,
+    ];
+    if (shown.isEmpty) return const {};
+    const double spacing = 20;
+    double total = 2 * 10 +
+        (_multiSelection ? 44 : 0) +
+        (widget.showRowNumbers ? 40 + spacing : 0) +
+        spacing * (shown.length - 1);
+    for (final int i in shown) {
+      total += widths[i];
+    }
+    if (total <= available) return const {};
+    int priorityOf(int i) =>
+        widget.columns[i].effectivePriority(leading: i == shown.first);
+    final List<int> candidates = [
+      for (final int i in shown)
+        if (priorityOf(i) > 1) i,
+    ]..sort((a, b) {
+        final int byPriority = priorityOf(b).compareTo(priorityOf(a));
+        return byPriority != 0 ? byPriority : b.compareTo(a);
+      });
+    final Set<int> dropped = {};
+    for (final int i in candidates) {
+      if (total <= available) break;
+      dropped.add(i);
+      total -= widths[i] + spacing;
+    }
+    return dropped;
+  }
 
   bool _isSelected(String itemId) =>
       widget.selectedIds.contains(itemId) || widget.selectedId == itemId;
@@ -2012,17 +2201,21 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
           ),
         ..._visibleColumns.asMap().entries.map((visible) {
           final MapEntry<int, GridColumn> entry = visible.value;
-          final String raw =
-              entry.key < values.length ? values[entry.key] : '';
+          final String raw = entry.key < values.length ? values[entry.key] : '';
           final bool amount = _phase2 && entry.value.numeric;
-          final String value = amount ? _grouped(raw) : raw;
+          final bool status = _phase2 && entry.value.isStatus;
+          final String value = amount
+              ? _grouped(raw)
+              : status
+                  ? _statusWords(raw)
+                  : raw;
           return _dataCell(
             context,
             item: item,
             // An amount is drawn here, right-aligned in Indian digits, even
             // on a screen that builds its own cells -- or its heading moves
             // right and its figures stay left.
-            content: (amount
+            content: (amount || status
                     ? null
                     : widget.cellBuilder?.call(entry.key, raw, item)) ??
                 Tooltip(
@@ -2055,7 +2248,14 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
     required bool isSelected,
     required List<WorkspaceContextAction> itemContextActions,
   }) {
-    Widget cell = content;
+    // Phase 2 caps a cell at the width the column priority measured with, so
+    // one long name ends in "..." rather than holding the column open.
+    Widget cell = _phase2
+        ? ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: _maxCellWidth),
+            child: content,
+          )
+        : content;
     if (isLeading) {
       // A marker on the row's leading edge, so the selection is not signalled
       // by colour alone -- the tint is easy to lose in high contrast, and
@@ -2273,104 +2473,111 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
     final bool showSizeSelector =
         widget.onRowsPerPageChanged != null && sizeOptions.length > 1;
     final Widget body = Column(
-        children: [
-          Expanded(
-            child: LayoutBuilder(
-              builder: (context, constraints) {
-                // A minimum, not a fixed width: a bare `DataTable` cannot shrink
-                // below the width its columns need and would overflow instead.
-                final double minWidth =
-                    constraints.maxWidth < 720 ? 720 : constraints.maxWidth;
-                Widget scrollingData(double available) => Scrollbar(
+      children: [
+        Expanded(
+          child: LayoutBuilder(
+            builder: (context, constraints) {
+              // A minimum, not a fixed width: a bare `DataTable` cannot shrink
+              // below the width its columns need and would overflow instead.
+              // Phase 2 fits the table to the window by leaving out its
+              // least important columns first (design 4.11); only what is
+              // still too wide scrolls sideways.
+              _dropped = _columnsToDrop(context, constraints.maxWidth);
+              final double minWidth = _phase2
+                  ? constraints.maxWidth
+                  : constraints.maxWidth < 720
+                      ? 720
+                      : constraints.maxWidth;
+              Widget scrollingData(double available) => Scrollbar(
+                    controller: _horizontal,
+                    // Flutter's `MaterialScrollBehavior` adds a scrollbar for
+                    // vertical scroll views and never for horizontal ones, so
+                    // a table wider than its viewport gave no sign that
+                    // anything lay off the right edge.
+                    thumbVisibility: true,
+                    child: SingleChildScrollView(
                       controller: _horizontal,
-                      // Flutter's `MaterialScrollBehavior` adds a scrollbar for
-                      // vertical scroll views and never for horizontal ones, so
-                      // a table wider than its viewport gave no sign that
-                      // anything lay off the right edge.
-                      thumbVisibility: true,
-                      child: SingleChildScrollView(
-                        controller: _horizontal,
-                        scrollDirection: Axis.horizontal,
-                        child: ConstrainedBox(
-                          constraints: BoxConstraints(minWidth: available),
-                          child: _table(context),
-                        ),
+                      scrollDirection: Axis.horizontal,
+                      child: ConstrainedBox(
+                        constraints: BoxConstraints(minWidth: available),
+                        child: _table(context),
                       ),
-                    );
-                if (!_showActionsColumn) {
-                  return SingleChildScrollView(
-                    child: scrollingData(minWidth),
+                    ),
                   );
-                }
-                // One vertical scroll around both halves, so they move together
-                // without anything having to synchronise them. They line up row
-                // for row because `ThemeRegistry` fixes `dataRowMinHeight`,
-                // `dataRowMaxHeight` and `headingRowHeight` -- if those ever
-                // become variable, this alignment is the first thing to check.
+              if (!_showActionsColumn) {
                 return SingleChildScrollView(
-                  child: Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      // A second LayoutBuilder because the first cannot know
-                      // how much room the pinned column will take. A Row
-                      // measures its non-flex children first, so by the time
-                      // this runs `inner.maxWidth` is what is genuinely left --
-                      // and the data table fills it instead of sitting at its
-                      // intrinsic width with a stretch of nothing before the
-                      // actions, which is what a three-column grid looked like.
-                      Expanded(
-                        child: LayoutBuilder(
-                          builder: (context, inner) =>
-                              scrollingData(inner.maxWidth),
-                        ),
+                  child: scrollingData(minWidth),
+                );
+              }
+              // One vertical scroll around both halves, so they move together
+              // without anything having to synchronise them. They line up row
+              // for row because `ThemeRegistry` fixes `dataRowMinHeight`,
+              // `dataRowMaxHeight` and `headingRowHeight` -- if those ever
+              // become variable, this alignment is the first thing to check.
+              return SingleChildScrollView(
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    // A second LayoutBuilder because the first cannot know
+                    // how much room the pinned column will take. A Row
+                    // measures its non-flex children first, so by the time
+                    // this runs `inner.maxWidth` is what is genuinely left --
+                    // and the data table fills it instead of sitting at its
+                    // intrinsic width with a stretch of nothing before the
+                    // actions, which is what a three-column grid looked like.
+                    Expanded(
+                      child: LayoutBuilder(
+                        builder: (context, inner) =>
+                            scrollingData(inner.maxWidth),
                       ),
-                      _pinnedActions(context),
+                    ),
+                    _pinnedActions(context),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+        if (widget.total > 0)
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                if (showSizeSelector) ...[
+                  Text(
+                    'Rows per page:',
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                  const SizedBox(width: AppSpacing.sm),
+                  DropdownButton<int>(
+                    value: widget.rowsPerPage,
+                    underline: const SizedBox.shrink(),
+                    isDense: true,
+                    onChanged: widget.onRowsPerPageChanged,
+                    items: [
+                      for (final int size in sizeOptions)
+                        DropdownMenuItem<int>(
+                          value: size,
+                          child: Text('$size'),
+                        ),
                     ],
                   ),
-                );
-              },
+                ],
+                // Reports a row offset, not a page number: every caller has
+                // always converted with `offset ~/ rowsPerPage + 1`.
+                WorkspacePager(
+                  page: _page,
+                  pageSize: widget.rowsPerPage,
+                  total: widget.total,
+                  onPageChanged: (page) =>
+                      widget.onPageChanged((page - 1) * widget.rowsPerPage),
+                ),
+              ],
             ),
           ),
-          if (widget.total > 0)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: AppSpacing.sm),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  if (showSizeSelector) ...[
-                    Text(
-                      'Rows per page:',
-                      style: Theme.of(context).textTheme.bodySmall,
-                    ),
-                    const SizedBox(width: AppSpacing.sm),
-                    DropdownButton<int>(
-                      value: widget.rowsPerPage,
-                      underline: const SizedBox.shrink(),
-                      isDense: true,
-                      onChanged: widget.onRowsPerPageChanged,
-                      items: [
-                        for (final int size in sizeOptions)
-                          DropdownMenuItem<int>(
-                            value: size,
-                            child: Text('$size'),
-                          ),
-                      ],
-                    ),
-                  ],
-                  // Reports a row offset, not a page number: every caller has
-                  // always converted with `offset ~/ rowsPerPage + 1`.
-                  WorkspacePager(
-                    page: _page,
-                    pageSize: widget.rowsPerPage,
-                    total: widget.total,
-                    onPageChanged: (page) =>
-                        widget.onPageChanged((page - 1) * widget.rowsPerPage),
-                  ),
-                ],
-              ),
-            ),
-        ],
-      );
+      ],
+    );
     if (_phase2) {
       return ColoredBox(
         color: Theme.of(context).colorScheme.surfaceContainerLowest,
