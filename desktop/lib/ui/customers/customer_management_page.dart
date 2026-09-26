@@ -450,16 +450,20 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
         ToolbarAction.export,
         ToolbarAction.settings,
       ],
-      trailing: [
-        Padding(
-          padding: const EdgeInsets.only(left: 8),
-          child: OutlinedButton.icon(
-            onPressed: widget.hasActiveFirm ? _openCustomerGroups : null,
-            icon: const Icon(Icons.groups_outlined, size: 18),
-            label: const Text('Groups'),
-          ),
-        ),
-      ],
+      // Phase 2 keeps the groups under Masters > Parties > Customer Groups;
+      // phase 1 keeps its button here.
+      trailing: Phase2Scope.of(context)
+          ? const []
+          : [
+              Padding(
+                padding: const EdgeInsets.only(left: 8),
+                child: OutlinedButton.icon(
+                  onPressed: widget.hasActiveFirm ? _openCustomerGroups : null,
+                  icon: const Icon(Icons.groups_outlined, size: 18),
+                  label: const Text('Groups'),
+                ),
+              ),
+            ],
       isVisible: (action) => switch (action) {
         ToolbarAction.newItem => _canCreate,
         ToolbarAction.edit => _canEdit,

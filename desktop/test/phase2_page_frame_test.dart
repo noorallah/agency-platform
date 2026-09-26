@@ -333,4 +333,37 @@ void main() {
     expect(find.text('12 records'), findsOneWidget);
     expect(find.text('1 selected'), findsOneWidget);
   });
+
+  testWidgets('a phase 2 grid fills its width and draws its heading line',
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Phase2Scope(
+          child: EnterpriseDataGrid<String>(
+            items: const ['a', 'b'],
+            total: 2,
+            pageOffset: 0,
+            columns: const [
+              GridColumn(key: 'code', label: 'Code'),
+              GridColumn(key: 'amount', label: 'Amount', numeric: true),
+            ],
+            id: (item) => item,
+            cells: (item) => [item, '112050'],
+            onSelect: (_) {},
+            onPageChanged: (_) {},
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    // A Stack around the table once loosened its width and it shrank to its
+    // two columns; the grid is the width it is given.
+    expect(tester.getSize(find.byType(DataTable)).width, 1200);
+    expect(find.byKey(const ValueKey('grid-heading-line')), findsOneWidget);
+    // Amounts in Indian digits.
+    expect(find.text('1,12,050'), findsNWidgets(2));
+  });
 }

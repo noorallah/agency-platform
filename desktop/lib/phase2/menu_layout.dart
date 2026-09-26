@@ -10,19 +10,26 @@ import '../ui/workspace/module_visibility.dart';
 /// hidden here and the server stays the authority either way.
 class MenuItemSpec {
   const MenuItemSpec(AppModule this.module, this.tab, this.label)
-      : route = null;
+      : route = null,
+        gate = null;
 
   /// A module with no tabs of its own (Quotations, the Dashboard).
   const MenuItemSpec.module(AppModule this.module, this.label)
       : tab = null,
-        route = null;
+        route = null,
+        gate = null;
 
   /// A screen only the phase 2 app has, with no catalogue module behind it
   /// -- Home (4.9). Offered to everybody signed in; what it shows inside is
   /// cut to the user's permissions.
-  const MenuItemSpec.phase2(String this.route, this.label)
+  const MenuItemSpec.phase2(String this.route, this.label, {this.gate})
       : module = null,
         tab = null;
+
+  /// For a phase 2 screen, the catalogue screen whose visibility it follows
+  /// -- Customer Groups is offered to whoever may open Customers. Null
+  /// offers it to everybody signed in (Home).
+  final String? gate;
 
   /// The catalogue module, or null for a phase 2 screen.
   final AppModule? module;
@@ -73,6 +80,9 @@ class MenuAreaSpec {
 abstract final class MenuLayout {
   /// Home's address: a phase 2 screen, drawn by the phase 2 shell itself.
   static const String homeRoute = 'home';
+
+  /// Customer Groups: a phase 2 page, opened in a tab of its own.
+  static const String customerGroupsRoute = 'customer-groups';
 
   static const MenuAreaSpec home = MenuAreaSpec('home', 'Home', [
     MenuGroupSpec('Home', [MenuItemSpec.phase2(MenuLayout.homeRoute, 'Home')]),
@@ -184,6 +194,10 @@ abstract final class MenuLayout {
     MenuAreaSpec('masters', 'Masters', [
       MenuGroupSpec('Parties', [
         MenuItemSpec(AppModule.masters, 'customers', 'Customers'),
+        // Master data like vendor categories, set up now and then -- not a
+        // button on the Customers screen (owner, 2026-09-26).
+        MenuItemSpec.phase2(customerGroupsRoute, 'Customer Groups',
+            gate: 'masters/customers'),
         MenuItemSpec(AppModule.masters, 'vendors', 'Vendors'),
         MenuItemSpec(
             AppModule.masters, 'vendor-categories', 'Vendor Categories'),
@@ -318,7 +332,11 @@ abstract final class MenuLayout {
     };
     final Map<AppModule, Set<String>> tabs = {};
     bool offered(MenuItemSpec item) {
-      if (item.module == null) return true;
+      if (item.module == null) {
+        final MenuItemSpec? gate =
+            item.gate == null ? null : itemFor(item.gate!);
+        return item.gate == null || (gate != null && offered(gate));
+      }
       final ModuleDefinition? module = allowed[item.module];
       if (module == null) return false;
       if (item.tab == null) return true;
