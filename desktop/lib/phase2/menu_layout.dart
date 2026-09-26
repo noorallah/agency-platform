@@ -99,6 +99,8 @@ abstract final class MenuLayout {
   static const Map<String, String> notOffered = {
     'purchases/purchase-analytics':
         'a placeholder: the backend exposes no purchase analytics yet',
+    'masters/branch-warehouse-settings':
+        'a placeholder: there are no branch or warehouse settings to change',
   };
 
   static const List<MenuAreaSpec> areas = [
@@ -322,8 +324,7 @@ abstract final class MenuLayout {
     MenuGroupSpec('Stock', [
       MenuItemSpec(
           AppModule.inventory, 'inventory-settings', 'Inventory Settings'),
-      MenuItemSpec(AppModule.masters, 'branch-warehouse-settings',
-          'Branch & Warehouse Settings'),
+      // Branch & Warehouse Settings is left out (MenuLayout.notOffered).
     ]),
     MenuGroupSpec('Tax', [
       MenuItemSpec(
