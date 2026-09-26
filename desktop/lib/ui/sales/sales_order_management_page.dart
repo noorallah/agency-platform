@@ -216,6 +216,9 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
   }
 
   Future<void> _load({int? requestedPage}) async {
+    // Read before any await: whether to pick the first row (phase 1 only).
+    final bool pickFirst =
+        context.getInheritedWidgetOfExactType<Phase2Scope>() == null;
     if (!widget.hasActiveFirm ||
         !widget.permissions.hasPermission('SALES_VIEW')) {
       return;
@@ -255,14 +258,16 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
       final int total = pagination is Map
           ? (pagination['total_records'] as num?)?.toInt() ?? rows.length
           : rows.length;
-      final Map<String, dynamic>? selected = rows.isEmpty
+      // Phase 2 (option C): nothing is picked for the user -- the selection
+      // bar opens when somebody clicks a row, and stays with that row.
+      final Map<String, dynamic>? kept = _selected == null
           ? null
-          : (_selected == null
-              ? rows.first
-              : rows.firstWhere(
-                  (item) => item['id'] == _selected!['id'],
-                  orElse: () => rows.first,
-                ));
+          : rows.cast<Map<String, dynamic>?>().firstWhere(
+                (item) => item!['id'] == _selected!['id'],
+                orElse: () => null,
+              );
+      final Map<String, dynamic>? selected =
+          kept ?? (pickFirst && rows.isNotEmpty ? rows.first : null);
       // The timeline is no longer fetched here. It filled a pane that was on
       // screen whether or not anybody wanted it; the dialog reads it when the
       // document is actually opened.
@@ -449,6 +454,18 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
 
   Widget _buildGridWorkspace() => ManagementWorkspaceLayout(
         toolbar: _buildToolbar(),
+        // Option C (owner, 2026-09-27): the order's actions on a bar that
+        // names it, above the grid.
+        selectionBar: true,
+        selection: _selected == null
+            ? null
+            : SelectionSummary.document(
+                number: '${_selected!['order_number'] ?? ''}',
+                party: '${_selected!['customer_name'] ?? ''}',
+                status: '${_selected!['status'] ?? ''}',
+                total: _selected!['grand_total'],
+                onClear: () => setState(() => _selected = null),
+              ),
         lineChips: Phase2Scope.of(context) ? _listTools() : const [],
         searchPanel: SearchFilterPanel(
           controller: _search,

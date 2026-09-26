@@ -119,13 +119,29 @@ class ColumnsButton extends StatelessWidget {
 
   // An icon with its name on hover: the page line it sits on is shared with
   // the title, the counters and the search.
+  // The line's other icons' shape: a 32 px square with 5 px corners (it
+  // drew as a 48 px circle, taller than everything beside it).
   @override
-  Widget build(BuildContext context) => IconButton.outlined(
-        key: const ValueKey('grid-columns'),
-        tooltip: 'Columns',
-        onPressed: onPressed,
-        icon: const Icon(Icons.view_column_outlined, size: 18),
-      );
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return IconButton(
+      key: const ValueKey('grid-columns'),
+      tooltip: 'Columns',
+      onPressed: onPressed,
+      icon: const Icon(Icons.view_column_outlined, size: 18),
+      style: IconButton.styleFrom(
+        fixedSize: const Size(32, 32),
+        minimumSize: const Size(32, 32),
+        padding: EdgeInsets.zero,
+        tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+        visualDensity: VisualDensity.compact,
+        foregroundColor: scheme.onSurface,
+        backgroundColor: scheme.surfaceContainerLowest,
+        side: BorderSide(color: scheme.outlineVariant),
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+      ),
+    );
+  }
 }
 
 class _ColumnChooserDialog<T> extends StatefulWidget {

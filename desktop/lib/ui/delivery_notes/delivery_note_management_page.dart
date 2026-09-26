@@ -285,6 +285,9 @@ class _DeliveryNoteManagementPageState
   }
 
   Future<void> _load({int? requestedPage}) async {
+    // Read before any await: whether to pick the first row (phase 1 only).
+    final bool pickFirst =
+        context.getInheritedWidgetOfExactType<Phase2Scope>() == null;
     if (!widget.hasActiveFirm ||
         !widget.permissions.hasPermission('SALES_VIEW')) {
       return;
@@ -321,7 +324,9 @@ class _DeliveryNoteManagementPageState
             notes.where((item) => item.id == selected!.id).toList();
         selected = matches.isEmpty ? null : matches.first;
       }
-      if (selected == null && notes.isNotEmpty) {
+      // Phase 2 (option C): nothing is picked for the user -- the selection
+      // bar opens when somebody clicks a row.
+      if (selected == null && notes.isNotEmpty && pickFirst) {
         selected = notes.first;
       }
       // The timeline is no longer fetched on every list load. It filled a
@@ -441,6 +446,18 @@ class _DeliveryNoteManagementPageState
 
   Widget _buildGridWorkspace() => ManagementWorkspaceLayout(
         toolbar: _buildToolbar(),
+        // Option C (owner, 2026-09-27): the note's actions on a bar that
+        // names it, above the grid.
+        selectionBar: true,
+        selection: _selected == null
+            ? null
+            : SelectionSummary.document(
+                number: _selected!.deliveryNoteNumber,
+                party: _selected!.customerName,
+                status: _selected!.status,
+                total: _selected!.grandTotal,
+                onClear: () => setState(() => _selected = null),
+              ),
         lineChips: Phase2Scope.of(context) ? _listTools() : const [],
         // Phase 2's counters are the views (4.5); a second row
         // of the same choices would repeat them.
