@@ -652,7 +652,8 @@ class _DesktopShellState extends State<DesktopShell> {
             trailing: [
               SearchLauncher(onPressed: () => unawaited(_openCommandBox())),
               const SizedBox(width: 8),
-              _firmControl(onChrome: true),
+              _firmOnBar(),
+              const SizedBox(width: 6),
               ConnectionDot(
                 online: _health.backend == ConnectionStateIndicator.online &&
                     _health.database == ConnectionStateIndicator.online,
@@ -671,6 +672,7 @@ class _DesktopShellState extends State<DesktopShell> {
               ThemeSelector(
                 manager: widget.themes,
                 iconColor: chrome.onChrome,
+                style: barIconStyle(context),
               ),
             ],
             profile: _profileMenu(avatar: true),
@@ -827,6 +829,7 @@ class _DesktopShellState extends State<DesktopShell> {
       PopupMenuButton<String>(
         tooltip: 'Profile',
         padding: EdgeInsets.zero,
+        style: avatar ? barIconStyle(context) : null,
         // Phase 2: the wireframe's grey circle with the user's initials.
         icon: avatar
             ? CircleAvatar(
@@ -994,41 +997,8 @@ class _DesktopShellState extends State<DesktopShell> {
     }
   }
 
-  Widget _firmControl({bool compact = false, bool onChrome = false}) {
-    if (!onChrome) return _firmControlBody(context, compact);
-    // The text takes its colour from the nearest DefaultTextStyle, which is
-    // the menu bar's Material -- built from the page's theme, so without this
-    // the firm's name was dark on the dark bar and could not be seen.
-    return Theme(
-      data: _chromeTheme(context),
-      child: DefaultTextStyle.merge(
-        style: TextStyle(color: context.semanticColors.onChrome),
-        child: Builder(
-          builder: (context) => _firmControlBody(context, compact),
-        ),
-      ),
-    );
-  }
-
-  /// The menu bar is dark in both themes, so what sits on it is drawn in the
-  /// bar's colours rather than the page's.
-  ThemeData _chromeTheme(BuildContext context) {
-    final AppSemanticColors chrome = context.semanticColors;
-    final ThemeData base = Theme.of(context);
-    return base.copyWith(
-      colorScheme: base.colorScheme.copyWith(
-        surfaceContainerHigh: chrome.chrome,
-        onSurface: chrome.onChrome,
-        onSurfaceVariant: chrome.onChromeMuted,
-      ),
-      dividerColor: chrome.onChromeMuted,
-      iconTheme: IconThemeData(color: chrome.onChrome),
-      textTheme: base.textTheme.apply(
-        bodyColor: chrome.onChrome,
-        displayColor: chrome.onChrome,
-      ),
-    );
-  }
+  Widget _firmControl({bool compact = false}) =>
+      _firmControlBody(context, compact);
 
   Widget _firmControlBody(BuildContext context, bool compact) {
     final List<AssignedFirm> firms = widget.session.firms;
@@ -1106,6 +1076,18 @@ class _DesktopShellState extends State<DesktopShell> {
           ],
         ),
       ),
+    );
+  }
+
+  /// The firm on the phase 2 bar: its name, and a ▾ that opens the picker
+  /// when there is another firm -- or Platform -- to switch to.
+  Widget _firmOnBar() {
+    final bool platformIsAChoice = widget.session.canWorkWithoutAFirm;
+    final bool choice = widget.session.firms.length > 1 || platformIsAChoice;
+    return FirmOnBar(
+      name: widget.session.currentFirm?.name ??
+          (platformIsAChoice ? 'Platform' : 'No firm'),
+      onSwitch: choice ? () => unawaited(_openFirmPicker()) : null,
     );
   }
 

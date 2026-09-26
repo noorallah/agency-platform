@@ -164,8 +164,11 @@ void main() {
     final Finder firm = find.text('Platform');
     expect(firm, findsOneWidget);
     final BuildContext context = tester.element(firm);
-    expect(DefaultTextStyle.of(context).style.color,
+    expect(tester.widget<Text>(firm).style?.color,
         context.semanticColors.onChrome);
+    // The wireframe's box: as tall as the search box beside it.
+    expect(tester.getSize(find.byKey(const ValueKey('firm-on-bar'))).height,
+        tester.getSize(find.byKey(const ValueKey('menu-search'))).height);
     // Phase 1 kept Appearance at the foot of its sidebar.
     expect(find.byTooltip('Appearance'), findsOneWidget);
     await _unmount(tester);
