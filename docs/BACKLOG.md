@@ -3648,3 +3648,26 @@ enquiry, route calls).
 
 Related: the Android build (`desktop/build_android.ps1`) is for looking at
 screens on a phone, not for field use.
+
+## 49. Home gadgets -- parked
+
+Owner, 2026-09-26: Home as built (#695-#705, the approved wireframe) is fine
+for now; different gadgets come later. What exists: key figures, sales over
+14 days, recent invoices, to do, favourites, Customise to hide any of them,
+every part cut to the user's role (`desktop/lib/phase2/home_page.dart`).
+
+**To build when scheduled:**
+1. **Gadgets as a catalogue**: Home made of gadgets a user adds, removes and
+   orders (not only hides), each declaring the permission it needs so a role
+   is offered only what it may see -- the same rule the menu follows (4.12).
+2. **Gadgets by role**: owner, accountant, storeman, counter clerk and field
+   salesman each start from their own default set (design 4.9).
+3. **Favourites by star**: the star on menu items (4.3) fills FAVOURITES with
+   the user's own screens; today it shows the daily screens of 4.6.
+4. **Receipts today**: the wireframe's fourth key figure. Needs a date filter
+   on `GET /api/v1/receipts` (it has none), so the figure is exact rather than
+   counted from one page.
+5. **Recent across documents**: the wireframe's RECENT mixes invoices, orders
+   and goods receipts; today it lists invoices.
+6. Candidates owners have asked of similar products: collections due this
+   week, top customers, stock value, cash and bank balances, GST due.
