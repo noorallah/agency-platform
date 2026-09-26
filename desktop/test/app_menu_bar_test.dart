@@ -71,7 +71,7 @@ void main() {
     final List<MenuItemSpec> opened = await _pump(tester);
     await tester.tap(find.byKey(const ValueKey('menu-area-home')));
     await tester.pumpAndSettle();
-    expect(opened.single.path, 'dashboard');
+    expect(opened.single.path, MenuLayout.homeRoute);
   });
 
   testWidgets('the gear holds the settings, by topic', (tester) async {

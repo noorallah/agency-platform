@@ -79,6 +79,7 @@ import 'settings/settings_workspace.dart';
 import 'resource_management_page.dart';
 import '../phase2/app_menu_bar.dart';
 import '../phase2/command_box.dart';
+import '../phase2/home_page.dart';
 import '../phase2/menu_layout.dart';
 import 'theme_selector.dart';
 import 'workspace/module_catalog.dart';
@@ -252,7 +253,7 @@ class _DesktopShellState extends State<DesktopShell> {
     _lastFirmContextVersion = widget.session.firmContextVersion;
     widget.session.addListener(_sessionChanged);
     _router = WorkspaceRouter(
-      initialLocation: widget.session.lastWorkspace,
+      initialLocation: _initialLocation(),
       onPersist: widget.session.saveLastWorkspace,
     )..addListener(_routeChanged);
     // The screen the session opens on is open, so it has a tab like any
@@ -306,6 +307,18 @@ class _DesktopShellState extends State<DesktopShell> {
     if (mounted) setState(() {});
   }
 
+  /// Where the session opens. In phase 2 that is Home (4.9) unless the user
+  /// was last on a screen of their own: `dashboard` is phase 1's default
+  /// landing page, the platform administrator's Dashboard, which in phase 2
+  /// lives under Admin rather than being where everybody starts.
+  String? _initialLocation() {
+    final String? last = widget.session.lastWorkspace;
+    if (!widget.phase2) return last;
+    return last == null || last == AppModule.dashboard.name
+        ? MenuLayout.homeRoute
+        : last;
+  }
+
   /// Keep the open-screen tabs in step with the router.
   ///
   /// Opening from the menu adds a tab ([_openFromMenu]). Anything else that
@@ -328,7 +341,8 @@ class _DesktopShellState extends State<DesktopShell> {
   void _openFromMenu(MenuItemSpec item) {
     _openScreens = openScreen(_openScreens, item.path);
     _shownPath = item.path;
-    _router.navigate(item.module.name, tab: item.tab);
+    final WorkspaceLocation location = WorkspaceLocation.parse(item.path);
+    _router.navigate(location.module, tab: location.tab);
     unawaited(_saveShellState());
     setState(() {});
   }
@@ -366,6 +380,7 @@ class _DesktopShellState extends State<DesktopShell> {
   /// so a tab restored from last time disappears when its screen is no
   /// longer allowed (a changed role, another firm).
   bool _pathAllowed(String path) {
+    if (path == MenuLayout.homeRoute) return widget.phase2;
     final WorkspaceLocation location = WorkspaceLocation.parse(path);
     final ModuleDefinition? module = _visibleModules
         .where((module) => module.id.name == location.module)
@@ -515,7 +530,14 @@ class _DesktopShellState extends State<DesktopShell> {
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final bool wide = constraints.maxWidth >= 1000;
-                final Widget page = _page(widget.session.api, section);
+                // Phase 2 draws Home itself (4.9), and shows it rather than
+                // a screen the user may no longer open -- a remembered one
+                // after a role change, or phase 1's platform Dashboard.
+                final bool home = widget.phase2 &&
+                    (_router.current.path == MenuLayout.homeRoute ||
+                        !_pathAllowed(_router.current.path));
+                final Widget page =
+                    home ? _homePage() : _page(widget.session.api, section);
                 if (!_classicLayout && constraints.maxWidth >= 600) {
                   return _menuLayout(page);
                 }
@@ -607,6 +629,12 @@ class _DesktopShellState extends State<DesktopShell> {
                   '${widget.branding.companyName} ${widget.branding.version}',
                 ].join('\n'),
               ),
+              // Phase 1 kept it at the foot of the sidebar, which phase 2
+              // does not have.
+              ThemeSelector(
+                manager: widget.themes,
+                iconColor: chrome.onChrome,
+              ),
               _profileMenu(iconColor: chrome.onChrome),
             ],
           ),
@@ -676,6 +704,37 @@ class _DesktopShellState extends State<DesktopShell> {
           ),
         ),
       );
+
+  /// Home in the phase 2 app: today's figures from the lists this user may
+  /// open, and their daily screens.
+  Widget _homePage() => Phase2HomePage(
+        key: ValueKey('home-${widget.session.firmContextVersion}'),
+        firmName: widget.session.currentFirm?.name,
+        userName: widget.session.userLabel,
+        allowed: (path) =>
+            path != MenuLayout.homeRoute && _pathAllowed(path),
+        loadSummary: _homeSummary,
+        onOpen: _openFromMenu,
+      );
+
+  /// The summary each Home tile reports, from the endpoints its own list
+  /// already calls.
+  Future<Map<String, dynamic>> _homeSummary(String path) async {
+    final ApiClient api = widget.session.api;
+    final Map<String, dynamic> response = switch (path) {
+      'salesInvoices/sales-invoices' =>
+        await api.documentSummary('sales-invoices', path: 'reports/summary'),
+      'salesOrders' => await api.documentSummary('sales-orders'),
+      'deliveryNotes/delivery-notes' =>
+        await api.documentSummary('delivery-notes'),
+      'goodsReceipts/receipts' => await api.goodsReceiptSummary(),
+      'purchaseInvoices' => await api.documentSummary('purchase-invoices'),
+      'purchaseReturns' => await api.documentSummary('purchase-returns'),
+      _ => const <String, dynamic>{},
+    };
+    final dynamic data = response['data'];
+    return data is Map<String, dynamic> ? data : response;
+  }
 
   /// Who is signed in, their profile, and signing out.
   Widget _profileMenu({Color? iconColor}) => PopupMenuButton<String>(
@@ -835,10 +894,16 @@ class _DesktopShellState extends State<DesktopShell> {
 
   Widget _firmControl({bool compact = false, bool onChrome = false}) {
     if (!onChrome) return _firmControlBody(context, compact);
+    // The text takes its colour from the nearest DefaultTextStyle, which is
+    // the menu bar's Material -- built from the page's theme, so without this
+    // the firm's name was dark on the dark bar and could not be seen.
     return Theme(
       data: _chromeTheme(context),
-      child: Builder(
-        builder: (context) => _firmControlBody(context, compact),
+      child: DefaultTextStyle.merge(
+        style: TextStyle(color: context.semanticColors.onChrome),
+        child: Builder(
+          builder: (context) => _firmControlBody(context, compact),
+        ),
       ),
     );
   }

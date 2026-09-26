@@ -11,10 +11,19 @@ import '../core/theme/theme_manager.dart';
 /// silently also picked dark. They are three independent choices and are now
 /// presented as three.
 class ThemeSelector extends StatelessWidget {
-  const ThemeSelector({super.key, required this.manager, this.compact = true});
+  const ThemeSelector({
+    super.key,
+    required this.manager,
+    this.compact = true,
+    this.iconColor,
+  });
 
   final ThemeManager manager;
   final bool compact;
+
+  /// The button's colour where it sits on something other than the page --
+  /// the phase 2 menu bar is dark in both themes.
+  final Color? iconColor;
 
   /// Apply a choice, and say so if the server refused to keep it.
   ///
@@ -90,7 +99,7 @@ class ThemeSelector extends StatelessWidget {
       ],
       builder: (context, controller, child) => IconButton(
         tooltip: 'Appearance',
-        icon: const Icon(Icons.palette_outlined),
+        icon: Icon(Icons.palette_outlined, color: iconColor),
         onPressed: () =>
             controller.isOpen ? controller.close() : controller.open(),
       ),
