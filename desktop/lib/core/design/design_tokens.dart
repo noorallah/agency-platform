@@ -232,9 +232,11 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
   factory AppSemanticColors.forScheme(ColorScheme scheme) {
     final bool dark = scheme.brightness == Brightness.dark;
     return AppSemanticColors(
-      success: dark ? const Color(0xff4ade80) : const Color(0xff147d45),
+      // Light values darkened (2026-09-26) so each still reads at 4.5 : 1 as
+      // text on a tinted status chip, not only on a plain ground (4.14).
+      success: dark ? const Color(0xff4ade80) : const Color(0xff11703d),
       onSuccess: dark ? const Color(0xff052e16) : Colors.white,
-      warning: dark ? const Color(0xffffb74d) : const Color(0xffb54708),
+      warning: dark ? const Color(0xffffb74d) : const Color(0xffa2400a),
       onWarning: dark ? const Color(0xff3b1f00) : Colors.white,
       information: scheme.primary,
       onInformation: scheme.onPrimary,
