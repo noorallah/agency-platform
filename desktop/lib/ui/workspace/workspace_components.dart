@@ -1133,6 +1133,137 @@ class ToolbarCommand {
   final bool menuOnly;
 }
 
+/// The row a selection bar names: its number, then who and what it is.
+class SelectionSummary {
+  const SelectionSummary({
+    required this.title,
+    this.detail = '',
+    required this.onClear,
+  });
+
+  /// A document: its number, then customer or supplier, status and total,
+  /// written as the grid writes them ("Draft", "1,12,050.00").
+  factory SelectionSummary.document({
+    required String number,
+    String party = '',
+    String status = '',
+    Object? total,
+    required VoidCallback onClear,
+  }) {
+    final double? amount = double.tryParse('${total ?? ''}');
+    return SelectionSummary(
+      title: number,
+      detail: [
+        party,
+        _words(status),
+        if (amount != null) indianAmount(amount, full: true),
+      ].where((part) => part.isNotEmpty).join(' · '),
+      onClear: onClear,
+    );
+  }
+
+  static String _words(String code) => code
+      .toLowerCase()
+      .split('_')
+      .where((word) => word.isNotEmpty)
+      .map((word) => '${word[0].toUpperCase()}${word.substring(1)}')
+      .join(' ');
+
+  final String title;
+  final String detail;
+  final VoidCallback onClear;
+}
+
+/// Option C (owner, 2026-09-27; `dist/windows/Design/List toolbar
+/// options.html`): the selected row's name and exactly what it can do, on a
+/// bar above the grid. Nothing greyed out and nothing behind "...", and the
+/// bar says which record a button acts on, so nobody approves the wrong one.
+class SelectionActionBar extends StatelessWidget {
+  const SelectionActionBar({
+    super.key,
+    required this.selection,
+    required this.actions,
+  });
+
+  final SelectionSummary selection;
+  final List<ToolbarCommand> actions;
+
+  static const Set<String> _danger = {'cancel', 'delete', 'reverse', 'void'};
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    return DecoratedBox(
+      key: const ValueKey('selection-bar'),
+      decoration: BoxDecoration(
+        color: scheme.primary.withValues(alpha: .08),
+        border: Border(
+          bottom: BorderSide(color: scheme.primary.withValues(alpha: .25)),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 6, 8, 6),
+        child: Row(children: [
+          Flexible(
+            child: Text.rich(
+              TextSpan(children: [
+                TextSpan(
+                  text: selection.title,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                if (selection.detail.isNotEmpty)
+                  TextSpan(
+                    text: '   ${selection.detail}',
+                    style: TextStyle(color: scheme.onSurfaceVariant),
+                  ),
+              ]),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          const SizedBox(width: 12),
+          // The actions take their width; on a narrow window they scroll
+          // rather than push the name off.
+          Flexible(
+            flex: 0,
+            child: SingleChildScrollView(
+              scrollDirection: Axis.horizontal,
+              reverse: true,
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                for (final ToolbarCommand command in actions) ...[
+                  const SizedBox(width: 6),
+                  Tooltip(
+                    message: command.tooltip ?? command.label,
+                    child: OutlinedButton.icon(
+                      key: ValueKey('selection-${command.id}'),
+                      onPressed: command.onPressed,
+                      style: _danger.contains(command.id)
+                          ? OutlinedButton.styleFrom(
+                              foregroundColor: scheme.error)
+                          : null,
+                      icon: Icon(command.icon, size: 16),
+                      label: Text(command.label),
+                    ),
+                  ),
+                ],
+              ]),
+            ),
+          ),
+          const SizedBox(width: 6),
+          IconButton(
+            key: const ValueKey('selection-clear'),
+            tooltip: 'Clear selection',
+            visualDensity: VisualDensity.compact,
+            icon: const Icon(Icons.close, size: 18),
+            onPressed: selection.onClear,
+          ),
+        ]),
+      ),
+    );
+  }
+}
+
 class WorkspaceToolbar extends StatelessWidget {
   const WorkspaceToolbar({
     super.key,
@@ -1220,6 +1351,63 @@ class WorkspaceToolbar extends StatelessWidget {
   /// The actions taken all day, shown as icons on the line rather than
   /// behind "…" (owner, 2026-09-26: there is room, and a hidden Edit costs a
   /// click every time).
+  /// The actions about one selected row. With a selection bar (option C,
+  /// owner 2026-09-27) they leave the page line for the bar.
+  static const List<ToolbarAction> _aboutTheRow = [
+    ToolbarAction.view,
+    ToolbarAction.edit,
+    ToolbarAction.print,
+    ToolbarAction.delete,
+  ];
+
+  /// This toolbar without the actions about the selected row: the list's
+  /// own -- Refresh, + New, the setup commands behind "...".
+  WorkspaceToolbar forList() => WorkspaceToolbar(
+        key: key,
+        onAction: onAction,
+        isEnabled: isEnabled,
+        isVisible: isVisible,
+        actions: [
+          for (final ToolbarAction action in actions)
+            if (!_aboutTheRow.contains(action)) action,
+        ],
+        trailing: trailing,
+        commands: [
+          for (final ToolbarCommand command in commands)
+            if (command.menuOnly) command,
+        ],
+        newLabel: newLabel,
+      );
+
+  /// What the selected row can do now, for the selection bar: only what is
+  /// enabled, so the bar never shows a greyed-out button.
+  List<ToolbarCommand> forSelection() {
+    bool offered(ToolbarAction action) =>
+        actions.contains(action) &&
+        (isVisible?.call(action) ?? true) &&
+        isEnabled(action);
+    ToolbarCommand of(ToolbarAction action) => ToolbarCommand(
+          id: action.name,
+          label: action == ToolbarAction.view ? 'Open' : action.label,
+          icon: action.icon,
+          onPressed: () => onAction(action),
+        );
+    return [
+      for (final ToolbarAction action in const [
+        ToolbarAction.view,
+        ToolbarAction.edit,
+      ])
+        if (offered(action)) of(action),
+      for (final ToolbarCommand command in commands)
+        if (!command.menuOnly && command.onPressed != null) command,
+      for (final ToolbarAction action in const [
+        ToolbarAction.print,
+        ToolbarAction.delete,
+      ])
+        if (offered(action)) of(action),
+    ];
+  }
+
   static const List<ToolbarAction> _everyDay = [
     ToolbarAction.view,
     ToolbarAction.edit,
@@ -1613,6 +1801,8 @@ class ManagementWorkspaceLayout extends StatelessWidget {
     this.filterPanel,
     this.viewBar,
     this.lineChips = const [],
+    this.selectionBar = false,
+    this.selection,
   });
 
   final Widget toolbar;
@@ -1622,6 +1812,15 @@ class ManagementWorkspaceLayout extends StatelessWidget {
   /// wireframe's "Views" menu of saved and recent searches. Phase 1, which
   /// has no such line, ignores them.
   final List<Widget> lineChips;
+
+  /// Phase 2, option C (owner, 2026-09-27): the page line keeps what is about
+  /// the list, and the [toolbar]'s actions about one row move to a bar above
+  /// the grid that appears while [selection] names a row. The toolbar must be
+  /// a [WorkspaceToolbar] for the split; phase 1 ignores both.
+  final bool selectionBar;
+
+  /// The selected row as the bar names it; null hides the bar.
+  final SelectionSummary? selection;
   final Widget primaryContent;
   final Widget? detailsPanel;
   final Widget statusBar;
@@ -1847,6 +2046,9 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
     // stacked them beside the box and made the line three rows tall. Phase 2
     // keeps the box on the line and moves the filters into the side panel
     // "+ filter" opens, with any the screen already had there.
+    final Widget toolbar = layout.toolbar;
+    final bool splits = layout.selectionBar && toolbar is WorkspaceToolbar;
+    final Widget lineToolbar = splits ? toolbar.forList() : toolbar;
     Widget searchPanel = layout.searchPanel;
     Widget? filters = layout.filterPanel;
     Widget ownSearch = layout.searchPanel;
@@ -1894,7 +2096,7 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
             constraints: BoxConstraints(
               maxWidth: toolbarWidth < 120 ? 120 : toolbarWidth,
             ),
-            child: _newLast(layout.toolbar),
+            child: _newLast(lineToolbar),
           ),
         ];
     // The wireframe's "+ filter" chip sits with the counters, at the left.
@@ -1993,6 +2195,13 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
           child: Phase2ButtonTheme(child: line),
         ),
         Divider(height: 1, thickness: 1, color: scheme.outlineVariant),
+        if (splits && layout.selection != null)
+          Phase2ButtonTheme(
+            child: SelectionActionBar(
+              selection: layout.selection!,
+              actions: toolbar.forSelection(),
+            ),
+          ),
         if (layout.viewBar != null)
           Padding(
             padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
