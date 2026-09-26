@@ -67,6 +67,9 @@ class SalesOrderManagementPage extends StatefulWidget {
 
 class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
   final TextEditingController _search = TextEditingController();
+
+  /// The document dates the list is narrowed to (owner, 2026-09-27).
+  DatePeriod _period = const DatePeriod.all();
   bool _loading = false;
   static const int _rowsPerPage = 50;
   int _page = 1;
@@ -237,6 +240,7 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
           descending: true,
           additionalQuery: {
             if (_view.status != null) 'status': _view.status!,
+            ..._period.query('order_from', 'order_to'),
           },
         ),
       ]);
@@ -445,19 +449,11 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
 
   Widget _buildGridWorkspace() => ManagementWorkspaceLayout(
         toolbar: _buildToolbar(),
+        lineChips: Phase2Scope.of(context) ? _listTools() : const [],
         searchPanel: SearchFilterPanel(
           controller: _search,
           hintText: 'Search order number, customer, reference...',
           onSearch: (_) => _load(requestedPage: 1),
-          filters: [
-            ColumnsButton(
-              onPressed: () async {
-                if (await _columns.choose(context) && mounted) {
-                  setState(() {});
-                }
-              },
-            ),
-          ],
         ),
         primaryContent: !widget.hasActiveFirm
             ? const StandardEmptyState(type: EmptyStateType.noFirmSelected)
@@ -828,6 +824,25 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
     }
     await _act(suffix);
   }
+
+  /// The Period and Columns controls (owner, 2026-09-27), on phase 2's page
+  /// line. Phase 1 (frozen, never shipped) has no room beside its search.
+  List<Widget> _listTools() => [
+        DateRangeFilter(
+          value: _period,
+          onChanged: (period) {
+            setState(() => _period = period);
+            unawaited(_load(requestedPage: 1));
+          },
+        ),
+        ColumnsButton(
+          onPressed: () async {
+            if (await _columns.choose(context) && mounted) {
+              setState(() {});
+            }
+          },
+        ),
+      ];
 
   /// Every column the list can show; the Columns button picks among them
   /// (owner, 2026-09-27), remembered per screen on this PC.

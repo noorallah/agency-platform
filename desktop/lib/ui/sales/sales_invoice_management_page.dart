@@ -94,6 +94,9 @@ class SalesInvoiceManagementPage extends StatefulWidget {
 class _SalesInvoiceManagementPageState
     extends State<SalesInvoiceManagementPage> {
   final TextEditingController _search = TextEditingController();
+
+  /// The document dates the list is narrowed to (owner, 2026-09-27).
+  DatePeriod _period = const DatePeriod.all();
   late SalesInvoiceView _view = widget.initialView;
   bool _loading = false;
   static const int _rowsPerPage = 50;
@@ -203,7 +206,10 @@ class _SalesInvoiceManagementPageState
           search: _search.text.trim(),
           sortBy: 'invoice_date',
           descending: true,
-          additionalQuery: _view.query,
+          additionalQuery: {
+            ..._view.query,
+            ..._period.query('invoice_from', 'invoice_to'),
+          },
         ),
       ]);
       final Map<String, dynamic> summary = _unwrap(responses[0]);
@@ -537,6 +543,7 @@ class _SalesInvoiceManagementPageState
 
   Widget _buildGridWorkspace() => ManagementWorkspaceLayout(
         toolbar: _buildToolbar(),
+        lineChips: Phase2Scope.of(context) ? _listTools() : const [],
         // Phase 2's counters are the views (4.5); a second row
         // of the same choices would repeat them.
         viewBar: Phase2Scope.of(context) ? null : _buildViewBar(),
@@ -544,15 +551,6 @@ class _SalesInvoiceManagementPageState
           controller: _search,
           hintText: 'Search invoice number, customer, reference...',
           onSearch: (_) => _load(requestedPage: 1),
-          filters: [
-            ColumnsButton(
-              onPressed: () async {
-                if (await _columns.choose(context) && mounted) {
-                  setState(() {});
-                }
-              },
-            ),
-          ],
         ),
         primaryContent: !widget.hasActiveFirm
             ? const StandardEmptyState(type: EmptyStateType.noFirmSelected)
@@ -865,6 +863,25 @@ class _SalesInvoiceManagementPageState
             ? null
             : () => unawaited(_run(action, suffix)),
       );
+
+  /// The Period and Columns controls (owner, 2026-09-27), on phase 2's page
+  /// line. Phase 1 (frozen, never shipped) has no room beside its search.
+  List<Widget> _listTools() => [
+        DateRangeFilter(
+          value: _period,
+          onChanged: (period) {
+            setState(() => _period = period);
+            unawaited(_load(requestedPage: 1));
+          },
+        ),
+        ColumnsButton(
+          onPressed: () async {
+            if (await _columns.choose(context) && mounted) {
+              setState(() {});
+            }
+          },
+        ),
+      ];
 
   /// Every column the list can show; the Columns button picks among them
   /// (owner, 2026-09-27), remembered per screen on this PC.

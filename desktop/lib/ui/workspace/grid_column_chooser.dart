@@ -117,12 +117,14 @@ class ColumnsButton extends StatelessWidget {
 
   final VoidCallback onPressed;
 
+  // An icon with its name on hover: the page line it sits on is shared with
+  // the title, the counters and the search.
   @override
-  Widget build(BuildContext context) => OutlinedButton.icon(
+  Widget build(BuildContext context) => IconButton.outlined(
         key: const ValueKey('grid-columns'),
+        tooltip: 'Columns',
         onPressed: onPressed,
         icon: const Icon(Icons.view_column_outlined, size: 18),
-        label: const Text('Columns'),
       );
 }
 
