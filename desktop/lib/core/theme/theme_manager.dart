@@ -198,27 +198,55 @@ class ThemeRegistry {
     // is pure black or pure white: a full-white page is the single biggest
     // source of glare over a long shift, and pure black makes light text
     // shimmer against it.
-    final ColorScheme tuned = dark
+    //
+    // Text and borders are fixed too (UI_PHASE_2_DESIGN.md 4.14, the colour
+    // mock-up the owner approved on 2026-09-26): dark-grey text rather than
+    // near-black, and a control border that clears 3 : 1 -- the tonal
+    // `outline` is fainter than that, which is how a field's edge or a hover
+    // state ends up hard to see. `theme_contrast_test.dart` holds every pair
+    // to the figures in 4.14. High contrast keeps the algorithm's text, which
+    // is stronger still.
+    final ColorScheme grounds = dark
         ? scheme.copyWith(
             surface: const Color(0xff14181b),
-            surfaceContainerLowest: const Color(0xff0f1315),
-            surfaceContainerLow: const Color(0xff181d20),
-            surfaceContainer: const Color(0xff1c2225),
-            surfaceContainerHigh: const Color(0xff222829),
-            surfaceContainerHighest: const Color(0xff272d2f),
+            surfaceContainerLowest: const Color(0xff1b2124),
+            surfaceContainerLow: const Color(0xff1e2427),
+            surfaceContainer: const Color(0xff20272b),
+            surfaceContainerHigh: const Color(0xff242b2f),
+            surfaceContainerHighest: const Color(0xff283034),
           )
         : scheme.copyWith(
-            surface: const Color(0xfff7f9fa),
-            surfaceContainerLowest: Colors.white,
-            surfaceContainerLow: const Color(0xfff2f5f7),
+            primary: palette.seed,
+            onPrimary: Colors.white,
+            surface: const Color(0xfff4f6f8),
+            surfaceContainerLowest: const Color(0xfffbfcfd),
+            surfaceContainerLow: const Color(0xfff1f4f7),
             surfaceContainer: const Color(0xffedf1f3),
             surfaceContainerHigh: const Color(0xffe7ecef),
             surfaceContainerHighest: const Color(0xffe1e7ea),
           );
+    final ColorScheme tuned = highContrast
+        ? grounds
+        : dark
+            ? grounds.copyWith(
+                onSurface: const Color(0xffe3e7ea),
+                onSurfaceVariant: const Color(0xffa7b1ba),
+                outline: const Color(0xff77838d),
+                outlineVariant: const Color(0xff2c3439),
+              )
+            : grounds.copyWith(
+                onSurface: const Color(0xff1f2933),
+                onSurfaceVariant: const Color(0xff52606d),
+                outline: const Color(0xff7b8794),
+                outlineVariant: const Color(0xffe1e6ec),
+              );
 
     final TextTheme textTheme = AppTypography.textTheme(tuned);
+    // Cards are separated by a quiet line; a control that can be typed into
+    // needs an edge somebody can find (4.14, 3 : 1).
     final BorderSide borderSide =
         BorderSide(color: tuned.outlineVariant, width: 1);
+    final BorderSide controlSide = BorderSide(color: tuned.outline, width: 1);
 
     return ThemeData(
       colorScheme: tuned,
@@ -303,7 +331,7 @@ class ThemeRegistry {
             textTheme.bodyMedium?.copyWith(color: tuned.onSurfaceVariant),
         enabledBorder: OutlineInputBorder(
           borderRadius: AppRadius.medium,
-          borderSide: borderSide,
+          borderSide: controlSide,
         ),
         focusedBorder: OutlineInputBorder(
           borderRadius: AppRadius.medium,

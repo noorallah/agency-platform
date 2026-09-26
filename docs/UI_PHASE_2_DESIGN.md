@@ -454,6 +454,39 @@ pair's contrast ratio and fails the build below these figures, in light and
 dark. The high-detail look-and-feel mock-up (section 9, item 7) is judged
 against this table.
 
+### 4.15 The same app on a phone (owner, 2026-09-26)
+
+The owner will use the same UI in the mobile app. The desktop layout cannot
+simply shrink to a phone: a phone is 360-430 px wide, and the menu bar, the
+drop-down columns and a nine-column grid need 1,000 or more. The convention
+of Zoho, Odoo and Business Central is **one app, one set of screens and
+rules, and a phone layout** chosen by width -- not a second app:
+
+| Width | Layout |
+| --- | --- |
+| 1,000 px and more | the desktop layout of this document |
+| 600-1,000 px (tablet, half a screen) | the same, folded as 4.11 says: areas into **More**, columns by priority |
+| below 600 px (phone) | **bottom bar** with Home, Sell, Stock, Money and More; each area opens as a full-screen list of its items; the command box is the search icon at the top |
+
+On a phone:
+
+- **Lists become cards**: each row shows its two or three key fields (number,
+  customer, amount, status) and the rest open on tap. The column priority of
+  4.11 decides which fields a card shows, so nothing is designed twice.
+- **Documents are entered a section at a time**: header, then lines (one card
+  per line, add with a button), then totals and save -- the same fields and
+  the same rules as the desktop screen.
+- **Open-screen tabs** are replaced by the phone's own back gesture; filters
+  and counters stay chips, scrolling sideways.
+- **Permissions, colours (4.14) and every server rule are the same**, because
+  it is the same code.
+
+What the phone offers first is the field-sales day -- orders, receipts,
+customer ledger, stock enquiry and route calls; administration, settings and
+reports stay desktop screens, reachable on a phone but not reworked for it.
+The shell is built with the phone breakpoint from its first version, because
+adding it afterwards means reworking every screen twice.
+
 ## 5. What does not change
 
 - The **module catalogue** stays the single source of screens; phase 2 adds
@@ -569,7 +602,7 @@ section 8 at that point.
 
 14. Very large lists (paging or endless scroll, loading placeholders).
 15. Approvals and notifications (a bell: "3 orders waiting for you").
-16. Phone and tablet -- outside phase 2; the Android build stays for viewing.
+16. Phone and tablet -- decided in 4.15 (2026-09-26): one app with a phone layout below 600 px, field-sales screens first.
 
 ---
 
