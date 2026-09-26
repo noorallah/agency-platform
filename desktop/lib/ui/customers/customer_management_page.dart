@@ -270,7 +270,12 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
     final Customer? saved = phase2
         ? await showDocument<Customer>(
             context,
-            title: customer == null ? 'New customer' : customer.code,
+            // The name, as people say it; the code is on the page itself.
+            title: customer == null
+                ? 'New customer'
+                : customer.displayName.isEmpty
+                    ? customer.name
+                    : customer.displayName,
             builder: form,
           )
         : await showDialog<Customer>(

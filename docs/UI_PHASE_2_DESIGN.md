@@ -420,8 +420,10 @@ General, Money, Addresses, Contacts, Custom fields, Rounds -- with a strip of
 section links at the top, fields three to a row and drawn dense, and a side panel
 of what the firm needs at a glance: outstanding against the credit limit, credit
 left, payment terms, GSTIN, created and last changed. This is Business Central's
-card page and Zoho's customer page. Products and vendors follow once the owner has
-seen this one.
+card page and Zoho's customer page. **Approved by the owner 2026-09-26**, with
+one change: the tab is titled with the record's **name**, not its code ("that
+makes sense"); the code stays on the page. Products and vendors follow the same
+way.
 
 ### 4.9 Home per role
 
