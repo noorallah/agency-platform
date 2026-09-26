@@ -177,6 +177,27 @@ def test_a_proforma_states_what_the_order_will_be_charged() -> None:
     assert row.bill_discount_amount == Decimal("50.0000")
 
 
+def test_the_list_finds_a_proforma_by_customer_and_by_date() -> None:
+    """Search by the shop, and narrow to a date range (owner, 2026-09-27)."""
+    from datetime import timedelta
+
+    books = _Books(_session_factory()())
+    row = books.raise_proforma()
+    service = ProformaService(books.session)
+
+    def found(**filters: object) -> int:
+        _, total = service.list_proformas(
+            firm_scope=books.firm.id, page=1, page_size=20, **filters  # type: ignore[arg-type]
+        )
+        return total
+
+    assert found(search=books.customer.code) == 1
+    assert found(search="nobody by this name") == 0
+    assert found(proforma_from=row.proforma_date, proforma_to=row.proforma_date) == 1
+    assert found(proforma_from=row.proforma_date + timedelta(days=1)) == 0
+    assert found(proforma_to=row.proforma_date - timedelta(days=1)) == 0
+
+
 def test_freight_and_the_order_s_charges_reach_the_total() -> None:
     """D-SELL-16: a proforma asked for less than the order would bill.
 

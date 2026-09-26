@@ -66,6 +66,9 @@ def list_credit_notes(
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = 20,
     customer_id: Annotated[UUID | None, Query()] = None,
     note_status: Annotated[CreditNoteStatusEnum | None, Query(alias="status")] = None,
+    search: str | None = None,
+    credit_note_from: date | None = None,
+    credit_note_to: date | None = None,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[CreditNoteResponse]:
     """Return a page of credit notes."""
@@ -76,6 +79,9 @@ def list_credit_notes(
         page_size=page_size,
         customer_id=customer_id,
         status=note_status,
+        search=search,
+        credit_note_from=credit_note_from,
+        credit_note_to=credit_note_to,
     )
     return PaginatedResponse(
         data=[service.note_response(row) for row in rows],

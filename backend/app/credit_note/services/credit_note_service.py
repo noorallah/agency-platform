@@ -8,13 +8,15 @@ edit to a tax profile in September must not change what was charged in March
 """
 
 from collections.abc import Sequence
+from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.common.report_names import customers_matching
 from app.core.concurrency import assert_version
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
@@ -92,6 +94,9 @@ class CreditNoteService(TransactionalDocumentService):
         page_size: int,
         customer_id: UUID | None = None,
         status: CreditNoteStatusEnum | None = None,
+        search: str | None = None,
+        credit_note_from: date | None = None,
+        credit_note_to: date | None = None,
     ) -> tuple[Sequence[CreditNote], int]:
         """Return one page of credit notes, newest first.
 
@@ -101,6 +106,10 @@ class CreditNoteService(TransactionalDocumentService):
             page_size: How many rows to return.
             customer_id: Restrict to one customer.
             status: Restrict to one state.
+            search: Match the note's number or reference, or the customer's
+                name, code or phone.
+            credit_note_from: The first note date to include.
+            credit_note_to: The last note date to include.
 
         Returns:
             The page of notes and the total matching count.
@@ -111,6 +120,20 @@ class CreditNoteService(TransactionalDocumentService):
             statement = statement.where(CreditNote.customer_id == customer_id)
         if status is not None:
             statement = statement.where(CreditNote.status == status.value)
+        if search:
+            token = f"%{search.strip()}%"
+            # Searchable by the shop as well as the note (owner, 2026-09-27).
+            statement = statement.where(
+                or_(
+                    CreditNote.credit_note_number.ilike(token),
+                    CreditNote.reference_number.ilike(token),
+                    CreditNote.customer_id.in_(customers_matching(token)),
+                )
+            )
+        if credit_note_from is not None:
+            statement = statement.where(CreditNote.credit_note_date >= credit_note_from)
+        if credit_note_to is not None:
+            statement = statement.where(CreditNote.credit_note_date <= credit_note_to)
         total = self._session.scalar(
             select(func.count()).select_from(statement.subquery())
         )

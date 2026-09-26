@@ -477,6 +477,28 @@ def test_one_firm_s_credit_notes_are_invisible_to_another() -> None:
     assert rows == []
 
 
+def test_the_list_finds_a_note_by_customer_and_by_date() -> None:
+    """Search by the shop, and narrow to a date range (owner, 2026-09-27)."""
+    from datetime import timedelta
+
+    books = _Books(_session_factory()())
+    note = books.note("100")
+    service = CreditNoteService(books.session)
+
+    def found(**filters: object) -> int:
+        _, total = service.list_notes(
+            firm_scope=books.firm.id, page=1, page_size=20, **filters  # type: ignore[arg-type]
+        )
+        return total
+
+    day = note.credit_note_date
+    assert found(search=books.customer.code) == 1
+    assert found(search=note.credit_note_number) == 1
+    assert found(search="nobody by this name") == 0
+    assert found(credit_note_from=day, credit_note_to=day) == 1
+    assert found(credit_note_from=day + timedelta(days=1)) == 0
+
+
 def test_a_credit_running_to_a_fraction_of_a_paisa_still_posts() -> None:
     """The receivable ledger carries two decimals; a document carries four.
 
