@@ -100,6 +100,7 @@ void main() {
         'focus ring': (c.primary, c.surfaceContainerLowest, _control),
         'menu bar text': (s.onChrome, s.chrome, _text),
         'menu bar hint': (s.onChromeMuted, s.chrome, _text),
+        'search box text on its fill': (s.onChromeMuted, s.chromeActive, _text),
         'menu bar text on an open area': (s.onChrome, s.chromeActive, _text),
         'the bar under the current area': (
           s.chromeIndicator,

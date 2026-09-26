@@ -672,8 +672,8 @@ class _DesktopShellState extends State<DesktopShell> {
                 manager: widget.themes,
                 iconColor: chrome.onChrome,
               ),
-              _profileMenu(iconColor: chrome.onChrome),
             ],
+            profile: _profileMenu(avatar: true),
           ),
           if (shown.isNotEmpty || documents.isNotEmpty)
             OpenScreenTabs(
@@ -810,10 +810,39 @@ class _DesktopShellState extends State<DesktopShell> {
       };
 
   /// Who is signed in, their profile, and signing out.
-  Widget _profileMenu({Color? iconColor}) => PopupMenuButton<String>(
+  /// Initials for the profile circle: the first letters of the first and
+  /// last words of the user's name ("Syed Nurulla" -> "SN").
+  String _initials() {
+    final List<String> words = (widget.session.userLabel ?? '')
+        .split(RegExp(r'[\s@.]+'))
+        .where((word) => word.isNotEmpty)
+        .toList();
+    if (words.isEmpty) return '?';
+    final String first = words.first[0];
+    final String last = words.length > 1 ? words.last[0] : '';
+    return (first + last).toUpperCase();
+  }
+
+  Widget _profileMenu({Color? iconColor, bool avatar = false}) =>
+      PopupMenuButton<String>(
         tooltip: 'Profile',
         padding: EdgeInsets.zero,
-        icon: Icon(Icons.account_circle_outlined, color: iconColor),
+        // Phase 2: the wireframe's grey circle with the user's initials.
+        icon: avatar
+            ? CircleAvatar(
+                key: const ValueKey('profile-avatar'),
+                radius: 14,
+                backgroundColor: const Color(0xff57606a),
+                child: Text(
+                  _initials(),
+                  style: const TextStyle(
+                    color: Colors.white,
+                    fontSize: 11,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              )
+            : Icon(Icons.account_circle_outlined, color: iconColor),
         onSelected: (value) {
           if (value == 'logout') {
             widget.session.logout();
