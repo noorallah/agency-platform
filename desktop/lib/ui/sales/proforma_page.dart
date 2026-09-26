@@ -5,6 +5,8 @@
 // payable on it. Somebody eventually prints one and hands it to an accounts
 // clerk, so the words travel with the document rather than living in a manual.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -45,6 +47,28 @@ class _ProformaPageState extends State<ProformaPage> {
   String? _error;
   bool _loading = true;
 
+  /// Search (number or customer) and the Period, on phase 2's page line
+  /// (owner, 2026-09-27), as the other sales lists.
+  final TextEditingController _search = TextEditingController();
+  DatePeriod _period = const DatePeriod.all();
+
+  String? get _from => _period.from == null ? null : DatePeriod.iso(_period.from!);
+  String? get _to => _period.to == null ? null : DatePeriod.iso(_period.to!);
+
+  Widget _periodFilter() => DateRangeFilter(
+        value: _period,
+        onChanged: (period) {
+          setState(() => _period = period);
+          unawaited(_load());
+        },
+      );
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
   bool get _mayView => widget.permissions.hasPermission('PROFORMA_VIEW');
   bool get _mayManage => widget.permissions.hasPermission('PROFORMA_MANAGE');
 
@@ -70,7 +94,12 @@ class _ProformaPageState extends State<ProformaPage> {
     });
     try {
       final List<ProformaRecord> rows = await fetchAllPages<ProformaRecord>(
-        (page) => widget.api.proformaInvoices(page: page),
+        (page) => widget.api.proformaInvoices(
+          page: page,
+          search: _search.text.trim(),
+          proformaFrom: _from,
+          proformaTo: _to,
+        ),
       );
       if (!mounted) return;
       setState(() {
@@ -328,8 +357,13 @@ class _ProformaPageState extends State<ProformaPage> {
             ),
       // Phase 2: the note is on the detail pane, where it is said again; on
       // the one line it wrapped into three.
+      lineChips: phase2 ? [_periodFilter()] : const [],
       searchPanel: phase2
-          ? const SizedBox.shrink()
+          ? SearchFilterPanel(
+              controller: _search,
+              hintText: 'Search number or customer',
+              onSearch: (_) => unawaited(_load()),
+            )
           : Padding(
         padding: const EdgeInsets.all(AppSpacing.md),
         child: Text(

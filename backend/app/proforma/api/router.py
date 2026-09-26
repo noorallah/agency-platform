@@ -53,6 +53,8 @@ def list_proformas(
     document_status: str | None = None,
     customer_id: UUID | None = None,
     search: str | None = None,
+    proforma_from: date | None = None,
+    proforma_to: date | None = None,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[ProformaResponse]:
     """List this firm's proformas, newest first."""
@@ -65,6 +67,8 @@ def list_proformas(
         status=document_status,
         customer_id=customer_id,
         search=search,
+        proforma_from=proforma_from,
+        proforma_to=proforma_to,
     )
     return PaginatedResponse(
         data=[service.proforma_response(row) for row in rows],

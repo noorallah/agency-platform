@@ -4144,6 +4144,8 @@ class ApiClient {
     int pageSize = 50,
     String? status,
     String? search,
+    String? proformaFrom,
+    String? proformaTo,
   }) async {
     final Json response = await request(
       'GET',
@@ -4153,6 +4155,8 @@ class ApiClient {
         'page_size': '$pageSize',
         if (status != null) 'document_status': status,
         if (search != null && search.isNotEmpty) 'search': search,
+        if (proformaFrom != null) 'proforma_from': proformaFrom,
+        if (proformaTo != null) 'proforma_to': proformaTo,
       },
     );
     final dynamic data = response['data'];
@@ -4344,6 +4348,9 @@ class ApiClient {
     int page = 1,
     int pageSize = 50,
     String? status,
+    String? search,
+    String? creditNoteFrom,
+    String? creditNoteTo,
   }) async {
     final Json response = await request(
       'GET',
@@ -4352,6 +4359,9 @@ class ApiClient {
         'page': '$page',
         'page_size': '$pageSize',
         if (status != null && status.isNotEmpty) 'status': status,
+        if (search != null && search.isNotEmpty) 'search': search,
+        if (creditNoteFrom != null) 'credit_note_from': creditNoteFrom,
+        if (creditNoteTo != null) 'credit_note_to': creditNoteTo,
       },
     );
     final dynamic data = response['data'];

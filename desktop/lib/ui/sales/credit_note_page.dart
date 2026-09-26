@@ -48,6 +48,28 @@ class _CreditNotePageState extends State<CreditNotePage> {
   String? _selectedId;
   bool _loading = true;
 
+  /// Search (number or customer) and the Period, on phase 2's page line
+  /// (owner, 2026-09-27), as the other sales lists.
+  final TextEditingController _search = TextEditingController();
+  DatePeriod _period = const DatePeriod.all();
+
+  String? get _from => _period.from == null ? null : DatePeriod.iso(_period.from!);
+  String? get _to => _period.to == null ? null : DatePeriod.iso(_period.to!);
+
+  Widget _periodFilter() => DateRangeFilter(
+        value: _period,
+        onChanged: (period) {
+          setState(() => _period = period);
+          unawaited(_load());
+        },
+      );
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
   bool get _mayView => widget.permissions.hasPermission('CREDIT_NOTE_VIEW');
   bool get _mayManage => widget.permissions.hasPermission('CREDIT_NOTE_MANAGE');
 
@@ -72,7 +94,12 @@ class _CreditNotePageState extends State<CreditNotePage> {
     try {
       final List<CreditNoteRecord> rows =
           await fetchAllPages<CreditNoteRecord>(
-        (page) => widget.api.creditNotes(page: page),
+        (page) => widget.api.creditNotes(
+          page: page,
+          search: _search.text.trim(),
+          creditNoteFrom: _from,
+          creditNoteTo: _to,
+        ),
       );
       if (!mounted) return;
       setState(() {
@@ -175,9 +202,16 @@ class _CreditNotePageState extends State<CreditNotePage> {
           ),
         ],
       ),
-      // A search box over a handful of rows is furniture; the list is short
-      // and the number is on every row.
-      searchPanel: const SizedBox.shrink(),
+      // Phase 2: searchable by number or customer and narrowed by date, as
+      // every sales list (owner, 2026-09-27) -- the list grows all year.
+      lineChips: Phase2Scope.of(context) ? [_periodFilter()] : const [],
+      searchPanel: Phase2Scope.of(context)
+          ? SearchFilterPanel(
+              controller: _search,
+              hintText: 'Search number or customer',
+              onSearch: (_) => unawaited(_load()),
+            )
+          : const SizedBox.shrink(),
       primaryContent: _content(),
       statusBar: WorkspaceStatusBar(
         total: _notes.length,

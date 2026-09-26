@@ -13,12 +13,14 @@ the customer would be arranging payment against a figure nothing backs.
 """
 
 from collections.abc import Sequence
+from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import Select, func, select
+from sqlalchemy import Select, func, or_, select
 
 from app.common.audit.services import record_audit
+from app.common.report_names import customers_matching
 from app.core.concurrency import assert_version
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
@@ -95,6 +97,8 @@ class ProformaService(TransactionalDocumentService):
         status: str | None = None,
         customer_id: UUID | None = None,
         search: str | None = None,
+        proforma_from: date | None = None,
+        proforma_to: date | None = None,
     ) -> tuple[list[ProformaInvoice], int]:
         """List this firm's proformas, newest first.
 
@@ -104,7 +108,10 @@ class ProformaService(TransactionalDocumentService):
             page_size: Rows per page.
             status: Narrow to one lifecycle state.
             customer_id: Narrow to one customer.
-            search: Match a proforma number.
+            search: Match a proforma number, or the customer's name, code or
+                phone.
+            proforma_from: The first proforma date to include.
+            proforma_to: The last proforma date to include.
 
         Returns:
             The page, and how many rows match in all.
@@ -116,9 +123,18 @@ class ProformaService(TransactionalDocumentService):
         if customer_id is not None:
             query = query.where(ProformaInvoice.customer_id == customer_id)
         if search:
+            token = f"%{search.strip()}%"
+            # By customer too (owner, 2026-09-27), as the other sales lists.
             query = query.where(
-                ProformaInvoice.proforma_number.ilike(f"%{search.strip()}%")
+                or_(
+                    ProformaInvoice.proforma_number.ilike(token),
+                    ProformaInvoice.customer_id.in_(customers_matching(token)),
+                )
             )
+        if proforma_from is not None:
+            query = query.where(ProformaInvoice.proforma_date >= proforma_from)
+        if proforma_to is not None:
+            query = query.where(ProformaInvoice.proforma_date <= proforma_to)
         total = self._session.scalar(select(func.count()).select_from(query.subquery()))
         rows = list(
             self._session.scalars(
