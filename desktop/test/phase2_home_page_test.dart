@@ -113,6 +113,7 @@ Future<List<String>> _pump(
   double width = 1366,
   Set<String> hidden = const {},
   ValueChanged<Set<String>>? onCustomise,
+  List<String>? views,
 }) async {
   tester.view.physicalSize = Size(width, 768);
   tester.view.devicePixelRatio = 1;
@@ -133,6 +134,9 @@ Future<List<String>> _pump(
         onOpen: (item) => opened.add(item.path),
         hidden: hidden,
         onCustomise: onCustomise,
+        onOpenView: views == null
+            ? null
+            : (item, view) => views.add('${item.path} $view'),
       ),
     ),
   ));
@@ -306,5 +310,39 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('home-show-chart')), findsNothing);
     expect(find.byKey(const ValueKey('home-show-todo')), findsOneWidget);
+  });
+
+  testWidgets('to-do lines land on exactly what they counted', (tester) async {
+    final List<String> views = [];
+    await _pump(tester,
+        allowed: {..._owner, 'reports/operational', 'reports/financial'},
+        source: _Source(),
+        views: views);
+    for (final String line in [
+      'Orders to approve',
+      'Orders to deliver',
+      'Invoices overdue',
+      'POs to receive',
+      'Purchase bills overdue',
+    ]) {
+      await tester.tap(find.byKey(ValueKey('home-todo-$line')));
+    }
+    expect(views, [
+      'salesOrders draft',
+      'reports/operational sales-order-pending',
+      'reports/financial sales-invoice-overdue',
+      'reports/operational purchase-order-pending',
+      'reports/financial purchase-invoice-overdue',
+    ]);
+  });
+
+  testWidgets('without the report, a to-do line opens its list',
+      (tester) async {
+    final List<String> views = [];
+    final List<String> opened = await _pump(tester,
+        allowed: _owner, source: _Source(), views: views);
+    await tester.tap(find.byKey(const ValueKey('home-todo-Invoices overdue')));
+    expect(views, isEmpty);
+    expect(opened, ['salesInvoices/sales-invoices']);
   });
 }

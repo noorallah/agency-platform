@@ -6,6 +6,7 @@ import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/report.dart';
 import 'package:agency_desktop/ui/reports/report_catalog.dart';
 import 'package:agency_desktop/ui/reports/reports_workspace.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart' show ListViewRequest, ListViewRequestScope;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -396,6 +397,65 @@ void main() {
         (tester) async {
       await _pump(tester, _ReportApi(), perms: const ['CUSTOMER_VIEW']);
       expect(find.textContaining('do not have permission'), findsOneWidget);
+    });
+  });
+
+  group('opened for a reason (phase 2 Home)', () {
+    Future<void> pumpWith(
+      WidgetTester tester,
+      _ReportApi api,
+      ListViewRequest request,
+      List<String> perms,
+    ) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: ListViewRequestScope(
+            request: request,
+            child: ReportsWorkspace(
+              api: api,
+              permissions: _permissionsFor(perms),
+              hasActiveFirm: true,
+              tabId: 'financial',
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets("Home's 'Invoices overdue' opens the overdue report",
+        (tester) async {
+      final _ReportApi api = _ReportApi();
+      await pumpWith(
+        tester,
+        api,
+        const ListViewRequest(
+          path: 'reports/financial',
+          view: 'sales-invoice-overdue',
+          serial: 1,
+        ),
+        const ['REPORT_VIEW', 'SALES_VIEW', 'SALES_INVOICE_VIEW'],
+      );
+      expect(api.requested.last, '/api/v1/sales-invoices/reports/overdue');
+    });
+
+    testWidgets('a report the user may not read is not opened by asking',
+        (tester) async {
+      final _ReportApi api = _ReportApi();
+      await pumpWith(
+        tester,
+        api,
+        const ListViewRequest(
+          path: 'reports/financial',
+          view: 'no-such-report',
+          serial: 1,
+        ),
+        const ['REPORT_VIEW', 'SALES_VIEW', 'SALES_INVOICE_VIEW'],
+      );
+      expect(api.requested, isNot(contains('/api/v1/sales-invoices/reports/overdue')));
     });
   });
 }

@@ -24,9 +24,18 @@ abstract class HomeSource {
 
 /// One to-do line: a count from a list's summary, and the list it opens.
 class HomeTodo {
-  const HomeTodo(this.label, this.path, this.key, {this.alert = false});
+  const HomeTodo(
+    this.label,
+    this.path,
+    this.key, {
+    this.alert = false,
+    this.openPath,
+    this.view,
+  });
 
   final String label;
+
+  /// The list whose summary holds the count.
   final String path;
 
   /// The summary field that holds the count.
@@ -34,6 +43,13 @@ class HomeTodo {
 
   /// A non-zero count somebody should act on today.
   final bool alert;
+
+  /// Where a click lands, when not on [path] itself -- a report that lists
+  /// exactly what was counted.
+  final String? openPath;
+
+  /// What the landing screen shows: a view of the list, a report's id.
+  final String? view;
 }
 
 /// Home in the phase 2 app (UI_PHASE_2_DESIGN.md 4.9), as the owner approved
@@ -55,6 +71,7 @@ class Phase2HomePage extends StatefulWidget {
     required this.onOpen,
     this.hidden = const {},
     this.onCustomise,
+    this.onOpenView,
   });
 
   final String? firmName;
@@ -65,6 +82,10 @@ class Phase2HomePage extends StatefulWidget {
   final bool Function(String path) allowed;
   final HomeSource source;
   final ValueChanged<MenuItemSpec> onOpen;
+
+  /// Open a screen showing one view of it ([HomeTodo.view]); null opens the
+  /// screen as the menu would.
+  final void Function(MenuItemSpec item, String view)? onOpenView;
 
   /// The parts this user has chosen not to see ([sections] ids).
   final Set<String> hidden;
@@ -86,16 +107,43 @@ class Phase2HomePage extends StatefulWidget {
   static const String expiry = 'inventory/expiry-monitor';
 
   /// The to-do list, in the order of a trading day.
+  ///
+  /// Each lands on exactly what it counts (the owner, 2026-09-26): the drafts
+  /// of Sales Orders; for the rest a report, because "overdue" and "not yet
+  /// delivered" are derived from what has been paid and dispatched, which no
+  /// list filter can say.
   static const List<HomeTodo> todos = [
-    HomeTodo('Orders to approve', 'salesOrders', 'draft'),
+    HomeTodo('Orders to approve', 'salesOrders', 'draft', view: 'draft'),
     HomeTodo(
-        'Orders to deliver', 'deliveryNotes/delivery-notes', 'pending_orders'),
-    HomeTodo('Invoices overdue', salesInvoices, 'overdue_invoices',
-        alert: true),
+      'Orders to deliver',
+      'deliveryNotes/delivery-notes',
+      'pending_orders',
+      openPath: 'reports/operational',
+      view: 'sales-order-pending',
+    ),
     HomeTodo(
-        'POs to receive', 'goodsReceipts/receipts', 'pending_purchase_orders'),
-    HomeTodo('Purchase bills overdue', 'purchaseInvoices', 'overdue_invoices',
-        alert: true),
+      'Invoices overdue',
+      salesInvoices,
+      'overdue_invoices',
+      alert: true,
+      openPath: 'reports/financial',
+      view: 'sales-invoice-overdue',
+    ),
+    HomeTodo(
+      'POs to receive',
+      'goodsReceipts/receipts',
+      'pending_purchase_orders',
+      openPath: 'reports/operational',
+      view: 'purchase-order-pending',
+    ),
+    HomeTodo(
+      'Purchase bills overdue',
+      'purchaseInvoices',
+      'overdue_invoices',
+      alert: true,
+      openPath: 'reports/financial',
+      view: 'purchase-invoice-overdue',
+    ),
   ];
 
   /// The daily screens of 4.6. Favourites (4.3's star) will replace these
@@ -176,6 +224,22 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
   void _open(String path) {
     final MenuItemSpec? item = MenuLayout.itemFor(path);
     if (item != null && widget.allowed(path)) widget.onOpen(item);
+  }
+
+  /// A to-do line lands on what it counted: its report or view when the user
+  /// may open it, the list itself otherwise.
+  void _openTodo(HomeTodo todo) {
+    final bool toReport =
+        todo.openPath != null && widget.allowed(todo.openPath!);
+    final String target = toReport ? todo.openPath! : todo.path;
+    final MenuItemSpec? item = MenuLayout.itemFor(target);
+    if (item == null || !widget.allowed(target)) return;
+    final String? view = toReport || todo.openPath == null ? todo.view : null;
+    if (view != null && widget.onOpenView != null) {
+      widget.onOpenView!(item, view);
+    } else {
+      widget.onOpen(item);
+    }
   }
 
   // -- figures -------------------------------------------------------------
@@ -613,7 +677,7 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
                 : _count(todo)?.toString() ?? '…',
             strong: true,
             alert: todo.alert && (_count(todo) ?? 0) > 0,
-            onTap: () => _open(todo.path),
+            onTap: () => _openTodo(todo),
           ),
         if (_batches)
           _row(

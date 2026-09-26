@@ -17,6 +17,33 @@ import '../workspace/reason_prompt.dart';
 import 'credit_notice.dart';
 import 'sales_order_editor_dialog.dart';
 
+/// The states a sales order list can be narrowed to -- the phase 2 counters
+/// (UI_PHASE_2_DESIGN.md 4.5), one per status the summary counts.
+enum SalesOrderView {
+  all,
+  draft,
+  approved,
+  cancelled,
+  closed;
+
+  /// The status this view filters on, or null for every status.
+  String? get status => switch (this) {
+        SalesOrderView.all => null,
+        SalesOrderView.draft => 'DRAFT',
+        SalesOrderView.approved => 'APPROVED',
+        SalesOrderView.cancelled => 'CANCELLED',
+        SalesOrderView.closed => 'CLOSED',
+      };
+
+  String get label => switch (this) {
+        SalesOrderView.all => 'Total',
+        SalesOrderView.draft => 'Draft',
+        SalesOrderView.approved => 'Approved',
+        SalesOrderView.cancelled => 'Cancelled',
+        SalesOrderView.closed => 'Closed',
+      };
+}
+
 class SalesOrderManagementPage extends StatefulWidget {
   const SalesOrderManagementPage({
     super.key,
@@ -48,6 +75,11 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
   List<Map<String, dynamic>> _orders = const [];
   Map<String, dynamic>? _selected;
   Map<String, dynamic> _summary = const {};
+  SalesOrderView _view = SalesOrderView.all;
+
+  /// The last "open showing that" request applied (Home's "Orders to
+  /// approve" opens this list on the drafts).
+  int _request = 0;
 
   /// What the order view prints for a line's product, unit and tax profile.
   DocumentLineLabels _labels = const DocumentLineLabels();
@@ -64,6 +96,54 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
     unawaited(_load());
     unawaited(_loadLabels());
   }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final ListViewRequest? request =
+        ListViewRequestScope.of(context, 'salesOrders');
+    if (request == null || request.serial == _request) return;
+    _request = request.serial;
+    final SalesOrderView? view = SalesOrderView.values
+        .where((view) => view.name == request.view)
+        .firstOrNull;
+    if (view != null && view != _view) {
+      _view = view;
+      _page = 1;
+      _selected = null;
+      // initState has already asked for the unfiltered list; ask again.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) unawaited(_load(requestedPage: 1));
+      });
+    }
+  }
+
+  void _selectView(SalesOrderView view) {
+    if (view == _view) return;
+    setState(() {
+      _view = view;
+      _page = 1;
+      _selected = null;
+    });
+    unawaited(_load(requestedPage: 1));
+  }
+
+  /// Phase 2: one counter per view, and clicking one is choosing that view
+  /// -- click it again for all.
+  List<Widget> _viewCounters() => [
+        for (final SalesOrderView view in SalesOrderView.values)
+          SummaryCount(
+            key: ValueKey('view-counter-${view.name}'),
+            label: view.label,
+            value: '${_summary[view.status?.toLowerCase() ?? 'total'] ?? 0}',
+            selected: _view == view && view != SalesOrderView.all,
+            onTap: _loading
+                ? null
+                : () => _selectView(
+                      _view == view ? SalesOrderView.all : view,
+                    ),
+          ),
+      ];
 
   @override
   void dispose() {
@@ -148,6 +228,9 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
           search: _search.text.trim(),
           sortBy: 'order_date',
           descending: true,
+          additionalQuery: {
+            if (_view.status != null) 'status': _view.status!,
+          },
         ),
       ]);
       final Map<String, dynamic> summary = _unwrap(responses[0]);
@@ -336,7 +419,9 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
                   ? EdgeInsets.zero
                   : const EdgeInsets.fromLTRB(24, 0, 24, 12),
               child: SummaryCards(
-                children: [
+                children: Phase2Scope.of(context)
+                    ? _viewCounters()
+                    : [
                   _card('Total', '${_summary['total'] ?? 0}'),
                   _card('Draft', '${_summary['draft'] ?? 0}'),
                   _card('Approved', '${_summary['approved'] ?? 0}'),

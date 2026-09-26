@@ -220,6 +220,11 @@ class _DesktopShellState extends State<DesktopShell> {
   final DocumentTabsController _documents = DocumentTabsController();
   String? _activeDocument;
 
+  /// "Open this screen showing that" -- Home's to-do lines land on exactly
+  /// what they count. Dropped when a screen is opened any other way.
+  ListViewRequest? _viewRequest;
+  int _viewRequests = 0;
+
   /// The screen on show before the latest route change -- the tab that a
   /// change made from inside a page belongs to.
   String? _shownPath;
@@ -355,8 +360,11 @@ class _DesktopShellState extends State<DesktopShell> {
     unawaited(_saveShellState());
   }
 
-  void _openFromMenu(MenuItemSpec item) {
+  void _openFromMenu(MenuItemSpec item, {String? view}) {
     _activeDocument = null;
+    _viewRequest = view == null
+        ? null
+        : ListViewRequest(path: item.path, view: view, serial: ++_viewRequests);
     _openScreens = openScreen(_openScreens, item.path);
     _shownPath = item.path;
     final WorkspaceLocation location = WorkspaceLocation.parse(item.path);
@@ -366,6 +374,7 @@ class _DesktopShellState extends State<DesktopShell> {
   }
 
   void _showScreen(String path) {
+    _viewRequest = null;
     if (_activeDocument != null) setState(() => _activeDocument = null);
     final WorkspaceLocation location = WorkspaceLocation.parse(path);
     _shownPath = path;
@@ -693,16 +702,19 @@ class _DesktopShellState extends State<DesktopShell> {
             child: Phase2Scope(
               child: DocumentTabsScope(
                 controller: _documents,
-                child: IndexedStack(
-                  index: activeIndex,
-                  children: [
-                    page,
-                    for (final OpenDocument document in documents)
-                      DocumentNavigator(
-                        key: ValueKey(document.id),
-                        document: document,
-                      ),
-                  ],
+                child: ListViewRequestScope(
+                  request: _viewRequest,
+                  child: IndexedStack(
+                    index: activeIndex,
+                    children: [
+                      page,
+                      for (final OpenDocument document in documents)
+                        DocumentNavigator(
+                          key: ValueKey(document.id),
+                          document: document,
+                        ),
+                    ],
+                  ),
                 ),
               ),
             ),
@@ -774,6 +786,7 @@ class _DesktopShellState extends State<DesktopShell> {
             path != MenuLayout.homeRoute && _pathAllowed(path),
         source: _ShellHomeSource(widget.session.api),
         onOpen: _openFromMenu,
+        onOpenView: (item, view) => _openFromMenu(item, view: view),
         hidden: _homeHidden(),
         onCustomise: (hidden) async {
           await widget.preferences.saveWorkspaceState(

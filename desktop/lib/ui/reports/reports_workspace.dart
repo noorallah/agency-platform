@@ -97,6 +97,29 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
     }
   }
 
+  /// The last "open showing that" request applied -- Home's "Invoices
+  /// overdue" opens this screen on the overdue report.
+  int _request = 0;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final ListViewRequest? request =
+        ListViewRequestScope.of(context, 'reports/${widget.tabId}');
+    if (request == null || request.serial == _request) return;
+    _request = request.serial;
+    final ReportDefinition? report =
+        _reports.where((report) => report.id == request.view).firstOrNull;
+    // A report this user may not read is not opened by asking for it; the
+    // screen stays on its first report, as the menu would have opened it.
+    if (report == null || report == _selected) return;
+    _selected = report;
+    _rows = const [];
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) unawaited(_load());
+    });
+  }
+
   @override
   void didUpdateWidget(ReportsWorkspace oldWidget) {
     super.didUpdateWidget(oldWidget);
