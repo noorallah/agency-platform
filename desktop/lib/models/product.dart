@@ -221,6 +221,8 @@ class Product {
     required this.updatedAt,
     required this.attributes,
     required this.media,
+    this.stockOnHand = '',
+    this.lowStock = false,
   });
 
   final String id;
@@ -281,6 +283,13 @@ class Product {
   final List<ProductAttributeValueRecord> attributes;
   final List<ProductMediaRecord> media;
 
+  /// The quantity on hand across every warehouse; empty when no warehouse
+  /// has ever held the product, which is not a stock of zero.
+  final String stockOnHand;
+
+  /// Held at or below its reorder level somewhere -- shown in red.
+  final bool lowStock;
+
   factory Product.fromJson(Json json) => Product(
         id: stringValue(json['id']),
         version: (json['version'] as num?)?.toInt() ?? 0,
@@ -340,6 +349,8 @@ class Product {
             .toList(),
         media:
             _objects(json['media']).map(ProductMediaRecord.fromJson).toList(),
+        stockOnHand: stringValue(json['stock_on_hand']),
+        lowStock: boolValue(json['low_stock']),
       );
 }
 
@@ -353,6 +364,8 @@ class ProductQuery {
     this.hsnSac,
     this.attributeQuery,
     this.includeDeleted = false,
+    this.lowStock = false,
+    this.noPrice = false,
   });
 
   final String? status;
@@ -363,6 +376,12 @@ class ProductQuery {
   final String? hsnSac;
   final String? attributeQuery;
   final bool includeDeleted;
+
+  /// Only products some warehouse holds at or below its reorder level.
+  final bool lowStock;
+
+  /// Only products with no selling price.
+  final bool noPrice;
 
   Map<String, String> toQuery() => {
         if (status?.isNotEmpty == true) 'status': status!,
@@ -375,6 +394,8 @@ class ProductQuery {
         if (attributeQuery?.isNotEmpty == true)
           'attribute_query': attributeQuery!,
         if (includeDeleted) 'include_deleted': 'true',
+        if (lowStock) 'low_stock': 'true',
+        if (noPrice) 'no_price': 'true',
       };
 }
 

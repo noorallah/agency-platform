@@ -1413,10 +1413,16 @@ class ManagementWorkspaceLayout extends StatelessWidget {
     this.detailsWidth = 300,
     this.filterPanel,
     this.viewBar,
+    this.lineChips = const [],
   });
 
   final Widget toolbar;
   final Widget searchPanel;
+
+  /// Phase 2: chips drawn after "+ filter" on the page line -- the
+  /// wireframe's "Views" menu of saved and recent searches. Phase 1, which
+  /// has no such line, ignores them.
+  final List<Widget> lineChips;
   final Widget primaryContent;
   final Widget? detailsPanel;
   final Widget statusBar;
@@ -1564,6 +1570,10 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
       if (filters != null) ...[
         const SizedBox(width: 6),
         _filtersButton(active, scheme),
+      ],
+      for (final Widget chip in layout.lineChips) ...[
+        const SizedBox(width: 6),
+        chip,
       ],
     ];
     final Widget line = Padding(
@@ -1950,6 +1960,7 @@ class EnterpriseDataGrid<T> extends StatefulWidget {
     this.showRowNumbers = false,
     this.rowNumberLabel = '#',
     this.cellBuilder,
+    this.alertCell,
   });
 
   final List<T> items;
@@ -1973,6 +1984,11 @@ class EnterpriseDataGrid<T> extends StatefulWidget {
   final bool showRowNumbers;
   final String rowNumberLabel;
   final Widget Function(int columnIndex, String value, T item)? cellBuilder;
+
+  /// Phase 2: a cell that needs attention -- the wireframe's low stock --
+  /// drawn in the error colour and bold. Applies to the grid's own cells,
+  /// amounts included, so a screen need not build one to colour it.
+  final bool Function(int columnIndex, T item)? alertCell;
 
   @override
   State<EnterpriseDataGrid<T>> createState() => _EnterpriseDataGridState<T>();
@@ -2226,6 +2242,13 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
                       value,
                       overflow: TextOverflow.ellipsis,
                       textAlign: amount ? TextAlign.right : TextAlign.start,
+                      style: _phase2 &&
+                              (widget.alertCell?.call(entry.key, item) ?? false)
+                          ? TextStyle(
+                              color: Theme.of(context).colorScheme.error,
+                              fontWeight: FontWeight.w600,
+                            )
+                          : null,
                     ),
                   ),
                 ),
@@ -3516,3 +3539,53 @@ Future<bool> showWorkspaceConfirmDialog(
       confirmLabel: confirmLabel,
       type: type,
     );
+
+/// Phase 2: a chip on the page line that opens a menu -- the wireframe's
+/// "Views" beside "+ filter". Drawn like that chip, so the line reads as one
+/// row of chips rather than chips and buttons.
+class Phase2MenuChip<T> extends StatelessWidget {
+  const Phase2MenuChip({
+    super.key,
+    required this.label,
+    required this.itemBuilder,
+    required this.onSelected,
+    this.icon,
+    this.tooltip,
+  });
+
+  final String label;
+  final IconData? icon;
+  final String? tooltip;
+  final PopupMenuItemBuilder<T> itemBuilder;
+  final PopupMenuItemSelected<T> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final TextStyle? style = Theme.of(context)
+        .textTheme
+        .bodyMedium
+        ?.copyWith(fontSize: 13, color: scheme.onSurface);
+    return PopupMenuButton<T>(
+      tooltip: tooltip ?? label,
+      position: PopupMenuPosition.under,
+      itemBuilder: itemBuilder,
+      onSelected: onSelected,
+      child: Container(
+        height: 32,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
+        decoration: ShapeDecoration(
+          shape: StadiumBorder(side: BorderSide(color: scheme.outlineVariant)),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          if (icon != null) ...[
+            Icon(icon, size: 16, color: scheme.onSurfaceVariant),
+            const SizedBox(width: 4),
+          ],
+          Text(label, style: style),
+          Icon(Icons.arrow_drop_down, size: 18, color: scheme.onSurfaceVariant),
+        ]),
+      ),
+    );
+  }
+}

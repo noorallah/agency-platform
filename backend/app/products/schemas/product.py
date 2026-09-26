@@ -276,6 +276,13 @@ class ProductResponse(ProductSchema):
     # Resolved from the shared attribute store by the router, not the ORM row.
     attributes: list[ProductAttributeResponse] = Field(default_factory=list)
     media: list[ProductMediaResponse]
+    #: Read from the inventory by the router, not the ORM row: the quantity
+    #: on hand across every warehouse, or ``None`` when the product has never
+    #: been stocked anywhere -- which is not the same as a stock of zero.
+    stock_on_hand: Decimal | None = None
+    #: True when any warehouse holds it at or below its reorder level (else
+    #: its minimum level, else zero) -- the inventory summary's definition.
+    low_stock: bool = False
 
 
 class ProductSummary(ProductSchema):
@@ -287,6 +294,10 @@ class ProductSummary(ProductSchema):
     draft: int
     archived: int
     deleted: int
+    #: Products some warehouse holds at or below its reorder level.
+    low_stock: int = 0
+    #: Products with no selling price, which cannot be sold as they stand.
+    no_price: int = 0
 
 
 class ProductListFilters(ProductSchema):
@@ -301,6 +312,10 @@ class ProductListFilters(ProductSchema):
     hsn_sac: str | None = Field(default=None, max_length=20)
     include_deleted: bool = False
     attribute_query: str | None = Field(default=None, max_length=200)
+    #: Only products some warehouse holds at or below its reorder level.
+    low_stock: bool = False
+    #: Only products with no selling price.
+    no_price: bool = False
 
 
 class ProductCategoryFilter(ProductSchema):

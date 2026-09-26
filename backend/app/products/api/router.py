@@ -2,6 +2,7 @@
 
 # ruff: noqa: D103
 
+from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -117,6 +118,8 @@ def list_products(
     hsn_sac: str | None = None,
     attribute_query: str | None = None,
     include_deleted: bool = False,
+    low_stock: bool = False,
+    no_price: bool = False,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[ProductResponse]:
     params = PaginationParams(page=page, page_size=page_size)
@@ -131,6 +134,8 @@ def list_products(
             "hsn_sac": hsn_sac,
             "attribute_query": attribute_query,
             "include_deleted": include_deleted,
+            "low_stock": low_stock,
+            "no_price": no_price,
         }
     )
     rows, total = ProductService(db).list_products(
@@ -431,14 +436,20 @@ def _response(
     can_view_cost: bool,
     db: Session,
     attributes: list[ProductAttributeResponse] | None = None,
+    stock: dict[UUID, tuple[Decimal, bool]] | None = None,
 ) -> ProductResponse:
-    """Build one product response with its configurable attributes."""
+    """Build one product response with its attributes and its stock."""
     payload = ProductResponse.model_validate(row).model_dump(mode="python")
     payload["attributes"] = (
         ProductService(db).attribute_responses(row)
         if attributes is None
         else attributes
     )
+    held = (ProductService(db).stock_for_many([row]) if stock is None else stock).get(
+        row.id
+    )
+    if held is not None:
+        payload["stock_on_hand"], payload["low_stock"] = held
     if not can_view_cost:
         payload["purchase_price"] = None
     return ProductResponse.model_validate(payload)
@@ -448,13 +459,16 @@ def _responses(
     rows: list[Product], *, can_view_cost: bool, db: Session
 ) -> list[ProductResponse]:
     """Build a page of responses, reading every row's attributes at once."""
-    attributes = ProductService(db).attribute_responses_for_many(rows)
+    service = ProductService(db)
+    attributes = service.attribute_responses_for_many(rows)
+    stock = service.stock_for_many(rows)
     return [
         _response(
             row,
             can_view_cost=can_view_cost,
             db=db,
             attributes=attributes.get(row.id, []),
+            stock=stock,
         )
         for row in rows
     ]
