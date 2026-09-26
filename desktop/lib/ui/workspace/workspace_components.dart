@@ -1930,6 +1930,24 @@ class GridColumn {
     return 1;
   }
 
+  /// A heading that names an amount or a count. Phase 2 treats such a
+  /// column as [numeric] when every value in it is a number, so a screen
+  /// that never said so still right-aligns its totals.
+  bool get looksNumeric => RegExp(
+        r'(total|amount|balance|price|value|qty|quantity|outstanding|'
+        r'advance|limit|cost|paid|discount|points|stock|on hand|available|'
+        r'reserved|mrp|selling|debit|credit|opening|closing|tax|payable|'
+        r'receivable|net|gross)',
+        caseSensitive: false,
+      ).hasMatch(label);
+
+  /// A count of goods rather than money: shown without the store's trailing
+  /// zeros (876, 2.5), where money keeps two places.
+  bool get isQuantity => RegExp(
+        r'(qty|quantity|stock|on hand|available|reserved|points)',
+        caseSensitive: false,
+      ).hasMatch(label);
+
   /// A status column: phase 2 writes its value as plain words ("On hold"),
   /// as the wireframe does, rather than as a code in capitals.
   bool get isStatus =>
@@ -2048,6 +2066,26 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
   List<double>? _widths;
   Object? _widthsFor;
 
+  /// Columns phase 2 draws as figures: those declared [GridColumn.numeric],
+  /// and those whose heading names an amount and whose values on this page
+  /// are all numbers. Worked out with the widths, per page.
+  Set<int> _numericColumns = const {};
+
+  bool _isNumeric(int index) => _numericColumns.contains(index);
+
+  /// A figure as phase 2 shows it: money grouped the Indian way with two
+  /// places, a quantity without trailing zeros.
+  String _figure(GridColumn column, String raw) {
+    if (!column.isQuantity) return _grouped(raw);
+    final double? number = double.tryParse(raw.replaceAll(',', '').trim());
+    if (number == null) return raw;
+    if (number == number.roundToDouble()) {
+      final String text = indianAmount(number, full: true);
+      return text.substring(0, text.length - 3);
+    }
+    return raw.trim().replaceFirst(RegExp(r'0+$'), '');
+  }
+
   /// Plain words for a status code: ON_HOLD becomes "On hold".
   static String _statusWords(String value) {
     final String trimmed = value.trim();
@@ -2089,6 +2127,23 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
     final List<List<String>> rows = [
       for (final T item in widget.items) widget.cells(item),
     ];
+    bool allNumbers(int i) {
+      bool any = false;
+      for (final List<String> values in rows) {
+        final String raw = i < values.length ? values[i].trim() : '';
+        if (raw.isEmpty || raw == '-') continue;
+        if (double.tryParse(raw.replaceAll(',', '')) == null) return false;
+        any = true;
+      }
+      return any;
+    }
+
+    _numericColumns = {
+      for (int i = 0; i < widget.columns.length; i++)
+        if (widget.columns[i].numeric ||
+            (widget.columns[i].looksNumeric && allNumbers(i)))
+          i,
+    };
     final List<double> widths = [];
     for (int i = 0; i < widget.columns.length; i++) {
       final GridColumn column = widget.columns[i];
@@ -2097,8 +2152,8 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
       for (final List<String> values in rows) {
         if (i >= values.length) continue;
         final String raw = values[i];
-        final String shown = column.numeric
-            ? _grouped(raw)
+        final String shown = _isNumeric(i)
+            ? _figure(column, raw)
             : column.isStatus
                 ? _statusWords(raw)
                 : raw;
@@ -2116,8 +2171,9 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
   /// lowest priority first and, among equals, rightmost first. The column a
   /// row is known by is never dropped.
   Set<int> _columnsToDrop(BuildContext context, double available) {
-    if (!_phase2 || !available.isFinite) return const {};
+    if (!_phase2) return const {};
     final List<double> widths = _naturalWidths(context);
+    if (!available.isFinite) return const {};
     final List<int> shown = [
       for (int i = 0; i < widget.columns.length; i++)
         if (widget.columns[i].visible) i,
@@ -2218,10 +2274,10 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
         ..._visibleColumns.asMap().entries.map((visible) {
           final MapEntry<int, GridColumn> entry = visible.value;
           final String raw = entry.key < values.length ? values[entry.key] : '';
-          final bool amount = _phase2 && entry.value.numeric;
+          final bool amount = _phase2 && _isNumeric(entry.key);
           final bool status = _phase2 && entry.value.isStatus;
           final String value = amount
-              ? _grouped(raw)
+              ? _figure(entry.value, raw)
               : status
                   ? _statusWords(raw)
                   : raw;
@@ -2455,7 +2511,7 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
             DataColumn(label: Text(widget.rowNumberLabel), numeric: true),
           for (final MapEntry<int, GridColumn> entry in _visibleColumns)
             DataColumn(
-              numeric: _phase2 && entry.value.numeric,
+              numeric: _phase2 && _isNumeric(entry.key),
               label: Tooltip(
                 message: entry.value.tooltip ?? entry.value.label,
                 child: Text(entry.value.label),
