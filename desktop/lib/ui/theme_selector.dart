@@ -16,6 +16,7 @@ class ThemeSelector extends StatelessWidget {
     required this.manager,
     this.compact = true,
     this.iconColor,
+    this.style,
   });
 
   final ThemeManager manager;
@@ -24,6 +25,9 @@ class ThemeSelector extends StatelessWidget {
   /// The button's colour where it sits on something other than the page --
   /// the phase 2 menu bar is dark in both themes.
   final Color? iconColor;
+
+  /// The button's look where it sits among other controls (the phase 2 bar).
+  final ButtonStyle? style;
 
   /// Apply a choice, and say so if the server refused to keep it.
   ///
@@ -99,6 +103,7 @@ class ThemeSelector extends StatelessWidget {
       ],
       builder: (context, controller, child) => IconButton(
         tooltip: 'Appearance',
+        style: style,
         icon: Icon(Icons.palette_outlined, color: iconColor),
         onPressed: () =>
             controller.isOpen ? controller.close() : controller.open(),

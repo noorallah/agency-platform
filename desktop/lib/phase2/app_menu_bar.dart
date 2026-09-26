@@ -83,8 +83,7 @@ class AppMenuBar extends StatelessWidget {
               children: [
                 SubmenuButton(
                   key: const ValueKey('menu-area-settings'),
-                  style: _barButtonStyle(
-                      context, currentArea == MenuLayout.settings.id),
+                  style: barIconStyle(context),
                   alignmentOffset: const Offset(-420, 0),
                   menuChildren: [_AreaPanel(area: settings!, onOpen: onOpen)],
                   child: Tooltip(
@@ -557,4 +556,85 @@ class _InsetBar extends CustomPainter {
 
   @override
   bool shouldRepaint(_InsetBar oldDelegate) => oldDelegate.color != color;
+}
+
+/// One look for every control on the right of the bar -- Appearance, the
+/// gear, the profile: 30 px tall, 20 px icons, a 5 px-rounded pill that
+/// lightens under the pointer, as the wireframe draws them. Three different
+/// buttons had three different sizes and paddings (owner, 2026-09-26).
+ButtonStyle barIconStyle(BuildContext context) {
+  final AppSemanticColors colors = context.semanticColors;
+  return ButtonStyle(
+    foregroundColor: WidgetStatePropertyAll(colors.onChrome),
+    iconColor: WidgetStatePropertyAll(colors.onChrome),
+    iconSize: const WidgetStatePropertyAll(20),
+    backgroundColor: WidgetStateProperty.resolveWith((states) =>
+        states.contains(WidgetState.hovered) ||
+                states.contains(WidgetState.focused) ||
+                states.contains(WidgetState.pressed)
+            ? colors.chromeActive
+            : Colors.transparent),
+    overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+    padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+    minimumSize: const WidgetStatePropertyAll(Size(32, 30)),
+    maximumSize: const WidgetStatePropertyAll(Size(32, 30)),
+    fixedSize: const WidgetStatePropertyAll(Size(32, 30)),
+    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    visualDensity: VisualDensity.compact,
+    shape: WidgetStatePropertyAll(
+      RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+    ),
+  );
+}
+
+/// The firm on the bar, as the wireframe draws it: the same 30 px as the
+/// search box beside it, a thin edge, 5 px corners, the name -- and a ▾ only
+/// when there is a firm to switch to.
+class FirmOnBar extends StatelessWidget {
+  const FirmOnBar({super.key, required this.name, this.onSwitch});
+
+  final String name;
+
+  /// Opens the firm picker; null when there is nothing to switch to.
+  final VoidCallback? onSwitch;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppSemanticColors colors = context.semanticColors;
+    final Widget box = Container(
+      key: const ValueKey('firm-on-bar'),
+      height: 30,
+      constraints: const BoxConstraints(maxWidth: 240),
+      padding: EdgeInsets.only(left: 10, right: onSwitch == null ? 10 : 4),
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(color: colors.onChromeMuted.withValues(alpha: .45)),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Flexible(
+          child: Text(
+            name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(color: colors.onChrome),
+          ),
+        ),
+        if (onSwitch != null)
+          Icon(Icons.arrow_drop_down, size: 18, color: colors.onChrome),
+      ]),
+    );
+    if (onSwitch == null) return Tooltip(message: name, child: box);
+    return Tooltip(
+      message: 'Switch firm',
+      child: InkWell(
+        onTap: onSwitch,
+        borderRadius: BorderRadius.circular(5),
+        hoverColor: colors.chromeActive,
+        child: box,
+      ),
+    );
+  }
 }
