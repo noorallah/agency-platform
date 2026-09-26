@@ -48,6 +48,31 @@ void main() {
     expect(tester.takeException(), isNull);
   });
 
+  testWidgets('the area you are in is marked as the wireframe draws it',
+      (tester) async {
+    await _pump(tester);
+    // The page on show is Masters > Customers: the Masters pill carries the
+    // light-blue bar along its bottom edge, and no other area does.
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('menu-area-masters')),
+        matching: find.byKey(const ValueKey('menu-area-current')),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('menu-area-current')), findsOneWidget);
+    // A pill, not a block the bar's full height: what is drawn is the
+    // button's Material; the button around it keeps a full-height target.
+    final Size pill = tester.getSize(find
+        .descendant(
+          of: find.byKey(const ValueKey('menu-area-sell')),
+          matching: find.byType(Material),
+        )
+        .first);
+    expect(pill.height, lessThanOrEqualTo(34));
+    expect(pill.height, lessThan(AppMenuBar.height - 8));
+  });
+
   testWidgets('an area drops a panel of every item, and choosing one opens it',
       (tester) async {
     final List<MenuItemSpec> opened = await _pump(tester);

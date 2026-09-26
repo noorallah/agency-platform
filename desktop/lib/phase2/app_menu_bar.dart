@@ -124,7 +124,11 @@ class AppMenuBar extends StatelessWidget {
         style: MenuStyle(
           backgroundColor: WidgetStatePropertyAll(colors.chrome),
           elevation: const WidgetStatePropertyAll(0),
-          padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+          // A MenuBar stretches its buttons to its own height; padding it
+          // is what leaves them the wireframe's 32 px pills.
+          padding: const WidgetStatePropertyAll(
+            EdgeInsets.symmetric(vertical: 6),
+          ),
           shape: const WidgetStatePropertyAll(RoundedRectangleBorder()),
         ),
         children: [
@@ -156,14 +160,14 @@ class AppMenuBar extends StatelessWidget {
         key: ValueKey('menu-area-${area.id}'),
         style: _barButtonStyle(context, current),
         onPressed: () => onOpen(only),
-        child: _AreaLabel(area.label, current: current),
+        child: Text(area.label),
       );
     }
     return SubmenuButton(
       key: ValueKey('menu-area-${area.id}'),
       style: _barButtonStyle(context, current),
       menuChildren: [_AreaPanel(area: area, onOpen: onOpen)],
-      child: _AreaLabel(area.label, current: current),
+      child: Text(area.label),
     );
   }
 
@@ -179,38 +183,31 @@ class AppMenuBar extends StatelessWidget {
               ? colors.chromeActive
               : Colors.transparent),
       overlayColor: const WidgetStatePropertyAll(Colors.transparent),
+      // The wireframe's pill: padded and rounded, not the bar's full height.
       padding: const WidgetStatePropertyAll(
-        EdgeInsets.symmetric(horizontal: 12),
+        EdgeInsets.symmetric(horizontal: 11, vertical: 7),
       ),
-      minimumSize: const WidgetStatePropertyAll(Size(0, height)),
-      shape: const WidgetStatePropertyAll(RoundedRectangleBorder()),
-    );
-  }
-}
-
-/// An area's name on the bar; the area you are in is underlined, as the
-/// approved mock-up draws it.
-class _AreaLabel extends StatelessWidget {
-  const _AreaLabel(this.label, {required this.current});
-
-  final String label;
-  final bool current;
-
-  @override
-  Widget build(BuildContext context) => Container(
-        padding: const EdgeInsets.symmetric(vertical: 4),
-        decoration: current
-            ? BoxDecoration(
-                border: Border(
-                  bottom: BorderSide(
-                    color: context.semanticColors.onChrome,
-                    width: 2,
+      minimumSize: const WidgetStatePropertyAll(Size(0, 32)),
+      maximumSize: const WidgetStatePropertyAll(Size(double.infinity, 32)),
+      shape: WidgetStatePropertyAll(
+        RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+      ),
+      // The area you are in: a 3 px bar along the pill's whole bottom edge,
+      // in the wireframe's light blue.
+      backgroundBuilder: current
+          ? (context, states, child) => DecoratedBox(
+                key: const ValueKey('menu-area-current'),
+                decoration: BoxDecoration(
+                  border: Border(
+                    bottom:
+                        BorderSide(color: colors.chromeIndicator, width: 3),
                   ),
                 ),
+                child: child,
               )
-            : null,
-        child: Text(label),
-      );
+          : null,
+    );
+  }
 }
 
 /// One area's drop-down: its groups side by side, every item visible at once
@@ -300,14 +297,19 @@ class OpenScreenTabs extends StatelessWidget {
   final ValueChanged<String> onSelect;
   final ValueChanged<String> onClose;
 
-  static const double height = 36;
+  static const double height = 34;
 
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
+    // The wireframe's strip: tabs standing on a line, the one on show joined
+    // to the page below it.
     return Container(
       height: height,
-      color: scheme.surface,
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLow,
+        border: Border(bottom: BorderSide(color: scheme.outlineVariant)),
+      ),
       padding: const EdgeInsets.only(left: 8, top: 4),
       child: ListView(
         scrollDirection: Axis.horizontal,
@@ -347,29 +349,26 @@ class _ScreenTab extends StatelessWidget {
           color: active ? scheme.onSurface : scheme.onSurfaceVariant,
           fontWeight: active ? FontWeight.w600 : FontWeight.w400,
         );
+    // As the wireframe draws them: every tab a bordered card with rounded
+    // top corners, grey behind; the one on show white and bold, the same
+    // ground as the page it opens onto.
     return Padding(
       padding: const EdgeInsets.only(right: 2),
       child: Material(
-        color: active ? scheme.surfaceContainerLowest : Colors.transparent,
+        color: active
+            ? scheme.surfaceContainerLowest
+            : scheme.surfaceContainerHigh,
         shape: RoundedRectangleBorder(
-          borderRadius: const BorderRadius.vertical(top: Radius.circular(7)),
-          side: active
-              ? BorderSide(color: scheme.outlineVariant)
-              : BorderSide.none,
+          borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
+          side: BorderSide(color: scheme.outlineVariant),
         ),
         // Middle-click closes, as it does on a browser tab.
         child: GestureDetector(
           onTertiaryTapUp: (_) => onClose(),
           child: InkWell(
-            borderRadius: const BorderRadius.vertical(top: Radius.circular(7)),
+            borderRadius: const BorderRadius.vertical(top: Radius.circular(6)),
             onTap: onSelect,
             child: Container(
-              // The active tab is marked by a solid line along its top (4.14).
-              decoration: active
-                  ? BoxDecoration(
-                      border: Border(
-                          top: BorderSide(color: scheme.primary, width: 2)))
-                  : null,
               padding: const EdgeInsets.only(left: 12, right: 4),
               child: Row(mainAxisSize: MainAxisSize.min, children: [
                 Text(label, style: style),
