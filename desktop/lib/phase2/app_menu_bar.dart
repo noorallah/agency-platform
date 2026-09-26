@@ -127,7 +127,7 @@ class AppMenuBar extends StatelessWidget {
           // A MenuBar stretches its buttons to its own height; padding it
           // is what leaves them the wireframe's 32 px pills.
           padding: const WidgetStatePropertyAll(
-            EdgeInsets.symmetric(vertical: 6),
+            EdgeInsets.symmetric(vertical: 5),
           ),
           shape: const WidgetStatePropertyAll(RoundedRectangleBorder()),
         ),
@@ -167,7 +167,12 @@ class AppMenuBar extends StatelessWidget {
       key: ValueKey('menu-area-${area.id}'),
       style: _barButtonStyle(context, current),
       menuChildren: [_AreaPanel(area: area, onOpen: onOpen)],
-      child: Text(area.label),
+      // "Sell ▾": an area that drops a panel says so, as the wireframe does.
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Text(area.label),
+        const SizedBox(width: 2),
+        const Icon(Icons.arrow_drop_down, size: 18),
+      ]),
     );
   }
 
@@ -187,23 +192,27 @@ class AppMenuBar extends StatelessWidget {
       padding: const WidgetStatePropertyAll(
         EdgeInsets.symmetric(horizontal: 11, vertical: 7),
       ),
-      minimumSize: const WidgetStatePropertyAll(Size(0, 32)),
-      maximumSize: const WidgetStatePropertyAll(Size(double.infinity, 32)),
+      minimumSize: const WidgetStatePropertyAll(Size(0, 34)),
+      maximumSize: const WidgetStatePropertyAll(Size(double.infinity, 34)),
       shape: WidgetStatePropertyAll(
         RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
       ),
-      // The area you are in: a 3 px bar along the pill's whole bottom edge,
-      // in the wireframe's light blue.
+      // The area you are in: a 3 px bar inside the pill along its bottom,
+      // clipped by the pill's rounded corners so it curves up at both ends
+      // -- the wireframe's inset shadow, not a straight line under it.
       backgroundBuilder: current
-          ? (context, states, child) => DecoratedBox(
+          ? (context, states, child) => ClipRRect(
                 key: const ValueKey('menu-area-current'),
-                decoration: BoxDecoration(
-                  border: Border(
-                    bottom:
-                        BorderSide(color: colors.chromeIndicator, width: 3),
+                borderRadius: BorderRadius.circular(5),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border(
+                      bottom:
+                          BorderSide(color: colors.chromeIndicator, width: 3),
+                    ),
                   ),
+                  child: child,
                 ),
-                child: child,
               )
           : null,
     );

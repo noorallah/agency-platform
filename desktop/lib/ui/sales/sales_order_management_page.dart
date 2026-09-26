@@ -81,6 +81,12 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
   /// approve" opens this list on the drafts).
   int _request = 0;
 
+  /// Which load is the latest. A list opened on the drafts asks twice -- the
+  /// whole list from initState, the drafts a moment later -- and the answers
+  /// can arrive in either order; only the latest may reach the screen, or
+  /// the drafts were replaced by every order (owner, 2026-09-26).
+  int _loads = 0;
+
   /// What the order view prints for a line's product, unit and tax profile.
   DocumentLineLabels _labels = const DocumentLineLabels();
 
@@ -211,6 +217,7 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         !widget.permissions.hasPermission('SALES_VIEW')) {
       return;
     }
+    final int load = ++_loads;
     setState(() {
       _loading = true;
       _error = null;
@@ -255,7 +262,7 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
       // The timeline is no longer fetched here. It filled a pane that was on
       // screen whether or not anybody wanted it; the dialog reads it when the
       // document is actually opened.
-      if (!mounted) return;
+      if (!mounted || load != _loads) return;
       setState(() {
         _summary = summary;
         _orders = rows;
@@ -263,10 +270,10 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         _selected = selected;
       });
     } on ApiException catch (error) {
-      if (!mounted) return;
+      if (!mounted || load != _loads) return;
       setState(() => _error = error.message);
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && load == _loads) setState(() => _loading = false);
     }
   }
 
