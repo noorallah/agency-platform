@@ -40,7 +40,8 @@ class PurchaseReturnManagementPage extends StatefulWidget {
       _PurchaseReturnManagementPageState();
 }
 
-class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementPage> {
+class _PurchaseReturnManagementPageState
+    extends State<PurchaseReturnManagementPage> {
   static const int _rowsPerPage = 20;
   final TextEditingController _search = TextEditingController();
   bool _loading = false;
@@ -56,7 +57,6 @@ class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementP
   List<Product> _products = const [];
 
   bool get _canCreate => widget.permissions.hasPermission('PURCHASE_CREATE');
-
 
   /// The lists the view dialog resolves a line's ids against. Read on their
   /// own, after the workspace's own data, so a failure here costs a name and
@@ -120,7 +120,8 @@ class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementP
           ),
         ),
         fetchAllPages<Product>(
-          (int page) => widget.api.products(page: page, pageSize: maxApiPageSize),
+          (int page) =>
+              widget.api.products(page: page, pageSize: maxApiPageSize),
         ),
       ]);
       if (!mounted) return;
@@ -162,7 +163,6 @@ class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementP
     super.dispose();
   }
 
-
   /// Whether the signed-in user may run this lifecycle action.
   ///
   /// The backend gates approve, close, complete and dispatch on
@@ -177,7 +177,8 @@ class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementP
         DocumentToolbarAction.archive ||
         DocumentToolbarAction.requestApproval =>
           _mayApprove(),
-        DocumentToolbarAction.cancel || DocumentToolbarAction.reject =>
+        DocumentToolbarAction.cancel ||
+        DocumentToolbarAction.reject =>
           widget.permissions.hasPermission('PURCHASE_CANCEL'),
         DocumentToolbarAction.newDocument =>
           widget.permissions.hasPermission('PURCHASE_CREATE'),
@@ -189,7 +190,8 @@ class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementP
       };
 
   Future<void> _load({int? requestedPage}) async {
-    if (!widget.hasActiveFirm || !widget.permissions.hasPermission('PURCHASE_VIEW')) {
+    if (!widget.hasActiveFirm ||
+        !widget.permissions.hasPermission('PURCHASE_VIEW')) {
       return;
     }
     setState(() {
@@ -227,7 +229,8 @@ class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementP
       List<DocumentTimelineSnapshot> history = const [];
       if (selected != null) {
         try {
-          final Map<String, dynamic> timeline = _unwrap(await widget.api.documentHistory('purchase-returns', selected.id));
+          final Map<String, dynamic> timeline = _unwrap(await widget.api
+              .documentHistory('purchase-returns', selected.id));
           history = _timelineFromResponse(timeline);
         } on ApiException {
           history = const [];
@@ -309,17 +312,17 @@ class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementP
         primaryContent: !widget.hasActiveFirm
             ? const StandardEmptyState(type: EmptyStateType.noFirmSelected)
             : _error != null && !_loading
-            ? WorkspaceEmptyState(
-                title: 'Purchase returns unavailable',
-                message: _error!,
-              )
-            : _returns.isEmpty && !_loading
-                ? StandardEmptyState(
-                    type: _search.text.trim().isEmpty
-                        ? EmptyStateType.noRecords
-                        : EmptyStateType.noSearchResults,
+                ? WorkspaceEmptyState(
+                    title: 'Purchase returns unavailable',
+                    message: _error!,
                   )
-                : _buildReturnGrid(),
+                : _returns.isEmpty && !_loading
+                    ? StandardEmptyState(
+                        type: _search.text.trim().isEmpty
+                            ? EmptyStateType.noRecords
+                            : EmptyStateType.noSearchResults,
+                      )
+                    : _buildReturnGrid(),
         // No side pane. It sat at `flex: 4` against a `flex: 3` list, so the
         // preview of the one record pointed at had more room than every
         // record. Double-click opens it instead.
@@ -371,36 +374,72 @@ class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementP
         // that takes the stock off, and `/close` was never called at all. A
         // button that posts a stock movement must not be named after the one
         // that ends the document.
-        trailing: [
-          _actionButton(
-            'Approve',
-            Icons.thumb_up_outlined,
-            DocumentToolbarAction.approve,
-            DocumentLifecycleAction.approve,
-            '/approve',
-          ),
-          _actionButton(
-            'Complete',
-            Icons.check_circle_outline,
-            DocumentToolbarAction.approve,
-            DocumentLifecycleAction.complete,
-            '/complete',
-          ),
-          _actionButton(
-            'Cancel',
-            Icons.cancel_outlined,
-            DocumentToolbarAction.cancel,
-            DocumentLifecycleAction.cancel,
-            '/cancel',
-          ),
-          _actionButton(
-            'Close',
-            Icons.lock_outline,
-            DocumentToolbarAction.close,
-            DocumentLifecycleAction.close,
-            '/close',
-          ),
-        ],
+        // Phase 2 (4.11): the same steps as commands, folded into "..."
+        // when the line is short.
+        commands: Phase2Scope.of(context)
+            ? [
+                _command(
+                  'Approve',
+                  Icons.thumb_up_outlined,
+                  DocumentToolbarAction.approve,
+                  DocumentLifecycleAction.approve,
+                  '/approve',
+                ),
+                _command(
+                  'Complete',
+                  Icons.check_circle_outline,
+                  DocumentToolbarAction.approve,
+                  DocumentLifecycleAction.complete,
+                  '/complete',
+                ),
+                _command(
+                  'Cancel',
+                  Icons.cancel_outlined,
+                  DocumentToolbarAction.cancel,
+                  DocumentLifecycleAction.cancel,
+                  '/cancel',
+                ),
+                _command(
+                  'Close',
+                  Icons.lock_outline,
+                  DocumentToolbarAction.close,
+                  DocumentLifecycleAction.close,
+                  '/close',
+                ),
+              ]
+            : const [],
+        trailing: Phase2Scope.of(context)
+            ? const []
+            : [
+                _actionButton(
+                  'Approve',
+                  Icons.thumb_up_outlined,
+                  DocumentToolbarAction.approve,
+                  DocumentLifecycleAction.approve,
+                  '/approve',
+                ),
+                _actionButton(
+                  'Complete',
+                  Icons.check_circle_outline,
+                  DocumentToolbarAction.approve,
+                  DocumentLifecycleAction.complete,
+                  '/complete',
+                ),
+                _actionButton(
+                  'Cancel',
+                  Icons.cancel_outlined,
+                  DocumentToolbarAction.cancel,
+                  DocumentLifecycleAction.cancel,
+                  '/cancel',
+                ),
+                _actionButton(
+                  'Close',
+                  Icons.lock_outline,
+                  DocumentToolbarAction.close,
+                  DocumentLifecycleAction.close,
+                  '/close',
+                ),
+              ],
       );
 
   /// A lifecycle button, disabled unless the selected document's status
@@ -421,12 +460,33 @@ class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementP
         child: OutlinedButton.icon(
           onPressed: _selected == null ||
                   !_mayRun(action) ||
-                  !DocumentStatusGate.purchaseReturn.allows(lifecycle, _selected?.status)
+                  !DocumentStatusGate.purchaseReturn
+                      .allows(lifecycle, _selected?.status)
               ? null
               : () => unawaited(_act(suffix)),
           icon: Icon(icon, size: 18),
           label: Text(label),
         ),
+      );
+
+  /// The same step as a phase 2 command, enabled as its button is.
+  ToolbarCommand _command(
+    String label,
+    IconData icon,
+    DocumentToolbarAction action,
+    DocumentLifecycleAction lifecycle,
+    String suffix,
+  ) =>
+      ToolbarCommand(
+        id: label.toLowerCase(),
+        label: label,
+        icon: icon,
+        onPressed: _selected == null ||
+                !_mayRun(action) ||
+                !DocumentStatusGate.purchaseReturn
+                    .allows(lifecycle, _selected?.status)
+            ? null
+            : () => unawaited(_act(suffix)),
       );
 
   Widget _buildReturnGrid() => EnterpriseDataGrid<_PurchaseReturnRecord>(
@@ -515,7 +575,8 @@ class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementP
   Future<void> _selectReturn(_PurchaseReturnRecord row) async {
     setState(() => _selected = row);
     try {
-      final Map<String, dynamic> timeline = _unwrap(await widget.api.documentHistory('purchase-returns', row.id));
+      final Map<String, dynamic> timeline =
+          _unwrap(await widget.api.documentHistory('purchase-returns', row.id));
       if (!mounted) {
         return;
       }
@@ -542,25 +603,29 @@ class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementP
     return const <String, dynamic>{};
   }
 
-  List<_PurchaseReturnRecord> _recordsFromResponse(Map<String, dynamic> response) {
+  List<_PurchaseReturnRecord> _recordsFromResponse(
+      Map<String, dynamic> response) {
     final dynamic data = response['data'];
     if (data is! List) {
       return const [];
     }
     return data
         .whereType<Map>()
-        .map((item) => _PurchaseReturnRecord.fromJson(Map<String, dynamic>.from(item)))
+        .map((item) =>
+            _PurchaseReturnRecord.fromJson(Map<String, dynamic>.from(item)))
         .toList();
   }
 
-  List<DocumentTimelineSnapshot> _timelineFromResponse(Map<String, dynamic> response) {
+  List<DocumentTimelineSnapshot> _timelineFromResponse(
+      Map<String, dynamic> response) {
     final dynamic data = response['data'];
     if (data is! List) {
       return const [];
     }
     return data
         .whereType<Map>()
-        .map((item) => DocumentTimelineSnapshot.fromJson(Map<String, dynamic>.from(item)))
+        .map((item) =>
+            DocumentTimelineSnapshot.fromJson(Map<String, dynamic>.from(item)))
         .toList();
   }
 }
@@ -612,7 +677,8 @@ class _PurchaseReturnRecord {
     final List<_PurchaseReturnLine> lines = (json['lines'] is List)
         ? (json['lines'] as List)
             .whereType<Map>()
-            .map((item) => _PurchaseReturnLine.fromJson(Map<String, dynamic>.from(item)))
+            .map((item) =>
+                _PurchaseReturnLine.fromJson(Map<String, dynamic>.from(item)))
             .toList()
         : const [];
     return _PurchaseReturnRecord(
@@ -635,7 +701,10 @@ class _PurchaseReturnRecord {
       remarks: stringValue(json['remarks']),
       lines: lines,
       sources: (json['sources'] is List)
-          ? (json['sources'] as List).whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList()
+          ? (json['sources'] as List)
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList()
           : const [],
     );
   }
@@ -694,7 +763,8 @@ class _PurchaseReturnLine {
   final String netAmount;
   final String remarks;
 
-  factory _PurchaseReturnLine.fromJson(Map<String, dynamic> json) => _PurchaseReturnLine(
+  factory _PurchaseReturnLine.fromJson(Map<String, dynamic> json) =>
+      _PurchaseReturnLine(
         lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
         productId: stringValue(json['product_id']),
         description: stringValue(json['description']),
