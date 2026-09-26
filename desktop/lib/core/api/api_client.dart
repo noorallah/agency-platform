@@ -3541,6 +3541,15 @@ class ApiClient {
         _unwrapMap(await request('GET', '/api/v1/sales-returns/$id')),
       );
 
+  /// Price a sales return as saving it would, and save nothing: the credit
+  /// the phase 2 return screen shows while its lines are typed.
+  Future<SalesReturnPreviewRecord> previewSalesReturn(Json data) async =>
+      SalesReturnPreviewRecord.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/sales-returns/preview', body: data),
+        ),
+      );
+
   Future<SalesReturn> createSalesReturn(Json data) async =>
       SalesReturn.fromJson(
         _unwrapMap(await request('POST', '/api/v1/sales-returns', body: data)),

@@ -145,6 +145,30 @@ class PurchaseReturnPreviewRecord {
       );
 }
 
+/// A sales return priced exactly as saving it would, from
+/// `POST /api/v1/sales-returns/preview`: the credit the customer will be
+/// given, how its tax splits, and each line's companions.
+class SalesReturnPreviewRecord {
+  const SalesReturnPreviewRecord({
+    required this.salesReturn,
+    required this.interstate,
+    required this.lines,
+  });
+
+  final Map<String, dynamic> salesReturn;
+  final bool interstate;
+  final List<DocumentPreviewLine> lines;
+
+  factory SalesReturnPreviewRecord.fromJson(Map<String, dynamic> json) =>
+      SalesReturnPreviewRecord(
+        salesReturn: Map<String, dynamic>.from(
+          json['sales_return'] as Map? ?? const {},
+        ),
+        interstate: json['interstate'] == true,
+        lines: _previewLines(json['lines']),
+      );
+}
+
 List<DocumentPreviewLine> _previewLines(dynamic raw) => [
       for (final dynamic line in raw as List? ?? const [])
         if (line is Map)
