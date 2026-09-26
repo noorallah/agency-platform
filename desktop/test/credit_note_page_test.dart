@@ -11,6 +11,8 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/sales/credit_note_page.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
+    show Phase2Scope;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -88,6 +90,10 @@ class _CreditNoteApi extends ApiClient {
   final List<String> requested = <String>[];
   int? sentVersion;
 
+  /// What was asked to be priced, and what was raised.
+  final List<Json> previews = <Json>[];
+  Json? raised;
+
   List<Json> get _invoices =>
       invoices ??
       <Json>[
@@ -117,6 +123,37 @@ class _CreditNoteApi extends ApiClient {
     int? expectedVersion,
   }) async {
     requested.add('$method $path');
+    if (method == 'POST' && path == '/api/v1/credit-notes/preview') {
+      previews.add(body!);
+      final List<dynamic> lines = body['lines'] as List<dynamic>;
+      final double taxable = double.parse(
+        '${(lines.first as Json)['taxable_amount']}',
+      );
+      return <String, dynamic>{
+        'data': <String, dynamic>{
+          ..._note(),
+          'taxable_amount': taxable.toStringAsFixed(2),
+          'tax_amount': (taxable * .18).toStringAsFixed(2),
+          'total_amount': (taxable * 1.18).toStringAsFixed(2),
+          'lines': [
+            <String, dynamic>{
+              'line_number': 1,
+              'sales_invoice_line_id': (lines.first as Json)
+                  ['sales_invoice_line_id'],
+              'product_name': 'Toothpaste 100g',
+              'taxable_amount': taxable.toStringAsFixed(2),
+              'tax_amount': (taxable * .18).toStringAsFixed(2),
+              'total_amount': (taxable * 1.18).toStringAsFixed(2),
+              'tax_rate_percent': '18.00',
+            },
+          ],
+        },
+      };
+    }
+    if (method == 'POST' && path == '/api/v1/credit-notes') {
+      raised = body;
+      return <String, dynamic>{'data': _note()};
+    }
     if (path.contains('/credit-notes')) {
       if (path.endsWith('/approve') || path.endsWith('/cancel')) {
         sentVersion = expectedVersion;
@@ -325,5 +362,47 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('No approved invoice to credit'), findsOneWidget);
+  });
+
+  testWidgets('phase 2 credits on one screen, the tax priced as typed',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _CreditNoteApi api = _CreditNoteApi(notes: <Json>[_note()]);
+    // Above the navigator, as in the app, so the screen it opens sees it.
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => Phase2Scope(child: child!),
+      home: Scaffold(
+        body: CreditNotePage(
+          api: api,
+          permissions: _permissions(),
+          hasActiveFirm: true,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('New').last);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    // The invoice's line is on screen, named by its product.
+    expect(find.text('Toothpaste 100g'), findsWidgets);
+    expect(find.text('588.00'), findsWidgets);
+
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('credit-note-amount-inv-1-0')),
+      '100',
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(api.previews.last['lines'][0]['taxable_amount'], '100');
+    expect(find.text('18.00'), findsWidgets);
+    expect(find.textContaining('118.00', findRichText: true), findsWidgets);
+
+    await tester.tap(find.byKey(const ValueKey('credit-note-save')));
+    await tester.pumpAndSettle();
+    expect(api.raised?['sales_invoice_id'], 'inv-1');
+    expect(api.raised?['lines'][0]['sales_invoice_line_id'], 'inv-1-line-1');
   });
 }

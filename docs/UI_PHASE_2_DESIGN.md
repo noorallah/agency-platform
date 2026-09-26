@@ -408,6 +408,12 @@ snapshots them), so what is chosen is the order, how long the prices stand (a da
 picker, or no deadline) and the terms, and what is shown is what the customer will
 hold, with its total in words. Phase 1 keeps its dialog.
 
+**Credit notes (2026-09-26)** take an approved invoice and show every one of its
+lines, so one note can credit several (phase 1 took one line). The credit before
+tax is typed per line; the tax coming back is priced as typed by
+`POST /credit-notes/preview` at the rate each invoice line charged, and a line
+credited past what it was charged is refused while typing rather than on save.
+
 ### 4.9 Home per role
 
 A counter clerk, a storeman, an accountant and an owner get different homes:

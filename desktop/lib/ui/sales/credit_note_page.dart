@@ -7,6 +7,8 @@
 // does not, so a firm using that one keeps declaring tax on a price nobody
 // paid.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
@@ -15,8 +17,13 @@ import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/credit_note.dart';
+import '../../models/entities.dart';
 import '../../models/sales_return.dart';
 import '../workspace/desktop_framework.dart';
+import '../../phase2/document_page.dart';
+import '../../phase2/indian_format.dart';
+
+part 'credit_note_editor_phase2.dart';
 
 /// List the firm's credit notes, raise one, approve it or take it back.
 class CreditNotePage extends StatefulWidget {
@@ -82,10 +89,18 @@ class _CreditNotePageState extends State<CreditNotePage> {
   }
 
   Future<void> _raise() async {
-    final bool? saved = await showDialog<bool>(
-      context: context,
-      builder: (context) => CreditNoteDialog(api: widget.api),
-    );
+    // Phase 2 raises on its own screen, every invoice line on show; phase 1
+    // keeps its dialog.
+    final bool? saved = Phase2Scope.of(context)
+        ? await showDocument<bool>(
+            context,
+            title: 'New credit note',
+            builder: (_) => CreditNoteDialog(api: widget.api),
+          )
+        : await showDialog<bool>(
+            context: context,
+            builder: (context) => CreditNoteDialog(api: widget.api),
+          );
     if (saved == true) await _load();
   }
 
@@ -340,6 +355,43 @@ class _CreditNoteDialogState extends State<CreditNoteDialog> {
   /// with several offers a choice rather than guessing.
   String _lineId = '';
 
+  /// Phase 2: the credit before tax typed on each invoice line, the note as
+  /// the server priced it last, and the line the side panel follows.
+  final Map<String, String> _amounts = <String, String>{};
+  CreditNoteRecord? _preview;
+  int _current = 0;
+  Timer? _previewTimer;
+  int _previewSerial = 0;
+
+  void _setState(VoidCallback change) => setState(change);
+
+  /// Price the note again once the typing pauses; only the latest answer
+  /// lands. A note with nothing on it is not sent.
+  void _schedulePreview() {
+    _previewTimer?.cancel();
+    _previewTimer = Timer(const Duration(milliseconds: 350), () async {
+      final Json? draft = _phase2Payload();
+      if (draft == null || !mounted) {
+        if (mounted) setState(() => _preview = null);
+        return;
+      }
+      final int serial = ++_previewSerial;
+      try {
+        final CreditNoteRecord priced = await widget.api.previewCreditNote(draft);
+        if (!mounted || serial != _previewSerial) return;
+        setState(() => _preview = priced);
+      } on ApiException catch (error) {
+        // A line credited past what it was charged is refused here, before
+        // the note is raised; say so rather than keep stale figures.
+        if (!mounted || serial != _previewSerial) return;
+        setState(() {
+          _preview = null;
+          _error = error.message;
+        });
+      }
+    });
+  }
+
   ReturnableDocument? get _selected {
     for (final ReturnableDocument row in _invoices) {
       if (row.id == _invoiceId) return row;
@@ -355,6 +407,7 @@ class _CreditNoteDialogState extends State<CreditNoteDialog> {
 
   @override
   void dispose() {
+    _previewTimer?.cancel();
     _amount.dispose();
     _remarks.dispose();
     super.dispose();
@@ -444,6 +497,8 @@ class _CreditNoteDialogState extends State<CreditNoteDialog> {
 
   @override
   Widget build(BuildContext context) {
+    // Phase 2: the one-screen note (the documents' approved layout).
+    if (Phase2Scope.of(context)) return _phase2Page(context);
     final ThemeData theme = Theme.of(context);
     final ReturnableDocument? invoice = _selected;
     return AlertDialog(
