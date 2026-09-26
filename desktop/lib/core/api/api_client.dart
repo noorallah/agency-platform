@@ -3532,6 +3532,8 @@ class ApiClient {
     int pageSize = 20,
     String search = '',
     String? status,
+    String? returnFrom,
+    String? returnTo,
   }) =>
       _list(
         '/api/v1/sales-returns',
@@ -3540,7 +3542,11 @@ class ApiClient {
         search,
         pageSize: pageSize,
         sortBy: 'return_date',
-        additionalQuery: {if (status != null) 'status': status},
+        additionalQuery: {
+          if (status != null) 'status': status,
+          if (returnFrom != null) 'return_from': returnFrom,
+          if (returnTo != null) 'return_to': returnTo,
+        },
       );
 
   Future<SalesReturn> salesReturn(String id) async => SalesReturn.fromJson(
