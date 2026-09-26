@@ -466,7 +466,6 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
                 total: _selected!['grand_total'],
                 onClear: () => setState(() => _selected = null),
               ),
-        lineChips: Phase2Scope.of(context) ? _listTools() : const [],
         searchPanel: SearchFilterPanel(
           controller: _search,
           hintText: 'Search order number, customer, reference...',
@@ -511,7 +510,9 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
     final bool canCreate = widget.permissions.hasPermission('SALES_CREATE');
     final bool canEdit = widget.permissions.hasPermission('SALES_UPDATE');
     return WorkspaceToolbar(
-      trailing: [_columnsButton()],
+      // Period right after the search, as Sales Returns has it (owner,
+      // 2026-09-27), then Columns.
+      trailing: [..._listTools(), _columnsButton()],
       actions: [
         ToolbarAction.view,
         if (canEdit) ToolbarAction.edit,
@@ -843,8 +844,8 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
     await _act(suffix);
   }
 
-  /// The Period control (owner, 2026-09-27), with the counters on phase 2's
-  /// page line. Phase 1 (frozen, never shipped) has no room for it.
+  /// The Period control (owner, 2026-09-27), right after the search on
+  /// phase 2's page line. Phase 1 (frozen, never shipped) has no room for it.
   List<Widget> _listTools() => [
         DateRangeFilter(
           value: _period,
