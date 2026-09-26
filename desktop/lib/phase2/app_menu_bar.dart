@@ -480,7 +480,11 @@ class ConnectionDot extends StatelessWidget {
     required this.online,
     required this.checking,
     required this.details,
+    this.onChrome = true,
   });
+
+  /// Drawn on the dark menu bar; false for the light bottom bar.
+  final bool onChrome;
 
   final bool online;
   final bool checking;
@@ -511,16 +515,20 @@ class ConnectionDot extends StatelessWidget {
             decoration: BoxDecoration(
               color: color,
               shape: BoxShape.circle,
-              border: Border.all(color: colors.onChrome, width: 1),
+              border: onChrome
+                  ? Border.all(color: colors.onChrome, width: 1)
+                  : null,
             ),
           ),
           const SizedBox(width: 6),
           Text(
-            state,
-            style: Theme.of(context)
-                .textTheme
-                .bodySmall
-                ?.copyWith(color: colors.onChromeMuted),
+            // The wireframe says it in lower case, beside the dot.
+            state.toLowerCase(),
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: onChrome
+                      ? colors.onChromeMuted
+                      : Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
           ),
         ]),
       ),

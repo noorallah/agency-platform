@@ -219,4 +219,26 @@ void main() {
     expect(tester.takeException(), isNull);
     await _unmount(tester);
   });
+
+  testWidgets("one bottom bar, as the wireframe: the role left, online right",
+      (tester) async {
+    await _pumpShell(tester, workspace: null);
+    final Finder bar = find.byKey(const ValueKey('phase2-status-bar'));
+    expect(bar, findsOneWidget);
+    // The connection is at the bottom right, and no longer on the top bar.
+    expect(find.descendant(of: bar, matching: find.byType(ConnectionDot)),
+        findsOneWidget);
+    expect(
+        find.descendant(
+            of: find.byType(AppMenuBar), matching: find.byType(ConnectionDot)),
+        findsNothing);
+    expect(tester.getCenter(find.byType(ConnectionDot)).dx,
+        greaterThan(tester.getCenter(bar).dx));
+    // Home says whose home it is -- the wireframe's "Owner".
+    expect(
+        find.descendant(
+            of: bar, matching: find.text('Platform administrator')),
+        findsOneWidget);
+    await _unmount(tester);
+  });
 }

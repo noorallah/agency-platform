@@ -142,3 +142,38 @@ class _Phase2PageBarHostState extends State<Phase2PageBarHost> {
         },
       );
 }
+
+/// The phase 2 window's one bottom bar, as the wireframe draws it: what the
+/// screen on show says about itself at the left ("12 records  1 selected",
+/// the role on Home), the connection at the right. A list's own status bar
+/// hands its line here instead of drawing a second bar above it.
+class Phase2StatusScope extends InheritedWidget {
+  const Phase2StatusScope({
+    super.key,
+    required this.left,
+    required this.alive,
+    required super.child,
+  });
+
+  /// What the left of the bar shows; null for nothing.
+  final ValueNotifier<Widget?> left;
+
+  /// Whether the shell is still on screen, so a deferred update never lands
+  /// on a disposed notifier.
+  final bool Function() alive;
+
+  static Phase2StatusScope? of(BuildContext context) =>
+      context.getInheritedWidgetOfExactType<Phase2StatusScope>();
+
+  /// Show [line] at the left of the bar. Deferred to after the frame: it
+  /// changes what an ancestor draws.
+  void publish(Widget line) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (alive()) left.value = line;
+    });
+  }
+
+  @override
+  bool updateShouldNotify(Phase2StatusScope oldWidget) =>
+      left != oldWidget.left;
+}
