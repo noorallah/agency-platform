@@ -430,6 +430,13 @@ vendor's name, General, Contacts, Addresses, Banking, Tax, Notes and Custom fiel
 in one scroll with section links, and a side panel with GST standing, the primary
 contact and the account they are paid into.
 
+**Products (2026-09-26)** follow too: a tab titled with the product's name, the
+sections the firm uses (General, UOM & size, Pricing, Tax, Attributes, Images,
+Attachments) in one scroll with links, Save & new beside Save, and a side panel of
+the three prices, the margin they leave (following the boxes as they are typed,
+and saying so when the selling price is above MRP), stock on hand and the record's
+dates.
+
 ### 4.9 Home per role
 
 A counter clerk, a storeman, an accountant and an owner get different homes:
