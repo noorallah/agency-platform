@@ -502,10 +502,13 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
       toolbar: Wrap(
         spacing: 8,
         children: [
-          OutlinedButton.icon(
+          Phase2Refresh(
             onPressed: _load,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Refresh'),
+            child: OutlinedButton.icon(
+              onPressed: _load,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Refresh'),
+            ),
           ),
           if (_canExport)
             FilledButton.tonalIcon(
@@ -781,10 +784,13 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
                   ? 'Export XLSX'
                   : 'Export CSV'),
             ),
-          OutlinedButton.icon(
+          Phase2Refresh(
             onPressed: _load,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Refresh'),
+            child: OutlinedButton.icon(
+              onPressed: _load,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Refresh'),
+            ),
           ),
         ],
       );

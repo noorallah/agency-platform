@@ -125,6 +125,16 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
     }
   }
 
+  /// Read again whichever view is on show.
+  void _refresh() {
+    if (_view == _View.ageing) {
+      _loadAgeing();
+      return;
+    }
+    final String? id = _selectedCustomerId;
+    if (id != null) _loadStatement(id);
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!widget.hasActiveFirm) {
@@ -146,15 +156,13 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
         spacing: AppSpacing.sm,
         runSpacing: AppSpacing.sm,
         children: [
-          OutlinedButton.icon(
-            onPressed: _view == _View.ageing
-                ? _loadAgeing
-                : () {
-                    final String? id = _selectedCustomerId;
-                    if (id != null) _loadStatement(id);
-                  },
-            icon: const Icon(Icons.refresh),
-            label: const Text('Refresh'),
+          Phase2Refresh(
+            onPressed: _refresh,
+            child: OutlinedButton.icon(
+              onPressed: _refresh,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Refresh'),
+            ),
           ),
         ],
       ),

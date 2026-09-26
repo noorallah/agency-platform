@@ -173,10 +173,13 @@ class _LoyaltyPageState extends State<LoyaltyPage> {
         spacing: AppSpacing.sm,
         runSpacing: AppSpacing.sm,
         children: [
-          OutlinedButton.icon(
+          Phase2Refresh(
             onPressed: _load,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Refresh'),
+            child: OutlinedButton.icon(
+              onPressed: _load,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Refresh'),
+            ),
           ),
           OutlinedButton.icon(
             onPressed: _mayManage ? _expire : null,

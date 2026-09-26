@@ -3985,3 +3985,26 @@ class Phase2LineTools extends StatelessWidget {
     );
   }
 }
+
+/// A screen's own Refresh button: phase 1 draws [child], the button it
+/// always drew; phase 2 draws the page line's refresh icon, as every list
+/// has, rather than a word.
+class Phase2Refresh extends StatelessWidget {
+  const Phase2Refresh({
+    super.key,
+    required this.onPressed,
+    required this.child,
+  });
+
+  final VoidCallback? onPressed;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) => Phase2Scope.of(context)
+      ? _Phase2IconAction(
+          key: const ValueKey('line-refresh'),
+          action: ToolbarAction.refresh,
+          onPressed: onPressed,
+        )
+      : child;
+}

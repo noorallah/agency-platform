@@ -348,12 +348,16 @@ class _CommissionPageState extends State<CommissionPage> {
               icon: const Icon(Icons.playlist_add_check),
               label: const Text('Accrue period'),
             ),
-          OutlinedButton.icon(
-            onPressed: onPayouts
-                ? _loadPayouts
-                : (onRules ? _loadRules : _loadReport),
-            icon: const Icon(Icons.refresh),
-            label: const Text('Refresh'),
+          Phase2Refresh(
+            onPressed:
+                onPayouts ? _loadPayouts : (onRules ? _loadRules : _loadReport),
+            child: OutlinedButton.icon(
+              onPressed: onPayouts
+                  ? _loadPayouts
+                  : (onRules ? _loadRules : _loadReport),
+              icon: const Icon(Icons.refresh),
+              label: const Text('Refresh'),
+            ),
           ),
         ],
       ),

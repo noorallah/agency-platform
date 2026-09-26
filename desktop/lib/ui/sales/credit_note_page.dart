@@ -139,10 +139,13 @@ class _CreditNotePageState extends State<CreditNotePage> {
               icon: const Icon(Icons.add),
               label: const Text('Raise credit note'),
             ),
-          OutlinedButton.icon(
+          Phase2Refresh(
             onPressed: _load,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Refresh'),
+            child: OutlinedButton.icon(
+              onPressed: _load,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Refresh'),
+            ),
           ),
         ],
       ),

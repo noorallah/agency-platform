@@ -271,10 +271,13 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
               icon: const Icon(Icons.add),
               label: const Text('Add Serial'),
             ),
-          OutlinedButton.icon(
+          Phase2Refresh(
             onPressed: _load,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Refresh'),
+            child: OutlinedButton.icon(
+              onPressed: _load,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Refresh'),
+            ),
           ),
         ],
       );
@@ -675,10 +678,13 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
       description:
           'Track expiring, expired, quarantined, and recalled stock at a glance.',
       breadcrumbs: const ['Workspace', 'Inventory', 'Expiry Monitor'],
-      toolbar: OutlinedButton.icon(
+      toolbar: Phase2Refresh(
         onPressed: _load,
-        icon: const Icon(Icons.refresh),
-        label: const Text('Refresh'),
+        child: OutlinedButton.icon(
+          onPressed: _load,
+          icon: const Icon(Icons.refresh),
+          label: const Text('Refresh'),
+        ),
       ),
       content: SingleChildScrollView(
         padding: const EdgeInsets.fromLTRB(24, 0, 24, 24),
