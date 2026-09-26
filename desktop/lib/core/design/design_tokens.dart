@@ -219,6 +219,7 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
     required this.onChromeMuted,
     required this.chromeActive,
     required this.chromeIndicator,
+    required this.chartBar,
   });
 
   final Color success;
@@ -246,6 +247,12 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
   /// The bar under the menu area you are in -- the wireframe's light blue.
   final Color chromeIndicator;
 
+  /// The bars of Home's sales chart: the wireframe's soft blue (#c8d3ff),
+  /// and a muted blue of the same weight in the dark theme. Chosen by the
+  /// owner to match the wireframe; the exact figure is on each bar's
+  /// tooltip and the day's total is a key figure above it.
+  final Color chartBar;
+
   factory AppSemanticColors.forScheme(ColorScheme scheme) {
     final bool dark = scheme.brightness == Brightness.dark;
     return AppSemanticColors(
@@ -264,6 +271,7 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
       onChromeMuted: const Color(0xffb3bfcc),
       chromeActive: dark ? const Color(0xff26313a) : const Color(0xff2f4156),
       chromeIndicator: const Color(0xff8da2fb),
+      chartBar: dark ? const Color(0xff4a5a9a) : const Color(0xffc8d3ff),
     );
   }
 
@@ -282,6 +290,7 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
     Color? onChromeMuted,
     Color? chromeActive,
     Color? chromeIndicator,
+    Color? chartBar,
   }) =>
       AppSemanticColors(
         success: success ?? this.success,
@@ -297,6 +306,7 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
         onChromeMuted: onChromeMuted ?? this.onChromeMuted,
         chromeActive: chromeActive ?? this.chromeActive,
         chromeIndicator: chromeIndicator ?? this.chromeIndicator,
+        chartBar: chartBar ?? this.chartBar,
       );
 
   @override
@@ -319,6 +329,7 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
       onChromeMuted: Color.lerp(onChromeMuted, other.onChromeMuted, t)!,
       chromeActive: Color.lerp(chromeActive, other.chromeActive, t)!,
       chromeIndicator: Color.lerp(chromeIndicator, other.chromeIndicator, t)!,
+      chartBar: Color.lerp(chartBar, other.chartBar, t)!,
     );
   }
 }

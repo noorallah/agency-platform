@@ -158,8 +158,11 @@ void main() {
   testWidgets("the owner's Home: the wireframe's figures, from the day's bills",
       (tester) async {
     await _pump(tester, allowed: _owner, source: _Source());
-    expect(find.textContaining('Owner'), findsOneWidget);
+    // The greeting alone, as the wireframe: the user's name is often the
+    // firm's, which the chip beside it already shows (owner, 2026-09-26).
+    expect(find.textContaining('Owner'), findsNothing);
     expect(find.textContaining('QA01 Traders'), findsOneWidget);
+    expect(find.text('FAVOURITES'), findsOneWidget);
     expect(find.textContaining('Saturday 26-09-2026'), findsOneWidget);
 
     // 4,720 + 1,80,000 today; the draft and the cancelled bill are not sales.
