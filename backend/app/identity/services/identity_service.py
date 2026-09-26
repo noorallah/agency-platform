@@ -175,6 +175,11 @@ def _locked_error(locked_until: datetime, now: datetime) -> AccountLockedError:
     )
 
 
+#: Preference fields that only remember where the user was, saved as they
+#: move about the app. Stored, never audited.
+_WHERE_THE_USER_WAS = frozenset({"default_landing_page"})
+
+
 class IdentityService:
     """Coordinate identity persistence, security policy, and audit logging."""
 
@@ -502,6 +507,17 @@ class IdentityService:
                 setattr(preferences, field, value)
         before_data, after_data = changed_fields(before, row_state(preferences))
         if not after_data:
+            return
+        if set(after_data) <= _WHERE_THE_USER_WAS:
+            # Only where the user was: the desktop saves the screen it is on
+            # with every move, and auditing that filled a firm's trail with a
+            # row per click -- 123,537 of them in WHOLE01 by 2026-09-26. It is
+            # still stored, so the next sign-in opens there; it is not a
+            # change anybody needs a record of.
+            preferences.updated_by = user_id
+            if preferences not in self._session:
+                self._session.add(preferences)
+            self._session.commit()
             return
         preferences.updated_by = user_id
         if preferences not in self._session:
