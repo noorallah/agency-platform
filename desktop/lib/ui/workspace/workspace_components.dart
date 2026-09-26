@@ -379,11 +379,12 @@ class SummaryCount extends StatelessWidget {
         ),
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Text(label, style: theme.textTheme.bodyMedium),
+        Text(label, style: theme.textTheme.bodyMedium?.copyWith(fontSize: 13)),
         const SizedBox(width: 5),
         Text(
           value,
           style: theme.textTheme.bodyMedium?.copyWith(
+            fontSize: 13,
             color: alarming ? scheme.error : scheme.onSurface,
             fontWeight: alarming ? FontWeight.w700 : null,
           ),
@@ -1179,10 +1180,14 @@ class SearchFilterPanel extends StatelessWidget {
           controller: controller,
           onSubmitted: onSearch,
           onChanged: onChanged,
-          style: theme.textTheme.bodyMedium,
+          style: theme.textTheme.bodyMedium?.copyWith(fontSize: 13),
           decoration: InputDecoration(
             isDense: true,
             hintText: '/  ${hintText.toLowerCase()}',
+            hintStyle: theme.textTheme.bodyMedium?.copyWith(
+              fontSize: 13,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
             contentPadding:
                 const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
             enabledBorder: edge,
@@ -1622,6 +1627,10 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
     return ActionChip(
       key: const ValueKey('phase2-filters'),
       label: Text(label),
+      labelStyle: Theme.of(context)
+          .textTheme
+          .bodyMedium
+          ?.copyWith(fontSize: 13, color: scheme.onSurface),
       onPressed: () => setState(() => _filtersOpen = !_filtersOpen),
       backgroundColor: on ? scheme.primary.withValues(alpha: .12) : null,
       side: BorderSide(color: on ? scheme.primary : scheme.outlineVariant),
@@ -1676,12 +1685,14 @@ class Phase2ButtonTheme extends StatelessWidget {
         RoundedRectangleBorder(borderRadius: BorderRadius.circular(5));
     const EdgeInsets padding = EdgeInsets.symmetric(horizontal: 12, vertical: 6);
     const Size size = Size(0, 32);
+    final TextStyle? text = theme.textTheme.bodyMedium?.copyWith(fontSize: 13);
     return Theme(
       data: theme.copyWith(
         outlinedButtonTheme: OutlinedButtonThemeData(
           style: OutlinedButton.styleFrom(
             foregroundColor: scheme.onSurface,
             side: BorderSide(color: scheme.outlineVariant),
+            textStyle: text,
             shape: shape,
             padding: padding,
             minimumSize: size,
@@ -1691,6 +1702,7 @@ class Phase2ButtonTheme extends StatelessWidget {
         ),
         filledButtonTheme: FilledButtonThemeData(
           style: FilledButton.styleFrom(
+            textStyle: text,
             shape: shape,
             padding: padding,
             minimumSize: size,
@@ -1700,6 +1712,7 @@ class Phase2ButtonTheme extends StatelessWidget {
         ),
         textButtonTheme: TextButtonThemeData(
           style: TextButton.styleFrom(
+            textStyle: text,
             shape: shape,
             padding: padding,
             minimumSize: size,
@@ -1817,6 +1830,11 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
   /// survives rebuilds, which a stateless widget cannot give it.
   final ScrollController _horizontal = ScrollController();
 
+  /// The row under the pointer, so phase 2 can light the whole row as the
+  /// wireframe does -- each cell is its own tap target, and left to itself
+  /// the pointer lit only the cell (the column) it was over.
+  String? _hovered;
+
   @override
   void dispose() {
     _horizontal.dispose();
@@ -1887,6 +1905,15 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
     return DataRow(
       selected: isSelected,
       onSelectChanged: _onSelectChanged(item, itemId),
+      // Phase 2: the wireframe's row colours, across the whole row -- soft
+      // blue selected, light grey under the pointer.
+      color: _phase2
+          ? WidgetStatePropertyAll(isSelected
+              ? _selectedRow(context)
+              : itemId == _hovered
+                  ? Theme.of(context).colorScheme.surfaceContainerLow
+                  : null)
+          : null,
       cells: [
         // The row number goes through the same builder as every other cell.
         // It used to be a bare `DataCell(Text(...))`: no tap handler, so the
@@ -1965,6 +1992,15 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
         child: cell,
       );
     }
+    if (_phase2) {
+      final String itemId = widget.id(item);
+      cell = MouseRegion(
+        onEnter: (_) {
+          if (_hovered != itemId) setState(() => _hovered = itemId);
+        },
+        child: cell,
+      );
+    }
     return DataCell(
       GestureDetector(
         behavior: HitTestBehavior.opaque,
@@ -2020,17 +2056,62 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
     return fraction ? text : text.substring(0, text.length - 3);
   }
 
+  /// The wireframe's selected row: the accent at a tenth over the card, a
+  /// soft blue (#e7ecff there).
+  static Color _selectedRow(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Color.alphaBlend(
+      scheme.primary.withValues(alpha: .10),
+      scheme.surfaceContainerLowest,
+    );
+  }
+
+  /// Phase 2: the table as the wireframe draws it -- 13 px cells, 12 px bold
+  /// grey headings on a light ground, 34 px rows each with a light line under
+  /// it, and no ink of its own (the row colour says where the pointer is).
+  Widget _table(BuildContext context) {
+    if (!_phase2) return _dataTable(context);
+    final ThemeData theme = Theme.of(context);
+    return Theme(
+      data: theme.copyWith(
+        hoverColor: Colors.transparent,
+        splashColor: Colors.transparent,
+        highlightColor: Colors.transparent,
+        splashFactory: NoSplash.splashFactory,
+        dividerTheme: DividerThemeData(
+          color: theme.colorScheme.surfaceContainerHighest,
+          space: 1,
+          thickness: 1,
+        ),
+      ),
+      child: MouseRegion(
+        onExit: (_) => setState(() => _hovered = null),
+        child: _dataTable(context),
+      ),
+    );
+  }
+
   DataTable _dataTable(BuildContext context) => DataTable(
-        horizontalMargin: _phase2 ? 12 : null,
-        columnSpacing: _phase2 ? 24 : null,
+        horizontalMargin: _phase2 ? 10 : null,
+        columnSpacing: _phase2 ? 20 : null,
         headingRowColor: _phase2
             ? WidgetStatePropertyAll(
                 Theme.of(context).colorScheme.surfaceContainerLow)
             : null,
-        dataRowMinHeight: _phase2 && context.density.rowHeight > 36 ? 36 : null,
-        dataRowMaxHeight: _phase2 && context.density.rowHeight > 36 ? 36 : null,
-        headingRowHeight:
-            _phase2 && context.density.headerHeight > 38 ? 38 : null,
+        headingTextStyle: _phase2
+            ? Theme.of(context).textTheme.labelMedium?.copyWith(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                )
+            : null,
+        dataTextStyle: _phase2
+            ? Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 13)
+            : null,
+        dividerThickness: _phase2 ? 1 : null,
+        dataRowMinHeight: _phase2 ? 34 : null,
+        dataRowMaxHeight: _phase2 ? 34 : null,
+        headingRowHeight: _phase2 ? 34 : null,
         // Flutter also needs a row that is selectable; rows only carry
         // `onSelectChanged` when multi-selection is wired, so the column
         // disappears together with its purpose.
@@ -2111,7 +2192,7 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
                         scrollDirection: Axis.horizontal,
                         child: ConstrainedBox(
                           constraints: BoxConstraints(minWidth: available),
-                          child: _dataTable(context),
+                          child: _table(context),
                         ),
                       ),
                     );
