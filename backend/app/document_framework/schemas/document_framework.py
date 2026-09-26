@@ -403,7 +403,8 @@ class DocumentPrintTemplateWrite(DocumentFrameworkSchema):
     show_expiry_column: bool = False
     #: In print order. Empty prints the original alone.
     copy_labels: list[str] = Field(default_factory=list, max_length=4)
-    page_size: Literal["A4", "A5"] = "A4"
+    #: THERMAL80 is an 80 mm counter roll: one column, as long as the bill.
+    page_size: Literal["A4", "A5", "THERMAL80"] = "A4"
     margin_mm: Decimal = Field(default=Decimal("12"), ge=5, le=40)
 
 

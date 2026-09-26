@@ -152,6 +152,21 @@ void main() {
       ]);
     });
 
+    testWidgets('a counter can choose an 80 mm thermal roll', (tester) async {
+      final _TemplateApi api = _TemplateApi();
+      await _open(tester, api);
+
+      await tester.ensureVisible(find.byType(DropdownButton<String>).last);
+      await tester.tap(find.byType(DropdownButton<String>).last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Thermal roll (80 mm)').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+
+      expect(api.saved?['page_size'], 'THERMAL80');
+    });
+
     testWidgets('a saved preference comes back on the next open',
         (tester) async {
       final _TemplateApi api = _TemplateApi(stored: <String, dynamic>{

@@ -442,8 +442,11 @@ dates.
 print dialog, which already gives the preview, the printer, pages and "Microsoft
 Print to PDF". A firm's copies (Original / Duplicate / Triplicate) and A4 or A5 come
 from Print settings, as before. A draft prints marked "DRAFT - NOT A TAX INVOICE"
-until it is approved (D-SELL-38). Still open: an 80 mm thermal roll layout for
-counter billing, and sending the PDF by email or WhatsApp.
+until it is approved (D-SELL-38). **Thermal roll (80 mm)** is a third Paper choice
+in Print settings: one column, sized to the bill so the printer feeds no blank
+paper, each copy its own page, the same facts as the A4 bill (seller, GSTIN, number,
+buyer, lines, tax by rate, total in words, terms). It applies to every document that
+prints through the shared renderer. Still open: sending the PDF by email or WhatsApp.
 
 ### 4.9 Home per role
 

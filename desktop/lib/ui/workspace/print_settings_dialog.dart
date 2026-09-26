@@ -303,6 +303,12 @@ class _PrintSettingsDialogState extends State<PrintSettingsDialog> {
                           items: const [
                             DropdownMenuItem(value: 'A4', child: Text('A4')),
                             DropdownMenuItem(value: 'A5', child: Text('A5')),
+                            // A counter's 80 mm roll: one column, as long as
+                            // the bill.
+                            DropdownMenuItem(
+                              value: 'THERMAL80',
+                              child: Text('Thermal roll (80 mm)'),
+                            ),
                           ],
                         ),
                       ],
