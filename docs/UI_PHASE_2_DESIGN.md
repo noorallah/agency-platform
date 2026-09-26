@@ -313,6 +313,27 @@ known products **in under 30 seconds without the mouse**.
   opens it fully.
 - Column chooser, sort, and CSV/XLSX export stay as today.
 
+**As built for every screen (2026-09-26, "implement for all pages").** One
+set of rules, carried by the shared framework so each screen follows them
+without its own code:
+
+| Rule | How |
+| --- | --- |
+| The line's order: title, counters, "+ filter", Views, search, View/Edit/Delete/Refresh icons, the screen's own steps, "...", **+ New** last | `WorkspaceToolbar` |
+| A screen's own steps (Approve, Hold, Print challan...) are buttons that **fold into "..."** when the line is short; set-up actions (print settings, sales stages, columns) are always behind "..." | `ToolbarCommand`, `menuOnly` |
+| A screen that builds its own header (quotations, returns, receipts, payments, counts, journal) puts its search and New on the same one line | `Phase2LineTools` |
+| Filters that came with a search box (area, status, include deleted) move into the "+ filter" panel, so the line stays one line | `ManagementWorkspaceLayout` |
+| A screen's own Refresh button is the line's refresh icon | `Phase2Refresh` |
+| A frame inside another frame shows one title, not two | `phase2Frame` |
+| Amounts right-aligned in Indian digits, quantities without trailing zeros -- read from the heading and the values, so no screen has to say so | `EnterpriseDataGrid` |
+| Status in words ("On hold"), columns by priority (4.11) | `EnterpriseDataGrid` |
+| Loading is a thin bar at the top, not a grey sheet over the screen | `LoadingOverlay` |
+| Rarely used set-up is under CONFIGURATION in Masters, Sell (pricing, territories and routes) and Accounts (structure) | `MenuLayout` |
+
+Products carries its wireframe (view 6): Unit, HSN, GST, MRP, Selling and
+Stock with low stock in red, and Active / Low stock / No price counters; the
+server now sends each product's stock and counts low stock and no price.
+
 ### 4.8 Documents (orders, invoices, receipts)
 
 - Open **as a tab, full page**, not as a dialog.
