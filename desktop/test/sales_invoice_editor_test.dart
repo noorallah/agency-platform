@@ -14,6 +14,8 @@
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/sales/sales_invoice_editor_dialog.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
+    show Phase2Scope;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -65,6 +67,9 @@ class _InvoiceApi extends ApiClient {
   /// The draft an edit reads back, when one is being corrected.
   Json? existing;
 
+  /// Every draft phase 2 asked to be priced.
+  final List<Json> previews = <Json>[];
+
   Json? created;
   Json? updated;
   int? sentVersion;
@@ -105,6 +110,40 @@ class _InvoiceApi extends ApiClient {
         'data': <Json>[
           <String, dynamic>{'id': 'prod-1', 'name': 'Widget'},
         ],
+      };
+    }
+    if (method == 'POST' && path == '/api/v1/sales-invoices/preview') {
+      previews.add(body!);
+      double subtotal = 0;
+      final List<Json> priced = <Json>[];
+      for (final dynamic raw in body['lines'] as List<dynamic>) {
+        final Json line = raw as Json;
+        final double net = double.parse('${line['current_invoice_quantity']}') *
+            double.parse('${line['unit_price']}');
+        subtotal += net;
+        priced.add(<String, dynamic>{
+          'line_number': line['line_number'],
+          'product_id': line['product_id'] ?? 'p-1',
+          'source_document_line_id': line['source_document_line_id'],
+          'discount_percent': '0',
+          'discount_source': 'none',
+          'net_amount': net.toStringAsFixed(4),
+          'tax_amount': (net * .18).toStringAsFixed(4),
+        });
+      }
+      return <String, dynamic>{
+        'data': <String, dynamic>{
+          'interstate': true,
+          'invoice': <String, dynamic>{
+            'invoice_number': 'SI-2026-2027-000014',
+            'place_of_supply': '29-Karnataka',
+            'subtotal': subtotal.toStringAsFixed(4),
+            'tax_total': (subtotal * .18).toStringAsFixed(4),
+            'grand_total': (subtotal * 1.18).toStringAsFixed(4),
+            'lines': priced,
+          },
+          'lines': const <Json>[],
+        },
       };
     }
     if (method == 'GET' && path.startsWith('/api/v1/sales-invoices/')) {
@@ -186,8 +225,7 @@ void main() {
     expect(line['unit_price'], '100');
   });
 
-  testWidgets('a partly billed note offers only the remainder',
-      (tester) async {
+  testWidgets('a partly billed note offers only the remainder', (tester) async {
     final _InvoiceApi api = _InvoiceApi(
       billable: <Json>[_billable(remaining: '3', alreadyInvoiced: '1')],
     );
@@ -245,8 +283,7 @@ void main() {
     expect(api.created!['bill_discount_percent'], '10');
   });
 
-  testWidgets('no discount on the bill says nothing about one',
-      (tester) async {
+  testWidgets('no discount on the bill says nothing about one', (tester) async {
     final _InvoiceApi api = _InvoiceApi(billable: <Json>[_billable()]);
     await _pump(tester, api);
 
@@ -271,8 +308,8 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Create draft'));
     await tester.pumpAndSettle();
 
-    final Map<String, dynamic> line =
-        Map<String, dynamic>.from((api.created!['lines'] as List).single as Map);
+    final Map<String, dynamic> line = Map<String, dynamic>.from(
+        (api.created!['lines'] as List).single as Map);
     expect(line.containsKey('discount_percent'), isFalse);
   });
 
@@ -290,7 +327,6 @@ void main() {
       isNull,
     );
   });
-
 
   group('correcting a draft', () {
     Json draft({String quantity = '2', int version = 5}) => <String, dynamic>{
@@ -343,8 +379,8 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(api.created, isNull);
-      final Map<String, dynamic> line =
-          Map<String, dynamic>.from((api.updated!['lines'] as List).single as Map);
+      final Map<String, dynamic> line = Map<String, dynamic>.from(
+          (api.updated!['lines'] as List).single as Map);
       expect(line['current_invoice_quantity'], '3');
       // Echoed back as `If-Match`, so a concurrent edit is refused rather
       // than silently overwritten.
@@ -442,7 +478,8 @@ void main() {
       // The picker is gone, and the empty billable list no longer blocks the
       // save: there is nothing waiting to be billed because nothing is typed
       // before the bill.
-      expect(find.textContaining('Nothing is waiting to be billed'), findsNothing);
+      expect(
+          find.textContaining('Nothing is waiting to be billed'), findsNothing);
       expect(find.textContaining('raises the order and the delivery note'),
           findsOneWidget);
 
@@ -457,7 +494,8 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.enterText(find.widgetWithText(TextFormField, 'Qty'), '3');
-      await tester.enterText(find.widgetWithText(TextFormField, 'Price'), '150');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Price'), '150');
       await tester.pumpAndSettle();
 
       await tester.tap(find.widgetWithText(FilledButton, 'Create draft'));
@@ -476,5 +514,84 @@ void main() {
       // The bill names no paperwork -- the server raises it.
       expect(line.containsKey('source_document_id'), isFalse);
     });
+  });
+
+  Future<bool?> pumpPhase2(WidgetTester tester, _InvoiceApi api) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    bool? saved;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (context) => TextButton(
+            onPressed: () async {
+              saved = await Navigator.of(context).push<bool>(
+                MaterialPageRoute<bool>(
+                  builder: (_) => Scaffold(
+                    body: Phase2Scope(
+                      child: SalesInvoiceEditorDialog(
+                        api: api,
+                        today: DateTime(2026, 8, 14),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    return saved;
+  }
+
+  testWidgets('phase 2 bills a note on one screen, priced as it is typed',
+      (tester) async {
+    final _InvoiceApi api = _InvoiceApi(billable: <Json>[_billable()]);
+    await pumpPhase2(tester, api);
+    expect(tester.takeException(), isNull);
+    // The one note waiting is chosen and priced straight away: 4 x 100, IGST
+    // because the buyer is in another state.
+    expect(api.previews, isNotEmpty);
+    expect(find.text('SI-2026-2027-000014 (new)'), findsOneWidget);
+    expect(find.textContaining('IGST', findRichText: true), findsWidgets);
+    expect(find.text('472.00'), findsWidgets);
+
+    // Bill three of the four.
+    final Finder quantity = find
+        .descendant(
+          of: find.byKey(const ValueKey<String>('sales-invoice-line-0')),
+          matching: find.byType(EditableText),
+        )
+        .first;
+    await tester.enterText(quantity, '3');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(api.previews.last['lines'][0]['current_invoice_quantity'], '3');
+    expect(find.text('354.00'), findsWidgets);
+    expect(
+        find.textContaining('Three hundred fifty four only'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+    expect(api.created?['lines'][0]['current_invoice_quantity'], '3');
+  });
+
+  testWidgets('phase 2 bills directly where the firm types no documents',
+      (tester) async {
+    final _InvoiceApi api = _InvoiceApi()
+      ..salesOrderStage = false
+      ..deliveryNoteStage = false;
+    await pumpPhase2(tester, api);
+    expect(tester.takeException(), isNull);
+    expect(
+        find.byKey(const ValueKey('sales-invoice-customer')), findsOneWidget);
+    expect(find.byKey(const ValueKey('document-side-panel')), findsOneWidget);
   });
 }
