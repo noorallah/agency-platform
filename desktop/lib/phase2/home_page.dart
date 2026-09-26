@@ -430,25 +430,30 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
               ?.copyWith(fontWeight: FontWeight.w600),
         ),
         const SizedBox(width: 12),
-        Flexible(
-          child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-            decoration: BoxDecoration(
-              color: theme.colorScheme.surfaceContainerLow,
-              borderRadius: BorderRadius.circular(12),
-              border: Border.all(color: theme.colorScheme.outlineVariant),
-            ),
-            child: Text(
-              [if (widget.firmName != null) widget.firmName!, date]
-                  .join('  ·  '),
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+        // The chip takes only the width it needs; everything left pushes
+        // Customise to the far right, as the wireframe places it. (A
+        // Flexible beside a Spacer split the spare width between them.)
+        Expanded(
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+              decoration: BoxDecoration(
+                color: theme.colorScheme.surfaceContainerLow,
+                borderRadius: BorderRadius.circular(12),
+                border: Border.all(color: theme.colorScheme.outlineVariant),
+              ),
+              child: Text(
+                [if (widget.firmName != null) widget.firmName!, date]
+                    .join('  ·  '),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall
+                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+              ),
             ),
           ),
         ),
-        const Spacer(),
         if (widget.onCustomise != null && _available.isNotEmpty)
           OutlinedButton.icon(
             key: const ValueKey('home-customise'),
@@ -602,8 +607,8 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
                                       child: Container(
                                         key: ValueKey('home-bar-$i'),
                                         decoration: BoxDecoration(
-                                          color: context.semanticColors
-                                              .chartBar,
+                                          color:
+                                              context.semanticColors.chartBar,
                                           borderRadius:
                                               const BorderRadius.vertical(
                                                   top: Radius.circular(4)),
