@@ -411,6 +411,35 @@ void main() {
     await tester.pump();
   }
 
+  testWidgets('a status with a note reads as words, the note kept',
+      (tester) async {
+    tester.view.physicalSize = const Size(1400, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Phase2Scope(
+          child: EnterpriseDataGrid<String>(
+            items: const ['a'],
+            total: 1,
+            pageOffset: 0,
+            columns: const [
+              GridColumn(key: 'number', label: 'Order Number'),
+              GridColumn(key: 'status', label: 'Status'),
+            ],
+            id: (item) => item,
+            // How the orders list marks an order on hold.
+            cells: (item) => ['SO-1', 'APPROVED (on hold)'],
+            onSelect: (_) {},
+            onPageChanged: (_) {},
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    expect(find.text('Approved (on hold)'), findsOneWidget);
+  });
+
   testWidgets('a narrow window drops the least important columns first',
       (tester) async {
     await customersGrid(tester, 2400);

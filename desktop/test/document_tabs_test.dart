@@ -133,6 +133,37 @@ void main() {
       expect(tabs.documents, isEmpty);
     });
 
+    testWidgets('a tab that has been typed in asks before it closes',
+        (tester) async {
+      // Decision 3: a tab with unsaved work is never closed silently.
+      await pumpHost(tester);
+      Object? result = 'untouched';
+      final BuildContext context = tester.element(find.text('the list'));
+      showDocument<bool>(
+        context,
+        title: 'New sales order',
+        builder: (context) => Material(child: TextField(autofocus: true)),
+      ).then((value) => result = value);
+      await tester.pump();
+      await tester.pump();
+      await tester.sendKeyEvent(LogicalKeyboardKey.keyA);
+      await tester.pump();
+
+      tabs.close(tabs.documents.single.id);
+      await tester.pumpAndSettle();
+      expect(find.text('Close without saving?'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('document-keep-editing')));
+      await tester.pumpAndSettle();
+      expect(tabs.documents, hasLength(1), reason: 'kept open');
+
+      tabs.close(tabs.documents.single.id);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('document-discard')));
+      await tester.pumpAndSettle();
+      expect(tabs.documents, isEmpty);
+      expect(result, isNull);
+    });
+
     testWidgets('Escape closes the document, as it closed the dialog',
         (tester) async {
       await pumpHost(tester);

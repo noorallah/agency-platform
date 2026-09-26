@@ -2529,6 +2529,13 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
   /// Plain words for a status code: ON_HOLD becomes "On hold".
   static String _statusWords(String value) {
     final String trimmed = value.trim();
+    // A code with a note after it, such as "APPROVED (on hold)": the code in
+    // words, the note as it is.
+    final RegExpMatch? noted =
+        RegExp(r'^([A-Z][A-Z0-9_ ]*?)\s+(\(.*\))$').firstMatch(trimmed);
+    if (noted != null) {
+      return '${_statusWords(noted.group(1)!)} ${noted.group(2)}';
+    }
     if (!RegExp(r'^[A-Z][A-Z0-9_ ]*$').hasMatch(trimmed)) return value;
     final String words = trimmed.replaceAll('_', ' ').toLowerCase();
     return words[0].toUpperCase() + words.substring(1);
