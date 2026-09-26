@@ -360,7 +360,8 @@ Built from the same permissions the menu uses.
 | Ctrl+S / Ctrl+Enter | save / save and close |
 | Ctrl+Tab, Ctrl+W | next tab, close tab |
 | F2 | edit the selected row |
-| / | focus the list's search |
+| / or Ctrl+F | focus the list's search (a / typed inside a box stays a /) |
+| F5, Delete | refresh the list; delete the selected row (as the toolbar's own icons, only when enabled) |
 | Esc | close the drop-down, drawer or panel |
 
 ---

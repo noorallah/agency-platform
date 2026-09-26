@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/design/design_tokens.dart';
 import '../../core/dialogs/app_dialogs.dart';
@@ -1359,6 +1360,19 @@ class SearchFilterPanel extends StatelessWidget {
   final String hintText;
   final FocusNode? focusNode;
 
+  /// The same box with [node] as its focus, so the list around it can put
+  /// the keyboard there ("/" and Ctrl+F).
+  SearchFilterPanel withFocusNode(FocusNode node) => SearchFilterPanel(
+        key: key,
+        controller: controller,
+        onSearch: onSearch,
+        filters: filters,
+        hintText: hintText,
+        focusNode: node,
+        onChanged: onChanged,
+        onClear: onClear,
+      );
+
   /// The same box without its filters, which phase 2 shows in the side
   /// panel instead.
   SearchFilterPanel withoutFilters() => SearchFilterPanel(
@@ -1730,6 +1744,12 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
   /// The line this list took, so it can be given back when the list goes.
   Phase2PageBar? _bar;
 
+  /// The search box's focus, when the screen gave it none.
+  final FocusNode _ownSearchFocus = FocusNode(debugLabel: 'list-search');
+
+  /// The search box's focus as last built: the screen's own, or ours.
+  FocusNode? _searchFocus;
+
   @override
   void didChangeDependencies() {
     super.didChangeDependencies();
@@ -1737,9 +1757,82 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
   }
 
   @override
+  void initState() {
+    super.initState();
+    // At the window, not on a Focus around the list: a click on a grid row
+    // takes no focus, and a screen's own shortcuts above the list would see
+    // the key first. Only the list on show answers (see [_onKey]).
+    HardwareKeyboard.instance.addHandler(_onKey);
+  }
+
+  @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_onKey);
     _bar?.release(this);
+    _ownSearchFocus.dispose();
     super.dispose();
+  }
+
+  /// The keys of 4.10, the same on every list whatever the screen wired
+  /// itself: Ctrl+N new, F2 edit, F5 refresh, Delete delete, and "/" or
+  /// Ctrl+F to the search box. A key typed into a text box is the box's --
+  /// "/" in a remark is a slash.
+  bool _onKey(KeyEvent event) {
+    if (event is! KeyDownEvent || !mounted) return false;
+    // Only the list on show: not one kept alive in another tab (its ticker
+    // is off), not one behind a dialog or a document.
+    if (!TickerMode.valuesOf(context).enabled) return false;
+    if (!(ModalRoute.of(context)?.isCurrent ?? true)) return false;
+    final BuildContext? focused = FocusManager.instance.primaryFocus?.context;
+    final bool typing = focused != null &&
+        (focused.widget is EditableText ||
+            focused.findAncestorWidgetOfExactType<EditableText>() != null);
+    final HardwareKeyboard keys = HardwareKeyboard.instance;
+    final bool control = keys.isControlPressed;
+    final bool plain = !control && !keys.isAltPressed && !keys.isMetaPressed;
+    final LogicalKeyboardKey key = event.logicalKey;
+    if ((plain && !typing && event.character == '/') ||
+        (control && key == LogicalKeyboardKey.keyF)) {
+      final FocusNode? search = _searchFocus;
+      if (search == null) return false;
+      search.requestFocus();
+      return true;
+    }
+    if (typing) return false;
+    final ToolbarAction? action = control && key == LogicalKeyboardKey.keyN
+        ? ToolbarAction.newItem
+        : plain && key == LogicalKeyboardKey.f2
+            ? ToolbarAction.edit
+            : plain && key == LogicalKeyboardKey.f5
+                ? ToolbarAction.refresh
+                : plain && key == LogicalKeyboardKey.delete
+                    ? ToolbarAction.delete
+                    : null;
+    if (action == null) return false;
+    return _run(action);
+  }
+
+  /// Run [action] as the screen's toolbar would, if it offers it and it is
+  /// enabled. A screen with its own row of buttons has its filled one --
+  /// its "New" -- run for Ctrl+N.
+  bool _run(ToolbarAction action) {
+    final Widget toolbar = widget.layout.toolbar;
+    if (toolbar is WorkspaceToolbar) {
+      final bool offered = toolbar.actions.contains(action) &&
+          (toolbar.isVisible?.call(action) ?? true);
+      if (!offered || !toolbar.isEnabled(action)) return false;
+      toolbar.onAction(action);
+      return true;
+    }
+    if (toolbar is Wrap && action == ToolbarAction.newItem) {
+      for (final Widget child in toolbar.children) {
+        if (child is FilledButton && child.onPressed != null) {
+          child.onPressed!();
+          return true;
+        }
+      }
+    }
+    return false;
   }
 
   static const double _filterWidth = 300;
@@ -1756,7 +1849,15 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
     // "+ filter" opens, with any the screen already had there.
     Widget searchPanel = layout.searchPanel;
     Widget? filters = layout.filterPanel;
-    final Widget ownSearch = layout.searchPanel;
+    Widget ownSearch = layout.searchPanel;
+    _searchFocus = null;
+    if (ownSearch is SearchFilterPanel) {
+      _searchFocus = ownSearch.focusNode ?? _ownSearchFocus;
+      if (ownSearch.focusNode == null) {
+        ownSearch = ownSearch.withFocusNode(_ownSearchFocus);
+      }
+      searchPanel = ownSearch;
+    }
     if (ownSearch is SearchFilterPanel &&
         (ownSearch.filters?.isNotEmpty ?? false)) {
       searchPanel = ownSearch.withoutFilters();
@@ -1881,51 +1982,54 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
         }),
       ),
     );
-    return Column(children: [
-      // Every button on the line in the wireframe's one small, square-
-      // cornered style, whichever screen built it -- on a white band with a
-      // line beneath, so the page bar reads apart from the grey heading row
-      // of the table under it (it sat on the page's grey and ran into it).
-      ColoredBox(
-        color: scheme.surfaceContainerLowest,
-        child: Phase2ButtonTheme(child: line),
-      ),
-      Divider(height: 1, thickness: 1, color: scheme.outlineVariant),
-      if (layout.viewBar != null)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
-          child: Align(alignment: Alignment.centerLeft, child: layout.viewBar),
+    return KeyedSubtree(
+      child: Column(children: [
+        // Every button on the line in the wireframe's one small, square-
+        // cornered style, whichever screen built it -- on a white band with a
+        // line beneath, so the page bar reads apart from the grey heading row
+        // of the table under it (it sat on the page's grey and ran into it).
+        ColoredBox(
+          color: scheme.surfaceContainerLowest,
+          child: Phase2ButtonTheme(child: line),
         ),
-      Expanded(
-        // Edge to edge, as the wireframe's grid: the cells pad themselves.
-        child: Padding(
-          padding: EdgeInsets.zero,
-          child: LayoutBuilder(builder: (context, constraints) {
-            final double detailsWidth = layout.detailsWidth
-                .clamp(240, constraints.maxWidth * .36)
-                .toDouble();
-            return Row(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(child: layout.primaryContent),
-                if (layout.detailsPanel != null) ...[
-                  const SizedBox(width: 12),
-                  SizedBox(width: detailsWidth, child: layout.detailsPanel),
+        Divider(height: 1, thickness: 1, color: scheme.outlineVariant),
+        if (layout.viewBar != null)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+            child:
+                Align(alignment: Alignment.centerLeft, child: layout.viewBar),
+          ),
+        Expanded(
+          // Edge to edge, as the wireframe's grid: the cells pad themselves.
+          child: Padding(
+            padding: EdgeInsets.zero,
+            child: LayoutBuilder(builder: (context, constraints) {
+              final double detailsWidth = layout.detailsWidth
+                  .clamp(240, constraints.maxWidth * .36)
+                  .toDouble();
+              return Row(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(child: layout.primaryContent),
+                  if (layout.detailsPanel != null) ...[
+                    const SizedBox(width: 12),
+                    SizedBox(width: detailsWidth, child: layout.detailsPanel),
+                  ],
+                  if (filters != null && _filtersOpen) ...[
+                    const SizedBox(width: 12),
+                    SizedBox(
+                      width: _filterWidth,
+                      child: _filterPanel(filters, scheme),
+                    ),
+                  ],
                 ],
-                if (filters != null && _filtersOpen) ...[
-                  const SizedBox(width: 12),
-                  SizedBox(
-                    width: _filterWidth,
-                    child: _filterPanel(filters, scheme),
-                  ),
-                ],
-              ],
-            );
-          }),
+              );
+            }),
+          ),
         ),
-      ),
-      layout.statusBar,
-    ]);
+        layout.statusBar,
+      ]),
+    );
   }
 
   /// A screen's own row of buttons with its filled one -- its "New" --

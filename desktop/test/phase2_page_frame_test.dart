@@ -1,6 +1,7 @@
 import 'package:agency_desktop/core/theme/theme_manager.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// The phase 2 page frame (UI_PHASE_2_DESIGN.md 4.5): nothing above the grid
@@ -774,5 +775,71 @@ void main() {
     await tester.pump();
     await tester.pump();
     expect(find.text('Numbering'), findsOneWidget);
+  });
+
+  testWidgets('every list answers Ctrl+N, F2, F5, Delete and "/"',
+      (tester) async {
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final List<ToolbarAction> run = [];
+    final TextEditingController search = TextEditingController();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Phase2Scope(
+          child: ManagementWorkspaceLayout(
+            searchPanel: SearchFilterPanel(
+              controller: search,
+              onSearch: (_) {},
+            ),
+            toolbar: WorkspaceToolbar(
+              onAction: run.add,
+              isEnabled: (action) => action != ToolbarAction.delete,
+              actions: const [
+                ToolbarAction.edit,
+                ToolbarAction.delete,
+                ToolbarAction.refresh,
+                ToolbarAction.newItem,
+              ],
+            ),
+            primaryContent: const TextField(key: ValueKey('remark')),
+            statusBar: const WorkspaceStatusBar(total: 0, selected: false),
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyN);
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.controlLeft);
+    await tester.sendKeyEvent(LogicalKeyboardKey.f2);
+    await tester.sendKeyEvent(LogicalKeyboardKey.f5);
+    // Disabled on the toolbar, so the key does nothing either.
+    await tester.sendKeyEvent(LogicalKeyboardKey.delete);
+    expect(run, [
+      ToolbarAction.newItem,
+      ToolbarAction.edit,
+      ToolbarAction.refresh,
+    ]);
+
+    // "/" puts the keyboard in the search box...
+    await tester.sendKeyEvent(LogicalKeyboardKey.slash, character: '/');
+    await tester.pump();
+    final EditableText box = tester.widget<EditableText>(find.descendant(
+      of: find.byType(SearchFilterPanel),
+      matching: find.byType(EditableText),
+    ));
+    expect(box.focusNode.hasFocus, isTrue);
+
+    // ...but typed into a box it is a slash, and no key runs an action.
+    await tester.tap(find.byKey(const ValueKey('remark')));
+    await tester.pump();
+    run.clear();
+    await tester.sendKeyEvent(LogicalKeyboardKey.f5);
+    await tester.sendKeyEvent(LogicalKeyboardKey.slash, character: '/');
+    await tester.pump();
+    expect(run, isEmpty);
+    expect(box.focusNode.hasFocus, isFalse);
   });
 }
