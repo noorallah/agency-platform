@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.sales.schemas.document_preview import DocumentPreviewLine
+
 
 class PurchaseInvoiceSchema(BaseModel):
     """Apply strict input and ORM response behavior."""
@@ -423,3 +425,16 @@ class PurchaseInvoiceOverdueRecord(PurchaseInvoiceSchema):
     grand_total: Decimal
     allocated_amount: Decimal
     outstanding_amount: Decimal
+
+
+class PurchaseInvoicePreview(PurchaseInvoiceSchema):
+    """A supplier bill priced exactly as saving it would, without saving it.
+
+    ``interstate`` says how its tax splits: IGST from a supplier in another
+    state, CGST and SGST from one in the firm's own. ``lines`` carries each
+    line's last price from this vendor and the stock where it was received.
+    """
+
+    invoice: PurchaseInvoiceResponse
+    interstate: bool
+    lines: list[DocumentPreviewLine]
