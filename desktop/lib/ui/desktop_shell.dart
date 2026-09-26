@@ -24,6 +24,7 @@ import '../models/entities.dart';
 import '../models/inventory.dart';
 import '../models/uom_packaging.dart';
 import '../models/product.dart';
+import '../models/report.dart' show ReportPage;
 import '../models/sales_invoice.dart';
 import '../models/vendor.dart';
 import 'customers/customer_management_page.dart';
@@ -760,36 +761,19 @@ class _DesktopShellState extends State<DesktopShell> {
         ),
       );
 
-  /// Home in the phase 2 app: today's figures from the lists this user may
-  /// open, and their daily screens.
+  /// Home in the phase 2 app (4.9): the day's figures, sales over two
+  /// weeks, recent invoices and a to-do list, each for the lists this user
+  /// may open.
   Widget _homePage() => Phase2HomePage(
         key: ValueKey('home-${widget.session.firmContextVersion}'),
         firmName: widget.session.currentFirm?.name,
         userName: widget.session.userLabel,
+        today: DateTime.now().toUtc(),
         allowed: (path) =>
             path != MenuLayout.homeRoute && _pathAllowed(path),
-        loadSummary: _homeSummary,
+        source: _ShellHomeSource(widget.session.api),
         onOpen: _openFromMenu,
       );
-
-  /// The summary each Home tile reports, from the endpoints its own list
-  /// already calls.
-  Future<Map<String, dynamic>> _homeSummary(String path) async {
-    final ApiClient api = widget.session.api;
-    final Map<String, dynamic> response = switch (path) {
-      'salesInvoices/sales-invoices' =>
-        await api.documentSummary('sales-invoices', path: 'reports/summary'),
-      'salesOrders' => await api.documentSummary('sales-orders'),
-      'deliveryNotes/delivery-notes' =>
-        await api.documentSummary('delivery-notes'),
-      'goodsReceipts/receipts' => await api.goodsReceiptSummary(),
-      'purchaseInvoices' => await api.documentSummary('purchase-invoices'),
-      'purchaseReturns' => await api.documentSummary('purchase-returns'),
-      _ => const <String, dynamic>{},
-    };
-    final dynamic data = response['data'];
-    return data is Map<String, dynamic> ? data : response;
-  }
 
   /// Who is signed in, their profile, and signing out.
   Widget _profileMenu({Color? iconColor}) => PopupMenuButton<String>(
@@ -5558,4 +5542,72 @@ ResourceDefinition<Firm> _firmProfileAssignmentDefinition(
       notes: (values['notes'] ?? '').toString(),
     ),
   );
+}
+
+/// Home's figures, from the endpoints the lists and reports already call.
+class _ShellHomeSource implements HomeSource {
+  _ShellHomeSource(this.api);
+
+  final ApiClient api;
+
+  static String _date(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-'
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
+
+  @override
+  Future<List<Map<String, dynamic>>> invoiceRegister(
+    DateTime from,
+    DateTime to,
+  ) async {
+    // Every page, not the first: a busy fortnight is more than one page of
+    // 100, and a chart of the first page would understate the day silently.
+    final List<Map<String, dynamic>> rows = [];
+    for (int page = 1; page <= 50; page++) {
+      final ReportPage result = await api.reportRows(
+        '/api/v1/sales-invoices/reports/register',
+        query: {
+          'from_date': _date(from),
+          'to_date': _date(to),
+          'page': '$page',
+          'page_size': '100',
+        },
+      );
+      rows.addAll(result.rows);
+      if (result.rows.isEmpty || rows.length >= result.total) break;
+    }
+    return rows;
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> customerOutstanding() async =>
+      (await api.reportRows(
+        '/api/v1/sales-invoices/reports/customer-outstanding',
+      ))
+          .rows;
+
+  @override
+  Future<int> itemsBelowReorder() async =>
+      (await api.inventorySummary()).lowStockCount;
+
+  @override
+  Future<int> batchesExpiringIn30Days() async =>
+      (await api.expiryDashboard()).expireIn30Days;
+
+  @override
+  Future<Map<String, dynamic>> summary(String path) async {
+    final Map<String, dynamic> response = switch (path) {
+      'salesInvoices/sales-invoices' =>
+        await api.documentSummary('sales-invoices', path: 'reports/summary'),
+      'salesOrders' => await api.documentSummary('sales-orders'),
+      'deliveryNotes/delivery-notes' =>
+        await api.documentSummary('delivery-notes'),
+      'goodsReceipts/receipts' => await api.goodsReceiptSummary(),
+      'purchaseInvoices' => await api.documentSummary('purchase-invoices'),
+      'purchaseReturns' => await api.documentSummary('purchase-returns'),
+      _ => const <String, dynamic>{},
+    };
+    final dynamic data = response['data'];
+    return data is Map<String, dynamic> ? data : response;
+  }
 }

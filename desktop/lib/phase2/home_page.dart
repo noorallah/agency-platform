@@ -2,78 +2,89 @@ import 'package:flutter/material.dart';
 
 import 'menu_layout.dart';
 
-/// One tile on Home: a document list, the figures from its summary that
-/// somebody acts on, and the screen it opens.
-class HomeTile {
-  const HomeTile(this.path, this.figures);
+/// Where Home's figures come from -- the endpoints each list's own screens and
+/// reports already call. An interface so Home can be tested without a server.
+abstract class HomeSource {
+  /// Sales invoices dated [from] to [to] inclusive, every page of them.
+  Future<List<Map<String, dynamic>>> invoiceRegister(
+      DateTime from, DateTime to);
 
-  /// The screen, as the menu addresses it.
-  final String path;
+  /// Each customer's running balance.
+  Future<List<Map<String, dynamic>>> customerOutstanding();
 
-  /// (label, summary key, whether a non-zero value needs acting on).
-  final List<(String, String, bool)> figures;
+  /// Stock lines below their reorder level.
+  Future<int> itemsBelowReorder();
+
+  /// Batches that expire within 30 days.
+  Future<int> batchesExpiringIn30Days();
+
+  /// A document list's summary, by its screen's path.
+  Future<Map<String, dynamic>> summary(String path);
 }
 
-/// Home in the phase 2 app (UI_PHASE_2_DESIGN.md 4.9).
+/// One to-do line: a count from a list's summary, and the list it opens.
+class HomeTodo {
+  const HomeTodo(this.label, this.path, this.key, {this.alert = false});
+
+  final String label;
+  final String path;
+
+  /// The summary field that holds the count.
+  final String key;
+
+  /// A non-zero count somebody should act on today.
+  final bool alert;
+}
+
+/// Home in the phase 2 app (UI_PHASE_2_DESIGN.md 4.9), as the owner approved
+/// it in the wireframe: a greeting line; the day's key figures; sales over the
+/// last 14 days; recent invoices; a to-do list; the user's screens.
 ///
-/// Phase 1's Dashboard counts firms, users and roles across the platform and
-/// is offered only to a platform administrator, so everybody else had no
-/// Home at all -- the owner's first report on phase 2. This one is for
-/// everybody: today's figures from the lists the user may open, and their
-/// daily screens a click away. Cards live here and only here (4.5): Home is
-/// where somebody goes to look at numbers, a list is where they work.
+/// Every part is drawn only for a user whose role may open the list behind it
+/// ([allowed], the menu's own answer, 4.12), so an owner, an accountant and a
+/// storeman each get a different Home from the same page -- a storeman sees
+/// stock and batches, and no receivables.
 class Phase2HomePage extends StatefulWidget {
   const Phase2HomePage({
     super.key,
     required this.firmName,
     required this.userName,
+    required this.today,
     required this.allowed,
-    required this.loadSummary,
+    required this.source,
     required this.onOpen,
   });
 
   final String? firmName;
   final String? userName;
 
-  /// Whether the user may open a screen -- the menu's own answer (4.12).
+  /// The firm's day, UTC like everything the server stores.
+  final DateTime today;
   final bool Function(String path) allowed;
-
-  /// The summary behind a tile, by its screen's path.
-  final Future<Map<String, dynamic>> Function(String path) loadSummary;
+  final HomeSource source;
   final ValueChanged<MenuItemSpec> onOpen;
 
-  /// The document lists Home reports on, in the order of a trading day.
-  static const List<HomeTile> tiles = [
-    HomeTile('salesInvoices/sales-invoices', [
-      ('Overdue', 'overdue_invoices', true),
-      ('Pending', 'pending_invoices', false),
-      ('Draft', 'draft', false),
-    ]),
-    HomeTile('salesOrders', [
-      ('Draft', 'draft', false),
-      ('Approved', 'approved', false),
-    ]),
-    HomeTile('deliveryNotes/delivery-notes', [
-      ('Orders to deliver', 'pending_orders', true),
-      ('Draft', 'draft', false),
-    ]),
-    HomeTile('goodsReceipts/receipts', [
-      ('POs to receive', 'pending_purchase_orders', true),
-      ('Draft', 'draft', false),
-    ]),
-    HomeTile('purchaseInvoices', [
-      ('Overdue', 'overdue_invoices', true),
-      ('Pending', 'pending_invoices', false),
-    ]),
-    HomeTile('purchaseReturns', [
-      ('Draft', 'draft', false),
-      ('Approved', 'approved', false),
-    ]),
+  static const String salesInvoices = 'salesInvoices/sales-invoices';
+  static const String stock = 'inventory/inventory';
+  static const String expiry = 'inventory/expiry-monitor';
+
+  /// The to-do list, in the order of a trading day.
+  static const List<HomeTodo> todos = [
+    HomeTodo('Orders to approve', 'salesOrders', 'draft'),
+    HomeTodo(
+        'Orders to deliver', 'deliveryNotes/delivery-notes', 'pending_orders'),
+    HomeTodo('Invoices overdue', salesInvoices, 'overdue_invoices',
+        alert: true),
+    HomeTodo(
+        'POs to receive', 'goodsReceipts/receipts', 'pending_purchase_orders'),
+    HomeTodo('Purchase bills overdue', 'purchaseInvoices', 'overdue_invoices',
+        alert: true),
   ];
 
-  /// The daily screens of 4.6, offered as one-click buttons.
-  static const List<String> daily = [
-    'salesInvoices/sales-invoices',
+  /// The daily screens of 4.6. Favourites (4.3's star) will replace these
+  /// with the user's own choice.
+  static const List<String> screens = [
+    salesInvoices,
     'accounting/receipts',
     'salesOrders',
     'quotations',
@@ -81,11 +92,10 @@ class Phase2HomePage extends StatefulWidget {
     'goodsReceipts/receipts',
     'purchaseInvoices',
     'accounting/payments',
-    'inventory/inventory',
+    stock,
     'masters/customer-statements',
     'masters/customers',
     'masters/products',
-    // A platform administrator's own overview.
     'dashboard',
   ];
 
@@ -93,169 +103,615 @@ class Phase2HomePage extends StatefulWidget {
   State<Phase2HomePage> createState() => _Phase2HomePageState();
 }
 
-class _Phase2HomePageState extends State<Phase2HomePage> {
-  /// Each tile's summary, or null while loading; an empty map is a summary
-  /// that could not be read, shown as dashes rather than as zeros.
-  final Map<String, Map<String, dynamic>?> _summaries = {};
+/// A figure being fetched: null while loading, [failed] if it could not be.
+class _Figure<T> {
+  T? value;
+  bool failed = false;
+  bool get loading => value == null && !failed;
+}
 
-  List<HomeTile> get _tiles =>
-      Phase2HomePage.tiles.where((tile) => widget.allowed(tile.path)).toList();
+class _Phase2HomePageState extends State<Phase2HomePage> {
+  final _Figure<List<Map<String, dynamic>>> _register = _Figure();
+  final _Figure<List<Map<String, dynamic>>> _outstanding = _Figure();
+  final _Figure<int> _belowReorder = _Figure();
+  final _Figure<int> _expiring = _Figure();
+  final Map<String, _Figure<Map<String, dynamic>>> _summaries = {};
+
+  bool get _sales => widget.allowed(Phase2HomePage.salesInvoices);
+  bool get _stock => widget.allowed(Phase2HomePage.stock);
+  bool get _batches => widget.allowed(Phase2HomePage.expiry);
+
+  DateTime get _day =>
+      DateTime(widget.today.year, widget.today.month, widget.today.day);
+
+  List<DateTime> get _fortnight => [
+        for (int back = 13; back >= 0; back--)
+          _day.subtract(Duration(days: back)),
+      ];
 
   @override
   void initState() {
     super.initState();
-    for (final HomeTile tile in _tiles) {
-      _summaries[tile.path] = null;
-      widget.loadSummary(tile.path).then((summary) {
-        if (mounted) setState(() => _summaries[tile.path] = summary);
-      }, onError: (Object _) {
-        if (mounted) setState(() => _summaries[tile.path] = const {});
-      });
+    if (_sales) {
+      _load(_register, widget.source.invoiceRegister(_fortnight.first, _day));
+      _load(_outstanding, widget.source.customerOutstanding());
     }
+    if (_stock) _load(_belowReorder, widget.source.itemsBelowReorder());
+    if (_batches) _load(_expiring, widget.source.batchesExpiringIn30Days());
+    for (final HomeTodo todo in Phase2HomePage.todos) {
+      if (!widget.allowed(todo.path) || _summaries.containsKey(todo.path)) {
+        continue;
+      }
+      final _Figure<Map<String, dynamic>> figure = _Figure();
+      _summaries[todo.path] = figure;
+      _load(figure, widget.source.summary(todo.path));
+    }
+  }
+
+  void _load<T>(_Figure<T> figure, Future<T> future) {
+    future.then((value) {
+      if (mounted) setState(() => figure.value = value);
+    }, onError: (Object _) {
+      if (mounted) setState(() => figure.failed = true);
+    });
   }
 
   void _open(String path) {
     final MenuItemSpec? item = MenuLayout.itemFor(path);
-    if (item != null) widget.onOpen(item);
+    if (item != null && widget.allowed(path)) widget.onOpen(item);
   }
+
+  // -- figures -------------------------------------------------------------
+
+  /// What was sold on [day]: approved and closed bills, as a sale is booked;
+  /// a draft has not been sold and a cancelled bill was not.
+  double _salesOn(DateTime day) {
+    double total = 0;
+    for (final Map<String, dynamic> row in _register.value ?? const []) {
+      final String status = '${row['status'] ?? ''}'.toUpperCase();
+      if (status != 'APPROVED' && status != 'CLOSED') continue;
+      final DateTime? date = DateTime.tryParse('${row['invoice_date'] ?? ''}');
+      if (date == null ||
+          date.year != day.year ||
+          date.month != day.month ||
+          date.day != day.day) {
+        continue;
+      }
+      total += double.tryParse('${row['grand_total'] ?? 0}') ?? 0;
+    }
+    return total;
+  }
+
+  double get _receivable => (_outstanding.value ?? const [])
+      .map((row) => double.tryParse('${row['outstanding_amount'] ?? 0}') ?? 0)
+      .where((amount) => amount > 0)
+      .fold(0, (sum, amount) => sum + amount);
+
+  int? _count(HomeTodo todo) {
+    final Object? value = _summaries[todo.path]?.value?[todo.key];
+    return value is num ? value.toInt() : null;
+  }
+
+  // -- layout --------------------------------------------------------------
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final List<HomeTile> tiles = _tiles;
-    final List<MenuItemSpec> daily = [
-      for (final String path in Phase2HomePage.daily)
-        if (widget.allowed(path))
-          if (MenuLayout.itemFor(path) case final MenuItemSpec item) item,
+    final List<Widget> main = [
+      if (_sales || _stock) _kpis(context),
+      if (_sales) ...[
+        const SizedBox(height: 12),
+        _chart(context),
+        const SizedBox(height: 12),
+        _recent(context),
+      ],
+    ];
+    final List<Widget> side = [
+      if (_todoRows().isNotEmpty) _todo(context),
+      if (_screens().isNotEmpty) ...[
+        if (_todoRows().isNotEmpty) const SizedBox(height: 12),
+        _yourScreens(context),
+      ],
     ];
     return Material(
       color: theme.colorScheme.surface,
-      child: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
-          Text(
-            widget.userName == null ? 'Home' : 'Welcome, ${widget.userName}',
-            style: theme.textTheme.titleLarge
-                ?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          if (widget.firmName != null)
-            Text(
-              widget.firmName!,
-              style: theme.textTheme.bodyMedium
-                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-            ),
-          if (tiles.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            _heading(context, 'TODAY'),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 12,
-              runSpacing: 12,
-              children: [for (final HomeTile tile in tiles) _tile(tile)],
-            ),
-          ],
-          if (daily.isNotEmpty) ...[
-            const SizedBox(height: 20),
-            _heading(context, 'YOUR SCREENS'),
-            const SizedBox(height: 8),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final MenuItemSpec item in daily)
-                  OutlinedButton(
-                    key: ValueKey('home-open-${item.path}'),
-                    onPressed: () => widget.onOpen(item),
-                    child: Text(item.label),
+          _greeting(context),
+          Expanded(
+            child: LayoutBuilder(builder: (context, constraints) {
+              if (main.isEmpty && side.isEmpty) {
+                return Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    'Choose a screen from the menu above, or press Ctrl+K and '
+                    'type its name.',
+                    style: theme.textTheme.bodyMedium,
                   ),
-              ],
-            ),
-          ],
-          if (tiles.isEmpty && daily.isEmpty) ...[
-            const SizedBox(height: 16),
-            Text(
-              'Choose a screen from the menu above, or press Ctrl+K and type '
-              'its name.',
-              style: theme.textTheme.bodyMedium,
-            ),
-          ],
+                );
+              }
+              // The wireframe's two columns, 2 : 1; one column when narrow.
+              if (constraints.maxWidth < 860 || main.isEmpty || side.isEmpty) {
+                return ListView(
+                  padding: const EdgeInsets.all(14),
+                  children: [
+                    ...main,
+                    if (main.isNotEmpty && side.isNotEmpty)
+                      const SizedBox(height: 12),
+                    ...side,
+                  ],
+                );
+              }
+              return SingleChildScrollView(
+                padding: const EdgeInsets.all(14),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(flex: 2, child: Column(children: main)),
+                    const SizedBox(width: 14),
+                    Expanded(child: Column(children: side)),
+                  ],
+                ),
+              );
+            }),
+          ),
         ],
       ),
     );
   }
 
-  Widget _heading(BuildContext context, String label) => Text(
-        label,
-        style: Theme.of(context).textTheme.labelSmall?.copyWith(
-              color: Theme.of(context).colorScheme.onSurfaceVariant,
-              letterSpacing: .6,
-              fontWeight: FontWeight.w600,
-            ),
-      );
-
-  Widget _tile(HomeTile tile) {
+  /// "Good evening", the firm and the date -- the page's one line (4.5).
+  Widget _greeting(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final ColorScheme scheme = theme.colorScheme;
-    final Map<String, dynamic>? summary = _summaries[tile.path];
-    final String title = MenuLayout.itemFor(tile.path)?.label ?? tile.path;
-    return SizedBox(
-      width: 260,
-      child: Card(
-        key: ValueKey('home-tile-${tile.path}'),
-        clipBehavior: Clip.antiAlias,
-        child: InkWell(
-          onTap: () => _open(tile.path),
-          child: Padding(
-            padding: const EdgeInsets.all(14),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(children: [
-                  Expanded(
-                    child: Text(title,
-                        style: theme.textTheme.titleSmall
-                            ?.copyWith(fontWeight: FontWeight.w600)),
-                  ),
-                  Icon(Icons.chevron_right,
-                      size: 18, color: scheme.onSurfaceVariant),
-                ]),
-                const SizedBox(height: 10),
-                if (summary == null)
-                  const LinearProgressIndicator(minHeight: 2)
-                else
-                  Wrap(spacing: 18, runSpacing: 6, children: [
-                    for (final (String label, String key, bool alert)
-                        in tile.figures)
-                      _figure(label, summary[key], alert),
-                  ]),
-              ],
+    final int hour = DateTime.now().hour;
+    final String greeting = hour < 12
+        ? 'Good morning'
+        : hour < 17
+            ? 'Good afternoon'
+            : 'Good evening';
+    const List<String> days = [
+      'Monday',
+      'Tuesday',
+      'Wednesday',
+      'Thursday',
+      'Friday',
+      'Saturday',
+      'Sunday',
+    ];
+    final DateTime d = _day;
+    final String date = '${days[d.weekday - 1]} '
+        '${d.day.toString().padLeft(2, '0')}-'
+        '${d.month.toString().padLeft(2, '0')}-${d.year}';
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
+      child: Row(children: [
+        Text(
+          widget.userName == null ? greeting : '$greeting, ${widget.userName}',
+          style: theme.textTheme.titleMedium
+              ?.copyWith(fontWeight: FontWeight.w600),
+        ),
+        const SizedBox(width: 12),
+        Flexible(
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
+            decoration: BoxDecoration(
+              color: theme.colorScheme.surfaceContainerLow,
+              borderRadius: BorderRadius.circular(12),
+              border: Border.all(color: theme.colorScheme.outlineVariant),
+            ),
+            child: Text(
+              [if (widget.firmName != null) widget.firmName!, date]
+                  .join('  ·  '),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodySmall
+                  ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
             ),
           ),
         ),
+      ]),
+    );
+  }
+
+  Widget _kpis(BuildContext context) {
+    final int? overdue = _count(Phase2HomePage.todos[2]);
+    final List<Widget> tiles = [
+      if (_sales) ...[
+        _kpi(context,
+            key: 'sales-today',
+            label: 'Sales today',
+            value: _register.loading || _register.failed
+                ? null
+                : indianAmount(_salesOn(_day)),
+            failed: _register.failed,
+            path: Phase2HomePage.salesInvoices),
+        _kpi(context,
+            key: 'sales-fortnight',
+            label: 'Sales, last 14 days',
+            value: _register.loading || _register.failed
+                ? null
+                : indianAmount(
+                    _fortnight.fold(0.0, (sum, day) => sum + _salesOn(day))),
+            failed: _register.failed,
+            path: Phase2HomePage.salesInvoices),
+        _kpi(context,
+            key: 'receivable',
+            label:
+                overdue == null ? 'Receivable' : 'Receivable, $overdue overdue',
+            alert: (overdue ?? 0) > 0,
+            value: _outstanding.loading || _outstanding.failed
+                ? null
+                : indianAmount(_receivable),
+            failed: _outstanding.failed,
+            path: 'masters/customer-statements'),
+      ],
+      if (_stock)
+        _kpi(context,
+            key: 'below-reorder',
+            label: 'Items below reorder',
+            value: _belowReorder.value?.toString(),
+            failed: _belowReorder.failed,
+            path: Phase2HomePage.stock),
+    ];
+    return LayoutBuilder(builder: (context, constraints) {
+      final int perRow = (constraints.maxWidth / 170).floor().clamp(1, 4);
+      final double width = (constraints.maxWidth - (perRow - 1) * 10) / perRow;
+      return Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: [
+          for (final Widget tile in tiles) SizedBox(width: width, child: tile),
+        ],
+      );
+    });
+  }
+
+  Widget _kpi(
+    BuildContext context, {
+    required String key,
+    required String label,
+    required String? value,
+    required bool failed,
+    required String path,
+    bool alert = false,
+  }) {
+    final ThemeData theme = Theme.of(context);
+    return _Card(
+      key: ValueKey('home-kpi-$key'),
+      onTap: () => _open(path),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            height: 30,
+            child: value == null && !failed
+                ? const Align(
+                    alignment: Alignment.centerLeft,
+                    child: SizedBox(
+                      width: 60,
+                      child: LinearProgressIndicator(minHeight: 2),
+                    ),
+                  )
+                : Text(
+                    failed ? '-' : value!,
+                    style: theme.textTheme.headlineSmall
+                        ?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+          ),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodySmall?.copyWith(
+              color: alert
+                  ? theme.colorScheme.error
+                  : theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ],
       ),
     );
   }
 
-  Widget _figure(String label, Object? value, bool alert) {
+  /// Sales per day over the last 14 days: one series, so one colour and no
+  /// legend -- the title names it; each bar says its day and amount on hover.
+  Widget _chart(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final String shown = value == null ? '-' : '$value';
-    final bool alarming = alert && value is num && value > 0;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          shown,
-          style: theme.textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.w600,
-            color: alarming ? theme.colorScheme.error : null,
-          ),
-        ),
-        Text(
-          label,
-          style: theme.textTheme.bodySmall
-              ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-        ),
-      ],
+    final List<DateTime> days = _fortnight;
+    final List<double> values = [for (final DateTime d in days) _salesOn(d)];
+    final double top = values.fold(0.0, (a, b) => a > b ? a : b);
+    return _Section(
+      title: 'SALES, LAST 14 DAYS',
+      child: SizedBox(
+        height: 130,
+        child: _register.loading
+            ? const Center(child: LinearProgressIndicator(minHeight: 2))
+            : _register.failed
+                ? Center(
+                    child: Text('Sales could not be read.',
+                        style: theme.textTheme.bodySmall))
+                : Column(children: [
+                    Expanded(
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.end,
+                        children: [
+                          for (int i = 0; i < days.length; i++)
+                            Expanded(
+                              child: Tooltip(
+                                // The exact figure on hover; the bar
+                                // gives the size at a glance.
+                                message: '${_short(days[i])}: '
+                                    '${indianAmount(values[i], full: true)}',
+                                child: Padding(
+                                  // A 2 px gap each side between bars.
+                                  padding:
+                                      const EdgeInsets.symmetric(horizontal: 2),
+                                  child: Align(
+                                    alignment: Alignment.bottomCenter,
+                                    child: FractionallySizedBox(
+                                      heightFactor: top <= 0
+                                          ? 0.02
+                                          : (values[i] / top).clamp(0.02, 1.0),
+                                      child: Container(
+                                        key: ValueKey('home-bar-$i'),
+                                        decoration: BoxDecoration(
+                                          color: theme.colorScheme.primary,
+                                          borderRadius:
+                                              const BorderRadius.vertical(
+                                                  top: Radius.circular(4)),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                        ],
+                      ),
+                    ),
+                    Divider(height: 1, color: theme.colorScheme.outlineVariant),
+                    const SizedBox(height: 4),
+                    Row(children: [
+                      Text(_short(days.first),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant)),
+                      const Spacer(),
+                      Text('Today',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                              color: theme.colorScheme.onSurfaceVariant)),
+                    ]),
+                  ]),
+      ),
     );
   }
+
+  Widget _recent(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final List<Map<String, dynamic>> rows = [...?_register.value]..sort(
+        (a, b) => '${b['invoice_date']}${b['invoice_number']}'
+            .compareTo('${a['invoice_date']}${a['invoice_number']}'));
+    return _Section(
+      title: 'RECENT INVOICES',
+      child: _register.loading
+          ? const LinearProgressIndicator(minHeight: 2)
+          : rows.isEmpty
+              ? Text(
+                  _register.failed
+                      ? 'Invoices could not be read.'
+                      : 'No invoices in the last 14 days.',
+                  style: theme.textTheme.bodySmall)
+              : Column(children: [
+                  for (final Map<String, dynamic> row in rows.take(6))
+                    _row(
+                      context,
+                      key: 'recent-${row['invoice_number']}',
+                      left: '${row['invoice_number'] ?? '-'}  ·  '
+                          '${row['customer_name'] ?? ''}',
+                      right: indianAmount(
+                          double.tryParse('${row['grand_total'] ?? 0}') ?? 0,
+                          full: true),
+                      onTap: () => _open(Phase2HomePage.salesInvoices),
+                    ),
+                ]),
+    );
+  }
+
+  List<HomeTodo> _todoRows() => [
+        for (final HomeTodo todo in Phase2HomePage.todos)
+          if (widget.allowed(todo.path)) todo,
+      ];
+
+  Widget _todo(BuildContext context) {
+    return _Section(
+      title: 'TO DO',
+      child: Column(children: [
+        for (final HomeTodo todo in _todoRows())
+          _row(
+            context,
+            key: 'todo-${todo.label}',
+            left: todo.label,
+            right: _summaries[todo.path]?.failed ?? false
+                ? '-'
+                : _count(todo)?.toString() ?? '…',
+            strong: true,
+            alert: todo.alert && (_count(todo) ?? 0) > 0,
+            onTap: () => _open(todo.path),
+          ),
+        if (_batches)
+          _row(
+            context,
+            key: 'todo-expiring',
+            left: 'Batches expiring in 30 days',
+            right: _expiring.failed ? '-' : _expiring.value?.toString() ?? '…',
+            strong: true,
+            alert: (_expiring.value ?? 0) > 0,
+            onTap: () => _open(Phase2HomePage.expiry),
+          ),
+      ]),
+    );
+  }
+
+  List<MenuItemSpec> _screens() => [
+        for (final String path in Phase2HomePage.screens)
+          if (widget.allowed(path))
+            if (MenuLayout.itemFor(path) case final MenuItemSpec item) item,
+      ];
+
+  Widget _yourScreens(BuildContext context) => _Section(
+        title: 'YOUR SCREENS',
+        child: LayoutBuilder(builder: (context, constraints) {
+          final double width = (constraints.maxWidth - 6) / 2;
+          return Wrap(spacing: 6, runSpacing: 6, children: [
+            for (final MenuItemSpec item in _screens())
+              SizedBox(
+                width: width,
+                child: OutlinedButton(
+                  key: ValueKey('home-open-${item.path}'),
+                  style: OutlinedButton.styleFrom(
+                    alignment: Alignment.centerLeft,
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 10, vertical: 12),
+                    shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(6)),
+                  ),
+                  onPressed: () => widget.onOpen(item),
+                  child: Text(item.label,
+                      maxLines: 1, overflow: TextOverflow.ellipsis),
+                ),
+              ),
+          ]);
+        }),
+      );
+
+  Widget _row(
+    BuildContext context, {
+    required String key,
+    required String left,
+    required String right,
+    required VoidCallback onTap,
+    bool strong = false,
+    bool alert = false,
+  }) {
+    final ThemeData theme = Theme.of(context);
+    return InkWell(
+      key: ValueKey('home-$key'),
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 7, horizontal: 2),
+        decoration: BoxDecoration(
+          border: Border(
+            bottom: BorderSide(color: theme.colorScheme.outlineVariant),
+          ),
+        ),
+        child: Row(children: [
+          Expanded(
+            child: Text(left, maxLines: 1, overflow: TextOverflow.ellipsis),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            right,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontWeight: strong ? FontWeight.w700 : null,
+              color: alert ? theme.colorScheme.error : null,
+              fontFeatures: const [FontFeature.tabularFigures()],
+            ),
+          ),
+        ]),
+      ),
+    );
+  }
+
+  static String _short(DateTime d) =>
+      '${d.day.toString().padLeft(2, '0')}-${d.month.toString().padLeft(2, '0')}';
+}
+
+/// A card on Home: a light border, as the wireframe draws them.
+class _Card extends StatelessWidget {
+  const _Card({super.key, required this.child, this.onTap});
+
+  final Widget child;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surfaceContainerLowest,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(color: scheme.outlineVariant),
+      ),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+/// A titled card: "TO DO", "RECENT INVOICES".
+class _Section extends StatelessWidget {
+  const _Section({required this.title, required this.child});
+
+  final String title;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return _Card(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Text(
+            title,
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: theme.colorScheme.onSurfaceVariant,
+              letterSpacing: .6,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 8),
+          child,
+        ],
+      ),
+    );
+  }
+}
+
+/// An amount the Indian way: lakh and crore for the large figures a glance
+/// reads ("1.84 L", "2.10 Cr"), Indian digit grouping otherwise
+/// ("62,400", "1,12,050.00" when [full]).
+String indianAmount(double value, {bool full = false}) {
+  final double magnitude = value.abs();
+  final String sign = value < 0 ? '-' : '';
+  if (!full && magnitude >= 10000000) {
+    return '$sign${(magnitude / 10000000).toStringAsFixed(2)} Cr';
+  }
+  if (!full && magnitude >= 100000) {
+    return '$sign${(magnitude / 100000).toStringAsFixed(2)} L';
+  }
+  final String fixed = magnitude.toStringAsFixed(full ? 2 : 0);
+  final List<String> parts = fixed.split('.');
+  final String digits = parts.first;
+  String grouped;
+  if (digits.length <= 3) {
+    grouped = digits;
+  } else {
+    final String last3 = digits.substring(digits.length - 3);
+    String rest = digits.substring(0, digits.length - 3);
+    final List<String> pairs = [];
+    while (rest.length > 2) {
+      pairs.insert(0, rest.substring(rest.length - 2));
+      rest = rest.substring(0, rest.length - 2);
+    }
+    if (rest.isNotEmpty) pairs.insert(0, rest);
+    grouped = '${pairs.join(',')},$last3';
+  }
+  return '$sign$grouped${parts.length > 1 ? '.${parts[1]}' : ''}';
 }
