@@ -27,6 +27,11 @@ import '../workspace/desktop_framework.dart';
 import '../workspace/print_settings_dialog.dart';
 import '../workspace/printed_document.dart';
 import '../../models/document_framework.dart';
+import '../../models/document_preview.dart';
+import '../../phase2/document_page.dart';
+import '../../phase2/indian_format.dart';
+
+part 'purchase_order_editor_phase2.dart';
 
 /// A destination in the Purchases module -- one sidebar entry each.
 enum PurchaseSection { dashboard, purchaseOrders, analytics, settings }
@@ -2299,10 +2304,82 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
   /// on purpose once an action had added an entry.
   Future<List<PurchaseOrderHistoryRecord>>? _historyFuture;
 
+  /// Phase 2: the order as the server priced it last, the line the side
+  /// panel follows, and which section shows under the header.
+  PurchaseOrderPreviewRecord? _preview;
+  int _current = 0;
+  int _phase2Section = 0;
+  Timer? _previewTimer;
+  int _previewSerial = 0;
+  bool _phase2 = false;
+
+  /// Bumped when a line goes, or a rate is set for the user, so the boxes
+  /// re-read their figures rather than keep what they held.
+  int _lineEpoch = 0;
+  int _rateEpoch = 0;
+
+  void _setState(VoidCallback change) => setState(change);
+
   @override
   void initState() {
     super.initState();
     _historyFuture = _loadHistory();
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final bool first = !_phase2 && Phase2Scope.of(context);
+    _phase2 = Phase2Scope.of(context);
+    if (!first) return;
+    // A new order's first line starts at its product's purchase price
+    // rather than at nothing.
+    if (widget.mode == PurchaseDialogMode.create) {
+      _draft = _draft.copyWith(lines: [
+        for (final PurchaseOrderLine line in _draft.lines)
+          line.productId.isEmpty ? line : _choose(line, line.productId),
+      ]);
+    }
+    _schedulePreview();
+  }
+
+  @override
+  void dispose() {
+    _previewTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Price the order again once the typing pauses; only the latest answer
+  /// lands. An order still missing what the server needs to price it --
+  /// the vendor, where it is received, a product on every line -- is not
+  /// sent, and one only being looked at shows what it stored.
+  void _schedulePreview() {
+    if (!_phase2 || widget.isReadOnly || !_draft.isEditable) return;
+    _previewTimer?.cancel();
+    _previewTimer = Timer(const Duration(milliseconds: 350), () async {
+      final PurchaseOrder draft = _draft;
+      if (draft.vendorId.isEmpty ||
+          draft.branchId.isEmpty ||
+          draft.warehouseId.isEmpty ||
+          draft.lines.isEmpty ||
+          draft.lines.any(
+            (line) =>
+                line.productId.isEmpty ||
+                (double.tryParse(line.orderedQuantity.trim()) ?? 0) <= 0,
+          )) {
+        return;
+      }
+      final int serial = ++_previewSerial;
+      try {
+        final PurchaseOrderPreviewRecord priced =
+            await widget.api.previewPurchaseOrder(draft);
+        if (!mounted || serial != _previewSerial) return;
+        setState(() => _preview = priced);
+      } on ApiException {
+        // An order the server refuses as it stands keeps the last figures;
+        // saving it says why.
+      }
+    });
   }
 
   Future<List<PurchaseOrderHistoryRecord>>? _loadHistory() =>
@@ -2425,6 +2502,8 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
 
   @override
   Widget build(BuildContext context) {
+    // Phase 2: the one-screen order (the sales documents' approved layout).
+    if (Phase2Scope.of(context)) return _phase2Page(context);
     final Size window = MediaQuery.sizeOf(context);
     return Dialog(
       insetPadding: const EdgeInsets.all(24),
