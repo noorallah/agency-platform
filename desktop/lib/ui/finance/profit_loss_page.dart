@@ -189,9 +189,8 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
     }
     return SingleChildScrollView(
       padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
-      child: SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: DataTable(
+      child: Phase2WideTable(
+        table: DataTable(
           columns: const [
             DataColumn(label: Text('Code')),
             DataColumn(label: Text('Account')),

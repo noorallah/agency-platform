@@ -1727,6 +1727,21 @@ class _Phase2ManagementLayout extends StatefulWidget {
 class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
   bool _filtersOpen = false;
 
+  /// The line this list took, so it can be given back when the list goes.
+  Phase2PageBar? _bar;
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _bar = Phase2PageBar.of(context);
+  }
+
+  @override
+  void dispose() {
+    _bar?.release(this);
+    super.dispose();
+  }
+
   static const double _filterWidth = 300;
 
   @override
@@ -1758,7 +1773,7 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
     // The frame above hands over its title and counters; this draws them on
     // the same line as the search and the actions (4.5).
     final Phase2PageBar? bar = Phase2PageBar.of(context);
-    bar?.claim();
+    bar?.claim(this);
     // Filters, search and actions. The search box is a fixed, modest width
     // on the one line -- the wireframe's "/ search" -- so the counters get
     // the room; on a line of its own it takes what is left.
@@ -1778,7 +1793,7 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
             constraints: BoxConstraints(
               maxWidth: toolbarWidth < 120 ? 120 : toolbarWidth,
             ),
-            child: layout.toolbar,
+            child: _newLast(layout.toolbar),
           ),
         ];
     // The wireframe's "+ filter" chip sits with the counters, at the left.
@@ -1911,6 +1926,32 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
       ),
       layout.statusBar,
     ]);
+  }
+
+  /// A screen's own row of buttons with its filled one -- its "New" --
+  /// moved to the end, where every list keeps "+ New" (4.7). The toolbar is
+  /// the screen's own widget; only its order changes, and only here.
+  static Widget _newLast(Widget toolbar) {
+    if (toolbar is! Wrap) return toolbar;
+    final List<Widget> children = toolbar.children;
+    final List<Widget> filled = [
+      for (final Widget child in children)
+        if (child is FilledButton) child,
+    ];
+    if (filled.isEmpty || identical(children.last, filled.last)) {
+      return toolbar;
+    }
+    return Wrap(
+      key: toolbar.key,
+      spacing: toolbar.spacing,
+      runSpacing: toolbar.runSpacing,
+      crossAxisAlignment: toolbar.crossAxisAlignment,
+      children: [
+        for (final Widget child in children)
+          if (child is! FilledButton) child,
+        ...filled,
+      ],
+    );
   }
 
   static double _measure(BuildContext context, String text, TextStyle style) {
@@ -4007,4 +4048,165 @@ class Phase2Refresh extends StatelessWidget {
           onPressed: onPressed,
         )
       : child;
+}
+
+/// Phase 2: a screen with its own tabs (Rules | Priority Manager) draws them
+/// small, on the title line, rather than as a band of large icon tabs above
+/// the page -- the same one line every other screen has (4.5).
+class Phase2TabsLine extends StatelessWidget {
+  const Phase2TabsLine({
+    super.key,
+    required this.controller,
+    required this.labels,
+  });
+
+  final TabController controller;
+  final List<String> labels;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    // Inside a page frame the tabs join the frame's own line, which already
+    // carries the title; otherwise this is the line.
+    final Phase2PageBar? bar = Phase2PageBar.of(context);
+    if (bar != null) {
+      bar.publishTools([_tabs(theme, scheme, height: 32)]);
+      return const SizedBox.shrink();
+    }
+    final String? title = Phase2ScreenTitle.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLowest,
+        border: Border(bottom: BorderSide(color: scheme.outlineVariant)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 0, 12, 0),
+        child: Row(children: [
+          if (title != null) ...[
+            Text(
+              title,
+              style: theme.textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(width: 16),
+          ],
+          Flexible(child: _tabs(theme, scheme, height: 44)),
+        ]),
+      ),
+    );
+  }
+
+  Widget _tabs(ThemeData theme, ColorScheme scheme, {required double height}) =>
+      TabBar(
+        controller: controller,
+        isScrollable: true,
+        tabAlignment: TabAlignment.start,
+        dividerHeight: 0,
+        labelPadding: const EdgeInsets.symmetric(horizontal: 12),
+        labelStyle: theme.textTheme.bodyMedium
+            ?.copyWith(fontSize: 13, fontWeight: FontWeight.w600),
+        unselectedLabelStyle:
+            theme.textTheme.bodyMedium?.copyWith(fontSize: 13),
+        labelColor: scheme.primary,
+        unselectedLabelColor: scheme.onSurfaceVariant,
+        indicatorColor: scheme.primary,
+        tabs: [
+          for (final String label in labels) Tab(height: height, text: label),
+        ],
+      );
+}
+
+/// A screen's own table (trial balance, profit and loss, ledger, ...).
+///
+/// Phase 1 draws exactly what those screens always drew: [table] in a
+/// sideways scroll. Phase 2 draws it as the lists' grid is drawn -- the full
+/// width of the screen, 13 px cells on 34 px rows under a light 12 px
+/// heading -- and writes the figures in its numeric columns in Indian
+/// digits (1,58,117.39).
+class Phase2WideTable extends StatelessWidget {
+  const Phase2WideTable({super.key, required this.table});
+
+  final DataTable table;
+
+  @override
+  Widget build(BuildContext context) {
+    if (!Phase2Scope.of(context)) {
+      return SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: table,
+      );
+    }
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final List<bool> numeric = [
+      for (final DataColumn column in table.columns) column.numeric,
+    ];
+    DataCell figure(DataCell cell, int index) {
+      final Widget child = cell.child;
+      if (index >= numeric.length || !numeric[index] || child is! Text) {
+        return cell;
+      }
+      final String? data = child.data;
+      final double? number =
+          data == null ? null : double.tryParse(data.replaceAll(',', ''));
+      if (data == null || number == null) return cell;
+      final String grouped = indianAmount(number, full: true);
+      return DataCell(
+        Text(
+          data.contains('.')
+              ? grouped
+              : grouped.substring(0, grouped.length - 3),
+          style: child.style,
+        ),
+        onTap: cell.onTap,
+      );
+    }
+
+    final DataTable styled = DataTable(
+      columns: table.columns,
+      sortColumnIndex: table.sortColumnIndex,
+      sortAscending: table.sortAscending,
+      showCheckboxColumn: table.showCheckboxColumn,
+      onSelectAll: table.onSelectAll,
+      horizontalMargin: 10,
+      columnSpacing: 20,
+      dividerThickness: 1,
+      dataRowMinHeight: 34,
+      dataRowMaxHeight: 34,
+      headingRowHeight: 34,
+      headingRowColor: WidgetStatePropertyAll(scheme.surfaceContainerLow),
+      headingTextStyle: theme.textTheme.labelMedium?.copyWith(
+        fontSize: 12,
+        fontWeight: FontWeight.w600,
+        color: scheme.onSurfaceVariant,
+      ),
+      dataTextStyle: theme.textTheme.bodyMedium?.copyWith(fontSize: 13),
+      rows: [
+        for (final DataRow row in table.rows)
+          DataRow(
+            key: row.key,
+            selected: row.selected,
+            onSelectChanged: row.onSelectChanged,
+            color: row.color,
+            cells: [
+              for (int i = 0; i < row.cells.length; i++)
+                figure(row.cells[i], i),
+            ],
+          ),
+      ],
+    );
+    return LayoutBuilder(
+      builder: (context, constraints) => SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            minWidth: constraints.maxWidth.isFinite ? constraints.maxWidth : 0,
+          ),
+          child:
+              ColoredBox(color: scheme.surfaceContainerLowest, child: styled),
+        ),
+      ),
+    );
+  }
 }

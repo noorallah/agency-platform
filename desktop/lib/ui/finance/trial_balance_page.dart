@@ -233,9 +233,8 @@ class _TrialBalancePageState extends State<TrialBalancePage> {
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ),
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: DataTable(
+            Phase2WideTable(
+              table: DataTable(
             columns: const [
               DataColumn(label: Text('Code')),
               DataColumn(label: Text('Account')),

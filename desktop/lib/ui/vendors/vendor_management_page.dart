@@ -60,7 +60,44 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
   void initState() {
     super.initState();
     _load();
+    unawaited(_loadSummary());
   }
+
+  /// How many vendors stand in each status, for the phase 2 counters.
+  Map<String, dynamic> _summary = const {};
+
+  Future<void> _loadSummary() async {
+    try {
+      final Map<String, dynamic> response =
+          await widget.api.documentSummary('vendors');
+      final dynamic data = response['data'];
+      if (!mounted) return;
+      setState(() =>
+          _summary = data is Map<String, dynamic> ? data : response);
+    } on ApiException {
+      // The counters are a convenience; the list stands without them.
+    }
+  }
+
+  /// Phase 2 (as Customers): one counter per status, and clicking one
+  /// filters the list to it -- again for all.
+  List<Widget> _statusCounters() => [
+        for (final (String label, String status, String key) in const [
+          ('Active', 'ACTIVE', 'active'),
+          ('Inactive', 'INACTIVE', 'inactive'),
+          ('Draft', 'DRAFT', 'draft'),
+        ])
+          SummaryCount(
+            key: ValueKey('vendor-counter-$key'),
+            label: label,
+            value: '${_summary[key] ?? '-'}',
+            selected: _status == status,
+            onTap: () {
+              setState(() => _status = _status == status ? null : status);
+              _load(requestedPage: 1);
+            },
+          ),
+      ];
 
   @override
   void dispose() {
@@ -377,7 +414,12 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
         toolbar: toolbar,
         searchPanel: searchPanel,
         filterPanel: filterPanel,
-        primaryContent: primaryContent,
+        primaryContent: Phase2Scope.of(context)
+            ? Column(children: [
+                SummaryCards(children: _statusCounters()),
+                Expanded(child: primaryContent),
+              ])
+            : primaryContent,
         // No summary panel. Selecting a row should select it, not open a
         // second reading of it beside the table; opening a record is what
         // double-click and the row's eye icon are for. Passing null also hands

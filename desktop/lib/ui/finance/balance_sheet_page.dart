@@ -207,9 +207,8 @@ class _BalanceSheetPageState extends State<BalanceSheetPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          SingleChildScrollView(
-            scrollDirection: Axis.horizontal,
-            child: DataTable(
+          Phase2WideTable(
+            table: DataTable(
               columns: const [
                 DataColumn(label: Text('Code')),
                 DataColumn(label: Text('Account')),

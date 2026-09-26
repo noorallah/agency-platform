@@ -192,7 +192,17 @@ class _NumberingSeriesPageState extends State<NumberingSeriesPage> {
     return LoadingOverlay(
       loading: _loading,
       child: Column(children: [
-        if (_canEdit)
+        // Phase 2: the title line with "+ New" on it, as every screen.
+        if (Phase2Scope.of(context))
+          Phase2LineTools(children: [
+            if (_canEdit)
+              FilledButton(
+                key: const ValueKey('line-new'),
+                onPressed: _types.isEmpty ? null : () => unawaited(_edit()),
+                child: const Text('+ New'),
+              ),
+          ])
+        else if (_canEdit)
           Padding(
             padding: const EdgeInsets.fromLTRB(
               AppSpacing.lg,

@@ -297,9 +297,8 @@ class _LedgerStatementPageState extends State<LedgerStatementPage> {
         ],
       );
 
-  Widget _table(BuildContext context) => SingleChildScrollView(
-        scrollDirection: Axis.horizontal,
-        child: DataTable(
+  Widget _table(BuildContext context) => Phase2WideTable(
+        table: DataTable(
           columns: const [
             DataColumn(label: Text('Date')),
             DataColumn(label: Text('Reference')),
