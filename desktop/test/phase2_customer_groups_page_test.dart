@@ -5,6 +5,7 @@ import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/phase2/customer_groups_page.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -110,5 +111,26 @@ void main() {
     await _pump(tester, const ['CUSTOMER_VIEW']);
     expect(find.byKey(const ValueKey('toolbar-new')), findsNothing);
     expect(find.text('RETAILER'), findsOneWidget);
+  });
+
+  testWidgets('the everyday actions are icons on the line, live once a row is '
+      'chosen', (tester) async {
+    await _pump(tester, const ['CUSTOMER_VIEW', 'CUSTOMER_MANAGE_SETTINGS']);
+    IconButton edit() =>
+        tester.widget(find.descendant(
+          of: find.byKey(const ValueKey('toolbar-edit')),
+          matching: find.byType(IconButton),
+        ));
+    expect(find.byKey(const ValueKey('toolbar-delete')), findsOneWidget);
+    expect(find.byKey(const ValueKey('toolbar-refresh')), findsOneWidget);
+    expect(edit().onPressed, isNull, reason: 'nothing chosen yet');
+    await tester.tap(find.text('RETAILER'));
+    // A row that opens on double-click waits out the double-click before a
+    // single click selects it.
+    await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 50));
+    expect(edit().onPressed, isNotNull);
+    await tester.tap(find.byKey(const ValueKey('toolbar-edit')));
+    await tester.pumpAndSettle();
+    expect(find.text('Edit group'), findsOneWidget);
   });
 }

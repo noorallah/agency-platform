@@ -1076,17 +1076,40 @@ class WorkspaceToolbar extends StatelessWidget {
   /// Phase 2 (the wireframe): the screen's own buttons (Groups), then
   /// everything else behind "…", then "+ New" last and the only filled one --
   /// six icon buttons in a row read as decoration, not as choices.
+  /// The actions taken all day, shown as icons on the line rather than
+  /// behind "…" (owner, 2026-09-26: there is room, and a hidden Edit costs a
+  /// click every time).
+  static const List<ToolbarAction> _everyDay = [
+    ToolbarAction.view,
+    ToolbarAction.edit,
+    ToolbarAction.delete,
+    ToolbarAction.refresh,
+  ];
+
   Widget _phase2(BuildContext context) {
     final List<ToolbarAction> shown =
         actions.where((action) => isVisible?.call(action) ?? true).toList();
     final bool hasNew = shown.contains(ToolbarAction.newItem);
-    final List<ToolbarAction> rest =
-        shown.where((action) => action != ToolbarAction.newItem).toList();
+    final List<ToolbarAction> icons =
+        _everyDay.where(shown.contains).toList();
+    final List<ToolbarAction> rest = shown
+        .where((action) =>
+            action != ToolbarAction.newItem && !_everyDay.contains(action))
+        .toList();
     return Row(mainAxisSize: MainAxisSize.min, children: [
       for (final Widget widget in trailing) ...[
         widget,
         const SizedBox(width: 6),
       ],
+      for (final ToolbarAction action in icons) ...[
+        _Phase2IconAction(
+          key: ValueKey('toolbar-${action.name}'),
+          action: action,
+          onPressed: isEnabled(action) ? () => onAction(action) : null,
+        ),
+        const SizedBox(width: 4),
+      ],
+      if (icons.isNotEmpty) const SizedBox(width: 2),
       if (rest.isNotEmpty)
         PopupMenuButton<ToolbarAction>(
           key: const ValueKey('toolbar-more'),
@@ -1739,6 +1762,45 @@ class Phase2ButtonTheme extends StatelessWidget {
         ),
       ),
       child: child,
+    );
+  }
+}
+
+/// An everyday action on the page line: a small square button with a grey
+/// edge and the action's icon, its name on hover; greyed while it has no row
+/// to act on, and Delete in the danger colour so it is not taken by mistake.
+class _Phase2IconAction extends StatelessWidget {
+  const _Phase2IconAction({
+    super.key,
+    required this.action,
+    required this.onPressed,
+  });
+
+  final ToolbarAction action;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    final bool danger = action == ToolbarAction.delete;
+    return Tooltip(
+      message: action.label,
+      child: IconButton(
+        onPressed: onPressed,
+        icon: Icon(action.icon, size: 18),
+        style: IconButton.styleFrom(
+          fixedSize: const Size(32, 32),
+          minimumSize: const Size(32, 32),
+          padding: EdgeInsets.zero,
+          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          visualDensity: VisualDensity.compact,
+          foregroundColor: danger ? scheme.error : scheme.onSurface,
+          disabledForegroundColor: scheme.onSurfaceVariant.withValues(alpha: .45),
+          backgroundColor: scheme.surfaceContainerLowest,
+          side: BorderSide(color: scheme.outlineVariant),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
+        ),
+      ),
     );
   }
 }
