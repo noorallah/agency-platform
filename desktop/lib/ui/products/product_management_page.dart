@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/api/concurrency.dart';
@@ -13,6 +14,10 @@ import '../../models/entities.dart';
 import '../../models/product.dart';
 import '../../models/uom_packaging.dart';
 import '../workspace/desktop_framework.dart';
+import '../../phase2/document_page.dart';
+import '../../phase2/indian_format.dart';
+
+part 'product_editor_phase2.dart';
 
 class ProductController extends ChangeNotifier {
   ProductController(this._api);
@@ -794,10 +799,10 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         (!_canEdit || product == null || product.isDeleted)) {
       return;
     }
-    final Product? saved = await showDialog<Product>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => ProductWorkspaceDialog(
+    // Phase 2 opens the record as a full-page tab titled with the product's
+    // name (owner, 2026-09-26); phase 1 keeps its dialog.
+    final bool phase2 = Phase2Scope.of(context);
+    Widget form(BuildContext context) => ProductWorkspaceDialog(
         mode: mode,
         product: product,
         categories: _controller.categories,
@@ -812,8 +817,18 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
           _dialogTab = tab;
           _persistPreferences();
         },
-      ),
-    );
+      );
+    final Product? saved = phase2
+        ? await showDocument<Product>(
+            context,
+            title: product == null ? 'New product' : product.name,
+            builder: form,
+          )
+        : await showDialog<Product>(
+            context: context,
+            barrierDismissible: false,
+            builder: form,
+          );
     if (saved == null || !mounted) return;
     NotificationService.show(
       context,
@@ -1697,6 +1712,11 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   bool _dirty = false;
   List<String> _validationSummary = const [];
 
+  /// Phase 2: where each section starts on the one-scroll page.
+  final Map<String, GlobalKey> _sectionKeys = {};
+
+  void _setState(VoidCallback change) => setState(change);
+
   bool get _readOnly => widget.mode == ProductDialogMode.view;
   bool get _barcodeEnabled => _metadata.featureEnabled('BARCODE');
   bool get _qrEnabled => _metadata.featureEnabled('QR_CODE');
@@ -1892,7 +1912,10 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => Dialog(
+  Widget build(BuildContext context) => Phase2Scope.of(context)
+      // Phase 2: the record as a full-page tab, as the customer is.
+      ? _phase2Page(context)
+      : Dialog(
         insetPadding: const EdgeInsets.all(20),
         clipBehavior: Clip.antiAlias,
         child: SizedBox(
