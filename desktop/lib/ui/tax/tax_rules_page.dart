@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../core/api/api_client.dart';
+import '../workspace/desktop_framework.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/tax_framework.dart';
 
@@ -145,8 +146,16 @@ class _TaxRulesPageState extends State<TaxRulesPage>
   @override
   Widget build(BuildContext context) {
     final cs = Theme.of(context).colorScheme;
+    final bool phase2 = Phase2Scope.of(context);
     return Column(
       children: [
+        // Phase 2: small tabs on the title line.
+        if (phase2)
+          Phase2TabsLine(
+            controller: _tabController,
+            labels: const ['Rules', 'Priority Manager'],
+          )
+        else
         Container(
           color: cs.surface,
           child: TabBar(
@@ -164,7 +173,7 @@ class _TaxRulesPageState extends State<TaxRulesPage>
             indicatorColor: cs.primary,
           ),
         ),
-        const Divider(height: 1),
+        if (!phase2) const Divider(height: 1),
         Expanded(
           child: TabBarView(
             controller: _tabController,

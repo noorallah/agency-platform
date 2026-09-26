@@ -266,9 +266,8 @@ class _AuditLogPageState extends State<AuditLogPage> {
             // Only the fields that moved. An audit row can carry a dozen
             // unchanged ones on both sides, and showing all of them buries the
             // one somebody is looking for.
-            SingleChildScrollView(
-              scrollDirection: Axis.horizontal,
-              child: DataTable(
+            Phase2WideTable(
+              table: DataTable(
                 columnSpacing: AppSpacing.lg,
                 columns: const [
                   DataColumn(label: Text('Field')),

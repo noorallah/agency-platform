@@ -129,7 +129,18 @@ class _CreditNotePageState extends State<CreditNotePage> {
       );
     }
     return ManagementWorkspaceLayout(
-      toolbar: Wrap(
+      // Phase 2: Refresh as the line's icon and "+ New" last, as every list.
+      toolbar: Phase2Scope.of(context)
+          ? WorkspaceToolbar(
+              actions: [
+                ToolbarAction.refresh,
+                if (_mayManage) ToolbarAction.newItem,
+              ],
+              isEnabled: (_) => true,
+              onAction: (action) =>
+                  action == ToolbarAction.newItem ? _raise() : _load(),
+            )
+          : Wrap(
         spacing: AppSpacing.sm,
         runSpacing: AppSpacing.sm,
         children: [

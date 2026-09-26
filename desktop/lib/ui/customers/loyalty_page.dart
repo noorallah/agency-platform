@@ -326,10 +326,7 @@ class _LoyaltyPageState extends State<LoyaltyPage> {
         message: 'Points are credited when a bill is approved.',
       );
     }
-    return SingleChildScrollView(
-      scrollDirection: Axis.horizontal,
-      child: SingleChildScrollView(
-        child: DataTable(
+    final DataTable table = DataTable(
           columns: const [
             DataColumn(label: Text('On')),
             DataColumn(label: Text('Customer')),
@@ -357,8 +354,14 @@ class _LoyaltyPageState extends State<LoyaltyPage> {
                 )),
               ]),
           ],
-        ),
-      ),
+        );
+    // Phase 2: the full width, in the lists' grid style.
+    if (Phase2Scope.of(context)) {
+      return SingleChildScrollView(child: Phase2WideTable(table: table));
+    }
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: SingleChildScrollView(child: table),
     );
   }
 

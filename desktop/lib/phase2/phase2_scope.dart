@@ -39,9 +39,14 @@ class Phase2PageBar extends InheritedWidget {
     required this.counters,
     required this.tools,
     required this.claimed,
+    required Set<Object> holders,
     required bool Function() alive,
     required super.child,
-  }) : _alive = alive;
+  })  : _alive = alive,
+        _holders = holders;
+
+  /// The lists holding the line; it is claimed while any does.
+  final Set<Object> _holders;
 
   /// Whether the frame is still on screen; a deferred update must not land
   /// on notifiers its page has already disposed.
@@ -69,10 +74,20 @@ class Phase2PageBar extends InheritedWidget {
 
   /// Take the line. Deferred to after the frame: it changes what an
   /// ancestor draws, which may not happen while the tree is being built.
-  void claim() {
-    if (claimed.value) return;
+  void claim(Object holder) {
+    if (!_holders.add(holder) && claimed.value) return;
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (_alive()) claimed.value = true;
+      if (_alive()) claimed.value = _holders.isNotEmpty;
+    });
+  }
+
+  /// Give the line back: the list that took it has gone. Without this a
+  /// frame reused for the next screen (the admin area keeps one frame for
+  /// all its screens) stayed claimed and drew no title at all.
+  void release(Object holder) {
+    _holders.remove(holder);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_alive()) claimed.value = _holders.isNotEmpty;
     });
   }
 
@@ -129,6 +144,18 @@ class _Phase2PageBarHostState extends State<Phase2PageBarHost> {
   final ValueNotifier<List<Widget>> _counters = ValueNotifier(const []);
   final ValueNotifier<List<Widget>> _tools = ValueNotifier(const []);
   final ValueNotifier<bool> _claimed = ValueNotifier(false);
+  final Set<Object> _holders = <Object>{};
+
+  @override
+  void didUpdateWidget(covariant Phase2PageBarHost oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // Another screen in the same frame: what the last one put on the line
+    // is not this one's.
+    if (oldWidget.title != widget.title) {
+      _counters.value = const [];
+      _tools.value = const [];
+    }
+  }
 
   @override
   void dispose() {
@@ -150,6 +177,7 @@ class _Phase2PageBarHostState extends State<Phase2PageBarHost> {
             counters: _counters,
             tools: _tools,
             claimed: _claimed,
+            holders: _holders,
             alive: () => mounted,
             child: Builder(
               builder: (context) => widget.builder(context, bar, claimed),

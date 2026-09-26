@@ -650,4 +650,129 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('area-filter')), findsOneWidget);
   });
+
+  testWidgets("a screen's own table fills the width with Indian digits",
+      (tester) async {
+    tester.view.physicalSize = const Size(1200, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Phase2Scope(
+          child: Phase2WideTable(
+            table: DataTable(
+              columns: const [
+                DataColumn(label: Text('Account')),
+                DataColumn(label: Text('Closing Dr'), numeric: true),
+              ],
+              rows: const [
+                DataRow(cells: [
+                  DataCell(Text('Bank')),
+                  DataCell(Text('158117.39')),
+                ]),
+              ],
+            ),
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    expect(tester.getSize(find.byType(DataTable)).width, 1200);
+    expect(find.text('1,58,117.39'), findsOneWidget);
+    expect(find.text('Bank'), findsOneWidget);
+  });
+
+  testWidgets("a screen's own New moves to the end of its buttons",
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Phase2Scope(
+          child: ManagementWorkspaceLayout(
+            searchPanel: const SizedBox.shrink(),
+            toolbar: Wrap(spacing: 8, children: [
+              FilledButton(
+                key: const ValueKey('own-new'),
+                onPressed: () {},
+                child: const Text('New price list'),
+              ),
+              OutlinedButton(
+                key: const ValueKey('own-other'),
+                onPressed: () {},
+                child: const Text('Other'),
+              ),
+            ]),
+            primaryContent: const SizedBox.expand(),
+            statusBar: const WorkspaceStatusBar(total: 0, selected: false),
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    expect(
+      tester.getTopLeft(find.byKey(const ValueKey('own-new'))).dx,
+      greaterThan(
+          tester.getTopLeft(find.byKey(const ValueKey('own-other'))).dx),
+    );
+  });
+
+  testWidgets('own tabs sit small on the title line', (tester) async {
+    tester.view.physicalSize = const Size(1200, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Phase2ScreenTitle(
+          title: 'Tax Rules',
+          child: DefaultTabController(
+            length: 2,
+            child: Builder(
+              builder: (context) => Phase2TabsLine(
+                controller: DefaultTabController.of(context),
+                labels: const ['Rules', 'Priority Manager'],
+              ),
+            ),
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    final double title = tester.getCenter(find.text('Tax Rules')).dy;
+    expect(
+        tester.getCenter(find.text('Priority Manager')).dy, closeTo(title, 3));
+  });
+
+  testWidgets('a frame reused for a screen with no list gets its title back',
+      (tester) async {
+    Widget page(String title, Widget body) => MaterialApp(
+          home: Scaffold(
+            body: Phase2Scope(
+              child: ModuleWorkspaceFrame(
+                title: title,
+                description: '',
+                child: body,
+              ),
+            ),
+          ),
+        );
+    await tester.pumpWidget(page(
+      'Units',
+      ManagementWorkspaceLayout(
+        searchPanel: const SizedBox.shrink(),
+        toolbar: const SizedBox.shrink(),
+        primaryContent: const SizedBox.expand(),
+        statusBar: const WorkspaceStatusBar(total: 0, selected: false),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump();
+    // The admin area keeps one frame for all its screens: the next screen
+    // has no list, and the line the last one took must come back.
+    await tester.pumpWidget(page('Numbering', const Text('series')));
+    await tester.pump();
+    await tester.pump();
+    expect(find.text('Numbering'), findsOneWidget);
+  });
 }

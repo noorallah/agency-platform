@@ -206,8 +206,43 @@ class _ProformaPageState extends State<ProformaPage> {
       );
     }
     final ProformaRecord? selected = _selected;
+    final bool phase2 = Phase2Scope.of(context);
     return ManagementWorkspaceLayout(
-      toolbar: Wrap(
+      // Phase 2: Refresh as the line's icon, Issue and Withdraw as its
+      // commands, "+ New" last -- as every list.
+      toolbar: phase2
+          ? WorkspaceToolbar(
+              actions: const [ToolbarAction.refresh, ToolbarAction.newItem],
+              isEnabled: (action) =>
+                  action == ToolbarAction.refresh || _mayManage,
+              onAction: (action) =>
+                  action == ToolbarAction.newItem ? _raise() : _load(),
+              commands: [
+                ToolbarCommand(
+                  id: 'issue',
+                  label: 'Issue',
+                  icon: Icons.outbox_outlined,
+                  onPressed:
+                      _mayManage && selected != null && selected.isDraft
+                          ? () => _act(
+                                () => widget.api
+                                    .issueProformaInvoice(selected.id),
+                                '${selected.proformaNumber} issued.',
+                              )
+                          : null,
+                ),
+                ToolbarCommand(
+                  id: 'withdraw',
+                  label: 'Withdraw',
+                  icon: Icons.block_outlined,
+                  onPressed:
+                      _mayManage && selected != null && !selected.isCancelled
+                          ? () => _cancel(selected)
+                          : null,
+                ),
+              ],
+            )
+          : Wrap(
         spacing: AppSpacing.sm,
         runSpacing: AppSpacing.sm,
         children: [
@@ -243,7 +278,11 @@ class _ProformaPageState extends State<ProformaPage> {
           ),
         ],
       ),
-      searchPanel: Padding(
+      // Phase 2: the note is on the detail pane, where it is said again; on
+      // the one line it wrapped into three.
+      searchPanel: phase2
+          ? const SizedBox.shrink()
+          : Padding(
         padding: const EdgeInsets.all(AppSpacing.md),
         child: Text(
           // Said once at the top of the workspace and again on the detail

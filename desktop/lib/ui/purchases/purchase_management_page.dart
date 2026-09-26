@@ -1140,18 +1140,28 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
             : _buildSearchPanel(),
         lineChips: Phase2Scope.of(context) ? [_viewsChip()] : const [],
         filterPanel: _buildFilterPanel(),
-        viewBar: widget.section == PurchaseSection.purchaseOrders
+        viewBar: widget.section == PurchaseSection.purchaseOrders &&
+                !Phase2Scope.of(context)
             ? _buildViewBar()
             : null,
-        primaryContent: _loading
-            ? const Center(child: CircularProgressIndicator())
-            : _orders.isEmpty
-                ? StandardEmptyState(
-                    type: _search.text.trim().isEmpty && _activeFilterCount == 0
-                        ? EmptyStateType.noRecords
-                        : EmptyStateType.noSearchResults,
-                  )
-                : _buildOrdersGrid(),
+        primaryContent: Column(children: [
+          // Phase 2 (as Sales Orders): the views are counters on the line.
+          if (widget.section == PurchaseSection.purchaseOrders &&
+              Phase2Scope.of(context))
+            SummaryCards(children: _viewCounters()),
+          Expanded(
+            child: _loading
+                ? const Center(child: CircularProgressIndicator())
+                : _orders.isEmpty
+                    ? StandardEmptyState(
+                        type: _search.text.trim().isEmpty &&
+                                _activeFilterCount == 0
+                            ? EmptyStateType.noRecords
+                            : EmptyStateType.noSearchResults,
+                      )
+                    : _buildOrdersGrid(),
+          ),
+        ]),
         // No details panel. It repeated columns the grid already shows and
         // took a third of the width to do it, squeezing a fifteen-column
         // table. Double-click a row for the full document instead.
@@ -1194,6 +1204,32 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         kind: AppNotificationKind.error,
       );
     }
+  }
+
+  /// Phase 2: each view as a counter with its count from the summary;
+  /// History is an order, not a status, so it carries no count.
+  List<Widget> _viewCounters() {
+    final PurchaseSummaryRecord? summary = _summary;
+    String count(PurchaseOrderView view) => summary == null
+        ? '-'
+        : switch (view) {
+            PurchaseOrderView.all => '${summary.total}',
+            PurchaseOrderView.draft => '${summary.draft}',
+            PurchaseOrderView.open => '${summary.open}',
+            PurchaseOrderView.cancelled => '${summary.cancelled}',
+            PurchaseOrderView.closed => '${summary.closed}',
+            PurchaseOrderView.history => '',
+          };
+    return [
+      for (final PurchaseOrderView view in PurchaseOrderView.values)
+        SummaryCount(
+          key: ValueKey('purchase-view-${view.name}'),
+          label: view.label,
+          value: count(view),
+          selected: _view == view,
+          onTap: _loading ? null : () => _selectView(view),
+        ),
+    ];
   }
 
   Widget _buildViewBar() => SingleChildScrollView(
@@ -1969,12 +2005,16 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
       total: _total,
       pageOffset: (_page - 1) * _rowsPerPage,
       rowsPerPage: _rowsPerPage,
-      showRowNumbers: true,
+      // Phase 2 (as Products): no row numbers and no ticks; a row is chosen
+      // by clicking it.
+      showRowNumbers: !Phase2Scope.of(context),
       columns: columns,
       id: (item) => item.id,
       selectedId: _selected?.id,
       selectedIds: _selectedIds,
-      onSelectionChanged: (value) => setState(() => _selectedIds = value),
+      onSelectionChanged: Phase2Scope.of(context)
+          ? null
+          : (value) => setState(() => _selectedIds = value),
       cells: (item) => [
         item.poNumber,
         _labelForVendor(item.vendorId),

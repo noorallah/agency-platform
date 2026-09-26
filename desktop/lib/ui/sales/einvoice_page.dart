@@ -295,8 +295,45 @@ class _EInvoicePageState extends State<EInvoicePage> {
         message: 'Reading them needs the view e-invoice permission.',
       );
     }
+    final EInvoiceRegistrationRecord? chosen = _selectedRow;
     return ManagementWorkspaceLayout(
-      toolbar: Wrap(
+      // Phase 2: Refresh as the line's icon, the e-way bill steps as its
+      // commands, and registering -- this screen's "new" -- last.
+      toolbar: Phase2Scope.of(context)
+          ? WorkspaceToolbar(
+              actions: [
+                ToolbarAction.refresh,
+                if (_mayManage) ToolbarAction.newItem,
+              ],
+              newLabel: '+ Register',
+              isEnabled: (action) =>
+                  action == ToolbarAction.refresh || !_loading,
+              onAction: (action) =>
+                  action == ToolbarAction.newItem ? _register() : _load(),
+              commands: [
+                if (_mayManage) ...[
+                  ToolbarCommand(
+                    id: 'raise-bill',
+                    label: 'Raise bill',
+                    icon: Icons.local_shipping_outlined,
+                    onPressed: chosen != null && _mayRaiseBill(chosen)
+                        ? () => _raiseEwayBill(chosen)
+                        : null,
+                  ),
+                  ToolbarCommand(
+                    id: 'cancel-bill',
+                    label: 'Cancel bill',
+                    icon: Icons.cancel_outlined,
+                    onPressed: chosen != null &&
+                            (_bills[chosen.salesInvoiceId]?.isGenerated ??
+                                false)
+                        ? () => _cancelEwayBill(chosen)
+                        : null,
+                  ),
+                ],
+              ],
+            )
+          : Wrap(
         spacing: AppSpacing.sm,
         runSpacing: AppSpacing.sm,
         children: [

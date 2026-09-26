@@ -360,6 +360,28 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
     if (summary == null) {
       return const SizedBox.shrink();
     }
+    // Phase 2: counters on the page line, as every list, with the ones
+    // that need attention in the alert colour.
+    if (Phase2Scope.of(context)) {
+      return SummaryCards(children: [
+        SummaryCount(label: 'Batches', value: '${summary.totalBatches}'),
+        SummaryCount(
+          label: 'Near expiry',
+          value: '${summary.nearExpiry}',
+          alert: true,
+        ),
+        SummaryCount(
+          label: 'Expired',
+          value: '${summary.expired}',
+          alert: true,
+        ),
+        SummaryCount(
+          label: 'Quarantine',
+          value: '${summary.quarantine}',
+          alert: true,
+        ),
+      ]);
+    }
     return Padding(
       padding: const EdgeInsets.only(bottom: 12),
       child: Row(
