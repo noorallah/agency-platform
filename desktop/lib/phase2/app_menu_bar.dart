@@ -259,8 +259,27 @@ class _AreaPanel extends StatelessWidget {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            for (final MenuGroupSpec group in everyday)
-              _column(context, group, labelled: labelled),
+            // Beside a configuration block the everyday groups are short --
+            // two masters, one, two -- so they stack in one column, each
+            // under its own heading, rather than leaving three half-empty
+            // columns (owner, 2026-09-26).
+            if (setup.isNotEmpty && everyday.isNotEmpty)
+              IntrinsicWidth(
+                key: const ValueKey('menu-everyday'),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (int i = 0; i < everyday.length; i++) ...[
+                      if (i > 0) const SizedBox(height: 8),
+                      _column(context, everyday[i], labelled: labelled),
+                    ],
+                  ],
+                ),
+              )
+            else
+              for (final MenuGroupSpec group in everyday)
+                _column(context, group, labelled: labelled),
             // Configuration apart from the everyday masters: a line, then a
             // shaded block headed CONFIGURATION -- the lists set up once and
             // rarely opened again (owner, 2026-09-26).
