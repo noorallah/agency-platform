@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/api/concurrency.dart';
@@ -12,6 +13,9 @@ import '../../models/entities.dart';
 import '../../models/vendor.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
+import '../../phase2/document_page.dart';
+
+part 'vendor_editor_phase2.dart';
 
 class VendorManagementPage extends StatefulWidget {
   const VendorManagementPage({
@@ -146,11 +150,24 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
     final bool creating = vendor == null;
     if (creating && !_canCreate) return;
     if (!creating && !_canEdit) return;
-    final Json? payload = await showDialog<Json>(
-      context: context,
-      builder: (context) =>
-          _VendorEditorDialog(api: widget.api, vendor: vendor),
-    );
+    // Phase 2 opens the record as a full-page tab titled with the vendor's
+    // name (owner, 2026-09-26); phase 1 keeps its dialog.
+    final Json? payload = Phase2Scope.of(context)
+        ? await showDocument<Json>(
+            context,
+            title: creating
+                ? 'New vendor'
+                : vendor.displayName.isEmpty
+                    ? vendor.name
+                    : vendor.displayName,
+            builder: (context) =>
+                _VendorEditorDialog(api: widget.api, vendor: vendor),
+          )
+        : await showDialog<Json>(
+            context: context,
+            builder: (context) =>
+                _VendorEditorDialog(api: widget.api, vendor: vendor),
+          );
     if (payload == null || !mounted) return;
     try {
       if (creating) {
@@ -461,7 +478,10 @@ class _VendorEditorDialog extends StatefulWidget {
 
 class _VendorEditorDialogState extends State<_VendorEditorDialog>
     with SingleTickerProviderStateMixin {
-  late final TabController _tabs = TabController(length: 7, vsync: this);
+  /// Made in `initState`, not on first use: the phase 2 page never shows the
+  /// tabs, and a controller first made in `dispose` looks up a ticker on a
+  /// widget already gone.
+  late final TabController _tabs;
 
   /// The vendor's custom fields, loaded for this firm. Sent only once the
   /// definitions arrived: absent leaves the stored values alone.
@@ -538,9 +558,26 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
   String? _categoryId;
   String? _typeId;
 
+  /// Phase 2: the sections are one scroll rather than tabs.
+  bool _flat = false;
+  final Map<String, GlobalKey> _sectionKeys = {
+    for (final String section in const [
+      'General',
+      'Contacts',
+      'Addresses',
+      'Banking',
+      'Tax',
+      'Notes',
+      'Custom fields',
+    ])
+      section: GlobalKey(),
+  };
+
+
   @override
   void initState() {
     super.initState();
+    _tabs = TabController(length: 7, vsync: this);
     _customFields.start();
     _status = widget.vendor?.status.isNotEmpty == true
         ? widget.vendor!.status
@@ -635,7 +672,14 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
   }
 
   @override
-  Widget build(BuildContext context) => AlertDialog(
+  Widget build(BuildContext context) {
+    _flat = Phase2Scope.of(context);
+    // Phase 2: the record as a full-page tab, as the customer is.
+    if (_flat) return _phase2Page(context);
+    return _dialog(context);
+  }
+
+  Widget _dialog(BuildContext context) => AlertDialog(
         title: Text(widget.vendor == null ? 'Create vendor' : 'Edit vendor'),
         content: SizedBox(
           width: 900,
@@ -701,6 +745,9 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
       );
 
   Widget _generalTab() => ListView(
+        // Phase 2 lays it out inside the page's own scroll.
+        shrinkWrap: _flat,
+        physics: _flat ? const NeverScrollableScrollPhysics() : null,
         children: [
           Row(
             children: [
@@ -816,8 +863,8 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
             ),
           ),
           const Divider(height: 1),
-          Expanded(
-            child: count == 0
+          _fill(
+            count == 0
                 ? Center(
                     child: Padding(
                       padding: const EdgeInsets.all(16),
@@ -825,6 +872,9 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                     ),
                   )
                 : ListView.builder(
+                    shrinkWrap: _flat,
+                    physics:
+                        _flat ? const NeverScrollableScrollPhysics() : null,
                     itemCount: count,
                     itemBuilder: (context, index) => Card(
                       margin: const EdgeInsets.symmetric(vertical: 6),
@@ -1045,6 +1095,10 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
         },
       );
 
+  /// A tab's list fills the dialog's fixed height; on the phase 2 page it is
+  /// as tall as its rows.
+  Widget _fill(Widget child) => _flat ? child : Expanded(child: child);
+
   Widget _field(TextEditingController controller, String label,
           {int maxLines = 1, String? helper}) =>
       TextField(
@@ -1079,8 +1133,8 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
             ),
           ),
           const Divider(height: 1),
-          Expanded(
-            child: _addresses.isEmpty
+          _fill(
+            _addresses.isEmpty
                 ? const Center(
                     child: Padding(
                       padding: EdgeInsets.all(16),
@@ -1092,6 +1146,9 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
                     ),
                   )
                 : ListView.builder(
+                    shrinkWrap: _flat,
+                    physics:
+                        _flat ? const NeverScrollableScrollPhysics() : null,
                     itemCount: _addresses.length,
                     itemBuilder: (context, index) {
                       final _EditableAddress row = _addresses[index];

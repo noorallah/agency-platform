@@ -503,12 +503,20 @@ class DocumentSidePair extends StatelessWidget {
             ),
           ),
         ),
-        Text(
-          value,
-          style: theme.textTheme.bodyMedium?.copyWith(
-            fontSize: 13,
-            fontWeight: bold ? FontWeight.w700 : null,
-            color: tone,
+        const SizedBox(width: 8),
+        // A long value (a bank and its IFSC, a GSTIN) wraps at a width of its
+        // own rather than running off the panel; a short one keeps to the
+        // right edge and leaves the label the rest of the line.
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 150),
+          child: Text(
+            value,
+            textAlign: TextAlign.right,
+            style: theme.textTheme.bodyMedium?.copyWith(
+              fontSize: 13,
+              fontWeight: bold ? FontWeight.w700 : null,
+              color: tone,
+            ),
           ),
         ),
       ]),

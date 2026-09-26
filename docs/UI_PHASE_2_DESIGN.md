@@ -425,6 +425,11 @@ one change: the tab is titled with the record's **name**, not its code ("that
 makes sense"); the code stays on the page. Products and vendors follow the same
 way.
 
+**Vendors (2026-09-26)** follow the customer: a full-page tab titled with the
+vendor's name, General, Contacts, Addresses, Banking, Tax, Notes and Custom fields
+in one scroll with section links, and a side panel with GST standing, the primary
+contact and the account they are paid into.
+
 ### 4.9 Home per role
 
 A counter clerk, a storeman, an accountant and an owner get different homes:
