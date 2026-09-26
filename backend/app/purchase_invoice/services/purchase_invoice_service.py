@@ -64,6 +64,7 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceNoteResponse,
     PurchaseInvoiceNoteWrite,
     PurchaseInvoiceOverdueRecord,
+    PurchaseInvoicePreview,
     PurchaseInvoiceReconciliationRecord,
     PurchaseInvoiceRegisterRecord,
     PurchaseInvoiceResponse,
@@ -73,8 +74,10 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceSummary,
     PurchaseInvoiceVendorOutstandingRecord,
 )
+from app.sales.services.document_preview import purchase_line_companions
 from app.settlements.schemas import OutstandingInvoiceRecord
 from app.tax.schemas import TaxRuleSimulationRequest
+from app.tax.services.place_of_supply import PURCHASE_INTERSTATE
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.schemas import ConversionRequest
@@ -260,7 +263,53 @@ class PurchaseInvoiceService(TransactionalDocumentService):
     def create_invoice(
         self, data: PurchaseInvoiceCreate, *, firm_id: UUID, actor_id: UUID
     ) -> PurchaseInvoice:
-        """Create one purchase invoice."""
+        """Create one purchase invoice and commit it."""
+        row = self.stage_invoice(data, firm_id=firm_id, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def preview_invoice(
+        self, data: PurchaseInvoiceCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> PurchaseInvoicePreview:
+        """Price a bill exactly as saving it would, then save nothing.
+
+        Staged through the save path -- the receipt's prices where none is
+        typed, discounts, tax at the rates in force -- read back, and the unit
+        of work rolled back: no bill, no number used up, no audit row. The
+        response carries the duplicate-number warning the save would, so the
+        clerk learns of a bill entered twice while typing it.
+        """
+        try:
+            row = self.stage_invoice(data, firm_id=firm_id, actor_id=actor_id)
+            response = self.invoice_response(row)
+            interstate = (
+                self._tax.inward_transaction_type(
+                    "PURCHASE_INVOICE",
+                    firm_id=firm_id,
+                    branch_id=response.branch_id,
+                    vendor_id=response.vendor_id,
+                )
+                == PURCHASE_INTERSTATE
+            )
+            lines = purchase_line_companions(
+                self._session,
+                firm_id=firm_id,
+                vendor_id=response.vendor_id,
+                lines=[
+                    (line.line_number, line.product_id, line.warehouse_id)
+                    for line in response.lines
+                ],
+            )
+        finally:
+            self._session.rollback()
+        return PurchaseInvoicePreview(
+            invoice=response, interstate=interstate, lines=lines
+        )
+
+    def stage_invoice(
+        self, data: PurchaseInvoiceCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> PurchaseInvoice:
+        """Build one purchase invoice as a draft without committing it."""
         assert_feature_fields(
             self._session,
             firm_id,
@@ -370,7 +419,6 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             after_data={"invoice_number": row.invoice_number, "status": row.status},
         )
         self._flush_or_conflict("Purchase invoice number already exists in this firm.")
-        self._session.commit()
         return row
 
     def update_invoice(

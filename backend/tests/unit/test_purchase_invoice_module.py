@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from pydantic import ValidationError as PydanticValidationError
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -373,6 +373,68 @@ def test_an_invoice_line_with_no_price_bills_at_the_source_lines_price() -> None
 
     assert _bill("SUP-SILENT", None).unit_price == Decimal("100")
     assert _bill("SUP-ZERO", Decimal("0")).unit_price == Decimal("0")
+
+
+def test_a_preview_prices_the_bill_and_saves_nothing() -> None:
+    """The bill screen's figures are the save's, and nothing lands.
+
+    The create committed in the same step, so there was nothing to preview
+    with; it is staged now, and the preview rolls the stage back -- no bill,
+    no number used up, no audit row.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    vendor = _vendor(session, firm_id=firm.id)
+    order = _purchase_order(
+        session,
+        firm_id=firm.id,
+        vendor_id=vendor.id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+    )
+    po_line = session.scalar(
+        select(PurchaseOrderLine).where(PurchaseOrderLine.purchase_order_id == order.id)
+    )
+    assert po_line is not None
+    receipt, receipt_line = _received(session, po_line)
+    payload = PurchaseInvoiceCreate(
+        supplier_invoice_number="SUP-PREVIEW",
+        supplier_invoice_date=date(2026, 8, 2),
+        invoice_date=date(2026, 8, 2),
+        source_documents=[
+            {
+                "source_document_type": PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                "source_document_id": receipt.id,
+            }
+        ],
+        lines=[
+            PurchaseInvoiceLineWrite.model_validate(
+                {
+                    "source_document_type": PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                    "source_document_id": receipt.id,
+                    "source_document_line_id": receipt_line.id,
+                    "line_number": 1,
+                    "current_invoice_quantity": Decimal("2"),
+                }
+            )
+        ],
+    )
+    service = PurchaseInvoiceService(session)
+    audits = session.scalar(select(func.count()).select_from(AuditLog))
+
+    preview = service.preview_invoice(payload, firm_id=firm.id, actor_id=uuid4())
+
+    # Two at the receipt's 100, as a blank price takes.
+    assert preview.invoice.subtotal == Decimal("200.0000")
+    assert preview.interstate is False
+    assert preview.lines[0].product_id == po_line.product_id
+    assert preview.lines[0].last_price is None
+    assert session.scalar(select(func.count()).select_from(PurchaseInvoice)) == 0
+    assert session.scalar(select(func.count()).select_from(AuditLog)) == audits
+    saved = service.create_invoice(payload, firm_id=firm.id, actor_id=uuid4())
+    assert saved.invoice_number == preview.invoice.invoice_number
 
 
 def test_only_an_approved_bill_can_be_closed() -> None:

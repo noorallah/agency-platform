@@ -35,6 +35,7 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceImportRequest,
     PurchaseInvoiceListFilters,
     PurchaseInvoiceOverdueRecord,
+    PurchaseInvoicePreview,
     PurchaseInvoiceReconciliationRecord,
     PurchaseInvoiceRegisterRecord,
     PurchaseInvoiceResponse,
@@ -190,6 +191,25 @@ def create_purchase_invoice(
     service = PurchaseInvoiceService(db)
     row = service.create_invoice(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
     return ApiResponse(data=service.invoice_response(row))
+
+
+@router.post("/preview", response_model=ApiResponse[PurchaseInvoicePreview])
+def preview_purchase_invoice(
+    data: PurchaseInvoiceCreate,
+    scope: PurchaseInvoiceCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PurchaseInvoicePreview]:
+    """Price a supplier bill as saving it would, and save nothing.
+
+    What the bill screen calls as its lines are typed, so the tax and total
+    it shows -- to be checked against the paper -- are the ones the save will
+    store.
+    """
+    return ApiResponse(
+        data=PurchaseInvoiceService(db).preview_invoice(
+            data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        )
+    )
 
 
 # Declared above the `/{{id}}` route below on purpose: FastAPI matches in

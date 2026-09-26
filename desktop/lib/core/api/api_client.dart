@@ -3746,6 +3746,18 @@ class ApiClient {
         body: const <String, dynamic>{},
       );
 
+  /// Price a supplier bill as saving it would, and save nothing: what the
+  /// phase 2 bill screen shows while its lines are typed.
+  Future<PurchaseInvoicePreviewRecord> previewPurchaseInvoice(
+    Json data,
+  ) async =>
+      PurchaseInvoicePreviewRecord.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/purchase-invoices/preview',
+              body: data),
+        ),
+      );
+
   /// Raise a supplier bill against a completed goods receipt.
   ///
   /// Named rather than reached through the generic `create`, because the

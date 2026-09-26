@@ -99,6 +99,29 @@ class PurchaseOrderPreviewRecord {
       );
 }
 
+/// A supplier bill priced exactly as saving it would, from
+/// `POST /api/v1/purchase-invoices/preview`: the bill as the save would store
+/// it (with any duplicate-number warning), how its tax splits, and each
+/// line's last price from this vendor and stock.
+class PurchaseInvoicePreviewRecord {
+  const PurchaseInvoicePreviewRecord({
+    required this.invoice,
+    required this.interstate,
+    required this.lines,
+  });
+
+  final Map<String, dynamic> invoice;
+  final bool interstate;
+  final List<DocumentPreviewLine> lines;
+
+  factory PurchaseInvoicePreviewRecord.fromJson(Map<String, dynamic> json) =>
+      PurchaseInvoicePreviewRecord(
+        invoice: Map<String, dynamic>.from(json['invoice'] as Map? ?? const {}),
+        interstate: json['interstate'] == true,
+        lines: _previewLines(json['lines']),
+      );
+}
+
 List<DocumentPreviewLine> _previewLines(dynamic raw) => [
       for (final dynamic line in raw as List? ?? const [])
         if (line is Map)
