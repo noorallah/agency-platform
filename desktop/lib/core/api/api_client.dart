@@ -3417,6 +3417,15 @@ class ApiClient {
         _unwrapMap(await request('GET', '/api/v1/quotations/$id')),
       );
 
+  /// Price an offer as saving it would, and save nothing: what the
+  /// new-quotation screen shows while its lines are typed.
+  Future<QuotationPreviewRecord> previewQuotation(Json data) async =>
+      QuotationPreviewRecord.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/quotations/preview', body: data),
+        ),
+      );
+
   Future<Quotation> createQuotation(Json data) async => Quotation.fromJson(
         _unwrapMap(await request('POST', '/api/v1/quotations', body: data)),
       );

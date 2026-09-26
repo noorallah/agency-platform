@@ -241,6 +241,20 @@ class QuotationLineResponse(QuotationSchema):
     updated_at: datetime
 
 
+class QuotationPreviewLine(QuotationSchema):
+    """What the writer of an offer wants beside one line while typing it."""
+
+    line_number: int
+    product_id: UUID
+    #: The last price this customer was billed for the product, and on which
+    #: bill -- None when they have never bought it.
+    last_price: Decimal | None = None
+    last_invoice_number: str | None = None
+    last_invoice_date: date | None = None
+    #: Stock free to promise in the warehouse the offer ships from.
+    available_quantity: Decimal = Decimal("0")
+
+
 class QuotationResponse(QuotationSchema):
     """Return one quotation."""
 
@@ -367,3 +381,17 @@ class QuotationConversionRecord(QuotationSchema):
     expired_count: int
     #: Still open: quoted, not yet won, lost or lapsed.
     open_count: int
+
+
+class QuotationPreview(QuotationSchema):
+    """An offer priced exactly as saving it would, without saving it.
+
+    The quotation is what the save path computes -- the prices, discounts,
+    promotions and tax a draft would carry -- with the number it would be
+    given. ``interstate`` says how its tax splits: IGST across states, CGST
+    and SGST within one.
+    """
+
+    quotation: QuotationResponse
+    interstate: bool
+    lines: list[QuotationPreviewLine]

@@ -228,3 +228,66 @@ class QuotationConversion {
     );
   }
 }
+
+/// One line's companions in a priced preview: what this customer last paid
+/// for the product, and the stock free to promise where the offer ships from.
+class QuotationPreviewLine {
+  const QuotationPreviewLine({
+    required this.lineNumber,
+    required this.productId,
+    required this.lastPrice,
+    required this.lastInvoiceNumber,
+    required this.lastInvoiceDate,
+    required this.availableQuantity,
+  });
+
+  final int lineNumber;
+  final String productId;
+
+  /// Empty when the customer has never been billed for the product.
+  final String lastPrice;
+  final String lastInvoiceNumber;
+  final String lastInvoiceDate;
+  final String availableQuantity;
+
+  factory QuotationPreviewLine.fromJson(Map<String, dynamic> json) =>
+      QuotationPreviewLine(
+        lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
+        productId: '${json['product_id'] ?? ''}',
+        lastPrice: json['last_price'] == null ? '' : '${json['last_price']}',
+        lastInvoiceNumber: '${json['last_invoice_number'] ?? ''}',
+        lastInvoiceDate: '${json['last_invoice_date'] ?? ''}',
+        availableQuantity: '${json['available_quantity'] ?? '0'}',
+      );
+}
+
+/// An offer priced exactly as saving it would, from
+/// `POST /api/v1/quotations/preview`: the draft the save would store (its
+/// rates, discounts, tax and number), how its tax splits, and each line's
+/// companions. Nothing is saved.
+class QuotationPreviewRecord {
+  const QuotationPreviewRecord({
+    required this.quotation,
+    required this.interstate,
+    required this.lines,
+  });
+
+  final Quotation quotation;
+
+  /// IGST across states; CGST and SGST within one.
+  final bool interstate;
+  final List<QuotationPreviewLine> lines;
+
+  factory QuotationPreviewRecord.fromJson(Map<String, dynamic> json) =>
+      QuotationPreviewRecord(
+        quotation: Quotation.fromJson(
+          Map<String, dynamic>.from(json['quotation'] as Map? ?? const {}),
+        ),
+        interstate: json['interstate'] == true,
+        lines: [
+          for (final dynamic line in json['lines'] as List? ?? const [])
+            if (line is Map)
+              QuotationPreviewLine.fromJson(Map<String, dynamic>.from(line)),
+        ],
+      );
+}

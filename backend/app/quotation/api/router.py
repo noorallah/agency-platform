@@ -28,6 +28,7 @@ from app.quotation.schemas import (
     QuotationDecision,
     QuotationImportRequest,
     QuotationListFilters,
+    QuotationPreview,
     QuotationRegisterRecord,
     QuotationResponse,
     QuotationStatus,
@@ -221,6 +222,24 @@ def create_quotation(
         payload, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data=service.quotation_response(row))
+
+
+@router.post("/preview", response_model=ApiResponse[QuotationPreview])
+def preview_quotation(
+    payload: QuotationCreate,
+    scope: QuotationCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[QuotationPreview]:
+    """Price an offer as saving it would, and save nothing.
+
+    What the new-quotation screen calls as its lines are typed, so the rates,
+    discounts, tax and totals it shows are the ones the save will store.
+    """
+    return ApiResponse(
+        data=QuotationService(db).preview_quotation(
+            payload, firm_id=scope.firm_id, actor_id=scope.actor_id
+        )
+    )
 
 
 @router.get("/export")

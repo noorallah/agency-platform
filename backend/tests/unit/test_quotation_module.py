@@ -1570,3 +1570,37 @@ def test_approving_a_converted_order_reserves_in_the_quoted_warehouse() -> None:
     ).all()
     assert held, "approval reserved nothing"
     assert set(held) == {setup.warehouse.id}
+
+
+def test_a_preview_prices_the_offer_and_saves_nothing() -> None:
+    """The new-quotation screen's figures are the save's, and nothing lands.
+
+    It stages the draft through the save path and rolls the unit back: no
+    quotation, no line, no audit row -- and the next real save takes the
+    number the preview showed, because none was used up.
+    """
+    session = _session_factory()()
+    setup = _Setup(session)
+    audits = session.scalar(select(func.count()).select_from(AuditLog))
+
+    preview = setup.service.preview_quotation(
+        setup.payload(discount_percent=Decimal("10")),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+
+    assert preview.quotation.grand_total == Decimal("360.0000")
+    assert preview.quotation.quotation_number.startswith("QT")
+    assert preview.interstate is False
+    assert [line.line_number for line in preview.lines] == [1]
+    # Never billed to this customer, and nothing in stock.
+    assert preview.lines[0].last_price is None
+    assert preview.lines[0].available_quantity == Decimal("0")
+    assert session.scalar(select(func.count()).select_from(SalesQuotation)) == 0
+    assert session.scalar(select(func.count()).select_from(SalesQuotationLine)) == 0
+    assert session.scalar(select(func.count()).select_from(AuditLog)) == audits
+
+    saved = setup.service.create_quotation(
+        setup.payload(), firm_id=setup.firm.id, actor_id=setup.actor_id
+    )
+    assert saved.quotation_number == preview.quotation.quotation_number

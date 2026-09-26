@@ -72,6 +72,8 @@ from app.quotation.schemas import (
     QuotationListFilters,
     QuotationNoteResponse,
     QuotationNoteWrite,
+    QuotationPreview,
+    QuotationPreviewLine,
     QuotationRegisterRecord,
     QuotationResponse,
     QuotationStatus,
@@ -83,6 +85,7 @@ from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
 from app.sales_order.services.sales_order_service import PromotionBenefits
 from app.tax.schemas import TaxRuleSimulationRequest
+from app.tax.services.place_of_supply import SALES_INTERSTATE
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.services import assert_quantity_fits_unit
@@ -281,6 +284,112 @@ class QuotationService(TransactionalDocumentService):
         row = self._stage_quotation(data, firm_id=firm_id, actor_id=actor_id)
         self._session.commit()
         return row
+
+    def preview_quotation(
+        self, data: QuotationCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> QuotationPreview:
+        """Price an offer exactly as saving it would, then save nothing.
+
+        The draft is staged through the same path as a save -- so the price
+        list, the customer's and group's rates, promotions, the bill discount,
+        freight and tax are the ones the save would reach -- read back, and
+        the whole unit of work rolled back: no quotation, no number used up,
+        no audit row, no tax log. The request's session is its own, so there
+        is nothing else in it to lose.
+        """
+        try:
+            row = self._stage_quotation(data, firm_id=firm_id, actor_id=actor_id)
+            response = self.quotation_response(row)
+            interstate = (
+                self._tax.outward_transaction_type(
+                    "SALES_QUOTATION",
+                    firm_id=firm_id,
+                    branch_id=data.branch_id,
+                    customer_id=data.customer_id,
+                )
+                == SALES_INTERSTATE
+            )
+            lines = self._preview_lines(
+                response,
+                firm_id=firm_id,
+                customer_id=data.customer_id,
+                warehouse_id=data.warehouse_id,
+            )
+        finally:
+            self._session.rollback()
+        return QuotationPreview(quotation=response, interstate=interstate, lines=lines)
+
+    def _preview_lines(
+        self,
+        response: QuotationResponse,
+        *,
+        firm_id: UUID,
+        customer_id: UUID,
+        warehouse_id: UUID | None,
+    ) -> list[QuotationPreviewLine]:
+        """Each line's last price to this customer and its free stock."""
+        # Imported here: the sales invoice module reads quotations.
+        from app.inventory.models import InventoryRecord
+        from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
+
+        product_ids = {line.product_id for line in response.lines}
+        last: dict[UUID, tuple[Decimal, str, date]] = {}
+        if product_ids:
+            billed = self._session.execute(
+                select(
+                    SalesInvoiceLine.product_id,
+                    SalesInvoiceLine.unit_price,
+                    SalesInvoice.invoice_number,
+                    SalesInvoice.invoice_date,
+                )
+                .join(
+                    SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id
+                )
+                .where(
+                    SalesInvoice.firm_id == firm_id,
+                    SalesInvoice.customer_id == customer_id,
+                    SalesInvoice.is_deleted.is_(False),
+                    SalesInvoiceLine.is_deleted.is_(False),
+                    SalesInvoice.status.in_(["APPROVED", "CLOSED"]),
+                    SalesInvoiceLine.product_id.in_(product_ids),
+                )
+                .order_by(
+                    SalesInvoice.invoice_date.desc(),
+                    SalesInvoice.created_at.desc(),
+                )
+            ).all()
+            for product_id, price, number, on in billed:
+                last.setdefault(product_id, (price, number, on))
+        stock: dict[UUID, Decimal] = {}
+        if product_ids and warehouse_id is not None:
+            for product_id, available in self._session.execute(
+                select(
+                    InventoryRecord.product_id,
+                    func.coalesce(func.sum(InventoryRecord.available_quantity), 0),
+                )
+                .where(
+                    InventoryRecord.firm_id == firm_id,
+                    InventoryRecord.warehouse_id == warehouse_id,
+                    InventoryRecord.is_deleted.is_(False),
+                    InventoryRecord.product_id.in_(product_ids),
+                )
+                .group_by(InventoryRecord.product_id)
+            ).all():
+                stock[product_id] = Decimal(str(available))
+        result: list[QuotationPreviewLine] = []
+        for line in response.lines:
+            previous = last.get(line.product_id)
+            result.append(
+                QuotationPreviewLine(
+                    line_number=line.line_number,
+                    product_id=line.product_id,
+                    last_price=previous[0] if previous else None,
+                    last_invoice_number=previous[1] if previous else None,
+                    last_invoice_date=previous[2] if previous else None,
+                    available_quantity=stock.get(line.product_id, Decimal("0")),
+                )
+            )
+        return result
 
     def _stage_quotation(
         self, data: QuotationCreate, *, firm_id: UUID, actor_id: UUID
