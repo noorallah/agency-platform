@@ -245,6 +245,21 @@ class CreditNoteService(TransactionalDocumentService):
         )
         return row
 
+    def preview_note(
+        self, data: CreditNoteCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> CreditNoteResponse:
+        """Price a credit note exactly as raising it would, then save nothing.
+
+        Staged through the create -- each line's tax at the rate its invoice
+        line charged, the cap on what is left to credit -- read back, and the
+        unit of work rolled back: no note, no number used up, no audit row.
+        """
+        try:
+            row = self.create_note(data, firm_id=firm_id, actor_id=actor_id)
+            return self.note_response(row)
+        finally:
+            self._session.rollback()
+
     def update_note(
         self,
         note_id: UUID,

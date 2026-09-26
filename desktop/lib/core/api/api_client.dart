@@ -4355,6 +4355,15 @@ class ApiClient {
     );
   }
 
+  /// Price a credit note as raising it would, and save nothing: the tax the
+  /// phase 2 screen shows coming off while the amounts are typed.
+  Future<CreditNoteRecord> previewCreditNote(Json body) async =>
+      CreditNoteRecord.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/credit-notes/preview', body: body),
+        ),
+      );
+
   Future<CreditNoteRecord> createCreditNote(Json body) async =>
       CreditNoteRecord.fromJson(
         _unwrapMap(await request('POST', '/api/v1/credit-notes', body: body)),
