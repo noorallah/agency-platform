@@ -136,9 +136,9 @@ class _PurchaseReturnManagementPageState extends State<PurchaseReturnManagementP
 
   /// Open the editor and reload if it saved a return.
   Future<void> _createReturn() async {
-    final Json? saved = await showDialog<Json>(
-      context: context,
-      barrierDismissible: false,
+    final Json? saved = await showDocument<Json>(
+      context,
+      title: 'New purchase return',
       builder: (_) => PurchaseReturnEditorDialog(
         api: widget.api,
         receipts: _returnableReceipts,

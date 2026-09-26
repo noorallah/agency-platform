@@ -233,9 +233,9 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
 
   /// Open the editor and reload if it saved a note.
   Future<void> _createNote() async {
-    final Json? saved = await showDialog<Json>(
-      context: context,
-      barrierDismissible: false,
+    final Json? saved = await showDocument<Json>(
+      context,
+      title: 'New delivery note',
       builder: (_) => DeliveryNoteEditorDialog(
         api: widget.api,
         salesOrders: _deliverableOrders,

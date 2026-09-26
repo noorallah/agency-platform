@@ -291,9 +291,9 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
 
   /// Open the receipt editor and reload if it saved one.
   Future<void> _createReceipt({GoodsReceiptRecord? existing}) async {
-    final GoodsReceiptRecord? saved = await showDialog<GoodsReceiptRecord>(
-      context: context,
-      barrierDismissible: false,
+    final GoodsReceiptRecord? saved = await showDocument<GoodsReceiptRecord>(
+      context,
+      title: existing == null ? 'New goods receipt' : 'Edit goods receipt',
       builder: (_) => GoodsReceiptEditorDialog(
         api: widget.api,
         purchaseOrders: _receivableOrders,
