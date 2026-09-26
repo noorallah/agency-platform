@@ -17,6 +17,7 @@ from app.sales_invoice.schemas.sales_invoice import (
     SalesInvoiceNoteResponse,
     SalesInvoiceNoteWrite,
     SalesInvoiceOverdueRecord,
+    SalesInvoicePreview,
     SalesInvoiceReconciliationRecord,
     SalesInvoiceRegisterRecord,
     SalesInvoiceResponse,
@@ -29,6 +30,7 @@ from app.sales_invoice.schemas.sales_invoice import (
 )
 
 __all__ = [
+    "SalesInvoicePreview",
     "BillableDocument",
     "BillableLine",
     "BillableDocument",

@@ -41,6 +41,7 @@ from app.sales_order.schemas import (
     SalesOrderImportRequest,
     SalesOrderListFilters,
     SalesOrderPendingRecord,
+    SalesOrderPreview,
     SalesOrderRegisterRecord,
     SalesOrderResponse,
     SalesOrderStatus,
@@ -201,6 +202,24 @@ def create_sales_order(
     service = SalesOrderService(db)
     row = service.create_order(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
     return ApiResponse(data=service.order_response(row))
+
+
+@router.post("/preview", response_model=ApiResponse[SalesOrderPreview])
+def preview_sales_order(
+    data: SalesOrderCreate,
+    scope: SalesOrderCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SalesOrderPreview]:
+    """Price an order as saving it would, and save nothing.
+
+    What the order screen calls as its lines are typed, so the rates,
+    discounts, tax and totals it shows are the ones the save will store.
+    """
+    return ApiResponse(
+        data=SalesOrderService(db).preview_order(
+            data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        )
+    )
 
 
 # Declared above the `/{{id}}` route below on purpose: FastAPI matches in

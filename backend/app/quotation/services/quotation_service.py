@@ -79,6 +79,7 @@ from app.quotation.schemas import (
     QuotationStatus,
     QuotationSummary,
 )
+from app.sales.services.document_preview import line_companions
 from app.sales.services.scope_resolution import resolve_sales_scope
 from app.sales_order.models import SalesOrder
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
@@ -328,68 +329,18 @@ class QuotationService(TransactionalDocumentService):
         warehouse_id: UUID | None,
     ) -> list[QuotationPreviewLine]:
         """Each line's last price to this customer and its free stock."""
-        # Imported here: the sales invoice module reads quotations.
-        from app.inventory.models import InventoryRecord
-        from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
-
-        product_ids = {line.product_id for line in response.lines}
-        last: dict[UUID, tuple[Decimal, str, date]] = {}
-        if product_ids:
-            billed = self._session.execute(
-                select(
-                    SalesInvoiceLine.product_id,
-                    SalesInvoiceLine.unit_price,
-                    SalesInvoice.invoice_number,
-                    SalesInvoice.invoice_date,
-                )
-                .join(
-                    SalesInvoice, SalesInvoice.id == SalesInvoiceLine.sales_invoice_id
-                )
-                .where(
-                    SalesInvoice.firm_id == firm_id,
-                    SalesInvoice.customer_id == customer_id,
-                    SalesInvoice.is_deleted.is_(False),
-                    SalesInvoiceLine.is_deleted.is_(False),
-                    SalesInvoice.status.in_(["APPROVED", "CLOSED"]),
-                    SalesInvoiceLine.product_id.in_(product_ids),
-                )
-                .order_by(
-                    SalesInvoice.invoice_date.desc(),
-                    SalesInvoice.created_at.desc(),
-                )
-            ).all()
-            for product_id, price, number, on in billed:
-                last.setdefault(product_id, (price, number, on))
-        stock: dict[UUID, Decimal] = {}
-        if product_ids and warehouse_id is not None:
-            for product_id, available in self._session.execute(
-                select(
-                    InventoryRecord.product_id,
-                    func.coalesce(func.sum(InventoryRecord.available_quantity), 0),
-                )
-                .where(
-                    InventoryRecord.firm_id == firm_id,
-                    InventoryRecord.warehouse_id == warehouse_id,
-                    InventoryRecord.is_deleted.is_(False),
-                    InventoryRecord.product_id.in_(product_ids),
-                )
-                .group_by(InventoryRecord.product_id)
-            ).all():
-                stock[product_id] = Decimal(str(available))
-        result: list[QuotationPreviewLine] = []
-        for line in response.lines:
-            previous = last.get(line.product_id)
-            result.append(
-                QuotationPreviewLine(
-                    line_number=line.line_number,
-                    product_id=line.product_id,
-                    last_price=previous[0] if previous else None,
-                    last_invoice_number=previous[1] if previous else None,
-                    last_invoice_date=previous[2] if previous else None,
-                    available_quantity=stock.get(line.product_id, Decimal("0")),
-                )
+        return [
+            QuotationPreviewLine.model_validate(line.model_dump())
+            for line in line_companions(
+                self._session,
+                firm_id=firm_id,
+                customer_id=customer_id,
+                lines=[
+                    (line.line_number, line.product_id, warehouse_id)
+                    for line in response.lines
+                ],
             )
-        return result
+        ]
 
     def _stage_quotation(
         self, data: QuotationCreate, *, firm_id: UUID, actor_id: UUID

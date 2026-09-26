@@ -60,6 +60,7 @@ from app.inventory.models import StockLedgerEntry
 from app.loyalty.services import LoyaltyService
 from app.products.models import Product
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
+from app.sales.services.document_preview import line_companions
 from app.sales.services.scope_resolution import (
     resolve_sales_scope,
     validate_named_route,
@@ -90,6 +91,7 @@ from app.sales_invoice.schemas import (
     SalesInvoiceNoteResponse,
     SalesInvoiceNoteWrite,
     SalesInvoiceOverdueRecord,
+    SalesInvoicePreview,
     SalesInvoiceReconciliationRecord,
     SalesInvoiceRegisterRecord,
     SalesInvoiceResponse,
@@ -104,6 +106,7 @@ from app.sales_order.schemas import SalesOrderStatus
 from app.sales_order.services.workflow_settings_service import SalesWorkflowService
 from app.settlements.schemas import OutstandingInvoiceRecord
 from app.tax.schemas import TaxRuleSimulationRequest
+from app.tax.services.place_of_supply import SALES_INTERSTATE
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.schemas import ConversionRequest
@@ -334,6 +337,40 @@ class SalesInvoiceService(TransactionalDocumentService):
         row = self.stage_invoice(data, firm_id=firm_id, actor_id=actor_id)
         self._session.commit()
         return row
+
+    def preview_invoice(
+        self, data: SalesInvoiceCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> SalesInvoicePreview:
+        """Price an invoice exactly as saving it would, then save nothing.
+
+        See `SalesOrderService.preview_order`: staged, read back, rolled back.
+        """
+        try:
+            row = self.stage_invoice(data, firm_id=firm_id, actor_id=actor_id)
+            response = self.invoice_response(row)
+            interstate = (
+                self._tax.outward_transaction_type(
+                    "SALES_INVOICE",
+                    firm_id=firm_id,
+                    branch_id=response.branch_id,
+                    # The invoice's own customer: one billed from its source
+                    # documents names none in the request.
+                    customer_id=response.customer_id,
+                )
+                == SALES_INTERSTATE
+            )
+            lines = line_companions(
+                self._session,
+                firm_id=firm_id,
+                customer_id=response.customer_id,
+                lines=[
+                    (line.line_number, line.product_id, line.warehouse_id)
+                    for line in response.lines
+                ],
+            )
+        finally:
+            self._session.rollback()
+        return SalesInvoicePreview(invoice=response, interstate=interstate, lines=lines)
 
     def stage_invoice(
         self, data: SalesInvoiceCreate, *, firm_id: UUID, actor_id: UUID

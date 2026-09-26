@@ -3417,6 +3417,24 @@ class ApiClient {
         _unwrapMap(await request('GET', '/api/v1/quotations/$id')),
       );
 
+  /// Price an order as saving it would, and save nothing: what the order
+  /// screen shows while its lines are typed.
+  Future<SalesOrderPreviewRecord> previewSalesOrder(Json data) async =>
+      SalesOrderPreviewRecord.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/sales-orders/preview', body: data),
+        ),
+      );
+
+  /// Price an invoice as saving it would, and save nothing: what the
+  /// invoice screen shows while its lines are typed.
+  Future<SalesInvoicePreviewRecord> previewSalesInvoice(Json data) async =>
+      SalesInvoicePreviewRecord.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/sales-invoices/preview', body: data),
+        ),
+      );
+
   /// Price an offer as saving it would, and save nothing: what the
   /// new-quotation screen shows while its lines are typed.
   Future<QuotationPreviewRecord> previewQuotation(Json data) async =>

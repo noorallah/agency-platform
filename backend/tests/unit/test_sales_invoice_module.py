@@ -79,6 +79,7 @@ from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine, SalesInvoic
 from app.sales_invoice.schemas import (
     SalesInvoiceCreate,
     SalesInvoiceLineWrite,
+    SalesInvoicePreview,
     SalesInvoiceResponse,
     SalesInvoiceSourceType,
     SalesInvoiceStatus,
@@ -3083,3 +3084,43 @@ def test_the_register_takes_a_window_and_a_page() -> None:
     assert (beyond.data, beyond.pagination.total_records) == ([], 1)
 
     assert_page_size_is_bounded(router, "/api/v1/sales-invoices/reports/register")
+
+
+def test_a_preview_prices_the_invoice_and_saves_nothing(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The invoice screen's figures are the save's, and nothing lands.
+
+    The bill of a dispatched note is previewed just before it is saved: the
+    preview carries the same total and the number the save then takes, and
+    between the two there is still no invoice at all.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    seen: dict[str, object] = {}
+    real = SalesInvoiceService.create_invoice
+
+    def create(
+        self: SalesInvoiceService,
+        data: SalesInvoiceCreate,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> SalesInvoice:
+        """Preview first, count what landed, then save for real."""
+        seen["preview"] = self.preview_invoice(data, firm_id=firm_id, actor_id=actor_id)
+        seen["landed"] = session.scalar(select(func.count()).select_from(SalesInvoice))
+        return real(self, data, firm_id=firm_id, actor_id=actor_id)
+
+    monkeypatch.setattr(SalesInvoiceService, "create_invoice", create)
+    service, invoice_id = _invoice_from_sales_order(session, firm_id=firm.id)
+
+    preview = seen["preview"]
+    assert isinstance(preview, SalesInvoicePreview)
+    assert seen["landed"] == 0
+    saved = service.get_invoice(invoice_id, firm_scope=firm.id)
+    assert preview.invoice.grand_total == Decimal("400.0000")
+    assert preview.invoice.invoice_number == saved.invoice_number
+    assert preview.interstate is False
+    # 100 on hand less the 4 that left on the note.
+    assert preview.lines[0].available_quantity == Decimal("96.0000")
