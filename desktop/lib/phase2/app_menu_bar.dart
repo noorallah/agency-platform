@@ -44,6 +44,29 @@ class AppMenuBar extends StatelessWidget {
 
   static const double height = 44;
 
+  /// The letter that opens each area with Alt, as a Windows menu bar does
+  /// (Alt+S for Sell); it is underlined while Alt is held. Not G or K: those
+  /// are the command box (4.4).
+  static const Map<String, String> accelerators = {
+    'home': 'h',
+    'sell': 's',
+    'buy': 'b',
+    'stock': 't',
+    'accounts': 'a',
+    'masters': 'm',
+    'reports': 'r',
+    'admin': 'd',
+  };
+
+  /// [label] with `&` before its Alt letter, as [MenuAcceleratorLabel]
+  /// reads it -- "S&tock" underlines the t.
+  static String acceleratorLabel(String id, String label) {
+    final String? letter = accelerators[id];
+    final int at = letter == null ? -1 : label.toLowerCase().indexOf(letter);
+    if (at < 0) return label.replaceAll('&', '&&');
+    return '${label.substring(0, at)}&${label.substring(at)}';
+  }
+
   @override
   Widget build(BuildContext context) {
     final AppSemanticColors colors = context.semanticColors;
@@ -164,10 +187,12 @@ class AppMenuBar extends StatelessWidget {
                   SubmenuButton(
                     menuStyle: panelStyle(context),
                     menuChildren: [_AreaPanel(area: area, onOpen: onOpen)],
-                    child: Text(area.label),
+                    child: MenuAcceleratorLabel(
+                      acceleratorLabel(area.id, area.label),
+                    ),
                   ),
               ],
-              child: const Text('More'),
+              child: const MenuAcceleratorLabel('M&ore'),
             ),
         ],
       ),
@@ -182,7 +207,7 @@ class AppMenuBar extends StatelessWidget {
         key: ValueKey('menu-area-${area.id}'),
         style: _barButtonStyle(context, current),
         onPressed: () => onOpen(only),
-        child: Text(area.label),
+        child: MenuAcceleratorLabel(acceleratorLabel(area.id, area.label)),
       );
     }
     return SubmenuButton(
@@ -192,7 +217,7 @@ class AppMenuBar extends StatelessWidget {
       menuChildren: [_AreaPanel(area: area, onOpen: onOpen)],
       // "Sell ▾": an area that drops a panel says so, as the wireframe does.
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Text(area.label),
+        MenuAcceleratorLabel(acceleratorLabel(area.id, area.label)),
         const SizedBox(width: 2),
         const Icon(Icons.arrow_drop_down, size: 18),
       ]),
