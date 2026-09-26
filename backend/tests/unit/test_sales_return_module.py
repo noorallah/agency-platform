@@ -1012,6 +1012,35 @@ def test_the_export_names_every_return_it_lists() -> None:
     assert str(setup.customer.id) in lines[1]
 
 
+def test_the_list_finds_a_return_by_its_customer_and_names_them() -> None:
+    """Search by the shop as well as the return, and each row says whose it is.
+
+    The owner asked the Sales Returns list to name the customer and be
+    searchable by one, as the other sales lists are (2026-09-27).
+    """
+    from app.sales_return.schemas import SalesReturnListFilters
+
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    service, row = setup.completed(quantity=Decimal("2"))
+
+    for search, expected in ((setup.customer.code, 1), ("nobody by this name", 0)):
+        _, found = service.list_returns(
+            firm_scope=setup.firm.id,
+            filters=SalesReturnListFilters(),
+            page=1,
+            page_size=20,
+            search=search,
+            sort_by="created_at",
+            descending=True,
+        )
+        assert found == expected, search
+
+    response = service.return_response(row)
+    assert response.customer_name == setup.customer.display_name
+    assert response.customer_code == setup.customer.code
+
+
 def test_cancelling_a_return_that_became_an_advance_puts_both_balances_back() -> None:
     """A credit larger than the balance splits, and the undo has to unsplit it.
 

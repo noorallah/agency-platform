@@ -117,6 +117,8 @@ class SalesReturn {
   const SalesReturn({
     required this.id,
     required this.customerId,
+    this.customerName = '',
+    this.customerCode = '',
     required this.branchId,
     required this.warehouseId,
     required this.returnNumber,
@@ -139,6 +141,10 @@ class SalesReturn {
 
   final String id;
   final String customerId;
+
+  /// Whose return it is, for the list; empty for a removed customer.
+  final String customerName;
+  final String customerCode;
   final String branchId;
   final String warehouseId;
   final String returnNumber;
@@ -177,6 +183,8 @@ class SalesReturn {
   factory SalesReturn.fromJson(Json json) => SalesReturn(
         id: stringValue(json['id']),
         customerId: stringValue(json['customer_id']),
+        customerName: stringValue(json['customer_name']),
+        customerCode: stringValue(json['customer_code']),
         branchId: stringValue(json['branch_id']),
         warehouseId: stringValue(json['warehouse_id']),
         returnNumber: stringValue(json['return_number']),

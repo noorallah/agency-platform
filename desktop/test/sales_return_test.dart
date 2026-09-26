@@ -132,6 +132,8 @@ class _ReturnApi extends ApiClient {
     int pageSize = 20,
     String search = '',
     String? status,
+    String? returnFrom,
+    String? returnTo,
   }) async =>
       PagedResult<SalesReturn>(items: rows, total: rows.length);
 

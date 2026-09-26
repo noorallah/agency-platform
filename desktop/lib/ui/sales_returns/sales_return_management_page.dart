@@ -46,6 +46,9 @@ class SalesReturnManagementPage extends StatefulWidget {
 class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
   static const int _rowsPerPage = 20;
   final TextEditingController _search = TextEditingController();
+
+  /// The return dates the list is narrowed to (owner, 2026-09-27).
+  DatePeriod _period = const DatePeriod.all();
   List<SalesReturn> _returns = const [];
   SalesReturn? _selected;
   int _page = 1;
@@ -86,6 +89,8 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
         page: _page,
         pageSize: _rowsPerPage,
         search: _search.text.trim(),
+        returnFrom: _period.from == null ? null : DatePeriod.iso(_period.from!),
+        returnTo: _period.to == null ? null : DatePeriod.iso(_period.to!),
       );
       if (!mounted) return;
       setState(() {
@@ -207,6 +212,12 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
   }
 
   /// The minute a return was made, or nothing when the server said nothing.
+  /// The customer as the list shows them: name, then code.
+  String _customer(SalesReturn row) => [
+        if (row.customerName.isNotEmpty) row.customerName,
+        if (row.customerCode.isNotEmpty) row.customerCode,
+      ].join('  ·  ');
+
   String _stamp(String createdAt) {
     final String stamp = createdStamp(createdAt);
     return stamp.isEmpty ? '' : '  ·  made $stamp';
@@ -238,9 +249,16 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
               width: 260,
               child: SearchFilterPanel(
                 controller: _search,
-                hintText: 'Search by return number',
+                hintText: 'Search number or customer',
                 onSearch: (_) => unawaited(_load(requestedPage: 1)),
               ),
+            ),
+            DateRangeFilter(
+              value: _period,
+              onChanged: (period) {
+                setState(() => _period = period);
+                unawaited(_load(requestedPage: 1));
+              },
             ),
             if (_canRaise)
               FilledButton(
@@ -332,14 +350,17 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
             title: Text('${row.returnNumber}  ·  ${row.returnDate}'),
             // Whether it has actually happened is the thing a list of returns
             // has to answer; the status word alone does not say it.
-            subtitle: Text(
+            // Whose it is first (owner, 2026-09-27), then what happened.
+            subtitle: Text([
+              if (_customer(row).isNotEmpty) _customer(row),
               row.hasMoved
                   ? '${quantity(row.totalRestockQuantity)} restocked · '
                       '${money(row.grandTotal)} credited'
                       '${_stamp(row.createdAt)}'
                   : '${quantity(row.totalCurrentReturnQuantity)} awaiting '
                       'completion${_stamp(row.createdAt)}',
-            ),
+            ].join('\n')),
+            isThreeLine: _customer(row).isNotEmpty,
             trailing: phase2
                 ? StatusBadge.fromStatus(status)
                 : StatusBadge(label: status),

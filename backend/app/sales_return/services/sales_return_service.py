@@ -37,7 +37,12 @@ from app.batch_serial.services.serial_trail_service import (
 from app.branches.models import Warehouse
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
-from app.common.report_names import branch_names, customer_names, warehouse_names
+from app.common.report_names import (
+    branch_names,
+    customer_names,
+    customers_matching,
+    warehouse_names,
+)
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
@@ -282,6 +287,7 @@ class SalesReturnService(TransactionalDocumentService):
                 SalesReturn.customer_return_number.ilike(token),
                 SalesReturn.reference_number.ilike(token),
                 SalesReturn.remarks.ilike(token),
+                SalesReturn.customer_id.in_(customers_matching(token)),
             )
             statement = statement.where(condition)
             count = count.where(condition)
@@ -2146,10 +2152,13 @@ class SalesReturnService(TransactionalDocumentService):
                 )
             ).all()
         )
+        customer = self._session.get(Customer, row.customer_id)
         return SalesReturnResponse(
             id=row.id,
             firm_id=row.firm_id,
             customer_id=row.customer_id,
+            customer_name=customer.display_name if customer else "",
+            customer_code=customer.code if customer else "",
             branch_id=row.branch_id,
             warehouse_id=row.warehouse_id,
             salesman_id=row.salesman_id,

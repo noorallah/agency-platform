@@ -328,6 +328,10 @@ class SalesReturnResponse(SalesReturnSchema):
     id: UUID
     firm_id: UUID
     customer_id: UUID
+    #: Whose return it is, so the list can say so (owner, 2026-09-27).
+    #: Empty for a customer since removed.
+    customer_name: str = ""
+    customer_code: str = ""
     branch_id: UUID
     warehouse_id: UUID
     salesman_id: UUID | None
