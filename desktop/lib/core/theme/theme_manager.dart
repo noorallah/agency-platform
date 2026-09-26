@@ -65,7 +65,7 @@ extension AppThemeModeDetails on ThemeMode {
 
 /// Holds the user's appearance choices and rebuilds the app when they change.
 class ThemeManager extends ChangeNotifier {
-  ThemeManager(this._preferences)
+  ThemeManager(this._preferences, {this.wireframe = false})
       : _palette = AppPaletteDetails.fromWireName(
           _preferences.current.cachedPalette,
         ),
@@ -76,6 +76,10 @@ class ThemeManager extends ChangeNotifier {
         _density = _preferences.current.gridDensity;
 
   final DesktopPreferencesService _preferences;
+
+  /// The phase 2 app: the light theme takes the wireframe's own greys and
+  /// text (see [ThemeRegistry.themeFor]). Phase 1 keeps its colours.
+  final bool wireframe;
   AppPalette _palette;
   ThemeMode _mode;
   bool _highContrast;
@@ -94,6 +98,7 @@ class ThemeManager extends ChangeNotifier {
         brightness: Brightness.light,
         highContrast: _highContrast,
         density: _density,
+        wireframe: wireframe,
       );
 
   /// The dark half of the pair. `MaterialApp.darkTheme`.
@@ -178,6 +183,7 @@ class ThemeRegistry {
     required Brightness brightness,
     bool highContrast = false,
     GridDensity density = GridDensity.comfortable,
+    bool wireframe = false,
   }) {
     final AppDensityTokens spacing = switch (density) {
       GridDensity.compact => AppDensityTokens.compact,
@@ -225,23 +231,47 @@ class ThemeRegistry {
             surfaceContainerHigh: const Color(0xffe7ecef),
             surfaceContainerHighest: const Color(0xffe1e7ea),
           );
-    final ColorScheme tuned = highContrast
-        ? grounds
-        : dark
-            ? grounds.copyWith(
-                onSurface: const Color(0xffe3e7ea),
-                onSurfaceVariant: const Color(0xffa7b1ba),
-                outline: const Color(0xff77838d),
-                outlineVariant: const Color(0xff2c3439),
-              )
-            : grounds.copyWith(
-                onSurface: const Color(0xff1f2933),
-                onSurfaceVariant: const Color(0xff52606d),
-                outline: const Color(0xff7b8794),
-                // The wireframe's line (#d0d7de): a box's edge you can see without
-                // it shouting -- the owner compared the two and preferred it.
-                outlineVariant: const Color(0xffd0d7de),
-              );
+    // Phase 2, light: the approved wireframe's own colours, which the owner
+    // compared against the app on 2026-09-26 ("font little light", "background
+    // not exactly matched") -- white where work is done (#ffffff), a neutral
+    // grey for headings, bars and tabs (#f3f4f6, #e5e7eb) rather than the
+    // bluish greys above, row lines #eaeef2, and text a shade darker than the
+    // wireframe's #1f2328 because Flutter draws Segoe UI thinner than a
+    // browser does.
+    final ColorScheme? page = !(wireframe && !dark && !highContrast)
+        ? null
+        : scheme.copyWith(
+            primary: palette.seed,
+            onPrimary: Colors.white,
+            surface: const Color(0xffffffff),
+            surfaceContainerLowest: const Color(0xffffffff),
+            surfaceContainerLow: const Color(0xfff3f4f6),
+            surfaceContainer: const Color(0xffeef0f2),
+            surfaceContainerHigh: const Color(0xffe5e7eb),
+            surfaceContainerHighest: const Color(0xffeaeef2),
+            onSurface: const Color(0xff16191d),
+            onSurfaceVariant: const Color(0xff4d5761),
+            outline: const Color(0xff6e7781),
+            outlineVariant: const Color(0xffd0d7de),
+          );
+    final ColorScheme tuned = page ??
+        (highContrast
+            ? grounds
+            : dark
+                ? grounds.copyWith(
+                    onSurface: const Color(0xffe3e7ea),
+                    onSurfaceVariant: const Color(0xffa7b1ba),
+                    outline: const Color(0xff77838d),
+                    outlineVariant: const Color(0xff2c3439),
+                  )
+                : grounds.copyWith(
+                    onSurface: const Color(0xff1f2933),
+                    onSurfaceVariant: const Color(0xff52606d),
+                    outline: const Color(0xff7b8794),
+                    // The wireframe's line (#d0d7de): a box's edge you can see without
+                    // it shouting -- the owner compared the two and preferred it.
+                    outlineVariant: const Color(0xffd0d7de),
+                  ));
 
     final TextTheme textTheme = AppTypography.textTheme(tuned);
     // Cards are separated by a quiet line; a control that can be typed into

@@ -69,7 +69,8 @@ class _AgencyAppState extends State<AgencyApp> {
       widget.preferences ?? DesktopPreferencesService();
   late final BrandingConfig _branding =
       widget.branding ?? BrandingConfig.defaults;
-  late final ThemeManager _themes = ThemeManager(_preferences);
+  late final ThemeManager _themes =
+      ThemeManager(_preferences, wireframe: widget.phase2);
   late final PermissionService _permissions =
       widget.permissions ?? PermissionService();
   late final SessionController _session = widget.session ??
