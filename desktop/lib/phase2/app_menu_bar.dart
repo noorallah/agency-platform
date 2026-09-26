@@ -105,10 +105,22 @@ class AppMenuBar extends StatelessWidget {
   }
 
   /// The areas that fit in [room]; the rest fold into More, from the right
-  /// (4.11). An area costs about its label plus padding.
+  /// (4.11). An area costs its label as drawn, its padding and its arrow --
+  /// measured, not guessed from the letters: a guess generous enough to be
+  /// safe folded Reports and Admin away on a laptop where they fitted.
   Widget _areas(BuildContext context, double room, String? currentArea) {
     final AppSemanticColors colors = context.semanticColors;
-    double cost(MenuAreaSpec area) => area.label.length * 8.5 + 44;
+    final TextStyle? style = Theme.of(context).textTheme.labelLarge;
+    final TextScaler scaler = MediaQuery.textScalerOf(context);
+    double cost(MenuAreaSpec area) {
+      final TextPainter painter = TextPainter(
+        text: TextSpan(text: area.label, style: style),
+        textDirection: TextDirection.ltr,
+        textScaler: scaler,
+      )..layout();
+      final double arrow = area.items.length == 1 ? 0 : 20;
+      return painter.width + 22 + arrow + 4;
+    }
     int fits = 0;
     double used = 0;
     for (final MenuAreaSpec area in areas) {
@@ -612,7 +624,9 @@ class FirmOnBar extends StatelessWidget {
     final Widget box = Container(
       key: const ValueKey('firm-on-bar'),
       height: 30,
-      constraints: const BoxConstraints(maxWidth: 240),
+      // The wireframe's cap: a long firm name is trimmed rather than pushing
+      // menu areas into More.
+      constraints: const BoxConstraints(maxWidth: 180),
       padding: EdgeInsets.only(left: 10, right: onSwitch == null ? 10 : 4),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(5),

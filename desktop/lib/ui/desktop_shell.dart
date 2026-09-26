@@ -703,16 +703,19 @@ class _DesktopShellState extends State<DesktopShell> {
                   controller: _documents,
                   child: ListViewRequestScope(
                     request: _viewRequest,
-                    child: IndexedStack(
-                      index: activeIndex,
-                      children: [
-                        page,
-                        for (final OpenDocument document in documents)
-                          DocumentNavigator(
-                            key: ValueKey(document.id),
-                            document: document,
-                          ),
-                      ],
+                    child: Phase2ScreenTitle(
+                      title: MenuLayout.itemFor(_router.current.path)?.label,
+                      child: IndexedStack(
+                        index: activeIndex,
+                        children: [
+                          page,
+                          for (final OpenDocument document in documents)
+                            DocumentNavigator(
+                              key: ValueKey(document.id),
+                              document: document,
+                            ),
+                        ],
+                      ),
                     ),
                   ),
                 ),

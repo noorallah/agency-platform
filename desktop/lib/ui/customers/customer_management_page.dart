@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
@@ -171,7 +173,44 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
     super.initState();
     _searchFocus.addListener(_changed);
     _controller.load();
+    unawaited(_loadSummary());
   }
+
+  /// How many customers stand in each status, for the phase 2 counters.
+  Map<String, dynamic> _summary = const {};
+
+  Future<void> _loadSummary() async {
+    try {
+      final Map<String, dynamic> response =
+          await widget.api.documentSummary('customers');
+      final dynamic data = response['data'];
+      if (!mounted) return;
+      setState(() => _summary =
+          data is Map<String, dynamic> ? data : response);
+    } on ApiException {
+      // The counters are a convenience; the list stands without them.
+    }
+  }
+
+  /// Phase 2 (the wireframe's "Active 15  On hold 2"): one counter per
+  /// status, and clicking one filters the list to it -- again for all.
+  List<Widget> _statusCounters() => [
+        for (final (String label, String status, String key) in const [
+          ('Active', 'ACTIVE', 'active'),
+          ('On hold', 'ON_HOLD', 'on_hold'),
+          ('Inactive', 'INACTIVE', 'inactive'),
+        ])
+          SummaryCount(
+            key: ValueKey('customer-counter-$key'),
+            label: label,
+            value: '${_summary[key] ?? '-'}',
+            selected: _status == status,
+            onTap: () {
+              setState(() => _status = _status == status ? null : status);
+              _applyFilters();
+            },
+          ),
+      ];
 
   @override
   void dispose() {
@@ -346,6 +385,7 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
       includeDeleted: _includeDeleted,
     );
     _controller.load(requestedPage: 1);
+    unawaited(_loadSummary());
   }
 
   void _clearFilters() {
@@ -573,9 +613,9 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
             const GridColumn(key: 'phone', label: 'Phone'),
             const GridColumn(key: 'city', label: 'City'),
             _column('Status', 'status'),
-            _column('Credit limit', 'credit_limit'),
-            _column('Outstanding', 'current_outstanding'),
-            const GridColumn(key: 'advance', label: 'Advance'),
+            _column('Credit limit', 'credit_limit', numeric: true),
+            _column('Outstanding', 'current_outstanding', numeric: true),
+            const GridColumn(key: 'advance', label: 'Advance', numeric: true),
             _column('Created', 'created_at'),
           ],
           id: (customer) => customer.id,
@@ -628,7 +668,14 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
         toolbar: toolbar,
         searchPanel: searchPanel,
         filterPanel: filterPanel,
-        primaryContent: primaryContent,
+        // Phase 2's counters are handed to the page line by SummaryCards,
+        // which draws nothing here; phase 1 is as it was.
+        primaryContent: Phase2Scope.of(context)
+            ? Column(children: [
+                SummaryCards(children: _statusCounters()),
+                Expanded(child: primaryContent),
+              ])
+            : primaryContent,
         // No summary panel. Selecting a row should select it, not open a
         // second reading of it beside the table; opening a record is what
         // double-click and the row's eye icon are for. Passing null also hands
@@ -644,9 +691,15 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
     );
   }
 
-  GridColumn _column(String label, String sortField) => GridColumn(
+  GridColumn _column(
+    String label,
+    String sortField, {
+    bool numeric = false,
+  }) =>
+      GridColumn(
         key: sortField,
         label: label,
+        numeric: numeric,
         onSort: (ascending) {
           _controller
             ..sortBy = sortField

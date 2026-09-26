@@ -252,7 +252,7 @@ void main() {
       for (final Finder part in [
         find.byKey(const ValueKey('count-Draft')),
         find.byType(TextField),
-        find.text('New'),
+        find.text('+ New'),
       ]) {
         expect((tester.getCenter(part).dy - line).abs(), lessThan(6),
             reason: '$part is not on the title line');
