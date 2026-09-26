@@ -350,7 +350,7 @@ class _AreaPanel extends StatelessWidget {
                             'CONFIGURATION',
                             style: theme.textTheme.labelSmall?.copyWith(
                               color: scheme.onSurfaceVariant,
-                              letterSpacing: .6,
+                              letterSpacing: .9,
                               fontWeight: FontWeight.w700,
                             ),
                           ),
@@ -394,10 +394,11 @@ class _AreaPanel extends StatelessWidget {
                 padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
                 child: Text(
                   group.label.toUpperCase(),
+                  // The wireframe's h4: bold, tracked 0.08em.
                   style: theme.textTheme.labelSmall?.copyWith(
                     color: scheme.onSurfaceVariant,
-                    letterSpacing: .6,
-                    fontWeight: FontWeight.w600,
+                    letterSpacing: .9,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
               ),
