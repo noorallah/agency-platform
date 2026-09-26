@@ -287,7 +287,7 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
               width: 260,
               child: SearchFilterPanel(
                 controller: _search,
-                hintText: 'Search by quotation number',
+                hintText: 'Search number or customer',
                 onSearch: (_) => unawaited(_load(requestedPage: 1)),
               ),
             ),
@@ -306,9 +306,9 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
                 child: TextField(
                   controller: _search,
                   decoration: const InputDecoration(
-                    labelText: 'Search by quotation number',
+                    labelText: 'Search by quotation number or customer',
                     prefixIcon: Icon(Icons.search),
-                    hintText: 'QT-…',
+                    hintText: 'QT-…, shop name, code or phone',
                   ),
                   onSubmitted: (_) => unawaited(_load(requestedPage: 1)),
                 ),
@@ -368,8 +368,16 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
           return ListTile(
             selected: row.id == _selected?.id,
             title: Text('${row.quotationNumber}  ·  ${row.grandTotal}'),
-            // The minute it was made tells today's quotations apart.
-            subtitle: Text(_withStamp(_standing(row), row.createdAt)),
+            // Whose it is first: the owner asked the list to say so (and
+            // search finds a quotation by its customer too).
+            subtitle: Text(
+              [
+                if (_customer(row).isNotEmpty) _customer(row),
+                // The minute it was made tells today's quotations apart.
+                _withStamp(_standing(row), row.createdAt),
+              ].join('\n'),
+            ),
+            isThreeLine: _customer(row).isNotEmpty,
             trailing: Row(mainAxisSize: MainAxisSize.min, children: [
               // Expiry is the fact a status word cannot carry: SENT reads the
               // same the day before and the day after the prices lapse.
@@ -384,6 +392,12 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
           );
         },
       );
+
+  /// The customer as the list shows them: name, then code.
+  String _customer(Quotation row) => [
+        if (row.customerName.isNotEmpty) row.customerName,
+        if (row.customerCode.isNotEmpty) row.customerCode,
+      ].join('  ·  ');
 
   /// What has become of an offer, in one line.
   String _withStamp(String text, String createdAt) {

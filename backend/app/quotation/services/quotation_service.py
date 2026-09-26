@@ -190,6 +190,18 @@ class QuotationService(TransactionalDocumentService):
                 SalesQuotation.customer_reference.ilike(token),
                 SalesQuotation.reference_number.ilike(token),
                 SalesQuotation.remarks.ilike(token),
+                # By customer too: the person on the phone names the shop,
+                # not the quotation number.
+                SalesQuotation.customer_id.in_(
+                    select(Customer.id).where(
+                        or_(
+                            Customer.display_name.ilike(token),
+                            Customer.name.ilike(token),
+                            Customer.code.ilike(token),
+                            Customer.phone.ilike(token),
+                        )
+                    )
+                ),
             )
             statement = statement.where(condition)
             count = count.where(condition)
@@ -1500,10 +1512,13 @@ class QuotationService(TransactionalDocumentService):
                 )
             ).all()
         )
+        customer = self._session.get(Customer, row.customer_id)
         return QuotationResponse(
             id=row.id,
             firm_id=row.firm_id,
             customer_id=row.customer_id,
+            customer_name=customer.display_name if customer else "",
+            customer_code=customer.code if customer else "",
             salesman_id=row.salesman_id,
             territory_id=row.territory_id,
             branch_id=row.branch_id,

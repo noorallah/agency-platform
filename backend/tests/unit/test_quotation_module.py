@@ -43,6 +43,7 @@ from app.quotation.schemas import (
     QuotationCreate,
     QuotationImportRequest,
     QuotationLineWrite,
+    QuotationListFilters,
     QuotationStatus,
 )
 from app.quotation.services import QuotationService
@@ -639,6 +640,35 @@ def test_the_register_names_the_customer_it_quoted() -> None:
 
     assert register[0].customer_id == setup.customer.id
     assert register[0].customer_name == setup.customer.display_name
+
+
+def test_the_list_finds_a_quotation_by_its_customer_and_names_them() -> None:
+    """Search by the shop's name or code, and each row says whose it is."""
+    session = _session_factory()()
+    setup = _Setup(session)
+    row = setup.service.create_quotation(
+        setup.payload(), firm_id=setup.firm.id, actor_id=setup.actor_id
+    )
+
+    def found(search: str) -> list[SalesQuotation]:
+        rows, _ = setup.service.list_quotations(
+            firm_scope=setup.firm.id,
+            filters=QuotationListFilters(),
+            page=1,
+            page_size=20,
+            search=search,
+            sort_by="created_at",
+            descending=True,
+        )
+        return rows
+
+    assert [item.id for item in found("customer cus")] == [row.id]
+    assert [item.id for item in found("CUS-001")] == [row.id]
+    assert found("somebody else") == []
+
+    response = setup.service.quotation_response(row)
+    assert response.customer_name == setup.customer.display_name
+    assert response.customer_code == "CUS-001"
 
 
 def test_the_register_says_whether_the_prices_still_stand() -> None:

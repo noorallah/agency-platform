@@ -75,6 +75,8 @@ class Quotation {
     required this.id,
     this.version = 0,
     required this.customerId,
+    this.customerName = '',
+    this.customerCode = '',
     required this.branchId,
     required this.warehouseId,
     required this.quotationNumber,
@@ -110,6 +112,10 @@ class Quotation {
   /// save then carries no precondition.
   final int version;
   final String customerId;
+
+  /// Whose quotation it is, for the list; empty for a removed customer.
+  final String customerName;
+  final String customerCode;
   final String branchId;
   final String warehouseId;
   final String quotationNumber;
@@ -168,6 +174,8 @@ class Quotation {
         id: stringValue(json['id']),
         version: (json['version'] as num?)?.toInt() ?? 0,
         customerId: stringValue(json['customer_id']),
+        customerName: stringValue(json['customer_name']),
+        customerCode: stringValue(json['customer_code']),
         branchId: stringValue(json['branch_id']),
         warehouseId: stringValue(json['warehouse_id']),
         quotationNumber: stringValue(json['quotation_number']),
