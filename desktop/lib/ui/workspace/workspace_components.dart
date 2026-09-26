@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/design/design_tokens.dart';
 import '../../core/dialogs/app_dialogs.dart';
+import '../../phase2/phase2_scope.dart';
 import 'workspace_interactions.dart';
 
 /// What to put in a telephone box, for the fields the server checks.
@@ -588,6 +589,7 @@ class ModuleWorkspaceFrame extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final List<WorkspaceTab> workspaceTabs = tabs ?? const [];
+    if (Phase2Scope.of(context)) return _phase2(context, workspaceTabs);
     return SafeArea(
       child: Column(children: [
         Padding(
@@ -636,6 +638,72 @@ class ModuleWorkspaceFrame extends StatelessWidget {
         if (status != null) status!,
       ]),
     );
+  }
+
+  /// Phase 2 (UI_PHASE_2_DESIGN.md 4.5): the title, its description behind
+  /// an (i), and the screen's own tabs, on **one** line. The breadcrumb goes:
+  /// the menu bar's open area and the open-screen tab already say where you
+  /// are, and phase 1 said it three times over about 120 px.
+  Widget _phase2(BuildContext context, List<WorkspaceTab> workspaceTabs) {
+    final ThemeData theme = Theme.of(context);
+    return Column(children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
+        child: Row(children: [
+          Flexible(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.titleMedium
+                  ?.copyWith(fontWeight: FontWeight.w600),
+            ),
+          ),
+          if (description.isNotEmpty)
+            Tooltip(
+              message: description,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+                child: Icon(
+                  Icons.info_outline,
+                  size: 16,
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+          if (workspaceTabs.isNotEmpty) ...[
+            const SizedBox(width: 12),
+            Flexible(
+              flex: 3,
+              child: SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: SegmentedButton<int>(
+                  style: const ButtonStyle(
+                    visualDensity: VisualDensity.compact,
+                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                  ),
+                  segments: [
+                    for (var index = 0; index < workspaceTabs.length; index++)
+                      ButtonSegment(
+                        value: index,
+                        label: Text(workspaceTabs[index].label),
+                        enabled: workspaceTabs[index].available,
+                      ),
+                  ],
+                  selected: {selectedTab.clamp(0, workspaceTabs.length - 1)},
+                  onSelectionChanged: onTabChanged == null
+                      ? null
+                      : (selection) => onTabChanged!(selection.first),
+                  showSelectedIcon: false,
+                ),
+              ),
+            ),
+          ],
+        ]),
+      ),
+      Expanded(child: child),
+      if (status != null) status!,
+    ]);
   }
 }
 
@@ -879,7 +947,43 @@ class FilterPanel extends StatelessWidget {
   final ValueChanged<bool>? onExpandedChanged;
 
   @override
-  Widget build(BuildContext context) => ExpansionTile(
+  Widget build(BuildContext context) {
+    if (Phase2Scope.of(context)) return _phase2(context);
+    return _tile(context);
+  }
+
+  /// Phase 2: the fields themselves, one per line, for the side panel that
+  /// [ManagementWorkspaceLayout] opens from its Filters button (4.5). No tile
+  /// to expand: the panel is already the thing somebody opened on purpose.
+  Widget _phase2(BuildContext context) => Padding(
+        padding: const EdgeInsets.all(AppSpacing.md),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            for (final Widget field in children)
+              Padding(
+                padding: const EdgeInsets.only(bottom: AppSpacing.md),
+                child: field,
+              ),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.end,
+              children: [
+                TextButton(
+                  onPressed: activeFilterCount == 0 ? null : onClear,
+                  child: const Text('Clear'),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+                FilledButton.tonal(
+                  onPressed: onApply,
+                  child: const Text('Apply'),
+                ),
+              ],
+            ),
+          ],
+        ),
+      );
+
+  Widget _tile(BuildContext context) => ExpansionTile(
         initiallyExpanded: expanded,
         onExpansionChanged: onExpandedChanged,
         leading: const Icon(Icons.filter_alt_outlined),
@@ -969,13 +1073,16 @@ class ManagementWorkspaceLayout extends StatelessWidget {
   static const double filterPanelMaxShare = 0.45;
 
   @override
-  Widget build(BuildContext context) => LayoutBuilder(
-        builder: (context, outer) => _build(
-          outer.hasBoundedHeight
-              ? outer.maxHeight * filterPanelMaxShare
-              : double.infinity,
-        ),
-      );
+  Widget build(BuildContext context) {
+    if (Phase2Scope.of(context)) return _Phase2ManagementLayout(layout: this);
+    return LayoutBuilder(
+      builder: (context, outer) => _build(
+        outer.hasBoundedHeight
+            ? outer.maxHeight * filterPanelMaxShare
+            : double.infinity,
+      ),
+    );
+  }
 
   Widget _build(double filterMaxHeight) => Column(children: [
         Padding(
@@ -1036,6 +1143,131 @@ class ManagementWorkspaceLayout extends StatelessWidget {
         ),
         statusBar,
       ]);
+}
+
+/// [ManagementWorkspaceLayout] in the phase 2 app (UI_PHASE_2_DESIGN.md 4.5).
+///
+/// Search, a Filters button and the actions share **one** line; the filters
+/// open in a panel beside the grid rather than a tile above it, so opening
+/// them never pushes the rows down; margins are 12 px, not 24. The panel is
+/// inline rather than a dialog on purpose: a screen's filter fields live in
+/// its own state, and a dialog would keep showing the values it was opened
+/// with while that state moved on.
+class _Phase2ManagementLayout extends StatefulWidget {
+  const _Phase2ManagementLayout({required this.layout});
+
+  final ManagementWorkspaceLayout layout;
+
+  @override
+  State<_Phase2ManagementLayout> createState() =>
+      _Phase2ManagementLayoutState();
+}
+
+class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
+  bool _filtersOpen = false;
+
+  static const double _filterWidth = 300;
+
+  @override
+  Widget build(BuildContext context) {
+    final ManagementWorkspaceLayout layout = widget.layout;
+    final Widget? filters = layout.filterPanel;
+    final int active = filters is FilterPanel ? filters.activeFilterCount : 0;
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Column(children: [
+      Padding(
+        padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+        child: Row(children: [
+          Expanded(child: layout.searchPanel),
+          if (filters != null) ...[
+            const SizedBox(width: 8),
+            _filtersButton(active, scheme),
+          ],
+          const SizedBox(width: 8),
+          layout.toolbar,
+        ]),
+      ),
+      if (layout.viewBar != null)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+          child: Align(alignment: Alignment.centerLeft, child: layout.viewBar),
+        ),
+      Expanded(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: LayoutBuilder(builder: (context, constraints) {
+            final double detailsWidth = layout.detailsWidth
+                .clamp(240, constraints.maxWidth * .36)
+                .toDouble();
+            return Row(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(child: layout.primaryContent),
+                if (layout.detailsPanel != null) ...[
+                  const SizedBox(width: 12),
+                  SizedBox(width: detailsWidth, child: layout.detailsPanel),
+                ],
+                if (filters != null && _filtersOpen) ...[
+                  const SizedBox(width: 12),
+                  SizedBox(
+                    width: _filterWidth,
+                    child: _filterPanel(filters, scheme),
+                  ),
+                ],
+              ],
+            );
+          }),
+        ),
+      ),
+      layout.statusBar,
+    ]);
+  }
+
+  Widget _filtersButton(int active, ColorScheme scheme) {
+    final String label = active == 0 ? 'Filters' : 'Filters ($active)';
+    void toggle() => setState(() => _filtersOpen = !_filtersOpen);
+    return _filtersOpen || active > 0
+        ? FilledButton.tonalIcon(
+            key: const ValueKey('phase2-filters'),
+            onPressed: toggle,
+            icon: const Icon(Icons.filter_alt_outlined, size: 18),
+            label: Text(label),
+          )
+        : OutlinedButton.icon(
+            key: const ValueKey('phase2-filters'),
+            onPressed: toggle,
+            icon: const Icon(Icons.filter_alt_outlined, size: 18),
+            label: Text(label),
+          );
+  }
+
+  Widget _filterPanel(Widget filters, ColorScheme scheme) => Material(
+        color: scheme.surfaceContainerLowest,
+        shape: RoundedRectangleBorder(
+          borderRadius: AppRadius.medium,
+          side: BorderSide(color: scheme.outlineVariant),
+        ),
+        clipBehavior: Clip.antiAlias,
+        child: Column(children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(12, 6, 4, 0),
+            child: Row(children: [
+              Expanded(
+                child: Text(
+                  'Filters',
+                  style: Theme.of(context).textTheme.titleSmall,
+                ),
+              ),
+              IconButton(
+                tooltip: 'Close filters',
+                icon: const Icon(Icons.close, size: 18),
+                onPressed: () => setState(() => _filtersOpen = false),
+              ),
+            ]),
+          ),
+          Expanded(child: SingleChildScrollView(child: filters)),
+        ]),
+      );
 }
 
 class GridColumn {
@@ -1737,7 +1969,40 @@ class SummaryMetricCard extends StatelessWidget {
   final double width;
 
   @override
-  Widget build(BuildContext context) => SizedBox(
+  Widget build(BuildContext context) {
+    if (Phase2Scope.of(context)) return _counter(context);
+    return _card(context);
+  }
+
+  /// Phase 2 (4.5): a figure is a counter on one line, not a 100 px card --
+  /// cards with charts belong on Home, where somebody goes to look at
+  /// numbers, not on the list where they go to work.
+  Widget _counter(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLow,
+        borderRadius: AppRadius.medium,
+        border: Border.all(color: theme.colorScheme.outlineVariant),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Text(
+          label,
+          style: theme.textTheme.bodySmall
+              ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
+        ),
+        const SizedBox(width: 6),
+        Text(
+          value,
+          style:
+              theme.textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+        ),
+      ]),
+    );
+  }
+
+  Widget _card(BuildContext context) => SizedBox(
         width: width,
         child: Card(
           child: Padding(
@@ -1979,7 +2244,11 @@ class WorkspaceStatusBar extends StatelessWidget {
   Widget build(BuildContext context) => Material(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
+          // Phase 2 keeps it to one thin line: it is the only status bar
+          // there, the connection having moved to a dot on the menu bar.
+          padding: Phase2Scope.of(context)
+              ? const EdgeInsets.symmetric(horizontal: 12, vertical: 4)
+              : const EdgeInsets.symmetric(horizontal: 24, vertical: 8),
           child: Row(children: [
             Text('$total record${total == 1 ? '' : 's'}'),
             if (selected) Text('  |  ${selectedCount ?? 1} selected'),

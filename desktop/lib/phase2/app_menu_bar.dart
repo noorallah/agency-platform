@@ -48,97 +48,102 @@ class AppMenuBar extends StatelessWidget {
       color: colors.chrome,
       child: SizedBox(
         height: height,
-        child: LayoutBuilder(builder: (context, constraints) {
-          // 4.11: areas that do not fit fold into More, from the right. The
-          // trailing controls keep roughly 460 px; an area costs about its
-          // label plus padding.
-          final double room = constraints.maxWidth - 460 - 110;
-          int fits = 0;
-          double used = 0;
-          for (final MenuAreaSpec area in areas) {
-            final double width = area.label.length * 8.5 + 44;
-            if (used + width > room && fits < areas.length) break;
-            used += width;
-            fits++;
-          }
-          if (fits < areas.length) {
-            // Leave space for More itself.
-            while (fits > 1 && used + 70 > room) {
-              used -= areas[fits - 1].label.length * 8.5 + 44;
-              fits--;
-            }
-          }
-          final List<MenuAreaSpec> onBar = areas.take(fits).toList();
-          final List<MenuAreaSpec> folded = areas.skip(fits).toList();
-          return Row(children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 14),
-              child: Text(
-                appName,
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: colors.onChrome,
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
+        child: Row(children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14),
+            child: Text(
+              appName,
+              style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                    color: colors.onChrome,
+                    fontWeight: FontWeight.w700,
+                  ),
             ),
-            Flexible(
-              child: MenuBar(
-                style: MenuStyle(
-                  backgroundColor: WidgetStatePropertyAll(colors.chrome),
-                  elevation: const WidgetStatePropertyAll(0),
-                  padding: const WidgetStatePropertyAll(EdgeInsets.zero),
-                  shape: const WidgetStatePropertyAll(
-                    RoundedRectangleBorder(),
+          ),
+          // The areas get whatever the controls on the right leave, measured
+          // rather than guessed: the right-hand side changes with the firm's
+          // name, and a fixed allowance either wasted room or overlapped.
+          Expanded(
+            child: LayoutBuilder(
+              builder: (context, constraints) =>
+                  _areas(context, constraints.maxWidth, currentArea),
+            ),
+          ),
+          ...trailing,
+          if (settings != null)
+            MenuBar(
+              style: MenuStyle(
+                backgroundColor: WidgetStatePropertyAll(colors.chrome),
+                elevation: const WidgetStatePropertyAll(0),
+                padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+              ),
+              children: [
+                SubmenuButton(
+                  key: const ValueKey('menu-area-settings'),
+                  style: _barButtonStyle(
+                      context, currentArea == MenuLayout.settings.id),
+                  alignmentOffset: const Offset(-420, 0),
+                  menuChildren: [_AreaPanel(area: settings!, onOpen: onOpen)],
+                  child: Tooltip(
+                    message: 'Settings',
+                    child: Icon(Icons.settings_outlined,
+                        color: colors.onChrome, size: 20),
                   ),
                 ),
-                children: [
-                  for (final MenuAreaSpec area in onBar)
-                    _areaButton(context, area, area.id == currentArea),
-                  if (folded.isNotEmpty)
-                    SubmenuButton(
-                      key: const ValueKey('menu-area-more'),
-                      style: _barButtonStyle(context, false),
-                      menuChildren: [
-                        for (final MenuAreaSpec area in folded)
-                          SubmenuButton(
-                            menuChildren: [
-                              _AreaPanel(area: area, onOpen: onOpen)
-                            ],
-                            child: Text(area.label),
-                          ),
-                      ],
-                      child: const Text('More'),
-                    ),
-                ],
-              ),
+              ],
             ),
-            const Spacer(),
-            ...trailing,
-            if (settings != null)
-              MenuBar(
-                style: MenuStyle(
-                  backgroundColor: WidgetStatePropertyAll(colors.chrome),
-                  elevation: const WidgetStatePropertyAll(0),
-                  padding: const WidgetStatePropertyAll(EdgeInsets.zero),
-                ),
-                children: [
+          const SizedBox(width: 6),
+        ]),
+      ),
+    );
+  }
+
+  /// The areas that fit in [room]; the rest fold into More, from the right
+  /// (4.11). An area costs about its label plus padding.
+  Widget _areas(BuildContext context, double room, String? currentArea) {
+    final AppSemanticColors colors = context.semanticColors;
+    double cost(MenuAreaSpec area) => area.label.length * 8.5 + 44;
+    int fits = 0;
+    double used = 0;
+    for (final MenuAreaSpec area in areas) {
+      if (used + cost(area) > room) break;
+      used += cost(area);
+      fits++;
+    }
+    if (fits < areas.length) {
+      // Leave space for More itself.
+      while (fits > 1 && used + 70 > room) {
+        used -= cost(areas[fits - 1]);
+        fits--;
+      }
+    }
+    final List<MenuAreaSpec> onBar = areas.take(fits).toList();
+    final List<MenuAreaSpec> folded = areas.skip(fits).toList();
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: MenuBar(
+        style: MenuStyle(
+          backgroundColor: WidgetStatePropertyAll(colors.chrome),
+          elevation: const WidgetStatePropertyAll(0),
+          padding: const WidgetStatePropertyAll(EdgeInsets.zero),
+          shape: const WidgetStatePropertyAll(RoundedRectangleBorder()),
+        ),
+        children: [
+          for (final MenuAreaSpec area in onBar)
+            _areaButton(context, area, area.id == currentArea),
+          if (folded.isNotEmpty)
+            SubmenuButton(
+              key: const ValueKey('menu-area-more'),
+              style: _barButtonStyle(context, false),
+              menuChildren: [
+                for (final MenuAreaSpec area in folded)
                   SubmenuButton(
-                    key: const ValueKey('menu-area-settings'),
-                    style: _barButtonStyle(
-                        context, currentArea == MenuLayout.settings.id),
-                    alignmentOffset: const Offset(-420, 0),
-                    menuChildren: [_AreaPanel(area: settings!, onOpen: onOpen)],
-                    child: Tooltip(
-                      message: 'Settings',
-                      child: Icon(Icons.settings_outlined,
-                          color: colors.onChrome, size: 20),
-                    ),
+                    menuChildren: [_AreaPanel(area: area, onOpen: onOpen)],
+                    child: Text(area.label),
                   ),
-                ],
-              ),
-            const SizedBox(width: 6),
-          ]);
-        }),
+              ],
+              child: const Text('More'),
+            ),
+        ],
       ),
     );
   }
@@ -452,6 +457,65 @@ class SearchLauncher extends StatelessWidget {
             Text('Ctrl+K', style: style),
           ]),
         ),
+      ),
+    );
+  }
+}
+
+/// The connection, as one dot on the menu bar (4.5): green when the server
+/// and its database answer, amber while checking, red when either is gone.
+/// The details -- who, which firm, server, version -- are on hover, which is
+/// what phase 1's second status bar spelled out along the bottom of every
+/// screen.
+class ConnectionDot extends StatelessWidget {
+  const ConnectionDot({
+    super.key,
+    required this.online,
+    required this.checking,
+    required this.details,
+  });
+
+  final bool online;
+  final bool checking;
+  final String details;
+
+  @override
+  Widget build(BuildContext context) {
+    final AppSemanticColors colors = context.semanticColors;
+    final Color color = online
+        ? colors.success
+        : checking
+            ? colors.warning
+            : colors.danger;
+    final String state = online
+        ? 'Online'
+        : checking
+            ? 'Connecting'
+            : 'Offline';
+    return Tooltip(
+      message: '$state\n$details',
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 8),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Container(
+            key: const ValueKey('connection-dot'),
+            width: 9,
+            height: 9,
+            decoration: BoxDecoration(
+              color: color,
+              shape: BoxShape.circle,
+              border: Border.all(color: colors.onChrome, width: 1),
+            ),
+          ),
+          const SizedBox(width: 6),
+          Text(
+            state,
+            style: Theme.of(context)
+                .textTheme
+                .bodySmall
+                ?.copyWith(color: colors.onChromeMuted),
+          ),
+        ]),
       ),
     );
   }
