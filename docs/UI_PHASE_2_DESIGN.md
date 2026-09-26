@@ -485,6 +485,16 @@ pair's contrast ratio and fails the build below these figures, in light and
 dark. The high-detail look-and-feel mock-up (section 9, item 7) is judged
 against this table.
 
+
+**Phase 2 matches the wireframe's colours (owner, 2026-09-26).** Comparing the app
+with the wireframe, the owner found the text a little light and the backgrounds not
+the same. The phase 2 light theme now takes the wireframe's own colours: white
+(#ffffff) where work is done, neutral greys for headings, bars and tabs (#f3f4f6,
+#e5e7eb) instead of the earlier bluish greys, row lines #eaeef2, and text a shade
+darker (#16191d) because Flutter draws Segoe UI thinner than a browser. This
+replaces this section's "off-white, not pure white" for phase 2 only; phase 1 and
+the dark theme are unchanged, and every text pair still passes the 4.5 : 1 test.
+
 ### 4.15 The same app on a phone (owner, 2026-09-26)
 
 The owner will use the same UI in the mobile app. The desktop layout cannot

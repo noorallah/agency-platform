@@ -2098,19 +2098,35 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
   Widget _filtersButton(int active, ColorScheme scheme) {
     final String label = active == 0 ? '+ filter' : 'Filters ($active)';
     final bool on = _filtersOpen || active > 0;
-    return ActionChip(
+    // The counters' own pill (28 px), so the chips on the line read as one
+    // row -- an ActionChip stood 4 px taller than the counters beside it.
+    return InkWell(
       key: const ValueKey('phase2-filters'),
-      label: Text(label),
-      labelStyle: Theme.of(context)
-          .textTheme
-          .bodyMedium
-          ?.copyWith(fontSize: 13, color: scheme.onSurface),
-      onPressed: () => setState(() => _filtersOpen = !_filtersOpen),
-      backgroundColor: on ? scheme.primary.withValues(alpha: .12) : null,
-      side: BorderSide(color: on ? scheme.primary : scheme.outlineVariant),
-      shape: const StadiumBorder(),
-      visualDensity: VisualDensity.compact,
-      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+      borderRadius: BorderRadius.circular(14),
+      onTap: () => setState(() => _filtersOpen = !_filtersOpen),
+      child: Container(
+        height: 28,
+        padding: const EdgeInsets.symmetric(horizontal: 10),
+        decoration: BoxDecoration(
+          color: on
+              ? scheme.primary.withValues(alpha: .12)
+              : scheme.surfaceContainerLowest,
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: on ? scheme.primary : scheme.outlineVariant,
+            width: on ? 1.5 : 1,
+          ),
+        ),
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          Text(
+            label,
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(fontSize: 13, color: scheme.onSurface),
+          ),
+        ]),
+      ),
     );
   }
 
