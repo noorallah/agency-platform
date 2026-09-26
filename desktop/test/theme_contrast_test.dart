@@ -101,6 +101,12 @@ void main() {
         'menu bar text': (s.onChrome, s.chrome, _text),
         'menu bar hint': (s.onChromeMuted, s.chrome, _text),
         'menu bar text on an open area': (s.onChrome, s.chromeActive, _text),
+        'the bar under the current area': (
+          s.chromeIndicator,
+          s.chrome,
+          _control
+        ),
+        'that bar on an open area': (s.chromeIndicator, s.chromeActive, _control),
       };
 
       for (final MapEntry<String, (Color, Color, double)> pair

@@ -682,7 +682,8 @@ class _DesktopShellState extends State<DesktopShell> {
                   ? _documents.close(path)
                   : _closeScreen(path),
             ),
-          const Divider(height: 1),
+          // The tab strip draws its own line beneath it.
+          if (shown.isEmpty && documents.isEmpty) const Divider(height: 1),
           // The one status bar is the page's own (4.5); what phase 1's second
           // bar spelled out is on the connection dot above.
           //

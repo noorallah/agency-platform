@@ -218,6 +218,7 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
     required this.onChrome,
     required this.onChromeMuted,
     required this.chromeActive,
+    required this.chromeIndicator,
   });
 
   final Color success;
@@ -242,6 +243,9 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
   final Color onChromeMuted;
   final Color chromeActive;
 
+  /// The bar under the menu area you are in -- the wireframe's light blue.
+  final Color chromeIndicator;
+
   factory AppSemanticColors.forScheme(ColorScheme scheme) {
     final bool dark = scheme.brightness == Brightness.dark;
     return AppSemanticColors(
@@ -259,6 +263,7 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
       onChrome: const Color(0xffe6ebf0),
       onChromeMuted: const Color(0xffb3bfcc),
       chromeActive: dark ? const Color(0xff26313a) : const Color(0xff2f4156),
+      chromeIndicator: const Color(0xff8da2fb),
     );
   }
 
@@ -276,6 +281,7 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
     Color? onChrome,
     Color? onChromeMuted,
     Color? chromeActive,
+    Color? chromeIndicator,
   }) =>
       AppSemanticColors(
         success: success ?? this.success,
@@ -290,6 +296,7 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
         onChrome: onChrome ?? this.onChrome,
         onChromeMuted: onChromeMuted ?? this.onChromeMuted,
         chromeActive: chromeActive ?? this.chromeActive,
+        chromeIndicator: chromeIndicator ?? this.chromeIndicator,
       );
 
   @override
@@ -311,6 +318,7 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
       onChrome: Color.lerp(onChrome, other.onChrome, t)!,
       onChromeMuted: Color.lerp(onChromeMuted, other.onChromeMuted, t)!,
       chromeActive: Color.lerp(chromeActive, other.chromeActive, t)!,
+      chromeIndicator: Color.lerp(chromeIndicator, other.chromeIndicator, t)!,
     );
   }
 }
