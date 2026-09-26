@@ -80,6 +80,7 @@ import 'resource_management_page.dart';
 import '../phase2/app_menu_bar.dart';
 import '../phase2/command_box.dart';
 import '../phase2/menu_layout.dart';
+import '../phase2/phase2_scope.dart';
 import 'theme_selector.dart';
 import 'workspace/module_catalog.dart';
 import 'workspace/module_visibility.dart';
@@ -594,7 +595,19 @@ class _DesktopShellState extends State<DesktopShell> {
               SearchLauncher(onPressed: () => unawaited(_openCommandBox())),
               const SizedBox(width: 8),
               _firmControl(onChrome: true),
-              const SizedBox(width: 2),
+              ConnectionDot(
+                online: _health.backend == ConnectionStateIndicator.online &&
+                    _health.database == ConnectionStateIndicator.online,
+                checking: _health.backend == ConnectionStateIndicator.checking,
+                details: [
+                  'Server: ${_health.backend.name}',
+                  'Database: ${_health.database.name}',
+                  if (widget.session.userLabel != null)
+                    'Signed in: ${widget.session.userLabel}',
+                  widget.session.baseUrl,
+                  '${widget.branding.companyName} ${widget.branding.version}',
+                ].join('\n'),
+              ),
               _profileMenu(iconColor: chrome.onChrome),
             ],
           ),
@@ -607,8 +620,9 @@ class _DesktopShellState extends State<DesktopShell> {
               onClose: _closeScreen,
             ),
           const Divider(height: 1),
-          Expanded(child: page),
-          _applicationStatusBar(),
+          // The one status bar is the page's own (4.5); what phase 1's second
+          // bar spelled out is on the connection dot above.
+          Expanded(child: Phase2Scope(child: page)),
         ]),
       ),
     );

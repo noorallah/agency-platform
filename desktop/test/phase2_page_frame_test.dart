@@ -1,0 +1,187 @@
+import 'package:agency_desktop/core/theme/theme_manager.dart';
+import 'package:agency_desktop/phase2/phase2_scope.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
+import 'package:flutter/material.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+/// The phase 2 page frame (UI_PHASE_2_DESIGN.md 4.5): nothing above the grid
+/// but one line.
+///
+/// The owner circled everything above the Customers grid on 2026-09-25:
+/// about 480 px of a ~1,100 px window before the first row. This builds a
+/// page shaped like it -- title and description, a search, a toolbar, a
+/// filter tile, a status bar -- from the shared framework every list screen
+/// uses, once as phase 1 draws it and once inside [Phase2Scope], and measures
+/// where the grid starts.
+const Key _grid = ValueKey('grid');
+
+Widget _customersShapedPage({bool withTabs = false}) => ModuleWorkspaceFrame(
+      title: 'Customer Management',
+      description: 'Manage firm-scoped customer masters, credit and groups.',
+      breadcrumbs: const ['Workspace', 'Masters', 'Customer Management'],
+      tabs: withTabs
+          ? const [WorkspaceTab(label: 'List'), WorkspaceTab(label: 'Groups')]
+          : null,
+      child: ManagementWorkspaceLayout(
+        searchPanel: SearchFilterPanel(
+          controller: TextEditingController(),
+          onSearch: (_) {},
+          hintText: 'Search customers',
+        ),
+        toolbar: WorkspaceToolbar(
+          onAction: (_) {},
+          isEnabled: (_) => true,
+          actions: const [
+            ToolbarAction.newItem,
+            ToolbarAction.edit,
+            ToolbarAction.refresh,
+          ],
+        ),
+        filterPanel: FilterPanel(
+          activeFilterCount: 1,
+          children: const [
+            SizedBox(
+              width: 220,
+              child: TextField(
+                key: ValueKey('city-filter'),
+                decoration: InputDecoration(labelText: 'City'),
+              ),
+            ),
+          ],
+          onApply: () {},
+          onClear: () {},
+        ),
+        primaryContent: const SizedBox.expand(key: _grid),
+        statusBar: const WorkspaceStatusBar(total: 1, selected: false),
+      ),
+    );
+
+Future<double> _gridTop(
+  WidgetTester tester, {
+  required bool phase2,
+  bool withTabs = false,
+}) async {
+  tester.view.physicalSize = const Size(1366, 768);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+  final Widget page = _customersShapedPage(withTabs: withTabs);
+  await tester.pumpWidget(MaterialApp(
+    theme: ThemeRegistry.themeFor(
+      palette: AppPalette.neutral,
+      brightness: Brightness.light,
+    ),
+    home: Scaffold(body: phase2 ? Phase2Scope(child: page) : page),
+  ));
+  await tester.pump();
+  expect(tester.takeException(), isNull);
+  return tester.getTopLeft(find.byKey(_grid)).dy;
+}
+
+void main() {
+  testWidgets('phase 2 starts the grid at least 100 px higher than phase 1',
+      (tester) async {
+    final double phase1 = await _gridTop(tester, phase2: false);
+    final double phase2 = await _gridTop(tester, phase2: true);
+    debugPrint('grid starts at ${phase1.toStringAsFixed(0)} px in phase 1, '
+        '${phase2.toStringAsFixed(0)} px in phase 2');
+    expect(phase2, lessThan(100),
+        reason: 'one line of title and one of search and actions: the grid '
+            'started at ${phase2.toStringAsFixed(0)} px');
+    expect(phase1 - phase2, greaterThan(100),
+        reason: 'phase 1 ${phase1.toStringAsFixed(0)} px, '
+            'phase 2 ${phase2.toStringAsFixed(0)} px');
+  });
+
+  testWidgets('a screen with tabs keeps them on the title line',
+      (tester) async {
+    final double without = await _gridTop(tester, phase2: true);
+    final double withTabs = await _gridTop(tester, phase2: true, withTabs: true);
+    // Beside the title, not on a row of their own: the page grows only by
+    // how much taller a tab button is than the title text.
+    expect(
+      (tester.getCenter(find.text('Groups')).dy -
+              tester.getCenter(find.text('Customer Management')).dy)
+          .abs(),
+      lessThan(4),
+    );
+    expect(withTabs - without, lessThanOrEqualTo(16));
+  });
+
+  testWidgets('the breadcrumb goes and the description moves behind (i)',
+      (tester) async {
+    await _gridTop(tester, phase2: true);
+    expect(find.text('Masters'), findsNothing);
+    expect(
+      find.text('Manage firm-scoped customer masters, credit and groups.'),
+      findsNothing,
+    );
+    expect(
+      find.byTooltip('Manage firm-scoped customer masters, credit and groups.'),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('filters open beside the grid and never push it down',
+      (tester) async {
+    final double before = await _gridTop(tester, phase2: true);
+    expect(find.byKey(const ValueKey('city-filter')), findsNothing);
+    // The active count is on the button, so a filtered list says so.
+    expect(find.text('Filters (1)'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('phase2-filters')));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('city-filter')), findsOneWidget);
+    expect(tester.getTopLeft(find.byKey(_grid)).dy, before);
+    // Beside it: the panel starts to the right of where the grid ends.
+    expect(
+      tester.getTopLeft(find.byKey(const ValueKey('city-filter'))).dx,
+      greaterThan(tester.getTopRight(find.byKey(_grid)).dx),
+    );
+    expect(tester.takeException(), isNull);
+
+    await tester.tap(find.byTooltip('Close filters'));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('city-filter')), findsNothing);
+  });
+
+  testWidgets('a summary figure is a one-line counter, not a card',
+      (tester) async {
+    Future<Size> sizeOf({required bool phase2}) async {
+      const Widget card = SummaryMetricCard(
+        key: ValueKey('metric'),
+        label: 'Open orders',
+        value: '12',
+        icon: Icons.receipt_long_outlined,
+      );
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Align(
+            alignment: Alignment.topLeft,
+            child: phase2 ? const Phase2Scope(child: card) : card,
+          ),
+        ),
+      ));
+      return tester.getSize(find.byKey(const ValueKey('metric')));
+    }
+
+    final Size card = await sizeOf(phase2: false);
+    final Size counter = await sizeOf(phase2: true);
+    expect(counter.height, lessThan(36));
+    expect(card.height - counter.height, greaterThan(40));
+    expect(find.text('Open orders'), findsOneWidget);
+    expect(find.text('12'), findsOneWidget);
+  });
+
+  testWidgets('phase 1 draws exactly what it drew before', (tester) async {
+    await _gridTop(tester, phase2: false);
+    expect(find.text('Masters'), findsOneWidget);
+    // The breadcrumb's last item and the title.
+    expect(find.text('Customer Management'), findsNWidgets(2));
+    expect(
+      find.text('Manage firm-scoped customer masters, credit and groups.'),
+      findsOneWidget,
+    );
+    expect(find.byType(ExpansionTile), findsOneWidget);
+    expect(find.byKey(const ValueKey('phase2-filters')), findsNothing);
+  });
+}
