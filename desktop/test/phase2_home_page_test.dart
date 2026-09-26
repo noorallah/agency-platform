@@ -348,4 +348,13 @@ void main() {
     expect(views, isEmpty);
     expect(opened, ['salesInvoices/sales-invoices']);
   });
+
+  testWidgets('Customise sits at the far right of the greeting line',
+      (tester) async {
+    await _pump(tester,
+        allowed: _owner, source: _Source(), onCustomise: (_) {});
+    // The page is 1366 wide with 14 px of padding each side.
+    expect(tester.getTopRight(find.byKey(const ValueKey('home-customise'))).dx,
+        closeTo(1366 - 14, 1));
+  });
 }
