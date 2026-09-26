@@ -264,6 +264,7 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
       );
     }
     final List<ReportColumn> columns = columnsFor(report, _rows);
+    if (Phase2Scope.of(context)) return _phase2Report(context, report, columns);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -370,6 +371,128 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
                         ),
                       ),
                     ),
+                  ),
+                ),
+        ),
+      ],
+    );
+  }
+
+  /// Phase 2: the report as every list is drawn (4.7) -- a compact line with
+  /// its name, the dates and Refresh; the lists' grid, with status in words,
+  /// Yes / No for true / false, figures right-aligned in Indian digits and
+  /// the least important columns dropping first on a narrow window; the
+  /// pager at the foot, as on a list.
+  Widget _phase2Report(
+    BuildContext context,
+    ReportDefinition report,
+    List<ReportColumn> columns,
+  ) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    Widget dateBox(String hint, Key key, TextEditingController controller) =>
+        SizedBox(
+          width: 150,
+          height: 32,
+          child: TextField(
+            key: key,
+            controller: controller,
+            style: theme.textTheme.bodyMedium?.copyWith(fontSize: 13),
+            decoration: InputDecoration(
+              isDense: true,
+              prefixText: '$hint  ',
+              prefixStyle: theme.textTheme.bodySmall
+                  ?.copyWith(color: scheme.onSurfaceVariant),
+              contentPadding:
+                  const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              border: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(5),
+                borderSide: BorderSide(color: scheme.outlineVariant),
+              ),
+              enabledBorder: OutlineInputBorder(
+                borderRadius: BorderRadius.circular(5),
+                borderSide: BorderSide(color: scheme.outlineVariant),
+              ),
+            ),
+            onSubmitted: (_) => unawaited(_load()),
+          ),
+        );
+    String shown(Json row, ReportColumn column) {
+      final dynamic value = row[column.key];
+      if (value is bool) return value ? 'Yes' : 'No';
+      return cellValue(row, column.key);
+    }
+
+    final int rowsPerPage = report.needsPeriod
+        ? _pageSize
+        : (_rows.isEmpty ? 1 : _rows.length);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        // On the page's one line (4.5): which report, its dates, Refresh.
+        Phase2LineTools(children: [
+          Text(
+            report.label,
+            style: theme.textTheme.bodyMedium
+                ?.copyWith(fontSize: 13, fontWeight: FontWeight.w600),
+          ),
+          // What question it answers, behind (i) as every title's.
+          Tooltip(
+            message: report.description,
+            child: Icon(Icons.info_outline,
+                size: 16, color: scheme.onSurfaceVariant),
+          ),
+          if (report.needsPeriod) ...[
+            dateBox('From', const ValueKey<String>('report-from'), _from),
+            dateBox('To', const ValueKey<String>('report-to'), _to),
+          ],
+          Phase2Refresh(
+            onPressed: _loading ? null : () => unawaited(_load()),
+            child: const SizedBox.shrink(),
+          ),
+        ]),
+        if (_error != null)
+          Padding(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            child: MaterialBanner(
+              content: Text(_error!),
+              actions: [
+                TextButton(
+                  onPressed: () => setState(() => _error = null),
+                  child: const Text('Dismiss'),
+                ),
+              ],
+            ),
+          ),
+        Expanded(
+          child: _rows.isEmpty
+              ? const StandardEmptyState(
+                  type: EmptyStateType.noRecords,
+                  title: 'Nothing to report',
+                  message: 'This firm has nothing matching it yet.',
+                )
+              : EnterpriseDataGrid<Json>(
+                  key: ValueKey<String>('report-grid-${report.id}'),
+                  items: _rows,
+                  total: report.needsPeriod ? _total : _rows.length,
+                  pageOffset: report.needsPeriod ? (_page - 1) * _pageSize : 0,
+                  rowsPerPage: rowsPerPage,
+                  columns: [
+                    for (final ReportColumn column in columns)
+                      GridColumn(
+                        key: column.key,
+                        label: column.label,
+                        numeric: column.numeric,
+                      ),
+                  ],
+                  id: (row) => '${identityHashCode(row)}',
+                  cells: (row) => [
+                    for (final ReportColumn column in columns)
+                      shown(row, column),
+                  ],
+                  onSelect: (_) {},
+                  onPageChanged: (offset) => unawaited(
+                    _load(page: offset ~/ _pageSize + 1),
                   ),
                 ),
         ),
