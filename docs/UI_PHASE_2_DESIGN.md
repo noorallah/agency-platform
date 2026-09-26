@@ -673,22 +673,23 @@ phase 2 will read the catalogue and fail if any phase 1 screen has no place.
 | Sales > E-Invoice | Accounts > Tax filing > E-Invoice |
 | Sales > TCS | Accounts > Tax filing > TCS |
 | Masters > Customers | Masters > Parties > Customers |
+| Customers: customer groups dialog | Masters > Configuration > Parties > Customer Groups (owner, 2026-09-26: lookup lists apart from the everyday masters) |
 | Masters > Vendors | Masters > Parties > Vendors |
-| Masters > Vendor Categories | Masters > Parties > Vendor Categories |
-| Masters > Vendor Types | Masters > Parties > Vendor Types |
+| Masters > Vendor Categories | Masters > Configuration > Parties > Vendor Categories |
+| Masters > Vendor Types | Masters > Configuration > Parties > Vendor Types |
 | Masters > Products | Masters > Items > Products |
-| Masters > Product Categories | Masters > Items > Product Categories |
-| Administration > Units of Measure | Masters > Items > Units of Measure |
-| Administration > UOM Groups | Masters > Items > UOM Groups |
-| Administration > Packaging Types | Masters > Items > Packaging Types |
-| Administration > Packaging Levels | Masters > Items > Packaging Levels |
-| Administration > Conversion Rules | Masters > Items > Conversion Rules |
+| Masters > Product Categories | Masters > Configuration > Items > Product Categories |
+| Administration > Units of Measure | Masters > Configuration > Items > Units of Measure |
+| Administration > UOM Groups | Masters > Configuration > Items > UOM Groups |
+| Administration > Packaging Types | Masters > Configuration > Items > Packaging Types |
+| Administration > Packaging Levels | Masters > Configuration > Items > Packaging Levels |
+| Administration > Conversion Rules | Masters > Configuration > Items > Conversion Rules |
 | Masters > Branches | Masters > Organisation > Branches |
 | Masters > Warehouses | Masters > Organisation > Warehouses |
-| Masters > Storage Areas | Masters > Organisation > Storage Areas |
-| Masters > Branch Types | Masters > Organisation > Branch Types |
-| Masters > Warehouse Types | Masters > Organisation > Warehouse Types |
-| Masters > Places | Masters > Organisation > Places |
+| Masters > Storage Areas | Masters > Configuration > Locations > Storage Areas |
+| Masters > Branch Types | Masters > Configuration > Locations > Branch Types |
+| Masters > Warehouse Types | Masters > Configuration > Locations > Warehouse Types |
+| Masters > Places | Masters > Configuration > Locations > Places |
 | Reports > Operational Reports | Reports > Operational |
 | Reports > Financial Reports | Reports > Financial |
 | Administration > Users | Admin > People > Users |

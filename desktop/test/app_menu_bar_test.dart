@@ -94,6 +94,36 @@ void main() {
     expect(find.text('FIELD SALES'), findsNothing);
   });
 
+  testWidgets('Masters sets its configuration lists apart', (tester) async {
+    await _pump(tester, width: 1920);
+    await tester.tap(find.byKey(const ValueKey('menu-area-masters')));
+    await tester.pumpAndSettle();
+    final Finder setup = find.byKey(const ValueKey('menu-configuration'));
+    expect(setup, findsOneWidget);
+    expect(find.text('CONFIGURATION'), findsOneWidget);
+    // Lookup lists inside it; the masters opened every day outside it.
+    for (final String path in [
+      'masters/vendor-categories',
+      'administration/uoms',
+      'masters/geography-masters',
+    ]) {
+      expect(
+          find.descendant(
+              of: setup, matching: find.byKey(ValueKey('menu-item-$path'))),
+          findsOneWidget,
+          reason: path);
+    }
+    for (final String path in ['masters/customers', 'masters/products']) {
+      expect(
+          find.descendant(
+              of: setup, matching: find.byKey(ValueKey('menu-item-$path'))),
+          findsNothing,
+          reason: path);
+      expect(find.byKey(ValueKey('menu-item-$path')), findsOneWidget);
+    }
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('Home is one screen, so it opens rather than dropping a panel',
       (tester) async {
     final List<MenuItemSpec> opened = await _pump(tester);

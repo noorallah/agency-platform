@@ -148,7 +148,11 @@ void main() {
         MenuLayout.areas.singleWhere((area) => area.id == 'masters'),
         _visibility(['CUSTOMER_VIEW']),
       );
-      expect(masters!.groups.map((group) => group.label), ['Parties']);
+      // Customers, and Customer Groups under CONFIGURATION; nothing else.
+      expect(masters!.groups.map((group) => group.label),
+          ['Parties', 'Parties']);
+      expect(masters.groups.map((group) => group.configuration),
+          [false, true]);
     });
 
     test('nobody with no permissions is offered an area', () {

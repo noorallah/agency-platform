@@ -51,10 +51,15 @@ class MenuItemSpec {
 
 /// A column in an area's drop-down panel (4.3).
 class MenuGroupSpec {
-  const MenuGroupSpec(this.label, this.items);
+  const MenuGroupSpec(this.label, this.items, {this.configuration = false});
 
   final String label;
   final List<MenuItemSpec> items;
+
+  /// A group of lookup lists set up once and rarely touched -- categories,
+  /// types, units. The panel draws these apart, under CONFIGURATION, so the
+  /// masters opened every day are not lost among them (owner, 2026-09-26).
+  final bool configuration;
 }
 
 /// One entry of the menu bar (4.2), or the Settings gear (4.13).
@@ -192,38 +197,59 @@ abstract final class MenuLayout {
       ]),
     ]),
     MenuAreaSpec('masters', 'Masters', [
+      // Opened every day.
       MenuGroupSpec('Parties', [
         MenuItemSpec(AppModule.masters, 'customers', 'Customers'),
-        // Master data like vendor categories, set up now and then -- not a
-        // button on the Customers screen (owner, 2026-09-26).
-        MenuItemSpec.phase2(customerGroupsRoute, 'Customer Groups',
-            gate: 'masters/customers'),
         MenuItemSpec(AppModule.masters, 'vendors', 'Vendors'),
-        MenuItemSpec(
-            AppModule.masters, 'vendor-categories', 'Vendor Categories'),
-        MenuItemSpec(AppModule.masters, 'vendor-types', 'Vendor Types'),
       ]),
       MenuGroupSpec('Items', [
         MenuItemSpec(AppModule.masters, 'products', 'Products'),
-        MenuItemSpec(
-            AppModule.masters, 'product-categories', 'Product Categories'),
-        MenuItemSpec(AppModule.administration, 'uoms', 'Units of Measure'),
-        MenuItemSpec(AppModule.administration, 'uom-groups', 'UOM Groups'),
-        MenuItemSpec(
-            AppModule.administration, 'packaging-types', 'Packaging Types'),
-        MenuItemSpec(
-            AppModule.administration, 'packaging-levels', 'Packaging Levels'),
-        MenuItemSpec(
-            AppModule.administration, 'conversion-rules', 'Conversion Rules'),
       ]),
       MenuGroupSpec('Organisation', [
         MenuItemSpec(AppModule.masters, 'branches', 'Branches'),
         MenuItemSpec(AppModule.masters, 'warehouses', 'Warehouses'),
-        MenuItemSpec(AppModule.masters, 'storage-areas', 'Storage Areas'),
-        MenuItemSpec(AppModule.masters, 'branch-types', 'Branch Types'),
-        MenuItemSpec(AppModule.masters, 'warehouse-types', 'Warehouse Types'),
-        MenuItemSpec(AppModule.masters, 'geography-masters', 'Places'),
       ]),
+      // Set up once, rarely touched: drawn apart, under CONFIGURATION.
+      MenuGroupSpec(
+        'Parties',
+        [
+          // Master data like vendor categories, not a button on the
+          // Customers screen (owner, 2026-09-26).
+          MenuItemSpec.phase2(customerGroupsRoute, 'Customer Groups',
+              gate: 'masters/customers'),
+          MenuItemSpec(
+              AppModule.masters, 'vendor-categories', 'Vendor Categories'),
+          MenuItemSpec(AppModule.masters, 'vendor-types', 'Vendor Types'),
+        ],
+        configuration: true,
+      ),
+      MenuGroupSpec(
+        'Items',
+        [
+          MenuItemSpec(
+              AppModule.masters, 'product-categories', 'Product Categories'),
+          MenuItemSpec(AppModule.administration, 'uoms', 'Units of Measure'),
+          MenuItemSpec(AppModule.administration, 'uom-groups', 'UOM Groups'),
+          MenuItemSpec(
+              AppModule.administration, 'packaging-types', 'Packaging Types'),
+          MenuItemSpec(AppModule.administration, 'packaging-levels',
+              'Packaging Levels'),
+          MenuItemSpec(AppModule.administration, 'conversion-rules',
+              'Conversion Rules'),
+        ],
+        configuration: true,
+      ),
+      MenuGroupSpec(
+        'Locations',
+        [
+          MenuItemSpec(AppModule.masters, 'storage-areas', 'Storage Areas'),
+          MenuItemSpec(AppModule.masters, 'branch-types', 'Branch Types'),
+          MenuItemSpec(
+              AppModule.masters, 'warehouse-types', 'Warehouse Types'),
+          MenuItemSpec(AppModule.masters, 'geography-masters', 'Places'),
+        ],
+        configuration: true,
+      ),
     ]),
     MenuAreaSpec('reports', 'Reports', [
       MenuGroupSpec('Reports', [
@@ -348,7 +374,11 @@ abstract final class MenuLayout {
     final List<MenuGroupSpec> groups = [
       for (final MenuGroupSpec group in area.groups)
         if (group.items.where(offered).isNotEmpty)
-          MenuGroupSpec(group.label, group.items.where(offered).toList()),
+          MenuGroupSpec(
+            group.label,
+            group.items.where(offered).toList(),
+            configuration: group.configuration,
+          ),
     ];
     return groups.isEmpty ? null : MenuAreaSpec(area.id, area.label, groups);
   }
