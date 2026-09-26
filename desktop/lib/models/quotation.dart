@@ -1,4 +1,6 @@
 import 'entities.dart';
+import 'document_preview.dart';
+export 'document_preview.dart';
 
 /// One line of an offer.
 class QuotationLine {
@@ -229,37 +231,8 @@ class QuotationConversion {
   }
 }
 
-/// One line's companions in a priced preview: what this customer last paid
-/// for the product, and the stock free to promise where the offer ships from.
-class QuotationPreviewLine {
-  const QuotationPreviewLine({
-    required this.lineNumber,
-    required this.productId,
-    required this.lastPrice,
-    required this.lastInvoiceNumber,
-    required this.lastInvoiceDate,
-    required this.availableQuantity,
-  });
-
-  final int lineNumber;
-  final String productId;
-
-  /// Empty when the customer has never been billed for the product.
-  final String lastPrice;
-  final String lastInvoiceNumber;
-  final String lastInvoiceDate;
-  final String availableQuantity;
-
-  factory QuotationPreviewLine.fromJson(Map<String, dynamic> json) =>
-      QuotationPreviewLine(
-        lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
-        productId: '${json['product_id'] ?? ''}',
-        lastPrice: json['last_price'] == null ? '' : '${json['last_price']}',
-        lastInvoiceNumber: '${json['last_invoice_number'] ?? ''}',
-        lastInvoiceDate: '${json['last_invoice_date'] ?? ''}',
-        availableQuantity: '${json['available_quantity'] ?? '0'}',
-      );
-}
+/// The quotation screen's name for a preview line's companions.
+typedef QuotationPreviewLine = DocumentPreviewLine;
 
 /// An offer priced exactly as saving it would, from
 /// `POST /api/v1/quotations/preview`: the draft the save would store (its
@@ -287,7 +260,7 @@ class QuotationPreviewRecord {
         lines: [
           for (final dynamic line in json['lines'] as List? ?? const [])
             if (line is Map)
-              QuotationPreviewLine.fromJson(Map<String, dynamic>.from(line)),
+              DocumentPreviewLine.fromJson(Map<String, dynamic>.from(line)),
         ],
       );
 }

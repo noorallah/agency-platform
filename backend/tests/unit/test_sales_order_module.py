@@ -6,7 +6,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi import Response
-from sqlalchemy import create_engine, event, select
+from sqlalchemy import create_engine, event, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -1584,3 +1584,44 @@ def test_an_approval_under_warning_records_the_credit_assessment() -> None:
     assert audit is not None
     assert audit.after_data is not None
     assert "credit_warning" in audit.after_data
+
+
+def test_a_preview_prices_the_order_and_saves_nothing() -> None:
+    """The order screen's figures are the save's, and nothing lands.
+
+    Staged through the save path and rolled back: no order, no audit row,
+    and the next real save takes the number the preview showed.
+    """
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    customer = _customer(session, firm_id=firm.id)
+    product = _product(session, firm_id=firm.id)
+    service = SalesOrderService(session)
+    payload = SalesOrderCreate(
+        customer_id=customer.id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+        order_date=date(2026, 8, 3),
+        lines=[
+            SalesOrderLineWrite(
+                line_number=1,
+                product_id=product.id,
+                quantity=Decimal("4"),
+                unit_price=Decimal("100"),
+            )
+        ],
+    )
+    audits = session.scalar(select(func.count()).select_from(AuditLog))
+
+    preview = service.preview_order(payload, firm_id=firm.id, actor_id=uuid4())
+
+    assert preview.order.grand_total == Decimal("400.0000")
+    assert preview.interstate is False
+    assert [line.line_number for line in preview.lines] == [1]
+    assert preview.lines[0].last_price is None
+    assert session.scalar(select(func.count()).select_from(SalesOrder)) == 0
+    assert session.scalar(select(func.count()).select_from(AuditLog)) == audits
+    saved = service.create_order(payload, firm_id=firm.id, actor_id=uuid4())
+    assert saved.order_number == preview.order.order_number

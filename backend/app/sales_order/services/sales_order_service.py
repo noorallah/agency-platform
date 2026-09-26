@@ -69,6 +69,7 @@ from app.promotions.schemas import (
 )
 from app.promotions.services import PromotionService, RedemptionService
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
+from app.sales.services.document_preview import line_companions
 from app.sales.services.scope_resolution import resolve_sales_scope
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 from app.sales_order.models import (
@@ -94,6 +95,7 @@ from app.sales_order.schemas import (
     SalesOrderNoteResponse,
     SalesOrderNoteWrite,
     SalesOrderPendingRecord,
+    SalesOrderPreview,
     SalesOrderRegisterRecord,
     SalesOrderResponse,
     SalesOrderStatus,
@@ -101,6 +103,7 @@ from app.sales_order.schemas import (
 )
 from app.settlements.models import Settlement
 from app.tax.schemas import TaxRuleSimulationRequest
+from app.tax.services.place_of_supply import SALES_INTERSTATE
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.schemas import ConversionRequest
@@ -309,6 +312,45 @@ class SalesOrderService(TransactionalDocumentService):
         row = self.stage_order(data, firm_id=firm_id, actor_id=actor_id)
         self._session.commit()
         return row
+
+    def preview_order(
+        self, data: SalesOrderCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> SalesOrderPreview:
+        """Price an order exactly as saving it would, then save nothing.
+
+        Staged through the save path -- price lists, rates, promotions, the
+        bill discount, freight, tax -- read back, and the unit of work rolled
+        back: no order, no number used up, no audit row. The request's session
+        is its own, so there is nothing else in it to lose.
+        """
+        try:
+            row = self.stage_order(data, firm_id=firm_id, actor_id=actor_id)
+            response = self.order_response(row)
+            interstate = (
+                self._tax.outward_transaction_type(
+                    "SALES_ORDER",
+                    firm_id=firm_id,
+                    branch_id=data.branch_id,
+                    customer_id=data.customer_id,
+                )
+                == SALES_INTERSTATE
+            )
+            lines = line_companions(
+                self._session,
+                firm_id=firm_id,
+                customer_id=data.customer_id,
+                lines=[
+                    (
+                        line.line_number,
+                        line.product_id,
+                        line.warehouse_id or data.warehouse_id,
+                    )
+                    for line in response.lines
+                ],
+            )
+        finally:
+            self._session.rollback()
+        return SalesOrderPreview(order=response, interstate=interstate, lines=lines)
 
     def stage_order(
         self,

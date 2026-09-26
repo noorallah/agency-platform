@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.batch_serial.schemas import PickedSerial
+from app.sales.schemas.document_preview import DocumentPreviewLine
 
 
 class SalesInvoiceSchema(BaseModel):
@@ -598,3 +599,15 @@ class SalesInvoiceOverdueRecord(SalesInvoiceSchema):
     grand_total: Decimal
     settled_amount: Decimal
     outstanding_amount: Decimal
+
+
+class SalesInvoicePreview(SalesInvoiceSchema):
+    """An invoice priced exactly as saving it would, without saving it.
+
+    ``interstate`` says how its tax splits: IGST across states, CGST and
+    SGST within one.
+    """
+
+    invoice: SalesInvoiceResponse
+    interstate: bool
+    lines: list[DocumentPreviewLine]

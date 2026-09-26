@@ -34,6 +34,7 @@ from app.sales_invoice.schemas import (
     SalesInvoiceImportRequest,
     SalesInvoiceListFilters,
     SalesInvoiceOverdueRecord,
+    SalesInvoicePreview,
     SalesInvoiceReconciliationRecord,
     SalesInvoiceRegisterRecord,
     SalesInvoiceResponse,
@@ -180,6 +181,24 @@ def create_sales_invoice(
     service = SalesInvoiceService(db)
     row = service.create_invoice(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
     return ApiResponse(data=service.invoice_response(row))
+
+
+@router.post("/preview", response_model=ApiResponse[SalesInvoicePreview])
+def preview_sales_invoice(
+    scope: SalesInvoiceCreateScope,
+    db: Annotated[Session, Depends(get_db)],
+    data: SalesInvoiceCreate,
+) -> ApiResponse[SalesInvoicePreview]:
+    """Price an invoice as saving it would, and save nothing.
+
+    What the invoice screen calls as its lines are typed, so the rates,
+    discounts, tax and totals it shows are the ones the save will store.
+    """
+    return ApiResponse(
+        data=SalesInvoiceService(db).preview_invoice(
+            data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        )
+    )
 
 
 @router.get(

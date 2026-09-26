@@ -17,6 +17,7 @@ from app.sales_order.schemas.sales_order import (
     SalesOrderNoteResponse,
     SalesOrderNoteWrite,
     SalesOrderPendingRecord,
+    SalesOrderPreview,
     SalesOrderRegisterRecord,
     SalesOrderResponse,
     SalesOrderStatus,
@@ -27,6 +28,7 @@ from app.sales_order.schemas.sales_order import (
 )
 
 __all__ = [
+    "SalesOrderPreview",
     "SalesOrderAdvance",
     "SalesOrderAdvanceSummary",
     "SalesOrderAttachmentResponse",

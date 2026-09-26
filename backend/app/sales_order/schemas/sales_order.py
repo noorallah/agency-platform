@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.sales.schemas.document_preview import DocumentPreviewLine
+
 
 class SalesOrderSchema(BaseModel):
     """Apply strict input and ORM response behavior."""
@@ -488,3 +490,15 @@ class SalesWorkflowSettingsWrite(SalesOrderSchema):
     delivery_note_stage: bool
     default_branch_id: UUID | None = None
     default_warehouse_id: UUID | None = None
+
+
+class SalesOrderPreview(SalesOrderSchema):
+    """An order priced exactly as saving it would, without saving it.
+
+    ``interstate`` says how its tax splits: IGST across states, CGST and
+    SGST within one.
+    """
+
+    order: SalesOrderResponse
+    interstate: bool
+    lines: list[DocumentPreviewLine]

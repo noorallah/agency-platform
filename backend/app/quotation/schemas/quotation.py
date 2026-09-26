@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.sales.schemas.document_preview import DocumentPreviewLine
+
 
 class QuotationSchema(BaseModel):
     """Apply strict input and ORM response behavior."""
@@ -241,18 +243,8 @@ class QuotationLineResponse(QuotationSchema):
     updated_at: datetime
 
 
-class QuotationPreviewLine(QuotationSchema):
+class QuotationPreviewLine(DocumentPreviewLine):
     """What the writer of an offer wants beside one line while typing it."""
-
-    line_number: int
-    product_id: UUID
-    #: The last price this customer was billed for the product, and on which
-    #: bill -- None when they have never bought it.
-    last_price: Decimal | None = None
-    last_invoice_number: str | None = None
-    last_invoice_date: date | None = None
-    #: Stock free to promise in the warehouse the offer ships from.
-    available_quantity: Decimal = Decimal("0")
 
 
 class QuotationResponse(QuotationSchema):
