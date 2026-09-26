@@ -28,4 +28,14 @@ void main() {
     expect(createdStamp(''), '');
     expect(createdStamp('yesterday'), '');
   });
+
+  test("one Date cell: the document's date, then when it was entered", () {
+    // A local-time instant, so the day it names is the day it reads here.
+    final String made = DateTime(2026, 9, 27, 10, 42).toIso8601String();
+    expect(documentDateStamp('2026-09-27', made), '2026-09-27 10:42');
+    expect(documentDateStamp('2026-09-20', made),
+        '2026-09-20 (entered 2026-09-27 10:42)');
+    expect(documentDateStamp('2026-09-27', null), '2026-09-27');
+    expect(documentDateStamp(null, null), '-');
+  });
 }

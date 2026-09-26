@@ -862,8 +862,8 @@ class _SalesInvoiceManagementPageState
           GridColumn(key: 'number', label: 'Invoice Number'),
           // Whose document it is (owner, 2026-09-27); kept at any width.
           GridColumn(key: 'customer', label: 'Customer', priority: 1),
+          // One date: the invoice's, with the minute it was entered.
           GridColumn(key: 'date', label: 'Invoice Date'),
-          GridColumn(key: 'created', label: 'Created'),
           GridColumn(key: 'reference', label: 'Reference'),
           GridColumn(key: 'status', label: 'Status'),
           GridColumn(key: 'total', label: 'Grand Total'),
@@ -874,8 +874,7 @@ class _SalesInvoiceManagementPageState
         cells: (item) => [
           '${item['invoice_number'] ?? '-'}',
           '${item['customer_name'] ?? ''}',
-          '${item['invoice_date'] ?? '-'}',
-          createdStamp(item['created_at']),
+          documentDateStamp(item['invoice_date'], item['created_at']),
           '${item['reference_number'] ?? ''}',
           '${item['status'] ?? ''}',
           '${item['grand_total'] ?? '0'}',

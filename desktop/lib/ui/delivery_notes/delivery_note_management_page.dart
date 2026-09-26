@@ -645,8 +645,8 @@ class _DeliveryNoteManagementPageState
           // Whose document it is (owner, 2026-09-27); kept at any width.
           GridColumn(key: 'customer', label: 'Customer', priority: 1),
           GridColumn(key: 'order', label: 'Sales Order'),
+          // One date: the delivery's, with the minute it was entered.
           GridColumn(key: 'date', label: 'Delivery Date'),
-          GridColumn(key: 'created', label: 'Created'),
           GridColumn(key: 'status', label: 'Status'),
           GridColumn(key: 'total', label: 'Grand Total'),
         ],
@@ -657,8 +657,7 @@ class _DeliveryNoteManagementPageState
           item.deliveryNoteNumber,
           item.customerName,
           item.salesOrderReference,
-          item.deliveryDate,
-          createdStamp(item.createdAt),
+          documentDateStamp(item.deliveryDate, item.createdAt),
           item.status,
           item.grandTotal,
         ],

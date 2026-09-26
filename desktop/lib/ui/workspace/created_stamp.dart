@@ -15,3 +15,21 @@ String createdStamp(Object? iso) {
   return '${local.year}-${two(local.month)}-${two(local.day)} '
       '${two(local.hour)}:${two(local.minute)}';
 }
+
+/// A document's one Date cell: its business [date], with the minute it was
+/// entered when that was the same day, and the day it was entered when it
+/// was backdated -- `2026-09-27 10:42`, `2026-09-20 (entered 2026-09-27 10:42)`.
+///
+/// The grids carried a Date and a Created column side by side; the owner
+/// asked why two (2026-09-27), and Busy, Tally and Vyapar show one. The
+/// business date leads because it is the one printed and filed; the time is
+/// what tells today's documents apart.
+String documentDateStamp(Object? date, Object? createdIso) {
+  final String day = date == null ? '' : '$date';
+  final String made = createdStamp(createdIso);
+  if (made.isEmpty) return day.isEmpty ? '-' : day;
+  if (day.isEmpty) return made;
+  // createdStamp is `yyyy-mm-dd hh:mm`; its first ten characters are the day.
+  if (made.startsWith(day)) return made;
+  return '$day (entered $made)';
+}
