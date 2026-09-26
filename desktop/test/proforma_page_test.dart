@@ -10,6 +10,8 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/sales/proforma_page.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
+    show Phase2Scope;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -36,6 +38,7 @@ class _ProformaApi extends ApiClient {
 
   final List<Json> rows;
   final List<String> requested = <String>[];
+  Json? raised;
 
   @override
   Future<Json> request(
@@ -48,6 +51,24 @@ class _ProformaApi extends ApiClient {
     int? expectedVersion,
   }) async {
     requested.add('$method $path');
+    if (path == '/api/v1/sales-orders') {
+      return <String, dynamic>{
+        'data': [_approvedOrder()],
+        'pagination': <String, dynamic>{'total_records': 1},
+      };
+    }
+    if (path == '/api/v1/products') {
+      return <String, dynamic>{
+        'data': [
+          {'id': 'p-1', 'code': 'TP', 'name': 'Toothpaste 150g'},
+        ],
+        'pagination': <String, dynamic>{'total_records': 1},
+      };
+    }
+    if (method == 'POST' && path == '/api/v1/proforma-invoices') {
+      raised = body;
+      return <String, dynamic>{'data': _proforma()};
+    }
     if (path.contains('/issue') || path.contains('/cancel')) {
       return <String, dynamic>{'data': rows.first};
     }
@@ -94,6 +115,31 @@ Json _proforma({String status = 'DRAFT'}) => <String, dynamic>{
           'gross_amount': '1000.0000',
           'tax_amount': '153.0000',
           'net_amount': '1003.0000',
+        },
+      ],
+    };
+
+/// An approved order of ten toothpaste at 100, 10% off, 18% tax.
+Json _approvedOrder() => <String, dynamic>{
+      'id': 'so-1',
+      'order_number': 'SO-2026-2027-000004',
+      'order_date': '2026-06-01',
+      'customer_name': 'Kumar Stores',
+      'status': 'APPROVED',
+      'subtotal': '900.00',
+      'tax_total': '162.00',
+      'grand_total': '1062.00',
+      'lines': <Json>[
+        <String, dynamic>{
+          'line_number': 1,
+          'product_id': 'p-1',
+          'quantity': '10.0000',
+          'free_quantity': '0',
+          'unit_price': '100.0000',
+          'gross_amount': '1000.0000',
+          'discount_amount': '100.0000',
+          'bill_discount_amount': '0',
+          'tax_amount': '162.0000',
         },
       ],
     };
@@ -228,5 +274,41 @@ void main() {
 
     expect(find.textContaining('view proforma permission'), findsOneWidget);
     expect(find.textContaining('PI-2026'), findsNothing);
+  });
+
+  testWidgets('phase 2 raises on one screen showing the order it states',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _ProformaApi api = _ProformaApi();
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Phase2Scope(
+          child: ProformaPage(
+            api: api,
+            permissions: _permissions(),
+            hasActiveFirm: true,
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('New').last);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    // The order's line, named from the products, at what the order agreed.
+    expect(find.text('Toothpaste 150g'), findsWidgets);
+    expect(find.text('900.00'), findsWidgets);
+    expect(
+      find.textContaining('1,062.00', findRichText: true),
+      findsWidgets,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('proforma-raise')));
+    await tester.pumpAndSettle();
+    expect(api.raised?['sales_order_id'], 'so-1');
+    expect(api.raised?.containsKey('valid_until'), isFalse);
   });
 }

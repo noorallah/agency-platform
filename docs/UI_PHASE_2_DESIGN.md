@@ -402,6 +402,12 @@ returning, damaged and scrap are typed in the row, what goes back on the shelf i
 worked out. Priced as typed by `POST /sales-returns/preview`; the total is the
 credit to the customer. Serial numbers coming back are picked in the side panel.
 
+**Proforma (2026-09-26)** is raised on the same screen, read-only below the header:
+a proforma restates an approved order's lines exactly as they stand (the server
+snapshots them), so what is chosen is the order, how long the prices stand (a date
+picker, or no deadline) and the terms, and what is shown is what the customer will
+hold, with its total in words. Phase 1 keeps its dialog.
+
 ### 4.9 Home per role
 
 A counter clerk, a storeman, an accountant and an owner get different homes:

@@ -6,15 +6,21 @@
 // clerk, so the words travel with the document rather than living in a manual.
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
+import '../../models/product.dart';
 import '../../models/proforma.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
+import '../../phase2/document_page.dart';
+import '../../phase2/indian_format.dart';
+
+part 'proforma_raise_phase2.dart';
 
 /// List the firm's proformas, raise one from an order, issue or withdraw it.
 class ProformaPage extends StatefulWidget {
@@ -110,10 +116,26 @@ class _ProformaPageState extends State<ProformaPage> {
       );
       return;
     }
-    final Json? chosen = await showDialog<Json>(
-      context: context,
-      builder: (context) => _RaiseProformaDialog(orders: orders),
-    );
+    // Phase 2 raises on its own screen, the order's lines on show; phase 1
+    // keeps its dialog.
+    final bool phase2 = Phase2Scope.of(context);
+    final Map<String, String> names =
+        phase2 ? await _productNames() : const {};
+    if (!mounted) return;
+    final Json? chosen = phase2
+        ? await showDocument<Json>(
+            context,
+            title: 'New proforma',
+            builder: (_) => _Phase2RaiseProforma(
+              orders: orders,
+              productNames: names,
+              today: DateTime.now(),
+            ),
+          )
+        : await showDialog<Json>(
+            context: context,
+            builder: (context) => _RaiseProformaDialog(orders: orders),
+          );
     if (chosen == null || !mounted) return;
     try {
       final ProformaRecord row = await widget.api.createProformaInvoice(chosen);
@@ -139,6 +161,20 @@ class _ProformaPageState extends State<ProformaPage> {
   ///
   /// Every page of them: this read the newest hundred orders of any status,
   /// so an older approved order could not be stated at all (D-SELL-18).
+  /// Product names by id, for the lines of the order being stated; an
+  /// empty map where they cannot be read, and the lines fall back to their
+  /// own text.
+  Future<Map<String, String>> _productNames() async {
+    try {
+      final List<Product> products = await fetchAllPages<Product>(
+        (page) => widget.api.products(page: page, pageSize: 100),
+      );
+      return {for (final Product item in products) item.id: item.name};
+    } on ApiException {
+      return const {};
+    }
+  }
+
   Future<List<Json>> _statableOrders() async {
     try {
       final List<Json> orders = await fetchAllPages<Json>((int page) async {
