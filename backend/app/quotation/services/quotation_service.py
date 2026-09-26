@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
-from app.common.report_names import customer_names
+from app.common.report_names import customer_names, customers_matching
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
@@ -192,16 +192,7 @@ class QuotationService(TransactionalDocumentService):
                 SalesQuotation.remarks.ilike(token),
                 # By customer too: the person on the phone names the shop,
                 # not the quotation number.
-                SalesQuotation.customer_id.in_(
-                    select(Customer.id).where(
-                        or_(
-                            Customer.display_name.ilike(token),
-                            Customer.name.ilike(token),
-                            Customer.code.ilike(token),
-                            Customer.phone.ilike(token),
-                        )
-                    )
-                ),
+                SalesQuotation.customer_id.in_(customers_matching(token)),
             )
             statement = statement.where(condition)
             count = count.where(condition)

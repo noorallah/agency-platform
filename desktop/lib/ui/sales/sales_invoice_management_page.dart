@@ -542,7 +542,7 @@ class _SalesInvoiceManagementPageState
         viewBar: Phase2Scope.of(context) ? null : _buildViewBar(),
         searchPanel: SearchFilterPanel(
           controller: _search,
-          hintText: 'Search invoice number, reference...',
+          hintText: 'Search invoice number, customer, reference...',
           onSearch: (_) => _load(requestedPage: 1),
         ),
         primaryContent: !widget.hasActiveFirm
@@ -860,6 +860,8 @@ class _SalesInvoiceManagementPageState
   Widget _buildInvoiceGrid() => EnterpriseDataGrid<Map<String, dynamic>>(
         columns: const [
           GridColumn(key: 'number', label: 'Invoice Number'),
+          // Whose document it is (owner, 2026-09-27); kept at any width.
+          GridColumn(key: 'customer', label: 'Customer', priority: 1),
           GridColumn(key: 'date', label: 'Invoice Date'),
           GridColumn(key: 'created', label: 'Created'),
           GridColumn(key: 'reference', label: 'Reference'),
@@ -871,6 +873,7 @@ class _SalesInvoiceManagementPageState
         selectedId: _selected == null ? null : '${_selected!['id']}',
         cells: (item) => [
           '${item['invoice_number'] ?? '-'}',
+          '${item['customer_name'] ?? ''}',
           '${item['invoice_date'] ?? '-'}',
           createdStamp(item['created_at']),
           '${item['reference_number'] ?? ''}',

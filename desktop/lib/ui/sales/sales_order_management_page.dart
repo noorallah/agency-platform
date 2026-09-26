@@ -447,7 +447,7 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         toolbar: _buildToolbar(),
         searchPanel: SearchFilterPanel(
           controller: _search,
-          hintText: 'Search order number, customer reference...',
+          hintText: 'Search order number, customer, reference...',
           onSearch: (_) => _load(requestedPage: 1),
         ),
         primaryContent: !widget.hasActiveFirm
@@ -823,6 +823,8 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
   Widget _buildOrderGrid() => EnterpriseDataGrid<Map<String, dynamic>>(
         columns: const [
           GridColumn(key: 'number', label: 'Order Number'),
+          // Whose document it is (owner, 2026-09-27); kept at any width.
+          GridColumn(key: 'customer', label: 'Customer', priority: 1),
           GridColumn(key: 'date', label: 'Order Date'),
           GridColumn(key: 'created', label: 'Created'),
           GridColumn(key: 'reference', label: 'Reference'),
@@ -834,6 +836,7 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         selectedId: _selected == null ? null : '${_selected!['id']}',
         cells: (item) => [
           '${item['order_number'] ?? '-'}',
+          '${item['customer_name'] ?? ''}',
           '${item['order_date'] ?? '-'}',
           // Every order raised today shares one date; the minute it was made is
           // what tells the draft just created from the rest.

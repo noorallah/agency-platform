@@ -20,6 +20,7 @@ from app.common.firm_metadata import FirmMetadataReader, platform_reader
 from app.common.report_names import (
     branch_names,
     customer_names,
+    customers_matching,
     salesman_names,
     territory_names,
     warehouse_names,
@@ -260,6 +261,7 @@ class SalesOrderService(TransactionalDocumentService):
                 SalesOrder.customer_reference.ilike(token),
                 SalesOrder.reference_number.ilike(token),
                 SalesOrder.remarks.ilike(token),
+                SalesOrder.customer_id.in_(customers_matching(token)),
             )
             statement = statement.where(condition)
             count = count.where(condition)

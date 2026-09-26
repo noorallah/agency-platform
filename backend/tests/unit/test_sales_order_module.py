@@ -787,6 +787,20 @@ def test_orders_on_one_date_list_newest_first() -> None:
     assert total == 3
     assert [row.id for row in rows] == [third.id, second.id, first.id]
 
+    # The list is searched by the shop as well as the order (owner,
+    # 2026-09-27): the customer's code finds all three, a stranger none.
+    for search, expected in ((customer.code, 3), ("nobody by this name", 0)):
+        _, found = service.list_orders(
+            firm_scope=firm.id,
+            filters=SalesOrderListFilters(),
+            page=1,
+            page_size=10,
+            search=search,
+            sort_by="order_date",
+            descending=True,
+        )
+        assert found == expected, search
+
 
 def test_an_order_remembers_the_delivery_charge_an_offer_waived() -> None:
     """D-SELL-35: what was asked is kept beside what was charged.

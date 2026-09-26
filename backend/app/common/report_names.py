@@ -20,7 +20,7 @@ from collections.abc import Iterable
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import Select, select
+from sqlalchemy import Select, or_, select
 from sqlalchemy.orm import Session
 
 from app.branches.models import Branch, Warehouse
@@ -54,6 +54,24 @@ def _labels(
     if not ids:
         return {}
     return {row[0]: row[1] for row in session.execute(statement).all()}
+
+
+def customers_matching(token: str) -> Select[tuple[UUID]]:
+    """Select the customers a document search names, as a subquery of ids.
+
+    A sales document list is searched the way somebody asks for one -- by the
+    shop -- so its search matches the customer's display name, legal name,
+    code and phone as well as the document's own fields (owner, 2026-09-27).
+    ``token`` is the ``ilike`` pattern the caller already built.
+    """
+    return select(Customer.id).where(
+        or_(
+            Customer.display_name.ilike(token),
+            Customer.name.ilike(token),
+            Customer.code.ilike(token),
+            Customer.phone.ilike(token),
+        )
+    )
 
 
 def customer_names(session: Session, ids: Iterable[UUID | None]) -> dict[UUID, str]:
