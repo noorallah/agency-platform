@@ -214,6 +214,11 @@ class _DesktopShellState extends State<DesktopShell> {
   /// The screens open as tabs under the menu bar, by router path (decision 3).
   late List<String> _openScreens;
 
+  /// Documents open as tabs beside the screens (4.8), and the one on show,
+  /// if a document rather than a screen is.
+  final DocumentTabsController _documents = DocumentTabsController();
+  String? _activeDocument;
+
   /// The screen on show before the latest route change -- the tab that a
   /// change made from inside a page belongs to.
   String? _shownPath;
@@ -259,6 +264,16 @@ class _DesktopShellState extends State<DesktopShell> {
     // The screen the session opens on is open, so it has a tab like any
     // other -- a restored tab list may not name it.
     _openScreens = openScreen(_openScreens, _router.current.path);
+    _documents
+      ..onOpened = (document) {
+        if (mounted) setState(() => _activeDocument = document.id);
+      }
+      ..onClosed = (document) {
+        if (!mounted) return;
+        setState(() {
+          if (_activeDocument == document.id) _activeDocument = null;
+        });
+      };
     _shownPath = _router.current.path;
     _refreshBusinessModules();
     // Both server-driven filters, not just one. `_refreshSalesStages` was
@@ -274,6 +289,7 @@ class _DesktopShellState extends State<DesktopShell> {
 
   @override
   void dispose() {
+    _documents.dispose();
     _healthTimer?.cancel();
     widget.session.removeListener(_sessionChanged);
     _router
@@ -339,6 +355,7 @@ class _DesktopShellState extends State<DesktopShell> {
   }
 
   void _openFromMenu(MenuItemSpec item) {
+    _activeDocument = null;
     _openScreens = openScreen(_openScreens, item.path);
     _shownPath = item.path;
     final WorkspaceLocation location = WorkspaceLocation.parse(item.path);
@@ -348,6 +365,7 @@ class _DesktopShellState extends State<DesktopShell> {
   }
 
   void _showScreen(String path) {
+    if (_activeDocument != null) setState(() => _activeDocument = null);
     final WorkspaceLocation location = WorkspaceLocation.parse(path);
     _shownPath = path;
     _router.navigate(location.module, tab: location.tab);
@@ -590,12 +608,21 @@ class _DesktopShellState extends State<DesktopShell> {
           shown,
     ];
     final List<String> shown = _openScreens.where(_pathAllowed).toList();
+    final List<OpenDocument> documents = _documents.documents;
+    final int activeIndex = _activeDocument == null
+        ? 0
+        : 1 +
+            documents
+                .indexWhere((document) => document.id == _activeDocument)
+                .clamp(-1, documents.length - 1);
     final String current = _router.current.path;
     final AppSemanticColors chrome = context.semanticColors;
     return CallbackShortcuts(
       bindings: {
         const SingleActivator(LogicalKeyboardKey.keyW, control: true): () =>
-            _closeScreen(current),
+            _activeDocument != null
+                ? _documents.close(_activeDocument!)
+                : _closeScreen(current),
         // Tally's Go To (decision 6), beside Ctrl+K.
         const SingleActivator(LogicalKeyboardKey.keyG, alt: true): () =>
             unawaited(_openCommandBox()),
@@ -638,18 +665,46 @@ class _DesktopShellState extends State<DesktopShell> {
               _profileMenu(iconColor: chrome.onChrome),
             ],
           ),
-          if (shown.isNotEmpty)
+          if (shown.isNotEmpty || documents.isNotEmpty)
             OpenScreenTabs(
-              paths: shown,
-              activePath: current,
-              labelFor: _screenLabel,
-              onSelect: _showScreen,
-              onClose: _closeScreen,
+              paths: [
+                ...shown,
+                for (final OpenDocument document in documents) document.id,
+              ],
+              activePath: _activeDocument ?? current,
+              labelFor: (path) =>
+                  _documents.find(path)?.title ?? _screenLabel(path),
+              onSelect: (path) => DocumentTabsController.isDocument(path)
+                  ? setState(() => _activeDocument = path)
+                  : _showScreen(path),
+              onClose: (path) => DocumentTabsController.isDocument(path)
+                  ? _documents.close(path)
+                  : _closeScreen(path),
             ),
           const Divider(height: 1),
           // The one status bar is the page's own (4.5); what phase 1's second
           // bar spelled out is on the connection dot above.
-          Expanded(child: Phase2Scope(child: page)),
+          //
+          // Documents stay built while another tab is on show, so an order
+          // half entered is still there when somebody comes back to it.
+          Expanded(
+            child: Phase2Scope(
+              child: DocumentTabsScope(
+                controller: _documents,
+                child: IndexedStack(
+                  index: activeIndex,
+                  children: [
+                    page,
+                    for (final OpenDocument document in documents)
+                      DocumentNavigator(
+                        key: ValueKey(document.id),
+                        document: document,
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
         ]),
       ),
     );

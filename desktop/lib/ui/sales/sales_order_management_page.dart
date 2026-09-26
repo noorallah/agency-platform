@@ -583,8 +583,10 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
 
   /// Raise an order with nothing behind it -- the phone-order case.
   Future<void> _newOrder() async {
-    final bool? created = await showDialog<bool>(
-      context: context,
+    // A tab of its own in phase 2 (4.8), the same dialog in phase 1.
+    final bool? created = await showDocument<bool>(
+      context,
+      title: 'New sales order',
       builder: (_) =>
           SalesOrderEditorDialog(api: widget.api, today: DateTime.now()),
     );
@@ -600,8 +602,9 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
 
   /// Reopen a draft and correct it.
   Future<void> _editOrder(Map<String, dynamic> order) async {
-    final bool? saved = await showDialog<bool>(
-      context: context,
+    final bool? saved = await showDocument<bool>(
+      context,
+      title: 'Order ${order['order_number'] ?? ''}'.trim(),
       builder: (_) => SalesOrderEditorDialog(
         api: widget.api,
         today: DateTime.now(),

@@ -407,8 +407,10 @@ class _SalesInvoiceManagementPageState
 
   /// Raise an invoice against a delivery note that still has something to bill.
   Future<void> _newInvoice() async {
-    final bool? created = await showDialog<bool>(
-      context: context,
+    // A tab of its own in phase 2 (4.8), the same dialog in phase 1.
+    final bool? created = await showDocument<bool>(
+      context,
+      title: 'New invoice',
       builder: (_) =>
           SalesInvoiceEditorDialog(api: widget.api, today: DateTime.now()),
     );
@@ -424,8 +426,9 @@ class _SalesInvoiceManagementPageState
 
   /// Reopen a draft and correct it.
   Future<void> _editInvoice(Map<String, dynamic> invoice) async {
-    final bool? saved = await showDialog<bool>(
-      context: context,
+    final bool? saved = await showDocument<bool>(
+      context,
+      title: 'Invoice ${invoice['invoice_number'] ?? ''}'.trim(),
       builder: (_) => SalesInvoiceEditorDialog(
         api: widget.api,
         today: DateTime.now(),
