@@ -8,6 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.batch_serial.schemas import PickedSerial
+from app.sales.schemas.document_preview import DocumentPreviewLine
 
 
 class SalesReturnSchema(BaseModel):
@@ -445,3 +446,16 @@ class SalesReturnReconciliationRecord(SalesReturnSchema):
     reason_code: str | None
     is_damaged: bool
     is_expired: bool
+
+
+class SalesReturnPreview(SalesReturnSchema):
+    """A sales return priced exactly as saving it would, without saving it.
+
+    ``interstate`` says how its tax splits: IGST for a customer in another
+    state, CGST and SGST for one in the firm's own. ``lines`` carries each
+    line's last price to this customer and the stock where it comes back.
+    """
+
+    sales_return: SalesReturnResponse
+    interstate: bool
+    lines: list[DocumentPreviewLine]

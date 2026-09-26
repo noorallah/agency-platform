@@ -29,6 +29,7 @@ from app.sales_return.schemas import (
     SalesReturnCreate,
     SalesReturnImportRequest,
     SalesReturnListFilters,
+    SalesReturnPreview,
     SalesReturnReconciliationRecord,
     SalesReturnRegisterRecord,
     SalesReturnResponse,
@@ -291,6 +292,24 @@ def create_sales_return(
     service = SalesReturnService(db)
     row = service.create_return(payload, firm_id=scope.firm_id, actor_id=scope.actor_id)
     return ApiResponse(data=service.return_response(row))
+
+
+@router.post("/preview", response_model=ApiResponse[SalesReturnPreview])
+def preview_sales_return(
+    payload: SalesReturnCreate,
+    scope: SalesReturnCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SalesReturnPreview]:
+    """Price a sales return as saving it would, and save nothing.
+
+    What the return screen calls as its lines are typed, so the credit and
+    tax it shows are the ones the customer will be given.
+    """
+    return ApiResponse(
+        data=SalesReturnService(db).preview_return(
+            payload, firm_id=scope.firm_id, actor_id=scope.actor_id
+        )
+    )
 
 
 @router.get("/export")

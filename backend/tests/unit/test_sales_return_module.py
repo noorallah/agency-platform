@@ -494,6 +494,33 @@ def test_a_return_cannot_lift_its_own_cap() -> None:
         SalesReturnCreate.model_validate(body)
 
 
+def test_a_preview_prices_the_return_and_saves_nothing() -> None:
+    """The return screen's credit is the save's, and nothing lands."""
+    session = _session_factory()()
+    setup = _Dispatch(session)
+    service = SalesReturnService(session)
+    returns = session.scalar(select(func.count()).select_from(SalesReturn))
+    audits = session.scalar(select(func.count()).select_from(AuditLog))
+
+    preview = service.preview_return(
+        setup.payload(quantity=Decimal("2")),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+
+    assert preview.sales_return.grand_total == Decimal("200.0000")
+    assert preview.interstate is False
+    assert preview.lines[0].product_id == setup.note_line.product_id
+    assert session.scalar(select(func.count()).select_from(SalesReturn)) == returns
+    assert session.scalar(select(func.count()).select_from(AuditLog)) == audits
+    saved = service.create_return(
+        setup.payload(quantity=Decimal("2")),
+        firm_id=setup.firm.id,
+        actor_id=setup.actor_id,
+    )
+    assert saved.return_number == preview.sales_return.return_number
+
+
 def test_a_second_return_counts_the_first_one() -> None:
     """Two returns of three against a dispatch of four is still five."""
     session = _session_factory()()

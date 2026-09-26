@@ -66,6 +66,7 @@ from app.finance.services.journal_engine import JournalEntryEngine
 from app.inventory.models import StockLedgerEntry
 from app.inventory.services import InventoryService
 from app.products.models import Product
+from app.sales.services.document_preview import line_companions
 from app.sales.services.scope_resolution import resolve_sales_scope
 from app.sales_invoice.models import (
     SalesInvoice,
@@ -92,6 +93,7 @@ from app.sales_return.schemas import (
     SalesReturnListFilters,
     SalesReturnNoteResponse,
     SalesReturnNoteWrite,
+    SalesReturnPreview,
     SalesReturnReconciliationRecord,
     SalesReturnRegisterRecord,
     SalesReturnResponse,
@@ -101,6 +103,7 @@ from app.sales_return.schemas import (
     SalesReturnSummary,
 )
 from app.tax.schemas import TaxRuleSimulationRequest
+from app.tax.services.place_of_supply import SALES_INTERSTATE
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.schemas import ConversionRequest
@@ -367,6 +370,47 @@ class SalesReturnService(TransactionalDocumentService):
         row = self._stage_return(data, firm_id=firm_id, actor_id=actor_id)
         self._session.commit()
         return row
+
+    def preview_return(
+        self, data: SalesReturnCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> SalesReturnPreview:
+        """Price a return exactly as saving it would, then save nothing.
+
+        Staged through the save path -- the source line's price and discount,
+        tax at the rates in force -- read back, and the unit of work rolled
+        back: no return, no number used up, no audit row. What is shown is
+        the credit the customer will be given.
+        """
+        try:
+            row = self._stage_return(data, firm_id=firm_id, actor_id=actor_id)
+            response = self.return_response(row)
+            interstate = (
+                self._tax.outward_transaction_type(
+                    "SALES_RETURN",
+                    firm_id=firm_id,
+                    branch_id=response.branch_id,
+                    customer_id=response.customer_id,
+                )
+                == SALES_INTERSTATE
+            )
+            lines = line_companions(
+                self._session,
+                firm_id=firm_id,
+                customer_id=response.customer_id,
+                lines=[
+                    (
+                        line.line_number,
+                        line.product_id,
+                        line.warehouse_id or response.warehouse_id,
+                    )
+                    for line in response.lines
+                ],
+            )
+        finally:
+            self._session.rollback()
+        return SalesReturnPreview(
+            sales_return=response, interstate=interstate, lines=lines
+        )
 
     def _stage_return(
         self, data: SalesReturnCreate, *, firm_id: UUID, actor_id: UUID
