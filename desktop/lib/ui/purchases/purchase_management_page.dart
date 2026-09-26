@@ -1129,8 +1129,16 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
   }
 
   Widget _buildGridWorkspace() => ManagementWorkspaceLayout(
-        toolbar: _buildToolbar(),
-        searchPanel: _buildSearchPanel(),
+        toolbar: Phase2Scope.of(context) ? _phase2Toolbar() : _buildToolbar(),
+        searchPanel: Phase2Scope.of(context)
+            ? SearchFilterPanel(
+                controller: _search,
+                focusNode: _searchFocus,
+                hintText: 'Search PO number, remarks, vendor notes, reference',
+                onSearch: _runSearch,
+              )
+            : _buildSearchPanel(),
+        lineChips: Phase2Scope.of(context) ? [_viewsChip()] : const [],
         filterPanel: _buildFilterPanel(),
         viewBar: widget.section == PurchaseSection.purchaseOrders
             ? _buildViewBar()
@@ -1340,6 +1348,215 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         kind: AppNotificationKind.error,
       );
     }
+  }
+
+  /// Phase 2: recent and saved searches, and saved layouts, in one "Views"
+  /// chip beside "+ filter", as Products.
+  Widget _viewsChip() => Phase2MenuChip<VoidCallback>(
+        key: const ValueKey('purchase-views'),
+        label: 'Views',
+        icon: Icons.star_outline,
+        tooltip: 'Saved searches and recent searches',
+        onSelected: (run) => run(),
+        itemBuilder: (context) => [
+          if (_savedSearches.isEmpty)
+            const PopupMenuItem(
+              enabled: false,
+              child: Text('No saved searches'),
+            )
+          else
+            for (final String entry in _savedSearches)
+              PopupMenuItem(
+                value: () {
+                  _search.text = entry;
+                  _runSearch(entry);
+                },
+                child: Text(entry),
+              ),
+          if (_recentSearches.isNotEmpty) ...[
+            const PopupMenuDivider(),
+            for (final String entry in _recentSearches.take(8))
+              PopupMenuItem(
+                value: () {
+                  _search.text = entry;
+                  _runSearch(entry);
+                },
+                child: Row(children: [
+                  const Icon(Icons.history, size: 16),
+                  const SizedBox(width: 8),
+                  Text(entry),
+                ]),
+              ),
+          ],
+          const PopupMenuDivider(),
+          PopupMenuItem(
+            value: () => unawaited(_saveSearch()),
+            child: const Text('Save current search...'),
+          ),
+          if (_savedViews.isNotEmpty) ...[
+            const PopupMenuDivider(),
+            for (final _PurchaseSavedView view in _savedViews)
+              PopupMenuItem(
+                value: () => _applySavedView(view),
+                child: Text('Layout: ${view.name}'),
+              ),
+          ],
+        ],
+      );
+
+  /// Phase 2 (4.11): View, Edit, Delete and Refresh as icons; the order's
+  /// steps as buttons that fold into "..." when the line is short; import,
+  /// export and the settings behind "..."; "+ New" last.
+  Widget _phase2Toolbar() {
+    final PurchaseOrder? selected = _selected;
+    final bool canEditSelected =
+        selected != null && selected.isEditable && _canUpdate;
+    final bool canDeleteSelected =
+        (_selectedIds.isNotEmpty || selected != null) &&
+            !(_selected?.isDeleted ?? false) &&
+            _canDelete;
+    final bool finished = selected == null ||
+        selected.isDeleted ||
+        selected.status == 'CANCELLED' ||
+        selected.status == 'CLOSED';
+    return WorkspaceToolbar(
+      actions: const [
+        ToolbarAction.view,
+        ToolbarAction.edit,
+        ToolbarAction.delete,
+        ToolbarAction.refresh,
+        ToolbarAction.import,
+        ToolbarAction.export,
+        ToolbarAction.newItem,
+      ],
+      isEnabled: (action) => switch (action) {
+        ToolbarAction.view => selected != null,
+        ToolbarAction.edit => canEditSelected,
+        ToolbarAction.delete => canDeleteSelected,
+        ToolbarAction.refresh => !_loading,
+        ToolbarAction.import => _canImport,
+        ToolbarAction.export => _canExport && _orders.isNotEmpty,
+        ToolbarAction.newItem => _canCreate,
+        _ => false,
+      },
+      onAction: (action) {
+        switch (action) {
+          case ToolbarAction.view:
+            if (selected != null) {
+              _openEditor(PurchaseDialogMode.view, selected);
+            }
+          case ToolbarAction.edit:
+            if (selected != null) {
+              _openEditor(PurchaseDialogMode.edit, selected);
+            }
+          case ToolbarAction.delete:
+            _deleteSelected();
+          case ToolbarAction.refresh:
+            _load();
+          case ToolbarAction.import:
+            _openImportWizard();
+          case ToolbarAction.export:
+            _openExport();
+          case ToolbarAction.newItem:
+            _openEditor(PurchaseDialogMode.create);
+          default:
+            break;
+        }
+      },
+      commands: [
+        ToolbarCommand(
+          id: 'submit',
+          label: 'Submit',
+          icon: Icons.outbox_outlined,
+          onPressed: selected != null &&
+                  !selected.isDeleted &&
+                  selected.isDraft &&
+                  _canUpdate
+              ? () => unawaited(_submitSelected(selected))
+              : null,
+        ),
+        ToolbarCommand(
+          id: 'approve',
+          label: 'Approve',
+          icon: Icons.check_circle_outline,
+          onPressed: selected != null &&
+                  !selected.isDeleted &&
+                  selected.isSubmitted &&
+                  _canApprove
+              ? () => unawaited(_approveSelected(selected))
+              : null,
+        ),
+        ToolbarCommand(
+          id: 'print',
+          label: 'Print',
+          icon: Icons.print_outlined,
+          onPressed:
+              selected == null ? null : () => unawaited(_printOrder(selected)),
+        ),
+        ToolbarCommand(
+          id: 'cancel',
+          label: 'Cancel',
+          icon: Icons.cancel_outlined,
+          onPressed: finished || !_canCancel
+              ? null
+              : () => _requestStatusAction(
+                    title: 'Cancel purchase order',
+                    action: (reason) => widget.api.cancelPurchaseOrder(
+                      selected.id,
+                      reason: reason,
+                    ),
+                    successMessage: 'Purchase order cancelled.',
+                  ),
+        ),
+        ToolbarCommand(
+          id: 'close',
+          label: 'Close',
+          icon: Icons.task_alt_outlined,
+          onPressed: finished || !_canApprove
+              ? null
+              : () => _requestStatusAction(
+                    title: 'Close purchase order',
+                    action: (reason) => widget.api.closePurchaseOrder(
+                      selected.id,
+                      reason: reason,
+                    ),
+                    successMessage: 'Purchase order closed.',
+                  ),
+        ),
+        ToolbarCommand(
+          id: 'duplicate',
+          label: 'Duplicate',
+          icon: Icons.copy_outlined,
+          menuOnly: true,
+          onPressed: selected == null || !_canCreate
+              ? null
+              : () => _openEditor(PurchaseDialogMode.duplicate, selected),
+        ),
+        ToolbarCommand(
+          id: 'restore',
+          label: 'Restore',
+          icon: Icons.restore_from_trash_outlined,
+          menuOnly: true,
+          onPressed: selected != null && selected.isDeleted && _canRestore
+              ? _restoreSelected
+              : null,
+        ),
+        ToolbarCommand(
+          id: 'print-settings',
+          label: 'Print settings',
+          icon: Icons.tune_outlined,
+          menuOnly: true,
+          onPressed: () => unawaited(_openPrintSettings()),
+        ),
+        ToolbarCommand(
+          id: 'columns',
+          label: 'Columns',
+          icon: Icons.view_column_outlined,
+          menuOnly: true,
+          onPressed: _openColumnChooser,
+        ),
+      ],
+    );
   }
 
   Widget _buildToolbar() {

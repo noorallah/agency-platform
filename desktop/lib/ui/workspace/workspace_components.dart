@@ -364,10 +364,11 @@ class SummaryCount extends StatelessWidget {
     // text -- the same shape as the "+ filter" chip beside it. The one the
     // list is filtered by is tinted and edged in the accent (4.14: not by
     // tint alone).
+    // No alignment: a Container that aligns its child fills the width it is
+    // offered, and in a Wrap every counter became a full-width bar.
     final Widget body = Container(
       height: 28,
       padding: const EdgeInsets.symmetric(horizontal: 10),
-      alignment: Alignment.center,
       decoration: BoxDecoration(
         color: selected
             ? scheme.primary.withValues(alpha: .12)
@@ -907,17 +908,13 @@ Widget phase2Frame({
       // A frame inside another frame (a resource list inside its module's
       // frame) defers to the outer one: the list claims the outer line, so
       // the window shows one title rather than two.
-      if (tabs == null && Phase2PageBar.of(context) != null) {
+      final Phase2PageBar? outer = Phase2PageBar.of(context);
+      if (tabs == null && outer != null) {
+        // Its buttons go on the outer line too, unless a list has that line.
+        if (actions.isNotEmpty) outer.publishTools(actions);
         return Column(
           crossAxisAlignment: CrossAxisAlignment.stretch,
           children: [
-            if (actions.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-                child: Phase2ButtonTheme(
-                  child: Row(children: [const Spacer(), ...actions]),
-                ),
-              ),
             Expanded(child: child),
             if (status != null) status,
           ],
@@ -963,11 +960,18 @@ Widget _phase2FrameHost({
                 padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
                 child: Phase2ButtonTheme(
                   child: Row(children: [
-                    if (!claimed) ...[
-                      Phase2PageTitle(bar: bar),
-                      Flexible(child: Phase2PageCounters(bar: bar)),
-                    ],
-                    const Spacer(),
+                    if (!claimed) Phase2PageTitle(bar: bar),
+                    // The counters take the room the tools leave; the tools
+                    // sit at the right. (A Flexible beside a Spacer split
+                    // the room and left the tools mid-line.)
+                    Expanded(
+                      child: Align(
+                        alignment: Alignment.centerLeft,
+                        child: claimed
+                            ? const SizedBox.shrink()
+                            : Phase2PageCounters(bar: bar),
+                      ),
+                    ),
                     if (!claimed)
                       ValueListenableBuilder<List<Widget>>(
                         valueListenable: bar.tools,
@@ -2212,14 +2216,14 @@ class GridColumn {
         r'(total|amount|balance|price|value|qty|quantity|outstanding|'
         r'advance|limit|cost|paid|discount|points|stock|on hand|available|'
         r'reserved|mrp|selling|debit|credit|opening|closing|tax|payable|'
-        r'receivable|net|gross)',
+        r'receivable|net|gross|factor)',
         caseSensitive: false,
       ).hasMatch(label);
 
   /// A count of goods rather than money: shown without the store's trailing
   /// zeros (876, 2.5), where money keeps two places.
   bool get isQuantity => RegExp(
-        r'(qty|quantity|stock|on hand|available|reserved|points)',
+        r'(qty|quantity|stock|on hand|available|reserved|points|factor)',
         caseSensitive: false,
       ).hasMatch(label);
 
@@ -3949,16 +3953,34 @@ class Phase2LineTools extends StatelessWidget {
       bar.publishTools(children);
       return const SizedBox.shrink();
     }
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-      child: Phase2ButtonTheme(
-        child: Row(children: [
-          const Spacer(),
-          for (final Widget child in children) ...[
-            const SizedBox(width: 6),
-            child,
-          ],
-        ]),
+    // No frame above: draw the line here, with the menu's name for the
+    // screen as its title, in the same white band a frame draws.
+    final ThemeData theme = Theme.of(context);
+    final String? title = Phase2ScreenTitle.of(context);
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLowest,
+        border: Border(
+          bottom: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+        child: Phase2ButtonTheme(
+          child: Row(children: [
+            if (title != null)
+              Text(
+                title,
+                style: theme.textTheme.titleMedium
+                    ?.copyWith(fontWeight: FontWeight.w700),
+              ),
+            const Spacer(),
+            for (final Widget child in children) ...[
+              const SizedBox(width: 6),
+              child,
+            ],
+          ]),
+        ),
       ),
     );
   }
