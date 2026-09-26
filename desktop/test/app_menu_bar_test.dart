@@ -121,6 +121,11 @@ void main() {
           reason: path);
       expect(find.byKey(ValueKey('menu-item-$path')), findsOneWidget);
     }
+    // The short everyday groups stack in one column beside it.
+    expect(
+      tester.getTopLeft(find.byKey(const ValueKey('menu-item-masters/products'))).dx,
+      tester.getTopLeft(find.byKey(const ValueKey('menu-item-masters/customers'))).dx,
+    );
     expect(tester.takeException(), isNull);
   });
 
