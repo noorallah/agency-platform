@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/api/concurrency.dart';
@@ -8,7 +11,12 @@ import '../../models/entities.dart';
 import '../../models/customer.dart';
 import '../../models/product.dart';
 import '../../models/sales_invoice.dart';
+import '../../models/document_preview.dart';
+import '../../phase2/document_page.dart';
+import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
+
+part 'sales_invoice_editor_phase2.dart';
 
 /// Billing a delivery note.
 ///
@@ -61,6 +69,53 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   bool _saving = false;
   String? _error;
 
+  /// Phase 2: the bill as the server priced it last, and the line the side
+  /// panel follows.
+  SalesInvoicePreviewRecord? _preview;
+  int _current = 0;
+  Timer? _previewTimer;
+  int _previewSerial = 0;
+  bool _phase2 = false;
+
+  /// Set while building a payload only to price it: the form is not asked to
+  /// show its errors for a bill still being typed.
+  bool _drafting = false;
+
+  void _setState(VoidCallback change) => setState(change);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _phase2 = Phase2Scope.of(context);
+  }
+
+  /// Price the bill again once the typing pauses; only the latest answer
+  /// lands.
+  void _schedulePreview() {
+    if (!_phase2) return;
+    _previewTimer?.cancel();
+    _previewTimer = Timer(const Duration(milliseconds: 350), () async {
+      Json? draft;
+      _drafting = true;
+      try {
+        draft = _payload();
+      } finally {
+        _drafting = false;
+      }
+      if (draft == null || !mounted) return;
+      final int serial = ++_previewSerial;
+      try {
+        final SalesInvoicePreviewRecord priced =
+            await widget.api.previewSalesInvoice(draft);
+        if (!mounted || serial != _previewSerial) return;
+        setState(() => _preview = priced);
+      } on ApiException {
+        // A bill the server refuses as it stands -- serials not yet picked,
+        // a quantity past what is left -- keeps the last figures.
+      }
+    });
+  }
+
   /// The draft as it was read, when correcting one.
   Json? _existing;
 
@@ -100,6 +155,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
 
   @override
   void dispose() {
+    _previewTimer?.cancel();
     _reference.dispose();
     _billDiscount.dispose();
     _freight.dispose();
@@ -162,6 +218,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
           _choose(rows.first);
         }
       });
+      _schedulePreview();
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -314,7 +371,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     if (_direct) return _directPayload();
     final BillableDocument? document = _document;
     if (document == null) return null;
-    if (!(_form.currentState?.validate() ?? false)) return null;
+    if (!_drafting && !(_form.currentState?.validate() ?? false)) return null;
     final List<Json> lines = <Json>[];
     for (final BillableLine line in document.lines) {
       final String typed =
@@ -359,7 +416,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   Json? _directPayload() {
     final String? customerId = _customerId;
     if (customerId == null) return null;
-    if (!(_form.currentState?.validate() ?? false)) return null;
+    if (!_drafting && !(_form.currentState?.validate() ?? false)) return null;
     final List<Json> lines = <Json>[];
     for (final _DirectLine line in _directLines) {
       final String product = line.productId ?? '';
@@ -593,6 +650,8 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
 
   @override
   Widget build(BuildContext context) {
+    // Phase 2: the one-screen bill (the quotation's approved layout).
+    if (Phase2Scope.of(context)) return _phase2Page(context);
     final ThemeData theme = Theme.of(context);
     final String title = _editing ? 'Edit draft invoice' : 'New Invoice';
     final Widget content = _loading
