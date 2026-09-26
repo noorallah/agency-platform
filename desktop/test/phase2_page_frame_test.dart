@@ -444,4 +444,39 @@ void main() {
     expect(sideways.maxScrollExtent, 0);
     expect(tester.takeException(), isNull);
   });
+
+  testWidgets('an amount heading with numbers in it is drawn as a figure',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 600);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Phase2Scope(
+          child: EnterpriseDataGrid<String>(
+            items: const ['a'],
+            total: 1,
+            pageOffset: 0,
+            // None declared numeric, as most document lists never did.
+            columns: const [
+              GridColumn(key: 'number', label: 'Order Number'),
+              GridColumn(key: 'total', label: 'Grand Total'),
+              GridColumn(key: 'qty', label: 'Qty'),
+              GridColumn(key: 'tax', label: 'Tax System'),
+            ],
+            id: (item) => item,
+            cells: (item) => ['SO-0001', '112050.4128', '876.0000', 'GST'],
+            onSelect: (_) {},
+            onPageChanged: (_) {},
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    expect(find.text('1,12,050.41'), findsOneWidget);
+    expect(find.text('876'), findsOneWidget);
+    // A heading that names tax but holds words stays words.
+    expect(find.text('GST'), findsOneWidget);
+    expect(find.text('SO-0001'), findsOneWidget);
+  });
 }
