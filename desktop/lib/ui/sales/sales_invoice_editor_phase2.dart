@@ -739,6 +739,14 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
       ]);
     }
     return DocumentSidePanel(children: [
+      if (line.isEmpty) ...[
+        const DocumentSideHeading('The line you are on'),
+        DocumentSideNote(_direct
+            ? 'Choose the customer and a product: its rate, discount, tax '
+                'and stock show here.'
+            : 'Choose the delivery note to bill: each line you click shows '
+                'its rate, tax and serial numbers here.'),
+      ],
       ...line,
       if (customer != null)
         ...documentCustomerLines(
