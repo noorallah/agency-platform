@@ -14,7 +14,6 @@ import 'menu_layout.dart';
 class AppMenuBar extends StatelessWidget {
   const AppMenuBar({
     super.key,
-    required this.appName,
     required this.areas,
     required this.settings,
     required this.currentPath,
@@ -22,8 +21,6 @@ class AppMenuBar extends StatelessWidget {
     required this.trailing,
     this.profile,
   });
-
-  final String appName;
 
   /// The areas to show, already filtered; an area with nothing allowed is not
   /// in this list at all.
@@ -76,16 +73,9 @@ class AppMenuBar extends StatelessWidget {
       child: SizedBox(
         height: height,
         child: Row(children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14),
-            child: Text(
-              appName,
-              style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                    color: colors.onChrome,
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
-          ),
+          // The product's name is in the window's title bar (owner,
+          // 2026-09-27), so the areas start at the left, Home first.
+          const SizedBox(width: 8),
           // The areas get whatever the controls on the right leave, measured
           // rather than guessed: the right-hand side changes with the firm's
           // name, and a fixed allowance either wasted room or overlapped.

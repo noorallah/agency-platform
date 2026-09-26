@@ -105,9 +105,10 @@ Future<void> _run({required bool phase2}) async {
     await preferences.load();
     AppLog.info('Preferences loaded.');
     final BrandingConfig loaded = await BrandingConfig.load();
-    final BrandingConfig branding = phase2
-        ? loaded.withWindowName('${loaded.windowName} - Phase 2')
-        : loaded;
+    // Phase 2's title bar carries the product's name (owner, 2026-09-27),
+    // which moved there from the left end of the menu bar.
+    final BrandingConfig branding =
+        phase2 ? loaded.withWindowName(loaded.appName) : loaded;
     AppLog.info('Branding loaded: ${branding.appName}.');
     try {
       await DesktopWindowController(preferences).initialize(branding);
@@ -210,11 +211,13 @@ class _StartupErrorApp extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(Icons.error_outline, size: 48, color: Color(0xffdc2626)),
+                      const Icon(Icons.error_outline,
+                          size: 48, color: Color(0xffdc2626)),
                       const SizedBox(height: 16),
                       const Text(
                         'The desktop app could not start cleanly.',
-                        style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600),
+                        style: TextStyle(
+                            fontSize: 18, fontWeight: FontWeight.w600),
                       ),
                       const SizedBox(height: 8),
                       const Text(

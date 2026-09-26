@@ -3604,7 +3604,7 @@ anything is written, cancel and retry.
 7. Opening balances for customers and vendors in the same file where the
    write schema already takes them; opening stock stays with its own import.
 
-## 47. The window's title bar buttons barely show on hover (D-QA-1) -- parked
+## 47. The window's title bar buttons barely show on hover (D-QA-1) -- done 2026-09-27 (option 1, #771)
 
 Owner, 2026-09-26, on the laptop after the 1.0.1 upgrade: minimize, maximize
 and close are now all present (the original D-QA-1 symptom, no minimize or

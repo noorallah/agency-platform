@@ -669,7 +669,6 @@ class _DesktopShellState extends State<DesktopShell> {
       child: Scaffold(
         body: Column(children: [
           AppMenuBar(
-            appName: widget.branding.appName,
             areas: areas,
             settings: MenuLayout.visible(MenuLayout.settings, visibility),
             currentPath: current,
@@ -751,15 +750,16 @@ class _DesktopShellState extends State<DesktopShell> {
   /// at the right, details on hover.
   Widget _phase2StatusBar() {
     final ThemeData theme = Theme.of(context);
-    final bool onHome = _activeDocument == null &&
-        _router.current.path == MenuLayout.homeRoute;
+    final bool onHome =
+        _activeDocument == null && _router.current.path == MenuLayout.homeRoute;
     return Container(
       key: const ValueKey('phase2-status-bar'),
       height: 28,
       padding: const EdgeInsets.symmetric(horizontal: 12),
       decoration: BoxDecoration(
         color: theme.colorScheme.surfaceContainerLow,
-        border: Border(top: BorderSide(color: theme.colorScheme.outlineVariant)),
+        border:
+            Border(top: BorderSide(color: theme.colorScheme.outlineVariant)),
       ),
       child: DefaultTextStyle.merge(
         style: theme.textTheme.bodySmall
@@ -867,8 +867,7 @@ class _DesktopShellState extends State<DesktopShell> {
         firmName: widget.session.currentFirm?.name,
         userName: widget.session.userLabel,
         today: DateTime.now().toUtc(),
-        allowed: (path) =>
-            path != MenuLayout.homeRoute && _pathAllowed(path),
+        allowed: (path) => path != MenuLayout.homeRoute && _pathAllowed(path),
         source: _ShellHomeSource(widget.session.api),
         onOpen: _openFromMenu,
         onOpenView: (item, view) => _openFromMenu(item, view: view),
@@ -887,10 +886,9 @@ class _DesktopShellState extends State<DesktopShell> {
   static const String _homeStateKey = 'phase2.home';
 
   Set<String> _homeHidden() => {
-        for (final dynamic id
-            in (widget.preferences.workspaceState(_homeStateKey)['hidden']
-                    as List?) ??
-                const [])
+        for (final dynamic id in (widget.preferences
+                .workspaceState(_homeStateKey)['hidden'] as List?) ??
+            const [])
           if (id is String) id,
       };
 
@@ -5678,8 +5676,7 @@ class _ShellHomeSource implements HomeSource {
 
   final ApiClient api;
 
-  static String _date(DateTime d) =>
-      '${d.year.toString().padLeft(4, '0')}-'
+  static String _date(DateTime d) => '${d.year.toString().padLeft(4, '0')}-'
       '${d.month.toString().padLeft(2, '0')}-'
       '${d.day.toString().padLeft(2, '0')}';
 

@@ -22,7 +22,6 @@ Future<List<MenuItemSpec>> _pump(
     home: Scaffold(
       body: Column(children: [
         AppMenuBar(
-          appName: 'Agency',
           areas: areas,
           settings: MenuLayout.settings,
           currentPath: 'masters/customers',
@@ -123,8 +122,12 @@ void main() {
     }
     // The short everyday groups stack in one column beside it.
     expect(
-      tester.getTopLeft(find.byKey(const ValueKey('menu-item-masters/products'))).dx,
-      tester.getTopLeft(find.byKey(const ValueKey('menu-item-masters/customers'))).dx,
+      tester
+          .getTopLeft(find.byKey(const ValueKey('menu-item-masters/products')))
+          .dx,
+      tester
+          .getTopLeft(find.byKey(const ValueKey('menu-item-masters/customers')))
+          .dx,
     );
     expect(tester.takeException(), isNull);
   });
