@@ -80,7 +80,7 @@ jobs.
 | Python 3.14 + `uv` | the backend | already needed to work on this |
 | Nuitka | compiles the backend | `cd backend; uv sync --group build` |
 | A C compiler | Nuitka emits C | MSVC (Visual Studio Build Tools). Nuitka offers to fetch MinGW if none is found; `--assume-yes-for-downloads` accepts. |
-| Flutter SDK | the desktop client | `cd desktop; flutter build windows --release` |
+| Flutter SDK | the desktop client | `cd desktop; flutter build windows --release -t lib/main_phase2.dart` -- the phase 2 app ships from 1.0.2 on; phase 1 (`lib/main.dart`) is never shipped again |
 | Inno Setup 6.3+ | the installer | `winget install --id JRSoftware.InnoSetup` (a per-user winget install under `%LOCALAPPDATA%\Programs` is found too) |
 | Internet, once | the build inputs above | only when the cache does not have them yet |
 
