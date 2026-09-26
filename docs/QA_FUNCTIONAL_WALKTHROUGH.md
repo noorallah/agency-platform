@@ -240,6 +240,74 @@ paging checks meaningful.
 | V9 | Resize the window down to 1366 × 768 and open a document, a record and a report | Nothing is cut off; the side panel hides on a narrow window and the table keeps its columns | Not run | |
 | V10 | A document's side panel: on a sales order, click each line in turn | The panel follows the line: its rate and where it came from, the last price to this customer, tax split, stock | Not run | |
 
+## 12. Tax by customer: where they are, and whether they are registered
+
+GST follows the **buyer's state**: the state in their GSTIN if they have one,
+else the state of their billing address. The same state as the firm (Tamil
+Nadu, 33) is charged **CGST + SGST**; another state, **IGST**. Whether the
+customer is a business or an individual does **not** change the rate; a
+GSTIN decides whether the sale is **B2B** (registered) or **B2C** on GSTR-1.
+Every figure below is QA-P1 at 150 with 18% GST.
+
+| ID | Step | Expected | Result | Notes |
+| --- | --- | --- | --- | --- |
+| G1 | Masters → Customers → **+ New**, three customers (type, GSTIN, billing address): `QA-C3` *QA Karnataka Traders* -- Business, GSTIN `29ABCDE9999F1Z5`, address in Karnataka. `QA-C4` *QA Bengaluru Walk-in* -- **Individual**, no GSTIN, address in Karnataka. `QA-C5` *QA Chennai Wholesale* -- Business, GSTIN `33PQRSX5678K1Z2`, PAN `PQRSX5678K`, address in Tamil Nadu | All three saved. The side panel of each shows its GSTIN or *unregistered* | Not run | |
+| G2 | Sell → Quotations → **+ New** for **QA-C5**, QA-P1 quantity **2**. Read, then **Cancel** | *Place of supply* reads Tamil Nadu · **CGST + SGST**. Taxable 300.00, CGST **27.00**, SGST **27.00**, total **354.00** | Not run | |
+| G3 | The same for **QA-C3** | Karnataka · **IGST**. Taxable 300.00, IGST **54.00**, total **354.00** -- the same total, split differently | Not run | |
+| G4 | The same for **QA-C4** (no GSTIN, an individual) | Karnataka · **IGST**, 54.00: with no GSTIN the billing address decides, and being an individual changes nothing | Not run | |
+| G5 | Edit QA-C3: change only its billing address to Tamil Nadu. Quote it again | Still **IGST**: a GSTIN's state outranks the address. Put the address back to Karnataka | Not run | |
+| G6 | Bill one piece to each of QA-C3, QA-C4 and QA-C5, the way section 5 did (order → approve → delivery note → dispatch → invoice of 1 → approve) | Each invoice is taxable **150.00**, total **177.00**: QA-C3 and QA-C4 IGST 27.00; QA-C5 CGST 13.50 + SGST 13.50 | Not run | |
+| G7 | Accounts → **GST Returns** → this month → **GSTR-1** | **B2B** now lists QA-C3's invoice (IGST 27.00, place 29) and QA-C5's (CGST 13.50, SGST 13.50). **B2CS** gains a row for place **29** at 18%, taxable 150.00, IGST 27.00 (QA-C4). QA-C1's sales stay in the place-33 row | Not run | |
+| G8 | Accounts → **E-Invoice**: raise the e-invoice for QA-C4's bill, then for QA-C3's | QA-C4's is **refused** before anything is sent: an e-invoice needs the buyer's GSTIN. QA-C3's gets a sandbox reference, marked *sandbox* | Not run | |
+| G9 | Accounts → **TCS** → **Settings**: *Collect under section 206C(1H)* on, preceding-year turnover **150000000**, threshold **0**, rate **0.1**, without a PAN **1.0**. Save | The banner reads the threshold 0 and *0.1% (1.0% without a PAN)* | Not run | |
+| G10 | Sell → Receipts → **+ New**: **QA-C5** (has a PAN) pays **177.00** against its invoice. Then **QA-C4** (no PAN) pays **177.00** | Accounts → TCS lists both: QA-C5 at **0.1%**, TCS **0.18**; QA-C4 at **1.0% (no PAN)**, TCS **1.77**. Each has its own `TCS-RC-…` journal to 2500 TCS Payable | Not run | |
+| G11 | Accounts → TCS → Settings: turn collection **off** again | Later receipts carry no TCS | Not run | |
+
+## 13. Units: buying in boxes, stocking in pieces
+
+QA-P1 is kept in **PIECE**. A box holds 12.
+
+| ID | Step | Expected | Result | Notes |
+| --- | --- | --- | --- | --- |
+| U1 | Masters → (Configuration) **Conversion Rules** → **+ New**: Product **QA-P1**, From **BOX**, To **PIECE**, Factor **12**. Save | Listed: QA-P1, BOX → PIECE, 12 | Not run | |
+| U2 | Note MAIN's QA-P1 figure on Stock → **Inventory**. Then Buy → Purchase Orders → **+ New**: QA-V1, QA-P1, **Unit BOX**, quantity **2**, rate **1,200** (a box) | Before saving: taxable **2,400.00**, CGST **216.00**, SGST **216.00**, total **2,832.00**. Save, Send for approval, Approve | Not run | |
+| U3 | Buy → Goods Receipts → **+ New** against it: Ordered 2, accept **2**. Save and Complete | Stock → Inventory: MAIN is up by **24** pieces -- 2 boxes of 12 | Not run | |
+| U4 | Add a **firm-wide** rule: Product *Firm-wide*, BOX → PIECE, Factor **10**. Order and receive **1 BOX** of QA-P1 again | MAIN is up by **12**, not 10: the product's own rule outranks the firm-wide one | Not run | |
+| U5 | A purchase order for QA-P1 with **Unit KG**, quantity 1. Save | Refused, naming the product and both units: *QA-P1: no active conversion rule converts KG to PIECE …*, and saying where to add one | Not run | |
+| U6 | Sell 30 pieces of QA-P1 on a sales order | Priced per piece: 30 × 150; nothing about boxes on the order | Not run | |
+
+## 14. Pricing: standing rates, price lists, promotions and coupons
+
+The **side panel** of a sales order says, for the line you are on, what
+discount was taken and **where it came from**. The order of precedence: a
+discount **typed** on the line beats a **promotion**, which beats the
+**price list**, which beats the customer's **standing rate**. A typed **0**
+refuses them all. Work on a new customer so the earlier sections are not
+touched; read each order before saving, then **Cancel** unless a step says to
+save.
+
+| ID | Step | Expected | Result | Notes |
+| --- | --- | --- | --- | --- |
+| P1 | Masters → Customers → **+ New**: `QA-C6` *QA Pricing Mart*, Business, no GSTIN, address in Tamil Nadu; under **Money**, *Default discount %* **5**. Save | Saved; the side panel reads its terms | Not run | |
+| P2 | Sell → Sales Orders → **+ New**: QA-C6, QA-P1 quantity **10**, discount boxes left **blank** | Side panel: Discount **5%** *from the customer's standing rate*. Taxable **1,425.00**, CGST **128.25**, SGST **128.25**, total **1,681.50** | Not run | |
+| P3 | Sell → **Price Lists** → **New price list**: code `QA-STD`, name *Standard trade*, applies to **Everyone**, in force from today. **Add product** QA-P1 from qty **1** discount **3**; again QA-P1 from qty **20** discount **6**. Save | Listed, applies to Everyone, 2 rates | Not run | |
+| P4 | Sales order for QA-C6, QA-P1 quantity **10** | **3%** *from the price list* -- the list beats the 5% standing rate even though it is lower. Taxable **1,455.00**, CGST 130.95, SGST 130.95, total **1,716.90** | Not run | |
+| P5 | Change the quantity to **20** | **6%** from the price list: the highest break at or below the quantity. Taxable **2,820.00**, tax 507.60, total **3,327.60** | Not run | |
+| P6 | New price list `QA-C6-OWN`, applies to **One customer** QA-C6: QA-P1 from qty 1 discount **10**. Save. Order for QA-C6, quantity **10** | **10%** from the price list: the customer's own list **replaces** the firm-wide one. Taxable **1,350.00**, tax 243.00, total **1,593.00** | Not run | |
+| P7 | Sell → **Promotions** → **+ New**: code `QA-BULK`, name *Five percent on 25 or more*, Applies at **10**, *Other promotions may still apply* ticked. **Add condition**: *Quantity on the line* *is at least* **25**. **Add benefit**: *Percent off each line*, **5**. Status Active. Save | Listed; its description reads "Quantity on the line is at least 25" | Not run | |
+| P8 | Order for QA-C6, quantity **30** | **5%** *from a promotion*: it outranks the customer's 10% list. Gross 4,500.00, taxable **4,275.00**, tax 769.50, total **5,044.50** | Not run | |
+| P9 | On the same line type **0** in *Disc %* | 0%, *typed on this order*: a typed zero refuses every arrangement. Taxable **4,500.00**, tax 810.00, total **5,310.00** | Not run | |
+| P10 | Type **12** instead | 12% typed. Taxable **3,960.00**, tax 712.80, total **4,672.80** | Not run | |
+| P11 | Promotions → **+ New**: code `QA-WELCOME`, name *Two percent with a coupon*, **Only with a coupon** on, benefit *Percent off each line* **2**. Save. Then the **Coupons** view → **+ New**: code `QAWELCOME`, offer QA-WELCOME, **Total claims allowed 1**. Save | Both listed; the coupon names its offer | Not run | |
+| P12 | Order for QA-C6, quantity **10**, **Coupon** left blank | Still **10%** from the price list: a coupon-only offer reaches nobody without its code | Not run | |
+| P13 | Type `QAWELCOME` in **Coupon** | **2%** *from a promotion* -- it replaces the 10%, it does not add to it. Taxable **1,470.00**, CGST 132.30, SGST 132.30, total **1,734.60** | Not run | |
+| P14 | Type `NOSUCHCODE` instead | Nothing is refused; the line falls back to **10%** from the price list, 1,593.00 | Not run | |
+| P15 | Put `QAWELCOME` back, **Save draft**, then on the list **Approve** the order | Approved. Reports → Operational → *Promotion claims* lists QA-WELCOME, coupon QAWELCOME, QA-C6, **CLAIMED** | Not run | |
+| P16 | A new order for QA-C6, quantity 10, Coupon `QAWELCOME` | The coupon is used up (1 claim allowed): the line is priced at **10%** from the price list, 1,593.00, not 2% | Not run | |
+| P17 | Order for QA-C6, quantity 10, *Disc %* **0** on the line; at the bottom *Discount on the whole order %* **10** | The 150.00 comes off the line before tax: taxable **1,350.00**, tax 243.00, total **1,593.00** | Not run | |
+| P18 | Add a **Delivery charge** of **100** | The charge joins the taxable value and is taxed with it: taxable **1,450.00**, CGST 130.50, SGST 130.50, total **1,711.00** | Not run | |
+| P19 | Set the promotions QA-BULK and QA-WELCOME, and both price lists, to **Inactive** when finished | Later orders for QA-C6 go back to its 5% standing rate | Not run | |
+
 ## Results summary
 
 | | |
