@@ -128,13 +128,21 @@ class AppMenuBar extends StatelessWidget {
     );
   }
 
+  /// The text of an area on the bar and of an item in its drop-down: the
+  /// wireframe's plain weight. A menu button's default is the semi-bold
+  /// `labelLarge`, which made every entry read as a heading.
+  static TextStyle? menuTextStyle(BuildContext context) =>
+      Theme.of(context).textTheme.labelLarge?.copyWith(
+            fontWeight: FontWeight.w400,
+          );
+
   /// The areas that fit in [room]; the rest fold into More, from the right
   /// (4.11). An area costs its label as drawn, its padding and its arrow --
   /// measured, not guessed from the letters: a guess generous enough to be
   /// safe folded Reports and Admin away on a laptop where they fitted.
   Widget _areas(BuildContext context, double room, String? currentArea) {
     final AppSemanticColors colors = context.semanticColors;
-    final TextStyle? style = Theme.of(context).textTheme.labelLarge;
+    final TextStyle? style = menuTextStyle(context);
     final TextScaler scaler = MediaQuery.textScalerOf(context);
     double cost(MenuAreaSpec area) {
       final TextPainter painter = TextPainter(
@@ -145,6 +153,7 @@ class AppMenuBar extends StatelessWidget {
       final double arrow = area.items.length == 1 ? 0 : 20;
       return painter.width + 22 + arrow + 4;
     }
+
     int fits = 0;
     double used = 0;
     for (final MenuAreaSpec area in areas) {
@@ -185,6 +194,9 @@ class AppMenuBar extends StatelessWidget {
               menuChildren: [
                 for (final MenuAreaSpec area in folded)
                   SubmenuButton(
+                    style: ButtonStyle(
+                      textStyle: WidgetStatePropertyAll(menuTextStyle(context)),
+                    ),
                     menuStyle: panelStyle(context),
                     menuChildren: [_AreaPanel(area: area, onOpen: onOpen)],
                     child: MenuAcceleratorLabel(
@@ -227,6 +239,7 @@ class AppMenuBar extends StatelessWidget {
   ButtonStyle _barButtonStyle(BuildContext context, bool current) {
     final AppSemanticColors colors = context.semanticColors;
     return ButtonStyle(
+      textStyle: WidgetStatePropertyAll(menuTextStyle(context)),
       foregroundColor: WidgetStatePropertyAll(colors.onChrome),
       iconColor: WidgetStatePropertyAll(colors.onChrome),
       backgroundColor: WidgetStateProperty.resolveWith((states) =>
@@ -392,18 +405,20 @@ class _AreaPanel extends StatelessWidget {
               MenuItemButton(
                 key: ValueKey('menu-item-${item.path}'),
                 style: ButtonStyle(
+                  textStyle:
+                      WidgetStatePropertyAll(AppMenuBar.menuTextStyle(context)),
                   minimumSize: const WidgetStatePropertyAll(Size(160, 34)),
                   // 4.14: a pointed-at item is outlined in the accent, not
                   // only tinted -- a tint alone is the faint hover D-QA-1
                   // reported.
-                  shape: WidgetStateProperty.resolveWith((states) =>
-                      RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(5),
-                        side: states.contains(WidgetState.hovered) ||
-                                states.contains(WidgetState.focused)
-                            ? BorderSide(color: scheme.primary, width: 1.5)
-                            : BorderSide.none,
-                      )),
+                  shape: WidgetStateProperty.resolveWith(
+                      (states) => RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(5),
+                            side: states.contains(WidgetState.hovered) ||
+                                    states.contains(WidgetState.focused)
+                                ? BorderSide(color: scheme.primary, width: 1.5)
+                                : BorderSide.none,
+                          )),
                 ),
                 onPressed: () => onOpen(item),
                 child: Text(item.label),
