@@ -12,6 +12,14 @@ namespace {
 /// Redefined in case the developer's machine has a Windows SDK older than
 /// version 10.0.22000.0.
 /// See: https://docs.microsoft.com/windows/win32/api/dwmapi/ne-dwmapi-dwmwindowattribute
+// Windows 11 title bar colours; older SDK headers do not name them.
+#ifndef DWMWA_CAPTION_COLOR
+#define DWMWA_CAPTION_COLOR 35
+#endif
+#ifndef DWMWA_TEXT_COLOR
+#define DWMWA_TEXT_COLOR 36
+#endif
+
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
@@ -285,4 +293,20 @@ void Win32Window::UpdateTheme(HWND const window) {
     DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
                           &enable_dark_mode, sizeof(enable_dark_mode));
   }
+
+  // The title bar in the menu bar's dark colour (chrome, #1e2a38) with white
+  // text, so it reads as one bar with the menu and Windows draws minimize,
+  // maximize and close light with a visible hover. On the default white bar
+  // their hover was nearly invisible (D-QA-1, BACKLOG section 47). Dark mode
+  // decorations make the buttons' glyphs white. Windows 10 ignores the colour
+  // attributes and keeps its own bar.
+  BOOL dark_decorations = TRUE;
+  DwmSetWindowAttribute(window, DWMWA_USE_IMMERSIVE_DARK_MODE,
+                        &dark_decorations, sizeof(dark_decorations));
+  COLORREF caption = RGB(0x1e, 0x2a, 0x38);
+  DwmSetWindowAttribute(window, DWMWA_CAPTION_COLOR, &caption,
+                        sizeof(caption));
+  COLORREF caption_text = RGB(0xff, 0xff, 0xff);
+  DwmSetWindowAttribute(window, DWMWA_TEXT_COLOR, &caption_text,
+                        sizeof(caption_text));
 }

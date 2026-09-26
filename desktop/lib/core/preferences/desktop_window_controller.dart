@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/foundation.dart';
+import 'package:screen_retriever/screen_retriever.dart';
 import 'package:window_manager/window_manager.dart';
 
 import '../branding/branding_config.dart';
@@ -20,20 +21,34 @@ class DesktopWindowController with WindowListener {
     try {
       await windowManager.ensureInitialized();
       final Map<String, dynamic> state = _preferences.current.windowState;
+      final Rect? screen = await _workArea();
+      // A size saved on a bigger or less-scaled screen is cut to this one:
+      // the owner's window came back 1550 px wide on a 1536 px screen, which
+      // put minimize, maximize and close past its right edge.
       final Size size = Size(
-        _dimension(state['width'], 1280),
-        _dimension(state['height'], 720),
+        _fit(_dimension(state['width'], 1280), screen?.width),
+        _fit(_dimension(state['height'], 720), screen?.height),
       );
+      final bool placed = _hasPosition(state) &&
+          (screen == null ||
+              screen.contains(Offset(
+                    _dimension(state['x'], 10) + size.width - 1,
+                    _dimension(state['y'], 10) + size.height - 1,
+                  )) &&
+                  screen.contains(Offset(
+                    _dimension(state['x'], 10),
+                    _dimension(state['y'], 10),
+                  )));
       await windowManager.waitUntilReadyToShow(
         WindowOptions(
           title: branding.windowName,
           size: size,
-          center: !_hasPosition(state),
+          center: !placed,
           minimumSize: const Size(960, 640),
           backgroundColor: branding.loginBackgroundColor,
         ),
       );
-      if (_hasPosition(state)) {
+      if (placed) {
         await windowManager.setPosition(
           Offset(
             _dimension(state['x'], 10),
@@ -74,6 +89,22 @@ class DesktopWindowController with WindowListener {
       'maximized': await windowManager.isMaximized(),
     });
   }
+
+  /// The primary screen's work area (the taskbar left out), in the same
+  /// logical pixels the window is sized in; null when it cannot be read.
+  Future<Rect?> _workArea() async {
+    try {
+      final Display display = await screenRetriever.getPrimaryDisplay();
+      final Size? visible = display.visibleSize;
+      if (visible == null) return null;
+      return (display.visiblePosition ?? Offset.zero) & visible;
+    } on Exception {
+      return null;
+    }
+  }
+
+  double _fit(double value, double? limit) =>
+      limit == null || value <= limit ? value : limit;
 
   bool _hasPosition(Map<String, dynamic> state) =>
       state['x'] is num && state['y'] is num;

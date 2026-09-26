@@ -21,6 +21,9 @@ dependencies:
   # pre-rendered bytes -- the backend already produces the PDF, so nothing
   # here lays a document out a second time.
   printing: ^5.13.0
+  # Reads the screen's work area so a saved window size cannot open larger
+  # than the screen it opens on (already a dependency of window_manager).
+  screen_retriever: ^0.2.2
   window_manager: ^0.5.2
 
 dev_dependencies:
