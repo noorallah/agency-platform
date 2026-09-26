@@ -93,6 +93,14 @@ abstract final class MenuLayout {
     MenuGroupSpec('Home', [MenuItemSpec.phase2(MenuLayout.homeRoute, 'Home')]),
   ]);
 
+  /// Catalogue screens deliberately given no place in the phase 2 menu, and
+  /// why. A screen that exists only to say a feature is missing is not
+  /// offered; it returns when there is something behind it.
+  static const Map<String, String> notOffered = {
+    'purchases/purchase-analytics':
+        'a placeholder: the backend exposes no purchase analytics yet',
+  };
+
   static const List<MenuAreaSpec> areas = [
     home,
     MenuAreaSpec('sell', 'Sell', [
@@ -156,8 +164,8 @@ abstract final class MenuLayout {
       MenuGroupSpec('Insight', [
         MenuItemSpec(
             AppModule.purchases, 'purchase-dashboard', 'Purchase Dashboard'),
-        MenuItemSpec(
-            AppModule.purchases, 'purchase-analytics', 'Purchase Analytics'),
+        // Purchase Analytics is left out: its screen only says the backend
+        // has no analytics yet (MenuLayout.notOffered).
       ]),
     ]),
     MenuAreaSpec('stock', 'Stock', [

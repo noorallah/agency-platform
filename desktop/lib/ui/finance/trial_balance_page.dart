@@ -63,7 +63,9 @@ class _TrialBalancePageState extends State<TrialBalancePage> {
         ..sort((a, b) => b.startsOn.compareTo(a.startsOn));
       setState(() {
         _periods = ordered;
-        _period = ordered.isEmpty ? null : ordered.first;
+        // The period today falls in: the year's periods all exist from the
+        // day the books open, so the newest is months ahead.
+        _period = currentPeriod(ordered);
       });
       if (_period != null) await _loadReport();
     } on ApiException catch (exception) {

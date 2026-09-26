@@ -142,6 +142,33 @@ class AccountGroup {
 }
 
 /// One accounting period, which is what a trial balance is drawn for.
+/// The period a statement should open on: the one today falls in, else the
+/// latest that has already started, else the first.
+///
+/// Opening the books creates the whole year's periods at once, so "the
+/// newest period" is the year's last month -- March, months ahead -- and a
+/// statement opened on it showed an empty future period.
+AccountingPeriod? currentPeriod(
+  List<AccountingPeriod> periods, {
+  DateTime? today,
+}) {
+  if (periods.isEmpty) return null;
+  final DateTime now = today ?? DateTime.now();
+  final String day = '${now.year.toString().padLeft(4, '0')}-'
+      '${now.month.toString().padLeft(2, '0')}-'
+      '${now.day.toString().padLeft(2, '0')}';
+  AccountingPeriod? started;
+  for (final AccountingPeriod period in periods) {
+    final bool begun = period.startsOn.compareTo(day) <= 0;
+    if (begun && period.endsOn.compareTo(day) >= 0) return period;
+    if (begun &&
+        (started == null || period.startsOn.compareTo(started.startsOn) > 0)) {
+      started = period;
+    }
+  }
+  return started ?? periods.first;
+}
+
 class AccountingPeriod {
   const AccountingPeriod({
     required this.id,

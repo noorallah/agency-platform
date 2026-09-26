@@ -996,7 +996,7 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         GridColumn(key: 'branch', label: 'Branch'),
         GridColumn(key: 'warehouse', label: 'Warehouse'),
         GridColumn(key: 'storage', label: 'Storage'),
-        GridColumn(key: 'current', label: 'Current'),
+        GridColumn(key: 'current_quantity', label: 'Current'),
         GridColumn(key: 'available', label: 'Available'),
         GridColumn(key: 'reserved', label: 'Reserved'),
         GridColumn(key: 'status', label: 'Status'),

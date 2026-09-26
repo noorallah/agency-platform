@@ -54,7 +54,9 @@ void main() {
       for (final MenuAreaSpec area in MenuLayout.all)
         for (final MenuItemSpec item in area.items) item.path,
     };
-    final Set<String> missing = _catalogueScreens().difference(placed);
+    final Set<String> missing = _catalogueScreens()
+        .difference(placed)
+        .difference(MenuLayout.notOffered.keys.toSet());
     expect(missing, isEmpty,
         reason: 'a phase 1 screen with no place in MenuLayout is a screen '
             'nobody can reach from the phase 2 menu -- add it where '

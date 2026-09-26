@@ -14,6 +14,8 @@ import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/firm_member.dart';
 import 'package:agency_desktop/models/sales_territory.dart';
 import 'package:agency_desktop/ui/sales/call_list_page.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
+    show Phase2Scope;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -232,5 +234,34 @@ void main() {
     await _pump(tester, _CallListApi());
 
     expect(find.text('No beat plans to call from'), findsOneWidget);
+  });
+
+  testWidgets('phase 2 keeps the day on the one line above the list',
+      (tester) async {
+    // The whole date bar was put in the line's fixed-width search slot and
+    // stood up as a column a third of the screen tall.
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1.0;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => Phase2Scope(child: child!),
+      home: Scaffold(
+        body: CallListPage(api: _CallListApi(), permissions: _permissions()),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    final Finder day = find.byKey(const ValueKey('call-list-day'));
+    expect(day, findsOneWidget);
+    // On the one line, near the top, and the arrows beside it.
+    expect(tester.getTopLeft(day).dy, lessThan(80));
+    expect(
+      (tester.getCenter(find.byTooltip('Previous day')).dy -
+              tester.getCenter(day).dy)
+          .abs(),
+      lessThan(4),
+    );
+    // The salesperson is a filter now, not on the line.
+    expect(find.text('Salesperson'), findsNothing);
   });
 }

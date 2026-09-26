@@ -9,6 +9,8 @@ import '../../core/security/permission_service.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
 import '../../models/sales_return.dart';
+import '../../phase2/document_page.dart';
+import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/printed_document.dart';
 import 'sales_return_editor_dialog.dart';
@@ -314,6 +316,17 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
         separatorBuilder: (_, __) => const Divider(height: 1),
         itemBuilder: (context, index) {
           final SalesReturn row = _returns[index];
+          // Phase 2 reads figures as figures and a status as words: "2
+          // restocked · 193.28 credited", "Completed".
+          final bool phase2 = Phase2Scope.of(context);
+          String quantity(String value) =>
+              phase2 ? documentQuantity(value) : value;
+          String money(String value) => phase2
+              ? indianAmount(double.tryParse(value) ?? 0, full: true)
+              : value;
+          final String status = phase2 && row.status.isNotEmpty
+              ? row.status[0] + row.status.substring(1).toLowerCase()
+              : row.status;
           return ListTile(
             selected: row.id == _selected?.id,
             title: Text('${row.returnNumber}  ·  ${row.returnDate}'),
@@ -321,12 +334,15 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
             // has to answer; the status word alone does not say it.
             subtitle: Text(
               row.hasMoved
-                  ? '${row.totalRestockQuantity} restocked · '
-                      '${row.grandTotal} credited${_stamp(row.createdAt)}'
-                  : '${row.totalCurrentReturnQuantity} awaiting completion'
-                      '${_stamp(row.createdAt)}',
+                  ? '${quantity(row.totalRestockQuantity)} restocked · '
+                      '${money(row.grandTotal)} credited'
+                      '${_stamp(row.createdAt)}'
+                  : '${quantity(row.totalCurrentReturnQuantity)} awaiting '
+                      'completion${_stamp(row.createdAt)}',
             ),
-            trailing: StatusBadge(label: row.status),
+            trailing: phase2
+                ? StatusBadge.fromStatus(status)
+                : StatusBadge(label: status),
             onTap: () => setState(() => _selected = row),
           );
         },
