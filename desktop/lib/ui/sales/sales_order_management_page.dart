@@ -449,6 +449,15 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
           controller: _search,
           hintText: 'Search order number, customer, reference...',
           onSearch: (_) => _load(requestedPage: 1),
+          filters: [
+            ColumnsButton(
+              onPressed: () async {
+                if (await _columns.choose(context) && mounted) {
+                  setState(() {});
+                }
+              },
+            ),
+          ],
         ),
         primaryContent: !widget.hasActiveFirm
             ? const StandardEmptyState(type: EmptyStateType.noFirmSelected)
@@ -820,36 +829,84 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
     await _act(suffix);
   }
 
+  /// Every column the list can show; the Columns button picks among them
+  /// (owner, 2026-09-27), remembered per screen on this PC.
+  late final ColumnChoice<Map<String, dynamic>> _columns = ColumnChoice(
+    preferences: widget.preferences,
+    stateKey: 'sales-orders.grid',
+    columns: [
+      ChoosableColumn(
+        column: const GridColumn(key: 'number', label: 'Order Number'),
+        cell: (item) => '${item['order_number'] ?? '-'}',
+        required: true,
+      ),
+      // Whose document it is (owner, 2026-09-27); kept at any width.
+      ChoosableColumn(
+        column: const GridColumn(key: 'customer', label: 'Customer', priority: 1),
+        cell: (item) => '${item['customer_name'] ?? ''}',
+        shownByDefault: true,
+      ),
+      // One date: the order's, with the minute it was entered.
+      ChoosableColumn(
+        column: const GridColumn(key: 'date', label: 'Order Date'),
+        cell: (item) => documentDateStamp(item['order_date'], item['created_at']),
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'delivery', label: 'Delivery Date'),
+        cell: (item) => '${item['delivery_date'] ?? ''}',
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'reference', label: 'Reference'),
+        cell: (item) => '${item['reference_number'] ?? ''}',
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'customer_reference', label: "Customer's Reference"),
+        cell: (item) => '${item['customer_reference'] ?? ''}',
+      ),
+      // A hold rides on the status cell, so a held order never looks live.
+      ChoosableColumn(
+        column: const GridColumn(key: 'status', label: 'Status'),
+        cell: (item) => item['is_on_hold'] == true
+            ? '${item['status'] ?? ''} (on hold)'
+            : '${item['status'] ?? ''}',
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'subtotal', label: 'Taxable Value', numeric: true),
+        cell: (item) => '${item['subtotal'] ?? ''}',
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'tax', label: 'Tax', numeric: true),
+        cell: (item) => '${item['tax_total'] ?? ''}',
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'discount', label: 'Line Discounts', numeric: true),
+        cell: (item) => '${item['line_discount_total'] ?? ''}',
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'freight', label: 'Freight', numeric: true),
+        cell: (item) => '${item['freight_amount'] ?? ''}',
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'total', label: 'Grand Total'),
+        cell: (item) => '${item['grand_total'] ?? '0'}',
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'remarks', label: 'Remarks'),
+        cell: (item) => '${item['remarks'] ?? ''}',
+      ),
+    ],
+  );
+
   Widget _buildOrderGrid() => EnterpriseDataGrid<Map<String, dynamic>>(
-        columns: const [
-          GridColumn(key: 'number', label: 'Order Number'),
-          // Whose document it is (owner, 2026-09-27); kept at any width.
-          GridColumn(key: 'customer', label: 'Customer', priority: 1),
-          // One date: the order's, with the minute it was entered.
-          GridColumn(key: 'date', label: 'Order Date'),
-          GridColumn(key: 'reference', label: 'Reference'),
-          GridColumn(key: 'status', label: 'Status'),
-          GridColumn(key: 'total', label: 'Grand Total'),
-        ],
+        columns: _columns.gridColumns,
         items: _orders,
         id: (item) => '${item['id']}',
         selectedId: _selected == null ? null : '${_selected!['id']}',
-        cells: (item) => [
-          '${item['order_number'] ?? '-'}',
-          '${item['customer_name'] ?? ''}',
-          // Every order raised today shares one date; the minute it was made is
-          // what tells the draft just created from the rest.
-          documentDateStamp(item['order_date'], item['created_at']),
-          '${item['reference_number'] ?? ''}',
-          // The hold rides on the status cell rather than taking a column of
-          // its own: a held order that looked identical to a live one in the
-          // list is the whole failure this feature exists to avoid, and the
-          // grid is already at its width at 1366px.
-          item['is_on_hold'] == true
-              ? '${item['status'] ?? ''} (on hold)'
-              : '${item['status'] ?? ''}',
-          '${item['grand_total'] ?? '0'}',
-        ],
+        cells: _columns.cells,
         onSelect: _selectOrder,
         onOpen: (item) => unawaited(_openOrder(item)),
         total: _total,
