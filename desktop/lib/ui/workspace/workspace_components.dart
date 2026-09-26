@@ -911,16 +911,29 @@ Widget phase2Frame({
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           if (!claimed || actions.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
-              child: Row(children: [
-                if (!claimed) ...[
-                  Phase2PageTitle(bar: bar),
-                  Flexible(child: Phase2PageCounters(bar: bar)),
-                ],
-                const Spacer(),
-                ...actions,
-              ]),
+            // The same white band and line as a list's page bar.
+            DecoratedBox(
+              decoration: BoxDecoration(
+                color: Theme.of(context).colorScheme.surfaceContainerLowest,
+                border: Border(
+                  bottom: BorderSide(
+                    color: Theme.of(context).colorScheme.outlineVariant,
+                  ),
+                ),
+              ),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+                child: Phase2ButtonTheme(
+                  child: Row(children: [
+                    if (!claimed) ...[
+                      Phase2PageTitle(bar: bar),
+                      Flexible(child: Phase2PageCounters(bar: bar)),
+                    ],
+                    const Spacer(),
+                    ...actions,
+                  ]),
+                ),
+              ),
             ),
           Expanded(child: child),
           if (status != null) status,
@@ -1579,9 +1592,14 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
     );
     return Column(children: [
       // Every button on the line in the wireframe's one small, square-
-      // cornered style, whichever screen built it.
-      Phase2ButtonTheme(child: line),
-      Divider(height: 1, color: scheme.outlineVariant),
+      // cornered style, whichever screen built it -- on a white band with a
+      // line beneath, so the page bar reads apart from the grey heading row
+      // of the table under it (it sat on the page's grey and ran into it).
+      ColoredBox(
+        color: scheme.surfaceContainerLowest,
+        child: Phase2ButtonTheme(child: line),
+      ),
+      Divider(height: 1, thickness: 1, color: scheme.outlineVariant),
       if (layout.viewBar != null)
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
