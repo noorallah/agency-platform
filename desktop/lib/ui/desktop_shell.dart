@@ -5728,14 +5728,31 @@ class _ShellHomeSource implements HomeSource {
       'salesInvoices/sales-invoices' =>
         await api.documentSummary('sales-invoices', path: 'reports/summary'),
       'salesOrders' => await api.documentSummary('sales-orders'),
-      'deliveryNotes/delivery-notes' =>
-        await api.documentSummary('delivery-notes'),
-      'goodsReceipts/receipts' => await api.goodsReceiptSummary(),
+      // Counted from the report each to-do opens, so the figure and the
+      // list it lands on agree. The summaries' own pending figures count
+      // something else -- every order with nothing yet delivered, drafts and
+      // closed ones included -- and Home read 5 where the report listed 2
+      // (owner, 2026-09-26).
+      'deliveryNotes/delivery-notes' => {
+          'pending_orders': await _reportCount('sales-orders'),
+        },
+      'goodsReceipts/receipts' => {
+          'pending_purchase_orders': await _reportCount('purchases'),
+        },
       'purchaseInvoices' => await api.documentSummary('purchase-invoices'),
       'purchaseReturns' => await api.documentSummary('purchase-returns'),
       _ => const <String, dynamic>{},
     };
     final dynamic data = response['data'];
     return data is Map<String, dynamic> ? data : response;
+  }
+
+  /// How many rows a resource's pending report lists: approved orders
+  /// still owing goods, to deliver or to receive.
+  Future<int> _reportCount(String resource) async {
+    final Map<String, dynamic> response =
+        await api.documentSummary(resource, path: 'reports/pending');
+    final dynamic data = response['data'];
+    return data is List ? data.length : 0;
   }
 }
