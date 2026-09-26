@@ -373,6 +373,14 @@ it went to, expiry and manufacturing dates where the firm uses them, and remarks
 plus the receipt's totals. The receipt is not priced by the server: it is valued
 at the order's rates, and the supplier's bill is a purchase invoice.
 
+**Purchase invoices (2026-09-26)** take a completed receipt and the supplier's
+own number and date. The lines are the receipt's: received, billed before, due,
+then the quantity billed and the rate (blank takes the receipt price, shown as the
+hint). Priced as typed by `POST /purchase-invoices/preview`, so the total can be
+checked against the paper before saving; a supplier number already on file is
+said while it is typed. The side panel shows the line's figures, the last bill
+from this vendor, the tax split and stock.
+
 ### 4.9 Home per role
 
 A counter clerk, a storeman, an accountant and an owner get different homes:

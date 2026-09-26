@@ -1,11 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../models/entities.dart';
 import '../../models/goods_receipt.dart';
 import '../../models/product.dart';
+import '../../models/document_preview.dart';
+import '../../phase2/document_page.dart';
+import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
+
+part 'purchase_invoice_editor_phase2.dart';
 
 /// One line of a supplier bill, as it is being typed.
 ///
@@ -124,6 +132,52 @@ class _PurchaseInvoiceEditorDialogState
   bool _saving = false;
   bool _loadingLines = false;
   String? _error;
+
+  /// Phase 2: the bill as the server priced it last, and the line the side
+  /// panel follows.
+  PurchaseInvoicePreviewRecord? _preview;
+  int _current = 0;
+  Timer? _previewTimer;
+  int _previewSerial = 0;
+  bool _phase2 = false;
+
+  /// Bumped when the supplier's number is filled in for the user, so its
+  /// box re-reads it.
+  int _supplierNumberEpoch = 0;
+
+  void _setState(VoidCallback change) => setState(change);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _phase2 = Phase2Scope.of(context);
+  }
+
+  @override
+  void dispose() {
+    _previewTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Price the bill again once the typing pauses; only the latest answer
+  /// lands. A bill with no receipt or nothing being billed is not sent.
+  void _schedulePreview() {
+    if (!_phase2) return;
+    _previewTimer?.cancel();
+    _previewTimer = Timer(const Duration(milliseconds: 350), () async {
+      if (_receipt == null || _sendableLines().isEmpty) return;
+      final int serial = ++_previewSerial;
+      try {
+        final PurchaseInvoicePreviewRecord priced =
+            await widget.api.previewPurchaseInvoice(_payload(pricing: true));
+        if (!mounted || serial != _previewSerial) return;
+        setState(() => _preview = priced);
+      } on ApiException {
+        // A bill the server refuses as it stands keeps the last figures;
+        // saving it says why.
+      }
+    });
+  }
 
   static String _today() => DateTime.now().toIso8601String().split('T').first;
 
@@ -263,6 +317,32 @@ class _PurchaseInvoiceEditorDialogState
     return null;
   }
 
+  /// The bill as the server is sent it. Priced before the supplier's number
+  /// is typed, a placeholder stands in: the number changes no figure.
+  Json _payload({bool pricing = false}) {
+    final List<PurchaseInvoiceDraftLine> sending = _sendableLines();
+    final String supplierNumber = _supplierInvoiceNumber.trim();
+    // No vendor or branch: the server takes both from the receipt, and a
+    // copy sent from here is one more thing that can disagree with it.
+    return {
+      'invoice_date': _invoiceDate.trim(),
+      'supplier_invoice_number':
+          pricing && supplierNumber.isEmpty ? '-' : supplierNumber,
+      'supplier_invoice_date': _supplierInvoiceDate.trim(),
+      if (_remarks.trim().isNotEmpty) 'remarks': _remarks.trim(),
+      'source_documents': [
+        {
+          'source_document_type': 'GOODS_RECEIPT',
+          'source_document_id': _receipt!.id,
+        }
+      ],
+      'lines': [
+        for (int index = 0; index < sending.length; index++)
+          {...sending[index].toJson(), 'line_number': index + 1},
+      ],
+    };
+  }
+
   Future<void> _save() async {
     final String? problem = _validation();
     if (problem != null) {
@@ -274,26 +354,7 @@ class _PurchaseInvoiceEditorDialogState
       _error = null;
     });
     try {
-      final List<PurchaseInvoiceDraftLine> sending = _sendableLines();
-      // No vendor or branch: the server takes both from the receipt, and a
-      // copy sent from here is one more thing that can disagree with it.
-      final Json payload = {
-        'invoice_date': _invoiceDate.trim(),
-        'supplier_invoice_number': _supplierInvoiceNumber.trim(),
-        'supplier_invoice_date': _supplierInvoiceDate.trim(),
-        if (_remarks.trim().isNotEmpty) 'remarks': _remarks.trim(),
-        'source_documents': [
-          {
-            'source_document_type': 'GOODS_RECEIPT',
-            'source_document_id': _receipt!.id,
-          }
-        ],
-        'lines': [
-          for (int index = 0; index < sending.length; index++)
-            {...sending[index].toJson(), 'line_number': index + 1},
-        ],
-      };
-      final Json response = await widget.api.createPurchaseInvoice(payload);
+      final Json response = await widget.api.createPurchaseInvoice(_payload());
       if (!mounted) return;
       final dynamic data = response['data'];
       Navigator.pop(context, data is Json ? data : response);
@@ -307,7 +368,10 @@ class _PurchaseInvoiceEditorDialogState
   }
 
   @override
-  Widget build(BuildContext context) => WorkspaceDialog(
+  Widget build(BuildContext context) => Phase2Scope.of(context)
+      // Phase 2: the one-screen bill (the documents' approved layout).
+      ? _phase2Page(context)
+      : WorkspaceDialog(
         title: 'New Purchase Invoice',
         subtitle: _receipt == null
             ? 'Choose the goods receipt being billed'
