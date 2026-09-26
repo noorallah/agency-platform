@@ -4,6 +4,8 @@ import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/inventory.dart';
 import 'package:agency_desktop/models/product.dart';
 import 'package:agency_desktop/ui/delivery_notes/delivery_note_editor_dialog.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
+    show Phase2Scope;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -271,5 +273,64 @@ void main() {
     // when the note is dispatched, so sending one here would be a guess the
     // client is in no position to make.
     expect(line.containsKey('batch_number'), isFalse);
+  });
+
+  testWidgets('phase 2 dispatches on one screen, the lines as a table',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _DeliveryApi api = _DeliveryApi(stock: [
+      _stock(batchNumber: 'JUNE', expiry: '2027-06-30', available: '60'),
+    ]);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Phase2Scope(
+            child: DeliveryNoteEditorDialog(
+              api: api,
+              salesOrders: [_order()],
+              warehouses: [
+                WarehouseRecord.fromJson({
+                  'id': 'wh-1',
+                  'code': 'MAIN',
+                  'name': 'Main Warehouse',
+                }),
+              ],
+              products: [
+                Product.fromJson({
+                  'id': 'prod-1',
+                  'code': 'SKU-1',
+                  'name': 'Amoxicillin 500mg',
+                }),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('No sales order chosen'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('delivery-note-order')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('SO-2026-000001').last);
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    // Ten reserved at 40: 400, off batch JUNE.
+    expect(find.text('400.00'), findsWidgets);
+    expect(find.text('JUNE'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('delivery-note-delivering-so-1-0')),
+      '6',
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('240.00'), findsWidgets);
+
+    await tester.tap(find.byKey(const ValueKey('delivery-note-save')));
+    await tester.pumpAndSettle();
+    final Json line = (api.sent!['lines'] as List<dynamic>).single as Json;
+    expect(line['current_delivery_quantity'], '6');
+    expect(line['warehouse_id'], 'wh-1');
   });
 }

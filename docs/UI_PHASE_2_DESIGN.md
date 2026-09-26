@@ -388,6 +388,13 @@ register holds). Priced as typed by `POST /purchase-returns/preview`; the total 
 the debit to the supplier. Condition (damaged, scrap), reason code and remarks
 for the line are in the side panel.
 
+**Delivery notes (2026-09-26)** take an approved sales order. The lines show
+ordered, reserved and delivered before, then delivering, free and damaged (a
+reserved figure of zero shows red: the order was not approved). The side panel
+holds the warehouse the line leaves from, the batches it is expected to come off
+(earliest expiry first, decided at dispatch), the serial numbers going out, and
+remarks. Valued at the order's rates; the sales invoice is the priced document.
+
 ### 4.9 Home per role
 
 A counter clerk, a storeman, an accountant and an owner get different homes:
