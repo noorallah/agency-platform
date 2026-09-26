@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/dialogs/app_dialogs.dart';
@@ -15,6 +16,10 @@ import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
 import 'credit_settings_dialog.dart';
 import 'customer_group_dialog.dart';
+import '../../phase2/document_page.dart';
+import '../../phase2/indian_format.dart';
+
+part 'customer_editor_phase2.dart';
 
 class CustomerController extends ChangeNotifier {
   CustomerController(this._api);
@@ -238,10 +243,9 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
         (!_canEdit || customer == null || customer.isDeleted)) {
       return;
     }
-    final Customer? saved = await showDialog<Customer>(
-      context: context,
-      barrierDismissible: false,
-      builder: (context) => CustomerWorkspaceDialog(
+    // Phase 2 opens the record as a full-page tab; phase 1 keeps its dialog.
+    final bool phase2 = Phase2Scope.of(context);
+    Widget form(BuildContext context) => CustomerWorkspaceDialog(
         mode: mode,
         customer: customer,
         onSave: (payload) => _controller.save(customer, payload),
@@ -262,8 +266,18 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
             widget.permissions.hasPermission('CUSTOMER_MANAGE_SETTINGS'),
         mayChangeStandingDiscount:
             widget.permissions.hasPermission('CUSTOMER_MANAGE_SETTINGS'),
-      ),
-    );
+      );
+    final Customer? saved = phase2
+        ? await showDocument<Customer>(
+            context,
+            title: customer == null ? 'New customer' : customer.code,
+            builder: form,
+          )
+        : await showDialog<Customer>(
+            context: context,
+            barrierDismissible: false,
+            builder: form,
+          );
     if (saved == null || !mounted) return;
     NotificationService.show(
       context,
@@ -841,6 +855,23 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
   bool _dirty = false;
   String? _error;
 
+  /// Phase 2: the sections are one scroll rather than tabs, each reached
+  /// from the strip at the top.
+  bool _flat = false;
+  final Map<String, GlobalKey> _sectionKeys = {
+    for (final String section in const [
+      'General',
+      'Money',
+      'Addresses',
+      'Contacts',
+      'Custom fields',
+      'Rounds',
+    ])
+      section: GlobalKey(),
+  };
+
+  void _setState(VoidCallback change) => setState(change);
+
   bool get _readOnly =>
       widget.mode == CustomerDialogMode.view ||
       widget.customer?.isDeleted == true;
@@ -1037,7 +1068,14 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => WorkspaceDialog(
+  Widget build(BuildContext context) {
+    _flat = Phase2Scope.of(context);
+    // Phase 2: the record as a full-page tab (design section 9, item 1).
+    if (_flat) return _phase2Page(context);
+    return _dialog(context);
+  }
+
+  Widget _dialog(BuildContext context) => WorkspaceDialog(
         title: widget.mode == CustomerDialogMode.create
             ? 'New customer'
             : widget.customer!.displayName,
@@ -1101,7 +1139,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
   Widget _generalTab() => Form(
         key: _forms[0],
         child: _tabPage([
-          if (_error != null) _errorBanner(),
+          if (_error != null && !_flat) _errorBanner(),
           _responsiveFields([
             _text('code', 'Customer code', required: true),
             _text('name', 'Customer name', required: true),
@@ -1201,7 +1239,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
   Widget _financialTab() => Form(
         key: _forms[3],
         child: _tabPage([
-          if (_error != null) _errorBanner(),
+          if (_error != null && !_flat) _errorBanner(),
           _responsiveFields([
             _groupDropdown(),
             _number(
@@ -1524,7 +1562,10 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     );
   }
 
-  Widget _tabPage(List<Widget> children) => SingleChildScrollView(
+  Widget _tabPage(List<Widget> children) => _flat
+      // Phase 2 lays the sections out in one scroll, so each is a column.
+      ? Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: children)
+      : SingleChildScrollView(
         padding: const EdgeInsets.all(24),
         child: Align(
           alignment: Alignment.topCenter,
@@ -1540,8 +1581,16 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
 
   Widget _responsiveFields(List<Widget> children) => LayoutBuilder(
         builder: (context, constraints) {
-          final double width =
-              constraints.maxWidth < 700 ? constraints.maxWidth : 520;
+          // Phase 2 fits three to a row on a wide page, two on a narrower one.
+          final double width = _flat
+              ? constraints.maxWidth >= 900
+                  ? (constraints.maxWidth - 32) / 3
+                  : constraints.maxWidth >= 560
+                      ? (constraints.maxWidth - 16) / 2
+                      : constraints.maxWidth
+              : constraints.maxWidth < 700
+                  ? constraints.maxWidth
+                  : 520;
           return Wrap(
             spacing: 16,
             runSpacing: 12,

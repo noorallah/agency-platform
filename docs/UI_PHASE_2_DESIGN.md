@@ -414,6 +414,15 @@ tax is typed per line; the tax coming back is priced as typed by
 `POST /credit-notes/preview` at the rate each invoice line charged, and a line
 credited past what it was charged is refused while typing rather than on save.
 
+**Master forms: the customer (2026-09-26, section 9 item 1).** A customer opens
+as a full-page tab, not a dialog of seven tabs. Every section is one scroll --
+General, Money, Addresses, Contacts, Custom fields, Rounds -- with a strip of
+section links at the top, fields three to a row and drawn dense, and a side panel
+of what the firm needs at a glance: outstanding against the credit limit, credit
+left, payment terms, GSTIN, created and last changed. This is Business Central's
+card page and Zoho's customer page. Products and vendors follow once the owner has
+seen this one.
+
 ### 4.9 Home per role
 
 A counter clerk, a storeman, an accountant and an owner get different homes:
