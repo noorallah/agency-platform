@@ -53,6 +53,8 @@ class Phase2HomePage extends StatefulWidget {
     required this.allowed,
     required this.source,
     required this.onOpen,
+    this.hidden = const {},
+    this.onCustomise,
   });
 
   final String? firmName;
@@ -63,6 +65,21 @@ class Phase2HomePage extends StatefulWidget {
   final bool Function(String path) allowed;
   final HomeSource source;
   final ValueChanged<MenuItemSpec> onOpen;
+
+  /// The parts this user has chosen not to see ([sections] ids).
+  final Set<String> hidden;
+
+  /// Keep a new choice of hidden parts; null offers no Customise.
+  final ValueChanged<Set<String>>? onCustomise;
+
+  /// Home's parts, by id, as Customise lists them.
+  static const Map<String, String> sections = {
+    'figures': 'Key figures',
+    'chart': 'Sales, last 14 days',
+    'recent': 'Recent invoices',
+    'todo': 'To do',
+    'screens': 'Your screens',
+  };
 
   static const String salesInvoices = 'salesInvoices/sales-invoices';
   static const String stock = 'inventory/inventory';
@@ -197,22 +214,17 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final List<Widget> main = [
-      if (_sales || _stock) _kpis(context),
-      if (_sales) ...[
-        const SizedBox(height: 12),
-        _chart(context),
-        const SizedBox(height: 12),
-        _recent(context),
-      ],
-    ];
-    final List<Widget> side = [
-      if (_todoRows().isNotEmpty) _todo(context),
-      if (_screens().isNotEmpty) ...[
-        if (_todoRows().isNotEmpty) const SizedBox(height: 12),
-        _yourScreens(context),
-      ],
-    ];
+    bool shown(String section) =>
+        _available.contains(section) && !widget.hidden.contains(section);
+    final List<Widget> main = _spaced([
+      if (shown('figures')) _kpis(context),
+      if (shown('chart')) _chart(context),
+      if (shown('recent')) _recent(context),
+    ]);
+    final List<Widget> side = _spaced([
+      if (shown('todo')) _todo(context),
+      if (shown('screens')) _yourScreens(context),
+    ]);
     return Material(
       color: theme.colorScheme.surface,
       child: Column(
@@ -259,6 +271,63 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
         ],
       ),
     );
+  }
+
+  /// The parts this user's role gives them at all; Customise offers only
+  /// these, and hides among them.
+  Set<String> get _available => {
+        if (_sales || _stock) 'figures',
+        if (_sales) ...{'chart', 'recent'},
+        if (_todoRows().isNotEmpty || _batches) 'todo',
+        if (_screens().isNotEmpty) 'screens',
+      };
+
+  static List<Widget> _spaced(List<Widget> parts) => [
+        for (int i = 0; i < parts.length; i++) ...[
+          if (i > 0) const SizedBox(height: 12),
+          parts[i],
+        ],
+      ];
+
+  /// Customise (the wireframe's button): which of Home's parts to show.
+  Future<void> _customise() async {
+    final Set<String> available = _available;
+    final Set<String> hidden = {...widget.hidden};
+    final Set<String>? chosen = await showDialog<Set<String>>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => AlertDialog(
+          title: const Text('Customise Home'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              for (final MapEntry<String, String> section
+                  in Phase2HomePage.sections.entries)
+                if (available.contains(section.key))
+                  CheckboxListTile(
+                    key: ValueKey('home-show-${section.key}'),
+                    title: Text(section.value),
+                    value: !hidden.contains(section.key),
+                    onChanged: (show) => setState(() => show == true
+                        ? hidden.remove(section.key)
+                        : hidden.add(section.key)),
+                  ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(context).pop(hidden),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (chosen != null) widget.onCustomise?.call(chosen);
   }
 
   /// "Good evening", the firm and the date -- the page's one line (4.5).
@@ -310,6 +379,14 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
             ),
           ),
         ),
+        const Spacer(),
+        if (widget.onCustomise != null && _available.isNotEmpty)
+          OutlinedButton.icon(
+            key: const ValueKey('home-customise'),
+            onPressed: _customise,
+            icon: const Icon(Icons.tune, size: 18),
+            label: const Text('Customise'),
+          ),
       ]),
     );
   }

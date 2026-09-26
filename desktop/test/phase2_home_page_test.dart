@@ -111,6 +111,8 @@ Future<List<String>> _pump(
   required Set<String> allowed,
   required HomeSource source,
   double width = 1366,
+  Set<String> hidden = const {},
+  ValueChanged<Set<String>>? onCustomise,
 }) async {
   tester.view.physicalSize = Size(width, 768);
   tester.view.devicePixelRatio = 1;
@@ -129,6 +131,8 @@ Future<List<String>> _pump(
         allowed: allowed.contains,
         source: source,
         onOpen: (item) => opened.add(item.path),
+        hidden: hidden,
+        onCustomise: onCustomise,
       ),
     ),
   ));
@@ -268,5 +272,39 @@ void main() {
     ]) {
       expect(MenuLayout.itemFor(path), isNotNull, reason: path);
     }
+  });
+
+  testWidgets('Customise: choose which parts of Home to see', (tester) async {
+    Set<String>? kept;
+    await _pump(tester,
+        allowed: _owner, source: _Source(), onCustomise: (h) => kept = h);
+    await tester.tap(find.byKey(const ValueKey('home-customise')));
+    await tester.pumpAndSettle();
+    for (final String id in Phase2HomePage.sections.keys) {
+      expect(find.byKey(ValueKey('home-show-$id')), findsOneWidget, reason: id);
+    }
+    await tester.tap(find.byKey(const ValueKey('home-show-chart')));
+    await tester.pump();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(kept, {'chart'});
+  });
+
+  testWidgets('a hidden part is not drawn', (tester) async {
+    await _pump(tester,
+        allowed: _owner, source: _Source(), hidden: {'chart', 'todo'});
+    expect(find.text('SALES, LAST 14 DAYS'), findsNothing);
+    expect(find.text('TO DO'), findsNothing);
+    expect(find.text('RECENT INVOICES'), findsOneWidget);
+  });
+
+  testWidgets("Customise offers only the parts the user's role has",
+      (tester) async {
+    await _pump(tester,
+        allowed: _storeman, source: _Source(), onCustomise: (_) {});
+    await tester.tap(find.byKey(const ValueKey('home-customise')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('home-show-chart')), findsNothing);
+    expect(find.byKey(const ValueKey('home-show-todo')), findsOneWidget);
   });
 }
