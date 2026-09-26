@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 /// One document open as a tab: an order, an invoice, a receipt being entered.
 class OpenDocument {
@@ -48,7 +49,7 @@ class DocumentTabsController extends ChangeNotifier {
     final Completer<T?> result = Completer<T?>();
     final PageRouteBuilder<T> route = PageRouteBuilder<T>(
       pageBuilder: (context, _, __) =>
-          DocumentTabScope(child: builder(context)),
+          DocumentTabScope(child: _UnsavedWorkGuard(child: builder(context))),
       transitionDuration: Duration.zero,
       reverseTransitionDuration: Duration.zero,
     );
@@ -73,6 +74,82 @@ class DocumentTabsController extends ChangeNotifier {
     final NavigatorState? navigator = document?.route.navigator;
     if (navigator != null) unawaited(navigator.maybePop());
   }
+}
+
+/// Asks before a document tab that has been typed in is closed by its tab's
+/// X (or anything else that goes through `maybePop`).
+///
+/// Decision 3 of the design: a tab with unsaved work is never closed
+/// silently. The editors were dialogs, closed only by their own buttons, so
+/// none guards its route; this does it once for all of them. It counts a
+/// document as touched when a character is typed in it -- the work a closed
+/// tab would lose. The editor's own Save and Cancel pop the route directly,
+/// which this does not stand in the way of.
+class _UnsavedWorkGuard extends StatefulWidget {
+  const _UnsavedWorkGuard({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_UnsavedWorkGuard> createState() => _UnsavedWorkGuardState();
+}
+
+class _UnsavedWorkGuardState extends State<_UnsavedWorkGuard> {
+  bool _typed = false;
+
+  KeyEventResult _watch(FocusNode _, KeyEvent event) {
+    final String? character = event.character;
+    if (!_typed &&
+        event is KeyDownEvent &&
+        character != null &&
+        character.isNotEmpty &&
+        character.codeUnitAt(0) >= 0x20) {
+      setState(() => _typed = true);
+    }
+    return KeyEventResult.ignored;
+  }
+
+  Future<void> _ask(bool didPop, Object? result) async {
+    if (didPop) return;
+    final bool? discard = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('Close without saving?'),
+        content: const Text(
+          'What was typed in this document has not been saved and will be '
+          'lost.',
+        ),
+        actions: [
+          TextButton(
+            key: const ValueKey('document-keep-editing'),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Keep editing'),
+          ),
+          FilledButton(
+            key: const ValueKey('document-discard'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Discard and close'),
+          ),
+        ],
+      ),
+    );
+    if (discard != true || !mounted) return;
+    setState(() => _typed = false);
+    Navigator.of(context).pop(result);
+  }
+
+  @override
+  Widget build(BuildContext context) => PopScope<Object?>(
+        canPop: !_typed,
+        onPopInvokedWithResult: (didPop, result) =>
+            unawaited(_ask(didPop, result)),
+        child: Focus(
+          canRequestFocus: false,
+          skipTraversal: true,
+          onKeyEvent: _watch,
+          child: widget.child,
+        ),
+      );
 }
 
 /// Where [showDocument] finds the phase 2 app's document tabs.
