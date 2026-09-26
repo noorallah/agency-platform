@@ -113,23 +113,35 @@ abstract final class MenuLayout {
         MenuItemSpec(
             AppModule.masters, 'customer-statements', 'Customer Statements'),
       ]),
-      MenuGroupSpec('Pricing', [
-        MenuItemSpec(AppModule.sales, 'price-lists', 'Price Lists'),
-        MenuItemSpec(AppModule.sales, 'promotions', 'Promotions'),
-        MenuItemSpec(AppModule.masters, 'loyalty', 'Loyalty'),
-      ]),
       MenuGroupSpec('Incentives', [
         MenuItemSpec(AppModule.sales, 'commission', 'Commission'),
         MenuItemSpec(AppModule.sales, 'targets', 'Targets'),
       ]),
       MenuGroupSpec('Field sales', [
-        MenuItemSpec(AppModule.sales, 'territories', 'Territories'),
-        MenuItemSpec(AppModule.sales, 'route-types', 'Route Types'),
         MenuItemSpec(AppModule.sales, 'beat-plans', 'Beat Plans'),
         MenuItemSpec(AppModule.sales, 'call-lists', 'Call Lists'),
         MenuItemSpec(AppModule.sales, 'coverage', 'Coverage'),
-        MenuItemSpec(AppModule.sales, 'route-builder', 'Route Builder'),
       ]),
+      // Set up once and revisited now and then: drawn apart, under
+      // CONFIGURATION, as in Masters (owner, 2026-09-26).
+      MenuGroupSpec(
+        'Pricing',
+        [
+          MenuItemSpec(AppModule.sales, 'price-lists', 'Price Lists'),
+          MenuItemSpec(AppModule.sales, 'promotions', 'Promotions'),
+          MenuItemSpec(AppModule.masters, 'loyalty', 'Loyalty'),
+        ],
+        configuration: true,
+      ),
+      MenuGroupSpec(
+        'Territories & routes',
+        [
+          MenuItemSpec(AppModule.sales, 'territories', 'Territories'),
+          MenuItemSpec(AppModule.sales, 'route-types', 'Route Types'),
+          MenuItemSpec(AppModule.sales, 'route-builder', 'Route Builder'),
+        ],
+        configuration: true,
+      ),
     ]),
     MenuAreaSpec('buy', 'Buy', [
       MenuGroupSpec('Documents', [
@@ -184,17 +196,22 @@ abstract final class MenuLayout {
         MenuItemSpec(AppModule.accounting, 'profit-loss', 'Profit & Loss'),
         MenuItemSpec(AppModule.accounting, 'balance-sheet', 'Balance Sheet'),
       ]),
-      MenuGroupSpec('Structure', [
-        MenuItemSpec(
-            AppModule.accounting, 'control-accounts', 'Control Accounts'),
-        MenuItemSpec(AppModule.accounting, 'cost-centers', 'Cost Centres'),
-        MenuItemSpec(AppModule.accounting, 'profit-centers', 'Profit Centres'),
-      ]),
       MenuGroupSpec('Tax filing', [
         MenuItemSpec(AppModule.sales, 'gst-returns', 'GST Returns'),
         MenuItemSpec(AppModule.sales, 'einvoice', 'E-Invoice'),
         MenuItemSpec(AppModule.sales, 'tcs', 'TCS'),
       ]),
+      MenuGroupSpec(
+        'Structure',
+        [
+          MenuItemSpec(
+              AppModule.accounting, 'control-accounts', 'Control Accounts'),
+          MenuItemSpec(AppModule.accounting, 'cost-centers', 'Cost Centres'),
+          MenuItemSpec(
+              AppModule.accounting, 'profit-centers', 'Profit Centres'),
+        ],
+        configuration: true,
+      ),
     ]),
     MenuAreaSpec('masters', 'Masters', [
       // Opened every day.
@@ -232,10 +249,10 @@ abstract final class MenuLayout {
           MenuItemSpec(AppModule.administration, 'uom-groups', 'UOM Groups'),
           MenuItemSpec(
               AppModule.administration, 'packaging-types', 'Packaging Types'),
-          MenuItemSpec(AppModule.administration, 'packaging-levels',
-              'Packaging Levels'),
-          MenuItemSpec(AppModule.administration, 'conversion-rules',
-              'Conversion Rules'),
+          MenuItemSpec(
+              AppModule.administration, 'packaging-levels', 'Packaging Levels'),
+          MenuItemSpec(
+              AppModule.administration, 'conversion-rules', 'Conversion Rules'),
         ],
         configuration: true,
       ),
@@ -244,8 +261,7 @@ abstract final class MenuLayout {
         [
           MenuItemSpec(AppModule.masters, 'storage-areas', 'Storage Areas'),
           MenuItemSpec(AppModule.masters, 'branch-types', 'Branch Types'),
-          MenuItemSpec(
-              AppModule.masters, 'warehouse-types', 'Warehouse Types'),
+          MenuItemSpec(AppModule.masters, 'warehouse-types', 'Warehouse Types'),
           MenuItemSpec(AppModule.masters, 'geography-masters', 'Places'),
         ],
         configuration: true,
