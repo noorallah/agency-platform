@@ -4,18 +4,115 @@ import 'package:agency_desktop/phase2/menu_layout.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-/// Home in the phase 2 app (UI_PHASE_2_DESIGN.md 4.9).
-///
-/// The owner's report: "home page missing". Phase 1's Dashboard is a
-/// platform administrator's page, so a firm user had no Home. This one is
-/// everybody's, and shows only what the user's role may open.
+/// Home in the phase 2 app (UI_PHASE_2_DESIGN.md 4.9), as the owner approved
+/// it in the wireframe -- the key figures, sales over 14 days, recent
+/// invoices, a to-do list and the user's screens -- each part only for a
+/// role that may open the list behind it.
+final DateTime _today = DateTime.utc(2026, 9, 26);
+
+class _Source implements HomeSource {
+  _Source({this.failing = const {}});
+
+  final Set<String> failing;
+  final List<String> asked = [];
+
+  Future<T> _answer<T>(String what, T value) async {
+    asked.add(what);
+    if (failing.contains(what)) throw StateError('refused');
+    return value;
+  }
+
+  @override
+  Future<List<Map<String, dynamic>>> invoiceRegister(
+          DateTime from, DateTime to) =>
+      _answer('register', [
+        {
+          'invoice_number': 'SI-0003',
+          'customer_name': 'Sri Murugan Stores',
+          'invoice_date': '2026-09-26',
+          'grand_total': '4720.00',
+          'status': 'APPROVED',
+        },
+        {
+          'invoice_number': 'SI-0002',
+          'customer_name': 'QA Retail',
+          'invoice_date': '2026-09-26',
+          'grand_total': '180000',
+          'status': 'CLOSED',
+        },
+        // Neither a draft nor a cancelled bill is a sale.
+        {
+          'invoice_number': 'SI-0004',
+          'customer_name': 'Draft Co',
+          'invoice_date': '2026-09-26',
+          'grand_total': '99999',
+          'status': 'DRAFT',
+        },
+        {
+          'invoice_number': 'SI-0005',
+          'customer_name': 'Cancelled Co',
+          'invoice_date': '2026-09-26',
+          'grand_total': '55555',
+          'status': 'CANCELLED',
+        },
+        {
+          'invoice_number': 'SI-0001',
+          'customer_name': 'Anand Traders',
+          'invoice_date': '2026-09-20',
+          'grand_total': '50000',
+          'status': 'APPROVED',
+        },
+      ]);
+
+  @override
+  Future<List<Map<String, dynamic>>> customerOutstanding() =>
+      _answer('outstanding', [
+        {'customer_name': 'A', 'outstanding_amount': '600000'},
+        {'customer_name': 'B', 'outstanding_amount': '120000'},
+        // An advance is not money owed.
+        {'customer_name': 'C', 'outstanding_amount': '-5000'},
+      ]);
+
+  @override
+  Future<int> itemsBelowReorder() => _answer('reorder', 14);
+
+  @override
+  Future<int> batchesExpiringIn30Days() => _answer('expiring', 2);
+
+  @override
+  Future<Map<String, dynamic>> summary(String path) => _answer(path, {
+        'draft': 4,
+        'pending_orders': 6,
+        'overdue_invoices': 3,
+        'pending_purchase_orders': 1,
+      });
+}
+
+const Set<String> _owner = {
+  'salesInvoices/sales-invoices',
+  'salesOrders',
+  'deliveryNotes/delivery-notes',
+  'goodsReceipts/receipts',
+  'purchaseInvoices',
+  'inventory/inventory',
+  'inventory/expiry-monitor',
+  'masters/customers',
+  'masters/customer-statements',
+};
+
+const Set<String> _storeman = {
+  'inventory/inventory',
+  'inventory/expiry-monitor',
+  'goodsReceipts/receipts',
+};
+
 Future<List<String>> _pump(
   WidgetTester tester, {
   required Set<String> allowed,
-  Map<String, Map<String, dynamic>> summaries = const {},
-  Set<String> failing = const {},
+  required HomeSource source,
+  double width = 1366,
 }) async {
-  tester.view.physicalSize = const Size(1366, 768);
+  tester.view.physicalSize = Size(width, 768);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   final List<String> opened = [];
@@ -26,13 +123,11 @@ Future<List<String>> _pump(
     ),
     home: Scaffold(
       body: Phase2HomePage(
-        firmName: 'MarketBridge Wholesale',
-        userName: 'Whole Admin',
+        firmName: 'QA01 Traders',
+        userName: 'Owner',
+        today: _today,
         allowed: allowed.contains,
-        loadSummary: (path) async {
-          if (failing.contains(path)) throw StateError('refused');
-          return summaries[path] ?? const {};
-        },
+        source: source,
         onOpen: (item) => opened.add(item.path),
       ),
     ),
@@ -43,86 +138,133 @@ Future<List<String>> _pump(
   return opened;
 }
 
+String _kpi(WidgetTester tester, String key) {
+  final Finder texts = find.descendant(
+    of: find.byKey(ValueKey('home-kpi-$key')),
+    matching: find.byType(Text),
+  );
+  return tester.widget<Text>(texts.first).data!;
+}
+
 void main() {
-  testWidgets('today shows the figures of the lists the user may open',
+  testWidgets("the owner's Home: the wireframe's figures, from the day's bills",
       (tester) async {
-    await _pump(
-      tester,
-      allowed: {'salesInvoices/sales-invoices', 'salesOrders'},
-      summaries: {
-        'salesInvoices/sales-invoices': {
-          'overdue_invoices': 3,
-          'pending_invoices': 7,
-          'draft': 2,
-        },
-        'salesOrders': {'draft': 4, 'approved': 9},
-      },
-    );
-    expect(find.text('Welcome, Whole Admin'), findsOneWidget);
-    expect(find.text('MarketBridge Wholesale'), findsOneWidget);
-    expect(find.byKey(const ValueKey('home-tile-salesInvoices/sales-invoices')),
-        findsOneWidget);
-    expect(find.text('Overdue'), findsOneWidget);
-    expect(find.text('7'), findsOneWidget);
-    expect(find.text('9'), findsOneWidget);
-    // A list the role may not open has no tile, and its summary is never
-    // asked for.
-    expect(find.byKey(const ValueKey('home-tile-purchaseInvoices')),
-        findsNothing);
+    await _pump(tester, allowed: _owner, source: _Source());
+    expect(find.textContaining('Owner'), findsOneWidget);
+    expect(find.textContaining('QA01 Traders'), findsOneWidget);
+    expect(find.textContaining('Saturday 26-09-2026'), findsOneWidget);
+
+    // 4,720 + 1,80,000 today; the draft and the cancelled bill are not sales.
+    expect(_kpi(tester, 'sales-today'), '1.85 L');
+    expect(_kpi(tester, 'sales-fortnight'), '2.35 L');
+    // 6,00,000 + 1,20,000 owed; the advance is not.
+    expect(_kpi(tester, 'receivable'), '7.20 L');
+    expect(find.text('Receivable, 3 overdue'), findsOneWidget);
+    expect(_kpi(tester, 'below-reorder'), '14');
   });
 
-  testWidgets('an overdue figure above zero is red', (tester) async {
-    await _pump(
-      tester,
-      allowed: {'salesInvoices/sales-invoices'},
-      summaries: {
-        'salesInvoices/sales-invoices': {
-          'overdue_invoices': 3,
-          'pending_invoices': 0,
-          'draft': 0,
-        },
-      },
+  testWidgets('sales over 14 days: one bar a day, the busiest the tallest',
+      (tester) async {
+    await _pump(tester, allowed: _owner, source: _Source());
+    expect(find.text('SALES, LAST 14 DAYS'), findsOneWidget);
+    final List<double> heights = [
+      for (int i = 0; i < 14; i++)
+        tester.getSize(find.byKey(ValueKey('home-bar-$i'))).height,
+    ];
+    expect(heights.last, heights.reduce((a, b) => a > b ? a : b));
+    // 20-09 is day 7 of the 14 (the fortnight starts 13-09).
+    expect(heights[7], greaterThan(heights[6]));
+    expect(find.byTooltip('26-09: 1,84,720.00'), findsOneWidget);
+  });
+
+  testWidgets('recent invoices, newest first', (tester) async {
+    await _pump(tester, allowed: _owner, source: _Source());
+    final double first =
+        tester.getTopLeft(find.byKey(const ValueKey('home-recent-SI-0005'))).dy;
+    final double last =
+        tester.getTopLeft(find.byKey(const ValueKey('home-recent-SI-0001'))).dy;
+    expect(first, lessThan(last));
+    expect(find.text('1,80,000.00'), findsOneWidget);
+  });
+
+  testWidgets('to do: counts from each list, an overdue count in red',
+      (tester) async {
+    final List<String> opened =
+        await _pump(tester, allowed: _owner, source: _Source());
+    expect(find.text('Orders to approve'), findsOneWidget);
+    expect(find.text('Batches expiring in 30 days'), findsOneWidget);
+    final Finder overdue = find.descendant(
+      of: find.byKey(const ValueKey('home-todo-Invoices overdue')),
+      matching: find.text('3'),
     );
-    final BuildContext context = tester.element(find.text('3'));
-    expect(tester.widget<Text>(find.text('3')).style?.color,
+    final BuildContext context = tester.element(overdue);
+    expect(tester.widget<Text>(overdue).style?.color,
         Theme.of(context).colorScheme.error);
+    await tester.tap(find.byKey(const ValueKey('home-todo-Orders to approve')));
+    expect(opened, ['salesOrders']);
   });
 
-  testWidgets('a summary that cannot be read shows dashes, not zeros',
+  testWidgets("a storeman's Home: stock and batches, no sales or receivables",
+      (tester) async {
+    final _Source source = _Source();
+    await _pump(tester, allowed: _storeman, source: source);
+    expect(
+        find.byKey(const ValueKey('home-kpi-below-reorder')), findsOneWidget);
+    expect(find.text('POs to receive'), findsOneWidget);
+    expect(find.text('Batches expiring in 30 days'), findsOneWidget);
+    expect(find.byKey(const ValueKey('home-kpi-sales-today')), findsNothing);
+    expect(find.byKey(const ValueKey('home-kpi-receivable')), findsNothing);
+    expect(find.text('SALES, LAST 14 DAYS'), findsNothing);
+    expect(find.text('Orders to approve'), findsNothing);
+    // What a role may not see is never even asked for.
+    expect(source.asked, isNot(contains('register')));
+    expect(source.asked, isNot(contains('outstanding')));
+  });
+
+  testWidgets('a figure that cannot be read is a dash, never a zero',
       (tester) async {
     await _pump(
       tester,
-      allowed: {'salesOrders'},
-      failing: {'salesOrders'},
+      allowed: _owner,
+      source: _Source(failing: {'register', 'reorder'}),
     );
-    expect(find.text('-'), findsNWidgets(2));
-    expect(find.text('0'), findsNothing);
+    expect(_kpi(tester, 'sales-today'), '-');
+    expect(_kpi(tester, 'below-reorder'), '-');
+    expect(find.text('Sales could not be read.'), findsOneWidget);
   });
 
-  testWidgets('a tile and a daily-screen button open their screen',
+  testWidgets('two columns on a laptop, one on a narrow window',
       (tester) async {
-    final List<String> opened = await _pump(
-      tester,
-      allowed: {'salesOrders', 'masters/customers'},
-      summaries: {
-        'salesOrders': {'draft': 1, 'approved': 1},
-      },
-    );
-    await tester.tap(find.byKey(const ValueKey('home-tile-salesOrders')));
-    await tester
-        .tap(find.byKey(const ValueKey('home-open-masters/customers')));
-    expect(opened, ['salesOrders', 'masters/customers']);
+    await _pump(tester, allowed: _owner, source: _Source());
+    final double chartLeft =
+        tester.getTopLeft(find.text('SALES, LAST 14 DAYS')).dx;
+    final double todoLeft = tester.getTopLeft(find.text('TO DO')).dx;
+    expect(todoLeft, greaterThan(chartLeft + 400));
+
+    await _pump(tester, allowed: _owner, source: _Source(), width: 700);
+    expect(tester.getTopLeft(find.text('TO DO')).dx,
+        lessThan(tester.getTopLeft(find.text('SALES, LAST 14 DAYS')).dx + 10));
   });
 
   testWidgets('with nothing to show, Home says where to go', (tester) async {
-    await _pump(tester, allowed: const {});
+    await _pump(tester, allowed: const {}, source: _Source());
     expect(find.textContaining('Ctrl+K'), findsOneWidget);
   });
 
-  test('every tile and daily screen is a real menu screen', () {
+  test('amounts read the Indian way', () {
+    expect(indianAmount(184000), '1.84 L');
+    expect(indianAmount(21000000), '2.10 Cr');
+    expect(indianAmount(62400), '62,400');
+    expect(indianAmount(112050, full: true), '1,12,050.00');
+    expect(indianAmount(999), '999');
+  });
+
+  test('every to-do and screen names a real menu screen', () {
     for (final String path in [
-      for (final HomeTile tile in Phase2HomePage.tiles) tile.path,
-      ...Phase2HomePage.daily,
+      for (final HomeTodo todo in Phase2HomePage.todos) todo.path,
+      ...Phase2HomePage.screens,
+      Phase2HomePage.expiry,
+      Phase2HomePage.stock,
     ]) {
       expect(MenuLayout.itemFor(path), isNotNull, reason: path);
     }
