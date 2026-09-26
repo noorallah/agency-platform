@@ -197,22 +197,14 @@ class AppMenuBar extends StatelessWidget {
       shape: WidgetStatePropertyAll(
         RoundedRectangleBorder(borderRadius: BorderRadius.circular(5)),
       ),
-      // The area you are in: a 3 px bar inside the pill along its bottom,
-      // clipped by the pill's rounded corners so it curves up at both ends
-      // -- the wireframe's inset shadow, not a straight line under it.
+      // The area you are in: the wireframe's inset shadow (`inset 0 -3px 0`
+      // on a 5 px-rounded pill) -- the band between the pill's bottom edge
+      // and the same pill lifted 3 px, so it curls up both rounded corners.
       backgroundBuilder: current
-          ? (context, states, child) => ClipRRect(
+          ? (context, states, child) => CustomPaint(
                 key: const ValueKey('menu-area-current'),
-                borderRadius: BorderRadius.circular(5),
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    border: Border(
-                      bottom:
-                          BorderSide(color: colors.chromeIndicator, width: 3),
-                    ),
-                  ),
-                  child: child,
-                ),
+                foregroundPainter: _InsetBar(colors.chromeIndicator),
+                child: child,
               )
           : null,
     );
@@ -527,4 +519,34 @@ class ConnectionDot extends StatelessWidget {
       ),
     );
   }
+}
+
+/// CSS `box-shadow: inset 0 -3px 0` on a rounded rectangle: the pill minus
+/// itself moved up by [thickness]. What is left is a band along the bottom
+/// that follows both lower corners up, as the wireframe draws the area you
+/// are in.
+class _InsetBar extends CustomPainter {
+  const _InsetBar(this.color);
+
+  final Color color;
+
+  static const double radius = 5;
+  static const double thickness = 3;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final RRect pill = RRect.fromRectAndRadius(
+      Offset.zero & size,
+      const Radius.circular(radius),
+    );
+    final Path band = Path.combine(
+      PathOperation.difference,
+      Path()..addRRect(pill),
+      Path()..addRRect(pill.shift(const Offset(0, -thickness))),
+    );
+    canvas.drawPath(band, Paint()..color = color);
+  }
+
+  @override
+  bool shouldRepaint(_InsetBar oldDelegate) => oldDelegate.color != color;
 }
