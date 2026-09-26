@@ -365,7 +365,7 @@ class _TaxRuleSimulatorPageState extends State<TaxRuleSimulatorPage> {
                         strokeWidth: 2, color: Colors.white),
                   )
                 : const Icon(Icons.play_arrow_rounded, size: 18),
-            label: Text(_running ? 'Running…' : '▶  Run Simulation'),
+            label: Text(_running ? 'Running…' : 'Run Simulation'),
             style: FilledButton.styleFrom(
               padding: const EdgeInsets.symmetric(vertical: 14),
               textStyle: const TextStyle(
