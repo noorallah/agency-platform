@@ -915,6 +915,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
             label: column.label,
             tooltip: column.label,
             visible: column.visible,
+            numeric: column.key == 'selling',
             onSort: column.sortField == null
                 ? null
                 : (ascending) {
@@ -927,7 +928,58 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
           ),
         )
         .toList();
+    final bool phase2 = Phase2Scope.of(context);
+    // Phase 2 (the wireframe's page line): the plain "/ search" box every
+    // list has. Recent and saved searches become icons on the line (below);
+    // row spacing is in Appearance on the menu bar for every screen, and
+    // the advanced filters are what the "+ filter" chip opens.
+    final Widget phase2Search = SearchFilterPanel(
+      controller: _search,
+      focusNode: _searchFocus,
+      hintText: 'Search code, barcode, name, brand, HSN',
+      onSearch: _runSearch,
+    );
+    final List<Widget> phase2Searches = [
+      if (_recentSearches.isNotEmpty)
+        PopupMenuButton<String>(
+          key: const ValueKey('products-recent-searches'),
+          tooltip: 'Recent searches',
+          onSelected: (value) {
+            _search.text = value;
+            _runSearch(value);
+          },
+          itemBuilder: (context) => _recentSearches
+              .take(8)
+              .map((entry) => PopupMenuItem(value: entry, child: Text(entry)))
+              .toList(),
+          child: const _LineIcon(Icons.history),
+        ),
+      PopupMenuButton<_SavedFilter>(
+        key: const ValueKey('products-saved-filters'),
+        tooltip: 'Saved filters',
+        onSelected: _applySavedFilter,
+        itemBuilder: (context) => _savedFilters.isEmpty
+            ? const [
+                PopupMenuItem(enabled: false, child: Text('No saved filters')),
+              ]
+            : _savedFilters
+                .map((entry) =>
+                    PopupMenuItem(value: entry, child: Text(entry.name)))
+                .toList(),
+        child: const _LineIcon(Icons.bookmark_outline),
+      ),
+      Tooltip(
+        message: 'Save current filter',
+        child: InkWell(
+          key: const ValueKey('products-save-filter'),
+          onTap: _saveCurrentFilter,
+          borderRadius: BorderRadius.circular(5),
+          child: const _LineIcon(Icons.bookmark_add_outlined),
+        ),
+      ),
+    ];
     final Widget toolbar = WorkspaceToolbar(
+      trailing: phase2 ? phase2Searches : const [],
       actions: const [
         ToolbarAction.newItem,
         ToolbarAction.view,
@@ -992,7 +1044,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         }
       },
     );
-    final Widget searchPanel = Row(
+    final Widget phase1Search = Row(
       children: [
         Expanded(
           child: SearchFilterPanel(
@@ -1312,7 +1364,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
       ),
       child: ManagementWorkspaceLayout(
         toolbar: toolbar,
-        searchPanel: searchPanel,
+        searchPanel: phase2 ? phase2Search : phase1Search,
         filterPanel: filterPanel,
         primaryContent: primaryContent,
         // No summary panel. Selecting a row should select it, not open a
@@ -3241,3 +3293,27 @@ class _ExportScopeDialogState extends State<_ExportScopeDialog> {
 
 String _dateOnly(String value) =>
     value.length >= 10 ? value.substring(0, 10) : value;
+
+/// An icon on the phase 2 page line, as the line's other icon buttons: a
+/// small square with a grey edge.
+class _LineIcon extends StatelessWidget {
+  const _LineIcon(this.icon);
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Container(
+      width: 32,
+      height: 32,
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: scheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(color: scheme.outlineVariant),
+      ),
+      child: Icon(icon, size: 18, color: scheme.onSurface),
+    );
+  }
+}

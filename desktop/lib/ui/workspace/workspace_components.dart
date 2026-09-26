@@ -2019,7 +2019,12 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
           return _dataCell(
             context,
             item: item,
-            content: widget.cellBuilder?.call(entry.key, raw, item) ??
+            // An amount is drawn here, right-aligned in Indian digits, even
+            // on a screen that builds its own cells -- or its heading moves
+            // right and its figures stay left.
+            content: (amount
+                    ? null
+                    : widget.cellBuilder?.call(entry.key, raw, item)) ??
                 Tooltip(
                   message: value,
                   child: SizedBox(
