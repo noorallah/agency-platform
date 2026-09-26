@@ -1,8 +1,11 @@
 # Desktop UI, phase 2 -- navigation and screen space
 
-**Status:** proposal for discussion, 2026-09-25. **No code** until the owner
-agrees the decisions in section 8. The current desktop is **phase 1**: it
-stays as it is, and keeps working, until phase 2 replaces it screen by screen.
+**Status:** agreed for building, 2026-09-26. Decisions 1, 10 and 13 were
+agreed by the owner on 2026-09-25; the rest of section 8 was decided on
+2026-09-26 by industry convention at the owner's request, **to be reviewed by
+the owner** -- any of them can still be changed. Phase 1 is frozen as the git
+tag `ui-phase-1` (and the installed build as `v1.0.1`); it is not shared with
+anyone, and functionality is tested together with phase 2.
 
 **Why:** the owner went through every screen on 2026-09-25 and found that
 (1) screen space is not used well, and (2) the left menu takes room, and once
@@ -427,14 +430,39 @@ visits to look through, not a place they work:
   setting is findable both ways.
 - The Ctrl+K box finds every setting by name ("credit limit", "numbering").
 
+### 4.14 Clear to read, easy on the eyes all day (owner, 2026-09-26)
+
+The owner's rule: every screen must be **clearly visible**, and its colours and
+contrast must **not tire the eyes** of somebody who works on it all day. Both
+halves matter -- too faint and it cannot be read (D-QA-1's hover), too harsh
+and it tires. Phase 2 follows the accessibility standard (WCAG 2.2, level AA)
+and the conventions of tools built for long sessions:
+
+| Rule | Measure |
+| --- | --- |
+| Text is readable | body text at least **4.5 : 1** against its background; large text and headings at least 3 : 1 |
+| Controls can be seen | borders, focus rings, checkboxes, icons and the hover/selected state of a row or button at least **3 : 1** -- nothing that says "you can click here" is faint |
+| No glare | the page is a soft off-white, not pure `#FFFFFF`, and text is a dark grey-black, not pure `#000000`; the contrast stays well above AA without the harshness of black on white |
+| Calm colour | colour is kept for meaning -- status, warnings, the one primary button -- never for large areas or backgrounds; no saturated bands across the screen |
+| Colour is never the only signal | a status has a word or an icon as well (Overdue, Approved), so it reads for anybody and on any monitor |
+| Dark theme | a proper dark theme (dark grey, not black), meeting the same measures, for users who prefer it; the choice is per user in **This PC and me** |
+| Size | the default text is never below 13 px; the density setting changes spacing, not text size; Windows display scaling (125 %, 150 %) is honoured (section 9, item 9) |
+
+All colours come from `design_tokens.dart`, so the measures are checked once,
+there: phase 2 adds a test that computes each foreground / background token
+pair's contrast ratio and fails the build below these figures, in light and
+dark. The high-detail look-and-feel mock-up (section 9, item 7) is judged
+against this table.
+
 ## 5. What does not change
 
 - The **module catalogue** stays the single source of screens; phase 2 adds
   an `area` and a `group` to each entry instead of hand-building menus.
 - **Permissions, firm context and business-profile gating** stay exactly as
   implemented and tested.
-- **Design tokens and theme** (`design_tokens.dart`, `ThemeManager`), colours,
-  light/dark, fonts.
+- **Design tokens and theme** (`design_tokens.dart`, `ThemeManager`) stay the
+  one place colours and fonts are defined; their values are re-checked against
+  4.14.
 - The **framework components** (`EnterpriseDataGrid`, `ResourceDefinition`,
   dialogs, form fields) are reused; the shell and the page frame are what
   change.
@@ -475,26 +503,27 @@ Recommended answers first; each can be changed.
 | # | Question | Recommended | Alternative |
 | --- | --- | --- | --- |
 | 1 | Menu style | **Agreed 2026-09-25: top menu bar with drop-down panels in columns** (4.1, 4.3) | (Not chosen) a 56 px icon rail on the left with fly-out panels |
-| 2 | Number of areas | **Eight** (4.2) -- also what makes the top bar fit | Keep 19 modules (would not fit across the top) |
-| 3 | Open screens as tabs | **Yes**, up to about 10, remembered | Single screen at a time, as today |
-| 4 | Documents | **Full-page tab** | Keep dialogs, but full-size |
-| 5 | Command box also for actions ("new sales order") | **Yes** | Screens and records only |
-| 6 | Tally-style keys (Alt+G, Enter-driven line entry) | **Yes** | Standard Windows keys only |
-| 7 | Default density on laptops | **Compact (34 px)** | Comfortable (42 px) |
-| 8 | Role homes | **Yes**, one per seeded role family | One dashboard for everyone |
-| 9 | Roll-out | **Preview switch, then replace** (section 6) | Replace in one release |
+| 2 | Number of areas | **Decided 2026-09-26: eight** (4.2). Odoo, Zoho and Business Central all group by business area in a handful of top-level menus, and eight is what fits across the top bar | Keep 19 modules (would not fit across the top) |
+| 3 | Open screens as tabs | **Decided 2026-09-26: yes**, up to 10, remembered per user. Desktop ERPs (SAP Business One, Busy, Business Central's multiple windows) let a clerk keep an order open while checking stock; the oldest unpinned, unchanged tab closes at the limit, and a tab with unsaved work is never closed silently | Single screen at a time, as today |
+| 4 | Documents | **Decided 2026-09-26: full-page tab** (4.8), as Zoho, Odoo and Business Central do; a dialog cannot hold a long line grid and a totals footer at a small window | Keep dialogs, but full-size |
+| 5 | Command box also for actions ("new sales order") | **Decided 2026-09-26: yes** -- the convention of Business Central's "Tell me", Odoo's command palette and Tally's Go To; actions follow permissions (4.12) | Screens and records only |
+| 6 | Tally-style keys (Alt+G, Enter-driven line entry) | **Decided 2026-09-26: yes, in addition to** the standard Windows keys (4.10) -- nothing standard is taken away. Tally, Busy and Marg users are the market | Standard Windows keys only |
+| 7 | Default density on laptops | **Decided 2026-09-26: compact (34 px)** below 900 px of window height, comfortable above (4.7); the user's own choice always wins. Data-heavy ERPs (Business Central, SAP) default dense | Comfortable (42 px) |
+| 8 | Role homes | **Decided 2026-09-26: yes**, one per seeded role family (Business Central's Role Centres; Odoo and Zoho show per-app dashboards). Built from the same permissions as the menu; a role with no home of its own gets the general one | One dashboard for everyone |
+| 9 | Roll-out | **Decided 2026-09-26: switch during the build, new layout on by default.** Phase 1 is never shipped, so there is nothing to protect with a preview: the switch exists only so the app stays usable while screens move, and phase 1's shell is deleted once the last screen has moved (section 6, step 5). Phase 1 lives on in the `ui-phase-1` tag | Replace in one release |
 | 10 | Summary cards and filters above lists | **Agreed in principle 2026-09-25: moved into the page bar as clickable counters and chips; cards only on Home** (4.5) | Keep a collapsible summary strip |
-| 11 | Tally voucher keys (F8, F9, F6, F5, F7) on daily screens | **Yes** (4.6) | Only Ctrl-based shortcuts |
-| 12 | Which screens count as "daily" | **The nine listed in 4.6**, confirmed per role | Owner's own list |
+| 11 | Tally voucher keys (F8, F9, F6, F5, F7) on daily screens | **Decided 2026-09-26: yes** (4.6), active on Home and the daily screens. F5 therefore does not mean refresh anywhere; refresh is Ctrl+R. F2 stays "edit the selected row" on lists; inside a voucher it changes the date, as in Tally | Only Ctrl-based shortcuts |
+| 12 | Which screens count as "daily" | **Decided 2026-09-26: the nine listed in 4.6**; each role's home and its favourites start from the ones that role may open | Owner's own list |
 | 13 | Settings | **Agreed 2026-09-25: one Settings page behind a gear, by topic** (4.13), every phase 1 screen kept (appendix A) | Leave each setting in its module |
 
 Clickable wireframes of the shell, the Customers list (with today's screen
 beside it), a billing screen and a role home: `dist\windows\Design\UI phase 2
 wireframes.html` -- they fill the browser window and adapt as it is resized.
 
-Next: agree or change the open answers (1 and 10 are agreed); then appendix A (every screen's
-area, group and label) and clickable mock-ups of the shell, a list and a
-sales order are prepared for review before any code.
+All thirteen are now answered. Next: build, in the order of section 6,
+showing the owner the first screen of each kind before it is repeated
+(section 9). The owner reviews the 2026-09-26 answers as they appear on
+screen; changing one is a change to this table first.
 
 ## 9. Open topics, decided screen by screen
 
@@ -518,7 +547,7 @@ section 8 at that point.
    everywhere.
 5. **Record history** -- a timeline on each document (created, approved,
    printed, who changed what) and its attachments.
-6. **Open decisions** in section 8.
+6. **Owner review** of the section 8 answers decided on 2026-09-26.
 
 **With the screens they touch**
 
