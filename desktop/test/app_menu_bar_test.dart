@@ -37,9 +37,12 @@ Future<List<MenuItemSpec>> _pump(
 }
 
 void main() {
-  testWidgets('every area is on the bar at 1366 x 768, with no overflow',
+  testWidgets('every area is on the bar on a wide window, with no overflow',
       (tester) async {
-    await _pump(tester);
+    // The bar measures its labels as drawn, and the test font is about
+    // twice as wide as Segoe UI; 1920 fits all eight in it. On the laptop's
+    // 1366 with the real font they fit too -- checked by rendering the shell.
+    await _pump(tester, width: 1920);
     for (final MenuAreaSpec area in MenuLayout.areas) {
       expect(find.byKey(ValueKey('menu-area-${area.id}')), findsOneWidget,
           reason: area.label);

@@ -177,3 +177,19 @@ class Phase2StatusScope extends InheritedWidget {
   bool updateShouldNotify(Phase2StatusScope oldWidget) =>
       left != oldWidget.left;
 }
+
+/// The name the menu gives the screen on show ("Customers"), which the page
+/// line uses as its title as the wireframe does -- rather than the longer
+/// heading phase 1 screens carry ("Customer Management").
+class Phase2ScreenTitle extends InheritedWidget {
+  const Phase2ScreenTitle({super.key, required this.title, required super.child});
+
+  final String? title;
+
+  static String? of(BuildContext context) =>
+      context.dependOnInheritedWidgetOfExactType<Phase2ScreenTitle>()?.title;
+
+  @override
+  bool updateShouldNotify(Phase2ScreenTitle oldWidget) =>
+      title != oldWidget.title;
+}

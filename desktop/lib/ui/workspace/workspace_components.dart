@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/design/design_tokens.dart';
 import '../../core/dialogs/app_dialogs.dart';
+import '../../phase2/indian_format.dart';
 import '../../phase2/phase2_scope.dart';
 import 'workspace_interactions.dart';
 
@@ -359,30 +360,32 @@ class SummaryCount extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     final ColorScheme scheme = theme.colorScheme;
     final bool alarming = alert && value.trim() != '0' && value.trim() != '';
+    // The wireframe's counter: a pill with a grey edge, "Active 15" in dark
+    // text -- the same shape as the "+ filter" chip beside it. The one the
+    // list is filtered by is tinted and edged in the accent (4.14: not by
+    // tint alone).
     final Widget body = Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      height: 28,
+      padding: const EdgeInsets.symmetric(horizontal: 10),
+      alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: selected ? scheme.primary.withValues(alpha: .12) : null,
-        borderRadius: AppRadius.medium,
-        // 4.14: the counter the list is filtered by is outlined, not only
-        // tinted.
+        color: selected
+            ? scheme.primary.withValues(alpha: .12)
+            : scheme.surfaceContainerLowest,
+        borderRadius: BorderRadius.circular(14),
         border: Border.all(
-          color: selected ? scheme.primary : Colors.transparent,
-          width: 1.5,
+          color: selected ? scheme.primary : scheme.outlineVariant,
+          width: selected ? 1.5 : 1,
         ),
       ),
       child: Row(mainAxisSize: MainAxisSize.min, children: [
-        Text(
-          label,
-          style: theme.textTheme.bodySmall
-              ?.copyWith(color: scheme.onSurfaceVariant),
-        ),
+        Text(label, style: theme.textTheme.bodyMedium),
         const SizedBox(width: 5),
         Text(
           value,
           style: theme.textTheme.bodyMedium?.copyWith(
-            fontWeight: FontWeight.w700,
             color: alarming ? scheme.error : scheme.onSurface,
+            fontWeight: alarming ? FontWeight.w700 : null,
           ),
         ),
       ]),
@@ -414,11 +417,11 @@ class Phase2PageTitle extends StatelessWidget {
       ConstrainedBox(
         constraints: const BoxConstraints(maxWidth: 260),
         child: Text(
-          bar.title,
+          Phase2ScreenTitle.of(context) ?? bar.title,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           style: theme.textTheme.titleMedium
-              ?.copyWith(fontWeight: FontWeight.w600),
+              ?.copyWith(fontWeight: FontWeight.w700),
         ),
       ),
       if (bar.description.isNotEmpty)
@@ -1051,7 +1054,58 @@ class WorkspaceToolbar extends StatelessWidget {
   final List<Widget> trailing;
 
   @override
-  Widget build(BuildContext context) => Wrap(
+  Widget build(BuildContext context) {
+    if (Phase2Scope.of(context)) return _phase2(context);
+    return _phase1(context);
+  }
+
+  /// Phase 2 (the wireframe): the screen's own buttons (Groups), then
+  /// everything else behind "…", then "+ New" last and the only filled one --
+  /// six icon buttons in a row read as decoration, not as choices.
+  Widget _phase2(BuildContext context) {
+    final List<ToolbarAction> shown =
+        actions.where((action) => isVisible?.call(action) ?? true).toList();
+    final bool hasNew = shown.contains(ToolbarAction.newItem);
+    final List<ToolbarAction> rest =
+        shown.where((action) => action != ToolbarAction.newItem).toList();
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      for (final Widget widget in trailing) ...[
+        widget,
+        const SizedBox(width: 6),
+      ],
+      if (rest.isNotEmpty)
+        PopupMenuButton<ToolbarAction>(
+          key: const ValueKey('toolbar-more'),
+          tooltip: 'More actions',
+          onSelected: onAction,
+          itemBuilder: (context) => [
+            for (final ToolbarAction action in rest)
+              PopupMenuItem<ToolbarAction>(
+                value: action,
+                enabled: isEnabled(action),
+                child: Row(children: [
+                  Icon(action.icon, size: 18),
+                  const SizedBox(width: 10),
+                  Text(action.label),
+                ]),
+              ),
+          ],
+          child: const _Phase2Button(child: Text('…')),
+        ),
+      if (hasNew) ...[
+        const SizedBox(width: 6),
+        FilledButton(
+          key: const ValueKey('toolbar-new'),
+          onPressed: isEnabled(ToolbarAction.newItem)
+              ? () => onAction(ToolbarAction.newItem)
+              : null,
+          child: const Text('+ New'),
+        ),
+      ],
+    ]);
+  }
+
+  Widget _phase1(BuildContext context) => Wrap(
         spacing: 4,
         runSpacing: 4,
         crossAxisAlignment: WrapCrossAlignment.center,
@@ -1101,7 +1155,66 @@ class SearchFilterPanel extends StatelessWidget {
   final VoidCallback? onClear;
 
   @override
-  Widget build(BuildContext context) => Wrap(
+  Widget build(BuildContext context) {
+    if (Phase2Scope.of(context) && (filters == null || filters!.isEmpty)) {
+      return _phase2(context);
+    }
+    return _phase1(context);
+  }
+
+  /// Phase 2 (the wireframe): a small box that says "/ search ...", with no
+  /// icon of its own -- "/" is the key that reaches it.
+  Widget _phase2(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final OutlineInputBorder edge = OutlineInputBorder(
+      borderRadius: BorderRadius.circular(5),
+      borderSide: BorderSide(color: theme.colorScheme.outlineVariant),
+    );
+    return SizedBox(
+      height: 32,
+      child: ValueListenableBuilder<TextEditingValue>(
+        valueListenable: controller,
+        builder: (context, value, _) => TextField(
+          focusNode: focusNode,
+          controller: controller,
+          onSubmitted: onSearch,
+          onChanged: onChanged,
+          style: theme.textTheme.bodyMedium,
+          decoration: InputDecoration(
+            isDense: true,
+            hintText: '/  ${hintText.toLowerCase()}',
+            contentPadding:
+                const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+            enabledBorder: edge,
+            border: edge,
+            focusedBorder: edge.copyWith(
+              borderSide: BorderSide(color: theme.colorScheme.primary),
+            ),
+            suffixIconConstraints:
+                const BoxConstraints(minWidth: 28, minHeight: 28),
+            suffixIcon: value.text.isEmpty
+                ? null
+                : IconButton(
+                    tooltip: 'Clear search',
+                    iconSize: 16,
+                    padding: EdgeInsets.zero,
+                    icon: const Icon(Icons.close),
+                    onPressed: () {
+                      controller.clear();
+                      if (onClear != null) {
+                        onClear!();
+                      } else {
+                        onSearch('');
+                      }
+                    },
+                  ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _phase1(BuildContext context) => Wrap(
         spacing: 12,
         runSpacing: 8,
         crossAxisAlignment: WrapCrossAlignment.center,
@@ -1399,55 +1512,80 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
     // on the one line -- the wireframe's "/ search" -- so the counters get
     // the room; on a line of its own it takes what is left.
     List<Widget> working({required bool fixedSearch}) => [
-          if (filters != null) ...[
-            _filtersButton(active, scheme),
-            const SizedBox(width: 8),
-          ],
           if (fixedSearch)
-            SizedBox(width: 280, child: layout.searchPanel)
+            SizedBox(width: 260, child: layout.searchPanel)
           else
             Expanded(child: layout.searchPanel),
           const SizedBox(width: 8),
           layout.toolbar,
         ];
-    return Column(children: [
-      Padding(
-        padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-        child: LayoutBuilder(builder: (context, constraints) {
-          if (bar == null) {
-            return Row(children: working(fixedSearch: false));
-          }
-          // 4.11: on a narrow window the line becomes two -- title and
-          // counters, then the work -- rather than squeezing either.
-          if (constraints.maxWidth < 1100) {
-            return Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Row(children: [
-                  Phase2PageTitle(bar: bar),
-                  Flexible(child: Phase2PageCounters(bar: bar)),
-                ]),
-                const SizedBox(height: 4),
-                Row(children: working(fixedSearch: false)),
-              ],
-            );
-          }
+    // The wireframe's "+ filter" chip sits with the counters, at the left.
+    final List<Widget> filterChip = [
+      if (filters != null) ...[
+        const SizedBox(width: 6),
+        _filtersButton(active, scheme),
+      ],
+    ];
+    final Widget line = Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+      child: LayoutBuilder(builder: (context, constraints) {
+        if (bar == null) {
           return Row(children: [
-            Phase2PageTitle(bar: bar),
-            Expanded(child: Phase2PageCounters(bar: bar)),
+            ...filterChip,
             const SizedBox(width: 8),
-            ...working(fixedSearch: true),
+            ...working(fixedSearch: false),
           ]);
-        }),
-      ),
+        }
+        // 4.11: on a narrow window the line becomes two -- title and
+        // counters, then the work -- rather than squeezing either.
+        if (constraints.maxWidth < 1100) {
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              Row(children: [
+                Phase2PageTitle(bar: bar),
+                Flexible(child: Phase2PageCounters(bar: bar)),
+                ...filterChip,
+              ]),
+              const SizedBox(height: 4),
+              Row(children: working(fixedSearch: false)),
+            ],
+          );
+        }
+        // The counters and the filter chip take what the search and the
+        // actions leave; only what they do not need is the gap. (A Flexible
+        // beside a Spacer split the spare width, and five counters were cut
+        // off in half of it.)
+        return Row(children: [
+          Phase2PageTitle(bar: bar),
+          Expanded(
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                Flexible(child: Phase2PageCounters(bar: bar)),
+                ...filterChip,
+              ]),
+            ),
+          ),
+          const SizedBox(width: 8),
+          ...working(fixedSearch: true),
+        ]);
+      }),
+    );
+    return Column(children: [
+      // Every button on the line in the wireframe's one small, square-
+      // cornered style, whichever screen built it.
+      Phase2ButtonTheme(child: line),
+      Divider(height: 1, color: scheme.outlineVariant),
       if (layout.viewBar != null)
         Padding(
           padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
           child: Align(alignment: Alignment.centerLeft, child: layout.viewBar),
         ),
       Expanded(
+        // Edge to edge, as the wireframe's grid: the cells pad themselves.
         child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
+          padding: EdgeInsets.zero,
           child: LayoutBuilder(builder: (context, constraints) {
             final double detailsWidth = layout.detailsWidth
                 .clamp(240, constraints.maxWidth * .36)
@@ -1476,22 +1614,21 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
     ]);
   }
 
+  /// The wireframe's "+ filter" chip; with filters on it says how many and
+  /// is tinted, so a narrowed list is never mistaken for the whole.
   Widget _filtersButton(int active, ColorScheme scheme) {
-    final String label = active == 0 ? 'Filters' : 'Filters ($active)';
-    void toggle() => setState(() => _filtersOpen = !_filtersOpen);
-    return _filtersOpen || active > 0
-        ? FilledButton.tonalIcon(
-            key: const ValueKey('phase2-filters'),
-            onPressed: toggle,
-            icon: const Icon(Icons.filter_alt_outlined, size: 18),
-            label: Text(label),
-          )
-        : OutlinedButton.icon(
-            key: const ValueKey('phase2-filters'),
-            onPressed: toggle,
-            icon: const Icon(Icons.filter_alt_outlined, size: 18),
-            label: Text(label),
-          );
+    final String label = active == 0 ? '+ filter' : 'Filters ($active)';
+    final bool on = _filtersOpen || active > 0;
+    return ActionChip(
+      key: const ValueKey('phase2-filters'),
+      label: Text(label),
+      onPressed: () => setState(() => _filtersOpen = !_filtersOpen),
+      backgroundColor: on ? scheme.primary.withValues(alpha: .12) : null,
+      side: BorderSide(color: on ? scheme.primary : scheme.outlineVariant),
+      shape: const StadiumBorder(),
+      visualDensity: VisualDensity.compact,
+      materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+    );
   }
 
   Widget _filterPanel(Widget filters, ColorScheme scheme) => Material(
@@ -1523,6 +1660,85 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
       );
 }
 
+/// The phase 2 page line's buttons, whoever built them: the wireframe's
+/// small square-cornered buttons (5 px), a grey edge and dark text on the
+/// outlined ones, the accent only on the filled one (+ New).
+class Phase2ButtonTheme extends StatelessWidget {
+  const Phase2ButtonTheme({super.key, required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final RoundedRectangleBorder shape =
+        RoundedRectangleBorder(borderRadius: BorderRadius.circular(5));
+    const EdgeInsets padding = EdgeInsets.symmetric(horizontal: 12, vertical: 6);
+    const Size size = Size(0, 32);
+    return Theme(
+      data: theme.copyWith(
+        outlinedButtonTheme: OutlinedButtonThemeData(
+          style: OutlinedButton.styleFrom(
+            foregroundColor: scheme.onSurface,
+            side: BorderSide(color: scheme.outlineVariant),
+            shape: shape,
+            padding: padding,
+            minimumSize: size,
+            visualDensity: VisualDensity.compact,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ),
+        filledButtonTheme: FilledButtonThemeData(
+          style: FilledButton.styleFrom(
+            shape: shape,
+            padding: padding,
+            minimumSize: size,
+            visualDensity: VisualDensity.compact,
+            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+          ),
+        ),
+        textButtonTheme: TextButtonThemeData(
+          style: TextButton.styleFrom(
+            shape: shape,
+            padding: padding,
+            minimumSize: size,
+            visualDensity: VisualDensity.compact,
+          ),
+        ),
+      ),
+      child: child,
+    );
+  }
+}
+
+/// A plain bordered box the size of the line's other buttons -- the child of
+/// a menu button such as the toolbar's "more".
+class _Phase2Button extends StatelessWidget {
+  const _Phase2Button({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Container(
+      height: 32,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(5),
+        border: Border.all(color: scheme.outlineVariant),
+        color: scheme.surfaceContainerLowest,
+      ),
+      child: DefaultTextStyle.merge(
+        style: TextStyle(color: scheme.onSurface),
+        child: child,
+      ),
+    );
+  }
+}
+
 class GridColumn {
   const GridColumn({
     required this.key,
@@ -1530,12 +1746,17 @@ class GridColumn {
     this.onSort,
     this.visible = true,
     this.tooltip,
+    this.numeric = false,
   });
   final String key;
   final String label;
   final void Function(bool ascending)? onSort;
   final bool visible;
   final String? tooltip;
+
+  /// An amount or a count. Phase 2 right-aligns it and groups its digits the
+  /// Indian way (1,12,050.00), as the wireframe's Credit limit and Balance.
+  final bool numeric;
 }
 
 class EnterpriseDataGrid<T> extends StatefulWidget {
@@ -1602,11 +1823,17 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
     super.dispose();
   }
 
+  /// Phase 2 (the wireframe's grid): edge to edge, no card; a soft header;
+  /// compact rows; no Actions column -- a row opens on double-click or Enter,
+  /// and its actions are on right-click -- and amounts right-aligned.
+  bool get _phase2 => Phase2Scope.of(context);
+
   bool get _showActionsColumn =>
-      widget.onOpen != null ||
-      widget.contextActions.isNotEmpty ||
-      widget.contextActionsFor != null ||
-      widget.onContextAction != null;
+      !_phase2 &&
+      (widget.onOpen != null ||
+          widget.contextActions.isNotEmpty ||
+          widget.contextActionsFor != null ||
+          widget.onContextAction != null);
 
   bool get _multiSelection => widget.onSelectionChanged != null;
 
@@ -1678,17 +1905,23 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
           ),
         ..._visibleColumns.asMap().entries.map((visible) {
           final MapEntry<int, GridColumn> entry = visible.value;
-          final String value =
+          final String raw =
               entry.key < values.length ? values[entry.key] : '';
+          final bool amount = _phase2 && entry.value.numeric;
+          final String value = amount ? _grouped(raw) : raw;
           return _dataCell(
             context,
             item: item,
-            content: widget.cellBuilder?.call(entry.key, value, item) ??
+            content: widget.cellBuilder?.call(entry.key, raw, item) ??
                 Tooltip(
                   message: value,
                   child: SizedBox(
                     width: double.infinity,
-                    child: Text(value, overflow: TextOverflow.ellipsis),
+                    child: Text(
+                      value,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: amount ? TextAlign.right : TextAlign.start,
+                    ),
                   ),
                 ),
             isLeading: visible.key == 0 && !widget.showRowNumbers,
@@ -1716,7 +1949,9 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
       // by colour alone -- the tint is easy to lose in high contrast, and
       // `DataRow` has no border of its own to use.
       cell = Container(
-        padding: const EdgeInsets.only(left: AppSpacing.sm),
+        // Phase 2 keeps the first column under its heading, as the wireframe;
+        // the marker is the row's left edge rather than an indent.
+        padding: EdgeInsets.only(left: _phase2 ? 0 : AppSpacing.sm),
         decoration: BoxDecoration(
           border: Border(
             left: BorderSide(
@@ -1775,7 +2010,27 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
     );
   }
 
+  /// An amount's digits grouped the Indian way; anything that is not a
+  /// number is left as it came.
+  static String _grouped(String value) {
+    final double? number = double.tryParse(value.replaceAll(',', '').trim());
+    if (number == null) return value;
+    final bool fraction = value.contains('.');
+    final String text = indianAmount(number, full: true);
+    return fraction ? text : text.substring(0, text.length - 3);
+  }
+
   DataTable _dataTable(BuildContext context) => DataTable(
+        horizontalMargin: _phase2 ? 12 : null,
+        columnSpacing: _phase2 ? 24 : null,
+        headingRowColor: _phase2
+            ? WidgetStatePropertyAll(
+                Theme.of(context).colorScheme.surfaceContainerLow)
+            : null,
+        dataRowMinHeight: _phase2 && context.density.rowHeight > 36 ? 36 : null,
+        dataRowMaxHeight: _phase2 && context.density.rowHeight > 36 ? 36 : null,
+        headingRowHeight:
+            _phase2 && context.density.headerHeight > 38 ? 38 : null,
         // Flutter also needs a row that is selectable; rows only carry
         // `onSelectChanged` when multi-selection is wired, so the column
         // disappears together with its purpose.
@@ -1795,6 +2050,7 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
             DataColumn(label: Text(widget.rowNumberLabel), numeric: true),
           for (final MapEntry<int, GridColumn> entry in _visibleColumns)
             DataColumn(
+              numeric: _phase2 && entry.value.numeric,
               label: Tooltip(
                 message: entry.value.tooltip ?? entry.value.label,
                 child: Text(entry.value.label),
@@ -1834,9 +2090,7 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
             : [widget.rowsPerPage, ...widget.availableRowsPerPage];
     final bool showSizeSelector =
         widget.onRowsPerPageChanged != null && sizeOptions.length > 1;
-    return Card(
-      clipBehavior: Clip.antiAlias,
-      child: Column(
+    final Widget body = Column(
         children: [
           Expanded(
             child: LayoutBuilder(
@@ -1934,8 +2188,14 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
               ),
             ),
         ],
-      ),
-    );
+      );
+    if (_phase2) {
+      return ColoredBox(
+        color: Theme.of(context).colorScheme.surfaceContainerLowest,
+        child: body,
+      );
+    }
+    return Card(clipBehavior: Clip.antiAlias, child: body);
   }
 }
 
