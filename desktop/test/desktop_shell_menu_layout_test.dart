@@ -3,9 +3,11 @@ import 'dart:io';
 
 import 'package:agency_desktop/core/auth/session_controller.dart';
 import 'package:agency_desktop/core/branding/branding_config.dart';
+import 'package:agency_desktop/core/design/design_tokens.dart';
 import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/core/theme/theme_manager.dart';
+import 'package:agency_desktop/phase2/home_page.dart';
 import 'package:agency_desktop/ui/desktop_shell.dart';
 import 'package:agency_desktop/phase2/app_menu_bar.dart';
 import 'package:agency_desktop/ui/workspace/enterprise_sidebar.dart';
@@ -40,26 +42,27 @@ String _token() {
   return 'h.$payload.s';
 }
 
-Future<DesktopPreferencesService> _preferences(String workspace) async {
+Future<DesktopPreferencesService> _preferences(String? workspace) async {
   final Directory temp =
       Directory.systemTemp.createTempSync('shell_menu_layout_');
   addTearDown(() => temp.deleteSync(recursive: true));
   final DesktopPreferencesService preferences =
       DesktopPreferencesService(directory: temp);
-  await preferences.saveLastWorkspace(workspace);
+  if (workspace != null) await preferences.saveLastWorkspace(workspace);
   return preferences;
 }
 
 Future<DesktopPreferencesService> _pumpShell(
   WidgetTester tester, {
   bool phase2 = true,
+  String? workspace = 'administration/users',
 }) async {
   tester.view.physicalSize = const Size(1366, 768);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   late DesktopPreferencesService preferences;
   await tester.runAsync(() async {
-    preferences = await _preferences('administration/users');
+    preferences = await _preferences(workspace);
   });
   final PermissionService permissions = PermissionService()
     ..applyAccessToken(_token());
@@ -141,6 +144,29 @@ void main() {
     await tester.pump(const Duration(milliseconds: 300));
     expect(find.textContaining('layout'), findsNothing);
     expect(tester.takeException(), isNull);
+    await _unmount(tester);
+  });
+
+  testWidgets('a first session opens on Home', (tester) async {
+    await _pumpShell(tester, workspace: null);
+    expect(find.byKey(const ValueKey('open-screen-home')), findsOneWidget);
+    expect(find.byType(Phase2HomePage), findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await _unmount(tester);
+  });
+
+  testWidgets('the firm is readable on the bar, and Appearance is there',
+      (tester) async {
+    await _pumpShell(tester);
+    // Dark text on the dark bar was the owner's "firm switch not
+    // displaying": the name took the page's text colour.
+    final Finder firm = find.text('Platform');
+    expect(firm, findsOneWidget);
+    final BuildContext context = tester.element(firm);
+    expect(DefaultTextStyle.of(context).style.color,
+        context.semanticColors.onChrome);
+    // Phase 1 kept Appearance at the foot of its sidebar.
+    expect(find.byTooltip('Appearance'), findsOneWidget);
     await _unmount(tester);
   });
 }

@@ -9,12 +9,26 @@ import '../ui/workspace/module_visibility.dart';
 /// sidebar uses (UI_PHASE_2_DESIGN.md 4.12), so a screen hidden there is
 /// hidden here and the server stays the authority either way.
 class MenuItemSpec {
-  const MenuItemSpec(this.module, this.tab, this.label);
+  const MenuItemSpec(AppModule this.module, this.tab, this.label)
+      : route = null;
 
   /// A module with no tabs of its own (Quotations, the Dashboard).
-  const MenuItemSpec.module(this.module, this.label) : tab = null;
+  const MenuItemSpec.module(AppModule this.module, this.label)
+      : tab = null,
+        route = null;
 
-  final AppModule module;
+  /// A screen only the phase 2 app has, with no catalogue module behind it
+  /// -- Home (4.9). Offered to everybody signed in; what it shows inside is
+  /// cut to the user's permissions.
+  const MenuItemSpec.phase2(String this.route, this.label)
+      : module = null,
+        tab = null;
+
+  /// The catalogue module, or null for a phase 2 screen.
+  final AppModule? module;
+
+  /// A phase 2 screen's address, when [module] is null.
+  final String? route;
 
   /// The catalogue tab id, or null for a module that is one screen.
   final String? tab;
@@ -24,7 +38,8 @@ class MenuItemSpec {
   final String label;
 
   /// The router path, which is also the identity of an open-screen tab.
-  String get path => tab == null ? module.name : '${module.name}/$tab';
+  String get path =>
+      route ?? (tab == null ? module!.name : '${module!.name}/$tab');
 }
 
 /// A column in an area's drop-down panel (4.3).
@@ -56,8 +71,11 @@ class MenuAreaSpec {
 /// are not catalogue screens yet and join [settings] when the Settings page
 /// of 4.13 is built.
 abstract final class MenuLayout {
+  /// Home's address: a phase 2 screen, drawn by the phase 2 shell itself.
+  static const String homeRoute = 'home';
+
   static const MenuAreaSpec home = MenuAreaSpec('home', 'Home', [
-    MenuGroupSpec('Home', [MenuItemSpec.module(AppModule.dashboard, 'Home')]),
+    MenuGroupSpec('Home', [MenuItemSpec.phase2(MenuLayout.homeRoute, 'Home')]),
   ]);
 
   static const List<MenuAreaSpec> areas = [
@@ -218,6 +236,9 @@ abstract final class MenuLayout {
         MenuItemSpec(AppModule.settings, 'audit-logs', 'Audit Logs'),
         MenuItemSpec(AppModule.settings, 'diagnostics', 'Diagnostics'),
         MenuItemSpec.module(AppModule.licensing, 'Licensing'),
+        // Phase 1's Dashboard: platform-wide counts of firms, users and
+        // roles, for a platform administrator. Home is everybody's (4.9).
+        MenuItemSpec.module(AppModule.dashboard, 'Platform Dashboard'),
       ]),
     ]),
   ];
@@ -297,11 +318,12 @@ abstract final class MenuLayout {
     };
     final Map<AppModule, Set<String>> tabs = {};
     bool offered(MenuItemSpec item) {
+      if (item.module == null) return true;
       final ModuleDefinition? module = allowed[item.module];
       if (module == null) return false;
       if (item.tab == null) return true;
       return tabs
-          .putIfAbsent(item.module, () => visibility.tabIds(module))
+          .putIfAbsent(item.module!, () => visibility.tabIds(module))
           .contains(item.tab);
     }
 

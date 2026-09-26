@@ -66,9 +66,20 @@ void main() {
     final List<String> unknown = [
       for (final MenuAreaSpec area in MenuLayout.all)
         for (final MenuItemSpec item in area.items)
-          if (!screens.contains(item.path)) item.path,
+          // A phase 2 screen (Home) has no catalogue module by design.
+          if (item.module != null && !screens.contains(item.path)) item.path,
     ];
     expect(unknown, isEmpty);
+  });
+
+  test('Home is a phase 2 screen, offered to everybody', () {
+    final MenuItemSpec home = MenuLayout.home.items.single;
+    expect(home.path, MenuLayout.homeRoute);
+    expect(home.module, isNull);
+    expect(MenuLayout.visible(MenuLayout.home, _visibility(const [])),
+        isNotNull,
+        reason: 'phase 1 offered its Dashboard only to a platform '
+            'administrator, which left every firm user with no Home');
   });
 
   test('no screen is placed twice', () {
