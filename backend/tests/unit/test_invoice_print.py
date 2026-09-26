@@ -537,3 +537,54 @@ def test_a_credit_note_states_the_tax_it_gives_back() -> None:
     assert "SGST" in printed
     # And what it must not: nothing is being supplied, so no supply terms.
     assert "Reverse charge" not in printed
+
+
+def _page_sizes(pdf: bytes) -> list[tuple[float, float]]:
+    """Return each page's width and height, in points, off its MediaBox."""
+    return [
+        (float(match[2]) - float(match[0]), float(match[3]) - float(match[1]))
+        for match in re.findall(
+            rb"/MediaBox\s*\[\s*([\d.]+)\s+([\d.]+)\s+([\d.]+)\s+([\d.]+)\s*\]", pdf
+        )
+    ]
+
+
+def test_a_counter_roll_is_80_mm_wide_and_as_long_as_the_bill() -> None:
+    """A thermal printer feeds whatever height the page has.
+
+    So the roll layout is one column 80 mm wide and exactly as tall as what
+    is on it -- a fixed tall page would waste paper after every bill -- and
+    it states the same facts the A4 bill does.
+    """
+    template = TemplateSettings(page_size="THERMAL80")
+    pdf = InvoicePdfRenderer(template).render(_document())
+    sizes = _page_sizes(pdf)
+    assert len(sizes) == 1
+    width, height = sizes[0]
+    assert abs(width - 80 * 72 / 25.4) < 1
+    assert height < 400, "a one-line bill needs well under an A4's height"
+
+    printed = _text_of(pdf)
+    for fact in (
+        "SI-2026-2027-000012",
+        "27ELEC01A1Z5",
+        "QuickTech Retail",
+        "Extension Board 5 Meter",
+        "CGST 9%",
+        "1,180.00",
+    ):
+        assert fact in printed, fact
+
+
+def test_each_copy_on_a_roll_is_a_page_of_its_own() -> None:
+    """Original and duplicate tear off separately, each saying which it is."""
+    template = TemplateSettings(
+        page_size="THERMAL80", copy_labels=("ORIGINAL", "DUPLICATE")
+    )
+    pdf = InvoicePdfRenderer(template).render(
+        replace(_document(), not_final="DRAFT - NOT A TAX INVOICE")
+    )
+    assert len(_page_sizes(pdf)) == 2
+    printed = _text_of(pdf)
+    assert "ORIGINAL" in printed and "DUPLICATE" in printed
+    assert printed.count("DRAFT - NOT A TAX INVOICE") == 2

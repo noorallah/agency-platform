@@ -307,6 +307,13 @@ class InvoicePdfRenderer:
     # ------------------------------------------------------------------
     def render(self, document: InvoiceDocument) -> bytes:
         """Return the invoice as PDF bytes, one page set per copy."""
+        if self._template.page_size.upper() == "THERMAL80":
+            # A counter's roll: a narrow single column instead of the A4 grid.
+            from app.sales_invoice.services.thermal_pdf import (
+                ThermalReceiptRenderer,
+            )
+
+            return ThermalReceiptRenderer(self._template).render(document)
         buffer = BytesIO()
         margin = float(self._template.margin_mm) * mm
         page = A5 if self._template.page_size.upper() == "A5" else A4
