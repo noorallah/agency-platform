@@ -343,7 +343,7 @@ Write-Step 'Stage'
 $client = if ($ClientDir) { $ClientDir } else { Join-Path $root 'desktop\build\windows\x64\runner\Release' }
 if (-not (Test-Path (Join-Path $client 'agency_desktop.exe'))) {
   Stop-Build 'The desktop client has not been built.' `
-    'Run: cd desktop; flutter build windows --release'
+    'Run: cd desktop; flutter build windows --release -t lib/main_phase2.dart'
 }
 # The client's own directory shape has to survive: the runner hardcodes
 # DartProject(L"data"), so agency_desktop.exe, its DLLs and data\ must stay
