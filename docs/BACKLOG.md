@@ -3625,3 +3625,26 @@ the standard Windows one (`windows/runner/win32_window.cpp`, `window_manager`
 
 Also still open: the window and taskbar icon is the default Flutter logo
 until the owner supplies the product `.ico`.
+
+## 48. The phone layout of phase 2 -- parked
+
+Owner, 2026-09-26: the phone layout is not needed now; keep it in mind and
+build it later. It is designed in `docs/UI_PHASE_2_DESIGN.md` section 4.15:
+one app, one set of screens and rules, a phone layout chosen by width below
+600 px -- bottom bar (Home, Sell, Stock, Money, More), lists as cards showing
+the fields their column priority ranks first, documents entered a section at
+a time, the field-sales day first (orders, receipts, customer ledger, stock
+enquiry, route calls).
+
+**Keep in mind while building phase 2, so it stays cheap to add:**
+1. Every list declares a **priority per column** (4.11); the phone card is
+   the top two or three of them, so no screen is designed twice.
+2. No screen assumes a minimum width: a phase 2 page must reflow down to one
+   column rather than scroll sideways.
+3. Actions sit in the page bar and its **...** menu, never only on hover or
+   right-click, which a touch screen does not have.
+4. Nothing new goes into phase 1's drawer; below 600 px the phase 2 app
+   still falls back to it (`DesktopShell._menuLayout`) until this is built.
+
+Related: the Android build (`desktop/build_android.ps1`) is for looking at
+screens on a phone, not for field use.
