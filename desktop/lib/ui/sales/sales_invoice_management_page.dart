@@ -604,6 +604,7 @@ class _SalesInvoiceManagementPageState
     final bool canCreate = widget.permissions.hasPermission('SALES_CREATE');
     final bool canEdit = widget.permissions.hasPermission('SALES_UPDATE');
     return WorkspaceToolbar(
+      trailing: [_columnsButton()],
       actions: [
         ToolbarAction.view,
         if (canEdit) ToolbarAction.edit,
@@ -881,8 +882,8 @@ class _SalesInvoiceManagementPageState
             : () => unawaited(_run(action, suffix)),
       );
 
-  /// The Period and Columns controls (owner, 2026-09-27), on phase 2's page
-  /// line. Phase 1 (frozen, never shipped) has no room beside its search.
+  /// The Period control (owner, 2026-09-27), with the counters on phase 2's
+  /// page line. Phase 1 (frozen, never shipped) has no room for it.
   List<Widget> _listTools() => [
         DateRangeFilter(
           value: _period,
@@ -891,14 +892,17 @@ class _SalesInvoiceManagementPageState
             unawaited(_load(requestedPage: 1));
           },
         ),
-        ColumnsButton(
-          onPressed: () async {
-            if (await _columns.choose(context) && mounted) {
-              setState(() {});
-            }
-          },
-        ),
       ];
+
+  /// Columns sits with the list's tools, between the search and Refresh,
+  /// as option C draws it.
+  Widget _columnsButton() => ColumnsButton(
+        onPressed: () async {
+          if (await _columns.choose(context) && mounted) {
+            setState(() {});
+          }
+        },
+      );
 
   /// Every column the list can show; the Columns button picks among them
   /// (owner, 2026-09-27), remembered per screen on this PC.

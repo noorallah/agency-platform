@@ -566,7 +566,7 @@ class _DeliveryNoteManagementPageState
         // anything else -- under a label reading "Request approval", while
         // dispatching is the step that moves the stock.
         trailing: Phase2Scope.of(context)
-            ? const []
+            ? [_columnsButton()]
             : [
                 // First, because a challan is what somebody is waiting for when a
                 // lorry is at the gate. Enabled on any saved note: paperwork is
@@ -663,8 +663,8 @@ class _DeliveryNoteManagementPageState
     }
   }
 
-  /// The Period and Columns controls (owner, 2026-09-27), on phase 2's page
-  /// line. Phase 1 (frozen, never shipped) has no room beside its search.
+  /// The Period control (owner, 2026-09-27), with the counters on phase 2's
+  /// page line. Phase 1 (frozen, never shipped) has no room for it.
   List<Widget> _listTools() => [
         DateRangeFilter(
           value: _period,
@@ -673,14 +673,17 @@ class _DeliveryNoteManagementPageState
             unawaited(_load(requestedPage: 1));
           },
         ),
-        ColumnsButton(
-          onPressed: () async {
-            if (await _columns.choose(context) && mounted) {
-              setState(() {});
-            }
-          },
-        ),
       ];
+
+  /// Columns sits with the list's tools, between the search and Refresh,
+  /// as option C draws it.
+  Widget _columnsButton() => ColumnsButton(
+        onPressed: () async {
+          if (await _columns.choose(context) && mounted) {
+            setState(() {});
+          }
+        },
+      );
 
   /// Every column the list can show; the Columns button picks among them
   /// (owner, 2026-09-27), remembered per screen on this PC.
