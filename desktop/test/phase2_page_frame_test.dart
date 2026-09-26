@@ -479,4 +479,86 @@ void main() {
     expect(find.text('GST'), findsOneWidget);
     expect(find.text('SO-0001'), findsOneWidget);
   });
+
+  testWidgets("a screen's own commands fold into ... when the line is short",
+      (tester) async {
+    Future<void> pumpAt(double width) async {
+      tester.view.physicalSize = Size(width, 600);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Phase2Scope(
+            child: ModuleWorkspaceFrame(
+              title: 'Sales Orders',
+              description: 'Orders',
+              child: ManagementWorkspaceLayout(
+                searchPanel: SearchFilterPanel(
+                  controller: TextEditingController(),
+                  onSearch: (_) {},
+                ),
+                toolbar: WorkspaceToolbar(
+                  onAction: (_) {},
+                  isEnabled: (_) => true,
+                  actions: const [
+                    ToolbarAction.view,
+                    ToolbarAction.refresh,
+                    ToolbarAction.newItem,
+                  ],
+                  commands: [
+                    for (final String step in [
+                      'Approve',
+                      'Hold',
+                      'Cancel',
+                      'Close',
+                      'Print',
+                      'Use points',
+                    ])
+                      ToolbarCommand(
+                        id: step,
+                        label: step,
+                        icon: Icons.check,
+                        onPressed: () {},
+                      ),
+                    ToolbarCommand(
+                      id: 'settings',
+                      label: 'Print settings',
+                      icon: Icons.tune,
+                      menuOnly: true,
+                      onPressed: () {},
+                    ),
+                  ],
+                ),
+                primaryContent: const SizedBox.expand(),
+                statusBar: const WorkspaceStatusBar(total: 0, selected: false),
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pump();
+      await tester.pump();
+    }
+
+    await pumpAt(3000);
+    expect(tester.takeException(), isNull);
+    expect(find.byKey(const ValueKey('toolbar-command-Use points')),
+        findsOneWidget);
+    // Set-up actions are never on the line.
+    expect(
+        find.byKey(const ValueKey('toolbar-command-settings')), findsNothing);
+
+    await pumpAt(1000);
+    // Narrow: nothing overflows, and what did not fit is behind "...".
+    expect(tester.takeException(), isNull);
+    expect(
+        find.byKey(const ValueKey('toolbar-command-Use points')), findsNothing);
+    expect(find.byKey(const ValueKey('toolbar-new')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('toolbar-more')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('toolbar-command-Use points-menu')),
+        findsOneWidget);
+    expect(find.byKey(const ValueKey('toolbar-command-settings-menu')),
+        findsOneWidget);
+  });
 }

@@ -903,6 +903,44 @@ Widget phase2Frame({
   Widget? status,
   List<Widget> actions = const [],
 }) =>
+    Builder(builder: (context) {
+      // A frame inside another frame (a resource list inside its module's
+      // frame) defers to the outer one: the list claims the outer line, so
+      // the window shows one title rather than two.
+      if (tabs == null && Phase2PageBar.of(context) != null) {
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (actions.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+                child: Phase2ButtonTheme(
+                  child: Row(children: [const Spacer(), ...actions]),
+                ),
+              ),
+            Expanded(child: child),
+            if (status != null) status,
+          ],
+        );
+      }
+      return _phase2FrameHost(
+        title: title,
+        description: description,
+        tabs: tabs,
+        status: status,
+        actions: actions,
+        child: child,
+      );
+    });
+
+Widget _phase2FrameHost({
+  required String title,
+  required String description,
+  Widget? tabs,
+  required Widget child,
+  Widget? status,
+  List<Widget> actions = const [],
+}) =>
     Phase2PageBarHost(
       title: title,
       description: description,
@@ -1047,6 +1085,35 @@ extension ToolbarActionDetails on ToolbarAction {
       };
 }
 
+/// A screen's own action -- Approve, Hold, Print challan -- that the shared
+/// [ToolbarAction] set cannot express. Phase 2 draws it as a compact button
+/// on the page line and, when the line has no room, folds it into "..."
+/// (UI_PHASE_2_DESIGN.md 4.11), so a document list never overflows.
+class ToolbarCommand {
+  const ToolbarCommand({
+    required this.id,
+    required this.label,
+    required this.icon,
+    this.onPressed,
+    this.tooltip,
+    this.menuOnly = false,
+  });
+
+  /// Keys the button `toolbar-command-<id>` and its menu entry
+  /// `toolbar-command-<id>-menu`.
+  final String id;
+  final String label;
+  final IconData icon;
+
+  /// Null draws it disabled.
+  final VoidCallback? onPressed;
+  final String? tooltip;
+
+  /// Set up now and then (print settings, sales stages): always behind
+  /// "...", never a button on the line.
+  final bool menuOnly;
+}
+
 class WorkspaceToolbar extends StatelessWidget {
   const WorkspaceToolbar({
     super.key,
@@ -1055,6 +1122,8 @@ class WorkspaceToolbar extends StatelessWidget {
     this.isVisible,
     this.actions = ToolbarAction.values,
     this.trailing = const [],
+    this.commands = const [],
+    this.newLabel = '+ New',
   });
 
   final ValueChanged<ToolbarAction> onAction;
@@ -1067,10 +1136,63 @@ class WorkspaceToolbar extends StatelessWidget {
   /// one-resource action like "provision storage" has nowhere else to go.
   final List<Widget> trailing;
 
+  /// The screen's own actions, drawn after the everyday icons; phase 2 folds
+  /// the ones that do not fit into "...".
+  final List<ToolbarCommand> commands;
+
+  /// What the one filled button says in phase 2.
+  final String newLabel;
+
   @override
   Widget build(BuildContext context) {
-    if (Phase2Scope.of(context)) return _phase2(context);
+    if (Phase2Scope.of(context)) {
+      if (commands.isEmpty) return _phase2(context, const []);
+      return LayoutBuilder(
+        builder: (context, constraints) =>
+            _phase2(context, _fitting(context, constraints.maxWidth)),
+      );
+    }
     return _phase1(context);
+  }
+
+  /// The commands that fit beside everything else in [available], from the
+  /// left; the rest go behind "...". All of them where there is no limit.
+  List<ToolbarCommand> _fitting(BuildContext context, double available) {
+    if (!available.isFinite) {
+      return commands.where((command) => !command.menuOnly).toList();
+    }
+    final TextStyle style =
+        (Theme.of(context).textTheme.bodyMedium ?? const TextStyle())
+            .copyWith(fontSize: 13);
+    final TextScaler scaler = MediaQuery.textScalerOf(context);
+    double text(String value) {
+      final TextPainter painter = TextPainter(
+        text: TextSpan(text: value, style: style),
+        textDirection: TextDirection.ltr,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      final double width = painter.width;
+      painter.dispose();
+      return width;
+    }
+
+    final List<ToolbarAction> shown =
+        actions.where((action) => isVisible?.call(action) ?? true).toList();
+    double used = 36.0 * _everyDay.where(shown.contains).length +
+        // "..." is always there once anything folds.
+        46 +
+        (shown.contains(ToolbarAction.newItem) ? text(newLabel) + 36 : 0) +
+        // Trailing widgets cannot be measured before they are laid out.
+        120.0 * trailing.length;
+    final List<ToolbarCommand> fitting = [];
+    for (final ToolbarCommand command in commands) {
+      if (command.menuOnly) continue;
+      used += text(command.label) + 18 + 6 + 24 + 6;
+      if (used > available) break;
+      fitting.add(command);
+    }
+    return fitting;
   }
 
   /// Phase 2 (the wireframe): the screen's own buttons (Groups), then
@@ -1086,7 +1208,9 @@ class WorkspaceToolbar extends StatelessWidget {
     ToolbarAction.refresh,
   ];
 
-  Widget _phase2(BuildContext context) {
+  Widget _phase2(BuildContext context, List<ToolbarCommand> fitting) {
+    final List<ToolbarCommand> folded =
+        commands.where((command) => !fitting.contains(command)).toList();
     final List<ToolbarAction> shown =
         actions.where((action) => isVisible?.call(action) ?? true).toList();
     final bool hasNew = shown.contains(ToolbarAction.newItem);
@@ -1109,15 +1233,39 @@ class WorkspaceToolbar extends StatelessWidget {
         const SizedBox(width: 4),
       ],
       if (icons.isNotEmpty) const SizedBox(width: 2),
-      if (rest.isNotEmpty)
-        PopupMenuButton<ToolbarAction>(
+      for (final ToolbarCommand command in fitting) ...[
+        Tooltip(
+          message: command.tooltip ?? command.label,
+          child: OutlinedButton.icon(
+            key: ValueKey('toolbar-command-${command.id}'),
+            onPressed: command.onPressed,
+            icon: Icon(command.icon, size: 16),
+            label: Text(command.label),
+          ),
+        ),
+        const SizedBox(width: 6),
+      ],
+      if (rest.isNotEmpty || folded.isNotEmpty)
+        PopupMenuButton<VoidCallback>(
           key: const ValueKey('toolbar-more'),
           tooltip: 'More actions',
-          onSelected: onAction,
+          onSelected: (run) => run(),
           itemBuilder: (context) => [
+            for (final ToolbarCommand command in folded)
+              PopupMenuItem<VoidCallback>(
+                key: ValueKey('toolbar-command-${command.id}-menu'),
+                value: command.onPressed,
+                enabled: command.onPressed != null,
+                child: Row(children: [
+                  Icon(command.icon, size: 18),
+                  const SizedBox(width: 10),
+                  Text(command.label),
+                ]),
+              ),
+            if (folded.isNotEmpty && rest.isNotEmpty) const PopupMenuDivider(),
             for (final ToolbarAction action in rest)
-              PopupMenuItem<ToolbarAction>(
-                value: action,
+              PopupMenuItem<VoidCallback>(
+                value: () => onAction(action),
                 enabled: isEnabled(action),
                 child: Row(children: [
                   Icon(action.icon, size: 18),
@@ -1135,7 +1283,7 @@ class WorkspaceToolbar extends StatelessWidget {
           onPressed: isEnabled(ToolbarAction.newItem)
               ? () => onAction(ToolbarAction.newItem)
               : null,
-          child: const Text('+ New'),
+          child: Text(newLabel),
         ),
       ],
     ]);
@@ -1164,6 +1312,13 @@ class WorkspaceToolbar extends StatelessWidget {
                 ),
               ),
           ...trailing,
+          for (final ToolbarCommand command in commands)
+            OutlinedButton.icon(
+              key: ValueKey('toolbar-command-${command.id}'),
+              onPressed: command.onPressed,
+              icon: Icon(command.icon, size: 18),
+              label: Text(command.label),
+            ),
         ],
       );
 }
@@ -1557,13 +1712,24 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
     // Filters, search and actions. The search box is a fixed, modest width
     // on the one line -- the wireframe's "/ search" -- so the counters get
     // the room; on a line of its own it takes what is left.
-    List<Widget> working({required bool fixedSearch}) => [
+    // The toolbar is told how wide it may be, so a screen's own commands
+    // fold into "..." instead of pushing the line past the window.
+    List<Widget> working({
+      required bool fixedSearch,
+      required double toolbarWidth,
+    }) =>
+        [
           if (fixedSearch)
             SizedBox(width: 260, child: layout.searchPanel)
           else
             Expanded(child: layout.searchPanel),
           const SizedBox(width: 8),
-          layout.toolbar,
+          ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: toolbarWidth < 120 ? 120 : toolbarWidth,
+            ),
+            child: layout.toolbar,
+          ),
         ];
     // The wireframe's "+ filter" chip sits with the counters, at the left.
     final List<Widget> filterChip = [
@@ -1576,51 +1742,79 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
         chip,
       ],
     ];
-    final Widget line = Padding(
-      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
-      child: LayoutBuilder(builder: (context, constraints) {
-        if (bar == null) {
+    // Rebuilt when the counters arrive: how much room the actions get
+    // depends on them.
+    final Widget line = ValueListenableBuilder<List<Widget>>(
+      valueListenable: bar?.counters ?? ValueNotifier(const []),
+      builder: (context, _, __) => Padding(
+        padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+        child: LayoutBuilder(builder: (context, constraints) {
+          if (bar == null) {
+            return Row(children: [
+              ...filterChip,
+              const SizedBox(width: 8),
+              ...working(
+                fixedSearch: false,
+                toolbarWidth:
+                    constraints.maxWidth - 200 - 110 * filterChip.length,
+              ),
+            ]);
+          }
+          // Everything the one line holds besides the toolbar: the title, the
+          // counters, the chips and the search.
+          final double beside = _titleWidth(context, bar) +
+              _countersWidth(context, bar) +
+              110.0 * (filters == null ? 0 : 1) +
+              110.0 * layout.lineChips.length +
+              260 +
+              8;
+          // 4.11: on a narrow window, or where the line cannot hold the
+          // screen's actions, it becomes two -- title and counters, then the
+          // work -- rather than squeezing either.
+          final bool twoLines = constraints.maxWidth < 1100 ||
+              constraints.maxWidth - beside < 260;
+          if (twoLines) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(children: [
+                  Phase2PageTitle(bar: bar),
+                  Flexible(child: Phase2PageCounters(bar: bar)),
+                  ...filterChip,
+                ]),
+                const SizedBox(height: 4),
+                Row(
+                  children: working(
+                    fixedSearch: false,
+                    toolbarWidth: constraints.maxWidth - 208,
+                  ),
+                ),
+              ],
+            );
+          }
+          // The counters and the filter chip take what the search and the
+          // actions leave; only what they do not need is the gap. (A Flexible
+          // beside a Spacer split the spare width, and five counters were cut
+          // off in half of it.)
           return Row(children: [
-            ...filterChip,
-            const SizedBox(width: 8),
-            ...working(fixedSearch: false),
-          ]);
-        }
-        // 4.11: on a narrow window the line becomes two -- title and
-        // counters, then the work -- rather than squeezing either.
-        if (constraints.maxWidth < 1100) {
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              Row(children: [
-                Phase2PageTitle(bar: bar),
-                Flexible(child: Phase2PageCounters(bar: bar)),
-                ...filterChip,
-              ]),
-              const SizedBox(height: 4),
-              Row(children: working(fixedSearch: false)),
-            ],
-          );
-        }
-        // The counters and the filter chip take what the search and the
-        // actions leave; only what they do not need is the gap. (A Flexible
-        // beside a Spacer split the spare width, and five counters were cut
-        // off in half of it.)
-        return Row(children: [
-          Phase2PageTitle(bar: bar),
-          Expanded(
-            child: Align(
-              alignment: Alignment.centerLeft,
-              child: Row(mainAxisSize: MainAxisSize.min, children: [
-                Flexible(child: Phase2PageCounters(bar: bar)),
-                ...filterChip,
-              ]),
+            Phase2PageTitle(bar: bar),
+            Expanded(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: Row(mainAxisSize: MainAxisSize.min, children: [
+                  Flexible(child: Phase2PageCounters(bar: bar)),
+                  ...filterChip,
+                ]),
+              ),
             ),
-          ),
-          const SizedBox(width: 8),
-          ...working(fixedSearch: true),
-        ]);
-      }),
+            const SizedBox(width: 8),
+            ...working(
+              fixedSearch: true,
+              toolbarWidth: constraints.maxWidth - beside,
+            ),
+          ]);
+        }),
+      ),
     );
     return Column(children: [
       // Every button on the line in the wireframe's one small, square-
@@ -1667,6 +1861,41 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
       ),
       layout.statusBar,
     ]);
+  }
+
+  static double _measure(BuildContext context, String text, TextStyle style) {
+    final TextPainter painter = TextPainter(
+      text: TextSpan(text: text, style: style),
+      textDirection: TextDirection.ltr,
+      textScaler: MediaQuery.textScalerOf(context),
+      maxLines: 1,
+    )..layout();
+    final double width = painter.width;
+    painter.dispose();
+    return width;
+  }
+
+  /// About how wide the page title is, with its (i).
+  static double _titleWidth(BuildContext context, Phase2PageBar bar) =>
+      _measure(
+        context,
+        Phase2ScreenTitle.of(context) ?? bar.title,
+        const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+      ) +
+      40;
+
+  /// About how wide the counters are: each is its label and figure in a
+  /// pill.
+  static double _countersWidth(BuildContext context, Phase2PageBar bar) {
+    double width = 0;
+    for (final Widget counter in bar.counters.value) {
+      width += counter is SummaryCount
+          ? _measure(context, '${counter.label} ${counter.value}',
+                  const TextStyle(fontSize: 13)) +
+              30
+          : 90;
+    }
+    return width;
   }
 
   /// The wireframe's "+ filter" chip; with filters on it says how many and

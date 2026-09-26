@@ -40,7 +40,8 @@ class PurchaseInvoiceManagementPage extends StatefulWidget {
       _PurchaseInvoiceManagementPageState();
 }
 
-class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagementPage> {
+class _PurchaseInvoiceManagementPageState
+    extends State<PurchaseInvoiceManagementPage> {
   static const int _rowsPerPage = 20;
   final TextEditingController _search = TextEditingController();
   bool _loading = false;
@@ -119,7 +120,8 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
           ),
         ),
         fetchAllPages<Product>(
-          (int page) => widget.api.products(page: page, pageSize: maxApiPageSize),
+          (int page) =>
+              widget.api.products(page: page, pageSize: maxApiPageSize),
         ),
       ]);
       if (!mounted) return;
@@ -166,7 +168,6 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
     super.dispose();
   }
 
-
   /// Whether the signed-in user may run this lifecycle action.
   ///
   /// The backend gates approve, close, complete and dispatch on
@@ -181,7 +182,8 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
         DocumentToolbarAction.archive ||
         DocumentToolbarAction.requestApproval =>
           _mayApprove(),
-        DocumentToolbarAction.cancel || DocumentToolbarAction.reject =>
+        DocumentToolbarAction.cancel ||
+        DocumentToolbarAction.reject =>
           widget.permissions.hasPermission('PURCHASE_CANCEL'),
         DocumentToolbarAction.newDocument =>
           widget.permissions.hasPermission('PURCHASE_CREATE'),
@@ -193,7 +195,8 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
       };
 
   Future<void> _load({int? requestedPage}) async {
-    if (!widget.hasActiveFirm || !widget.permissions.hasPermission('PURCHASE_VIEW')) {
+    if (!widget.hasActiveFirm ||
+        !widget.permissions.hasPermission('PURCHASE_VIEW')) {
       return;
     }
     setState(() {
@@ -231,7 +234,8 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
       List<DocumentTimelineSnapshot> history = const [];
       if (selected != null) {
         try {
-          final Map<String, dynamic> timeline = _unwrap(await widget.api.documentHistory('purchase-invoices', selected.id));
+          final Map<String, dynamic> timeline = _unwrap(await widget.api
+              .documentHistory('purchase-invoices', selected.id));
           history = _timelineFromResponse(timeline);
         } on ApiException {
           history = const [];
@@ -311,17 +315,17 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
         primaryContent: !widget.hasActiveFirm
             ? const StandardEmptyState(type: EmptyStateType.noFirmSelected)
             : _error != null && !_loading
-            ? WorkspaceEmptyState(
-                title: 'Purchase invoices unavailable',
-                message: _error!,
-              )
-            : _invoices.isEmpty && !_loading
-            ? StandardEmptyState(
-                type: _search.text.trim().isEmpty
-                    ? EmptyStateType.noRecords
-                    : EmptyStateType.noSearchResults,
-              )
-            : _buildInvoiceGrid(),
+                ? WorkspaceEmptyState(
+                    title: 'Purchase invoices unavailable',
+                    message: _error!,
+                  )
+                : _invoices.isEmpty && !_loading
+                    ? StandardEmptyState(
+                        type: _search.text.trim().isEmpty
+                            ? EmptyStateType.noRecords
+                            : EmptyStateType.noSearchResults,
+                      )
+                    : _buildInvoiceGrid(),
         // No side pane. It sat at `flex: 4` against a `flex: 3` list, so the
         // preview of the one record pointed at had more room than every
         // record. Double-click opens it instead.
@@ -370,29 +374,58 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
         // through to a notification saying "Placeholder action for purchase
         // invoices.", which is a button that exists to tell you it does
         // nothing. New is the standard action above, not one of these.
-        trailing: [
-          _actionButton(
-            'Approve',
-            Icons.check_circle_outline,
-            DocumentToolbarAction.approve,
-            DocumentLifecycleAction.approve,
-            '/approve',
-          ),
-          _actionButton(
-            'Cancel',
-            Icons.cancel_outlined,
-            DocumentToolbarAction.cancel,
-            DocumentLifecycleAction.cancel,
-            '/cancel',
-          ),
-          _actionButton(
-            'Close',
-            Icons.lock_outline,
-            DocumentToolbarAction.close,
-            DocumentLifecycleAction.close,
-            '/close',
-          ),
-        ],
+        // Phase 2 (4.11): the same steps as commands, folded into "..."
+        // when the line is short.
+        commands: Phase2Scope.of(context)
+            ? [
+                _command(
+                  'Approve',
+                  Icons.check_circle_outline,
+                  DocumentToolbarAction.approve,
+                  DocumentLifecycleAction.approve,
+                  '/approve',
+                ),
+                _command(
+                  'Cancel',
+                  Icons.cancel_outlined,
+                  DocumentToolbarAction.cancel,
+                  DocumentLifecycleAction.cancel,
+                  '/cancel',
+                ),
+                _command(
+                  'Close',
+                  Icons.lock_outline,
+                  DocumentToolbarAction.close,
+                  DocumentLifecycleAction.close,
+                  '/close',
+                ),
+              ]
+            : const [],
+        trailing: Phase2Scope.of(context)
+            ? const []
+            : [
+                _actionButton(
+                  'Approve',
+                  Icons.check_circle_outline,
+                  DocumentToolbarAction.approve,
+                  DocumentLifecycleAction.approve,
+                  '/approve',
+                ),
+                _actionButton(
+                  'Cancel',
+                  Icons.cancel_outlined,
+                  DocumentToolbarAction.cancel,
+                  DocumentLifecycleAction.cancel,
+                  '/cancel',
+                ),
+                _actionButton(
+                  'Close',
+                  Icons.lock_outline,
+                  DocumentToolbarAction.close,
+                  DocumentLifecycleAction.close,
+                  '/close',
+                ),
+              ],
       );
 
   /// A lifecycle button, disabled unless the selected document's status
@@ -413,12 +446,33 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
         child: OutlinedButton.icon(
           onPressed: _selected == null ||
                   !_mayRun(action) ||
-                  !DocumentStatusGate.purchaseInvoice.allows(lifecycle, _selected?.status)
+                  !DocumentStatusGate.purchaseInvoice
+                      .allows(lifecycle, _selected?.status)
               ? null
               : () => unawaited(_act(suffix)),
           icon: Icon(icon, size: 18),
           label: Text(label),
         ),
+      );
+
+  /// The same step as a phase 2 command, enabled as its button is.
+  ToolbarCommand _command(
+    String label,
+    IconData icon,
+    DocumentToolbarAction action,
+    DocumentLifecycleAction lifecycle,
+    String suffix,
+  ) =>
+      ToolbarCommand(
+        id: label.toLowerCase(),
+        label: label,
+        icon: icon,
+        onPressed: _selected == null ||
+                !_mayRun(action) ||
+                !DocumentStatusGate.purchaseInvoice
+                    .allows(lifecycle, _selected?.status)
+            ? null
+            : () => unawaited(_act(suffix)),
       );
 
   Widget _buildInvoiceGrid() => EnterpriseDataGrid<_PurchaseInvoiceRecord>(
@@ -507,7 +561,8 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
   Future<void> _selectInvoice(_PurchaseInvoiceRecord row) async {
     setState(() => _selected = row);
     try {
-      final Map<String, dynamic> timeline = _unwrap(await widget.api.documentHistory('purchase-invoices', row.id));
+      final Map<String, dynamic> timeline = _unwrap(
+          await widget.api.documentHistory('purchase-invoices', row.id));
       if (!mounted) {
         return;
       }
@@ -534,25 +589,29 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
     return const <String, dynamic>{};
   }
 
-  List<_PurchaseInvoiceRecord> _recordsFromResponse(Map<String, dynamic> response) {
+  List<_PurchaseInvoiceRecord> _recordsFromResponse(
+      Map<String, dynamic> response) {
     final dynamic data = response['data'];
     if (data is! List) {
       return const [];
     }
     return data
         .whereType<Map>()
-        .map((item) => _PurchaseInvoiceRecord.fromJson(Map<String, dynamic>.from(item)))
+        .map((item) =>
+            _PurchaseInvoiceRecord.fromJson(Map<String, dynamic>.from(item)))
         .toList();
   }
 
-  List<DocumentTimelineSnapshot> _timelineFromResponse(Map<String, dynamic> response) {
+  List<DocumentTimelineSnapshot> _timelineFromResponse(
+      Map<String, dynamic> response) {
     final dynamic data = response['data'];
     if (data is! List) {
       return const [];
     }
     return data
         .whereType<Map>()
-        .map((item) => DocumentTimelineSnapshot.fromJson(Map<String, dynamic>.from(item)))
+        .map((item) =>
+            DocumentTimelineSnapshot.fromJson(Map<String, dynamic>.from(item)))
         .toList();
   }
 }
@@ -604,7 +663,8 @@ class _PurchaseInvoiceRecord {
     final List<_PurchaseInvoiceLine> lines = (json['lines'] is List)
         ? (json['lines'] as List)
             .whereType<Map>()
-            .map((item) => _PurchaseInvoiceLine.fromJson(Map<String, dynamic>.from(item)))
+            .map((item) =>
+                _PurchaseInvoiceLine.fromJson(Map<String, dynamic>.from(item)))
             .toList()
         : const [];
     return _PurchaseInvoiceRecord(
@@ -627,7 +687,10 @@ class _PurchaseInvoiceRecord {
       remarks: stringValue(json['remarks']),
       lines: lines,
       sources: (json['sources'] is List)
-          ? (json['sources'] as List).whereType<Map>().map((item) => Map<String, dynamic>.from(item)).toList()
+          ? (json['sources'] as List)
+              .whereType<Map>()
+              .map((item) => Map<String, dynamic>.from(item))
+              .toList()
           : const [],
     );
   }
@@ -686,7 +749,8 @@ class _PurchaseInvoiceLine {
   final String netAmount;
   final String remarks;
 
-  factory _PurchaseInvoiceLine.fromJson(Map<String, dynamic> json) => _PurchaseInvoiceLine(
+  factory _PurchaseInvoiceLine.fromJson(Map<String, dynamic> json) =>
+      _PurchaseInvoiceLine(
         lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
         productId: stringValue(json['product_id']),
         description: stringValue(json['description']),

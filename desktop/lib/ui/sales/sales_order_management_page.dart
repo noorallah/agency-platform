@@ -429,12 +429,12 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
                 children: Phase2Scope.of(context)
                     ? _viewCounters()
                     : [
-                  _card('Total', '${_summary['total'] ?? 0}'),
-                  _card('Draft', '${_summary['draft'] ?? 0}'),
-                  _card('Approved', '${_summary['approved'] ?? 0}'),
-                  _card('Cancelled', '${_summary['cancelled'] ?? 0}'),
-                  _card('Closed', '${_summary['closed'] ?? 0}'),
-                ],
+                        _card('Total', '${_summary['total'] ?? 0}'),
+                        _card('Draft', '${_summary['draft'] ?? 0}'),
+                        _card('Approved', '${_summary['approved'] ?? 0}'),
+                        _card('Cancelled', '${_summary['cancelled'] ?? 0}'),
+                        _card('Closed', '${_summary['closed'] ?? 0}'),
+                      ],
               ),
             ),
             // Bounded, so the layout below has a height to divide.
@@ -475,7 +475,82 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         ),
       );
 
-  Widget _buildToolbar() => WorkspaceToolbar(
+  Widget _buildToolbar() =>
+      Phase2Scope.of(context) ? _phase2Toolbar() : _phase1Toolbar();
+
+  /// Phase 2 (4.11): View, Edit and Refresh as icons, the order's own steps
+  /// as buttons that fold into "..." when the line is short, and "+ New"
+  /// last.
+  Widget _phase2Toolbar() {
+    final Map<String, dynamic>? selected = _selected;
+    final String status = '${selected?['status'] ?? ''}';
+    final bool held = selected?['is_on_hold'] == true;
+    final bool finished = status == 'CANCELLED' || status == 'CLOSED';
+    final bool canCreate = widget.permissions.hasPermission('SALES_CREATE');
+    final bool canEdit = widget.permissions.hasPermission('SALES_UPDATE');
+    return WorkspaceToolbar(
+      actions: [
+        ToolbarAction.view,
+        if (canEdit) ToolbarAction.edit,
+        ToolbarAction.refresh,
+        if (canCreate) ToolbarAction.newItem,
+      ],
+      isEnabled: (action) =>
+          !_loading &&
+          switch (action) {
+            ToolbarAction.view => selected != null,
+            ToolbarAction.edit => selected != null && status == 'DRAFT',
+            ToolbarAction.refresh => true,
+            ToolbarAction.newItem => widget.hasActiveFirm,
+            _ => false,
+          },
+      onAction: (action) {
+        switch (action) {
+          case ToolbarAction.view:
+            if (selected != null) unawaited(_openOrder(selected));
+          case ToolbarAction.edit:
+            if (selected != null) unawaited(_editOrder(selected));
+          case ToolbarAction.refresh:
+            unawaited(_load());
+          case ToolbarAction.newItem:
+            unawaited(_newOrder());
+          default:
+            break;
+        }
+      },
+      commands: [
+        _command(DocumentToolbarAction.approve, '/approve'),
+        ToolbarCommand(
+          id: 'hold',
+          label: held ? 'Release' : 'Hold',
+          icon: held ? Icons.play_arrow_outlined : Icons.pause_outlined,
+          onPressed: selected == null ||
+                  _loading ||
+                  !_mayApprove() ||
+                  (!held && finished)
+              ? null
+              : () => unawaited(held ? _release(selected) : _hold(selected)),
+        ),
+        _command(DocumentToolbarAction.cancel, '/cancel'),
+        _command(DocumentToolbarAction.close, '/close'),
+      ],
+    );
+  }
+
+  /// A lifecycle step as a phase 2 command, enabled as its button is.
+  ToolbarCommand _command(DocumentToolbarAction action, String suffix) =>
+      ToolbarCommand(
+        id: action.name,
+        label: action.label,
+        icon: action.icon,
+        onPressed: _selected == null ||
+                !_mayRun(action) ||
+                !_statusAllows(action, _selected?['status'] as String?)
+            ? null
+            : () => unawaited(_run(action, suffix)),
+      );
+
+  Widget _phase1Toolbar() => WorkspaceToolbar(
         actions: const [ToolbarAction.view, ToolbarAction.refresh],
         isEnabled: (action) =>
             !_loading &&

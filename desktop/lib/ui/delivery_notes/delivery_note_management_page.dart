@@ -93,10 +93,12 @@ class DeliveryNoteManagementPage extends StatefulWidget {
   final Future<void> Function()? onOpenGlobalSearch;
 
   @override
-  State<DeliveryNoteManagementPage> createState() => _DeliveryNoteManagementPageState();
+  State<DeliveryNoteManagementPage> createState() =>
+      _DeliveryNoteManagementPageState();
 }
 
-class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage> {
+class _DeliveryNoteManagementPageState
+    extends State<DeliveryNoteManagementPage> {
   static const int _rowsPerPage = 20;
   final TextEditingController _search = TextEditingController();
   late DeliveryNoteView _view = widget.initialView;
@@ -115,7 +117,6 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
   BusinessFeatures _features = const BusinessFeatures.unknown();
 
   bool get _canCreate => widget.permissions.hasPermission('SALES_CREATE');
-
 
   /// The lists the view dialog resolves a line's ids against. Read on their
   /// own, after the workspace's own data, so a failure here costs a name and
@@ -165,7 +166,6 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
     super.dispose();
   }
 
-
   /// Whether the signed-in user may run this lifecycle action.
   ///
   /// The backend gates approve, close, complete and dispatch on
@@ -180,7 +180,8 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
         DocumentToolbarAction.archive ||
         DocumentToolbarAction.requestApproval =>
           _mayApprove(),
-        DocumentToolbarAction.cancel || DocumentToolbarAction.reject =>
+        DocumentToolbarAction.cancel ||
+        DocumentToolbarAction.reject =>
           widget.permissions.hasPermission('SALES_CANCEL'),
         DocumentToolbarAction.newDocument =>
           widget.permissions.hasPermission('SALES_CREATE'),
@@ -281,7 +282,8 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
   }
 
   Future<void> _load({int? requestedPage}) async {
-    if (!widget.hasActiveFirm || !widget.permissions.hasPermission('SALES_VIEW')) {
+    if (!widget.hasActiveFirm ||
+        !widget.permissions.hasPermission('SALES_VIEW')) {
       return;
     }
     setState(() {
@@ -309,7 +311,8 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
       final List<_DeliveryNoteRecord> notes = _recordsFromResponse(page);
       _DeliveryNoteRecord? selected = _selected;
       if (selected != null) {
-        final List<_DeliveryNoteRecord> matches = notes.where((item) => item.id == selected!.id).toList();
+        final List<_DeliveryNoteRecord> matches =
+            notes.where((item) => item.id == selected!.id).toList();
         selected = matches.isEmpty ? null : matches.first;
       }
       if (selected == null && notes.isNotEmpty) {
@@ -411,13 +414,17 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
                 children: Phase2Scope.of(context)
                     ? _viewCounters()
                     : [
-                  _summaryCard('Total', '${_summary['total'] ?? 0}'),
-                  _summaryCard('Draft', '${_summary['draft'] ?? 0}'),
-                  _summaryCard('Approved', '${_summary['approved'] ?? 0}'),
-                  _summaryCard('Dispatched', '${_summary['dispatched'] ?? 0}'),
-                  _summaryCard('Completed', '${_summary['completed'] ?? 0}'),
-                  _summaryCard('Cancelled', '${_summary['cancelled'] ?? 0}'),
-                ],
+                        _summaryCard('Total', '${_summary['total'] ?? 0}'),
+                        _summaryCard('Draft', '${_summary['draft'] ?? 0}'),
+                        _summaryCard(
+                            'Approved', '${_summary['approved'] ?? 0}'),
+                        _summaryCard(
+                            'Dispatched', '${_summary['dispatched'] ?? 0}'),
+                        _summaryCard(
+                            'Completed', '${_summary['completed'] ?? 0}'),
+                        _summaryCard(
+                            'Cancelled', '${_summary['cancelled'] ?? 0}'),
+                      ],
               ),
             ),
             // Bounded, so the layout below has a height to divide.
@@ -465,8 +472,7 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
           ToolbarAction.view,
           ToolbarAction.refresh,
         ],
-        isVisible: (action) =>
-            action != ToolbarAction.newItem || _canCreate,
+        isVisible: (action) => action != ToolbarAction.newItem || _canCreate,
         isEnabled: (action) =>
             !_loading &&
             switch (action) {
@@ -492,35 +498,76 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
               break;
           }
         },
+        // Phase 2 (4.11): the same steps as commands that fold into "..."
+        // when the line is short, the print settings behind it.
+        commands: !Phase2Scope.of(context)
+            ? const []
+            : [
+                ToolbarCommand(
+                  id: 'print-challan',
+                  label: 'Print challan',
+                  icon: Icons.print_outlined,
+                  onPressed: _selected == null
+                      ? null
+                      : () => unawaited(_printChallan(_selected!)),
+                ),
+                for (final (DocumentToolbarAction action, String suffix)
+                    in const [
+                  (DocumentToolbarAction.approve, '/approve'),
+                  (DocumentToolbarAction.dispatch, '/dispatch'),
+                  (DocumentToolbarAction.complete, '/complete'),
+                  (DocumentToolbarAction.cancel, '/cancel'),
+                  (DocumentToolbarAction.close, '/close'),
+                ])
+                  ToolbarCommand(
+                    id: action.name,
+                    label: action.label,
+                    icon: action.icon,
+                    onPressed: _selected == null ||
+                            !_mayRun(action) ||
+                            !_statusAllows(action, _selected?.status)
+                        ? null
+                        : () => unawaited(_act(suffix)),
+                  ),
+                ToolbarCommand(
+                  id: 'print-settings',
+                  label: 'Print settings',
+                  icon: Icons.tune_outlined,
+                  menuOnly: true,
+                  onPressed: () => unawaited(_openPrintSettings()),
+                ),
+              ],
         // Dispatch and Complete are separate buttons. They used to share
         // `requestApproval`, which dispatched an approved note and completed
         // anything else -- under a label reading "Request approval", while
         // dispatching is the step that moves the stock.
-        trailing: [
-          // First, because a challan is what somebody is waiting for when a
-          // lorry is at the gate. Enabled on any saved note: paperwork is
-          // often printed before the dispatch is confirmed on screen.
-          Padding(
-            padding: const EdgeInsets.only(left: 8),
-            child: OutlinedButton.icon(
-              onPressed: _selected == null
-                  ? null
-                  : () => unawaited(_printChallan(_selected!)),
-              icon: const Icon(Icons.print_outlined, size: 18),
-              label: const Text('Print challan'),
-            ),
-          ),
-          IconButton(
-            tooltip: 'Print settings',
-            onPressed: () => unawaited(_openPrintSettings()),
-            icon: const Icon(Icons.tune_outlined, size: 18),
-          ),
-          _actionButton(DocumentToolbarAction.approve, '/approve'),
-          _actionButton(DocumentToolbarAction.dispatch, '/dispatch'),
-          _actionButton(DocumentToolbarAction.complete, '/complete'),
-          _actionButton(DocumentToolbarAction.cancel, '/cancel'),
-          _actionButton(DocumentToolbarAction.close, '/close'),
-        ],
+        trailing: Phase2Scope.of(context)
+            ? const []
+            : [
+                // First, because a challan is what somebody is waiting for when a
+                // lorry is at the gate. Enabled on any saved note: paperwork is
+                // often printed before the dispatch is confirmed on screen.
+                Padding(
+                  padding: const EdgeInsets.only(left: 8),
+                  child: OutlinedButton.icon(
+                    onPressed: _selected == null
+                        ? null
+                        : () => unawaited(_printChallan(_selected!)),
+                    icon: const Icon(Icons.print_outlined, size: 18),
+                    label: const Text('Print challan'),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Print settings',
+                  onPressed: () => unawaited(_openPrintSettings()),
+                  icon: const Icon(Icons.tune_outlined, size: 18),
+                ),
+                _actionButton(DocumentToolbarAction.approve, '/approve'),
+                _actionButton(DocumentToolbarAction.dispatch, '/dispatch'),
+                _actionButton(DocumentToolbarAction.complete, '/complete'),
+                _actionButton(DocumentToolbarAction.cancel, '/cancel'),
+                _actionButton(DocumentToolbarAction.close, '/close'),
+              ],
       );
 
   /// Render the challan and hand it to whatever prints on this machine.
@@ -687,7 +734,8 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
     if (data is! List) return const [];
     return data
         .whereType<Map>()
-        .map((item) => _DeliveryNoteRecord.fromJson(Map<String, dynamic>.from(item)))
+        .map((item) =>
+            _DeliveryNoteRecord.fromJson(Map<String, dynamic>.from(item)))
         .toList(growable: false);
   }
 
@@ -696,7 +744,8 @@ class _DeliveryNoteManagementPageState extends State<DeliveryNoteManagementPage>
     if (data is! List) return const [];
     return data
         .whereType<Map>()
-        .map((item) => DocumentTimelineSnapshot.fromJson(Map<String, dynamic>.from(item)))
+        .map((item) =>
+            DocumentTimelineSnapshot.fromJson(Map<String, dynamic>.from(item)))
         .toList(growable: false);
   }
 }
@@ -740,7 +789,8 @@ class _DeliveryNoteRecord {
     final List<_DeliveryNoteLine> lines = (json['lines'] is List)
         ? (json['lines'] as List)
             .whereType<Map>()
-            .map((item) => _DeliveryNoteLine.fromJson(Map<String, dynamic>.from(item)))
+            .map((item) =>
+                _DeliveryNoteLine.fromJson(Map<String, dynamic>.from(item)))
             .toList()
         : const [];
     return _DeliveryNoteRecord(
@@ -835,7 +885,8 @@ class _DeliveryNoteLine {
         netAmount: stringValue(json['net_amount']),
         remarks: stringValue(json['remarks']),
         serialNumbers: [
-          for (final PickedSerial unit in PickedSerial.listFrom(json['serials']))
+          for (final PickedSerial unit
+              in PickedSerial.listFrom(json['serials']))
             unit.serialNumber,
         ],
       );

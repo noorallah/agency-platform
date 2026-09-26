@@ -93,7 +93,8 @@ class GoodsReceiptManagementPage extends StatefulWidget {
       _GoodsReceiptManagementPageState();
 }
 
-class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage> {
+class _GoodsReceiptManagementPageState
+    extends State<GoodsReceiptManagementPage> {
   static const int _rowsPerPage = 20;
   final TextEditingController _search = TextEditingController();
   bool _loading = false;
@@ -119,7 +120,6 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
   BusinessFeatures _features = const BusinessFeatures.unknown();
 
   bool get _canCreate => widget.permissions.hasPermission('PURCHASE_CREATE');
-
 
   /// The lists the view dialog resolves a line's ids against. Read on their
   /// own, after the workspace's own data, so a failure here costs a name and
@@ -170,7 +170,8 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
   }
 
   Future<void> _load({int? requestedPage}) async {
-    if (!widget.hasActiveFirm || !widget.permissions.hasPermission('PURCHASE_VIEW')) {
+    if (!widget.hasActiveFirm ||
+        !widget.permissions.hasPermission('PURCHASE_VIEW')) {
       return;
     }
     setState(() {
@@ -430,12 +431,14 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
               children: Phase2Scope.of(context)
                   ? _viewCounters()
                   : [
-                _summaryCard('Total', '${_summary['total'] ?? 0}'),
-                _summaryCard('Draft', '${_summary['draft'] ?? 0}'),
-                _summaryCard('Completed', '${_summary['completed'] ?? 0}'),
-                _summaryCard('Cancelled', '${_summary['cancelled'] ?? 0}'),
-                _summaryCard('Closed', '${_summary['closed'] ?? 0}'),
-              ],
+                      _summaryCard('Total', '${_summary['total'] ?? 0}'),
+                      _summaryCard('Draft', '${_summary['draft'] ?? 0}'),
+                      _summaryCard(
+                          'Completed', '${_summary['completed'] ?? 0}'),
+                      _summaryCard(
+                          'Cancelled', '${_summary['cancelled'] ?? 0}'),
+                      _summaryCard('Closed', '${_summary['closed'] ?? 0}'),
+                    ],
             ),
           ),
           // Bounded, so the layout below has a height to divide.
@@ -515,9 +518,8 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
               ToolbarAction.view => _selected != null,
               // Only a draft: once a receipt is completed its lines are what
               // stock was posted at, and the service refuses the edit.
-              ToolbarAction.edit => _canCreate &&
-                  _selected != null &&
-                  _selected!.status == 'DRAFT',
+              ToolbarAction.edit =>
+                _canCreate && _selected != null && _selected!.status == 'DRAFT',
               ToolbarAction.refresh => true,
               _ => false,
             },
@@ -537,27 +539,54 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
               break;
           }
         },
-        trailing: [
-          // The action that posts stock. It was labelled "Request approval" --
-          // there is no approval step on a receipt, and calling the thing that
-          // moves inventory something else is how somebody completes one
-          // without meaning to.
-          _actionButton(
-            'Complete',
-            Icons.check_circle_outline,
-            DocumentToolbarAction.requestApproval,
-          ),
-          _actionButton(
-            'Cancel',
-            Icons.cancel_outlined,
-            DocumentToolbarAction.cancel,
-          ),
-          _actionButton(
-            'Close',
-            Icons.lock_outline,
-            DocumentToolbarAction.close,
-          ),
-        ],
+        // Phase 2 (4.11): the same steps as commands, folded into "..."
+        // when the line is short.
+        commands: Phase2Scope.of(context)
+            ? [
+                // The action that posts stock. It was labelled "Request approval" --
+                // there is no approval step on a receipt, and calling the thing that
+                // moves inventory something else is how somebody completes one
+                // without meaning to.
+                _command(
+                  'Complete',
+                  Icons.check_circle_outline,
+                  DocumentToolbarAction.requestApproval,
+                ),
+                _command(
+                  'Cancel',
+                  Icons.cancel_outlined,
+                  DocumentToolbarAction.cancel,
+                ),
+                _command(
+                  'Close',
+                  Icons.lock_outline,
+                  DocumentToolbarAction.close,
+                ),
+              ]
+            : const [],
+        trailing: Phase2Scope.of(context)
+            ? const []
+            : [
+                // The action that posts stock. It was labelled "Request approval" --
+                // there is no approval step on a receipt, and calling the thing that
+                // moves inventory something else is how somebody completes one
+                // without meaning to.
+                _actionButton(
+                  'Complete',
+                  Icons.check_circle_outline,
+                  DocumentToolbarAction.requestApproval,
+                ),
+                _actionButton(
+                  'Cancel',
+                  Icons.cancel_outlined,
+                  DocumentToolbarAction.cancel,
+                ),
+                _actionButton(
+                  'Close',
+                  Icons.lock_outline,
+                  DocumentToolbarAction.close,
+                ),
+              ],
       );
 
   Widget _actionButton(
@@ -574,6 +603,21 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
           icon: Icon(icon, size: 18),
           label: Text(label),
         ),
+      );
+
+  /// The same step as a phase 2 command, enabled as its button is.
+  ToolbarCommand _command(
+    String label,
+    IconData icon,
+    DocumentToolbarAction action,
+  ) =>
+      ToolbarCommand(
+        id: label.toLowerCase(),
+        label: label,
+        icon: icon,
+        onPressed: _isReceiptActionAllowed(action)
+            ? () => _runReceiptAction(action)
+            : null,
       );
 
   Widget _buildReceiptGrid() => EnterpriseDataGrid<GoodsReceiptRecord>(
