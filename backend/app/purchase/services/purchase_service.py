@@ -57,14 +57,17 @@ from app.purchase.schemas import (
     PurchaseOrderListFilters,
     PurchaseOrderOverdueRecord,
     PurchaseOrderPendingRecord,
+    PurchaseOrderPreview,
     PurchaseOrderRegisterRecord,
     PurchaseOrderResponse,
     PurchaseOrderStatus,
     PurchaseOrderUpdate,
     PurchaseSummary,
 )
+from app.sales.services.document_preview import purchase_line_companions
 from app.tax.models import TaxProfile
 from app.tax.schemas import TaxRuleSimulationRequest
+from app.tax.services.place_of_supply import PURCHASE_INTERSTATE
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.schemas import ConversionRequest
@@ -254,7 +257,54 @@ class PurchaseService(TransactionalDocumentService):
     def create_order(
         self, data: PurchaseOrderCreate, *, firm_id: UUID, actor_id: UUID
     ) -> PurchaseOrder:
-        """Create order, always as a draft.
+        """Create order, always as a draft, and commit it."""
+        row = self.stage_order(data, firm_id=firm_id, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def preview_order(
+        self, data: PurchaseOrderCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> PurchaseOrderPreview:
+        """Price an order exactly as saving it would, then save nothing.
+
+        Staged through the save path -- line discounts, the header discount,
+        tax at the rates in force -- read back, and the unit of work rolled
+        back: no order, no number used up, no audit row. The request's session
+        is its own, so there is nothing else in it to lose.
+        """
+        try:
+            row = self.stage_order(data, firm_id=firm_id, actor_id=actor_id)
+            response = self.order_response(row)
+            interstate = (
+                self._tax.inward_transaction_type(
+                    "PURCHASE_ORDER",
+                    firm_id=firm_id,
+                    branch_id=data.branch_id,
+                    vendor_id=data.vendor_id,
+                )
+                == PURCHASE_INTERSTATE
+            )
+            lines = purchase_line_companions(
+                self._session,
+                firm_id=firm_id,
+                vendor_id=data.vendor_id,
+                lines=[
+                    (
+                        line.line_number,
+                        line.product_id,
+                        line.warehouse_id or data.warehouse_id,
+                    )
+                    for line in response.lines
+                ],
+            )
+        finally:
+            self._session.rollback()
+        return PurchaseOrderPreview(order=response, interstate=interstate, lines=lines)
+
+    def stage_order(
+        self, data: PurchaseOrderCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> PurchaseOrder:
+        """Build one order as a draft without committing it.
 
         A create used to write whatever status it was given, so an order could
         be born APPROVED -- 64 in the shared store were, from the seeder -- and
@@ -366,7 +416,6 @@ class PurchaseService(TransactionalDocumentService):
             after_data={"po_number": row.po_number, "status": row.status},
         )
         self._flush_or_conflict("Purchase order number already exists in this firm.")
-        self._session.commit()
         return row
 
     def update_order(

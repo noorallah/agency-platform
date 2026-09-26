@@ -40,6 +40,7 @@ from app.purchase.schemas import (
     PurchaseOrderListFilters,
     PurchaseOrderOverdueRecord,
     PurchaseOrderPendingRecord,
+    PurchaseOrderPreview,
     PurchaseOrderRegisterRecord,
     PurchaseOrderResponse,
     PurchaseOrderStatus,
@@ -200,6 +201,24 @@ def create_purchase_order(
     service = PurchaseService(db)
     row = service.create_order(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
     return ApiResponse(data=service.order_response(row))
+
+
+@router.post("/preview", response_model=ApiResponse[PurchaseOrderPreview])
+def preview_purchase_order(
+    data: PurchaseOrderCreate,
+    scope: PurchaseCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PurchaseOrderPreview]:
+    """Price a purchase order as saving it would, and save nothing.
+
+    What the order screen calls as its lines are typed, so the discounts,
+    tax and totals it shows are the ones the save will store.
+    """
+    return ApiResponse(
+        data=PurchaseService(db).preview_order(
+            data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        )
+    )
 
 
 @router.post(
