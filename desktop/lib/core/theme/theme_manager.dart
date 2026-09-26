@@ -238,7 +238,9 @@ class ThemeRegistry {
                 onSurface: const Color(0xff1f2933),
                 onSurfaceVariant: const Color(0xff52606d),
                 outline: const Color(0xff7b8794),
-                outlineVariant: const Color(0xffe1e6ec),
+                // The wireframe's line (#d0d7de): a box's edge you can see without
+                // it shouting -- the owner compared the two and preferred it.
+                outlineVariant: const Color(0xffd0d7de),
               );
 
     final TextTheme textTheme = AppTypography.textTheme(tuned);

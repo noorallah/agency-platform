@@ -353,8 +353,8 @@ void main() {
       (tester) async {
     await _pump(tester,
         allowed: _owner, source: _Source(), onCustomise: (_) {});
-    // The page is 1366 wide with 14 px of padding each side.
+    // The page is 1366 wide; the page bar has 12 px of padding each side.
     expect(tester.getTopRight(find.byKey(const ValueKey('home-customise'))).dx,
-        closeTo(1366 - 14, 1));
+        closeTo(1366 - 12, 1));
   });
 }

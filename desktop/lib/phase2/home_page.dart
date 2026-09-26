@@ -418,48 +418,56 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
     final String date = '${days[d.weekday - 1]} '
         '${d.day.toString().padLeft(2, '0')}-'
         '${d.month.toString().padLeft(2, '0')}-${d.year}';
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 10, 14, 6),
+    // The wireframe's page bar: its own white band with a line beneath,
+    // the title bold, the firm and date as plain grey text beside it, and
+    // Customise at the far right.
+    return Container(
+      height: 44,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: theme.colorScheme.surfaceContainerLowest,
+        border: Border(
+          bottom: BorderSide(color: theme.colorScheme.outlineVariant),
+        ),
+      ),
       child: Row(children: [
         Text(
           // As the wireframe: the greeting alone. A user's name is often the
-          // firm's own ("MarketBridge ... Admin") and the chip beside it
+          // firm's own ("MarketBridge ... Admin") and the text beside it
           // already names the firm, so it read twice.
           greeting,
           style: theme.textTheme.titleMedium
-              ?.copyWith(fontWeight: FontWeight.w600),
+              ?.copyWith(fontWeight: FontWeight.w700),
         ),
-        const SizedBox(width: 12),
-        // The chip takes only the width it needs; everything left pushes
-        // Customise to the far right, as the wireframe places it. (A
-        // Flexible beside a Spacer split the spare width between them.)
+        const SizedBox(width: 16),
         Expanded(
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: Container(
-              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 3),
-              decoration: BoxDecoration(
-                color: theme.colorScheme.surfaceContainerLow,
-                borderRadius: BorderRadius.circular(12),
-                border: Border.all(color: theme.colorScheme.outlineVariant),
-              ),
-              child: Text(
-                [if (widget.firmName != null) widget.firmName!, date]
-                    .join('  ·  '),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall
-                    ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
-              ),
-            ),
+          child: Text(
+            [if (widget.firmName != null) widget.firmName!, date].join(' · '),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.bodyMedium
+                ?.copyWith(color: theme.colorScheme.onSurfaceVariant),
           ),
         ),
         if (widget.onCustomise != null && _available.isNotEmpty)
-          OutlinedButton.icon(
+          OutlinedButton(
             key: const ValueKey('home-customise'),
             onPressed: _customise,
-            icon: const Icon(Icons.tune, size: 18),
-            label: const Text('Customise'),
+            // The wireframe's page-bar button: small, square-cornered, a grey
+            // edge and dark text -- not a rounded pill in the accent colour.
+            style: OutlinedButton.styleFrom(
+              foregroundColor: theme.colorScheme.onSurface,
+              backgroundColor: theme.colorScheme.surfaceContainerLowest,
+              side: BorderSide(color: theme.colorScheme.outlineVariant),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(5),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+              minimumSize: const Size(0, 30),
+              visualDensity: VisualDensity.compact,
+              tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+            ),
+            child: const Text('Customise'),
           ),
       ]),
     );

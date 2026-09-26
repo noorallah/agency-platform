@@ -20,6 +20,7 @@ class AppMenuBar extends StatelessWidget {
     required this.currentPath,
     required this.onOpen,
     required this.trailing,
+    this.profile,
   });
 
   final String appName;
@@ -35,8 +36,11 @@ class AppMenuBar extends StatelessWidget {
   final String currentPath;
   final ValueChanged<MenuItemSpec> onOpen;
 
-  /// Search, the firm switcher and the profile, right-aligned.
+  /// Search and the firm switcher, right-aligned before the gear.
   final List<Widget> trailing;
+
+  /// Who is signed in: last on the bar, after the gear, as the wireframe.
+  final Widget? profile;
 
   static const double height = 44;
 
@@ -91,7 +95,11 @@ class AppMenuBar extends StatelessWidget {
                 ),
               ],
             ),
-          const SizedBox(width: 6),
+          if (profile != null) ...[
+            const SizedBox(width: 6),
+            profile!,
+          ],
+          const SizedBox(width: 10),
         ]),
       ),
     );
@@ -441,19 +449,19 @@ class SearchLauncher extends StatelessWidget {
         key: const ValueKey('menu-search'),
         onTap: onPressed,
         borderRadius: BorderRadius.circular(6),
+        // The wireframe's box: filled a shade lighter than the bar, no
+        // edge, saying what it does and which keys open it.
         child: Container(
           height: 30,
-          constraints: const BoxConstraints(minWidth: 200),
+          constraints: const BoxConstraints(minWidth: 240),
           padding: const EdgeInsets.symmetric(horizontal: 10),
           decoration: BoxDecoration(
-            border: Border.all(color: colors.onChromeMuted),
-            borderRadius: BorderRadius.circular(6),
+            color: colors.chromeActive,
+            borderRadius: BorderRadius.circular(5),
           ),
           child: Row(mainAxisSize: MainAxisSize.min, children: [
-            Icon(Icons.search, size: 18, color: colors.onChromeMuted),
-            const SizedBox(width: 8),
-            Text('Search', style: style),
-            const SizedBox(width: 24),
+            Text('Search or jump to…', style: style),
+            const SizedBox(width: 32),
             Text('Ctrl+K', style: style),
           ]),
         ),
