@@ -341,7 +341,7 @@ class _AreaPanel extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Padding(
-                        padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
+                        padding: const EdgeInsets.fromLTRB(0, 0, 12, 4),
                         child: Row(mainAxisSize: MainAxisSize.min, children: [
                           Icon(Icons.tune,
                               size: 14, color: scheme.onSurfaceVariant),
@@ -391,7 +391,9 @@ class _AreaPanel extends StatelessWidget {
           children: [
             if (labelled)
               Padding(
-                padding: const EdgeInsets.fromLTRB(12, 4, 12, 6),
+                // The wireframe: a heading stands at the column's edge and its
+                // items one step in (item text 12 px in; the wireframe has 8).
+                padding: const EdgeInsets.fromLTRB(0, 4, 12, 6),
                 child: Text(
                   group.label.toUpperCase(),
                   // The wireframe's h4: bold, tracked 0.08em.
