@@ -14,6 +14,7 @@ import 'package:agency_desktop/ui/workspace/enterprise_sidebar.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:agency_desktop/ui/workspace/module_catalog.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 /// The whole shell, built for real, in the phase 2 frame.
@@ -128,6 +129,31 @@ void main() {
         findsOneWidget);
     expect(find.byKey(const ValueKey('open-screen-administration/firms')),
         findsOneWidget);
+    expect(tester.takeException(), isNull);
+    await _unmount(tester);
+  });
+
+  testWidgets('Alt+D opens Admin from the keyboard, and Enter opens a screen',
+      (tester) async {
+    await _pumpShell(tester);
+
+    // Alt and the area's letter, as a Windows menu bar (Admin is Alt+D).
+    await tester.sendKeyDownEvent(LogicalKeyboardKey.altLeft);
+    await tester.pump();
+    await tester.sendKeyEvent(LogicalKeyboardKey.keyD, character: 'd');
+    await tester.sendKeyUpEvent(LogicalKeyboardKey.altLeft);
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byKey(const ValueKey('menu-item-administration/firms')),
+        findsOneWidget);
+
+    // Down into the panel and Enter on its first item.
+    await tester.sendKeyEvent(LogicalKeyboardKey.arrowDown);
+    await tester.pump(const Duration(milliseconds: 100));
+    await tester.sendKeyEvent(LogicalKeyboardKey.enter);
+    await tester.pump(const Duration(milliseconds: 300));
+    await tester.pump(const Duration(milliseconds: 300));
+    expect(find.byKey(const ValueKey('menu-item-administration/firms')),
+        findsNothing);
     expect(tester.takeException(), isNull);
     await _unmount(tester);
   });

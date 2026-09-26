@@ -355,7 +355,7 @@ Built from the same permissions the menu uses.
 | Keys | Does |
 | --- | --- |
 | Ctrl+K or Alt+G | command box |
-| Alt+1 ... Alt+8, or Alt then arrows | open an area's drop-down panel |
+| Alt + the area's letter (underlined while Alt is held): Alt+H Home, Alt+S Sell, Alt+B Buy, Alt+T Stock, Alt+A Accounts, Alt+M Masters, Alt+R Reports, Alt+D Admin, Alt+O More; then arrows, Enter, Esc | open an area's drop-down panel and move in it (built 2026-09-26, Windows menu-bar convention; replaces Alt+1...8) |
 | Ctrl+N | new record on the current list |
 | Ctrl+S / Ctrl+Enter | save / save and close |
 | Ctrl+Tab, Ctrl+W | next tab, close tab |
