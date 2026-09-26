@@ -19,7 +19,12 @@ from app.batch_serial.services.serial_trail_service import SerialTrailService
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader
-from app.common.report_names import branch_names, customer_names, product_names
+from app.common.report_names import (
+    branch_names,
+    customer_names,
+    customers_matching,
+    product_names,
+)
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
@@ -278,6 +283,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 SalesInvoice.customer_invoice_number.ilike(token),
                 SalesInvoice.reference_number.ilike(token),
                 SalesInvoice.remarks.ilike(token),
+                SalesInvoice.customer_id.in_(customers_matching(token)),
             )
             statement = statement.where(condition)
             count = count.where(condition)

@@ -440,7 +440,7 @@ class _DeliveryNoteManagementPageState
         viewBar: Phase2Scope.of(context) ? null : _buildViewBar(),
         searchPanel: SearchFilterPanel(
           controller: _search,
-          hintText: 'Search note number, sales order...',
+          hintText: 'Search note number, customer, sales order...',
           onSearch: (_) => _load(requestedPage: 1),
         ),
         primaryContent: !widget.hasActiveFirm
@@ -642,6 +642,8 @@ class _DeliveryNoteManagementPageState
   Widget _buildNoteGrid() => EnterpriseDataGrid<_DeliveryNoteRecord>(
         columns: const [
           GridColumn(key: 'number', label: 'Note Number'),
+          // Whose document it is (owner, 2026-09-27); kept at any width.
+          GridColumn(key: 'customer', label: 'Customer', priority: 1),
           GridColumn(key: 'order', label: 'Sales Order'),
           GridColumn(key: 'date', label: 'Delivery Date'),
           GridColumn(key: 'created', label: 'Created'),
@@ -653,6 +655,7 @@ class _DeliveryNoteManagementPageState
         selectedId: _selected?.id,
         cells: (item) => [
           item.deliveryNoteNumber,
+          item.customerName,
           item.salesOrderReference,
           item.deliveryDate,
           createdStamp(item.createdAt),
@@ -754,6 +757,7 @@ class _DeliveryNoteRecord {
   const _DeliveryNoteRecord({
     required this.id,
     required this.deliveryNoteNumber,
+    this.customerName = '',
     required this.deliveryDate,
     required this.salesOrderReference,
     required this.status,
@@ -771,6 +775,7 @@ class _DeliveryNoteRecord {
 
   final String id;
   final String deliveryNoteNumber;
+  final String customerName;
   final String deliveryDate;
   final String salesOrderReference;
   final String status;
@@ -796,6 +801,7 @@ class _DeliveryNoteRecord {
     return _DeliveryNoteRecord(
       id: stringValue(json['id']),
       deliveryNoteNumber: stringValue(json['delivery_note_number']),
+      customerName: stringValue(json['customer_name']),
       deliveryDate: stringValue(json['delivery_date']),
       salesOrderReference: stringValue(json['sales_order_reference']),
       status: stringValue(json['status']),

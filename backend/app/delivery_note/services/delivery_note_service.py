@@ -26,7 +26,12 @@ from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader, platform_reader
-from app.common.report_names import branch_names, customer_names, warehouse_names
+from app.common.report_names import (
+    branch_names,
+    customer_names,
+    customers_matching,
+    warehouse_names,
+)
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
@@ -216,6 +221,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                 DeliveryNote.vehicle.ilike(token),
                 DeliveryNote.driver.ilike(token),
                 DeliveryNote.remarks.ilike(token),
+                DeliveryNote.customer_id.in_(customers_matching(token)),
             )
             statement = statement.where(condition)
             count = count.where(condition)
