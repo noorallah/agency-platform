@@ -8,10 +8,13 @@
 // and what it shows when the server refuses it.
 
 import 'package:agency_desktop/core/api/api_client.dart';
+import 'package:agency_desktop/models/document_preview.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/goods_receipt.dart';
 import 'package:agency_desktop/models/product.dart';
 import 'package:agency_desktop/ui/purchase_invoices/purchase_invoice_editor_dialog.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
+    show Phase2Scope;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -66,6 +69,54 @@ class _InvoiceApi extends ApiClient {
     Map<String, String> additionalQuery = const {},
   }) async =>
       {'data': earlierInvoices};
+
+  /// Every draft phase 2 asked to be priced.
+  final List<Json> previews = <Json>[];
+
+  /// Prices each draft at 18% within the state, the way the server would.
+  @override
+  Future<PurchaseInvoicePreviewRecord> previewPurchaseInvoice(
+    Json data,
+  ) async {
+    previews.add(data);
+    final Json line = (data['lines'] as List<dynamic>).first as Json;
+    final double price = double.parse('${line['unit_price'] ?? '25'}');
+    final double gross =
+        double.parse('${line['current_invoice_quantity']}') * price;
+    final double tax = gross * .18;
+    return PurchaseInvoicePreviewRecord.fromJson({
+      'invoice': {
+        'invoice_number': 'PI-2026-000009',
+        'subtotal': gross.toStringAsFixed(2),
+        'tax_total': tax.toStringAsFixed(2),
+        'grand_total': (gross + tax).toStringAsFixed(2),
+        'duplicate_warning': data['supplier_invoice_number'] == 'SUP-1'
+            ? 'A purchase invoice with this supplier invoice number already '
+                'exists.'
+            : null,
+        'lines': [
+          {
+            'line_number': 1,
+            'source_document_line_id': 'grn-line-1',
+            'gross_amount': gross.toStringAsFixed(2),
+            'discount_amount': '0',
+            'tax_amount': tax.toStringAsFixed(2),
+          },
+        ],
+      },
+      'interstate': false,
+      'lines': [
+        {
+          'line_number': 1,
+          'product_id': 'prod-1',
+          'last_price': '24.00',
+          'last_invoice_number': 'PI-7',
+          'last_invoice_date': '2026-07-20',
+          'available_quantity': '20',
+        },
+      ],
+    });
+  }
 
   @override
   Future<Json> createPurchaseInvoice(Json body) async {
@@ -275,5 +326,76 @@ void main() {
     // than the whole bill typed again.
     expect(find.text('New Purchase Invoice'), findsOneWidget);
     expect(find.text('Save Invoice'), findsOneWidget);
+  });
+
+  testWidgets('phase 2 bills on one screen, priced to check against the paper',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _InvoiceApi api = _InvoiceApi();
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Phase2Scope(
+            child: PurchaseInvoiceEditorDialog(
+              api: api,
+              receipts: [_receipt()],
+              products: [
+                Product.fromJson({
+                  'id': 'prod-1',
+                  'code': 'SKU-1',
+                  'name': 'Amoxicillin 500mg',
+                }),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('No goods receipt chosen'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('purchase-invoice-receipt')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('GRN-2026-000001').last);
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    // Twenty at the receipt's 25: 500 taxable, 90 tax, 590; priced before
+    // the supplier's number is typed.
+    expect(api.previews, isNotEmpty);
+    expect(api.previews.last['supplier_invoice_number'], '-');
+    expect(find.text('PI-2026-000009 (new)'), findsOneWidget);
+    expect(find.text('590.00'), findsWidgets);
+    expect(find.text('Last bill from them'), findsOneWidget);
+
+    // The supplier charged 24.
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('purchase-invoice-rate-grn-1-0')),
+      '24',
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(api.previews.last['lines'][0]['unit_price'], '24');
+    expect(find.text('566.40'), findsWidgets);
+
+    // A number already on file is said while typing.
+    await tester.enterText(
+      find.byKey(
+        const ValueKey<String>('purchase-invoice-supplier-number-0'),
+      ),
+      'SUP-1',
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('entered twice'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('purchase-invoice-save')));
+    await tester.pumpAndSettle();
+    expect(api.sent?['supplier_invoice_number'], 'SUP-1');
+    expect(api.sent?['lines'][0]['unit_price'], '24');
   });
 }
