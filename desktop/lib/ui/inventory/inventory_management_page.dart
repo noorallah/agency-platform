@@ -1685,21 +1685,11 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         _ => 'Search',
       };
 
-  Widget _metricCard(String label, String value) => SizedBox(
+  Widget _metricCard(String label, String value) => SummaryCount(
+        label: label,
+        value: value,
         width: 180,
-        child: Card(
-          child: Padding(
-            padding: const EdgeInsets.all(16),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Text(label, style: Theme.of(context).textTheme.labelLarge),
-                const SizedBox(height: 8),
-                Text(value, style: Theme.of(context).textTheme.headlineSmall),
-              ],
-            ),
-          ),
-        ),
+        largeLabel: true,
       );
 
   Widget _summaryTable(String title, List<InventoryLocationSummaryRecord> rows,

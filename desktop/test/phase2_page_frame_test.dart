@@ -1,5 +1,4 @@
 import 'package:agency_desktop/core/theme/theme_manager.dart';
-import 'package:agency_desktop/phase2/phase2_scope.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -183,5 +182,129 @@ void main() {
     );
     expect(find.byType(ExpansionTile), findsOneWidget);
     expect(find.byKey(const ValueKey('phase2-filters')), findsNothing);
+  });
+
+  group('a document list with summary figures (Sales Orders)', () {
+    Future<List<String>> pumpOrders(
+      WidgetTester tester, {
+      required bool phase2,
+    }) async {
+      tester.view.physicalSize = const Size(1366, 768);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final List<String> tapped = [];
+      final Widget page = EnterpriseWorkspace(
+        title: 'Sales Orders',
+        description: 'Manage customer sales orders.',
+        breadcrumbs: const ['Workspace', 'Sales Orders'],
+        content: Column(children: [
+          Padding(
+            // As the six document screens now do.
+            padding: phase2
+                ? EdgeInsets.zero
+                : const EdgeInsets.fromLTRB(24, 0, 24, 12),
+            child: SummaryCards(children: [
+              for (final String label in ['Total', 'Draft', 'Approved'])
+                SummaryCount(
+                  key: ValueKey('count-$label'),
+                  label: label,
+                  value: '${label.length}',
+                  onTap: () => tapped.add(label),
+                ),
+            ]),
+          ),
+          Expanded(
+            child: ManagementWorkspaceLayout(
+              searchPanel: SearchFilterPanel(
+                controller: TextEditingController(),
+                onSearch: (_) {},
+                hintText: 'Search orders',
+              ),
+              toolbar: WorkspaceToolbar(
+                onAction: (_) {},
+                isEnabled: (_) => true,
+                actions: const [ToolbarAction.newItem, ToolbarAction.refresh],
+              ),
+              primaryContent: const SizedBox.expand(key: _grid),
+              statusBar: const WorkspaceStatusBar(total: 3, selected: false),
+            ),
+          ),
+        ]),
+      );
+      await tester.pumpWidget(MaterialApp(
+        theme: ThemeRegistry.themeFor(
+          palette: AppPalette.neutral,
+          brightness: Brightness.light,
+        ),
+        home: phase2 ? Phase2Scope(child: page) : page,
+      ));
+      // The figures and the claim reach the line a frame after the build.
+      await tester.pump();
+      await tester.pump();
+      expect(tester.takeException(), isNull);
+      return tapped;
+    }
+
+    testWidgets('title, figures, search and actions share one line',
+        (tester) async {
+      await pumpOrders(tester, phase2: true);
+      final double line = tester.getCenter(find.text('Sales Orders')).dy;
+      for (final Finder part in [
+        find.byKey(const ValueKey('count-Draft')),
+        find.byType(TextField),
+        find.text('New'),
+      ]) {
+        expect((tester.getCenter(part).dy - line).abs(), lessThan(6),
+            reason: '$part is not on the title line');
+      }
+      // Drawn once, on the line -- not also as a title band above it.
+      expect(find.text('Sales Orders'), findsOneWidget);
+      expect(find.byType(Card), findsNothing);
+      final double top = tester.getTopLeft(find.byKey(_grid)).dy;
+      debugPrint('Sales Orders grid starts at ${top.toStringAsFixed(0)} px');
+      expect(top, lessThan(64));
+    });
+
+    testWidgets('a figure is a filter: clicking it chooses what it counts',
+        (tester) async {
+      final List<String> tapped = await pumpOrders(tester, phase2: true);
+      await tester.tap(find.byKey(const ValueKey('count-Draft')));
+      expect(tapped, ['Draft']);
+    });
+
+    testWidgets('phase 1 keeps its title band and its cards', (tester) async {
+      await pumpOrders(tester, phase2: false);
+      expect(find.byType(Card), findsNWidgets(3));
+      expect(find.text('Manage customer sales orders.'), findsOneWidget);
+      expect(tester.getTopLeft(find.byKey(_grid)).dy, greaterThan(200));
+    });
+  });
+
+  testWidgets('a page with no list keeps a compact title line with its figures',
+      (tester) async {
+    await tester.pumpWidget(MaterialApp(
+      home: Phase2Scope(
+        child: ModuleWorkspaceFrame(
+          title: 'Stock Summary',
+          description: 'Balances by location.',
+          child: const Column(children: [
+            SummaryCards(children: [
+              SummaryCount(
+                  key: ValueKey('count-low'), label: 'Low stock', value: '4'),
+            ]),
+            Expanded(child: SizedBox.expand(key: _grid)),
+          ]),
+        ),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump();
+    expect(
+      (tester.getCenter(find.byKey(const ValueKey('count-low'))).dy -
+              tester.getCenter(find.text('Stock Summary')).dy)
+          .abs(),
+      lessThan(6),
+    );
+    expect(tester.takeException(), isNull);
   });
 }

@@ -2,6 +2,7 @@ export 'geo_area_picker.dart';
 export 'paged_fetch.dart';
 export 'global_search.dart';
 export 'health_probe.dart';
+export '../../phase2/phase2_scope.dart';
 export 'workspace_components.dart';
 export 'workspace_dialog.dart';
 export 'workspace_interactions.dart';
