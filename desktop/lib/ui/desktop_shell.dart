@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'identity/change_password_dialog.dart';
 import 'identity/firm_roles_dialog.dart';
@@ -11,6 +12,7 @@ import 'identity/reset_password_dialog.dart';
 import '../core/api/api_client.dart';
 import '../core/auth/session_controller.dart';
 import '../core/branding/branding_config.dart';
+import '../core/design/design_tokens.dart';
 import '../core/diagnostics/diagnostics_share.dart';
 import '../core/navigation/workspace_router.dart';
 import '../core/notifications/notification_service.dart';
@@ -75,6 +77,9 @@ import 'settings/financial_years_page.dart';
 import 'settings/numbering_series_page.dart';
 import 'settings/settings_workspace.dart';
 import 'resource_management_page.dart';
+import 'shell/app_menu_bar.dart';
+import 'shell/command_box.dart';
+import 'shell/menu_layout.dart';
 import 'theme_selector.dart';
 import 'workspace/module_catalog.dart';
 import 'workspace/module_visibility.dart';
@@ -190,6 +195,22 @@ class _DesktopShellState extends State<DesktopShell> {
   static const String _savedSearchesKey = 'saved_searches';
   late final WorkspaceRouter _router;
   late bool _sidebarCollapsed;
+
+  /// Where the phase 2 shell keeps its own state on this machine.
+  static const String _shellStateKey = 'shell';
+
+  /// Phase 1's sidebar, kept behind a switch while screens move to phase 2
+  /// (UI_PHASE_2_DESIGN.md section 8, decision 9). Off by default: phase 1 is
+  /// never shipped, and the switch exists only so the app stays usable while
+  /// the move is under way.
+  late bool _classicLayout;
+
+  /// The screens open as tabs under the menu bar, by router path (decision 3).
+  late List<String> _openScreens;
+
+  /// The screen on show before the latest route change -- the tab that a
+  /// change made from inside a page belongs to.
+  String? _shownPath;
   Set<String>? _activeBusinessModuleCodes;
 
   /// Which sales stages this firm types. The whole chain until told otherwise,
@@ -217,6 +238,13 @@ class _DesktopShellState extends State<DesktopShell> {
   void initState() {
     super.initState();
     _sidebarCollapsed = widget.preferences.current.sidebarCollapsed;
+    final Map<String, dynamic> shellState =
+        widget.preferences.workspaceState(_shellStateKey);
+    _classicLayout = shellState['layout'] == 'classic';
+    _openScreens = [
+      for (final dynamic path in (shellState['open'] as List?) ?? const [])
+        if (path is String && path.isNotEmpty) path,
+    ];
     _lastFirmContextVersion = widget.session.firmContextVersion;
     widget.session.addListener(_sessionChanged);
     _router = WorkspaceRouter(
@@ -266,7 +294,101 @@ class _DesktopShellState extends State<DesktopShell> {
 
   void _routeChanged() {
     widget.session.registerActivity();
+    _followRouteInTabs();
     if (mounted) setState(() {});
+  }
+
+  /// Keep the open-screen tabs in step with the router.
+  ///
+  /// Opening from the menu adds a tab ([_openFromMenu]). Anything else that
+  /// moves the route -- a page's own tab strip, back and forward, a search
+  /// result -- happens *inside* the tab on show, so it re-addresses that tab
+  /// rather than opening another: otherwise every click on Masters' inner
+  /// strip would leave a tab behind.
+  void _followRouteInTabs() {
+    final String path = _router.current.path;
+    final String? shown = _shownPath;
+    _shownPath = path;
+    if (_openScreens.contains(path)) return;
+    final int index = shown == null ? -1 : _openScreens.indexOf(shown);
+    _openScreens = index < 0
+        ? openScreen(_openScreens, path)
+        : ([..._openScreens]..[index] = path);
+    unawaited(_saveShellState());
+  }
+
+  void _openFromMenu(MenuItemSpec item) {
+    _openScreens = openScreen(_openScreens, item.path);
+    _shownPath = item.path;
+    _router.navigate(item.module.name, tab: item.tab);
+    unawaited(_saveShellState());
+    setState(() {});
+  }
+
+  void _showScreen(String path) {
+    final WorkspaceLocation location = WorkspaceLocation.parse(path);
+    _shownPath = path;
+    _router.navigate(location.module, tab: location.tab);
+  }
+
+  void _closeScreen(String path) {
+    final ({List<String> open, String? next}) result =
+        closeScreen(_openScreens, path, _router.current.path);
+    setState(() => _openScreens = result.open);
+    if (result.next != null) {
+      _showScreen(result.next!);
+    } else if (result.open.isEmpty && path == _router.current.path) {
+      _openFromMenu(MenuLayout.home.items.first);
+    }
+    unawaited(_saveShellState());
+  }
+
+  void _cycleScreens(List<String> shown, int step) {
+    if (shown.length < 2) return;
+    final int index = shown.indexOf(_router.current.path);
+    _showScreen(shown[(index + step + shown.length) % shown.length]);
+  }
+
+  Future<void> _saveShellState() => widget.preferences.saveWorkspaceState(
+        _shellStateKey,
+        {
+          'layout': _classicLayout ? 'classic' : 'menu',
+          'open': _openScreens,
+        },
+      );
+
+  Future<void> _toggleLayout() async {
+    setState(() => _classicLayout = !_classicLayout);
+    await _saveShellState();
+  }
+
+  /// Whether the user may open [path] now -- the same answer the menu gives,
+  /// so a tab restored from last time disappears when its screen is no
+  /// longer allowed (a changed role, another firm).
+  bool _pathAllowed(String path) {
+    final WorkspaceLocation location = WorkspaceLocation.parse(path);
+    final ModuleDefinition? module = _visibleModules
+        .where((module) => module.id.name == location.module)
+        .firstOrNull;
+    if (module == null) return false;
+    return location.tab == null ||
+        module.tabs.isEmpty ||
+        _visibility.tabIds(module).contains(location.tab);
+  }
+
+  String _screenLabel(String path) {
+    final MenuItemSpec? item = MenuLayout.itemFor(path);
+    if (item != null) return item.label;
+    final WorkspaceLocation location = WorkspaceLocation.parse(path);
+    final ModuleDefinition? module = ModuleCatalog.modules
+        .where((module) => module.id.name == location.module)
+        .firstOrNull;
+    if (module == null) return path;
+    final String? tabLabel = module.tabs
+        .where((tab) => tab.id == location.tab)
+        .map((tab) => tab.label)
+        .firstOrNull;
+    return tabLabel == null ? module.label : '${module.label} - $tabLabel';
   }
 
   /// Learn which stages of a sale this firm types.
@@ -387,11 +509,16 @@ class _DesktopShellState extends State<DesktopShell> {
                   ? requestedSection
                   : modules.first.id;
           return GlobalSearchShortcut(
-            onSearch: () => unawaited(_openGlobalSearch()),
+            onSearch: () => unawaited(
+              _classicLayout ? _openGlobalSearch() : _openCommandBox(),
+            ),
             child: LayoutBuilder(
               builder: (context, constraints) {
                 final bool wide = constraints.maxWidth >= 1000;
                 final Widget page = _page(widget.session.api, section);
+                if (!_classicLayout && constraints.maxWidth >= 600) {
+                  return _menuLayout(page);
+                }
                 if (wide) {
                   return Scaffold(
                     body: Row(children: [
@@ -429,6 +556,63 @@ class _DesktopShellState extends State<DesktopShell> {
           );
         },
       );
+
+  /// Phase 2: the menu bar, the open screens, the page, the status bar
+  /// (UI_PHASE_2_DESIGN.md 4.1). Below 600 px the phone layout of 4.15 is
+  /// still to come; until then a phone gets phase 1's drawer.
+  Widget _menuLayout(Widget page) {
+    final ModuleVisibility visibility = _visibility;
+    final List<MenuAreaSpec> areas = [
+      for (final MenuAreaSpec area in MenuLayout.areas)
+        if (MenuLayout.visible(area, visibility) case final MenuAreaSpec shown)
+          shown,
+    ];
+    final List<String> shown = _openScreens.where(_pathAllowed).toList();
+    final String current = _router.current.path;
+    final AppSemanticColors chrome = context.semanticColors;
+    return CallbackShortcuts(
+      bindings: {
+        const SingleActivator(LogicalKeyboardKey.keyW, control: true): () =>
+            _closeScreen(current),
+        // Tally's Go To (decision 6), beside Ctrl+K.
+        const SingleActivator(LogicalKeyboardKey.keyG, alt: true): () =>
+            unawaited(_openCommandBox()),
+        const SingleActivator(LogicalKeyboardKey.tab, control: true): () =>
+            _cycleScreens(shown, 1),
+        const SingleActivator(LogicalKeyboardKey.tab,
+            control: true, shift: true): () => _cycleScreens(shown, -1),
+      },
+      child: Scaffold(
+        body: Column(children: [
+          AppMenuBar(
+            appName: widget.branding.appName,
+            areas: areas,
+            settings: MenuLayout.visible(MenuLayout.settings, visibility),
+            currentPath: current,
+            onOpen: _openFromMenu,
+            trailing: [
+              SearchLauncher(onPressed: () => unawaited(_openCommandBox())),
+              const SizedBox(width: 8),
+              _firmControl(onChrome: true),
+              const SizedBox(width: 2),
+              _profileMenu(iconColor: chrome.onChrome),
+            ],
+          ),
+          if (shown.isNotEmpty)
+            OpenScreenTabs(
+              paths: shown,
+              activePath: current,
+              labelFor: _screenLabel,
+              onSelect: _showScreen,
+              onClose: _closeScreen,
+            ),
+          const Divider(height: 1),
+          Expanded(child: page),
+          _applicationStatusBar(),
+        ]),
+      ),
+    );
+  }
 
   Widget _applicationHeader(AppModule section) => Material(
         color: Theme.of(context).colorScheme.surface,
@@ -474,95 +658,114 @@ class _DesktopShellState extends State<DesktopShell> {
               const Spacer(),
               _firmControl(),
               const SizedBox(width: 8),
-              PopupMenuButton<String>(
-                tooltip: 'Profile',
-                padding: EdgeInsets.zero,
-                icon: const Icon(Icons.account_circle_outlined),
-                onSelected: (value) {
-                  if (value == 'logout') {
-                    widget.session.logout();
-                    return;
-                  }
-                  if (value == 'profile') {
-                    unawaited(_openProfile());
-                    return;
-                  }
-                  if (value == 'primary-firm') {
-                    unawaited(_choosePrimaryFirm());
-                    return;
-                  }
-                  if (value == 'diagnostics') {
-                    unawaited(
-                      DiagnosticsReportDialog.show(
-                        context,
-                        appName: widget.branding.appName,
-                        version: widget.branding.version,
-                        buildNumber: _shellBuildNumber,
-                        firmCode: widget.session.currentFirm?.code,
-                        // No user identifier is passed: the session exposes the
-                        // username, which is an email address, and a support
-                        // report is not a reason to move that onto a third
-                        // machine.
-                        serverUrl: widget.session.baseUrl,
-                      ),
-                    );
-                  }
-                },
-                itemBuilder: (context) => [
-                  // Who is signed in, from `GET /me`. This used to be the
-                  // address typed at the login form, and after a restored
-                  // session -- no login form -- the literal word "User".
-                  PopupMenuItem<String>(
-                    enabled: false,
-                    child: _signedInAs(context),
-                  ),
-                  const PopupMenuDivider(),
-                  // What is held about this person, shown to them without
-                  // `USER_VIEW`. Read-only: changing it is an administrator's
-                  // job, and the dialog says so.
-                  const PopupMenuItem<String>(
-                    value: 'profile',
-                    child: ListTile(
-                      dense: true,
-                      leading: Icon(Icons.badge_outlined),
-                      title: Text('My profile'),
-                    ),
-                  ),
-                  // Where the next session starts. Offered only to somebody
-                  // with a choice to make: one firm needs no primary, and a
-                  // platform administrator always starts on Platform.
-                  if (widget.session.firms.length > 1 &&
-                      !widget.session.canWorkWithoutAFirm)
-                    PopupMenuItem<String>(
-                      value: 'primary-firm',
-                      child: ListTile(
-                        dense: true,
-                        leading: const Icon(Icons.home_work_outlined),
-                        title: const Text('Primary firm'),
-                        subtitle: Text(_primaryFirmName() ?? 'Not set'),
-                      ),
-                    ),
-                  const PopupMenuItem<String>(
-                    value: 'diagnostics',
-                    child: ListTile(
-                      dense: true,
-                      leading: Icon(Icons.bug_report_outlined),
-                      title: Text('Diagnostics report'),
-                    ),
-                  ),
-                  const PopupMenuItem<String>(
-                    value: 'logout',
-                    child: ListTile(
-                      dense: true,
-                      leading: Icon(Icons.logout),
-                      title: Text('Sign out'),
-                    ),
-                  ),
-                ],
-              ),
+              _profileMenu(),
             ]),
           ),
         ),
+      );
+
+  /// Who is signed in, their profile, and signing out.
+  Widget _profileMenu({Color? iconColor}) => PopupMenuButton<String>(
+        tooltip: 'Profile',
+        padding: EdgeInsets.zero,
+        icon: Icon(Icons.account_circle_outlined, color: iconColor),
+        onSelected: (value) {
+          if (value == 'logout') {
+            widget.session.logout();
+            return;
+          }
+          if (value == 'profile') {
+            unawaited(_openProfile());
+            return;
+          }
+          if (value == 'primary-firm') {
+            unawaited(_choosePrimaryFirm());
+            return;
+          }
+          if (value == 'layout') {
+            unawaited(_toggleLayout());
+            return;
+          }
+          if (value == 'diagnostics') {
+            unawaited(
+              DiagnosticsReportDialog.show(
+                context,
+                appName: widget.branding.appName,
+                version: widget.branding.version,
+                buildNumber: _shellBuildNumber,
+                firmCode: widget.session.currentFirm?.code,
+                // No user identifier is passed: the session exposes the
+                // username, which is an email address, and a support
+                // report is not a reason to move that onto a third
+                // machine.
+                serverUrl: widget.session.baseUrl,
+              ),
+            );
+          }
+        },
+        itemBuilder: (context) => [
+          // Who is signed in, from `GET /me`. This used to be the
+          // address typed at the login form, and after a restored
+          // session -- no login form -- the literal word "User".
+          PopupMenuItem<String>(
+            enabled: false,
+            child: _signedInAs(context),
+          ),
+          const PopupMenuDivider(),
+          // What is held about this person, shown to them without
+          // `USER_VIEW`. Read-only: changing it is an administrator's
+          // job, and the dialog says so.
+          const PopupMenuItem<String>(
+            value: 'profile',
+            child: ListTile(
+              dense: true,
+              leading: Icon(Icons.badge_outlined),
+              title: Text('My profile'),
+            ),
+          ),
+          // Where the next session starts. Offered only to somebody
+          // with a choice to make: one firm needs no primary, and a
+          // platform administrator always starts on Platform.
+          if (widget.session.firms.length > 1 &&
+              !widget.session.canWorkWithoutAFirm)
+            PopupMenuItem<String>(
+              value: 'primary-firm',
+              child: ListTile(
+                dense: true,
+                leading: const Icon(Icons.home_work_outlined),
+                title: const Text('Primary firm'),
+                subtitle: Text(_primaryFirmName() ?? 'Not set'),
+              ),
+            ),
+          const PopupMenuItem<String>(
+            value: 'diagnostics',
+            child: ListTile(
+              dense: true,
+              leading: Icon(Icons.bug_report_outlined),
+              title: Text('Diagnostics report'),
+            ),
+          ),
+          // Temporary, while screens move to phase 2 (decision 9); it goes with
+          // the sidebar when the last screen has moved.
+          PopupMenuItem<String>(
+            value: 'layout',
+            child: ListTile(
+              dense: true,
+              leading: const Icon(Icons.view_sidebar_outlined),
+              title: Text(_classicLayout
+                  ? 'Use the new layout'
+                  : 'Use the old layout (phase 1)'),
+            ),
+          ),
+          const PopupMenuItem<String>(
+            value: 'logout',
+            child: ListTile(
+              dense: true,
+              leading: Icon(Icons.logout),
+              title: Text('Sign out'),
+            ),
+          ),
+        ],
       );
 
   /// My profile, with Change password on it.
@@ -633,7 +836,37 @@ class _DesktopShellState extends State<DesktopShell> {
     }
   }
 
-  Widget _firmControl({bool compact = false}) {
+  Widget _firmControl({bool compact = false, bool onChrome = false}) {
+    if (!onChrome) return _firmControlBody(context, compact);
+    return Theme(
+      data: _chromeTheme(context),
+      child: Builder(
+        builder: (context) => _firmControlBody(context, compact),
+      ),
+    );
+  }
+
+  /// The menu bar is dark in both themes, so what sits on it is drawn in the
+  /// bar's colours rather than the page's.
+  ThemeData _chromeTheme(BuildContext context) {
+    final AppSemanticColors chrome = context.semanticColors;
+    final ThemeData base = Theme.of(context);
+    return base.copyWith(
+      colorScheme: base.colorScheme.copyWith(
+        surfaceContainerHigh: chrome.chrome,
+        onSurface: chrome.onChrome,
+        onSurfaceVariant: chrome.onChromeMuted,
+      ),
+      dividerColor: chrome.onChromeMuted,
+      iconTheme: IconThemeData(color: chrome.onChrome),
+      textTheme: base.textTheme.apply(
+        bodyColor: chrome.onChrome,
+        displayColor: chrome.onChrome,
+      ),
+    );
+  }
+
+  Widget _firmControlBody(BuildContext context, bool compact) {
     final List<AssignedFirm> firms = widget.session.firms;
     final AssignedFirm? current = widget.session.currentFirm;
     // A platform administrator always gets the picker, even with one firm:
@@ -765,12 +998,41 @@ class _DesktopShellState extends State<DesktopShell> {
   /// Open global search once. The purchase screens still bind Ctrl+K to this
   /// through their own shortcuts, and the shell hears the same key press
   /// directly, so a second call while the dialog is up is ignored.
-  Future<void> _openGlobalSearch() async {
+  /// Ctrl+K in the phase 2 layout: screens as you type, records on request
+  /// (UI_PHASE_2_DESIGN.md 4.4). Offers exactly what the menu offers.
+  Future<void> _openCommandBox() async {
+    if (_globalSearchOpen) return;
+    final ModuleVisibility visibility = _visibility;
+    final List<CommandScreen> screens = commandScreens([
+      for (final MenuAreaSpec area in MenuLayout.all)
+        if (MenuLayout.visible(area, visibility) case final MenuAreaSpec shown)
+          shown,
+    ]);
+    _globalSearchOpen = true;
+    final CommandChoice? choice;
+    try {
+      choice = await showCommandBox(context, screens: screens);
+    } finally {
+      _globalSearchOpen = false;
+    }
+    if (!mounted) return;
+    switch (choice) {
+      case OpenScreenChoice(:final MenuItemSpec item):
+        _openFromMenu(item);
+      case SearchRecordsChoice(:final String query):
+        await _openGlobalSearch(initialQuery: query);
+      case null:
+        break;
+    }
+  }
+
+  Future<void> _openGlobalSearch({String? initialQuery}) async {
     if (_globalSearchOpen) return;
     _globalSearchOpen = true;
     try {
       await showGlobalSearch(
         context,
+        initialQuery: initialQuery,
         executor: _executeGlobalSearch,
         initialRecentQueries: _storedSearches(_recentSearchesKey),
         initialSavedQueries: _storedSearches(_savedSearchesKey),

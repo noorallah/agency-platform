@@ -98,6 +98,9 @@ void main() {
           _control
         ),
         'focus ring': (c.primary, c.surfaceContainerLowest, _control),
+        'menu bar text': (s.onChrome, s.chrome, _text),
+        'menu bar hint': (s.onChromeMuted, s.chrome, _text),
+        'menu bar text on an open area': (s.onChrome, s.chromeActive, _text),
       };
 
       for (final MapEntry<String, (Color, Color, double)> pair

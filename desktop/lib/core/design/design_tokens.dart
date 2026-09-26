@@ -214,6 +214,10 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
     required this.onInformation,
     required this.danger,
     required this.onDanger,
+    required this.chrome,
+    required this.onChrome,
+    required this.onChromeMuted,
+    required this.chromeActive,
   });
 
   final Color success;
@@ -229,6 +233,15 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
   final Color danger;
   final Color onDanger;
 
+  /// The phase 2 menu bar (UI_PHASE_2_DESIGN.md 4.1): a dark band in both
+  /// themes, so the frame reads apart from the work beneath it. [onChrome]
+  /// is its text, [onChromeMuted] its hints, [chromeActive] the ground of
+  /// an area that is open or pointed at.
+  final Color chrome;
+  final Color onChrome;
+  final Color onChromeMuted;
+  final Color chromeActive;
+
   factory AppSemanticColors.forScheme(ColorScheme scheme) {
     final bool dark = scheme.brightness == Brightness.dark;
     return AppSemanticColors(
@@ -242,6 +255,10 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
       onInformation: scheme.onPrimary,
       danger: scheme.error,
       onDanger: scheme.onError,
+      chrome: dark ? const Color(0xff0f1315) : const Color(0xff1e2a38),
+      onChrome: const Color(0xffe6ebf0),
+      onChromeMuted: const Color(0xffb3bfcc),
+      chromeActive: dark ? const Color(0xff26313a) : const Color(0xff2f4156),
     );
   }
 
@@ -255,6 +272,10 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
     Color? onInformation,
     Color? danger,
     Color? onDanger,
+    Color? chrome,
+    Color? onChrome,
+    Color? onChromeMuted,
+    Color? chromeActive,
   }) =>
       AppSemanticColors(
         success: success ?? this.success,
@@ -265,6 +286,10 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
         onInformation: onInformation ?? this.onInformation,
         danger: danger ?? this.danger,
         onDanger: onDanger ?? this.onDanger,
+        chrome: chrome ?? this.chrome,
+        onChrome: onChrome ?? this.onChrome,
+        onChromeMuted: onChromeMuted ?? this.onChromeMuted,
+        chromeActive: chromeActive ?? this.chromeActive,
       );
 
   @override
@@ -282,6 +307,10 @@ class AppSemanticColors extends ThemeExtension<AppSemanticColors> {
       onInformation: Color.lerp(onInformation, other.onInformation, t)!,
       danger: Color.lerp(danger, other.danger, t)!,
       onDanger: Color.lerp(onDanger, other.onDanger, t)!,
+      chrome: Color.lerp(chrome, other.chrome, t)!,
+      onChrome: Color.lerp(onChrome, other.onChrome, t)!,
+      onChromeMuted: Color.lerp(onChromeMuted, other.onChromeMuted, t)!,
+      chromeActive: Color.lerp(chromeActive, other.chromeActive, t)!,
     );
   }
 }
