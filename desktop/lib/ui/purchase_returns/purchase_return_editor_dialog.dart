@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
@@ -6,7 +9,12 @@ import '../../models/batch_serial.dart';
 import '../../models/entities.dart';
 import '../../models/goods_receipt.dart';
 import '../../models/product.dart';
+import '../../models/document_preview.dart';
+import '../../phase2/document_page.dart';
+import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
+
+part 'purchase_return_editor_phase2.dart';
 
 /// One line going back to the supplier, as it is being edited.
 ///
@@ -137,6 +145,48 @@ class _PurchaseReturnEditorDialogState
   bool _saving = false;
   bool _loadingLines = false;
   String? _error;
+
+  /// Phase 2: the return as the server priced it last, and the line the
+  /// side panel follows.
+  PurchaseReturnPreviewRecord? _preview;
+  int _current = 0;
+  Timer? _previewTimer;
+  int _previewSerial = 0;
+  bool _phase2 = false;
+
+  void _setState(VoidCallback change) => setState(change);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _phase2 = Phase2Scope.of(context);
+  }
+
+  @override
+  void dispose() {
+    _previewTimer?.cancel();
+    super.dispose();
+  }
+
+  /// Price the return again once the typing pauses; only the latest answer
+  /// lands. A return with no receipt or nothing going back is not sent.
+  void _schedulePreview() {
+    if (!_phase2) return;
+    _previewTimer?.cancel();
+    _previewTimer = Timer(const Duration(milliseconds: 350), () async {
+      if (_receipt == null || _sendableLines().isEmpty) return;
+      final int serial = ++_previewSerial;
+      try {
+        final PurchaseReturnPreviewRecord priced =
+            await widget.api.previewPurchaseReturn(_payload());
+        if (!mounted || serial != _previewSerial) return;
+        setState(() => _preview = priced);
+      } on ApiException {
+        // A return the server refuses as it stands keeps the last figures;
+        // saving it says why.
+      }
+    });
+  }
 
   static String _today() => DateTime.now().toIso8601String().split('T').first;
 
@@ -309,6 +359,30 @@ class _PurchaseReturnEditorDialogState
     return null;
   }
 
+  /// The return as the server is sent it.
+  Json _payload() {
+    final List<PurchaseReturnDraftLine> sending = _sendableLines();
+    return {
+      'warehouse_id': _warehouseForDocument(sending),
+      'return_date': _returnDate,
+      if (_supplierReturnNumber.trim().isNotEmpty)
+        'supplier_return_number': _supplierReturnNumber.trim(),
+      if (_returnReason.trim().isNotEmpty) 'return_reason': _returnReason.trim(),
+      if (_remarks.trim().isNotEmpty) 'remarks': _remarks.trim(),
+      'reference_grn_number': _receipt!.grnNumber,
+      'source_documents': [
+        {
+          'source_document_type': 'GOODS_RECEIPT',
+          'source_document_id': _receipt!.id,
+        }
+      ],
+      'lines': [
+        for (int index = 0; index < sending.length; index++)
+          {...sending[index].toJson(), 'line_number': index + 1},
+      ],
+    };
+  }
+
   Future<void> _save() async {
     final String? problem = _validation();
     if (problem != null) {
@@ -320,28 +394,8 @@ class _PurchaseReturnEditorDialogState
       _error = null;
     });
     try {
-      final List<PurchaseReturnDraftLine> sending = _sendableLines();
-      final Json payload = {
-        'warehouse_id': _warehouseForDocument(sending),
-        'return_date': _returnDate,
-        if (_supplierReturnNumber.trim().isNotEmpty)
-          'supplier_return_number': _supplierReturnNumber.trim(),
-        if (_returnReason.trim().isNotEmpty)
-          'return_reason': _returnReason.trim(),
-        if (_remarks.trim().isNotEmpty) 'remarks': _remarks.trim(),
-        'reference_grn_number': _receipt!.grnNumber,
-        'source_documents': [
-          {
-            'source_document_type': 'GOODS_RECEIPT',
-            'source_document_id': _receipt!.id,
-          }
-        ],
-        'lines': [
-          for (int index = 0; index < sending.length; index++)
-            {...sending[index].toJson(), 'line_number': index + 1},
-        ],
-      };
-      final Json response = await widget.api.create('purchase-returns', payload);
+      final Json response =
+          await widget.api.create('purchase-returns', _payload());
       if (!mounted) return;
       final dynamic data = response['data'];
       Navigator.pop(context, data is Json ? data : response);
@@ -363,7 +417,10 @@ class _PurchaseReturnEditorDialogState
   }
 
   @override
-  Widget build(BuildContext context) => WorkspaceDialog(
+  Widget build(BuildContext context) => Phase2Scope.of(context)
+      // Phase 2: the one-screen return (the documents' approved layout).
+      ? _phase2Page(context)
+      : WorkspaceDialog(
         title: 'New Purchase Return',
         subtitle: _receipt == null
             ? 'Choose the goods receipt being sent back'

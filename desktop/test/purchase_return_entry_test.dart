@@ -1,9 +1,12 @@
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/models/batch_serial.dart';
+import 'package:agency_desktop/models/document_preview.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/goods_receipt.dart';
 import 'package:agency_desktop/models/product.dart';
 import 'package:agency_desktop/ui/purchase_returns/purchase_return_editor_dialog.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
+    show Phase2Scope;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -95,6 +98,40 @@ class _ReturnApi extends ApiClient {
         ],
         total: registered.length,
       );
+
+  /// Every draft phase 2 asked to be priced.
+  final List<Json> previews = <Json>[];
+
+  /// Prices each draft at the receipt's 25 and 18% within the state.
+  @override
+  Future<PurchaseReturnPreviewRecord> previewPurchaseReturn(Json data) async {
+    previews.add(data);
+    final Json line = (data['lines'] as List<dynamic>).first as Json;
+    final double gross =
+        double.parse('${line['current_return_quantity']}') * 25;
+    final double tax = gross * .18;
+    return PurchaseReturnPreviewRecord.fromJson({
+      'purchase_return': {
+        'return_number': 'PR-2026-000004',
+        'subtotal': gross.toStringAsFixed(2),
+        'tax_total': tax.toStringAsFixed(2),
+        'grand_total': (gross + tax).toStringAsFixed(2),
+        'lines': [
+          {
+            'line_number': 1,
+            'source_document_line_id': 'grn-line-1',
+            'gross_amount': gross.toStringAsFixed(2),
+            'discount_amount': '0',
+            'tax_amount': tax.toStringAsFixed(2),
+          },
+        ],
+      },
+      'interstate': false,
+      'lines': [
+        {'line_number': 1, 'product_id': 'prod-1', 'available_quantity': '20'},
+      ],
+    });
+  }
 
   @override
   Future<Json> create(String resource, Json body) async {
@@ -301,5 +338,63 @@ void main() {
 
     expect(find.textContaining('rejected cannot exceed'), findsOneWidget);
     expect(api.sent, isNull);
+  });
+
+  testWidgets('phase 2 returns on one screen, priced as it is typed',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _ReturnApi api = _ReturnApi(registered: ['MARCH-01']);
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: Phase2Scope(
+            child: PurchaseReturnEditorDialog(
+              api: api,
+              receipts: [_receipt()],
+              products: [
+                Product.fromJson({
+                  'id': 'prod-1',
+                  'code': 'SKU-1',
+                  'name': 'Amoxicillin 500mg',
+                }),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('purchase-return-receipt')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('GRN-2026-000001').last);
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+
+    // Twenty can go back at 25: 500 + 90 tax = 590.
+    expect(find.text('PR-2026-000004 (new)'), findsOneWidget);
+    expect(find.text('590.00'), findsWidgets);
+    expect(find.text('MARCH-01'), findsWidgets);
+
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('purchase-return-returning-grn-1-0')),
+      '4',
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(api.previews.last['lines'][0]['current_return_quantity'], '4');
+    expect(find.text('118.00'), findsWidgets);
+    await tester.tap(find.byKey(const ValueKey('purchase-return-damaged-0')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('purchase-return-save')));
+    await tester.pumpAndSettle();
+    final Json line = (api.sent!['lines'] as List<dynamic>).single as Json;
+    expect(line['current_return_quantity'], '4');
+    expect(line['batch_number'], 'MARCH-01');
+    expect(line['is_damaged'], isTrue);
   });
 }

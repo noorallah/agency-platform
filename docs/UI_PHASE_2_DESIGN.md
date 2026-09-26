@@ -381,6 +381,13 @@ checked against the paper before saving; a supplier number already on file is
 said while it is typed. The side panel shows the line's figures, the last bill
 from this vendor, the tax split and stock.
 
+**Purchase returns (2026-09-26)** take the completed receipt the goods came in
+on. The lines show received, returned before and what can still go back, then the
+quantity returning, rejected, and the batch it leaves from (only batches the
+register holds). Priced as typed by `POST /purchase-returns/preview`; the total is
+the debit to the supplier. Condition (damaged, scrap), reason code and remarks
+for the line are in the side panel.
+
 ### 4.9 Home per role
 
 A counter clerk, a storeman, an accountant and an owner get different homes:
