@@ -31,15 +31,21 @@ LogLevel? _configuredLogLevel() {
 /// Held for the process lifetime so the exit hook is not garbage collected.
 AppLifecycleListener? lifecycleListener;
 
-Future<void> main() async {
+Future<void> main() => startAgencyApp();
+
+/// Start the application; [phase2] opens the phase 2 frame after sign-in.
+///
+/// Shared with `main_phase2.dart`, so the two apps start, log and report
+/// crashes identically and differ only in the frame they draw.
+Future<void> startAgencyApp({bool phase2 = false}) async {
   // Everything runs inside the guarded zone, including binding initialization,
   // so an error thrown before the first frame is recorded rather than lost.
-  runZonedGuarded<Future<void>>(_run, (error, stack) {
+  runZonedGuarded<Future<void>>(() => _run(phase2: phase2), (error, stack) {
     CrashReporter.recordError('Uncaught zone error', error, stack);
   });
 }
 
-Future<void> _run() async {
+Future<void> _run({required bool phase2}) async {
   WidgetsFlutterBinding.ensureInitialized();
   // Before anything writes a file: on Android this finds the app's own
   // directory, on desktop it does nothing.
@@ -98,7 +104,10 @@ Future<void> _run() async {
     final DesktopPreferencesService preferences = DesktopPreferencesService();
     await preferences.load();
     AppLog.info('Preferences loaded.');
-    final BrandingConfig branding = await BrandingConfig.load();
+    final BrandingConfig loaded = await BrandingConfig.load();
+    final BrandingConfig branding = phase2
+        ? loaded.withWindowName('${loaded.windowName} - Phase 2')
+        : loaded;
     AppLog.info('Branding loaded: ${branding.appName}.');
     try {
       await DesktopWindowController(preferences).initialize(branding);
@@ -116,6 +125,7 @@ Future<void> _run() async {
       preferences: preferences,
       branding: branding,
       waitForServer: true,
+      phase2: phase2,
     ));
     AppLog.info('Application started.');
   } catch (error, stack) {

@@ -1,5 +1,5 @@
-import '../workspace/module_catalog.dart';
-import '../workspace/module_visibility.dart';
+import '../ui/workspace/module_catalog.dart';
+import '../ui/workspace/module_visibility.dart';
 
 /// One screen in the phase 2 menu, addressed exactly as the router and the
 /// catalogue address it.

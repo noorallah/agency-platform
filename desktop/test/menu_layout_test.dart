@@ -2,7 +2,7 @@ import 'dart:convert';
 
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/sales_invoice.dart';
-import 'package:agency_desktop/ui/shell/menu_layout.dart';
+import 'package:agency_desktop/phase2/menu_layout.dart';
 import 'package:agency_desktop/ui/workspace/module_catalog.dart';
 import 'package:agency_desktop/ui/workspace/module_visibility.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -108,13 +108,13 @@ void main() {
       final ModuleVisibility visibility = _visibility(['CUSTOMER_VIEW']);
       final List<MenuAreaSpec> shown = [
         for (final MenuAreaSpec area in MenuLayout.areas)
-          if (MenuLayout.visible(area, visibility) case final MenuAreaSpec a)
-            a,
+          if (MenuLayout.visible(area, visibility) case final MenuAreaSpec a) a,
       ];
       final MenuAreaSpec masters =
           shown.singleWhere((area) => area.id == 'masters');
       expect(masters.items.map((item) => item.label), contains('Customers'));
-      expect(masters.items.map((item) => item.label), isNot(contains('Vendors')));
+      expect(
+          masters.items.map((item) => item.label), isNot(contains('Vendors')));
       expect(shown.map((area) => area.id), isNot(contains('admin')));
       expect(shown.map((area) => area.id), isNot(contains('buy')));
     });

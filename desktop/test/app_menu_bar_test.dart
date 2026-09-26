@@ -1,6 +1,6 @@
 import 'package:agency_desktop/core/theme/theme_manager.dart';
-import 'package:agency_desktop/ui/shell/app_menu_bar.dart';
-import 'package:agency_desktop/ui/shell/menu_layout.dart';
+import 'package:agency_desktop/phase2/app_menu_bar.dart';
+import 'package:agency_desktop/phase2/menu_layout.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

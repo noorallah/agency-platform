@@ -77,9 +77,9 @@ import 'settings/financial_years_page.dart';
 import 'settings/numbering_series_page.dart';
 import 'settings/settings_workspace.dart';
 import 'resource_management_page.dart';
-import 'shell/app_menu_bar.dart';
-import 'shell/command_box.dart';
-import 'shell/menu_layout.dart';
+import '../phase2/app_menu_bar.dart';
+import '../phase2/command_box.dart';
+import '../phase2/menu_layout.dart';
 import 'theme_selector.dart';
 import 'workspace/module_catalog.dart';
 import 'workspace/module_visibility.dart';
@@ -179,7 +179,16 @@ class DesktopShell extends StatefulWidget {
     required this.branding,
     required this.themes,
     required this.permissions,
+    this.phase2 = false,
   });
+
+  /// Draw the phase 2 frame (lib/phase2/) instead of phase 1's sidebar.
+  ///
+  /// Set only by the phase 2 app, `lib/main_phase2.dart`: the owner chose on
+  /// 2026-09-26 to build phase 2 as its own app rather than behind a switch
+  /// inside phase 1, so the two are never confused. Both share every screen,
+  /// the server connection and the permission rules; only the frame differs.
+  final bool phase2;
   final SessionController session;
   final DesktopPreferencesService preferences;
   final BrandingConfig branding;
@@ -196,14 +205,10 @@ class _DesktopShellState extends State<DesktopShell> {
   late final WorkspaceRouter _router;
   late bool _sidebarCollapsed;
 
-  /// Where the phase 2 shell keeps its own state on this machine.
-  static const String _shellStateKey = 'shell';
+  /// Where the phase 2 frame keeps its open tabs on this machine.
+  static const String _shellStateKey = 'phase2.shell';
 
-  /// Phase 1's sidebar, kept behind a switch while screens move to phase 2
-  /// (UI_PHASE_2_DESIGN.md section 8, decision 9). Off by default: phase 1 is
-  /// never shipped, and the switch exists only so the app stays usable while
-  /// the move is under way.
-  late bool _classicLayout;
+  bool get _classicLayout => !widget.phase2;
 
   /// The screens open as tabs under the menu bar, by router path (decision 3).
   late List<String> _openScreens;
@@ -240,7 +245,6 @@ class _DesktopShellState extends State<DesktopShell> {
     _sidebarCollapsed = widget.preferences.current.sidebarCollapsed;
     final Map<String, dynamic> shellState =
         widget.preferences.workspaceState(_shellStateKey);
-    _classicLayout = shellState['layout'] == 'classic';
     _openScreens = [
       for (final dynamic path in (shellState['open'] as List?) ?? const [])
         if (path is String && path.isNotEmpty) path,
@@ -251,6 +255,10 @@ class _DesktopShellState extends State<DesktopShell> {
       initialLocation: widget.session.lastWorkspace,
       onPersist: widget.session.saveLastWorkspace,
     )..addListener(_routeChanged);
+    // The screen the session opens on is open, so it has a tab like any
+    // other -- a restored tab list may not name it.
+    _openScreens = openScreen(_openScreens, _router.current.path);
+    _shownPath = _router.current.path;
     _refreshBusinessModules();
     // Both server-driven filters, not just one. `_refreshSalesStages` was
     // called only from `_sessionChanged`, so between signing in and the first
@@ -351,16 +359,8 @@ class _DesktopShellState extends State<DesktopShell> {
 
   Future<void> _saveShellState() => widget.preferences.saveWorkspaceState(
         _shellStateKey,
-        {
-          'layout': _classicLayout ? 'classic' : 'menu',
-          'open': _openScreens,
-        },
+        {'open': _openScreens},
       );
-
-  Future<void> _toggleLayout() async {
-    setState(() => _classicLayout = !_classicLayout);
-    await _saveShellState();
-  }
 
   /// Whether the user may open [path] now -- the same answer the menu gives,
   /// so a tab restored from last time disappears when its screen is no
@@ -682,10 +682,6 @@ class _DesktopShellState extends State<DesktopShell> {
             unawaited(_choosePrimaryFirm());
             return;
           }
-          if (value == 'layout') {
-            unawaited(_toggleLayout());
-            return;
-          }
           if (value == 'diagnostics') {
             unawaited(
               DiagnosticsReportDialog.show(
@@ -743,18 +739,6 @@ class _DesktopShellState extends State<DesktopShell> {
               dense: true,
               leading: Icon(Icons.bug_report_outlined),
               title: Text('Diagnostics report'),
-            ),
-          ),
-          // Temporary, while screens move to phase 2 (decision 9); it goes with
-          // the sidebar when the last screen has moved.
-          PopupMenuItem<String>(
-            value: 'layout',
-            child: ListTile(
-              dense: true,
-              leading: const Icon(Icons.view_sidebar_outlined),
-              title: Text(_classicLayout
-                  ? 'Use the new layout'
-                  : 'Use the old layout (phase 1)'),
             ),
           ),
           const PopupMenuItem<String>(

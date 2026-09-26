@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import '../../core/design/design_tokens.dart';
+import '../core/design/design_tokens.dart';
 import 'menu_layout.dart';
 
 /// The phase 2 menu bar (UI_PHASE_2_DESIGN.md 4.1-4.3): the areas across the

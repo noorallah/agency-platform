@@ -1,5 +1,5 @@
-import 'package:agency_desktop/ui/shell/command_box.dart';
-import 'package:agency_desktop/ui/shell/menu_layout.dart';
+import 'package:agency_desktop/phase2/command_box.dart';
+import 'package:agency_desktop/phase2/menu_layout.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';

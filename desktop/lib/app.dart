@@ -41,7 +41,11 @@ class AgencyApp extends StatefulWidget {
     this.permissions,
     this.waitForServer = false,
     this.serverProbe,
+    this.phase2 = false,
   });
+
+  /// Open the phase 2 frame after sign-in (`lib/main_phase2.dart`).
+  final bool phase2;
 
   final SessionController? session;
   final DesktopPreferencesService? preferences;
@@ -209,6 +213,7 @@ class _AgencyAppState extends State<AgencyApp> {
                     );
                   case SessionStatus.authenticated:
                     return DesktopShell(
+                      phase2: widget.phase2,
                       session: _session,
                       preferences: _preferences,
                       branding: _branding,
