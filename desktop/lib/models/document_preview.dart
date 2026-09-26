@@ -1,3 +1,5 @@
+import 'purchase.dart';
+
 /// One line's companions in a priced preview of any sales document: what this customer last paid
 /// for the product, and the stock free to promise where the offer ships from.
 class DocumentPreviewLine {
@@ -68,6 +70,30 @@ class SalesInvoicePreviewRecord {
   factory SalesInvoicePreviewRecord.fromJson(Map<String, dynamic> json) =>
       SalesInvoicePreviewRecord(
         invoice: Map<String, dynamic>.from(json['invoice'] as Map? ?? const {}),
+        interstate: json['interstate'] == true,
+        lines: _previewLines(json['lines']),
+      );
+}
+
+/// A purchase order priced exactly as saving it would, from
+/// `POST /api/v1/purchases/preview`: the order as the save would store it,
+/// how its tax splits, and each line's last price from this vendor and stock.
+class PurchaseOrderPreviewRecord {
+  const PurchaseOrderPreviewRecord({
+    required this.order,
+    required this.interstate,
+    required this.lines,
+  });
+
+  final PurchaseOrder order;
+  final bool interstate;
+  final List<DocumentPreviewLine> lines;
+
+  factory PurchaseOrderPreviewRecord.fromJson(Map<String, dynamic> json) =>
+      PurchaseOrderPreviewRecord(
+        order: PurchaseOrder.fromJson(
+          Map<String, dynamic>.from(json['order'] as Map? ?? const {}),
+        ),
         interstate: json['interstate'] == true,
         lines: _previewLines(json['lines']),
       );

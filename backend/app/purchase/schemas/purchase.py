@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.sales.schemas.document_preview import DocumentPreviewLine
+
 
 class PurchaseSchema(BaseModel):
     """Purchase Schema contract."""
@@ -434,3 +436,15 @@ class PurchaseOrderByProductRecord(PurchaseSchema):
     ordered_quantity: Decimal
     total_value: Decimal
     order_count: int
+
+
+class PurchaseOrderPreview(PurchaseSchema):
+    """A purchase order priced exactly as saving it would, without saving it.
+
+    ``interstate`` says how its tax splits: IGST from a supplier in another
+    state, CGST and SGST from one in the firm's own.
+    """
+
+    order: PurchaseOrderResponse
+    interstate: bool
+    lines: list[DocumentPreviewLine]

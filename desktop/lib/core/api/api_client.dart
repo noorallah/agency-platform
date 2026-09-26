@@ -3199,6 +3199,25 @@ class ApiClient {
         ),
       );
 
+  /// Price an order as saving it would, and save nothing: what the phase 2
+  /// order screen shows while its lines are typed. Sent as a create, without
+  /// the order's own number, so a saved order is priced without its number
+  /// clashing with itself.
+  Future<PurchaseOrderPreviewRecord> previewPurchaseOrder(
+    PurchaseOrder order,
+  ) async =>
+      PurchaseOrderPreviewRecord.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/purchases/preview',
+            body: order.toCreateJson()
+              ..remove('po_number')
+              ..['status'] = 'DRAFT',
+          ),
+        ),
+      );
+
   Future<PurchaseOrder> updatePurchaseOrder(PurchaseOrder order) async =>
       PurchaseOrder.fromJson(
         _unwrapMap(

@@ -19,6 +19,7 @@ from app.purchase.schemas.purchase import (
     PurchaseOrderListFilters,
     PurchaseOrderOverdueRecord,
     PurchaseOrderPendingRecord,
+    PurchaseOrderPreview,
     PurchaseOrderRegisterRecord,
     PurchaseOrderResponse,
     PurchaseOrderStatus,
@@ -28,6 +29,7 @@ from app.purchase.schemas.purchase import (
 )
 
 __all__ = [
+    "PurchaseOrderPreview",
     "PurchaseAttachmentResponse",
     "PurchaseAttachmentWrite",
     "PurchaseDeliveryScheduleResponse",

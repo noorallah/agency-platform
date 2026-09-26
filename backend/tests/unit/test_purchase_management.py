@@ -8,7 +8,7 @@ from uuid import UUID, uuid4
 
 import pytest
 from fastapi import Response
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 from starlette.datastructures import UploadFile
@@ -2126,3 +2126,44 @@ def test_the_dated_order_reports_take_a_window_and_a_page() -> None:
         "/api/v1/purchases/reports/by-buyer",
         "/api/v1/purchases/reports/by-product",
     )
+
+
+def test_a_preview_prices_the_purchase_order_and_saves_nothing() -> None:
+    """The order screen's figures are the save's, and nothing lands.
+
+    The create used to commit in the same step, so there was nothing to
+    preview with; it is staged now, and the preview rolls the stage back.
+    """
+    session = _session_factory()()
+    actor_id = uuid4()
+    firm = _firm(session, "PRE")
+    branch = _branch(session, firm_id=firm.id, actor_id=actor_id)
+    warehouse = _warehouse(
+        session, firm_id=firm.id, branch_id=branch.id, actor_id=actor_id
+    )
+    vendor = _vendor(session, firm_id=firm.id, actor_id=actor_id)
+    product = _product(session, firm_id=firm.id, actor_id=actor_id)
+    payload = PurchaseOrderCreate(
+        vendor_id=vendor.id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+        purchase_date=date(2026, 8, 4),
+        lines=[
+            {
+                "product_id": str(product.id),
+                "ordered_quantity": "5",
+                "unit_price": "10",
+            }
+        ],
+    )
+    service = PurchaseService(session)
+    audits = session.scalar(select(func.count()).select_from(AuditLog))
+
+    preview = service.preview_order(payload, firm_id=firm.id, actor_id=actor_id)
+
+    assert preview.order.subtotal == Decimal("50.0000")
+    assert preview.lines[0].last_price is None
+    assert session.scalar(select(func.count()).select_from(PurchaseOrder)) == 0
+    assert session.scalar(select(func.count()).select_from(AuditLog)) == audits
+    saved = service.create_order(payload, firm_id=firm.id, actor_id=actor_id)
+    assert saved.po_number == preview.order.po_number

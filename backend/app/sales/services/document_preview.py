@@ -1,4 +1,4 @@
-"""The line companions every sales document's preview carries.
+"""The line companions every document's preview carries.
 
 A quotation, an order and an invoice are each priced for their screen by
 staging them through their own save path and rolling it back; what they
@@ -24,6 +24,53 @@ from app.sales.schemas.document_preview import DocumentPreviewLine
 PreviewLineKey = tuple[int, UUID, UUID | None]
 
 
+def purchase_line_companions(
+    session: Session,
+    *,
+    firm_id: UUID,
+    vendor_id: UUID,
+    lines: Iterable[PreviewLineKey],
+) -> list[DocumentPreviewLine]:
+    """Return each line's last price billed by this vendor and its free stock.
+
+    The purchase twin of `line_companions`: the last supplier bill the vendor
+    raised for the product, not the last sale.
+    """
+    from app.purchase_invoice.models import PurchaseInvoice, PurchaseInvoiceLine
+
+    keys = list(lines)
+    product_ids = {product_id for _, product_id, _ in keys}
+    last: dict[UUID, tuple[Decimal, str, date]] = {}
+    if product_ids:
+        billed = session.execute(
+            select(
+                PurchaseInvoiceLine.product_id,
+                PurchaseInvoiceLine.unit_price,
+                PurchaseInvoice.invoice_number,
+                PurchaseInvoice.invoice_date,
+            )
+            .join(
+                PurchaseInvoice,
+                PurchaseInvoice.id == PurchaseInvoiceLine.purchase_invoice_id,
+            )
+            .where(
+                PurchaseInvoice.firm_id == firm_id,
+                PurchaseInvoice.vendor_id == vendor_id,
+                PurchaseInvoice.is_deleted.is_(False),
+                PurchaseInvoiceLine.is_deleted.is_(False),
+                PurchaseInvoice.status.in_(["APPROVED", "CLOSED"]),
+                PurchaseInvoiceLine.product_id.in_(product_ids),
+            )
+            .order_by(
+                PurchaseInvoice.invoice_date.desc(),
+                PurchaseInvoice.created_at.desc(),
+            )
+        ).all()
+        for product_id, price, number, on in billed:
+            last.setdefault(product_id, (price, number, on))
+    return _with_stock(session, firm_id=firm_id, keys=keys, last=last)
+
+
 def line_companions(
     session: Session,
     *,
@@ -42,7 +89,6 @@ def line_companions(
 
     keys = list(lines)
     product_ids = {product_id for _, product_id, _ in keys}
-    warehouse_ids = {warehouse for _, _, warehouse in keys if warehouse}
     last: dict[UUID, tuple[Decimal, str, date]] = {}
     if product_ids:
         billed = session.execute(
@@ -71,6 +117,19 @@ def line_companions(
         ).all()
         for product_id, price, number, on in billed:
             last.setdefault(product_id, (price, number, on))
+    return _with_stock(session, firm_id=firm_id, keys=keys, last=last)
+
+
+def _with_stock(
+    session: Session,
+    *,
+    firm_id: UUID,
+    keys: list[PreviewLineKey],
+    last: dict[UUID, tuple[Decimal, str, date]],
+) -> list[DocumentPreviewLine]:
+    """Join each line's last price to the stock free where it ships from."""
+    product_ids = {product_id for _, product_id, _ in keys}
+    warehouse_ids = {warehouse for _, _, warehouse in keys if warehouse}
     stock: dict[tuple[UUID, UUID], Decimal] = {}
     if product_ids and warehouse_ids:
         for product_id, warehouse_id, available in session.execute(
