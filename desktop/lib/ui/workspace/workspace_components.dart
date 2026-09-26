@@ -1205,7 +1205,9 @@ class SelectionActionBar extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.fromLTRB(12, 6, 8, 6),
         child: Row(children: [
-          Flexible(
+          // The name takes the free width, so the actions stand at the
+          // right, as the wireframe draws them.
+          Expanded(
             child: Text.rich(
               TextSpan(children: [
                 TextSpan(

@@ -2,7 +2,6 @@
 // list; the selected row's actions move to a bar that names the row, and the
 // bar offers only what can run.
 
-import 'package:agency_desktop/phase2/phase2_scope.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -101,6 +100,12 @@ void main() {
     expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
     expect(find.textContaining('SO-2026-2027-000025'), findsOneWidget);
     expect(find.byKey(const ValueKey('selection-close')), findsNothing);
+
+    // The actions stand at the right of the bar, not after the name.
+    expect(
+      tester.getTopRight(find.byKey(const ValueKey('selection-approve'))).dx,
+      greaterThan(1366 - 200),
+    );
 
     await tester.tap(find.byKey(const ValueKey('selection-approve')));
     await tester.tap(find.byKey(const ValueKey('selection-view')));
