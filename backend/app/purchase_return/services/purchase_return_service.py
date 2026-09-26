@@ -64,6 +64,7 @@ from app.purchase_return.schemas import (
     PurchaseReturnListFilters,
     PurchaseReturnNoteResponse,
     PurchaseReturnNoteWrite,
+    PurchaseReturnPreview,
     PurchaseReturnReconciliationRecord,
     PurchaseReturnRegisterRecord,
     PurchaseReturnResponse,
@@ -72,7 +73,9 @@ from app.purchase_return.schemas import (
     PurchaseReturnStatus,
     PurchaseReturnSummary,
 )
+from app.sales.services.document_preview import purchase_line_companions
 from app.tax.schemas import TaxRuleSimulationRequest
+from app.tax.services.place_of_supply import PURCHASE_INTERSTATE
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.schemas import ConversionRequest
@@ -241,7 +244,51 @@ class PurchaseReturnService(TransactionalDocumentService):
     def create_return(
         self, data: PurchaseReturnCreate, *, firm_id: UUID, actor_id: UUID
     ) -> PurchaseReturn:
-        """Create one purchase return."""
+        """Create one purchase return and commit it."""
+        row = self.stage_return(data, firm_id=firm_id, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def preview_return(
+        self, data: PurchaseReturnCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> PurchaseReturnPreview:
+        """Price a return exactly as saving it would, then save nothing.
+
+        Staged through the save path -- the receipt's prices, tax at the
+        rates in force -- read back, and the unit of work rolled back: no
+        return, no number used up, no audit row.
+        """
+        try:
+            row = self.stage_return(data, firm_id=firm_id, actor_id=actor_id)
+            response = self.return_response(row)
+            interstate = (
+                self._tax.inward_transaction_type(
+                    "PURCHASE_RETURN",
+                    firm_id=firm_id,
+                    branch_id=response.branch_id,
+                    vendor_id=response.vendor_id,
+                )
+                == PURCHASE_INTERSTATE
+            )
+            lines = purchase_line_companions(
+                self._session,
+                firm_id=firm_id,
+                vendor_id=response.vendor_id,
+                lines=[
+                    (line.line_number, line.product_id, line.warehouse_id)
+                    for line in response.lines
+                ],
+            )
+        finally:
+            self._session.rollback()
+        return PurchaseReturnPreview(
+            purchase_return=response, interstate=interstate, lines=lines
+        )
+
+    def stage_return(
+        self, data: PurchaseReturnCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> PurchaseReturn:
+        """Build one purchase return as a draft without committing it."""
         assert_feature_fields(
             self._session,
             firm_id,
@@ -358,7 +405,6 @@ class PurchaseReturnService(TransactionalDocumentService):
             after_data={"return_number": row.return_number, "status": row.status},
         )
         self._flush_or_conflict("Purchase return number already exists in this firm.")
-        self._session.commit()
         return row
 
     def update_return(

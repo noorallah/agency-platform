@@ -36,6 +36,7 @@ from app.purchase_return.schemas import (
     PurchaseReturnCreate,
     PurchaseReturnImportRequest,
     PurchaseReturnListFilters,
+    PurchaseReturnPreview,
     PurchaseReturnReconciliationRecord,
     PurchaseReturnRegisterRecord,
     PurchaseReturnResponse,
@@ -184,6 +185,24 @@ def create_purchase_return(
     service = PurchaseReturnService(db)
     row = service.create_return(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
     return ApiResponse(data=service.return_response(row))
+
+
+@router.post("/preview", response_model=ApiResponse[PurchaseReturnPreview])
+def preview_purchase_return(
+    data: PurchaseReturnCreate,
+    scope: PurchaseReturnCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PurchaseReturnPreview]:
+    """Price a return to the supplier as saving it would, and save nothing.
+
+    What the return screen calls as its lines are typed, so the value and
+    tax it shows are the ones the debit will carry.
+    """
+    return ApiResponse(
+        data=PurchaseReturnService(db).preview_return(
+            data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        )
+    )
 
 
 # Declared above the `/{{id}}` route below on purpose: FastAPI matches in

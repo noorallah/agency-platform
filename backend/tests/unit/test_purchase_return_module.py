@@ -384,6 +384,62 @@ def _approved_return(
     return service, row, po_line.product_id
 
 
+def test_a_preview_prices_the_return_and_saves_nothing() -> None:
+    """The return screen's figures are the save's, and nothing lands."""
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    vendor = _vendor(session, firm_id=firm.id)
+    purchase_order = _purchase_order(
+        session,
+        firm_id=firm.id,
+        vendor_id=vendor.id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+    )
+    po_line = session.scalar(
+        select(PurchaseOrderLine).where(
+            PurchaseOrderLine.purchase_order_id == purchase_order.id
+        )
+    )
+    assert po_line is not None
+    receipt, receipt_line = _received(session, po_line)
+    payload = PurchaseReturnCreate(
+        return_date=date(2026, 8, 2),
+        warehouse_id=warehouse.id,
+        source_documents=[
+            {
+                "source_document_type": PurchaseReturnSourceType.GOODS_RECEIPT,
+                "source_document_id": receipt.id,
+            }
+        ],
+        lines=[
+            PurchaseReturnLineWrite(
+                source_document_type=PurchaseReturnSourceType.GOODS_RECEIPT,
+                source_document_id=receipt.id,
+                source_document_line_id=receipt_line.id,
+                line_number=1,
+                current_return_quantity=Decimal("4"),
+                warehouse_id=warehouse.id,
+            )
+        ],
+    )
+    service = PurchaseReturnService(session)
+    audits = session.scalar(select(func.count()).select_from(AuditLog))
+
+    preview = service.preview_return(payload, firm_id=firm.id, actor_id=uuid4())
+
+    # Four at the receipt's 100, as a blank price takes.
+    assert preview.purchase_return.subtotal == Decimal("400.0000")
+    assert preview.interstate is False
+    assert preview.lines[0].product_id == po_line.product_id
+    assert session.scalar(select(func.count()).select_from(PurchaseReturn)) == 0
+    assert session.scalar(select(func.count()).select_from(AuditLog)) == audits
+    saved = service.create_return(payload, firm_id=firm.id, actor_id=uuid4())
+    assert saved.return_number == preview.purchase_return.return_number
+
+
 def _approved_return_with_stock_posted(
     session: Session, *, firm_id: UUID
 ) -> tuple[PurchaseReturnService, PurchaseReturn]:
