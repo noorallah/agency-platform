@@ -27,7 +27,6 @@ import '../models/product.dart';
 import '../models/report.dart' show ReportPage;
 import '../models/sales_invoice.dart';
 import '../models/vendor.dart';
-import 'customers/customer_group_dialog.dart';
 import 'customers/customer_management_page.dart';
 import 'customers/customer_statement_page.dart';
 import 'customers/loyalty_page.dart';
@@ -81,6 +80,7 @@ import 'settings/settings_workspace.dart';
 import 'resource_management_page.dart';
 import '../phase2/app_menu_bar.dart';
 import '../phase2/command_box.dart';
+import '../phase2/customer_groups_page.dart';
 import '../phase2/home_page.dart';
 import '../phase2/menu_layout.dart';
 import 'theme_selector.dart';
@@ -369,17 +369,6 @@ class _DesktopShellState extends State<DesktopShell> {
   }
 
   void _openFromMenu(MenuItemSpec item, {String? view}) {
-    // A phase 2 page that opens in a tab of its own rather than as a screen.
-    if (item.path == MenuLayout.customerGroupsRoute) {
-      _openPage(
-        'Customer Groups',
-        (_) => CustomerGroupDialog(
-          api: widget.session.api,
-          permissions: widget.permissions,
-        ),
-      );
-      return;
-    }
     _activeDocument = null;
     _viewRequest = view == null
         ? null
@@ -390,18 +379,6 @@ class _DesktopShellState extends State<DesktopShell> {
     _router.navigate(location.module, tab: location.tab);
     unawaited(_saveShellState());
     setState(() {});
-  }
-
-  /// Open [title] as a page in a tab, or show its tab if it is open.
-  void _openPage(String title, WidgetBuilder builder) {
-    final OpenDocument? open = _documents.documents
-        .where((document) => document.title == title)
-        .firstOrNull;
-    if (open != null) {
-      setState(() => _activeDocument = open.id);
-      return;
-    }
-    unawaited(_documents.open<bool>(title: title, builder: builder));
   }
 
   void _showScreen(String path) {
@@ -440,6 +417,12 @@ class _DesktopShellState extends State<DesktopShell> {
   /// longer allowed (a changed role, another firm).
   bool _pathAllowed(String path) {
     if (path == MenuLayout.homeRoute) return widget.phase2;
+    // A phase 2 screen follows the catalogue screen it is gated on.
+    final MenuItemSpec? phase2Item = MenuLayout.itemFor(path);
+    if (phase2Item != null && phase2Item.module == null) {
+      return widget.phase2 &&
+          (phase2Item.gate == null || _pathAllowed(phase2Item.gate!));
+    }
     final WorkspaceLocation location = WorkspaceLocation.parse(path);
     final ModuleDefinition? module = _visibleModules
         .where((module) => module.id.name == location.module)
@@ -595,8 +578,19 @@ class _DesktopShellState extends State<DesktopShell> {
                 final bool home = widget.phase2 &&
                     (_router.current.path == MenuLayout.homeRoute ||
                         !_pathAllowed(_router.current.path));
-                final Widget page =
-                    home ? _homePage() : _page(widget.session.api, section);
+                final Widget page = home
+                    ? _homePage()
+                    : widget.phase2 &&
+                            _router.current.path ==
+                                MenuLayout.customerGroupsRoute
+                        ? CustomerGroupsPage(
+                            key: ValueKey(
+                              'customer-groups-${widget.session.firmContextVersion}',
+                            ),
+                            api: widget.session.api,
+                            permissions: widget.permissions,
+                          )
+                        : _page(widget.session.api, section);
                 if (!_classicLayout && constraints.maxWidth >= 600) {
                   return _menuLayout(page);
                 }
