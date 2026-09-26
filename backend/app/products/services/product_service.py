@@ -47,6 +47,7 @@ from app.core.exceptions import (
     ValidationError,
 )
 from app.core.utils.dates import utc_now
+from app.inventory.models import InventoryRecord
 from app.products.models import (
     Product,
     ProductAttributeValue,
@@ -196,7 +197,16 @@ class ProductService:
         base = select(Product).where(Product.firm_id == firm_scope)
         base, _ = self._apply_filters(base, base, filters=filters)
         subquery = base.subquery()
-        total, active, inactive, draft, archived, deleted = self._session.execute(
+        (
+            total,
+            active,
+            inactive,
+            draft,
+            archived,
+            deleted,
+            low_stock,
+            no_price,
+        ) = self._session.execute(
             select(
                 func.count(subquery.c.id),
                 func.sum(case((subquery.c.status == "ACTIVE", 1), else_=0)),
@@ -204,6 +214,24 @@ class ProductService:
                 func.sum(case((subquery.c.status == "DRAFT", 1), else_=0)),
                 func.sum(case((subquery.c.status == "ARCHIVED", 1), else_=0)),
                 func.sum(case((subquery.c.is_deleted.is_(True), 1), else_=0)),
+                func.sum(
+                    case(
+                        (subquery.c.id.in_(self._low_stock_products(firm_scope)), 1),
+                        else_=0,
+                    )
+                ),
+                func.sum(
+                    case(
+                        (
+                            or_(
+                                subquery.c.selling_price.is_(None),
+                                subquery.c.selling_price == 0,
+                            ),
+                            1,
+                        ),
+                        else_=0,
+                    )
+                ),
             )
         ).one()
         return ProductSummary(
@@ -213,7 +241,64 @@ class ProductService:
             draft=int(draft or 0),
             archived=int(archived or 0),
             deleted=int(deleted or 0),
+            low_stock=int(low_stock or 0),
+            no_price=int(no_price or 0),
         )
+
+    @staticmethod
+    def _low_stock_level() -> ColumnElement[bool]:
+        """Test an inventory row against its level, as the inventory summary.
+
+        The reorder level, else the minimum level, else zero -- the same test
+        ``InventoryService.summary`` counts, so the two screens agree.
+        """
+        return InventoryRecord.current_quantity <= func.coalesce(
+            InventoryRecord.reorder_level,
+            InventoryRecord.minimum_level,
+            Decimal("0"),
+        )
+
+    def _low_stock_products(self, firm_scope: UUID | None = None) -> Select[Any]:
+        """Select the ids of products some live warehouse row holds low.
+
+        Product ids are unique across firms, so the firm narrows the read
+        rather than deciding the answer.
+        """
+        statement = select(InventoryRecord.product_id).where(
+            InventoryRecord.is_deleted.is_(False),
+            self._low_stock_level(),
+        )
+        if firm_scope is not None:
+            statement = statement.where(InventoryRecord.firm_id == firm_scope)
+        return statement
+
+    def stock_for_many(
+        self, rows: Iterable[Product]
+    ) -> dict[UUID, tuple[Decimal, bool]]:
+        """Each product's quantity on hand and whether it is low, at once.
+
+        One grouped read for a page of products rather than one per row. A
+        product no warehouse has ever held is absent from the answer.
+        """
+        ids = [row.id for row in rows]
+        if not ids:
+            return {}
+        result = self._session.execute(
+            select(
+                InventoryRecord.product_id,
+                func.coalesce(func.sum(InventoryRecord.current_quantity), 0),
+                func.max(case((self._low_stock_level(), 1), else_=0)),
+            )
+            .where(
+                InventoryRecord.product_id.in_(ids),
+                InventoryRecord.is_deleted.is_(False),
+            )
+            .group_by(InventoryRecord.product_id)
+        ).all()
+        return {
+            product_id: (Decimal(str(quantity)), bool(low))
+            for product_id, quantity, low in result
+        }
 
     def create_product(
         self, data: ProductCreate, *, firm_id: UUID, actor_id: UUID
@@ -1197,6 +1282,14 @@ class ProductService:
                 Product.hsn_sac == filters.hsn_sac.strip().upper()
             )
             count = count.where(Product.hsn_sac == filters.hsn_sac.strip().upper())
+        if filters.low_stock:
+            low = Product.id.in_(self._low_stock_products())
+            statement = statement.where(low)
+            count = count.where(low)
+        if filters.no_price:
+            unpriced = or_(Product.selling_price.is_(None), Product.selling_price == 0)
+            statement = statement.where(unpriced)
+            count = count.where(unpriced)
         return statement, count
 
     def _resolved_profile(self, firm_id: UUID) -> BusinessProfile:

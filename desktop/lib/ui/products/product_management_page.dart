@@ -319,6 +319,13 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
   String? _productType;
   String? _categoryId;
   bool _includeDeleted = false;
+
+  /// Phase 2's Low stock and No price counters, each a filter.
+  bool _lowStock = false;
+  bool _noPrice = false;
+
+  /// How many products are active, low and unpriced, for those counters.
+  Map<String, dynamic> _summary = const {};
   bool _filtersExpanded = false;
   bool _loadingPreferences = true;
   String _dialogTab = 'general';
@@ -339,7 +346,184 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
     _searchFocus.addListener(_changed);
     _loadPreferences();
     _controller.bootstrap().then((_) => _controller.load());
+    unawaited(_loadSummary());
   }
+
+  Future<void> _loadSummary() async {
+    try {
+      final Map<String, dynamic> response =
+          await widget.api.documentSummary('products');
+      final dynamic data = response['data'];
+      if (!mounted) return;
+      setState(() => _summary = data is Map<String, dynamic> ? data : response);
+    } on ApiException {
+      // The counters are a convenience; the list stands without them.
+    }
+  }
+
+  /// Phase 2 (the wireframe's "Active 14  Low stock 5  No price 2"): each
+  /// counter filters the list to what it counts, and again for all.
+  List<Widget> _counters() {
+    final int low = (_summary['low_stock'] as num?)?.toInt() ?? 0;
+    return [
+      SummaryCount(
+        key: const ValueKey('product-counter-active'),
+        label: 'Active',
+        value: '${_summary['active'] ?? '-'}',
+        selected: _status == 'ACTIVE',
+        onTap: () {
+          setState(() => _status = _status == 'ACTIVE' ? null : 'ACTIVE');
+          _applyFilters();
+        },
+      ),
+      SummaryCount(
+        key: const ValueKey('product-counter-low-stock'),
+        label: 'Low stock',
+        value: '${_summary['low_stock'] ?? '-'}',
+        alert: low > 0,
+        selected: _lowStock,
+        onTap: () {
+          setState(() => _lowStock = !_lowStock);
+          _applyFilters();
+        },
+      ),
+      SummaryCount(
+        key: const ValueKey('product-counter-no-price'),
+        label: 'No price',
+        value: '${_summary['no_price'] ?? '-'}',
+        selected: _noPrice,
+        onTap: () {
+          setState(() => _noPrice = !_noPrice);
+          _applyFilters();
+        },
+      ),
+    ];
+  }
+
+  /// The wireframe's "Views" chip: recent searches and saved filters in one
+  /// menu, and saving the current one -- rather than three more icons.
+  Widget _viewsChip() => Phase2MenuChip<VoidCallback>(
+        key: const ValueKey('products-views'),
+        label: 'Views',
+        icon: Icons.star_outline,
+        tooltip: 'Saved filters and recent searches',
+        onSelected: (run) => run(),
+        itemBuilder: (context) => [
+          if (_savedFilters.isEmpty)
+            const PopupMenuItem(enabled: false, child: Text('No saved views'))
+          else
+            for (final _SavedFilter entry in _savedFilters)
+              PopupMenuItem(
+                value: () => _applySavedFilter(entry),
+                child: Text(entry.name),
+              ),
+          if (_recentSearches.isNotEmpty) ...[
+            const PopupMenuDivider(),
+            const PopupMenuItem(enabled: false, child: Text('Recent searches')),
+            for (final String entry in _recentSearches.take(8))
+              PopupMenuItem(
+                value: () {
+                  _search.text = entry;
+                  _runSearch(entry);
+                },
+                child: Row(children: [
+                  const Icon(Icons.history, size: 16),
+                  const SizedBox(width: 8),
+                  Text(entry),
+                ]),
+              ),
+          ],
+          const PopupMenuDivider(),
+          PopupMenuItem(
+            key: const ValueKey('products-save-filter'),
+            value: _saveCurrentFilter,
+            child: const Text('Save current view...'),
+          ),
+        ],
+      );
+
+  /// A product's selling unit as people read it: its own text, else the
+  /// code of its base unit.
+  String _unitLabel(Product product) {
+    if (product.unit.isNotEmpty) return product.unit;
+    for (final UomRecord uom in _controller.uoms) {
+      if (uom.id == product.baseUomId) return uom.code;
+    }
+    return '';
+  }
+
+  /// The GST rate a tax group names -- GST_18_LOCAL is 18% -- or nothing
+  /// when the group does not say.
+  static String _gstRate(String group) {
+    final RegExpMatch? match =
+        RegExp(r'GST_(\d+(?:\.\d+)?)').firstMatch(group.toUpperCase());
+    return match == null ? '' : '${match.group(1)}%';
+  }
+
+  /// Phase 2's columns, as the wireframe (view 6). The column chooser is
+  /// phase 1's; these are fixed, and a narrow window drops Brand, then HSN,
+  /// GST and MRP before anything scrolls.
+  List<GridColumn> _phase2Columns() {
+    GridColumn column(
+      String key,
+      String label, {
+      String? sortField,
+      bool numeric = false,
+      int? priority,
+    }) =>
+        GridColumn(
+          key: key,
+          label: label,
+          numeric: numeric,
+          priority: priority,
+          onSort: sortField == null
+              ? null
+              : (ascending) {
+                  _controller
+                    ..sortBy = sortField
+                    ..descending = !ascending;
+                  _persistPreferences();
+                  _controller.load(requestedPage: 1);
+                },
+        );
+    return [
+      column('code', 'Code', sortField: 'code'),
+      column('name', 'Name', sortField: 'name'),
+      column('category', 'Category', priority: 2),
+      column('brand', 'Brand', priority: 2),
+      column('unit', 'Unit', priority: 2),
+      column('hsn', 'HSN', priority: 3),
+      column('gst', 'GST', numeric: true, priority: 3),
+      column('mrp', 'MRP', numeric: true, priority: 3),
+      column('selling', 'Selling', sortField: 'selling_price', numeric: true),
+      column('stock', 'Stock', numeric: true),
+      column('status', 'Status', sortField: 'status'),
+    ];
+  }
+
+  /// A quantity without the store's four trailing decimals: 876.0000 is
+  /// 876, and 2.5000 is 2.5.
+  static String _quantity(String value) {
+    if (!value.contains('.')) return value;
+    final String trimmed = value.replaceFirst(RegExp(r'0+$'), '');
+    return trimmed.endsWith('.')
+        ? trimmed.substring(0, trimmed.length - 1)
+        : trimmed;
+  }
+
+  List<String> _phase2Cells(Product product) => [
+        product.code,
+        product.name,
+        _categoryLabel(product.categoryId),
+        product.brand,
+        _unitLabel(product),
+        product.hsnSac,
+        _gstRate(product.taxProfileGroupCode),
+        product.mrp,
+        product.sellingPrice,
+        _quantity(product.stockOnHand),
+        product.isDeleted ? 'DELETED' : product.status,
+      ];
 
   @override
   void dispose() {
@@ -489,6 +673,8 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
             ? null
             : _attributeSearch.text.trim(),
         includeDeleted: _includeDeleted,
+        lowStock: _lowStock,
+        noPrice: _noPrice,
       );
 
   Json _payloadFromExisting(
@@ -583,6 +769,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
   Future<void> _applyFilters() async {
     _controller.filters = _currentQuery();
     await _persistPreferences();
+    unawaited(_loadSummary());
     await _controller.load(requestedPage: 1);
   }
 
@@ -595,6 +782,8 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
       _hsnSac.clear();
       _attributeSearch.clear();
       _includeDeleted = false;
+      _lowStock = false;
+      _noPrice = false;
     });
     await _applyFilters();
   }
@@ -930,56 +1119,16 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         .toList();
     final bool phase2 = Phase2Scope.of(context);
     // Phase 2 (the wireframe's page line): the plain "/ search" box every
-    // list has. Recent and saved searches become icons on the line (below);
-    // row spacing is in Appearance on the menu bar for every screen, and
-    // the advanced filters are what the "+ filter" chip opens.
+    // list has. Recent and saved searches are the "Views" chip beside
+    // "+ filter"; row spacing is in Appearance on the menu bar for every
+    // screen, and the advanced filters are what "+ filter" opens.
     final Widget phase2Search = SearchFilterPanel(
       controller: _search,
       focusNode: _searchFocus,
       hintText: 'Search code, barcode, name, brand, HSN',
       onSearch: _runSearch,
     );
-    final List<Widget> phase2Searches = [
-      if (_recentSearches.isNotEmpty)
-        PopupMenuButton<String>(
-          key: const ValueKey('products-recent-searches'),
-          tooltip: 'Recent searches',
-          onSelected: (value) {
-            _search.text = value;
-            _runSearch(value);
-          },
-          itemBuilder: (context) => _recentSearches
-              .take(8)
-              .map((entry) => PopupMenuItem(value: entry, child: Text(entry)))
-              .toList(),
-          child: const _LineIcon(Icons.history),
-        ),
-      PopupMenuButton<_SavedFilter>(
-        key: const ValueKey('products-saved-filters'),
-        tooltip: 'Saved filters',
-        onSelected: _applySavedFilter,
-        itemBuilder: (context) => _savedFilters.isEmpty
-            ? const [
-                PopupMenuItem(enabled: false, child: Text('No saved filters')),
-              ]
-            : _savedFilters
-                .map((entry) =>
-                    PopupMenuItem(value: entry, child: Text(entry.name)))
-                .toList(),
-        child: const _LineIcon(Icons.bookmark_outline),
-      ),
-      Tooltip(
-        message: 'Save current filter',
-        child: InkWell(
-          key: const ValueKey('products-save-filter'),
-          onTap: _saveCurrentFilter,
-          borderRadius: BorderRadius.circular(5),
-          child: const _LineIcon(Icons.bookmark_add_outlined),
-        ),
-      ),
-    ];
     final Widget toolbar = WorkspaceToolbar(
-      trailing: phase2 ? phase2Searches : const [],
       actions: const [
         ToolbarAction.newItem,
         ToolbarAction.view,
@@ -1175,7 +1324,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
       ],
     );
     final List<Widget> filterChips = [
-      if (_status != null)
+      if (_status != null && !phase2)
         InputChip(
           label: Text('Status: $_status'),
           onDeleted: () => setState(() => _status = null),
@@ -1236,61 +1385,72 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
               total: _controller.total,
               pageOffset: (_controller.page - 1) * _rowsPerPageForDensity,
               rowsPerPage: _rowsPerPageForDensity,
-              showRowNumbers: true,
+              // Phase 2 (the wireframe): no row numbers and no ticks; a row
+              // is chosen by clicking it.
+              showRowNumbers: !phase2,
               selectedIds: _selectedIds,
-              onSelectionChanged: (ids) => setState(() {
-                _selectedIds
-                  ..clear()
-                  ..addAll(ids);
-              }),
-              columns: gridColumns,
+              onSelectionChanged: phase2
+                  ? null
+                  : (ids) => setState(() {
+                        _selectedIds
+                          ..clear()
+                          ..addAll(ids);
+                      }),
+              columns: phase2 ? _phase2Columns() : gridColumns,
               id: (product) => product.id,
-              cells: (product) => [
-                product.code,
-                product.name,
-                productCodeLabel(product.productType),
-                product.brand,
-                _categoryLabel(product.categoryId),
-                product.isDeleted ? 'DELETED' : product.status,
-                product.sellingPrice,
-                _dateOnly(product.createdAt),
-              ],
-              cellBuilder: (columnIndex, value, product) {
-                final _ProductColumn column = visibleColumns[columnIndex];
-                if (column.key == 'status') {
-                  final ColorScheme colors = Theme.of(context).colorScheme;
-                  final bool deleted = product.isDeleted;
-                  final Color bg = deleted
-                      ? colors.errorContainer
-                      : value == 'ACTIVE'
-                          ? colors.primaryContainer
-                          : colors.surfaceContainerHighest;
-                  return SizedBox(
-                    width: column.width,
-                    child: Align(
-                      alignment: Alignment.centerLeft,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
+              alertCell: (columnIndex, product) =>
+                  phase2 && columnIndex == 9 && product.lowStock,
+              cells: phase2
+                  ? _phase2Cells
+                  : (product) => [
+                        product.code,
+                        product.name,
+                        productCodeLabel(product.productType),
+                        product.brand,
+                        _categoryLabel(product.categoryId),
+                        product.isDeleted ? 'DELETED' : product.status,
+                        product.sellingPrice,
+                        _dateOnly(product.createdAt),
+                      ],
+              cellBuilder: phase2
+                  ? null
+                  : (columnIndex, value, product) {
+                      final _ProductColumn column = visibleColumns[columnIndex];
+                      if (column.key == 'status') {
+                        final ColorScheme colors =
+                            Theme.of(context).colorScheme;
+                        final bool deleted = product.isDeleted;
+                        final Color bg = deleted
+                            ? colors.errorContainer
+                            : value == 'ACTIVE'
+                                ? colors.primaryContainer
+                                : colors.surfaceContainerHighest;
+                        return SizedBox(
+                          width: column.width,
+                          child: Align(
+                            alignment: Alignment.centerLeft,
+                            child: Container(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                                vertical: 4,
+                              ),
+                              decoration: BoxDecoration(
+                                color: bg,
+                                borderRadius: BorderRadius.circular(999),
+                              ),
+                              child: Text(value),
+                            ),
+                          ),
+                        );
+                      }
+                      return SizedBox(
+                        width: column.width,
+                        child: Text(
+                          value,
+                          overflow: TextOverflow.ellipsis,
                         ),
-                        decoration: BoxDecoration(
-                          color: bg,
-                          borderRadius: BorderRadius.circular(999),
-                        ),
-                        child: Text(value),
-                      ),
-                    ),
-                  );
-                }
-                return SizedBox(
-                  width: column.width,
-                  child: Text(
-                    value,
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                );
-              },
+                      );
+                    },
               selectedId: selected?.id,
               onSelect: _controller.select,
               onOpen: (product) => _open(ProductDialogMode.view, product),
@@ -1366,7 +1526,13 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         toolbar: toolbar,
         searchPanel: phase2 ? phase2Search : phase1Search,
         filterPanel: filterPanel,
-        primaryContent: primaryContent,
+        lineChips: phase2 ? [_viewsChip()] : const [],
+        primaryContent: phase2
+            ? Column(children: [
+                SummaryCards(children: _counters()),
+                Expanded(child: primaryContent),
+              ])
+            : primaryContent,
         // No summary panel. Selecting a row should select it, not open a
         // second reading of it beside the table; opening a record is what
         // double-click and the row's eye icon are for. Passing null also hands
@@ -1379,7 +1545,9 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
           selectedCount: _selectedIds.isNotEmpty ? _selectedIds.length : null,
           message: _controller.loading
               ? 'Refreshing...'
-              : '${visibleColumns.length} visible columns',
+              : phase2
+                  ? 'Stock below its reorder level in red'
+                  : '${visibleColumns.length} visible columns',
         ),
       ),
     );
@@ -3293,27 +3461,3 @@ class _ExportScopeDialogState extends State<_ExportScopeDialog> {
 
 String _dateOnly(String value) =>
     value.length >= 10 ? value.substring(0, 10) : value;
-
-/// An icon on the phase 2 page line, as the line's other icon buttons: a
-/// small square with a grey edge.
-class _LineIcon extends StatelessWidget {
-  const _LineIcon(this.icon);
-
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
-    return Container(
-      width: 32,
-      height: 32,
-      alignment: Alignment.center,
-      decoration: BoxDecoration(
-        color: scheme.surfaceContainerLowest,
-        borderRadius: BorderRadius.circular(5),
-        border: Border.all(color: scheme.outlineVariant),
-      ),
-      child: Icon(icon, size: 18, color: scheme.onSurface),
-    );
-  }
-}
