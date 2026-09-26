@@ -80,7 +80,6 @@ import 'resource_management_page.dart';
 import '../phase2/app_menu_bar.dart';
 import '../phase2/command_box.dart';
 import '../phase2/menu_layout.dart';
-import '../phase2/phase2_scope.dart';
 import 'theme_selector.dart';
 import 'workspace/module_catalog.dart';
 import 'workspace/module_visibility.dart';

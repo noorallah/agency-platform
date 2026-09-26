@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/design/design_tokens.dart';
+import '../../phase2/phase2_scope.dart';
 import 'workspace_components.dart';
 
 class WorkspaceNavigationNode {
@@ -176,6 +177,29 @@ class EnterpriseWorkspace extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (Phase2Scope.of(context)) {
+      // Phase 2 (4.5): the title band becomes the page's one line, drawn by
+      // the list below it when there is one.
+      final Widget page = phase2Frame(
+        title: title,
+        description: description,
+        actions: [...leadingActions, if (toolbar != null) toolbar!],
+        child: content,
+        status: statusBar,
+      );
+      // The Scaffold phase 1 put here was also the Material its text fields
+      // and ink need; the page keeps that surface without the Scaffold.
+      return Material(
+        color: Theme.of(context).colorScheme.surface,
+        child: navigation == null
+            ? page
+            : Row(children: [
+                SizedBox(width: navigationWidth, child: navigation),
+                const VerticalDivider(width: 1),
+                Expanded(child: page),
+              ]),
+      );
+    }
     final ThemeData theme = Theme.of(context);
     return LayoutBuilder(
       builder: (context, constraints) {

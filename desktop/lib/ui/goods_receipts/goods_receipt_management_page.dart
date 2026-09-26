@@ -369,6 +369,24 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
   }
 
   /// Switch the list to another view of itself.
+  /// Phase 2 (UI_PHASE_2_DESIGN.md 4.5): one counter per view with its
+  /// count, and clicking one is choosing that view -- click it again for
+  /// all. The summary endpoint counts every status the views filter on.
+  List<Widget> _viewCounters() => [
+        for (final GoodsReceiptView view in GoodsReceiptView.values)
+          SummaryCount(
+            key: ValueKey('view-counter-${view.name}'),
+            label: view.label,
+            value: '${_summary[view.status?.toLowerCase() ?? 'total'] ?? 0}',
+            selected: _view == view,
+            onTap: _loading
+                ? null
+                : () => _selectView(
+                      _view == view ? GoodsReceiptView.all : view,
+                    ),
+          ),
+      ];
+
   void _selectView(GoodsReceiptView view) {
     if (view == _view) return;
     setState(() {
@@ -403,9 +421,15 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
       child: Column(
         children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
+            // Phase 2 draws the figures on the page's one line, so the gap
+            // their row of cards needed goes with it.
+            padding: Phase2Scope.of(context)
+                ? EdgeInsets.zero
+                : const EdgeInsets.fromLTRB(24, 0, 24, 12),
             child: SummaryCards(
-              children: [
+              children: Phase2Scope.of(context)
+                  ? _viewCounters()
+                  : [
                 _summaryCard('Total', '${_summary['total'] ?? 0}'),
                 _summaryCard('Draft', '${_summary['draft'] ?? 0}'),
                 _summaryCard('Completed', '${_summary['completed'] ?? 0}'),
@@ -428,7 +452,9 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
           hintText: 'Search GRN number, purchase order...',
           onSearch: (_) => _load(requestedPage: 1),
         ),
-        viewBar: _buildViewBar(),
+        // Phase 2's counters are the views (4.5); a second row
+        // of the same choices would repeat them.
+        viewBar: Phase2Scope.of(context) ? null : _buildViewBar(),
         primaryContent: _loading
             ? const Center(child: CircularProgressIndicator())
             : _receipts.isEmpty
@@ -614,19 +640,8 @@ class _GoodsReceiptManagementPageState extends State<GoodsReceiptManagementPage>
     );
   }
 
-  Widget _summaryCard(String label, String value) => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: Theme.of(context).textTheme.labelMedium),
-              const SizedBox(height: 8),
-              Text(value, style: Theme.of(context).textTheme.headlineSmall),
-            ],
-          ),
-        ),
-      );
+  Widget _summaryCard(String label, String value) =>
+      SummaryCount(label: label, value: value);
 
   Map<String, String> _filtersForView() {
     final String? status = _view.status;

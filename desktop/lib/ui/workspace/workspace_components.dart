@@ -140,7 +140,34 @@ class WorkspaceLayout extends StatelessWidget {
   final List<Widget> headerActions;
 
   @override
-  Widget build(BuildContext context) => SafeArea(
+  Widget build(BuildContext context) {
+    if (Phase2Scope.of(context)) {
+      // Phase 2 (4.5): title, counters, search and actions on one line.
+      return phase2Frame(
+        title: title,
+        description: description ?? '',
+        actions: [
+          if (search != null) ...[
+            SizedBox(width: 280, child: search),
+            const SizedBox(width: 8),
+          ],
+          if (toolbar != null) toolbar!,
+          ...headerActions,
+        ],
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            if (filterPanel != null) filterPanel!,
+            Expanded(child: content),
+          ],
+        ),
+        status: statusBar,
+      );
+    }
+    return _phase1(context);
+  }
+
+  Widget _phase1(BuildContext context) => SafeArea(
         child: Column(children: [
           Padding(
             padding: const EdgeInsets.fromLTRB(
@@ -250,10 +277,195 @@ class SummaryCards extends StatelessWidget {
   final List<Widget> children;
 
   @override
-  Widget build(BuildContext context) => Wrap(
-        spacing: AppSpacing.md,
-        runSpacing: AppSpacing.md,
-        children: children,
+  Widget build(BuildContext context) {
+    if (Phase2Scope.of(context)) {
+      // Phase 2 (4.5): the figures are counters on the page's one line, not
+      // a row of cards above it. Handed to the line and drawn there; where
+      // there is no line to hand them to, a compact row in place.
+      final Phase2PageBar? bar = Phase2PageBar.of(context);
+      if (bar != null) {
+        bar.publish(children);
+        return const SizedBox.shrink();
+      }
+      return Wrap(spacing: 6, runSpacing: 6, children: children);
+    }
+    return Wrap(
+      spacing: AppSpacing.md,
+      runSpacing: AppSpacing.md,
+      children: children,
+    );
+  }
+}
+
+/// One summary figure: "Draft 3", "Overdue 2".
+///
+/// Phase 1 draws it as the card every document list drew for itself (six
+/// private copies, now this one). Phase 2 draws a small counter on the page's
+/// one line (UI_PHASE_2_DESIGN.md 4.5) which, given [onTap], is also the
+/// quickest filter there is: click "Draft 3" and the list is the three
+/// drafts, marked [selected] while it is.
+class SummaryCount extends StatelessWidget {
+  const SummaryCount({
+    super.key,
+    required this.label,
+    required this.value,
+    this.onTap,
+    this.selected = false,
+    this.alert = false,
+    this.width,
+    this.largeLabel = false,
+  });
+
+  final String label;
+  final String value;
+
+  /// Filter the list to what this figure counts.
+  final VoidCallback? onTap;
+  final bool selected;
+
+  /// A figure somebody should act on (Overdue): drawn in the danger colour
+  /// whenever it is not zero.
+  final bool alert;
+
+  /// Phase 1's card width, where a screen fixed one.
+  final double? width;
+
+  /// Phase 1's label size on the screens that used the larger one.
+  final bool largeLabel;
+
+  @override
+  Widget build(BuildContext context) =>
+      Phase2Scope.of(context) ? _counter(context) : _card(context);
+
+  Widget _card(BuildContext context) {
+    final TextTheme text = Theme.of(context).textTheme;
+    final Widget card = Card(
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(label, style: largeLabel ? text.labelLarge : text.labelMedium),
+            const SizedBox(height: 8),
+            Text(value, style: text.headlineSmall),
+          ],
+        ),
+      ),
+    );
+    return width == null ? card : SizedBox(width: width, child: card);
+  }
+
+  Widget _counter(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final ColorScheme scheme = theme.colorScheme;
+    final bool alarming = alert && value.trim() != '0' && value.trim() != '';
+    final Widget body = Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: selected ? scheme.primary.withValues(alpha: .12) : null,
+        borderRadius: AppRadius.medium,
+        // 4.14: the counter the list is filtered by is outlined, not only
+        // tinted.
+        border: Border.all(
+          color: selected ? scheme.primary : Colors.transparent,
+          width: 1.5,
+        ),
+      ),
+      child: Row(mainAxisSize: MainAxisSize.min, children: [
+        Text(
+          label,
+          style: theme.textTheme.bodySmall
+              ?.copyWith(color: scheme.onSurfaceVariant),
+        ),
+        const SizedBox(width: 5),
+        Text(
+          value,
+          style: theme.textTheme.bodyMedium?.copyWith(
+            fontWeight: FontWeight.w700,
+            color: alarming ? scheme.error : scheme.onSurface,
+          ),
+        ),
+      ]),
+    );
+    if (onTap == null) return body;
+    return Tooltip(
+      message: selected ? 'Showing $label -- click to show all' : 'Show $label',
+      child: InkWell(
+        borderRadius: AppRadius.medium,
+        onTap: onTap,
+        child: body,
+      ),
+    );
+  }
+}
+
+/// The start of the phase 2 page line: title, its description behind (i),
+/// the page's tabs, and its counters (4.5). Drawn by the list layout when it
+/// has claimed the line, and by the frame when nothing has.
+class Phase2PageTitle extends StatelessWidget {
+  const Phase2PageTitle({super.key, required this.bar});
+
+  final Phase2PageBar bar;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 260),
+        child: Text(
+          bar.title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.titleMedium
+              ?.copyWith(fontWeight: FontWeight.w600),
+        ),
+      ),
+      if (bar.description.isNotEmpty)
+        Tooltip(
+          message: bar.description,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            child: Icon(
+              Icons.info_outline,
+              size: 16,
+              color: theme.colorScheme.onSurfaceVariant,
+            ),
+          ),
+        ),
+      if (bar.tabs != null) ...[
+        const SizedBox(width: 8),
+        bar.tabs!,
+      ],
+    ]);
+  }
+}
+
+/// The page's counters, scrolling sideways rather than wrapping when the
+/// line is short (4.11: the line never grows a second row for them).
+class Phase2PageCounters extends StatelessWidget {
+  const Phase2PageCounters({super.key, required this.bar});
+
+  final Phase2PageBar bar;
+
+  @override
+  Widget build(BuildContext context) => ValueListenableBuilder<List<Widget>>(
+        valueListenable: bar.counters,
+        builder: (context, counters, _) => counters.isEmpty
+            ? const SizedBox.shrink()
+            : SingleChildScrollView(
+                key: const ValueKey('phase2-counters'),
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    for (final Widget counter in counters) ...[
+                      const SizedBox(width: 4),
+                      counter,
+                    ],
+                  ],
+                ),
+              ),
       );
 }
 
@@ -641,71 +853,76 @@ class ModuleWorkspaceFrame extends StatelessWidget {
   }
 
   /// Phase 2 (UI_PHASE_2_DESIGN.md 4.5): the title, its description behind
-  /// an (i), and the screen's own tabs, on **one** line. The breadcrumb goes:
-  /// the menu bar's open area and the open-screen tab already say where you
-  /// are, and phase 1 said it three times over about 120 px.
-  Widget _phase2(BuildContext context, List<WorkspaceTab> workspaceTabs) {
-    final ThemeData theme = Theme.of(context);
-    return Column(children: [
-      Padding(
-        padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
-        child: Row(children: [
-          Flexible(
-            child: Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w600),
-            ),
-          ),
-          if (description.isNotEmpty)
-            Tooltip(
-              message: description,
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 6),
-                child: Icon(
-                  Icons.info_outline,
-                  size: 16,
-                  color: theme.colorScheme.onSurfaceVariant,
+  /// an (i), the screen's own tabs and its counters join the list's one line
+  /// ([Phase2PageBar]). The breadcrumb goes: the menu bar's open area and the
+  /// open-screen tab already say where you are, and phase 1 said it three
+  /// times over about 120 px.
+  Widget _phase2(BuildContext context, List<WorkspaceTab> workspaceTabs) =>
+      phase2Frame(
+        title: title,
+        description: description,
+        tabs: workspaceTabs.isEmpty
+            ? null
+            : SegmentedButton<int>(
+                style: const ButtonStyle(
+                  visualDensity: VisualDensity.compact,
+                  tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                 ),
+                segments: [
+                  for (var index = 0; index < workspaceTabs.length; index++)
+                    ButtonSegment(
+                      value: index,
+                      label: Text(workspaceTabs[index].label),
+                      enabled: workspaceTabs[index].available,
+                    ),
+                ],
+                selected: {selectedTab.clamp(0, workspaceTabs.length - 1)},
+                onSelectionChanged: onTabChanged == null
+                    ? null
+                    : (selection) => onTabChanged!(selection.first),
+                showSelectedIcon: false,
               ),
-            ),
-          if (workspaceTabs.isNotEmpty) ...[
-            const SizedBox(width: 12),
-            Flexible(
-              flex: 3,
-              child: SingleChildScrollView(
-                scrollDirection: Axis.horizontal,
-                child: SegmentedButton<int>(
-                  style: const ButtonStyle(
-                    visualDensity: VisualDensity.compact,
-                    tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                  ),
-                  segments: [
-                    for (var index = 0; index < workspaceTabs.length; index++)
-                      ButtonSegment(
-                        value: index,
-                        label: Text(workspaceTabs[index].label),
-                        enabled: workspaceTabs[index].available,
-                      ),
-                  ],
-                  selected: {selectedTab.clamp(0, workspaceTabs.length - 1)},
-                  onSelectionChanged: onTabChanged == null
-                      ? null
-                      : (selection) => onTabChanged!(selection.first),
-                  showSelectedIcon: false,
-                ),
-              ),
-            ),
-          ],
-        ]),
-      ),
-      Expanded(child: child),
-      if (status != null) status!,
-    ]);
-  }
+        child: child,
+        status: status,
+      );
 }
+
+/// Every phase 2 page frame, whichever phase 1 frame it replaces: a
+/// [Phase2PageBar] for the list below to draw the one line with, and -- when
+/// nothing below claims that line -- a compact title line of its own, with
+/// the counters on it and [actions] at its end.
+Widget phase2Frame({
+  required String title,
+  required String description,
+  Widget? tabs,
+  required Widget child,
+  Widget? status,
+  List<Widget> actions = const [],
+}) =>
+    Phase2PageBarHost(
+      title: title,
+      description: description,
+      tabs: tabs,
+      builder: (context, bar, claimed) => Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          if (!claimed || actions.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 6, 12, 2),
+              child: Row(children: [
+                if (!claimed) ...[
+                  Phase2PageTitle(bar: bar),
+                  Flexible(child: Phase2PageCounters(bar: bar)),
+                ],
+                const Spacer(),
+                ...actions,
+              ]),
+            ),
+          Expanded(child: child),
+          if (status != null) status,
+        ],
+      ),
+    );
 
 class WorkspaceTab {
   const WorkspaceTab({
@@ -1174,18 +1391,54 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
     final Widget? filters = layout.filterPanel;
     final int active = filters is FilterPanel ? filters.activeFilterCount : 0;
     final ColorScheme scheme = Theme.of(context).colorScheme;
+    // The frame above hands over its title and counters; this draws them on
+    // the same line as the search and the actions (4.5).
+    final Phase2PageBar? bar = Phase2PageBar.of(context);
+    bar?.claim();
+    // Filters, search and actions. The search box is a fixed, modest width
+    // on the one line -- the wireframe's "/ search" -- so the counters get
+    // the room; on a line of its own it takes what is left.
+    List<Widget> working({required bool fixedSearch}) => [
+          if (filters != null) ...[
+            _filtersButton(active, scheme),
+            const SizedBox(width: 8),
+          ],
+          if (fixedSearch)
+            SizedBox(width: 280, child: layout.searchPanel)
+          else
+            Expanded(child: layout.searchPanel),
+          const SizedBox(width: 8),
+          layout.toolbar,
+        ];
     return Column(children: [
       Padding(
         padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
-        child: Row(children: [
-          Expanded(child: layout.searchPanel),
-          if (filters != null) ...[
+        child: LayoutBuilder(builder: (context, constraints) {
+          if (bar == null) {
+            return Row(children: working(fixedSearch: false));
+          }
+          // 4.11: on a narrow window the line becomes two -- title and
+          // counters, then the work -- rather than squeezing either.
+          if (constraints.maxWidth < 1100) {
+            return Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Row(children: [
+                  Phase2PageTitle(bar: bar),
+                  Flexible(child: Phase2PageCounters(bar: bar)),
+                ]),
+                const SizedBox(height: 4),
+                Row(children: working(fixedSearch: false)),
+              ],
+            );
+          }
+          return Row(children: [
+            Phase2PageTitle(bar: bar),
+            Expanded(child: Phase2PageCounters(bar: bar)),
             const SizedBox(width: 8),
-            _filtersButton(active, scheme),
-          ],
-          const SizedBox(width: 8),
-          layout.toolbar,
-        ]),
+            ...working(fixedSearch: true),
+          ]);
+        }),
       ),
       if (layout.viewBar != null)
         Padding(

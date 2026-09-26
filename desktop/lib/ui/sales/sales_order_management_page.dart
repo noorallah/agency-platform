@@ -330,7 +330,11 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
           children: [
             if (_loading) const LinearProgressIndicator(minHeight: 2),
             Padding(
-              padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
+              // Phase 2 draws the figures on the page's one line, so the gap
+              // their row of cards needed goes with it.
+              padding: Phase2Scope.of(context)
+                  ? EdgeInsets.zero
+                  : const EdgeInsets.fromLTRB(24, 0, 24, 12),
               child: SummaryCards(
                 children: [
                   _card('Total', '${_summary['total'] ?? 0}'),
@@ -685,19 +689,8 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         },
       );
 
-  Widget _card(String label, String value) => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: Theme.of(context).textTheme.labelMedium),
-              const SizedBox(height: 8),
-              Text(value, style: Theme.of(context).textTheme.headlineSmall),
-            ],
-          ),
-        ),
-      );
+  Widget _card(String label, String value) =>
+      SummaryCount(label: label, value: value);
 
   Map<String, dynamic> _unwrap(dynamic response) {
     if (response is! Map<String, dynamic>) return const <String, dynamic>{};

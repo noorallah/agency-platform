@@ -382,9 +382,15 @@ class _SalesInvoiceManagementPageState
           children: [
             if (_loading) const LinearProgressIndicator(minHeight: 2),
             Padding(
-              padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
+              // Phase 2 draws the figures on the page's one line, so the gap
+              // their row of cards needed goes with it.
+              padding: Phase2Scope.of(context)
+                  ? EdgeInsets.zero
+                  : const EdgeInsets.fromLTRB(24, 0, 24, 12),
               child: SummaryCards(
-                children: [
+                children: Phase2Scope.of(context)
+                    ? _viewCounters()
+                    : [
                   _card('Total', '${_summary['total'] ?? 0}'),
                   _card('Draft', '${_summary['draft'] ?? 0}'),
                   _card('Approved', '${_summary['approved'] ?? 0}'),
@@ -471,6 +477,33 @@ class _SalesInvoiceManagementPageState
     );
   }
 
+  /// Phase 2 (UI_PHASE_2_DESIGN.md 4.5): one counter per view with its
+  /// count, and clicking one is choosing that view -- click it again for
+  /// all. The summary endpoint counts every status the views filter on.
+  List<Widget> _viewCounters() => [
+        for (final SalesInvoiceView view in SalesInvoiceView.values)
+          SummaryCount(
+            key: ValueKey('view-counter-${view.name}'),
+            label: view.label,
+            value: '${_summary[view.status?.toLowerCase() ?? 'total'] ?? 0}',
+            selected: _view == view,
+            onTap: _loading
+                ? null
+                : () => _selectView(
+                      _view == view ? SalesInvoiceView.all : view,
+                    ),
+          ),
+        SummaryCount(
+          label: 'Pending',
+          value: '${_summary['pending_invoices'] ?? 0}',
+        ),
+        SummaryCount(
+          label: 'Overdue',
+          value: '${_summary['overdue_invoices'] ?? 0}',
+          alert: true,
+        ),
+      ];
+
   void _selectView(SalesInvoiceView view) {
     if (view == _view) return;
     setState(() {
@@ -499,7 +532,9 @@ class _SalesInvoiceManagementPageState
 
   Widget _buildGridWorkspace() => ManagementWorkspaceLayout(
         toolbar: _buildToolbar(),
-        viewBar: _buildViewBar(),
+        // Phase 2's counters are the views (4.5); a second row
+        // of the same choices would repeat them.
+        viewBar: Phase2Scope.of(context) ? null : _buildViewBar(),
         searchPanel: SearchFilterPanel(
           controller: _search,
           hintText: 'Search invoice number, reference...',
@@ -753,19 +788,8 @@ class _SalesInvoiceManagementPageState
         },
       );
 
-  Widget _card(String label, String value) => Card(
-        child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(label, style: Theme.of(context).textTheme.labelMedium),
-              const SizedBox(height: 8),
-              Text(value, style: Theme.of(context).textTheme.headlineSmall),
-            ],
-          ),
-        ),
-      );
+  Widget _card(String label, String value) =>
+      SummaryCount(label: label, value: value);
 
   Map<String, dynamic> _unwrap(dynamic response) {
     if (response is! Map<String, dynamic>) return const <String, dynamic>{};
