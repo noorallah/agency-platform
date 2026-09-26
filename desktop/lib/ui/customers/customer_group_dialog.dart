@@ -7,6 +7,7 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/customer.dart';
 import '../../models/entities.dart';
+import '../workspace/desktop_framework.dart';
 
 /// The segments a firm sells to, and what each is normally given.
 ///
@@ -170,12 +171,7 @@ class _CustomerGroupDialogState extends State<CustomerGroupDialog> {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    return AlertDialog(
-      icon: const Icon(Icons.groups_outlined),
-      title: const Text('Customer groups'),
-      content: SizedBox(
-        width: 560,
-        child: _loading
+    final Widget content = _loading
             ? const Padding(
                 padding: EdgeInsets.all(AppSpacing.xl),
                 child: Center(child: CircularProgressIndicator()),
@@ -294,14 +290,40 @@ class _CustomerGroupDialogState extends State<CustomerGroupDialog> {
                     ),
                   ],
                 ],
-              ),
-      ),
-      actions: [
-        TextButton(
-          onPressed: _saving ? null : () => Navigator.of(context).pop(true),
-          child: const Text('Close'),
+              );
+    final Widget close = TextButton(
+      onPressed: _saving ? null : () => Navigator.of(context).pop(true),
+      child: const Text('Close'),
+    );
+    // Phase 2: Masters > Parties > Customer Groups opens this as a page in a
+    // tab of its own -- the group list is master data, like vendor
+    // categories, not a button on the Customers screen.
+    if (DocumentTabScope.of(context)) {
+      return WorkspaceDialog(
+        title: 'Customer Groups',
+        icon: Icons.groups_outlined,
+        onClose: _saving ? null : () => Navigator.of(context).pop(true),
+        body: SingleChildScrollView(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Align(
+            alignment: Alignment.topLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 720),
+              child: content,
+            ),
+          ),
         ),
-      ],
+        footer: Padding(
+          padding: const EdgeInsets.all(AppSpacing.md),
+          child: Row(children: [const Spacer(), close]),
+        ),
+      );
+    }
+    return AlertDialog(
+      icon: const Icon(Icons.groups_outlined),
+      title: const Text('Customer groups'),
+      content: SizedBox(width: 560, child: content),
+      actions: [close],
     );
   }
 }

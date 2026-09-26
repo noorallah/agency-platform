@@ -2104,7 +2104,23 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
       ),
       child: MouseRegion(
         onExit: (_) => setState(() => _hovered = null),
-        child: _dataTable(context),
+        // The heading's own line, in the stronger grey: DataTable draws one
+        // light line under every row, the heading's included, so the heading
+        // did not stand apart from the first row. Drawn along its bottom
+        // edge, which is fixed at 34 px.
+        // `passthrough`: the table must keep the width the grid gives it; a
+        // default Stack loosens it and the table shrank to its columns.
+        child: Stack(fit: StackFit.passthrough, children: [
+          _dataTable(context),
+          Positioned(
+            key: const ValueKey('grid-heading-line'),
+            top: 33,
+            left: 0,
+            right: 0,
+            height: 1,
+            child: ColoredBox(color: theme.colorScheme.outlineVariant),
+          ),
+        ]),
       ),
     );
   }

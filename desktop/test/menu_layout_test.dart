@@ -130,6 +130,19 @@ void main() {
       expect(shown.map((area) => area.id), isNot(contains('buy')));
     });
 
+    test('Customer Groups follows whoever may open Customers', () {
+      List<String> parties(List<String> codes) => [
+            for (final MenuItemSpec item in MenuLayout.visible(
+                  MenuLayout.areas.singleWhere((area) => area.id == 'masters'),
+                  _visibility(codes),
+                )?.items ??
+                const <MenuItemSpec>[])
+              item.label,
+          ];
+      expect(parties(['CUSTOMER_VIEW']), contains('Customer Groups'));
+      expect(parties(['VENDOR_VIEW']), isNot(contains('Customer Groups')));
+    });
+
     test('a group left with no item disappears', () {
       final MenuAreaSpec? masters = MenuLayout.visible(
         MenuLayout.areas.singleWhere((area) => area.id == 'masters'),

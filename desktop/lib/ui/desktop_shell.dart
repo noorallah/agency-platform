@@ -27,6 +27,7 @@ import '../models/product.dart';
 import '../models/report.dart' show ReportPage;
 import '../models/sales_invoice.dart';
 import '../models/vendor.dart';
+import 'customers/customer_group_dialog.dart';
 import 'customers/customer_management_page.dart';
 import 'customers/customer_statement_page.dart';
 import 'customers/loyalty_page.dart';
@@ -368,6 +369,17 @@ class _DesktopShellState extends State<DesktopShell> {
   }
 
   void _openFromMenu(MenuItemSpec item, {String? view}) {
+    // A phase 2 page that opens in a tab of its own rather than as a screen.
+    if (item.path == MenuLayout.customerGroupsRoute) {
+      _openPage(
+        'Customer Groups',
+        (_) => CustomerGroupDialog(
+          api: widget.session.api,
+          permissions: widget.permissions,
+        ),
+      );
+      return;
+    }
     _activeDocument = null;
     _viewRequest = view == null
         ? null
@@ -378,6 +390,18 @@ class _DesktopShellState extends State<DesktopShell> {
     _router.navigate(location.module, tab: location.tab);
     unawaited(_saveShellState());
     setState(() {});
+  }
+
+  /// Open [title] as a page in a tab, or show its tab if it is open.
+  void _openPage(String title, WidgetBuilder builder) {
+    final OpenDocument? open = _documents.documents
+        .where((document) => document.title == title)
+        .firstOrNull;
+    if (open != null) {
+      setState(() => _activeDocument = open.id);
+      return;
+    }
+    unawaited(_documents.open<bool>(title: title, builder: builder));
   }
 
   void _showScreen(String path) {
