@@ -55,6 +55,9 @@ class QuotationManagementPage extends StatefulWidget {
 class _QuotationManagementPageState extends State<QuotationManagementPage> {
   static const int _rowsPerPage = 20;
   final TextEditingController _search = TextEditingController();
+
+  /// The quotation dates the list is narrowed to (owner, 2026-09-27).
+  DatePeriod _period = const DatePeriod.all();
   List<Quotation> _quotations = const [];
   Quotation? _selected;
   int _page = 1;
@@ -95,6 +98,9 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
         page: _page,
         pageSize: _rowsPerPage,
         search: _search.text.trim(),
+        quotationFrom:
+            _period.from == null ? null : DatePeriod.iso(_period.from!),
+        quotationTo: _period.to == null ? null : DatePeriod.iso(_period.to!),
       );
       if (!mounted) return;
       setState(() {
@@ -290,6 +296,13 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
                 hintText: 'Search number or customer',
                 onSearch: (_) => unawaited(_load(requestedPage: 1)),
               ),
+            ),
+            DateRangeFilter(
+              value: _period,
+              onChanged: (period) {
+                setState(() => _period = period);
+                unawaited(_load(requestedPage: 1));
+              },
             ),
             if (_canQuote)
               FilledButton(

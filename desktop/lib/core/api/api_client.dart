@@ -3421,6 +3421,8 @@ class ApiClient {
     int pageSize = 20,
     String search = '',
     String? status,
+    String? quotationFrom,
+    String? quotationTo,
   }) =>
       _list(
         '/api/v1/quotations',
@@ -3429,7 +3431,11 @@ class ApiClient {
         search,
         pageSize: pageSize,
         sortBy: 'quotation_date',
-        additionalQuery: {if (status != null) 'status': status},
+        additionalQuery: {
+          if (status != null) 'status': status,
+          if (quotationFrom != null) 'quotation_from': quotationFrom,
+          if (quotationTo != null) 'quotation_to': quotationTo,
+        },
       );
 
   Future<Quotation> quotation(String id) async => Quotation.fromJson(

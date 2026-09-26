@@ -147,6 +147,8 @@ class _QuoteApi extends ApiClient {
     int pageSize = 20,
     String search = '',
     String? status,
+    String? quotationFrom,
+    String? quotationTo,
   }) async =>
       PagedResult<Quotation>(items: rows, total: rows.length);
 
