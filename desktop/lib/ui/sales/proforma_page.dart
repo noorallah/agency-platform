@@ -211,10 +211,13 @@ class _ProformaPageState extends State<ProformaPage> {
         spacing: AppSpacing.sm,
         runSpacing: AppSpacing.sm,
         children: [
-          OutlinedButton.icon(
+          Phase2Refresh(
             onPressed: _load,
-            icon: const Icon(Icons.refresh),
-            label: const Text('Refresh'),
+            child: OutlinedButton.icon(
+              onPressed: _load,
+              icon: const Icon(Icons.refresh),
+              label: const Text('Refresh'),
+            ),
           ),
           FilledButton.icon(
             onPressed: _mayManage ? _raise : null,

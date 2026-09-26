@@ -166,10 +166,13 @@ class _PriceListPageState extends State<PriceListPage> {
               icon: const Icon(Icons.add),
               label: const Text('New price list'),
             ),
-          OutlinedButton.icon(
+          Phase2Refresh(
             onPressed: () => unawaited(_load()),
-            icon: const Icon(Icons.refresh),
-            label: const Text('Refresh'),
+            child: OutlinedButton.icon(
+              onPressed: () => unawaited(_load()),
+              icon: const Icon(Icons.refresh),
+              label: const Text('Refresh'),
+            ),
           ),
         ],
       ),
