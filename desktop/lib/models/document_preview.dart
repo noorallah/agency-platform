@@ -122,6 +122,29 @@ class PurchaseInvoicePreviewRecord {
       );
 }
 
+/// A return to the supplier priced exactly as saving it would, from
+/// `POST /api/v1/purchase-returns/preview`.
+class PurchaseReturnPreviewRecord {
+  const PurchaseReturnPreviewRecord({
+    required this.purchaseReturn,
+    required this.interstate,
+    required this.lines,
+  });
+
+  final Map<String, dynamic> purchaseReturn;
+  final bool interstate;
+  final List<DocumentPreviewLine> lines;
+
+  factory PurchaseReturnPreviewRecord.fromJson(Map<String, dynamic> json) =>
+      PurchaseReturnPreviewRecord(
+        purchaseReturn: Map<String, dynamic>.from(
+          json['purchase_return'] as Map? ?? const {},
+        ),
+        interstate: json['interstate'] == true,
+        lines: _previewLines(json['lines']),
+      );
+}
+
 List<DocumentPreviewLine> _previewLines(dynamic raw) => [
       for (final dynamic line in raw as List? ?? const [])
         if (line is Map)

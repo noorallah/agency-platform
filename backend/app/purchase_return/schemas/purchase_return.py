@@ -7,6 +7,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.sales.schemas.document_preview import DocumentPreviewLine
+
 
 class PurchaseReturnSchema(BaseModel):
     """Apply strict input and ORM response behavior."""
@@ -412,3 +414,16 @@ class PurchaseReturnByProductRecord(PurchaseReturnSchema):
     return_quantity: Decimal
     return_amount: Decimal
     return_count: int
+
+
+class PurchaseReturnPreview(PurchaseReturnSchema):
+    """A supplier return priced exactly as saving it would, without saving it.
+
+    ``interstate`` says how its tax splits: IGST from a supplier in another
+    state, CGST and SGST from one in the firm's own. ``lines`` carries each
+    line's last price from this vendor and the stock it goes back out of.
+    """
+
+    purchase_return: PurchaseReturnResponse
+    interstate: bool
+    lines: list[DocumentPreviewLine]

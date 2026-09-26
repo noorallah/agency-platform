@@ -3758,6 +3758,18 @@ class ApiClient {
         ),
       );
 
+  /// Price a return to the supplier as saving it would, and save nothing:
+  /// what the phase 2 return screen shows while its lines are typed.
+  Future<PurchaseReturnPreviewRecord> previewPurchaseReturn(
+    Json data,
+  ) async =>
+      PurchaseReturnPreviewRecord.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/purchase-returns/preview',
+              body: data),
+        ),
+      );
+
   /// Raise a supplier bill against a completed goods receipt.
   ///
   /// Named rather than reached through the generic `create`, because the
