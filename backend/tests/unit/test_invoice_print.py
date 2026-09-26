@@ -35,7 +35,10 @@ from app.sales_invoice.services.invoice_pdf import (
     TemplateSettings,
     amount_in_words,
 )
-from app.sales_invoice.services.invoice_print_service import SalesInvoicePrintService
+from app.sales_invoice.services.invoice_print_service import (
+    NOT_FINAL,
+    SalesInvoicePrintService,
+)
 
 
 def _text_of(pdf: bytes) -> str:
@@ -218,6 +221,28 @@ def test_a_firm_that_has_saved_no_print_settings_gets_the_statutory_copies() -> 
     assert SalesInvoicePrintService(session)._template(firm_id).copy_labels == (
         "ORIGINAL FOR RECIPIENT",
     )
+
+
+def test_a_draft_bill_says_on_every_copy_that_it_is_not_a_tax_invoice() -> None:
+    """A draft printed for checking must not pass for the bill.
+
+    The phase 2 invoice screen prints on save, and a draft has been neither
+    approved nor posted: a copy that read "TAX INVOICE" and nothing else
+    could be handed to a customer, who would then hold a bill the books do
+    not. Approved bills carry no such line; a cancelled one does.
+    """
+    template = TemplateSettings(copy_labels=("ORIGINAL", "DUPLICATE"))
+    printed = _text_of(
+        InvoicePdfRenderer(template).render(
+            replace(_document(), not_final=NOT_FINAL["DRAFT"])
+        )
+    )
+    assert printed.count("DRAFT - NOT A TAX INVOICE") == 2
+    assert "NOT A TAX INVOICE" not in _text_of(
+        InvoicePdfRenderer(template).render(_document())
+    )
+    assert "APPROVED" not in NOT_FINAL
+    assert "CANCELLED" in NOT_FINAL
 
 
 def test_each_copy_is_labelled_and_printed_once() -> None:

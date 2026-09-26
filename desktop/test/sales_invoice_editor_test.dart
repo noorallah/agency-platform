@@ -71,6 +71,18 @@ class _InvoiceApi extends ApiClient {
   final List<Json> previews = <Json>[];
 
   Json? created;
+
+  /// Which saved bill was asked for as a PDF.
+  String? printed;
+
+  /// Stands in for the printer being unavailable: the plugin cannot run in
+  /// a widget test, and the refusal path is the one that must not lose the
+  /// bill.
+  @override
+  Future<List<int>> salesInvoicePdf(String id) async {
+    printed = id;
+    throw ApiException('The printer is offline.', statusCode: 503);
+  }
   Json? updated;
   int? sentVersion;
   String? refuseWith;
@@ -581,6 +593,20 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
     await tester.pumpAndSettle();
     expect(api.created?['lines'][0]['current_invoice_quantity'], '3');
+  });
+
+  testWidgets('phase 2 saves and prints the bill it saved', (tester) async {
+    final _InvoiceApi api = _InvoiceApi(billable: <Json>[_billable()]);
+    await pumpPhase2(tester, api);
+
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save-print')));
+    await tester.pumpAndSettle();
+
+    // Saved first, then the saved bill -- not the draft on screen -- asked
+    // for; a printer that fails leaves the bill saved and says so.
+    expect(api.created, isNotNull);
+    expect(api.printed, 'inv-1');
+    expect(find.textContaining('could not be printed'), findsOneWidget);
   });
 
   testWidgets('phase 2 bills directly where the firm types no documents',
