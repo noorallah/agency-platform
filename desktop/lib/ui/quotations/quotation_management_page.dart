@@ -275,29 +275,48 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
     return LoadingOverlay(
       loading: _loading,
       child: Column(children: [
-        Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: Row(children: [
-            Expanded(
-              child: TextField(
+        // Phase 2 (4.5): the search and New go on the page's one line.
+        if (Phase2Scope.of(context))
+          Phase2LineTools(children: [
+            SizedBox(
+              width: 260,
+              child: SearchFilterPanel(
                 controller: _search,
-                decoration: const InputDecoration(
-                  labelText: 'Search by quotation number',
-                  prefixIcon: Icon(Icons.search),
-                  hintText: 'QT-…',
-                ),
-                onSubmitted: (_) => unawaited(_load(requestedPage: 1)),
+                hintText: 'Search by quotation number',
+                onSearch: (_) => unawaited(_load(requestedPage: 1)),
               ),
             ),
-            const SizedBox(width: AppSpacing.md),
             if (_canQuote)
-              FilledButton.icon(
+              FilledButton(
+                key: const ValueKey('line-new'),
                 onPressed: () => unawaited(_writeQuotation()),
-                icon: const Icon(Icons.request_quote_outlined),
-                label: const Text('New Quotation'),
+                child: const Text('+ New'),
               ),
-          ]),
-        ),
+          ])
+        else
+          Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Row(children: [
+              Expanded(
+                child: TextField(
+                  controller: _search,
+                  decoration: const InputDecoration(
+                    labelText: 'Search by quotation number',
+                    prefixIcon: Icon(Icons.search),
+                    hintText: 'QT-…',
+                  ),
+                  onSubmitted: (_) => unawaited(_load(requestedPage: 1)),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              if (_canQuote)
+                FilledButton.icon(
+                  onPressed: () => unawaited(_writeQuotation()),
+                  icon: const Icon(Icons.request_quote_outlined),
+                  label: const Text('New Quotation'),
+                ),
+            ]),
+          ),
         if (_error != null)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
@@ -408,7 +427,8 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Text('Offered', style: Theme.of(context).textTheme.labelLarge),
+                  Text('Offered',
+                      style: Theme.of(context).textTheme.labelLarge),
                   const SizedBox(height: AppSpacing.sm),
                   for (final QuotationLine line in row.lines)
                     Padding(
@@ -514,7 +534,8 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
             const Tooltip(
               message: 'These prices have lapsed. Revise the quotation and '
                   'have it accepted again.',
-              child: TextButton(onPressed: null, child: Text('Convert to order')),
+              child:
+                  TextButton(onPressed: null, child: Text('Convert to order')),
             ),
           if (!row.isConverted && !row.isCancelled && _canCancel)
             TextButton(

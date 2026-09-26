@@ -140,6 +140,31 @@ class _SettlementsPageState extends State<SettlementsPage> {
     );
   }
 
+  /// Phase 2: the search, Supplier credits where it applies, and "+ New"
+  /// last, for the page's one line.
+  List<Widget> _phase2Tools() => [
+        SizedBox(
+          width: 260,
+          child: SearchFilterPanel(
+            controller: _search,
+            hintText: 'Search by number or reference',
+            onSearch: (_) => _load(requestedPage: 1),
+          ),
+        ),
+        if (_canCreate && widget.direction == SettlementDirection.payment)
+          OutlinedButton.icon(
+            onPressed: () => unawaited(_supplierCredits()),
+            icon: const Icon(Icons.assignment_return_outlined, size: 16),
+            label: const Text('Supplier credits'),
+          ),
+        if (_canCreate)
+          FilledButton(
+            key: const ValueKey('line-new'),
+            onPressed: () => unawaited(_record()),
+            child: const Text('+ New'),
+          ),
+      ];
+
   @override
   Widget build(BuildContext context) {
     if (!_canView) {
@@ -159,52 +184,57 @@ class _SettlementsPageState extends State<SettlementsPage> {
     return LoadingOverlay(
       loading: _loading,
       child: Column(children: [
-        Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: Row(children: [
-            Expanded(
-              child: TextField(
-                controller: _search,
-                decoration: InputDecoration(
-                  labelText: 'Search by number or reference',
-                  prefixIcon: const Icon(Icons.search),
-                  hintText: switch (widget.direction) {
-                    SettlementDirection.receipt => 'RC-…',
-                    SettlementDirection.payment => 'PY-…',
-                    SettlementDirection.refund => 'RF-…',
-                  },
-                ),
-                onSubmitted: (_) => _load(requestedPage: 1),
-              ),
-            ),
-            const SizedBox(width: AppSpacing.md),
-            // Goods sent back against a receipt leave a credit on the
-            // supplier's account; this is where it is set against a bill
-            // (D-FIN-19). Not about any row in the list, so it sits beside
-            // Record Payment rather than on a row.
-            if (_canCreate &&
-                widget.direction == SettlementDirection.payment) ...[
-              OutlinedButton.icon(
-                onPressed: () => unawaited(_supplierCredits()),
-                icon: const Icon(Icons.assignment_return_outlined),
-                label: const Text('Supplier credits'),
-              ),
-              const SizedBox(width: AppSpacing.sm),
-            ],
-            if (_canCreate)
-              FilledButton.icon(
-                onPressed: () => unawaited(_record()),
-                icon: const Icon(Icons.add),
-                label: Text(
-                  switch (widget.direction) {
-                    SettlementDirection.receipt => 'Record Receipt',
-                    SettlementDirection.payment => 'Record Payment',
-                    SettlementDirection.refund => 'Record Refund',
-                  },
+        // Phase 2 (4.5): the search and the actions go on the page's one
+        // line.
+        if (Phase2Scope.of(context))
+          Phase2LineTools(children: _phase2Tools())
+        else
+          Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Row(children: [
+              Expanded(
+                child: TextField(
+                  controller: _search,
+                  decoration: InputDecoration(
+                    labelText: 'Search by number or reference',
+                    prefixIcon: const Icon(Icons.search),
+                    hintText: switch (widget.direction) {
+                      SettlementDirection.receipt => 'RC-…',
+                      SettlementDirection.payment => 'PY-…',
+                      SettlementDirection.refund => 'RF-…',
+                    },
+                  ),
+                  onSubmitted: (_) => _load(requestedPage: 1),
                 ),
               ),
-          ]),
-        ),
+              const SizedBox(width: AppSpacing.md),
+              // Goods sent back against a receipt leave a credit on the
+              // supplier's account; this is where it is set against a bill
+              // (D-FIN-19). Not about any row in the list, so it sits beside
+              // Record Payment rather than on a row.
+              if (_canCreate &&
+                  widget.direction == SettlementDirection.payment) ...[
+                OutlinedButton.icon(
+                  onPressed: () => unawaited(_supplierCredits()),
+                  icon: const Icon(Icons.assignment_return_outlined),
+                  label: const Text('Supplier credits'),
+                ),
+                const SizedBox(width: AppSpacing.sm),
+              ],
+              if (_canCreate)
+                FilledButton.icon(
+                  onPressed: () => unawaited(_record()),
+                  icon: const Icon(Icons.add),
+                  label: Text(
+                    switch (widget.direction) {
+                      SettlementDirection.receipt => 'Record Receipt',
+                      SettlementDirection.payment => 'Record Payment',
+                      SettlementDirection.refund => 'Record Refund',
+                    },
+                  ),
+                ),
+            ]),
+          ),
         if (_error != null)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
@@ -271,23 +301,23 @@ class _SettlementsPageState extends State<SettlementsPage> {
         content: SizedBox(
           width: 460,
           child: Column(mainAxisSize: MainAxisSize.min, children: [
-          Text(
-            widget.direction.isCustomer
-                ? 'This writes an opposite journal, puts the invoices back and '
-                    'restores what the customer owed. Nothing is deleted: both '
-                    'the receipt and its reversal stay on the record.'
-                : 'This writes an opposite journal and puts the bills back. '
-                    'Nothing is deleted: both the payment and its reversal stay '
-                    'on the record.',
-            style: Theme.of(dialogContext).textTheme.bodyMedium,
-          ),
-          const SizedBox(height: AppSpacing.lg),
-          TextField(
-            onChanged: (value) => why = value,
-            decoration: const InputDecoration(
-              labelText: 'Why is it being reversed?',
+            Text(
+              widget.direction.isCustomer
+                  ? 'This writes an opposite journal, puts the invoices back and '
+                      'restores what the customer owed. Nothing is deleted: both '
+                      'the receipt and its reversal stay on the record.'
+                  : 'This writes an opposite journal and puts the bills back. '
+                      'Nothing is deleted: both the payment and its reversal stay '
+                      'on the record.',
+              style: Theme.of(dialogContext).textTheme.bodyMedium,
             ),
-          ),
+            const SizedBox(height: AppSpacing.lg),
+            TextField(
+              onChanged: (value) => why = value,
+              decoration: const InputDecoration(
+                labelText: 'Why is it being reversed?',
+              ),
+            ),
           ]),
         ),
         actions: [
@@ -501,7 +531,9 @@ class _SettlementsPageState extends State<SettlementsPage> {
   /// "SI-… on 2026-05-19": the bill, and the day the money met it, which
   /// is what a statement's running balance is dated by (D-TER-19).
   static String _allocationLabel(SettlementAllocation a) =>
-      a.allocatedOn.isEmpty ? a.invoiceNumber : '${a.invoiceNumber} on ${a.allocatedOn}';
+      a.allocatedOn.isEmpty
+          ? a.invoiceNumber
+          : '${a.invoiceNumber} on ${a.allocatedOn}';
 
   Widget _tile(BuildContext context, Settlement row) {
     // A reversed settlement still names what it had cleared: that is the
@@ -565,7 +597,6 @@ class _SettlementsPageState extends State<SettlementsPage> {
   }
 }
 
-
 /// What somebody chose to apply, and to which bill.
 class _Application {
   const _Application({
@@ -617,8 +648,8 @@ class _ApplyDialogState extends State<_ApplyDialog> {
     super.dispose();
   }
 
-  OutstandingInvoice get _chosen => widget.invoices
-      .firstWhere((invoice) => invoice.invoiceId == _invoiceId);
+  OutstandingInvoice get _chosen =>
+      widget.invoices.firstWhere((invoice) => invoice.invoiceId == _invoiceId);
 
   @override
   Widget build(BuildContext context) => AlertDialog(

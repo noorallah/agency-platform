@@ -395,6 +395,102 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
     }
   }
 
+  /// Phase 2: the search, "Posted by" as a chip, View / Post / Reverse,
+  /// the draft menu, and "+ New" last, for the page's one line.
+  List<Widget> _phase2Tools(JournalEntry? selected) {
+    String sourceLabel = 'All';
+    for (final (String code, String label) in journalSourceModules) {
+      if (code == _sourceModule) sourceLabel = label;
+    }
+    return [
+      SizedBox(
+        width: 240,
+        child: SearchFilterPanel(
+          controller: _search,
+          hintText: 'Search by reference or description',
+          onSearch: (_) => _load(requestedPage: 1),
+        ),
+      ),
+      Phase2MenuChip<String>(
+        key: const ValueKey('journal-source-module'),
+        label: 'Posted by: $sourceLabel',
+        onSelected: (value) {
+          setState(() => _sourceModule = value.isEmpty ? null : value);
+          unawaited(_load(requestedPage: 1));
+        },
+        itemBuilder: (context) => [
+          const PopupMenuItem<String>(value: '', child: Text('All')),
+          for (final (String code, String label) in journalSourceModules)
+            PopupMenuItem<String>(value: code, child: Text(label)),
+        ],
+      ),
+      OutlinedButton.icon(
+        onPressed: selected == null
+            ? null
+            : () => unawaited(
+                  JournalEntryViewDialog.show(
+                    context,
+                    api: widget.api,
+                    entry: selected,
+                  ),
+                ),
+        icon: const Icon(Icons.visibility_outlined, size: 16),
+        label: const Text('View'),
+      ),
+      if (_canPost)
+        OutlinedButton.icon(
+          onPressed: selected != null && selected.isDraft
+              ? () => unawaited(_postSelected())
+              : null,
+          icon: const Icon(Icons.post_add, size: 16),
+          label: const Text('Post'),
+        ),
+      if (_canReverse)
+        OutlinedButton.icon(
+          onPressed: selected != null && selected.isPosted && selected.isManual
+              ? () => unawaited(_reverseSelected())
+              : null,
+          icon: const Icon(Icons.undo, size: 16),
+          label: const Text('Reverse'),
+        ),
+      if (_canCreate || _canPost)
+        PopupMenuButton<String>(
+          key: const ValueKey('journal-draft-actions'),
+          tooltip: 'Draft actions',
+          enabled: selected != null && selected.isManualDraft,
+          icon: const Icon(Icons.more_vert),
+          onSelected: (action) => unawaited(switch (action) {
+            'edit' => _editSelected(),
+            'delete' => _deleteSelected(),
+            _ => _rejectSelected(),
+          }),
+          itemBuilder: (_) => [
+            if (_canCreate)
+              const PopupMenuItem<String>(
+                value: 'edit',
+                child: Text('Edit draft'),
+              ),
+            if (_canCreate)
+              const PopupMenuItem<String>(
+                value: 'delete',
+                child: Text('Delete draft'),
+              ),
+            if (_canPost)
+              const PopupMenuItem<String>(
+                value: 'reject',
+                child: Text('Reject draft'),
+              ),
+          ],
+        ),
+      if (_canCreate)
+        FilledButton(
+          key: const ValueKey('line-new'),
+          onPressed: () => unawaited(_createEntry()),
+          child: const Text('+ New'),
+        ),
+    ];
+  }
+
   @override
   Widget build(BuildContext context) {
     if (!_canView) {
@@ -415,125 +511,130 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
     return LoadingOverlay(
       loading: _loading,
       child: Column(children: [
-        Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: Row(children: [
-            Expanded(
-              child: TextField(
-                controller: _search,
-                decoration: const InputDecoration(
-                  labelText: 'Search by reference or description',
-                  prefixIcon: Icon(Icons.search),
-                ),
-                onSubmitted: (_) => _load(requestedPage: 1),
-              ),
-            ),
-            const SizedBox(width: AppSpacing.md),
-            SizedBox(
-              width: 220,
-              child: DropdownButtonFormField<String?>(
-                key: const ValueKey('journal-source-module'),
-                initialValue: _sourceModule,
-                isExpanded: true,
-                decoration: const InputDecoration(labelText: 'Posted by'),
-                items: [
-                  const DropdownMenuItem<String?>(
-                    value: null,
-                    child: Text('All'),
+        // Phase 2 (4.5): the search and the actions go on the page's one
+        // line.
+        if (Phase2Scope.of(context))
+          Phase2LineTools(children: _phase2Tools(selected))
+        else
+          Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Row(children: [
+              Expanded(
+                child: TextField(
+                  controller: _search,
+                  decoration: const InputDecoration(
+                    labelText: 'Search by reference or description',
+                    prefixIcon: Icon(Icons.search),
                   ),
-                  for (final (String code, String label)
-                      in journalSourceModules)
-                    DropdownMenuItem<String?>(
-                      value: code,
-                      child: Text(label, overflow: TextOverflow.ellipsis),
-                    ),
-                ],
-                onChanged: (value) {
-                  setState(() => _sourceModule = value);
-                  unawaited(_load(requestedPage: 1));
-                },
+                  onSubmitted: (_) => _load(requestedPage: 1),
+                ),
               ),
-            ),
-            const SizedBox(width: AppSpacing.md),
-            // The lines -- accounts, debits, credits -- were nowhere on this
-            // screen (plan item 10.9). Double-clicking a row does the same.
-            OutlinedButton.icon(
-              onPressed: selected == null
-                  ? null
-                  : () => unawaited(
-                        JournalEntryViewDialog.show(
-                          context,
-                          api: widget.api,
-                          entry: selected,
-                        ),
+              const SizedBox(width: AppSpacing.md),
+              SizedBox(
+                width: 220,
+                child: DropdownButtonFormField<String?>(
+                  key: const ValueKey('journal-source-module'),
+                  initialValue: _sourceModule,
+                  isExpanded: true,
+                  decoration: const InputDecoration(labelText: 'Posted by'),
+                  items: [
+                    const DropdownMenuItem<String?>(
+                      value: null,
+                      child: Text('All'),
+                    ),
+                    for (final (String code, String label)
+                        in journalSourceModules)
+                      DropdownMenuItem<String?>(
+                        value: code,
+                        child: Text(label, overflow: TextOverflow.ellipsis),
                       ),
-              icon: const Icon(Icons.visibility_outlined),
-              label: const Text('View'),
-            ),
-            const SizedBox(width: AppSpacing.sm),
-            if (_canPost)
-              FilledButton.tonalIcon(
-                // Only a draft can be posted, and only what is selected.
-                onPressed: selected != null && selected.isDraft
-                    ? () => unawaited(_postSelected())
-                    : null,
-                icon: const Icon(Icons.post_add),
-                label: const Text('Post'),
+                  ],
+                  onChanged: (value) {
+                    setState(() => _sourceModule = value);
+                    unawaited(_load(requestedPage: 1));
+                  },
+                ),
               ),
-            const SizedBox(width: AppSpacing.sm),
-            if (_canReverse)
+              const SizedBox(width: AppSpacing.md),
+              // The lines -- accounts, debits, credits -- were nowhere on this
+              // screen (plan item 10.9). Double-clicking a row does the same.
               OutlinedButton.icon(
-                // Only a hand-written entry. One a document posted is undone
-                // by cancelling or returning that document, which takes its
-                // stock and balances back with it; the server refuses the
-                // rest (D-FIN-2).
-                onPressed:
-                    selected != null && selected.isPosted && selected.isManual
-                        ? () => unawaited(_reverseSelected())
-                        : null,
-                icon: const Icon(Icons.undo),
-                label: const Text('Reverse'),
+                onPressed: selected == null
+                    ? null
+                    : () => unawaited(
+                          JournalEntryViewDialog.show(
+                            context,
+                            api: widget.api,
+                            entry: selected,
+                          ),
+                        ),
+                icon: const Icon(Icons.visibility_outlined),
+                label: const Text('View'),
               ),
-            // Edit, delete and reject a hand-written draft (D-FIN-15), kept
-            // in one menu so the toolbar still fits the narrowest window.
-            if (_canCreate || _canPost)
-              PopupMenuButton<String>(
-                key: const ValueKey('journal-draft-actions'),
-                tooltip: 'Draft actions',
-                enabled: selected != null && selected.isManualDraft,
-                icon: const Icon(Icons.more_vert),
-                onSelected: (action) => unawaited(switch (action) {
-                  'edit' => _editSelected(),
-                  'delete' => _deleteSelected(),
-                  _ => _rejectSelected(),
-                }),
-                itemBuilder: (_) => [
-                  if (_canCreate)
-                    const PopupMenuItem<String>(
-                      value: 'edit',
-                      child: Text('Edit draft'),
-                    ),
-                  if (_canCreate)
-                    const PopupMenuItem<String>(
-                      value: 'delete',
-                      child: Text('Delete draft'),
-                    ),
-                  if (_canPost)
-                    const PopupMenuItem<String>(
-                      value: 'reject',
-                      child: Text('Reject draft'),
-                    ),
-                ],
-              ),
-            const SizedBox(width: AppSpacing.sm),
-            if (_canCreate)
-              FilledButton.icon(
-                onPressed: () => unawaited(_createEntry()),
-                icon: const Icon(Icons.add),
-                label: const Text('New Entry'),
-              ),
-          ]),
-        ),
+              const SizedBox(width: AppSpacing.sm),
+              if (_canPost)
+                FilledButton.tonalIcon(
+                  // Only a draft can be posted, and only what is selected.
+                  onPressed: selected != null && selected.isDraft
+                      ? () => unawaited(_postSelected())
+                      : null,
+                  icon: const Icon(Icons.post_add),
+                  label: const Text('Post'),
+                ),
+              const SizedBox(width: AppSpacing.sm),
+              if (_canReverse)
+                OutlinedButton.icon(
+                  // Only a hand-written entry. One a document posted is undone
+                  // by cancelling or returning that document, which takes its
+                  // stock and balances back with it; the server refuses the
+                  // rest (D-FIN-2).
+                  onPressed:
+                      selected != null && selected.isPosted && selected.isManual
+                          ? () => unawaited(_reverseSelected())
+                          : null,
+                  icon: const Icon(Icons.undo),
+                  label: const Text('Reverse'),
+                ),
+              // Edit, delete and reject a hand-written draft (D-FIN-15), kept
+              // in one menu so the toolbar still fits the narrowest window.
+              if (_canCreate || _canPost)
+                PopupMenuButton<String>(
+                  key: const ValueKey('journal-draft-actions'),
+                  tooltip: 'Draft actions',
+                  enabled: selected != null && selected.isManualDraft,
+                  icon: const Icon(Icons.more_vert),
+                  onSelected: (action) => unawaited(switch (action) {
+                    'edit' => _editSelected(),
+                    'delete' => _deleteSelected(),
+                    _ => _rejectSelected(),
+                  }),
+                  itemBuilder: (_) => [
+                    if (_canCreate)
+                      const PopupMenuItem<String>(
+                        value: 'edit',
+                        child: Text('Edit draft'),
+                      ),
+                    if (_canCreate)
+                      const PopupMenuItem<String>(
+                        value: 'delete',
+                        child: Text('Delete draft'),
+                      ),
+                    if (_canPost)
+                      const PopupMenuItem<String>(
+                        value: 'reject',
+                        child: Text('Reject draft'),
+                      ),
+                  ],
+                ),
+              const SizedBox(width: AppSpacing.sm),
+              if (_canCreate)
+                FilledButton.icon(
+                  onPressed: () => unawaited(_createEntry()),
+                  icon: const Icon(Icons.add),
+                  label: const Text('New Entry'),
+                ),
+            ]),
+          ),
         if (_error != null)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),

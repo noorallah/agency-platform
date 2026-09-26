@@ -968,6 +968,20 @@ Widget _phase2FrameHost({
                       Flexible(child: Phase2PageCounters(bar: bar)),
                     ],
                     const Spacer(),
+                    if (!claimed)
+                      ValueListenableBuilder<List<Widget>>(
+                        valueListenable: bar.tools,
+                        builder: (context, tools, _) => Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            for (final Widget tool in tools) ...[
+                              const SizedBox(width: 6),
+                              tool,
+                            ],
+                          ],
+                        ),
+                      ),
+                    if (actions.isNotEmpty) const SizedBox(width: 6),
                     ...actions,
                   ]),
                 ),
@@ -1341,6 +1355,18 @@ class SearchFilterPanel extends StatelessWidget {
   final String hintText;
   final FocusNode? focusNode;
 
+  /// The same box without its filters, which phase 2 shows in the side
+  /// panel instead.
+  SearchFilterPanel withoutFilters() => SearchFilterPanel(
+        key: key,
+        controller: controller,
+        onSearch: onSearch,
+        hintText: hintText,
+        focusNode: focusNode,
+        onChanged: onChanged,
+        onClear: onClear,
+      );
+
   /// Fires on every keystroke so the caller can debounce a request.
   final ValueChanged<String>? onChanged;
   final VoidCallback? onClear;
@@ -1702,8 +1728,28 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
   @override
   Widget build(BuildContext context) {
     final ManagementWorkspaceLayout layout = widget.layout;
-    final Widget? filters = layout.filterPanel;
-    final int active = filters is FilterPanel ? filters.activeFilterCount : 0;
+    final int active = layout.filterPanel is FilterPanel
+        ? (layout.filterPanel! as FilterPanel).activeFilterCount
+        : 0;
+    // A search that carries its own filters (area, status, include deleted)
+    // stacked them beside the box and made the line three rows tall. Phase 2
+    // keeps the box on the line and moves the filters into the side panel
+    // "+ filter" opens, with any the screen already had there.
+    Widget searchPanel = layout.searchPanel;
+    Widget? filters = layout.filterPanel;
+    final Widget ownSearch = layout.searchPanel;
+    if (ownSearch is SearchFilterPanel &&
+        (ownSearch.filters?.isNotEmpty ?? false)) {
+      searchPanel = ownSearch.withoutFilters();
+      final Widget moved = FilterPanel(children: ownSearch.filters!);
+      filters = filters == null
+          ? moved
+          : Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              mainAxisSize: MainAxisSize.min,
+              children: [filters, moved],
+            );
+    }
     final ColorScheme scheme = Theme.of(context).colorScheme;
     // The frame above hands over its title and counters; this draws them on
     // the same line as the search and the actions (4.5).
@@ -1720,9 +1766,9 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
     }) =>
         [
           if (fixedSearch)
-            SizedBox(width: 260, child: layout.searchPanel)
+            SizedBox(width: 260, child: searchPanel)
           else
-            Expanded(child: layout.searchPanel),
+            Expanded(child: searchPanel),
           const SizedBox(width: 8),
           ConstrainedBox(
             constraints: BoxConstraints(
@@ -3606,7 +3652,18 @@ class LoadingOverlay extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Stack(children: [
         Positioned.fill(child: child),
-        if (loading)
+        // Phase 2: a thin bar along the top while a screen loads, rather
+        // than greying the whole screen -- which flashed on every refresh
+        // and read as a modal the user had to wait out.
+        if (loading && Phase2Scope.of(context))
+          const Positioned(
+            key: ValueKey('loading-bar'),
+            top: 0,
+            left: 0,
+            right: 0,
+            child: LinearProgressIndicator(minHeight: 2),
+          )
+        else if (loading)
           Positioned.fill(
             child: ColoredBox(
               color: Theme.of(context).colorScheme.scrim.withValues(alpha: .18),
@@ -3869,6 +3926,38 @@ class Phase2MenuChip<T> extends StatelessWidget {
           ],
           Text(label, style: style),
           Icon(Icons.arrow_drop_down, size: 18, color: scheme.onSurfaceVariant),
+        ]),
+      ),
+    );
+  }
+}
+
+/// Phase 2: a screen's own search box and buttons, for a screen that builds
+/// its own header rather than using [ManagementWorkspaceLayout]. Inside a
+/// page frame they go on the frame's one line, at the right, and nothing is
+/// drawn here -- so the screen loses its second header line. Elsewhere they
+/// are drawn here, in a row.
+class Phase2LineTools extends StatelessWidget {
+  const Phase2LineTools({super.key, required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
+    final Phase2PageBar? bar = Phase2PageBar.of(context);
+    if (bar != null) {
+      bar.publishTools(children);
+      return const SizedBox.shrink();
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(12, 6, 12, 6),
+      child: Phase2ButtonTheme(
+        child: Row(children: [
+          const Spacer(),
+          for (final Widget child in children) ...[
+            const SizedBox(width: 6),
+            child,
+          ],
         ]),
       ),
     );

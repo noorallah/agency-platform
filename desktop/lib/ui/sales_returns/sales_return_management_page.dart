@@ -228,29 +228,48 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
     return LoadingOverlay(
       loading: _loading,
       child: Column(children: [
-        Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: Row(children: [
-            Expanded(
-              child: TextField(
+        // Phase 2 (4.5): the search and New go on the page's one line.
+        if (Phase2Scope.of(context))
+          Phase2LineTools(children: [
+            SizedBox(
+              width: 260,
+              child: SearchFilterPanel(
                 controller: _search,
-                decoration: const InputDecoration(
-                  labelText: 'Search by return number',
-                  prefixIcon: Icon(Icons.search),
-                  hintText: 'SR-…',
-                ),
-                onSubmitted: (_) => unawaited(_load(requestedPage: 1)),
+                hintText: 'Search by return number',
+                onSearch: (_) => unawaited(_load(requestedPage: 1)),
               ),
             ),
-            const SizedBox(width: AppSpacing.md),
             if (_canRaise)
-              FilledButton.icon(
+              FilledButton(
+                key: const ValueKey('line-new'),
                 onPressed: () => unawaited(_raiseReturn()),
-                icon: const Icon(Icons.assignment_return_outlined),
-                label: const Text('New Return'),
+                child: const Text('+ New'),
               ),
-          ]),
-        ),
+          ])
+        else
+          Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Row(children: [
+              Expanded(
+                child: TextField(
+                  controller: _search,
+                  decoration: const InputDecoration(
+                    labelText: 'Search by return number',
+                    prefixIcon: Icon(Icons.search),
+                    hintText: 'SR-…',
+                  ),
+                  onSubmitted: (_) => unawaited(_load(requestedPage: 1)),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              if (_canRaise)
+                FilledButton.icon(
+                  onPressed: () => unawaited(_raiseReturn()),
+                  icon: const Icon(Icons.assignment_return_outlined),
+                  label: const Text('New Return'),
+                ),
+            ]),
+          ),
         if (_error != null)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
@@ -337,7 +356,8 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
             Text('Their reference: ${row.customerReturnNumber}',
                 style: Theme.of(context).textTheme.bodySmall),
           if (row.returnReason.isNotEmpty)
-            Text(row.returnReason, style: Theme.of(context).textTheme.bodySmall),
+            Text(row.returnReason,
+                style: Theme.of(context).textTheme.bodySmall),
           const SizedBox(height: AppSpacing.md),
           _whatMoved(context, row),
           const SizedBox(height: AppSpacing.md),

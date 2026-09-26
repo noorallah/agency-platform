@@ -37,6 +37,7 @@ class Phase2PageBar extends InheritedWidget {
     required this.description,
     required this.tabs,
     required this.counters,
+    required this.tools,
     required this.claimed,
     required bool Function() alive,
     required super.child,
@@ -54,6 +55,11 @@ class Phase2PageBar extends InheritedWidget {
 
   /// The summary figures, as counters.
   final ValueNotifier<List<Widget>> counters;
+
+  /// A screen's own search box and buttons, for a screen that builds its
+  /// own header rather than using a list layout: drawn at the right of the
+  /// frame's line, so the screen needs no second line of its own.
+  final ValueNotifier<List<Widget>> tools;
 
   /// Whether a list layout below draws the line.
   final ValueNotifier<bool> claimed;
@@ -74,6 +80,14 @@ class Phase2PageBar extends InheritedWidget {
   void publish(List<Widget> figures) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (_alive()) counters.value = figures;
+    });
+  }
+
+  /// Show a screen's own [widgets] at the right of the line, after the
+  /// frame for the same reason.
+  void publishTools(List<Widget> widgets) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_alive()) tools.value = widgets;
     });
   }
 
@@ -113,11 +127,13 @@ class Phase2PageBarHost extends StatefulWidget {
 
 class _Phase2PageBarHostState extends State<Phase2PageBarHost> {
   final ValueNotifier<List<Widget>> _counters = ValueNotifier(const []);
+  final ValueNotifier<List<Widget>> _tools = ValueNotifier(const []);
   final ValueNotifier<bool> _claimed = ValueNotifier(false);
 
   @override
   void dispose() {
     _counters.dispose();
+    _tools.dispose();
     _claimed.dispose();
     super.dispose();
   }
@@ -132,6 +148,7 @@ class _Phase2PageBarHostState extends State<Phase2PageBarHost> {
             description: widget.description,
             tabs: widget.tabs,
             counters: _counters,
+            tools: _tools,
             claimed: _claimed,
             alive: () => mounted,
             child: Builder(
@@ -182,7 +199,8 @@ class Phase2StatusScope extends InheritedWidget {
 /// line uses as its title as the wireframe does -- rather than the longer
 /// heading phase 1 screens carry ("Customer Management").
 class Phase2ScreenTitle extends InheritedWidget {
-  const Phase2ScreenTitle({super.key, required this.title, required super.child});
+  const Phase2ScreenTitle(
+      {super.key, required this.title, required super.child});
 
   final String? title;
 
