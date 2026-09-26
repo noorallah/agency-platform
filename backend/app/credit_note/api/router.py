@@ -103,6 +103,24 @@ def create_credit_note(
     return ApiResponse(data=service.note_response(row), message="Credit note raised.")
 
 
+@router.post("/preview", response_model=ApiResponse[CreditNoteResponse])
+def preview_credit_note(
+    payload: CreditNoteCreate,
+    scope: CreditNoteManageScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CreditNoteResponse]:
+    """Price a credit note as raising it would, and save nothing.
+
+    What the credit note screen calls as its amounts are typed, so the tax
+    it shows coming off is the one the note will reverse.
+    """
+    return ApiResponse(
+        data=CreditNoteService(db).preview_note(
+            payload, firm_id=scope.firm_id, actor_id=scope.actor_id
+        )
+    )
+
+
 @router.get(
     "/reports/register",
     response_model=PaginatedResponse[CreditNoteRegisterRecord],

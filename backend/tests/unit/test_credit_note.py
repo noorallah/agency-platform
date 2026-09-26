@@ -19,7 +19,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import create_engine, select
+from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
@@ -238,6 +238,36 @@ def test_the_tax_comes_off_at_the_rate_the_invoice_charged() -> None:
     assert note.taxable_amount == Decimal("100.00")
     assert note.tax_amount == Decimal("18.00")
     assert note.total_amount == Decimal("118.00")
+
+
+def test_a_preview_prices_the_note_and_saves_nothing() -> None:
+    """The credit note screen's tax is the note's, and nothing lands."""
+    books = _Books(_session_factory()())
+    service = CreditNoteService(books.session)
+    payload = CreditNoteCreate(
+        sales_invoice_id=books.invoice.id,
+        credit_note_date=WHEN,
+        reason=CreditNoteReasonEnum.RATE_DIFFERENCE,
+        lines=[
+            CreditNoteLineWrite(
+                sales_invoice_line_id=books.line.id,
+                line_number=1,
+                quantity=Decimal("10"),
+                taxable_amount=Decimal("100"),
+            )
+        ],
+    )
+
+    preview = service.preview_note(
+        payload, firm_id=books.firm.id, actor_id=books.actor_id
+    )
+
+    assert preview.tax_amount == Decimal("18.00")
+    assert preview.total_amount == Decimal("118.00")
+    assert preview.lines[0].tax_rate_percent == Decimal("18.00")
+    assert books.session.scalar(select(func.count()).select_from(CreditNote)) == 0
+    saved = service.create_note(payload, firm_id=books.firm.id, actor_id=books.actor_id)
+    assert saved.credit_note_number == preview.credit_note_number
 
 
 def test_a_line_taxed_at_nothing_reverses_nothing() -> None:
