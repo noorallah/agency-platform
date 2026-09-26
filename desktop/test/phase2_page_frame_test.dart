@@ -561,4 +561,93 @@ void main() {
     expect(find.byKey(const ValueKey('toolbar-command-settings-menu')),
         findsOneWidget);
   });
+
+  testWidgets("a screen's own search and New go on the frame's line",
+      (tester) async {
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Phase2Scope(
+          child: ModuleWorkspaceFrame(
+            title: 'Quotations',
+            description: 'Offers',
+            child: LoadingOverlay(
+              loading: true,
+              child: Column(children: [
+                Phase2LineTools(children: [
+                  SizedBox(
+                    width: 260,
+                    child: SearchFilterPanel(
+                      controller: TextEditingController(),
+                      onSearch: (_) {},
+                    ),
+                  ),
+                  FilledButton(
+                    key: const ValueKey('line-new'),
+                    onPressed: () {},
+                    child: const Text('+ New'),
+                  ),
+                ]),
+                const Expanded(child: SizedBox.expand(key: _grid)),
+              ]),
+            ),
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    await tester.pump();
+    expect(tester.takeException(), isNull);
+    // On the title's line, not a second one below it.
+    final double title = tester.getCenter(find.text('Quotations')).dy;
+    expect(tester.getCenter(find.byKey(const ValueKey('line-new'))).dy,
+        closeTo(title, 2));
+    expect(tester.getTopLeft(find.byKey(_grid)).dy, lessThan(60));
+    // Loading is a thin bar, not a grey sheet over the screen.
+    expect(find.byKey(const ValueKey('loading-bar')), findsOneWidget);
+    expect(find.byType(CircularProgressIndicator), findsNothing);
+  });
+
+  testWidgets("a search's own filters move into the + filter panel",
+      (tester) async {
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Phase2Scope(
+          child: ManagementWorkspaceLayout(
+            searchPanel: SearchFilterPanel(
+              controller: TextEditingController(),
+              onSearch: (_) {},
+              filters: const [
+                SizedBox(
+                  width: 180,
+                  child: TextField(
+                    key: ValueKey('area-filter'),
+                    decoration: InputDecoration(labelText: 'Area'),
+                  ),
+                ),
+              ],
+            ),
+            toolbar: WorkspaceToolbar(
+              onAction: (_) {},
+              isEnabled: (_) => true,
+              actions: const [ToolbarAction.refresh],
+            ),
+            primaryContent: const SizedBox.expand(key: _grid),
+            statusBar: const WorkspaceStatusBar(total: 0, selected: false),
+          ),
+        ),
+      ),
+    ));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('area-filter')), findsNothing);
+    expect(tester.getTopLeft(find.byKey(_grid)).dy, lessThan(60));
+    await tester.tap(find.byKey(const ValueKey('phase2-filters')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('area-filter')), findsOneWidget);
+  });
 }

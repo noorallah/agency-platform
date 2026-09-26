@@ -114,11 +114,13 @@ class _PhysicalCountPageState extends State<PhysicalCountPage> {
     }
     final Json? draft = await showDialog<Json>(
       context: context,
-      builder: (_) => OpenCountDialog(branches: branches, warehouses: warehouses),
+      builder: (_) =>
+          OpenCountDialog(branches: branches, warehouses: warehouses),
     );
     if (draft == null) return;
     try {
-      final PhysicalCountSheet sheet = await widget.api.openPhysicalCount(draft);
+      final PhysicalCountSheet sheet =
+          await widget.api.openPhysicalCount(draft);
       if (!mounted) return;
       NotificationService.show(
         context,
@@ -177,29 +179,48 @@ class _PhysicalCountPageState extends State<PhysicalCountPage> {
     return LoadingOverlay(
       loading: _loading,
       child: Column(children: [
-        Padding(
-          padding: const EdgeInsets.all(AppSpacing.lg),
-          child: Row(children: [
-            Expanded(
-              child: TextField(
+        // Phase 2 (4.5): the search and New go on the page's one line.
+        if (Phase2Scope.of(context))
+          Phase2LineTools(children: [
+            SizedBox(
+              width: 260,
+              child: SearchFilterPanel(
                 controller: _search,
-                decoration: const InputDecoration(
-                  labelText: 'Search by count number',
-                  prefixIcon: Icon(Icons.search),
-                  hintText: 'PC-…',
-                ),
-                onSubmitted: (_) => _load(requestedPage: 1),
+                hintText: 'Search by count number',
+                onSearch: (_) => _load(requestedPage: 1),
               ),
             ),
-            const SizedBox(width: AppSpacing.md),
             if (_canCount)
-              FilledButton.icon(
+              FilledButton(
+                key: const ValueKey('line-new'),
                 onPressed: () => unawaited(_openSheet()),
-                icon: const Icon(Icons.add),
-                label: const Text('Open Count'),
+                child: const Text('+ New'),
               ),
-          ]),
-        ),
+          ])
+        else
+          Padding(
+            padding: const EdgeInsets.all(AppSpacing.lg),
+            child: Row(children: [
+              Expanded(
+                child: TextField(
+                  controller: _search,
+                  decoration: const InputDecoration(
+                    labelText: 'Search by count number',
+                    prefixIcon: Icon(Icons.search),
+                    hintText: 'PC-…',
+                  ),
+                  onSubmitted: (_) => _load(requestedPage: 1),
+                ),
+              ),
+              const SizedBox(width: AppSpacing.md),
+              if (_canCount)
+                FilledButton.icon(
+                  onPressed: () => unawaited(_openSheet()),
+                  icon: const Icon(Icons.add),
+                  label: const Text('Open Count'),
+                ),
+            ]),
+          ),
         if (_error != null)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
