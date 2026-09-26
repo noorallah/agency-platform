@@ -41,6 +41,24 @@ class BrandingConfig {
   /// Application Settings still wins; this is the default they start from.
   final String serverUrl;
 
+  /// The same branding with its window titled [windowName] -- how the phase 2
+  /// app says which one it is in the Windows taskbar.
+  BrandingConfig withWindowName(String windowName) => BrandingConfig(
+        appName: appName,
+        windowName: windowName,
+        productName: productName,
+        companyName: companyName,
+        logoPath: logoPath,
+        splashPath: splashPath,
+        version: version,
+        supportEmail: supportEmail,
+        supportWebsite: supportWebsite,
+        copyright: copyright,
+        loginBackgroundColor: loginBackgroundColor,
+        loginAccentColor: loginAccentColor,
+        serverUrl: serverUrl,
+      );
+
   File? get logoFile => _existingFile(logoPath);
   File? get splashFile => _existingFile(splashPath);
 

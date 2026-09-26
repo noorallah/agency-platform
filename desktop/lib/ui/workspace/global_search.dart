@@ -38,10 +38,14 @@ extension GlobalSearchCategoryDetails on GlobalSearchCategory {
   /// and fails the build on the next value the server does not know.
   SearchWire get wire => switch (this) {
         GlobalSearchCategory.all => (category: 'all', entityTypes: const []),
-        GlobalSearchCategory.customers =>
-          (category: 'masters', entityTypes: const ['customers']),
-        GlobalSearchCategory.vendors =>
-          (category: 'masters', entityTypes: const ['vendors']),
+        GlobalSearchCategory.customers => (
+            category: 'masters',
+            entityTypes: const ['customers']
+          ),
+        GlobalSearchCategory.vendors => (
+            category: 'masters',
+            entityTypes: const ['vendors']
+          ),
         GlobalSearchCategory.products => (
             category: 'masters',
             entityTypes: const ['products', 'product_categories']
@@ -58,19 +62,27 @@ extension GlobalSearchCategoryDetails on GlobalSearchCategory {
               'purchase_returns',
             ]
           ),
-        GlobalSearchCategory.masters =>
-          (category: 'masters', entityTypes: const []),
-        GlobalSearchCategory.inventory =>
-          (category: 'inventory', entityTypes: const []),
+        GlobalSearchCategory.masters => (
+            category: 'masters',
+            entityTypes: const []
+          ),
+        GlobalSearchCategory.inventory => (
+            category: 'inventory',
+            entityTypes: const []
+          ),
         GlobalSearchCategory.tax => (category: 'tax', entityTypes: const []),
-        GlobalSearchCategory.organization =>
-          (category: 'organization', entityTypes: const []),
+        GlobalSearchCategory.organization => (
+            category: 'organization',
+            entityTypes: const []
+          ),
         GlobalSearchCategory.warehouses => (
             category: 'organization',
             entityTypes: const ['warehouses', 'storage_areas']
           ),
-        GlobalSearchCategory.branches =>
-          (category: 'organization', entityTypes: const ['branches']),
+        GlobalSearchCategory.branches => (
+            category: 'organization',
+            entityTypes: const ['branches']
+          ),
       };
 
   String get label => switch (this) {
@@ -215,10 +227,12 @@ Future<void> showGlobalSearch(
   List<String> initialSavedQueries = const [],
   Future<void> Function(List<String> values)? onRecentQueriesChanged,
   Future<void> Function(List<String> values)? onSavedQueriesChanged,
+  String? initialQuery,
 }) =>
     showDialog<void>(
       context: context,
       builder: (context) => _GlobalSearchDialog(
+        initialQuery: initialQuery,
         executor: executor,
         initialRecentQueries: initialRecentQueries,
         initialSavedQueries: initialSavedQueries,
@@ -229,6 +243,7 @@ Future<void> showGlobalSearch(
 
 class _GlobalSearchDialog extends StatefulWidget {
   const _GlobalSearchDialog({
+    this.initialQuery,
     this.executor,
     this.initialRecentQueries = const [],
     this.initialSavedQueries = const [],
@@ -236,6 +251,9 @@ class _GlobalSearchDialog extends StatefulWidget {
     this.onSavedQueriesChanged,
   });
 
+  /// Searched at once on opening -- what the command box hands over when
+  /// somebody asks for records rather than a screen.
+  final String? initialQuery;
   final GlobalSearchExecutor? executor;
   final List<String> initialRecentQueries;
   final List<String> initialSavedQueries;
@@ -269,6 +287,12 @@ class _GlobalSearchDialogState extends State<_GlobalSearchDialog> {
     super.initState();
     _recentQueries = [...widget.initialRecentQueries];
     _savedQueries = [...widget.initialSavedQueries];
+    final String? initial = widget.initialQuery?.trim();
+    if (initial != null && initial.isNotEmpty) {
+      _controller.text = initial;
+      WidgetsBinding.instance
+          .addPostFrameCallback((_) => _submit(value: initial, page: 1));
+    }
   }
 
   @override

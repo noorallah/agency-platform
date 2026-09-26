@@ -503,15 +503,19 @@ adding it afterwards means reworking every screen twice.
 
 ## 6. How it would be built (after agreement)
 
-1. **Shell first**, behind a switch in Settings ("New layout, preview"), so
-   phase 1 stays the default and testers can compare: menu bar, drop-down
-   panels, command box, tabs.
+1. **Shell first**: menu bar, drop-down panels, command box, tabs. Phase 2 is
+   **its own app** (owner, 2026-09-26): `lib/main_phase2.dart` starts it,
+   its frame lives in `lib/phase2/`, and phase 1 (`lib/main.dart`) is left
+   exactly as it is, with no switch inside it. Both share the screens, the
+   server connection and the permission rules; only the frame differs. Run it
+   with `flutter run -d windows -t lib/main_phase2.dart`.
 2. **Page frame**: one-line page bar, chips, status-bar pager, density. Every
    list screen gains it at once because they share `ManagementWorkspaceLayout`.
 3. **Documents as full-page tabs**, one document type at a time, starting
    with Sales Orders and Sales Invoices.
 4. **Role homes.**
-5. Remove the switch and phase 1's shell once every screen has moved.
+5. Once every screen has moved, phase 2 becomes `main.dart` and phase 1's
+   frame is deleted.
 
 Each step is its own set of PRs with the existing guards (catalogue parsing,
 permission gating, 1366 x 768 overflow tests) extended to the new shell.
@@ -543,7 +547,7 @@ Recommended answers first; each can be changed.
 | 6 | Tally-style keys (Alt+G, Enter-driven line entry) | **Decided 2026-09-26: yes, in addition to** the standard Windows keys (4.10) -- nothing standard is taken away. Tally, Busy and Marg users are the market | Standard Windows keys only |
 | 7 | Default density on laptops | **Decided 2026-09-26: compact (34 px)** below 900 px of window height, comfortable above (4.7); the user's own choice always wins. Data-heavy ERPs (Business Central, SAP) default dense | Comfortable (42 px) |
 | 8 | Role homes | **Decided 2026-09-26: yes**, one per seeded role family (Business Central's Role Centres; Odoo and Zoho show per-app dashboards). Built from the same permissions as the menu; a role with no home of its own gets the general one | One dashboard for everyone |
-| 9 | Roll-out | **Decided 2026-09-26: switch during the build, new layout on by default.** Phase 1 is never shipped, so there is nothing to protect with a preview: the switch exists only so the app stays usable while screens move, and phase 1's shell is deleted once the last screen has moved (section 6, step 5). Phase 1 lives on in the `ui-phase-1` tag | Replace in one release |
+| 9 | Roll-out | **Owner, 2026-09-26: phase 2 is built as its own app** beside phase 1 (`lib/main_phase2.dart`, `lib/phase2/`), with no switch inside phase 1, so the two are never confused. It replaces phase 1 once the last screen has moved (section 6, step 5); phase 1 also lives on in the `ui-phase-1` tag | Replace in one release |
 | 10 | Summary cards and filters above lists | **Agreed in principle 2026-09-25: moved into the page bar as clickable counters and chips; cards only on Home** (4.5) | Keep a collapsible summary strip |
 | 11 | Tally voucher keys (F8, F9, F6, F5, F7) on daily screens | **Decided 2026-09-26: yes** (4.6), active on Home and the daily screens. F5 therefore does not mean refresh anywhere; refresh is Ctrl+R. F2 stays "edit the selected row" on lists; inside a voucher it changes the date, as in Tally | Only Ctrl-based shortcuts |
 | 12 | Which screens count as "daily" | **Decided 2026-09-26: the nine listed in 4.6**; each role's home and its favourites start from the ones that role may open | Owner's own list |
