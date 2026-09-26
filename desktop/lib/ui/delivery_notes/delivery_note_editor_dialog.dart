@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/business/business_features.dart';
@@ -8,7 +11,11 @@ import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
 import '../../models/inventory.dart';
 import '../../models/product.dart';
+import '../../phase2/document_page.dart';
+import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
+
+part 'delivery_note_editor_phase2.dart';
 
 /// One batch a line is expected to draw from, and how much of it.
 class BatchDraw {
@@ -217,6 +224,11 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
   bool _saving = false;
   bool _loadingLines = false;
   String? _error;
+
+  /// Phase 2: the line the side panel follows.
+  int _current = 0;
+
+  void _setState(VoidCallback change) => setState(change);
 
   static String _today() => DateTime.now().toIso8601String().split('T').first;
 
@@ -457,7 +469,10 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
   }
 
   @override
-  Widget build(BuildContext context) => WorkspaceDialog(
+  Widget build(BuildContext context) => Phase2Scope.of(context)
+      // Phase 2: the one-screen note (the documents' approved layout).
+      ? _phase2Page(context)
+      : WorkspaceDialog(
         title: 'New Delivery Note',
         subtitle: _order == null
             ? 'Choose a sales order to deliver against'
