@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/api/concurrency.dart';
@@ -8,7 +11,12 @@ import '../../models/customer.dart';
 import '../../models/entities.dart';
 import '../../models/firm_member.dart';
 import '../../models/product.dart';
+import '../../models/document_preview.dart';
+import '../../phase2/document_page.dart';
+import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
+
+part 'sales_order_editor_phase2.dart';
 
 /// One line of the order, while it is being typed.
 ///
@@ -191,6 +199,57 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   /// somebody entered rather than a single field.
   int _version = 0;
 
+  /// Phase 2: the order as the server priced it last, and the line the side
+  /// panel follows.
+  SalesOrderPreviewRecord? _preview;
+  int _current = 0;
+  Timer? _previewTimer;
+  int _previewSerial = 0;
+  bool _phase2 = false;
+
+  void _setState(VoidCallback change) => setState(change);
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    _phase2 = Phase2Scope.of(context);
+  }
+
+  /// Price the order again once the typing pauses; only the latest answer
+  /// lands. Phase 2 only, and never for an order that can no longer change.
+  void _schedulePreview() {
+    if (!_phase2 || _locked) return;
+    _previewTimer?.cancel();
+    _previewTimer = Timer(const Duration(milliseconds: 350), () async {
+      final Json? draft = _draftPayload();
+      if (draft == null || !mounted) return;
+      final int serial = ++_previewSerial;
+      try {
+        final SalesOrderPreviewRecord priced =
+            await widget.api.previewSalesOrder(draft);
+        if (!mounted || serial != _previewSerial) return;
+        setState(() => _preview = priced);
+      } on ApiException {
+        // A half-typed order the server refuses: keep the last figures.
+      }
+    });
+  }
+
+  /// The payload as it stands, without asking the form to show its errors:
+  /// null while it could not be priced at all.
+  Json? _draftPayload() {
+    if (_customerId == null || _branchId == null || _warehouseId == null) {
+      return null;
+    }
+    for (final _LineDraft line in _lines) {
+      if (line.productId == null) return null;
+      if ((double.tryParse(line.quantity.text.trim()) ?? 0) <= 0) return null;
+      if ((double.tryParse(line.unitPrice.text.trim()) ?? 0) <= 0) return null;
+      if (_percentage(line.discountPercent.text) != null) return null;
+    }
+    return _buildPayload();
+  }
+
   /// The order's status as it was read. Only a draft may be rewritten.
   String _status = 'DRAFT';
 
@@ -207,6 +266,7 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
 
   @override
   void dispose() {
+    _previewTimer?.cancel();
     for (final _LineDraft line in _lines) {
       line.dispose();
     }
@@ -274,6 +334,8 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
         }
         if (_lines.isEmpty) _lines.add(_newLine());
       });
+      // Phase 2 prices what was loaded straight away.
+      _schedulePreview();
     } on ApiException catch (error) {
       if (!mounted) return;
       setState(() {
@@ -522,6 +584,10 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
 
   Json? _payload() {
     if (!(_form.currentState?.validate() ?? false)) return null;
+    return _buildPayload();
+  }
+
+  Json? _buildPayload() {
     if (_customerId == null || _branchId == null || _warehouseId == null) {
       return null;
     }
@@ -1212,6 +1278,8 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
 
   @override
   Widget build(BuildContext context) {
+    // Phase 2: the one-screen order (the quotation's approved layout).
+    if (Phase2Scope.of(context)) return _phase2Page(context);
     final ThemeData theme = Theme.of(context);
     final bool nothingToOrder =
         !_loading && (_customers.isEmpty || _products.isEmpty) && !_editing;

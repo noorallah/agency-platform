@@ -24,6 +24,8 @@
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/sales/sales_order_editor_dialog.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
+    show Phase2Scope;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -102,6 +104,9 @@ class _OrderApi extends ApiClient {
   /// The order an edit reads back, when one is being corrected.
   Json? existing;
 
+  /// Every draft phase 2 asked to be priced.
+  final List<Json> previews = <Json>[];
+
   Json? created;
   Json? updated;
   int? sentVersion;
@@ -172,6 +177,50 @@ class _OrderApi extends ApiClient {
     }
     if (path == '/api/v1/firm-members') {
       return <String, dynamic>{'data': members};
+    }
+    if (method == 'POST' && path == '/api/v1/sales-orders/preview') {
+      previews.add(body!);
+      // Priced as the server would: 18% on the lines as sent.
+      final List<dynamic> lines = body['lines'] as List<dynamic>;
+      double subtotal = 0;
+      final List<Json> priced = <Json>[];
+      for (final dynamic raw in lines) {
+        final Json line = raw as Json;
+        final double net = double.parse('${line['quantity']}') *
+            double.parse('${line['unit_price']}');
+        subtotal += net;
+        priced.add(<String, dynamic>{
+          'line_number': line['line_number'],
+          'product_id': line['product_id'],
+          'discount_percent': '0',
+          'discount_source': 'none',
+          'net_amount': net.toStringAsFixed(4),
+          'tax_amount': (net * .18).toStringAsFixed(4),
+        });
+      }
+      return <String, dynamic>{
+        'data': <String, dynamic>{
+          'interstate': false,
+          'order': <String, dynamic>{
+            'order_number': 'SO-2026-2027-000025',
+            'subtotal': subtotal.toStringAsFixed(4),
+            'tax_total': (subtotal * .18).toStringAsFixed(4),
+            'grand_total': (subtotal * 1.18).toStringAsFixed(4),
+            'lines': priced,
+          },
+          'lines': <Json>[
+            for (final Json line in priced)
+              <String, dynamic>{
+                'line_number': line['line_number'],
+                'product_id': line['product_id'],
+                'last_price': '98.0000',
+                'last_invoice_number': 'SI-2026-2027-000009',
+                'last_invoice_date': '2026-08-01',
+                'available_quantity': '40.0000',
+              },
+          ],
+        },
+      };
     }
     return <String, dynamic>{'data': const <Json>[]};
   }
@@ -550,7 +599,8 @@ void main() {
       await _pump(tester, api, orderId: 'so-1');
 
       expect(
-        find.text('Last taken off: 200 by a promotion. Blank prices it afresh.'),
+        find.text(
+            'Last taken off: 200 by a promotion. Blank prices it afresh.'),
         findsOneWidget,
       );
       expect(find.text('WELCOME10'), findsOneWidget);
@@ -696,5 +746,72 @@ void main() {
 
     expect(find.byType(SalesOrderEditorDialog), findsOneWidget);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('phase 2 draws one screen priced as it is typed', (tester) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _OrderApi api = _api();
+    bool? saved;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Builder(
+          builder: (BuildContext context) => TextButton(
+            onPressed: () async {
+              saved = await Navigator.of(context).push<bool>(
+                MaterialPageRoute<bool>(
+                  builder: (_) => Scaffold(
+                    body: Phase2Scope(
+                      child: SalesOrderEditorDialog(
+                        api: api,
+                        today: DateTime(2026, 8, 14),
+                      ),
+                    ),
+                  ),
+                ),
+              );
+            },
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    ));
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    // Nothing to price until the order names its customer.
+    expect(api.previews, isEmpty);
+    await tester.tap(find.byKey(const ValueKey('sales-order-customer')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Anand Agencies').last);
+    // The menu reports the choice a frame later; then the price is asked
+    // for once the typing pauses.
+    await tester.pumpAndSettle();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(tester.takeException(), isNull);
+    expect(api.previews, isNotEmpty);
+    expect(find.text('SO-2026-2027-000025 (new)'), findsOneWidget);
+    expect(find.byKey(const ValueKey('document-side-panel')), findsOneWidget);
+
+    // Five of the first product at 100: 500 taxable, 90 tax, 590.
+    final Finder quantity = find
+        .descendant(
+          of: find.byKey(const ValueKey<String>('sales-order-line-0')),
+          matching: find.byType(EditableText),
+        )
+        .at(1);
+    await tester.enterText(quantity, '5');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(api.previews.last['lines'][0]['quantity'], '5');
+    expect(find.text('590.00'), findsWidgets);
+    expect(find.text('98.00'), findsOneWidget);
+    expect(find.textContaining('Five hundred ninety only'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('sales-order-save')));
+    await tester.pumpAndSettle();
+    expect(api.created?['lines'][0]['quantity'], '5');
+    expect(saved, isTrue);
   });
 }
