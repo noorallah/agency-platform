@@ -239,7 +239,10 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
         // the form asks rather than guess (D-QA-17).
         auto: _branchId != null && _warehouseId != null,
         width: 300,
-        child: Row(children: [
+        child: Row(
+          // Tops aligned: an error under one box must not push the other.
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
           Expanded(
             child: DropdownButtonFormField<String>(
               isExpanded: true,
@@ -253,6 +256,7 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
                     child: Text(item.code, overflow: TextOverflow.ellipsis),
                   ),
               ],
+              autovalidateMode: AutovalidateMode.onUserInteraction,
               validator: (value) => value == null ? 'Choose a branch.' : null,
               onChanged: (value) {
                 _setState(() {
@@ -278,6 +282,7 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
                     child: Text(item.code, overflow: TextOverflow.ellipsis),
                   ),
               ],
+              autovalidateMode: AutovalidateMode.onUserInteraction,
               validator: (value) =>
                   value == null ? 'Choose a warehouse.' : null,
               onChanged: (value) {
@@ -347,6 +352,7 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
         keyboardType: TextInputType.number,
         style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 13),
         decoration: documentCellDecoration(context, hint: hint),
+        autovalidateMode: AutovalidateMode.onUserInteraction,
         validator: validator,
         onChanged: (_) {
           // Redrawn at once on what is typed; the server's figures follow.
@@ -493,6 +499,7 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
             controller: controller,
             keyboardType: number ? TextInputType.number : null,
             decoration: documentBoxDecoration(context),
+            autovalidateMode: AutovalidateMode.onUserInteraction,
             validator: validator,
             onChanged: (_) {
               _setState(() {});

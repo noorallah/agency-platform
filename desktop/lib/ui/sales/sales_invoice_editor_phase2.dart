@@ -251,6 +251,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                   child: Text(item.label, overflow: TextOverflow.ellipsis),
                 ),
             ],
+            autovalidateMode: AutovalidateMode.onUserInteraction,
             validator: (value) =>
                 value == null ? 'Choose a delivery note.' : null,
             // Fixed while editing: changing which document a draft bills is
@@ -359,6 +360,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
         keyboardType: TextInputType.number,
         style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontSize: 13),
         decoration: documentCellDecoration(context, hint: hint),
+        autovalidateMode: AutovalidateMode.onUserInteraction,
         validator: validator,
         onChanged: (_) {
           _setState(() {});
@@ -576,6 +578,7 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
             controller: _billDiscount,
             keyboardType: TextInputType.number,
             decoration: documentBoxDecoration(context),
+            autovalidateMode: AutovalidateMode.onUserInteraction,
             validator: _percentage,
             onChanged: (_) {
               _setState(() {});
