@@ -185,9 +185,9 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
           'There is no open accounting period to post into. Open one first.');
       return;
     }
-    final JournalEntry? created = await showDialog<JournalEntry>(
-      context: context,
-      barrierDismissible: false,
+    final JournalEntry? created = await showDocument<JournalEntry>(
+      context,
+      title: 'New journal entry',
       builder: (_) => JournalEntryDialog(
         api: widget.api,
         accounts: _accounts,
@@ -216,9 +216,9 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
     final bool ready = await _loadEditorReferences();
     if (mounted) setState(() => _loading = false);
     if (!ready || !mounted) return;
-    final JournalEntry? saved = await showDialog<JournalEntry>(
-      context: context,
-      barrierDismissible: false,
+    final JournalEntry? saved = await showDocument<JournalEntry>(
+      context,
+      title: 'Edit journal entry',
       builder: (_) => JournalEntryDialog(
         api: widget.api,
         accounts: _accounts,

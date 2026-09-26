@@ -571,9 +571,9 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
     }
     if (!mounted) return;
     final PurchaseEditorOutcome? outcome =
-        await showDialog<PurchaseEditorOutcome>(
-      context: context,
-      barrierDismissible: false,
+        await showDocument<PurchaseEditorOutcome>(
+      context,
+      title: 'Purchase order',
       builder: (_) => PurchaseOrderEditorDialog(
         api: widget.api,
         mode: mode,

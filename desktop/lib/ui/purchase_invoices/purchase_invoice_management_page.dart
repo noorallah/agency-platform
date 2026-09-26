@@ -140,9 +140,9 @@ class _PurchaseInvoiceManagementPageState extends State<PurchaseInvoiceManagemen
   /// seeder had raised, and the orphan-route guard could not see it because
   /// the generic `documentPage` helper names the same literal.
   Future<void> _createInvoice() async {
-    final Json? saved = await showDialog<Json>(
-      context: context,
-      barrierDismissible: false,
+    final Json? saved = await showDocument<Json>(
+      context,
+      title: 'New purchase invoice',
       builder: (_) => PurchaseInvoiceEditorDialog(
         api: widget.api,
         receipts: _billableReceipts,

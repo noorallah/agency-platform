@@ -127,9 +127,9 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
       if (mounted) setState(() => _loading = false);
     }
     if (!mounted) return;
-    final Json? payload = await showDialog<Json>(
-      context: context,
-      barrierDismissible: false,
+    final Json? payload = await showDocument<Json>(
+      context,
+      title: 'New sales return',
       builder: (_) => SalesReturnEditorDialog(
         documents: documents,
         warehouses: warehouses,

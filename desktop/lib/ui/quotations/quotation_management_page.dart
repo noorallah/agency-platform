@@ -158,9 +158,9 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
       if (mounted) setState(() => _loading = false);
     }
     if (!mounted) return;
-    final Json? payload = await showDialog<Json>(
-      context: context,
-      barrierDismissible: false,
+    final Json? payload = await showDocument<Json>(
+      context,
+      title: existing == null ? 'New quotation' : 'Edit quotation',
       builder: (_) => QuotationEditorDialog(
         customers: customers,
         products: products,
