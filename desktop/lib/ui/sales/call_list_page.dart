@@ -52,8 +52,7 @@ class _CallListPageState extends State<CallListPage> {
   Future<void> _loadSalesmen() async {
     if (!_canView) return;
     try {
-      final List<FirmMember> rows =
-          await widget.api.firmMembers();
+      final List<FirmMember> rows = await widget.api.firmMembers();
       if (!mounted) return;
       setState(() => _salesmen = rows);
     } on ApiException {
@@ -146,6 +145,70 @@ class _CallListPageState extends State<CallListPage> {
       },
     );
 
+    final Widget salesperson = SizedBox(
+      width: 240,
+      child: DropdownButtonFormField<String>(
+        isExpanded: true,
+        initialValue: _salesmanId.isEmpty ? '' : _salesmanId,
+        decoration: const InputDecoration(
+          labelText: 'Salesperson',
+          isDense: true,
+        ),
+        items: [
+          const DropdownMenuItem<String>(
+            value: '',
+            child: Text('Everyone', overflow: TextOverflow.ellipsis),
+          ),
+          for (final candidate in _salesmen)
+            DropdownMenuItem<String>(
+              value: candidate.userId,
+              child: Text(candidate.fullName, overflow: TextOverflow.ellipsis),
+            ),
+        ],
+        onChanged: (value) {
+          setState(() => _salesmanId = value ?? '');
+          _load();
+        },
+      ),
+    );
+
+    // Phase 2 has one line above the list and a fixed width for this slot on
+    // it: the day and its arrows sit there, and the salesperson moves into
+    // the "+ filter" panel with every other screen's filters.
+    final bool phase2 = Phase2Scope.of(context);
+    final Widget dayOnLine = Row(mainAxisSize: MainAxisSize.min, children: [
+      IconButton(
+        tooltip: 'Previous day',
+        visualDensity: VisualDensity.compact,
+        icon: const Icon(Icons.chevron_left),
+        onPressed: () => _shiftDay(-1),
+      ),
+      Flexible(
+        child: TextButton(
+          key: const ValueKey('call-list-day'),
+          onPressed: _pickDate,
+          child: Text(_dayLabel(_date), overflow: TextOverflow.ellipsis),
+        ),
+      ),
+      IconButton(
+        tooltip: 'Next day',
+        visualDensity: VisualDensity.compact,
+        icon: const Icon(Icons.chevron_right),
+        onPressed: () => _shiftDay(1),
+      ),
+      IconButton(
+        tooltip: 'Back to today',
+        visualDensity: VisualDensity.compact,
+        icon: const Icon(Icons.today),
+        onPressed: _showingToday
+            ? null
+            : () {
+                setState(() => _date = DateTime.now());
+                _load();
+              },
+      ),
+    ]);
+
     // The date and the salesperson are the only two things to narrow by, and
     // there is nothing to type — a call list is not searched, it is read for a
     // day. So the filter row carries them and there is no search box.
@@ -186,32 +249,7 @@ class _CallListPageState extends State<CallListPage> {
             icon: const Icon(Icons.today),
             label: const Text('Back to today'),
           ),
-          SizedBox(
-            width: 240,
-            child: DropdownButtonFormField<String>(
-              isExpanded: true,
-              initialValue: _salesmanId.isEmpty ? '' : _salesmanId,
-              decoration: const InputDecoration(
-                labelText: 'Salesperson',
-                isDense: true,
-              ),
-              items: [
-                const DropdownMenuItem<String>(
-                  value: '',
-                  child: Text('Everyone', overflow: TextOverflow.ellipsis),
-                ),
-                for (final candidate in _salesmen)
-                  DropdownMenuItem<String>(
-                    value: candidate.userId,
-                    child: Text(candidate.fullName, overflow: TextOverflow.ellipsis),
-                  ),
-              ],
-              onChanged: (value) {
-                setState(() => _salesmanId = value ?? '');
-                _load();
-              },
-            ),
-          ),
+          salesperson,
         ],
       ),
     );
@@ -245,7 +283,8 @@ class _CallListPageState extends State<CallListPage> {
 
     return ManagementWorkspaceLayout(
       toolbar: toolbar,
-      searchPanel: filterPanel,
+      searchPanel: phase2 ? dayOnLine : filterPanel,
+      filterPanel: phase2 ? salesperson : null,
       primaryContent: content,
       statusBar: WorkspaceStatusBar(
         total: totalStops,

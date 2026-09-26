@@ -75,7 +75,9 @@ class _LedgerStatementPageState extends State<LedgerStatementPage> {
         _accounts = accounts;
         _periods = periods;
         _account = accounts.isEmpty ? null : accounts.first;
-        _period = periods.isEmpty ? null : periods.first;
+        // The period today falls in: the year's periods all exist from the
+        // day the books open, so the newest is months ahead.
+        _period = currentPeriod(periods);
       });
       if (_account != null && _period != null) await _loadReport();
     } on ApiException catch (exception) {

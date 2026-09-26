@@ -2383,10 +2383,12 @@ class GridColumn {
 
   /// A count of goods rather than money: shown without the store's trailing
   /// zeros (876, 2.5), where money keeps two places.
+  /// Read off the heading, or off the key where the heading is one word
+  /// that could as well be money ("Current").
   bool get isQuantity => RegExp(
         r'(qty|quantity|stock|on hand|available|reserved|points|factor)',
         caseSensitive: false,
-      ).hasMatch(label);
+      ).hasMatch('$label $key');
 
   /// A status column: phase 2 writes its value as plain words ("On hold"),
   /// as the wireframe does, rather than as a code in capitals.
