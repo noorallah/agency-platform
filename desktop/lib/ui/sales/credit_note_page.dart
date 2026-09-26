@@ -174,6 +174,8 @@ class _CreditNotePageState extends State<CreditNotePage> {
       // Phase 2: Refresh as the line's icon and "+ New" last, as every list.
       toolbar: Phase2Scope.of(context)
           ? WorkspaceToolbar(
+              // Period right after the search, as Sales Returns (owner).
+              trailing: [_periodFilter()],
               actions: [
                 ToolbarAction.refresh,
                 if (_mayManage) ToolbarAction.newItem,
@@ -204,7 +206,6 @@ class _CreditNotePageState extends State<CreditNotePage> {
       ),
       // Phase 2: searchable by number or customer and narrowed by date, as
       // every sales list (owner, 2026-09-27) -- the list grows all year.
-      lineChips: Phase2Scope.of(context) ? [_periodFilter()] : const [],
       searchPanel: Phase2Scope.of(context)
           ? SearchFilterPanel(
               controller: _search,

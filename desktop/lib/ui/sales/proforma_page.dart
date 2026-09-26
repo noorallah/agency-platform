@@ -277,6 +277,8 @@ class _ProformaPageState extends State<ProformaPage> {
       // commands, "+ New" last -- as every list.
       toolbar: phase2
           ? WorkspaceToolbar(
+              // Period right after the search, as Sales Returns (owner).
+              trailing: [_periodFilter()],
               actions: const [ToolbarAction.refresh, ToolbarAction.newItem],
               isEnabled: (action) =>
                   action == ToolbarAction.refresh || _mayManage,
@@ -357,7 +359,6 @@ class _ProformaPageState extends State<ProformaPage> {
             ),
       // Phase 2: the note is on the detail pane, where it is said again; on
       // the one line it wrapped into three.
-      lineChips: phase2 ? [_periodFilter()] : const [],
       searchPanel: phase2
           ? SearchFilterPanel(
               controller: _search,

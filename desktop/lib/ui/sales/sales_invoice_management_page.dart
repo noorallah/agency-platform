@@ -560,7 +560,6 @@ class _SalesInvoiceManagementPageState
                 total: _selected!['grand_total'],
                 onClear: () => setState(() => _selected = null),
               ),
-        lineChips: Phase2Scope.of(context) ? _listTools() : const [],
         // Phase 2's counters are the views (4.5); a second row
         // of the same choices would repeat them.
         viewBar: Phase2Scope.of(context) ? null : _buildViewBar(),
@@ -604,7 +603,9 @@ class _SalesInvoiceManagementPageState
     final bool canCreate = widget.permissions.hasPermission('SALES_CREATE');
     final bool canEdit = widget.permissions.hasPermission('SALES_UPDATE');
     return WorkspaceToolbar(
-      trailing: [_columnsButton()],
+      // Period right after the search, as Sales Returns has it (owner,
+      // 2026-09-27), then Columns.
+      trailing: [..._listTools(), _columnsButton()],
       actions: [
         ToolbarAction.view,
         if (canEdit) ToolbarAction.edit,
@@ -882,8 +883,8 @@ class _SalesInvoiceManagementPageState
             : () => unawaited(_run(action, suffix)),
       );
 
-  /// The Period control (owner, 2026-09-27), with the counters on phase 2's
-  /// page line. Phase 1 (frozen, never shipped) has no room for it.
+  /// The Period control (owner, 2026-09-27), right after the search on
+  /// phase 2's page line. Phase 1 (frozen, never shipped) has no room for it.
   List<Widget> _listTools() => [
         DateRangeFilter(
           value: _period,

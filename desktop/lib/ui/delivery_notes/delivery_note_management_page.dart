@@ -458,7 +458,6 @@ class _DeliveryNoteManagementPageState
                 total: _selected!.grandTotal,
                 onClear: () => setState(() => _selected = null),
               ),
-        lineChips: Phase2Scope.of(context) ? _listTools() : const [],
         // Phase 2's counters are the views (4.5); a second row
         // of the same choices would repeat them.
         viewBar: Phase2Scope.of(context) ? null : _buildViewBar(),
@@ -566,7 +565,8 @@ class _DeliveryNoteManagementPageState
         // anything else -- under a label reading "Request approval", while
         // dispatching is the step that moves the stock.
         trailing: Phase2Scope.of(context)
-            ? [_columnsButton()]
+            // Period right after the search, as Sales Returns (owner).
+            ? [..._listTools(), _columnsButton()]
             : [
                 // First, because a challan is what somebody is waiting for when a
                 // lorry is at the gate. Enabled on any saved note: paperwork is
@@ -663,8 +663,8 @@ class _DeliveryNoteManagementPageState
     }
   }
 
-  /// The Period control (owner, 2026-09-27), with the counters on phase 2's
-  /// page line. Phase 1 (frozen, never shipped) has no room for it.
+  /// The Period control (owner, 2026-09-27), right after the search on
+  /// phase 2's page line. Phase 1 (frozen, never shipped) has no room for it.
   List<Widget> _listTools() => [
         DateRangeFilter(
           value: _period,
