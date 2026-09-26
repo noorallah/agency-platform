@@ -455,3 +455,37 @@ def test_a_preference_save_that_changes_nothing_writes_nothing() -> None:
     assert len(rows) == 1
     assert _data(rows[0].before_data) == {"rows_per_page": 20}
     assert _data(rows[0].after_data) == {"rows_per_page": 50}
+
+
+def test_moving_between_screens_is_stored_but_not_audited() -> None:
+    """The screen a user is on is remembered, not recorded.
+
+    The desktop saves it with every move, so each click wrote an audit row:
+    123,537 of them in one firm's trail by 2026-09-26. The next sign-in still
+    opens where they were; a real preference change is still audited.
+    """
+    session = _session()
+    user = User(email="moves@ui.local", full_name="Moves User", password_hash="*")
+    session.add(user)
+    session.commit()
+    service = IdentityService(
+        session,
+        Settings(
+            environment=Environment.TESTING,
+            bootstrap_admin_password="Test-Bootstrap-Only1!",
+        ),
+    )
+    for page in ("sales/sales-orders", "masters/customers", "inventory"):
+        service.update_user_preferences(
+            user.id, UserPreferencesUpdate(default_landing_page=page)
+        )
+
+    assert service.get_user_preferences(user.id).default_landing_page == "inventory"
+    assert _rows(session, "user_preferences.updated") == []
+
+    service.update_user_preferences(
+        user.id,
+        UserPreferencesUpdate(default_landing_page="home", rows_per_page=50),
+    )
+    rows = _rows(session, "user_preferences.updated")
+    assert len(rows) == 1, "a real change, even beside a move, is audited"
