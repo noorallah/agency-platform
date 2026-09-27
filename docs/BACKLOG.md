@@ -4138,3 +4138,33 @@ PR #814, M5 §42.2-42.3, M6 §46 and §36, M7 §42.4 and §53.1, M8 §42.5, M11 
 S1 §48.1 and §39, S2 §42.7, S3 §42.9, S4 §51, S5 §38, S6 §42.12, S9 audit
 entry, S10 §44 and §37, S13 §43, G1 §54, G2 §53, G3 §52, N3 §42.14, N4
 §42.13, N5 §42.2, N6 §51, N10 §41, N11 §48-49, N12-N13 §42.15.
+
+## 56. Bulk approval, migration from other tools, and data over the years -- HIGH PRIORITY
+
+Owner, 2026-09-27: three streams to run in parallel, designed from how
+Tally, BUSY, Marg, Vyapar, Zoho, Odoo and ERPNext do it. **The design is
+`docs/BULK_APPROVAL_MIGRATION_AND_YEAR_DATA.md`**; this entry is the plan.
+
+**Decided by convention (to confirm at the review):**
+1. **One continuous database, no year split** -- as Zoho, Odoo and ERPNext,
+   and as Tally recommends until audit. The Indian desktop tools split years
+   because their data files must load whole; PostgreSQL reads by index.
+   Year-end is a **closing entry plus a lock**, and balances simply continue.
+2. **Bulk approval is per row, not all-or-nothing** -- one order over its
+   credit limit must not hold back the rest -- through the same service as a
+   single approval; reject needs a reason. (Only Zoho does bulk approval
+   well; the desktop tools approve one at a time.)
+3. **Migration targets the opening position** -- masters, bill-wise
+   customer and vendor outstanding, opening trial balance, opening stock with
+   batches -- **not full history**; the old tool stays read-only for that.
+   Every import: template, dry run with per-row errors, commit once. Tally's
+   XML exports after the Excel path works.
+
+| Stream | First | Then | Later |
+| --- | --- | --- | --- |
+| A. Bulk approval | Framework + sales and purchase orders | Invoices, credit notes, returns, journals | Approval rules, multi-level, notifications |
+| B. Import and migration | Framework + products, customers, vendors (§46) | Opening bills, opening trial balance, *Opening balances* on Set up (§36) | Tally XML |
+| C. Performance | Large test firm and timings; the Inventory list's history loading, stock sums, `journal_entries` date index, unpaged reports | Current-year default on lists (§37); set-based balance update; retention on by default | Year-end close; partition `audit_logs` if needed |
+
+Targets for C: a list opens in under 1 second, a report in under 3, on the
+minimum hardware.
