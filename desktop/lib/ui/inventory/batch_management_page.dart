@@ -215,7 +215,11 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
   }
 
   Widget _buildGridWorkspace() => ManagementWorkspaceLayout(
-        toolbar: _buildToolbar(),
+        toolbar: Phase2Scope.of(context) ? _phase2Toolbar() : _buildToolbar(),
+        // Phase 2 (option C, owner 2026-09-27): the picked batch, lot or
+        // serial named on a bar above the grid, with Open.
+        selectionBar: true,
+        selection: _selectionSummary(),
         searchPanel: SearchFilterPanel(
           controller: _search,
           focusNode: _searchFocus,
@@ -249,6 +253,102 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
         BatchSerialSection.serials => _selectedSerial == null ? 0 : 1,
         BatchSerialSection.expiryMonitor => 0,
       };
+
+  /// Phase 2: Refresh as the line's icon and "+ New" last, as every list;
+  /// Open goes on the bar when a row is picked.
+  WorkspaceToolbar _phase2Toolbar() {
+    final bool mayCreate = switch (widget.section) {
+      BatchSerialSection.batches || BatchSerialSection.lots => _canCreateBatch,
+      BatchSerialSection.serials => _canCreateSerial,
+      BatchSerialSection.expiryMonitor => false,
+    };
+    final bool mayOpen = switch (widget.section) {
+      BatchSerialSection.batches || BatchSerialSection.lots => _canViewBatch,
+      BatchSerialSection.serials => _canCreateSerial,
+      BatchSerialSection.expiryMonitor => false,
+    };
+    return WorkspaceToolbar(
+      actions: [
+        if (mayOpen) ToolbarAction.view,
+        ToolbarAction.refresh,
+        if (mayCreate) ToolbarAction.newItem,
+      ],
+      isEnabled: (action) =>
+          action != ToolbarAction.view || _selectedCount > 0,
+      onAction: (action) {
+        switch (action) {
+          case ToolbarAction.view:
+            _openSelected();
+          case ToolbarAction.newItem:
+            switch (widget.section) {
+              case BatchSerialSection.batches:
+                _openCreateBatchDialog();
+              case BatchSerialSection.lots:
+                _openCreateLotDialog();
+              case BatchSerialSection.serials:
+                _openCreateSerialDialog();
+              case BatchSerialSection.expiryMonitor:
+                break;
+            }
+          default:
+            _load();
+        }
+      },
+    );
+  }
+
+  /// Open the picked row, as a double-click does.
+  void _openSelected() {
+    switch (widget.section) {
+      case BatchSerialSection.batches:
+        if (_selectedBatch != null) _openBatchDetailsDialog(_selectedBatch!);
+      case BatchSerialSection.lots:
+        if (_selectedLot != null) _openLotDetailsDialog(_selectedLot!);
+      case BatchSerialSection.serials:
+        if (_selectedSerial != null) _openSerialDetailsDialog(_selectedSerial!);
+      case BatchSerialSection.expiryMonitor:
+        break;
+    }
+  }
+
+  /// The picked row as the selection bar names it, or null.
+  SelectionSummary? _selectionSummary() {
+    void clear() => setState(() {
+          _selectedBatch = null;
+          _selectedLot = null;
+          _selectedSerial = null;
+        });
+    return switch (widget.section) {
+      BatchSerialSection.batches when _selectedBatch != null =>
+        SelectionSummary.record(
+          name: _selectedBatch!.batchNumber,
+          facts: [
+            _productLabel(_selectedBatch!),
+            if (_selectedBatch!.expiryDate.isNotEmpty)
+              'Expires ${_selectedBatch!.expiryDate}',
+          ],
+          status: _selectedBatch!.status,
+          onClear: clear,
+        ),
+      BatchSerialSection.lots when _selectedLot != null =>
+        SelectionSummary.record(
+          name: _selectedLot!.lotNumber,
+          facts: ['${_selectedLot!.productCode} - ${_selectedLot!.productName}'],
+          status: _selectedLot!.status,
+          onClear: clear,
+        ),
+      BatchSerialSection.serials when _selectedSerial != null =>
+        SelectionSummary.record(
+          name: _selectedSerial!.serialNumber,
+          facts: [
+            '${_selectedSerial!.productCode} - ${_selectedSerial!.productName}',
+          ],
+          status: _selectedSerial!.status,
+          onClear: clear,
+        ),
+      _ => null,
+    };
+  }
 
   Widget _buildToolbar() => Wrap(
         spacing: 8,

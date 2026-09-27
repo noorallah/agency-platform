@@ -12,6 +12,7 @@ import 'package:agency_desktop/models/product.dart';
 import 'package:agency_desktop/ui/inventory/batch_management_page.dart';
 import 'package:agency_desktop/ui/inventory/inventory_import_wizard.dart';
 import 'package:agency_desktop/ui/workspace/global_search.dart';
+import 'package:agency_desktop/phase2/phase2_scope.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -348,6 +349,44 @@ void main() {
     // Batch number and product name appear in the grid.
     expect(find.text('BATCH-001'), findsAny);
     expect(find.text('MED-001 - Pain Relief'), findsAny);
+  });
+
+  testWidgets('phase 2 names the picked batch on the selection bar',
+      (tester) async {
+    // Option C (owner, 2026-09-27): a bar above the grid names the batch,
+    // its product and expiry, and offers Open.
+    _setDesktopSurface(tester);
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => Phase2Scope(child: child!),
+        home: Scaffold(
+          body: BatchManagementPage(
+            api: _BatchSerialApi(batchItems: [_batchRecord]),
+            preferences: DesktopPreferencesService(
+              directory: Directory.systemTemp.createTempSync('batch-bar-test'),
+            ),
+            permissions: _permissionsFor(['BATCH_VIEW', 'BATCH_CREATE']),
+            hasActiveFirm: true,
+            section: BatchSerialSection.batches,
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('selection-bar')), findsNothing);
+
+    await tester.tap(find.text('BATCH-001').first);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('selection-bar')),
+        matching: find.textContaining('MED-001 - Pain Relief'),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(const ValueKey('selection-view')), findsOneWidget);
   });
 
   testWidgets('a batch whose product the server did not name shows a dash', (
