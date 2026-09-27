@@ -163,7 +163,7 @@ Everything that changes, the database, the logs and the backups, is under
 | The app and the server | `C:\Program Files\Agency Platform` |
 | The database files | `C:\ProgramData\Agency Platform\pgdata` (managed by PostgreSQL, not files you handle) |
 | All logs | `C:\ProgramData\Agency Platform\logs` (Start menu: **Agency Platform logs**) |
-| Pre-upgrade backups | `C:\ProgramData\Agency Platform\backups` |
+| Daily and pre-upgrade backups | `C:\ProgramData\Agency Platform\backups` (`daily\` and `pre-upgrade-...`) |
 | Attachments | `C:\ProgramData\Agency Platform\storage` |
 | The first sign-in | `C:\ProgramData\Agency Platform\first-login.txt` (administrators only, delete once used) |
 | Server settings and passwords | `C:\Program Files\Agency Platform\backend\config\.env` (administrators only) |
@@ -177,6 +177,7 @@ tending: each part writes one file a day and removes its own old files.
 | `server` | The server, one file a day plus a separate errors file | 30 days, errors 90 days, and never more than 1 GB in total |
 | `service` | The Windows service wrapper around the server | 8 files of 10 MB |
 | `database` | PostgreSQL, one file a day | Rotated daily by PostgreSQL |
+| `backup` | The daily backup, one file a day | Kept with the other logs |
 | `client\<Windows user>` | The app, one file a day per user of the PC | 14 days |
 
 On an app-only PC only `install` and `client` exist. **Open logs folder** on
@@ -201,14 +202,50 @@ app-only PC. Ask everyone to close the app first.
 4. Setup refuses to install an older version over a newer one, because the
    database has already moved past what the older version understands.
 
-**Backups are your job in this release.** The only backup the product takes
-is the one before an upgrade. Until a scheduled backup ships, copy the whole
-of `C:\ProgramData\Agency Platform` to another drive or PC regularly, with
-the two services stopped, plus a copy of
-`C:\Program Files\Agency Platform\backend\config\.env`. A backup contains
-passwords and sign-in tokens, so keep it where only administrators can reach
-it. A backup is only proven once it has been restored; try that once on a
-spare PC.
+**The server backs itself up every night.** Setup schedules a Windows task,
+*Agency Platform daily backup*, that runs at 02:00 as SYSTEM (or as soon as
+the PC is next switched on, if it was off then). It dumps every database while
+people keep working -- nothing is stopped -- into
+`C:\ProgramData\Agency Platform\backups\daily\<date-time>`, marks the folder
+finished with a `.complete` file, and keeps the **newest 7**. A run that fails
+keeps the earlier backups, writes why in `logs\backup`, and its half-written
+folder is cleared by the next run. The folder is readable by administrators
+only, because a backup holds every firm's data.
+
+**Keep a copy off the PC.** A backup on the same disk does not survive the
+disk. Copy the newest `backups\daily\<date-time>` folder (one with a
+`.complete` file in it) to another drive or PC regularly, with a copy of
+`C:\Program Files\Agency Platform\backend\config\.env`, and keep both where
+only administrators can reach them.
+
+**Restoring a backup** puts the database back exactly as it was when the
+backup was taken; anything entered since is lost. On the server PC, as an
+administrator:
+
+1. Ask everyone to close the app, then stop the server (the database keeps
+   running): `Stop-Service AgencyPlatformServer`
+2. Pick the backup folder, for example
+   `C:\ProgramData\Agency Platform\backups\daily\20260927-020000`. It holds
+   one `.dump` file per database: `<database>.dump` for a whole database, or
+   `<database>--<schema>.dump` for one firm's own schema.
+3. Restore each file with the program's own tools. The user name is
+   `AGENCY_DATABASE_USERNAME` in `backend\config\.env`; the password is asked
+   for, and is `AGENCY_DATABASE_PASSWORD` in the same file.
+
+   ```
+   & "C:\Program Files\Agency Platform\pgsql\bin\pg_restore.exe" `
+     -h localhost -p 5433 -U <user> -d <database> `
+     --clean --if-exists --no-owner "<backup folder>\<database>.dump"
+   ```
+
+   For a `<database>--<schema>.dump` file, add `-n <schema>` so only that
+   firm's schema is replaced.
+4. Start the server again, `Start-Service AgencyPlatformServer`, then sign in
+   and check that the latest invoices and receipts are there.
+
+A backup is only proven once it has been restored; try this once on a spare
+PC. (Checked on 2026-09-27: a daily dump restored into a fresh database gave
+back every firm, user, invoice and journal entry.)
 
 **Uninstalling** is *Agency Platform* in **Add or remove programs**. It stops
 and removes both services and the firewall rule, removes the program, and
@@ -265,8 +302,6 @@ the version shown on the sign-in screen.
 
 - **It is unsigned.** SmartScreen warns and the publisher reads *Agency*
   until a certificate and the final company name are in place.
-- **No scheduled backup.** Only the pre-upgrade backup is automatic. Copy the
-  data folder yourself until a backup job ships.
 - **No licence.** This build runs without one. Licensing arrives in a later
   release and will not disturb an installed copy.
 - **Old database rows are not pruned automatically.** Sign-in history and the
