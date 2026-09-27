@@ -176,6 +176,7 @@ class _CreditNotePageState extends State<CreditNotePage> {
       );
     }
     return ManagementWorkspaceLayout(
+      notice: CreditNoteNotice.text,
       // Phase 2: Refresh as the line's icon and "+ New" last, as every list.
       toolbar: Phase2Scope.of(context)
           ? _phase2Toolbar()
@@ -548,8 +549,17 @@ String _money(String value) {
 class CreditNoteNotice extends StatelessWidget {
   const CreditNoteNotice({super.key});
 
+  /// What the notice says; phase 2 shows it behind the page line's (i).
+  static const String text =
+      'Use a credit note when the money changes and the goods do not '
+      '— a rate agreed after invoicing, or a discount given later. It '
+      'reverses the tax the invoice charged. Goods actually coming '
+      'back are a sales return, which moves stock as well.';
+
   @override
   Widget build(BuildContext context) {
+    // Phase 2 allows no box above the grid (4.5): the page line's (i) says it.
+    if (Phase2Scope.of(context)) return const SizedBox.shrink();
     final ThemeData theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),

@@ -1888,7 +1888,14 @@ class ManagementWorkspaceLayout extends StatelessWidget {
     this.lineChips = const [],
     this.selectionBar = false,
     this.selection,
+    this.notice,
   });
+
+  /// Phase 2: what a screen wants said about itself -- "a credit note
+  /// reverses the tax", "sandbox mode" -- behind an (i) on the page line
+  /// rather than a box above the grid (4.5). Phase 1 ignores it; its screens
+  /// keep their own boxes.
+  final String? notice;
 
   final Widget toolbar;
   final Widget searchPanel;
@@ -2185,6 +2192,8 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
           ),
         ];
     // The wireframe's "+ filter" chip sits with the counters, at the left.
+    // A screen's view switch (Rates / Collected / Payouts) and its notice
+    // go on the line too: 4.5 allows no band above the grid.
     final List<Widget> filterChip = [
       if (filters != null) ...[
         const SizedBox(width: 6),
@@ -2193,6 +2202,22 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
       for (final Widget chip in layout.lineChips) ...[
         const SizedBox(width: 6),
         chip,
+      ],
+      if (layout.viewBar != null) ...[
+        const SizedBox(width: 6),
+        layout.viewBar!,
+      ],
+      if (layout.notice != null) ...[
+        const SizedBox(width: 2),
+        Tooltip(
+          key: const ValueKey('page-notice'),
+          message: layout.notice!,
+          child: Icon(
+            Icons.info_outline,
+            size: 18,
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
       ],
     ];
     // Rebuilt when the counters arrive: how much room the actions get
@@ -2219,6 +2244,8 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
               _countersWidth(context, bar) +
               110.0 * (filters == null ? 0 : 1) +
               110.0 * layout.lineChips.length +
+              (layout.viewBar == null ? 0 : 240) +
+              (layout.notice == null ? 0 : 24) +
               260 +
               8;
           // 4.11: on a narrow window, or where the line cannot hold the
@@ -2289,12 +2316,6 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
               selection: layout.selection!,
               actions: toolbar.forSelection(),
             ),
-          ),
-        if (layout.viewBar != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(12, 0, 12, 4),
-            child:
-                Align(alignment: Alignment.centerLeft, child: layout.viewBar),
           ),
         Expanded(
           // Edge to edge, as the wireframe's grid: the cells pad themselves.
@@ -2825,20 +2846,7 @@ class _EnterpriseDataGridState<T> extends State<EnterpriseDataGrid<T>> {
     return raw.trim().replaceFirst(RegExp(r'0+$'), '');
   }
 
-  /// Plain words for a status code: ON_HOLD becomes "On hold".
-  static String _statusWords(String value) {
-    final String trimmed = value.trim();
-    // A code with a note after it, such as "APPROVED (on hold)": the code in
-    // words, the note as it is.
-    final RegExpMatch? noted =
-        RegExp(r'^([A-Z][A-Z0-9_ ]*?)\s+(\(.*\))$').firstMatch(trimmed);
-    if (noted != null) {
-      return '${_statusWords(noted.group(1)!)} ${noted.group(2)}';
-    }
-    if (!RegExp(r'^[A-Z][A-Z0-9_ ]*$').hasMatch(trimmed)) return value;
-    final String words = trimmed.replaceAll('_', ' ').toLowerCase();
-    return words[0].toUpperCase() + words.substring(1);
-  }
+  static String _statusWords(String value) => statusInWords(value);
 
   /// The width each column would like, its heading and values measured in
   /// the grid's own type (13 px cells, 12 px bold headings); a long value is
@@ -3616,6 +3624,22 @@ enum StatusBadgeTone {
   info,
 }
 
+/// Plain words for a status code: ON_HOLD becomes "On hold". Anything that
+/// is not a code in capitals is returned as it is.
+String statusInWords(String value) {
+  final String trimmed = value.trim();
+  // A code with a note after it, such as "APPROVED (on hold)": the code in
+  // words, the note as it is.
+  final RegExpMatch? noted =
+      RegExp(r'^([A-Z][A-Z0-9_ ]*?)\s+(\(.*\))$').firstMatch(trimmed);
+  if (noted != null) {
+    return '${statusInWords(noted.group(1)!)} ${noted.group(2)}';
+  }
+  if (!RegExp(r'^[A-Z][A-Z0-9_ ]*$').hasMatch(trimmed)) return value;
+  final String words = trimmed.replaceAll('_', ' ').toLowerCase();
+  return words[0].toUpperCase() + words.substring(1);
+}
+
 class StatusBadge extends StatelessWidget {
   const StatusBadge({
     super.key,
@@ -3669,7 +3693,9 @@ class StatusBadge extends StatelessWidget {
         borderRadius: AppRadius.large,
       ),
       child: Text(
-        label,
+        // Phase 2 reads a status as words ("On hold"), as the grid does
+        // (4.11); phase 1 keeps the code.
+        Phase2Scope.of(context) ? statusInWords(label) : label,
         maxLines: 1,
         overflow: TextOverflow.ellipsis,
         style: Theme.of(context).textTheme.labelSmall?.copyWith(

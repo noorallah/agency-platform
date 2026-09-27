@@ -297,6 +297,7 @@ class _EInvoicePageState extends State<EInvoicePage> {
     }
     final EInvoiceRegistrationRecord? chosen = _selectedRow;
     return ManagementWorkspaceLayout(
+      notice: SandboxNotice.text,
       // Phase 2: Refresh as the line's icon, the e-way bill steps as its
       // commands, and registering -- this screen's "new" -- last.
       toolbar: Phase2Scope.of(context)
@@ -518,8 +519,16 @@ class _EInvoicePageState extends State<EInvoicePage> {
 class SandboxNotice extends StatelessWidget {
   const SandboxNotice({super.key});
 
+  /// What the notice says; phase 2 shows it behind the page line's (i).
+  static const String text =
+      'References marked sandbox are a rehearsal: nothing was filed '
+      'with the tax authority and the number means nothing outside '
+      'this system. Live filing needs this firm’s GSP credentials.';
+
   @override
   Widget build(BuildContext context) {
+    // Phase 2 allows no box above the grid (4.5): the page line's (i) says it.
+    if (Phase2Scope.of(context)) return const SizedBox.shrink();
     final ThemeData theme = Theme.of(context);
     return Container(
       padding: const EdgeInsets.all(AppSpacing.md),

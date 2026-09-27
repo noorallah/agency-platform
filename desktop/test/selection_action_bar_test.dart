@@ -58,8 +58,8 @@ void main() {
 
     expect(toolbar.forList().actions,
         [ToolbarAction.refresh, ToolbarAction.newItem]);
-    expect([for (final c in toolbar.forList().commands) c.id],
-        ['print-settings']);
+    expect(
+        [for (final c in toolbar.forList().commands) c.id], ['print-settings']);
     // Edit is disabled and Close has nothing to run: neither is offered.
     expect([for (final c in toolbar.forSelection()) c.id], ['view', 'approve']);
     expect(toolbar.forSelection().first.label, 'Open');
@@ -73,7 +73,8 @@ void main() {
       total: '112050.9514',
       onClear: () {},
     );
-    expect(summary.detail, 'Anand Agencies · Partially Delivered · 1,12,050.95');
+    expect(
+        summary.detail, 'Anand Agencies · Partially Delivered · 1,12,050.95');
   });
 
   test('a record summarised as lines is named, coded, labelled and statused',
@@ -131,5 +132,59 @@ void main() {
     expect(ran, ['approve', 'view']);
     expect(cleared, isTrue);
     expect(tester.takeException(), isNull);
+  });
+
+  testWidgets('phase 2 keeps a view switch and a notice on the page line',
+      (tester) async {
+    // 4.5: no band above the grid (owner, 2026-09-27 review). A view switch
+    // sits on the line; a screen's notice is behind an (i) there.
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: Phase2Scope(
+          child: ManagementWorkspaceLayout(
+            toolbar: WorkspaceToolbar(
+              actions: const [ToolbarAction.refresh],
+              isEnabled: (_) => true,
+              onAction: (_) {},
+            ),
+            searchPanel: SearchFilterPanel(
+              controller: TextEditingController(),
+              onSearch: (_) {},
+            ),
+            viewBar: const Text('Rates | Payouts', key: ValueKey('views')),
+            notice: 'What this screen is for.',
+            primaryContent: const SizedBox.expand(key: ValueKey('grid')),
+            statusBar: const SizedBox.shrink(),
+          ),
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    final double views =
+        tester.getCenter(find.byKey(const ValueKey('views'))).dy;
+    final double search = tester.getCenter(find.byType(SearchFilterPanel)).dy;
+    expect((views - search).abs(), lessThan(12), reason: 'on the one line');
+    expect(
+      tester.getTopLeft(find.byKey(const ValueKey('grid'))).dy,
+      greaterThan(views),
+    );
+    expect(find.byKey(const ValueKey('page-notice')), findsOneWidget);
+    expect(find.text('What this screen is for.'), findsNothing,
+        reason: 'behind the (i), not a box');
+  });
+
+  testWidgets('a status badge reads in words in phase 2', (tester) async {
+    await tester.pumpWidget(const MaterialApp(
+      home: Scaffold(
+        body: Phase2Scope(child: StatusBadge(label: 'ON_HOLD')),
+      ),
+    ));
+    expect(find.text('On hold'), findsOneWidget);
+    expect(statusInWords('APPROVED (on hold)'), 'Approved (on hold)');
+    expect(statusInWords('Kumar Stores'), 'Kumar Stores');
   });
 }

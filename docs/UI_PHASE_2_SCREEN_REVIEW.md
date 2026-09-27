@@ -102,3 +102,8 @@ searches nothing).
 
 Fixes land one PR per group; each row above is struck through here with its
 PR number when merged.
+
+- Shared fixes 1 (view switch on the line) and 2 (notice behind the (i)),
+  and 6 in part (`StatusBadge` in words): Credit Notes' and E-Invoice's
+  notice boxes and Commission's notices and view band are gone from above
+  the grid -- PR "phase 2 line: view switch, notice, status in words".
