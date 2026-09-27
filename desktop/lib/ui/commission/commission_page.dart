@@ -331,8 +331,39 @@ class _CommissionPageState extends State<CommissionPage> {
     }
     final bool onRules = _view == _CommissionView.rules;
     final bool onPayouts = _view == _CommissionView.payouts;
+    final CommissionRuleRecord? rule = onRules
+        ? _rules.where((row) => row.id == _selectedId).firstOrNull
+        : null;
+    // Phase 2 on the Rates view: Refresh and "+ New" on the line, and the
+    // picked rate's Edit and Delete on option C's bar (owner, 2026-09-27).
+    final bool rulesBar = onRules && Phase2Scope.of(context);
     return ManagementWorkspaceLayout(
-      toolbar: Wrap(
+      toolbar: rulesBar
+          ? WorkspaceToolbar(
+              actions: [
+                if (_mayManage) ToolbarAction.edit,
+                if (_mayManage) ToolbarAction.delete,
+                ToolbarAction.refresh,
+                if (_mayManage) ToolbarAction.newItem,
+              ],
+              isEnabled: (action) => switch (action) {
+                ToolbarAction.edit || ToolbarAction.delete => rule != null,
+                _ => true,
+              },
+              onAction: (action) {
+                switch (action) {
+                  case ToolbarAction.edit:
+                    if (rule != null) _edit(rule: rule);
+                  case ToolbarAction.delete:
+                    if (rule != null) _delete(rule);
+                  case ToolbarAction.newItem:
+                    _edit();
+                  default:
+                    _loadRules();
+                }
+              },
+            )
+          : Wrap(
         spacing: AppSpacing.sm,
         runSpacing: AppSpacing.sm,
         children: [
@@ -398,6 +429,20 @@ class _CommissionPageState extends State<CommissionPage> {
           }
         },
       ),
+      selectionBar: rulesBar,
+      selection: !rulesBar || rule == null
+          ? null
+          : SelectionSummary.record(
+              name: rule.whoLabel,
+              facts: [
+                rule.scopeLabel,
+                rule.slabs.isEmpty && rule.rateType == 'PERCENT'
+                    ? '${trimDecimal(rule.percentage)}%'
+                    : rule.rateLabel,
+              ],
+              status: rule.status,
+              onClear: () => setState(() => _selectedId = null),
+            ),
       primaryContent: onPayouts
           ? _payoutsContent()
           : (onRules ? _rulesContent() : _reportContent()),
