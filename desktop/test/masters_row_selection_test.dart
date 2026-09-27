@@ -274,6 +274,38 @@ void main() {
       // read off a grid column.
       expect(find.text('inv-0'), findsOneWidget);
     });
+
+    testWidgets('phase 2 puts the stock steps for the picked row on the bar',
+        (tester) async {
+      // Option C (owner, 2026-09-27): thresholds, transfer, write-off and
+      // quarantine are about the picked row, so they ride its bar.
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(MaterialApp(
+        builder: (context, child) => Phase2Scope(child: child!),
+        home: Scaffold(
+          body: InventoryManagementPage(
+            api: _InventoryApi(),
+            preferences: DesktopPreferencesService(),
+            permissions:
+                _withPermissions(['INVENTORY_VIEW', 'INVENTORY_ADJUST']),
+            hasActiveFirm: true,
+            section: InventorySection.inventory,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('selection-bar')), findsNothing);
+
+      await tester.tap(find.text('PROD-0 - Product 0').first);
+      await _settleTap(tester);
+
+      expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+      expect(find.byKey(const ValueKey('selection-transfer')), findsOneWidget);
+      expect(find.byKey(const ValueKey('selection-write-off')), findsOneWidget);
+      expect(find.byKey(const ValueKey('selection-view')), findsOneWidget);
+    });
   });
 }
 
