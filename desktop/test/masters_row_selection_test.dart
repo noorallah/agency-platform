@@ -204,6 +204,37 @@ void main() {
     });
   });
 
+  group('the customer workspace in phase 2', () {
+    testWidgets('picking a customer names them on the selection bar',
+        (tester) async {
+      // Option C (owner, 2026-09-27): the master lists get the bar the
+      // document lists have.
+      await tester.binding.setSurfaceSize(const Size(1600, 900));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Phase2Scope(
+            child: CustomerManagementPage(
+              api: _CustomerApi(),
+              permissions: _withPermissions(['CUSTOMER_VIEW']),
+              hasActiveFirm: true,
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('selection-bar')), findsNothing);
+
+      await tester.tap(find.text('CUS-000').first);
+      await _settleTap(tester);
+
+      expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+      expect(find.textContaining('CUS-000 ·'), findsOneWidget);
+      expect(find.byKey(const ValueKey('selection-view')), findsOneWidget);
+    });
+  });
+
   group('the inventory workspace', () {
     testWidgets('one click marks the row, a double click opens the details',
         (tester) async {

@@ -1162,6 +1162,23 @@ class SelectionSummary {
     );
   }
 
+  /// A master record -- a customer, supplier or product: its name, then what
+  /// tells it apart (code, place) and its status in words (owner,
+  /// 2026-09-27: the master lists get the bar the documents have).
+  factory SelectionSummary.record({
+    required String name,
+    List<String> facts = const [],
+    String status = '',
+    required VoidCallback onClear,
+  }) =>
+      SelectionSummary(
+        title: name,
+        detail: [...facts, _words(status)]
+            .where((part) => part.isNotEmpty)
+            .join(' · '),
+        onClear: onClear,
+      );
+
   static String _words(String code) => code
       .toLowerCase()
       .split('_')

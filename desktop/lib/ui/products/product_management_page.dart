@@ -1104,6 +1104,29 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
     await _controller.load(requestedPage: 1);
   }
 
+  /// What the selection bar names: the ticked rows by count, else the one
+  /// picked row, else nothing.
+  SelectionSummary? _selectionSummary(Product? selected) {
+    void clear() => setState(() {
+          _selectedIds.clear();
+          _controller.selected = null;
+        });
+    if (_selectedIds.length > 1 ||
+        (selected == null && _selectedIds.isNotEmpty)) {
+      return SelectionSummary(
+        title: '${_selectedIds.length} products ticked',
+        onClear: clear,
+      );
+    }
+    if (selected == null) return null;
+    return SelectionSummary.record(
+      name: selected.name,
+      facts: [selected.code, selected.brand],
+      status: selected.isDeleted ? 'DELETED' : selected.status,
+      onClear: clear,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loadingPreferences) {
@@ -1539,6 +1562,12 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
       ),
       child: ManagementWorkspaceLayout(
         toolbar: toolbar,
+        // Option C (owner, 2026-09-27): the product's actions on a bar that
+        // names it, above the grid, as on the document lists. Rows ticked
+        // for a bulk delete are named by their count, since the bar is where
+        // Delete now lives.
+        selectionBar: true,
+        selection: _selectionSummary(selected),
         searchPanel: phase2 ? phase2Search : phase1Search,
         filterPanel: filterPanel,
         lineChips: phase2 ? [_viewsChip()] : const [],

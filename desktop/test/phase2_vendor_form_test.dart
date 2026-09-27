@@ -131,6 +131,9 @@ void main() {
     await tester.tap(find.text('V001').first);
     await tester.pump(const Duration(milliseconds: 400));
     await tester.pumpAndSettle();
+    // Option C (owner, 2026-09-27): the bar names the supplier picked.
+    expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+    expect(find.textContaining('V001 ·'), findsOneWidget);
     await tester.tap(find.byTooltip('Edit').first);
     await tester.pumpAndSettle();
     expect(tester.takeException(), isNull);

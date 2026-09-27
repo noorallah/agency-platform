@@ -689,6 +689,17 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
       ),
       child: ManagementWorkspaceLayout(
         toolbar: toolbar,
+        // Option C (owner, 2026-09-27): the customer's actions on a bar that
+        // names them, above the grid, as on the document lists.
+        selectionBar: true,
+        selection: selected == null
+            ? null
+            : SelectionSummary.record(
+                name: selected.name,
+                facts: [selected.code, selected.city],
+                status: selected.isDeleted ? 'DELETED' : selected.status,
+                onClear: _controller.clearSelection,
+              ),
         searchPanel: searchPanel,
         filterPanel: filterPanel,
         // Phase 2's counters are handed to the page line by SummaryCards,

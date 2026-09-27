@@ -164,4 +164,24 @@ void main() {
     expect(find.text('No saved views'), findsOneWidget);
     expect(find.byKey(const ValueKey('products-save-filter')), findsOneWidget);
   });
+
+  testWidgets('picking a product names it on the selection bar',
+      (tester) async {
+    // Option C (owner, 2026-09-27): the master lists get the bar the
+    // document lists have.
+    await _pump(tester);
+    expect(find.byKey(const ValueKey('selection-bar')), findsNothing);
+
+    await tester.tap(find.text('SHORT').first);
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+    expect(find.textContaining('SHORT · Active'), findsOneWidget);
+    expect(find.byKey(const ValueKey('selection-view')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('selection-clear')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('selection-bar')), findsNothing);
+  });
 }
