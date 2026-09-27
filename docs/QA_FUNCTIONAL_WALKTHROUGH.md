@@ -14,11 +14,15 @@ figures and every expected total are the same as version 1, so a result can
 be compared across the two. Version 1, for the left-hand menu and dialogs, is
 kept as `QA_FUNCTIONAL_WALKTHROUGH_V1.md`.
 
-**Where to run it.** Version 2 is not in an installer yet. On the test laptop
-start the backend (`schtasks /run /tn agency-backend-8000`) and open
-`desktop\build\windows\x64\runner\Debug\agency_desktop.exe`, the version 2
-build. Sections 1 to 9 do not depend on how it was installed; section 10's
-upgrade step waits for the version 2 installer.
+**Updated 2026-09-27 for release 1.0.2**, the first installer with these
+screens: the list screens now keep everything on one line and show a bar for
+the picked row (below), and section 15 checks what is new in 1.0.2. The
+figures and expected totals of sections 1 to 14 are unchanged.
+
+**Where to run it.** Install or upgrade with `AgencyPlatform-1.0.2-Setup.exe`
+(the *Installer QA checklist*, sections A, B and E), then open *Agency
+Platform* from the Start menu. Sections 1 to 9 do not depend on how it was
+installed.
 
 Every expected result was taken from the product's own test cases
 (`INDEPENDENT_TEST_CASES.md`), which were driven against a running server,
@@ -45,12 +49,20 @@ on where you can; mark later steps `Blocked` when they cannot run.
 - **Every screen opens as a tab** under the menu bar, and a customer, vendor,
   product or document you open gets a tab of its own, named after it. Several
   can be open at once; closing one returns to the others.
-- **Lists.** Filters are the chips beside the title (*All*, *Draft*,
-  *Approved* ...), search is the box below, and the buttons for the selected
-  row sit on the same line; rarely used ones are under **…**. **+ New** is
-  always last. The status bar at the bottom shows the record count and the
-  pages (*1–20 of 36*). Keys: **Ctrl+N** new, **F2** edit the selected row,
-  **/** search, **Delete** delete.
+- **Lists keep everything on one line** above the grid: the title, its
+  **(i)** (what the screen is for), counters that filter when clicked
+  (*Draft 3*, *Approved 5* ...), **+ filter** for the rarer filters, the
+  search box, the **Period** on dated lists (a named period, the Indian
+  financial year, or a custom range; ◀ ▶ step it), **Columns** (choose the
+  columns; remembered on this PC), Refresh, anything rarely used under **…**,
+  and **+ New** last. The status bar at the bottom shows the record count and
+  the pages (*1–20 of 36*).
+- **Pick a row and a bar appears above the grid**, naming it (number,
+  customer or supplier, status, total) with the steps that can run now at the
+  right: *Open*, *Edit*, *Approve*, *Post*, *Cancel*, *Print* ... A step that
+  cannot run is not offered; the **×** clears the pick. Nothing is picked when
+  a list opens. **Double-click** a row to open it. Keys: **Ctrl+N** new,
+  **F2** edit the picked row, **/** search, **Delete** delete.
 - **Documents** (quotation, order, invoice, receipt and so on) are one screen:
   the header across the top, the lines as a table, terms and totals at the
   bottom with the amount in words, and a **side panel** on the right for the
@@ -219,7 +231,7 @@ Sign in as the firm administrator for W70 and W72.
 | ID | Step | Expected | Result | Notes |
 | --- | --- | --- | --- | --- |
 | W75 | Restart the PC. Wait a minute, start the backend if it does not start by itself, and open the version 2 app | Sign-in appears. Everything from sections 1 to 9 is still there | Not run | |
-| W76 | Run the version 2 Setup.exe again (an upgrade to the same version) | **Waits for the version 2 installer** -- mark `Blocked` until it exists. When it does: a backup is taken first, and afterwards every record is still there | Not run | |
+| W76 | Run `AgencyPlatform-1.0.2-Setup.exe` again (an upgrade to the same version) | A *Backing up the database* step first; afterwards every record from sections 1 to 9 is still there and the old sign-in works | Not run | |
 
 ## 11. The version 2 screens themselves
 
@@ -307,6 +319,32 @@ save.
 | P17 | Order for QA-C6, quantity 10, *Disc %* **0** on the line; at the bottom *Discount on the whole order %* **10** | The 150.00 comes off the line before tax: taxable **1,350.00**, tax 243.00, total **1,593.00** | Not run | |
 | P18 | Add a **Delivery charge** of **100** | The charge joins the taxable value and is taxed with it: taxable **1,450.00**, CGST 130.50, SGST 130.50, total **1,711.00** | Not run | |
 | P19 | Set the promotions QA-BULK and QA-WELCOME, and both price lists, to **Inactive** when finished | Later orders for QA-C6 go back to its 5% standing rate | Not run | |
+
+## 15. What is new in 1.0.2
+
+Checks of the 1.0.2 changes, apart from the business steps above. Use QA01
+from sections 1 to 9, or WHOLE01 (`whole01.admin@agency.local`) where a
+longer history helps.
+
+| ID | Step | Expected | Result | Notes |
+| --- | --- | --- | --- | --- |
+| N1 | Open any list, e.g. Sell → Sales Orders | One line above the grid: title, (i), counters, + filter, search, Period, Columns, Refresh, + New last. Nothing else above the grid; no row is picked | Not run | |
+| N2 | Click a row once | A bar above the grid names it (number · customer · status · total) with its steps at the right. Click × on the bar: the pick clears | Not run | |
+| N3 | On a draft sales order, compare the bar with an approved one | The draft offers Edit and Approve; the approved one offers what an approved order can do and **not** Approve | Not run | |
+| N4 | Period: choose *This month*, then ◀ | The list narrows to this month, then to last month; *All dates* brings everything back | Not run | |
+| N5 | Columns: add *Remarks*, remove *Status*, close the screen and open it again | The choice is kept | Not run | |
+| N6 | Buy → Goods Receipts, Purchase Invoices, Purchase Returns | Each has a **Supplier** column; typing `QA Supplies` in the search finds that supplier's documents; the bar names the supplier | Not run | |
+| N7 | Sell → Quotations and Sell → Sales Returns | Both are grids like Sales Orders (no list-and-pane); double-click opens the document in a window | Not run | |
+| N8 | Sell → Receipts: search `QA Retail`, then pick the receipt from section 6 | Found by customer name. If it still has money on account, the bar offers *Apply to an invoice*; it offers *Reverse* | Not run | |
+| N9 | Accounts → Journal Entries: choose "Posted by: Sales invoices" and a Period | Only entries the sales invoices posted, in that period. A hand-written draft offers Post on the bar; a document's entry offers no Reverse | Not run | |
+| N10 | Accounts → Trial Balance, Profit & Loss, Balance Sheet | The period is chosen on the page line, not in a band above the table. Totals as in section 8 | Not run | |
+| N11 | Sell → Customer Statements | Ageing is a grid with a column per age band; double-click a customer: their statement opens as a grid with Opening and Closing as figures on the line | Not run | |
+| N12 | Stock → Physical Count, Stock Summary, Expiry Monitor | Physical Count names each count's warehouse and shows "n of m lines counted"; Stock Summary and Expiry Monitor show figures on the line, not rows of cards | Not run | |
+| N13 | Masters → Customers: pick a customer | The bar names them (name · code · city · status) with Open, Edit and Delete | Not run | |
+| N14 | Accounts → Chart of Accounts in QA01 | An *Indirect Expenses* group with Rent, Salaries and Wages, Electricity, Telephone and Internet, Travel and Conveyance, Office and General Expenses, Repairs and Maintenance, Bank Charges (6000 to 6700) | Not run | |
+| N15 | Record rent as a journal (P&L guide, section 3): debit 6000 Rent 5,000, credit 1010 Bank 5,000, and post it | Profit & Loss shows Rent 5,000 among the expenses; the bank balance falls by 5,000 | Not run | |
+| N16 | Admin → Audit Logs: pick an entry, then Open | A grid; the entry's field changes open in a window, not in a side pane | Not run | |
+| N17 | Resize the window to 1366 × 768 and repeat N1 and N2 on Purchase Invoices | Everything fits on the line (steps fold under … when short); the bar's steps stay reachable | Not run | |
 
 ## Results summary
 
