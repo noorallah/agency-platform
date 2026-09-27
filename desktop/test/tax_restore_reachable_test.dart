@@ -14,6 +14,7 @@ import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/tax/tax_management_page.dart';
 import 'package:flutter/gestures.dart';
+import 'package:agency_desktop/phase2/phase2_scope.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -82,11 +83,18 @@ Json _system({required String id, required bool retired}) => <String, dynamic>{
       'version': 1,
     };
 
-Future<void> _open(WidgetTester tester, _Api api, List<String> codes) async {
+Future<void> _open(
+  WidgetTester tester,
+  _Api api,
+  List<String> codes, {
+  bool phase2 = false,
+}) async {
   tester.view.physicalSize = const Size(1600, 1100);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(MaterialApp(
+    // Above the navigator, so a dialog the page opens is phase 2's too.
+    builder: phase2 ? (context, child) => Phase2Scope(child: child!) : null,
     home: Scaffold(
       body: TaxManagementPage(
         api: api,
@@ -170,5 +178,23 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Restore'), findsNothing);
+  });
+
+  testWidgets('phase 2 names the picked system on a bar with Open and Delete',
+      (tester) async {
+    // Option C (owner, 2026-09-27): the side pane said only which section
+    // this was; the bar names the record and carries its actions.
+    final _Api api = _Api(rows: <Json>[_system(id: 's-1', retired: false)]);
+    await _open(tester, api, _manager, phase2: true);
+    expect(find.byKey(const ValueKey('selection-bar')), findsNothing);
+
+    await tester.tap(find.text('GST').first);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+    expect(find.textContaining('GST · Active'), findsOneWidget);
+    expect(find.byKey(const ValueKey('selection-view')), findsOneWidget);
+    expect(find.byKey(const ValueKey('selection-delete')), findsOneWidget);
   });
 }
