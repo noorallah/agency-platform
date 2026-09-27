@@ -338,6 +338,19 @@ class _CommissionPageState extends State<CommissionPage> {
     // picked rate's Edit and Delete on option C's bar (owner, 2026-09-27).
     final bool rulesBar = onRules && Phase2Scope.of(context);
     return ManagementWorkspaceLayout(
+      notice: switch (_view) {
+        _CommissionView.rules => 'A rule with no salesman is the firm-wide '
+            'default: the rate anybody with no rule of their own earns.',
+        _CommissionView.report => 'Commission is earned on money actually '
+            'collected in this period, not on what was invoiced. An invoice '
+            'raised earlier and paid now earns it now, and a payment taken '
+            'back stops earning it. Unassigned is money collected against '
+            'invoices that carried no salesman; it is counted in the totals '
+            'so they reconcile against the cash book.',
+        _CommissionView.payouts => 'A payout holds what the report said when '
+            'it was accrued. Nothing re-reads it, so approving in April and '
+            'asking again in September give the same number.',
+      },
       toolbar: rulesBar
           ? WorkspaceToolbar(
               actions: [
@@ -1758,6 +1771,9 @@ class CommissionNotice extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // Phase 2 allows no box above the grid (4.5): the page line's (i) says
+    // what the view's notices said.
+    if (Phase2Scope.of(context)) return const SizedBox.shrink();
     final ThemeData theme = Theme.of(context);
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
