@@ -22,6 +22,7 @@ from sqlalchemy import Select, and_, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
+from app.common.report_names import customers_matching, vendors_matching
 from app.core.constants.core import MAX_PAGE_SIZE
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
@@ -426,20 +427,39 @@ class SettlementService(TransactionalDocumentService):
         page_size: int,
         search: str = "",
         party_id: UUID | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
     ) -> tuple[Sequence[Settlement], int]:
-        """Return one page of settlements, newest first."""
+        """Return one page of settlements, newest first.
+
+        The search also matches the customer or supplier, and ``date_from`` /
+        ``date_to`` bound the settlement date inclusively -- the Period filter
+        every phase 2 list carries (owner, 2026-09-27).
+        """
         statement = self._scoped(select(Settlement), firm_id)
         if party_id is not None:
+            # A refund is a customer's as much as a receipt is; this compared
+            # it with the vendor column, so a refund list never filtered.
             statement = statement.where(
-                Settlement.customer_id == party_id
-                if self.DIRECTION == SettlementDirection.RECEIPT
-                else Settlement.vendor_id == party_id
+                Settlement.vendor_id == party_id
+                if self.DIRECTION == SettlementDirection.PAYMENT
+                else Settlement.customer_id == party_id
             )
+        if date_from is not None:
+            statement = statement.where(Settlement.settlement_date >= date_from)
+        if date_to is not None:
+            statement = statement.where(Settlement.settlement_date <= date_to)
         if search.strip():
             pattern = f"%{search.strip()}%"
+            party = (
+                Settlement.vendor_id.in_(vendors_matching(pattern))
+                if self.DIRECTION == SettlementDirection.PAYMENT
+                else Settlement.customer_id.in_(customers_matching(pattern))
+            )
             statement = statement.where(
                 Settlement.settlement_number.ilike(pattern)
                 | Settlement.instrument_reference.ilike(pattern)
+                | party
             )
         total = self._session.scalar(
             select(func.count()).select_from(statement.subquery())

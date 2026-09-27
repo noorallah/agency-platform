@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
+import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/settlement.dart';
@@ -21,12 +22,16 @@ class SettlementsPage extends StatefulWidget {
   const SettlementsPage({
     super.key,
     required this.api,
+    required this.preferences,
     required this.permissions,
     required this.hasActiveFirm,
     required this.direction,
   });
 
   final ApiClient api;
+
+  /// Where the grid's chosen columns are remembered.
+  final DesktopPreferencesService preferences;
   final PermissionService permissions;
   final bool hasActiveFirm;
   final SettlementDirection direction;
@@ -39,6 +44,10 @@ class _SettlementsPageState extends State<SettlementsPage> {
   static const int _rowsPerPage = 20;
   final TextEditingController _search = TextEditingController();
   List<Settlement> _rows = const [];
+  Settlement? _selected;
+
+  /// The settlement dates the list is narrowed to (owner, 2026-09-27).
+  DatePeriod _period = const DatePeriod.all();
   int _page = 1;
   int _total = 0;
   bool _loading = false;
@@ -76,11 +85,19 @@ class _SettlementsPageState extends State<SettlementsPage> {
         page: _page,
         pageSize: _rowsPerPage,
         search: _search.text.trim(),
+        settlementFrom:
+            _period.from == null ? null : DatePeriod.iso(_period.from!),
+        settlementTo: _period.to == null ? null : DatePeriod.iso(_period.to!),
       );
       if (!mounted) return;
       setState(() {
         _rows = result.items;
         _total = result.total;
+        // Keep the picked one across a reload, unless it fell off the page.
+        final String? selectedId = _selected?.id;
+        _selected = selectedId == null
+            ? null
+            : result.items.where((item) => item.id == selectedId).firstOrNull;
       });
     } on ApiException catch (exception) {
       if (!mounted) return;
@@ -140,31 +157,6 @@ class _SettlementsPageState extends State<SettlementsPage> {
     );
   }
 
-  /// Phase 2: the search, Supplier credits where it applies, and "+ New"
-  /// last, for the page's one line.
-  List<Widget> _phase2Tools() => [
-        SizedBox(
-          width: 260,
-          child: SearchFilterPanel(
-            controller: _search,
-            hintText: 'Search by number or reference',
-            onSearch: (_) => _load(requestedPage: 1),
-          ),
-        ),
-        if (_canCreate && widget.direction == SettlementDirection.payment)
-          OutlinedButton.icon(
-            onPressed: () => unawaited(_supplierCredits()),
-            icon: const Icon(Icons.assignment_return_outlined, size: 16),
-            label: const Text('Supplier credits'),
-          ),
-        if (_canCreate)
-          FilledButton(
-            key: const ValueKey('line-new'),
-            onPressed: () => unawaited(_record()),
-            child: const Text('+ New'),
-          ),
-      ];
-
   @override
   Widget build(BuildContext context) {
     if (!_canView) {
@@ -181,60 +173,56 @@ class _SettlementsPageState extends State<SettlementsPage> {
         message: 'Choose a firm to see its ${_noun}s.',
       );
     }
+    if (Phase2Scope.of(context)) return _grid(context);
     return LoadingOverlay(
       loading: _loading,
       child: Column(children: [
-        // Phase 2 (4.5): the search and the actions go on the page's one
-        // line.
-        if (Phase2Scope.of(context))
-          Phase2LineTools(children: _phase2Tools())
-        else
-          Padding(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            child: Row(children: [
-              Expanded(
-                child: TextField(
-                  controller: _search,
-                  decoration: InputDecoration(
-                    labelText: 'Search by number or reference',
-                    prefixIcon: const Icon(Icons.search),
-                    hintText: switch (widget.direction) {
-                      SettlementDirection.receipt => 'RC-…',
-                      SettlementDirection.payment => 'PY-…',
-                      SettlementDirection.refund => 'RF-…',
-                    },
-                  ),
-                  onSubmitted: (_) => _load(requestedPage: 1),
+        Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Row(children: [
+            Expanded(
+              child: TextField(
+                controller: _search,
+                decoration: InputDecoration(
+                  labelText: 'Search by number or reference',
+                  prefixIcon: const Icon(Icons.search),
+                  hintText: switch (widget.direction) {
+                    SettlementDirection.receipt => 'RC-…',
+                    SettlementDirection.payment => 'PY-…',
+                    SettlementDirection.refund => 'RF-…',
+                  },
+                ),
+                onSubmitted: (_) => _load(requestedPage: 1),
+              ),
+            ),
+            const SizedBox(width: AppSpacing.md),
+            // Goods sent back against a receipt leave a credit on the
+            // supplier's account; this is where it is set against a bill
+            // (D-FIN-19). Not about any row in the list, so it sits beside
+            // Record Payment rather than on a row.
+            if (_canCreate &&
+                widget.direction == SettlementDirection.payment) ...[
+              OutlinedButton.icon(
+                onPressed: () => unawaited(_supplierCredits()),
+                icon: const Icon(Icons.assignment_return_outlined),
+                label: const Text('Supplier credits'),
+              ),
+              const SizedBox(width: AppSpacing.sm),
+            ],
+            if (_canCreate)
+              FilledButton.icon(
+                onPressed: () => unawaited(_record()),
+                icon: const Icon(Icons.add),
+                label: Text(
+                  switch (widget.direction) {
+                    SettlementDirection.receipt => 'Record Receipt',
+                    SettlementDirection.payment => 'Record Payment',
+                    SettlementDirection.refund => 'Record Refund',
+                  },
                 ),
               ),
-              const SizedBox(width: AppSpacing.md),
-              // Goods sent back against a receipt leave a credit on the
-              // supplier's account; this is where it is set against a bill
-              // (D-FIN-19). Not about any row in the list, so it sits beside
-              // Record Payment rather than on a row.
-              if (_canCreate &&
-                  widget.direction == SettlementDirection.payment) ...[
-                OutlinedButton.icon(
-                  onPressed: () => unawaited(_supplierCredits()),
-                  icon: const Icon(Icons.assignment_return_outlined),
-                  label: const Text('Supplier credits'),
-                ),
-                const SizedBox(width: AppSpacing.sm),
-              ],
-              if (_canCreate)
-                FilledButton.icon(
-                  onPressed: () => unawaited(_record()),
-                  icon: const Icon(Icons.add),
-                  label: Text(
-                    switch (widget.direction) {
-                      SettlementDirection.receipt => 'Record Receipt',
-                      SettlementDirection.payment => 'Record Payment',
-                      SettlementDirection.refund => 'Record Refund',
-                    },
-                  ),
-                ),
-            ]),
-          ),
+          ]),
+        ),
         if (_error != null)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
@@ -253,17 +241,7 @@ class _SettlementsPageState extends State<SettlementsPage> {
               ? StandardEmptyState(
                   type: EmptyStateType.noRecords,
                   title: 'No ${_noun}s yet',
-                  message: switch (widget.direction) {
-                    SettlementDirection.receipt =>
-                      'Recording a receipt puts the money in the ledger and '
-                          'reduces what the customer owes.',
-                    SettlementDirection.payment =>
-                      'Recording a payment puts the money in the ledger and '
-                          'reduces what the firm owes the vendor.',
-                    SettlementDirection.refund =>
-                      'Recording a refund puts the money in the ledger and '
-                          'reduces what the customer is holding in advance.',
-                  },
+                  message: _emptyMessage,
                 )
               : ListView.separated(
                   itemCount: _rows.length,
@@ -278,6 +256,316 @@ class _SettlementsPageState extends State<SettlementsPage> {
           onPageChanged: (next) => unawaited(_load(requestedPage: next)),
         ),
       ]),
+    );
+  }
+
+  String get _emptyMessage => switch (widget.direction) {
+        SettlementDirection.receipt =>
+          'Recording a receipt puts the money in the ledger and '
+              'reduces what the customer owes.',
+        SettlementDirection.payment =>
+          'Recording a payment puts the money in the ledger and '
+              'reduces what the firm owes the vendor.',
+        SettlementDirection.refund =>
+          'Recording a refund puts the money in the ledger and '
+              'reduces what the customer is holding in advance.',
+      };
+
+  /// Phase 2 (owner, 2026-09-27): a full-width grid, as every other list --
+  /// the Period after the search, Columns, option C's bar naming the picked
+  /// receipt with Apply and Reverse, and a double-click to read it.
+  Widget _grid(BuildContext context) {
+    final Settlement? selected = _selected;
+    return LoadingOverlay(
+      loading: _loading,
+      child: ManagementWorkspaceLayout(
+        toolbar: WorkspaceToolbar(
+          actions: const [
+            ToolbarAction.newItem,
+            ToolbarAction.view,
+            ToolbarAction.refresh,
+          ],
+          isVisible: (action) => action != ToolbarAction.newItem || _canCreate,
+          isEnabled: (action) =>
+              !_loading &&
+              switch (action) {
+                ToolbarAction.newItem => _canCreate,
+                ToolbarAction.view => selected != null,
+                ToolbarAction.refresh => true,
+                _ => false,
+              },
+          onAction: (action) {
+            switch (action) {
+              case ToolbarAction.newItem:
+                unawaited(_record());
+              case ToolbarAction.view:
+                if (selected != null) unawaited(_openSettlement(selected));
+              case ToolbarAction.refresh:
+                unawaited(_load());
+              default:
+                break;
+            }
+          },
+          // Period right after the search, then Columns (owner). Supplier
+          // credits is about no row in the list, so it stays on the line.
+          trailing: [
+            DateRangeFilter(
+              value: _period,
+              onChanged: (period) {
+                setState(() => _period = period);
+                unawaited(_load(requestedPage: 1));
+              },
+            ),
+            ColumnsButton(
+              onPressed: () async {
+                if (await _columns.choose(context) && mounted) {
+                  setState(() {});
+                }
+              },
+            ),
+            if (_canCreate && widget.direction == SettlementDirection.payment)
+              OutlinedButton.icon(
+                onPressed: () => unawaited(_supplierCredits()),
+                icon: const Icon(Icons.assignment_return_outlined, size: 16),
+                label: const Text('Supplier credits'),
+              ),
+          ],
+          commands: [
+            ToolbarCommand(
+              id: 'apply',
+              label: widget.direction == SettlementDirection.receipt
+                  ? 'Apply to an invoice'
+                  : 'Apply to a bill',
+              icon: Icons.playlist_add_check,
+              onPressed: selected != null &&
+                      _canCreate &&
+                      selected.isOnAccount &&
+                      selected.direction != 'REFUND'
+                  ? () => unawaited(_apply(selected))
+                  : null,
+            ),
+            ToolbarCommand(
+              id: 'reverse',
+              label: 'Reverse',
+              icon: Icons.undo,
+              onPressed: selected != null && _canCreate && !selected.isReversed
+                  ? () => unawaited(_reverse(selected))
+                  : null,
+            ),
+          ],
+        ),
+        selectionBar: true,
+        selection: selected == null
+            ? null
+            : SelectionSummary.document(
+                number: selected.settlementNumber,
+                party: selected.partyName,
+                status: _state(selected),
+                total: selected.amount,
+                onClear: () => setState(() => _selected = null),
+              ),
+        searchPanel: SearchFilterPanel(
+          controller: _search,
+          hintText: widget.direction.isCustomer
+              ? 'Search number, reference or customer'
+              : 'Search number, reference or supplier',
+          onSearch: (_) => unawaited(_load(requestedPage: 1)),
+        ),
+        primaryContent: Column(children: [
+          if (_error != null)
+            MaterialBanner(
+              content: Text(_error!),
+              actions: [
+                TextButton(
+                  onPressed: () => setState(() => _error = null),
+                  child: const Text('Dismiss'),
+                ),
+              ],
+            ),
+          Expanded(
+            child: _rows.isEmpty
+                ? (_search.text.trim().isEmpty && _period.from == null
+                    ? StandardEmptyState(
+                        type: EmptyStateType.noRecords,
+                        title: 'No ${_noun}s yet',
+                        message: _emptyMessage,
+                      )
+                    : const StandardEmptyState(
+                        type: EmptyStateType.noSearchResults,
+                      ))
+                : EnterpriseDataGrid<Settlement>(
+                    columns: _columns.gridColumns,
+                    items: _rows,
+                    id: (item) => item.id,
+                    selectedId: selected?.id,
+                    cells: _columns.cells,
+                    onSelect: (item) => setState(() => _selected = item),
+                    onOpen: (item) => unawaited(_openSettlement(item)),
+                    total: _total,
+                    pageOffset: (_page - 1) * _rowsPerPage,
+                    rowsPerPage: _rowsPerPage,
+                    onPageChanged: (offset) {
+                      final int next = offset ~/ _rowsPerPage + 1;
+                      if (next != _page) unawaited(_load(requestedPage: next));
+                    },
+                  ),
+          ),
+        ]),
+        statusBar: WorkspaceStatusBar(
+          total: _total,
+          selected: selected != null,
+          message: _loading ? 'Loading...' : null,
+        ),
+      ),
+    );
+  }
+
+  /// Where the money stands, in the words the status column uses.
+  static String _state(Settlement row) => row.isReversed
+      ? 'REVERSED'
+      : row.isOnAccount
+          ? 'ON_ACCOUNT'
+          : 'APPLIED';
+
+  /// What it cleared, or had cleared before it was reversed.
+  static String _cleared(Settlement row) =>
+      row.allocations.map(_allocationLabel).join(', ');
+
+  /// Every column the grid can show; Columns picks among them, remembered
+  /// per screen on this PC (owner, 2026-09-27).
+  late final ColumnChoice<Settlement> _columns = ColumnChoice(
+    preferences: widget.preferences,
+    stateKey: '${widget.direction.path}.grid',
+    columns: [
+      ChoosableColumn(
+        column: const GridColumn(key: 'number', label: 'Number'),
+        cell: (item) => item.settlementNumber,
+        required: true,
+      ),
+      // Whose money it is; kept at any width.
+      ChoosableColumn(
+        column: GridColumn(
+          key: 'party',
+          label: widget.direction.isCustomer ? 'Customer' : 'Supplier',
+          priority: 1,
+        ),
+        cell: (item) => item.partyName,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'date', label: 'Date'),
+        cell: (item) => item.settlementDate,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'method', label: 'Method'),
+        cell: (item) => item.method,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'account', label: 'Account'),
+        cell: (item) => item.ledgerAccountName,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'reference', label: 'Reference'),
+        cell: (item) => item.instrumentReference,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'cleared', label: 'Cleared'),
+        cell: _cleared,
+        shownByDefault: true,
+      ),
+      // The order a deposit came in against, where it came in against one.
+      ChoosableColumn(
+        column: const GridColumn(key: 'order', label: 'Against Order'),
+        cell: (item) => item.salesOrderNumber,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'status', label: 'Status'),
+        cell: _state,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(
+            key: 'unallocated', label: 'On Account', numeric: true),
+        cell: (item) => item.unallocatedAmount,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'amount', label: 'Amount'),
+        cell: (item) => item.amount,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'narration', label: 'Narration'),
+        cell: (item) => item.narration,
+      ),
+    ],
+  );
+
+  /// Read one: who, how, into which account, and what it cleared. Apply and
+  /// Reverse stay on the bar above the grid, so this only reads.
+  Future<void> _openSettlement(Settlement row) async {
+    setState(() => _selected = row);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        final TextStyle? small = Theme.of(dialogContext).textTheme.bodySmall;
+        Widget fact(String label, String value) => value.isEmpty
+            ? const SizedBox.shrink()
+            : Padding(
+                padding: const EdgeInsets.symmetric(vertical: 2),
+                child: Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    SizedBox(width: 120, child: Text(label, style: small)),
+                    Expanded(child: Text(value)),
+                  ],
+                ),
+              );
+        return AlertDialog(
+          title: Row(children: [
+            Expanded(child: Text(row.settlementNumber)),
+            StatusBadge.fromStatus(_state(row)),
+          ]),
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  fact(
+                    widget.direction.isCustomer ? 'Customer' : 'Supplier',
+                    '${row.partyCode} ${row.partyName}'.trim(),
+                  ),
+                  fact('Date', row.settlementDate),
+                  fact('Amount', row.amount),
+                  fact('Method', row.method),
+                  fact('Account', row.ledgerAccountName),
+                  fact('Reference', row.instrumentReference),
+                  fact('Against order', row.salesOrderNumber),
+                  fact(
+                    row.isReversed ? 'Had cleared' : 'Cleared',
+                    row.allocations.isEmpty
+                        ? 'Not applied to any invoice'
+                        : _cleared(row),
+                  ),
+                  if (row.isOnAccount && !row.isReversed)
+                    fact('On account', row.unallocatedAmount),
+                  fact('Narration', row.narration),
+                  fact('Reversed because', row.reversalReason),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
     );
   }
 

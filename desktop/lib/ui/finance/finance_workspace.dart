@@ -290,18 +290,21 @@ class _FinanceWorkspaceState extends State<FinanceWorkspace> {
             ),
           'receipts' => SettlementsPage(
               api: widget.api,
+              preferences: widget.preferences,
               permissions: widget.permissions,
               hasActiveFirm: widget.hasActiveFirm,
               direction: SettlementDirection.receipt,
             ),
           'payments' => SettlementsPage(
               api: widget.api,
+              preferences: widget.preferences,
               permissions: widget.permissions,
               hasActiveFirm: widget.hasActiveFirm,
               direction: SettlementDirection.payment,
             ),
           'refunds' => SettlementsPage(
               api: widget.api,
+              preferences: widget.preferences,
               permissions: widget.permissions,
               hasActiveFirm: widget.hasActiveFirm,
               direction: SettlementDirection.refund,

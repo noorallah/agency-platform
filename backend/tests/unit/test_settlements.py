@@ -11,7 +11,7 @@ the subsidiary ledger and the general ledger further apart. The tests here are
 mostly about the two staying together.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
 from uuid import UUID, uuid4
@@ -1567,3 +1567,63 @@ def test_a_refund_on_the_books_cannot_be_applied_afterwards_either() -> None:
         )
 
     assert "refund" in str(error.value).lower()
+
+
+def test_the_lists_search_by_party_and_filter_by_date() -> None:
+    """Receipts, payments and refunds are found the way the other lists are.
+
+    The owner asked every phase 2 list for a Period filter and a search that
+    finds the customer or supplier (2026-09-27). A refund's customer filter
+    compared the vendor column until then, so it never matched anything.
+    """
+    books = _Books(_session_factory()())
+    books.owe_us("300.00")
+    _receipt(books, "500.00")
+    RefundService(books.session).create(
+        SettlementCreate(
+            party_id=books.customer.id,
+            settlement_date=WHEN,
+            amount=Decimal("100.00"),
+            method=SettlementMethodEnum.CASH,
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    invoice = books.purchase_invoice("PI-9", "250.00")
+    PaymentService(books.session).create(
+        SettlementCreate(
+            party_id=books.vendor.id,
+            settlement_date=WHEN,
+            amount=Decimal("250.00"),
+            method=SettlementMethodEnum.BANK,
+            allocations=[
+                SettlementAllocationWrite(
+                    invoice_id=invoice.id, amount=Decimal("250.00")
+                )
+            ],
+        ),
+        firm_id=books.firm.id,
+        actor_id=books.actor_id,
+    )
+    books.session.commit()
+
+    def count(
+        service: ReceiptService | PaymentService | RefundService, **kwargs: object
+    ) -> int:
+        """Count what one list answers."""
+        _, total = service.list_settlements(
+            firm_id=books.firm.id, page=1, page_size=20, **kwargs  # type: ignore[arg-type]
+        )
+        return total
+
+    receipts = ReceiptService(books.session)
+    payments = PaymentService(books.session)
+    refunds = RefundService(books.session)
+    assert count(receipts, search="Customer One") == 1
+    assert count(receipts, search="nobody by this name") == 0
+    assert count(payments, search="Vendor One") == 1
+    assert count(refunds, search="Customer One") == 1
+    assert count(refunds, party_id=books.customer.id) == 1
+    assert count(receipts, date_from=WHEN, date_to=WHEN) == 1
+    assert count(receipts, date_from=WHEN + timedelta(days=1)) == 0
+    assert count(payments, date_to=WHEN - timedelta(days=1)) == 0

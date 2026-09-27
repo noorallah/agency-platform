@@ -5072,6 +5072,8 @@ class ApiClient {
     int pageSize = 20,
     String search = '',
     String? partyId,
+    String? settlementFrom,
+    String? settlementTo,
   }) =>
       _list(
         '/api/v1/${direction.path}',
@@ -5081,6 +5083,9 @@ class ApiClient {
         pageSize: pageSize,
         additionalQuery: {
           if (partyId != null) direction.partyParameter: partyId,
+          // The Period filter (owner, 2026-09-27): settlement dates, inclusive.
+          if (settlementFrom != null) 'settlement_from': settlementFrom,
+          if (settlementTo != null) 'settlement_to': settlementTo,
         },
       );
 
