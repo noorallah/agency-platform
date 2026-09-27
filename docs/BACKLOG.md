@@ -3988,7 +3988,30 @@ Receivable* under Chart of Accounts, record the payment or receipt for the
 net amount, and a journal entry for the TDS part -- debit the supplier, credit
 TDS Payable; or debit TDS Receivable, credit the customer.
 
-## 54. Trade licences: the firm's, the customer's, and the goods that need them
+## 54. Trade licences: the firm's, the customer's, and the goods that need them -- HIGH PRIORITY
+
+**Priority (owner, 2026-09-27): high, depending on the trade of the first
+go-live firms.**
+
+| Trade | Importance |
+| --- | --- |
+| Pharma distribution | **Essential, a go-live blocker**: a wholesaler may sell only to licensed buyers, and pharma invoices carry both sides' drug licence numbers |
+| Food / FMCG | Needed, small: the firm's FSSAI number on every food invoice |
+| Agri (pesticide, fertiliser, seed) | Important: dealers must be licensed; inspections check |
+| Electronics, hardware, general | Not needed |
+
+| When | What | Size |
+| --- | --- | --- |
+| **Before go-live** | Build order steps 1 and 4 (below): the register with validity dates; firm, branch and customer licence numbers printed on invoices; Home alert for licences expiring in 30 days | About 3 days |
+| **After go-live** | Steps 2, 3 and 5: licence required per product or category; the sale check (warn, or block by policy); the purchase check | About 5 days |
+
+**If a first go-live firm is a pharma distributor, build all of it before
+go-live**: the sale check is what that trade compares products on.
+
+**Order against TDS (53.1):** for a pharma target, licences first; for any
+other, TDS first -- every mid-size distributor meets TDS, only some trades
+need licences. **To settle at the review: which trades the first go-live
+firms are in.**
 
 Owner, 2026-09-27: some goods may only be bought and sold under a licence --
 the firm needs one to trade them, and the customer needs one to buy them. The
