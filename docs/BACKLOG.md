@@ -3656,7 +3656,52 @@ enquiry, route calls).
    still falls back to it (`DesktopShell._menuLayout`) until this is built.
 
 Related: the Android build (`desktop/build_android.ps1`) is for looking at
-screens on a phone, not for field use.
+screens on a phone, not for field use. It still builds phase 1
+(`lib/main.dart`); pointing it at `lib/main_phase2.dart` is a one-line change,
+as `packaging/build_installer.ps1` does for Windows.
+
+### 48.1 Every screen size, not only the phone -- to review 2026-10-04
+
+Owner, 2026-09-27: the app should adapt to any screen resolution, phone
+included; a future plan, reviewed next week.
+
+**Why it is mostly framework work.** Phase 2 screens are built from a handful
+of shared pieces -- the menu bar, `ManagementWorkspaceLayout` (page bar,
+selection bar, grid), `WorkspaceToolbar`, the document page and the dialogs --
+so making those adapt changes every screen at once.
+
+| Size | Width | What changes | Effort |
+| --- | --- | --- | --- |
+| Large | above 1366 | Works today; use the room (more default columns, the side panel always open) | Small |
+| Medium | about 600 to 1366 (small laptops, tablets) | Page bar folds to two lines or a menu, side panel becomes a pop-up, fewer default columns, menu areas open as a list | Moderate |
+| Phone | below 600 | Section 48 above: bottom bar, lists as cards, selection bar as a bottom sheet, documents a section at a time, touch-sized targets | Major |
+
+**Suggested order:**
+1. One breakpoint rule (phone / tablet / desktop) decided in one place, which
+   every shared piece asks rather than assuming a desktop.
+2. Adapt the list layout and the menu bar first; they cover the most screens.
+3. Widget tests at each size, so a screen that breaks narrow fails the build
+   (today's widget tests run in an 800x600 window).
+4. Phone by who uses it: the salesman's day first (call list, customer,
+   order, receipt), then the owner's (Home, outstanding, approvals). Setup and
+   accounting screens may stay desktop-only, as is normal for this class of
+   product.
+5. Reach the server safely from outside the office (HTTPS; the client already
+   accepts it -- section 1), so phones work on mobile data.
+
+**Decisions for the review (owner):**
+1. **Which roles get the phone** -- usually salesmen and the owner, not
+   accountants or storemen.
+2. **Offline** -- may a salesman take an order with no signal and send it
+   later? A significant feature of its own (section 39); leave it out at first
+   unless coverage where the salesmen work is poor.
+3. **Android only, or iPhone too** -- the same code builds both; iPhone needs
+   an Apple developer account and a Mac to build on.
+4. **Tablet first or phone first** -- the medium size is cheaper and helps
+   small laptops too; the phone is what salesmen ask for.
+5. **Outside access** -- how the server is reached from outside the office
+   (a fixed IP and certificate, or a hosted relay), which decides whether
+   phones work beyond the office Wi-Fi at all.
 
 ## 49. Home gadgets -- parked
 
