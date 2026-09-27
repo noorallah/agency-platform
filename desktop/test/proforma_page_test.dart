@@ -5,13 +5,15 @@
 // words have to travel with the document.
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:agency_desktop/core/api/api_client.dart';
+import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/sales/proforma_page.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
-    show Phase2Scope;
+    show ColumnsButton, Phase2Scope;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -156,6 +158,9 @@ Future<void> _pump(
     home: Scaffold(
       body: ProformaPage(
         api: api,
+        preferences: DesktopPreferencesService(
+          directory: Directory.systemTemp.createTempSync('proforma'),
+        ),
         permissions: permissions ?? _permissions(),
         hasActiveFirm: true,
       ),
@@ -287,6 +292,9 @@ void main() {
         body: Phase2Scope(
           child: ProformaPage(
             api: api,
+            preferences: DesktopPreferencesService(
+              directory: Directory.systemTemp.createTempSync('proforma'),
+            ),
             permissions: _permissions(),
             hasActiveFirm: true,
           ),
@@ -310,5 +318,60 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.raised?['sales_order_id'], 'so-1');
     expect(api.raised?.containsKey('valid_until'), isFalse);
+  });
+
+  // Phase 2 (owner, 2026-09-27): a full-width grid with Columns, the
+  // proforma read on a double-click rather than in a side pane.
+  group('phase 2 grid', () {
+    Future<void> open(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        builder: (context, child) => Phase2Scope(child: child!),
+        home: Scaffold(
+          body: ProformaPage(
+            api: _ProformaApi(rows: <Json>[_proforma()]),
+            preferences: DesktopPreferencesService(
+              directory: Directory.systemTemp.createTempSync('proforma'),
+            ),
+            permissions: _permissions(),
+            hasActiveFirm: true,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a grid, no side pane, and the bar names the pick',
+        (tester) async {
+      await open(tester);
+      expect(find.byType(ColumnsButton), findsOneWidget);
+      expect(find.text('SO-2026-2027-000004'), findsOneWidget);
+
+      await tester.tap(find.text('PI-2026-2027-000001').first);
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+      expect(find.textContaining('Kumar Stores ·'), findsOneWidget);
+      // The side pane is gone: its warning is not on the page.
+      expect(find.textContaining('Not a tax invoice'), findsNothing);
+
+      tester.view.physicalSize = const Size(1366, 768);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('double-clicking a proforma reads it', (tester) async {
+      await open(tester);
+      final Finder row = find.text('PI-2026-2027-000001').first;
+      await tester.tap(row);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.textContaining('Not a tax invoice'), findsOneWidget);
+    });
   });
 }

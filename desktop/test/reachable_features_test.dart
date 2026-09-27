@@ -149,6 +149,9 @@ void main() {
         tester,
         ProformaPage(
           api: api,
+          preferences: DesktopPreferencesService(
+            directory: Directory.systemTemp.createTempSync('proforma'),
+          ),
           permissions: _permissions(const ['PROFORMA_VIEW', 'PROFORMA_MANAGE']),
           hasActiveFirm: true,
         ),
@@ -170,6 +173,9 @@ void main() {
         tester,
         ProformaPage(
           api: _Api(),
+          preferences: DesktopPreferencesService(
+            directory: Directory.systemTemp.createTempSync('proforma'),
+          ),
           permissions: _permissions(const ['PROFORMA_VIEW']),
           hasActiveFirm: true,
         ),
