@@ -4094,3 +4094,47 @@ refuses or warns about a sale.
 2. Whether the sale check defaults to **warn** (proposed) or **block**.
 3. Whether a customer **without** any licence may still buy the goods that
    need none (proposed: yes, the check is per line, not per customer).
+
+## 55. Market gaps with no backlog entry of their own -- validate before building
+
+Owner, 2026-09-27: every gap found against the market goes into the plan so
+none is missed; **whether each is really needed is validated when it comes
+up for implementation**, with the firms going live, not decided here. The
+detail -- who has it, why it matters, effort -- is in
+`docs/MARKET_COMPARISON.md`, by its id. Items that already have a section
+here (§14, §35-§54) are not repeated.
+
+**Status for every row: to validate.** When one is taken up: confirm with
+the go-live firms that they need it, then give it its own section here (or
+strike it with the reason).
+
+| Id | Item | Priority as proposed | Note |
+| --- | --- | --- | --- |
+| G4 | Export to Tally (vouchers and masters, XML) | **High** | The firm's CA keeps the books in Tally |
+| G5 | Batch-wise MRP and rates (PTR, PTS) | **High** for pharma and FMCG | `products.mrp` is one value per product |
+| M9 | Day book, cash book, bank book; drill-down to the voucher | **High** | Goes with §50 (period ranges) |
+| M10 | Fast counter billing with barcode | High for counters | UI_PHASE_2_DESIGN 4.6 |
+| M2 | Live e-invoice and e-way bill through a GSP | High above the threshold | A GSP contract first |
+| G6 | Last rate while billing (sale and purchase) | Medium, small | |
+| G7 | Picking list and loading sheet, by van or route | Medium, small | |
+| G8 | Debit note to a supplier | Medium, small | Mirror of credit notes |
+| G9 | Cash discount for early payment; interest on overdue | Medium | |
+| G10 | Expiry and breakage claims to the principal | Medium | Extends §42.7 scheme claims |
+| S7 | Stock ageing, slow-moving and dead stock; vendor ageing | Medium, small | Not in the report catalogue |
+| S8 | Barcode label printing | Medium, small | After M10 |
+| S11 | Cheque printing | Low-Medium, small | |
+| S12 | Approvals and notifications (the bell) | Medium | UI_PHASE_2_DESIGN §9 item 15 |
+| G11 | GSTR-9; composition-scheme firms and parties | Low-Medium | |
+| G12 | Returnable containers (crates, cans, cylinders) | Low, by trade | Beverage, dairy, gas |
+| G13 | Printing in Hindi or a regional language | Low | |
+| N1 | Payroll | Low | Export to the payroll tool or CA rather than build |
+| N2 | Multi-currency with revaluation | Low | Importers only |
+| N7 | Recurring invoices | Low | §42.15 |
+| N8 | Budgets and variance | Low | |
+| N9 | Custom report builder | Low | Excel export covers most |
+
+Already planned elsewhere, for completeness: M1 §45 (built), M3 §51, M4
+PR #814, M5 §42.2-42.3, M6 §46 and §36, M7 §42.4 and §53.1, M8 §42.5, M11 §2,
+S1 §48.1 and §39, S2 §42.7, S3 §42.9, S4 §51, S5 §38, S6 §42.12, S9 audit
+entry, S10 §44 and §37, S13 §43, G1 §54, G2 §53, G3 §52, N3 §42.14, N4
+§42.13, N5 §42.2, N6 §51, N10 §41, N11 §48-49, N12-N13 §42.15.
