@@ -533,9 +533,9 @@ class _TaxSystemsTabState extends State<TaxSystemsTab> {
             child: RefreshIndicator(
               onRefresh: _loadSystems,
               child: _filtered.isEmpty
-                  ? const Center(
+                  ? Center(
                       child: Text('No tax systems found.',
-                          style: TextStyle(color: Colors.grey)))
+                          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)))
                   : ListView.builder(
                       itemCount: _filtered.length,
                       itemBuilder: (_, i) =>
@@ -572,7 +572,7 @@ class _TaxSystemsTabState extends State<TaxSystemsTab> {
             .map((s) => Padding(
                   padding: const EdgeInsets.only(right: 6),
                   child: FilterChip(
-                    label: Text(s, style: const TextStyle(fontSize: 12)),
+                    label: Text(statusInWords(s), style: const TextStyle(fontSize: 12)),
                     selected: _statusFilter == s,
                     onSelected: (_) => _setStatusFilter(s),
                   ),
@@ -1566,9 +1566,9 @@ class _TaxProfilesTabState extends State<TaxProfilesTab> {
             child: RefreshIndicator(
               onRefresh: _loadProfiles,
               child: _filtered.isEmpty
-                  ? const Center(
+                  ? Center(
                       child: Text('No profiles found.',
-                          style: TextStyle(color: Colors.grey)))
+                          style: TextStyle(color: Theme.of(context).colorScheme.onSurfaceVariant)))
                   : ListView.builder(
                       itemCount: _filtered.length,
                       itemBuilder: (_, i) =>
@@ -1605,7 +1605,7 @@ class _TaxProfilesTabState extends State<TaxProfilesTab> {
             .map((s) => Padding(
                   padding: const EdgeInsets.only(right: 6),
                   child: FilterChip(
-                    label: Text(s, style: const TextStyle(fontSize: 12)),
+                    label: Text(statusInWords(s), style: const TextStyle(fontSize: 12)),
                     selected: _statusFilter == s,
                     onSelected: (_) => _setStatusFilter(s),
                   ),
@@ -2154,22 +2154,10 @@ class _StatusChip extends StatelessWidget {
   final String status;
 
   @override
-  Widget build(BuildContext context) {
-    final (bg, fg) = switch (status.toUpperCase()) {
-      'ACTIVE' => (Colors.green.shade100, Colors.green.shade800),
-      'DRAFT' => (Colors.orange.shade100, Colors.orange.shade800),
-      'INACTIVE' => (Colors.grey.shade200, Colors.grey.shade700),
-      _ => (Colors.grey.shade200, Colors.grey.shade700),
-    };
-    return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 2),
-      decoration: BoxDecoration(
-          color: bg, borderRadius: BorderRadius.circular(10)),
-      child: Text(status,
-          style: TextStyle(
-              fontSize: 11, fontWeight: FontWeight.w600, color: fg)),
-    );
-  }
+  Widget build(BuildContext context) =>
+      // The shared badge: theme colours (4.14) rather than hard-coded
+      // greens and reds, and words in phase 2 (review, 2026-09-27).
+      StatusBadge.fromStatus(status);
 }
 
 class _ErrorBanner extends StatelessWidget {

@@ -138,3 +138,17 @@ PR number when merged.
   on the line, Period for achievement, Edit / Delete on the bar), Loyalty
   (customer chip and balance counters on the line, scheme behind the (i),
   ledger a grid) -- PR "sell review fixes".
+- Settings: Tax Configuration and Tax Rules keep their list-beside-editor
+  layout -- the standard shape for a settings editor (Zoho, Business
+  Central), decided rather than rebuilt -- but their status pills are the
+  shared `StatusBadge` (theme colours, words) and their filter chips and
+  empty-state text follow the theme and words -- PR "settings review
+  fixes". Financial Years and Numbering Series now show status in words
+  through the shared badge (#803); their per-row buttons stay, since each
+  list is a handful of rows.
+
+**Decided, not changed.** Route Builder (Medium -> Low): its main search is
+on the line and runs Find; pin code, street and "on no route yet" are
+refinements, which is what "+ filter" is for. Execution Log (Medium, open):
+naming the matched rule and profile instead of ids, and a Period, need
+server fields -- left for a server change.
