@@ -76,6 +76,24 @@ void main() {
     expect(summary.detail, 'Anand Agencies · Partially Delivered · 1,12,050.95');
   });
 
+  test('a record summarised as lines is named, coded, labelled and statused',
+      () {
+    final SelectionSummary summary = SelectionSummary.lines(
+      title: 'Head Office',
+      lines: const [
+        DetailLine('Code', 'WHL_HO'),
+        DetailLine('Status', 'ACTIVE'),
+        DetailLine('Warehouses', '3'),
+        DetailLine('Phone', ''),
+      ],
+      onClear: () {},
+    );
+    expect(summary.title, 'Head Office');
+    // A bare "3" says nothing, so a fact other than the code keeps its label;
+    // an empty one is left out.
+    expect(summary.detail, 'WHL_HO · Warehouses: 3 · Active');
+  });
+
   testWidgets('the bar appears with a selection, names it, and runs actions',
       (tester) async {
     tester.view.physicalSize = const Size(1366, 768);

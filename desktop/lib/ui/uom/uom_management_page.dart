@@ -192,7 +192,17 @@ class _UomManagementPageState extends State<UomManagementPage> {
         onSearch: (_) => _load(requestedPage: 1),
       ),
       primaryContent: _buildContent(),
-      detailsPanel: _selectedId == null ? null : _detailsPanel(),
+      // Phase 2 (option C, owner 2026-09-27): the picked record named on a
+      // bar above the grid rather than re-read in a side pane.
+      selectionBar: true,
+      selection: !phase2 || _selectedId == null
+          ? null
+          : SelectionSummary.lines(
+              lines: _detailLines(),
+              onClear: () => setState(() => _selectedId = null),
+            ),
+      detailsPanel:
+          phase2 || _selectedId == null ? null : _detailsPanel(),
       statusBar:
           WorkspaceStatusBar(total: _total, selected: _selectedId != null),
     );
@@ -713,8 +723,12 @@ class _UomManagementPageState extends State<UomManagementPage> {
     }
   }
 
-  Widget _detailsPanel() {
-    final List<DetailLine> lines = switch (widget.section) {
+  Widget _detailsPanel() => DetailsPanel(title: 'Details', lines: _detailLines());
+
+  /// The picked record as labelled lines, for the side pane (phase 1) and
+  /// the selection bar (phase 2).
+  List<DetailLine> _detailLines() {
+    return switch (widget.section) {
       UomManagementSection.uoms => _uoms
           .where((row) => row.id == _selectedId)
           .map((row) => [
@@ -766,7 +780,6 @@ class _UomManagementPageState extends State<UomManagementPage> {
           .cast<List<DetailLine>>()
           .firstWhere((_) => true, orElse: () => const []),
     };
-    return DetailsPanel(title: 'Details', lines: lines);
   }
 
   Future<Json?> _simpleDialog({

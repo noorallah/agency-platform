@@ -309,7 +309,20 @@ class _BranchWarehouseManagementPageState
           ],
         ),
         primaryContent: content,
-        detailsPanel: _hasSelection ? _summaryPanel() : null,
+        // Phase 2 (option C, owner 2026-09-27): the picked record named on a
+        // bar above the grid, with its actions, rather than re-read in a
+        // side pane.
+        selectionBar: true,
+        selection: !Phase2Scope.of(context) || !_hasSelection
+            ? null
+            : SelectionSummary.lines(
+                title: _summary().$1,
+                lines: _summary().$2,
+                onClear: _clearSelection,
+              ),
+        detailsPanel: !Phase2Scope.of(context) && _hasSelection
+            ? _summaryPanel()
+            : null,
         statusBar: WorkspaceStatusBar(
           total: _total,
           selected: _hasSelection,
@@ -369,8 +382,47 @@ class _BranchWarehouseManagementPageState
         BranchWarehouseSection.settings => 'No search available in settings',
       };
 
+  /// Forget the picked row of the section on show.
+  void _clearSelection() => setState(() {
+        switch (widget.section) {
+          case BranchWarehouseSection.branches:
+            _selectedBranch = null;
+          case BranchWarehouseSection.warehouses:
+            _selectedWarehouse = null;
+          case BranchWarehouseSection.storageAreas:
+            _selectedStorageNode = null;
+          case BranchWarehouseSection.branchTypes ||
+                BranchWarehouseSection.warehouseTypes:
+            _selectedType = null;
+          case BranchWarehouseSection.settings:
+            break;
+        }
+      });
+
+  /// Open the picked row, as a double-click does.
+  void _openSelected() {
+    switch (widget.section) {
+      case BranchWarehouseSection.branches:
+        if (_selectedBranch != null) _openBranchEdit(_selectedBranch!);
+      case BranchWarehouseSection.warehouses:
+        if (_selectedWarehouse != null) _openWarehouseEdit(_selectedWarehouse!);
+      case BranchWarehouseSection.storageAreas:
+        if (_selectedStorageNode != null) {
+          _openStorageEdit(_selectedStorageNode!);
+        }
+      case BranchWarehouseSection.branchTypes ||
+            BranchWarehouseSection.warehouseTypes:
+        if (_selectedType != null) _openTypeEdit(_selectedType!);
+      case BranchWarehouseSection.settings:
+        break;
+    }
+  }
+
   Widget _buildToolbar() => WorkspaceToolbar(
-        actions: const [
+        actions: [
+          // Phase 2 offers Open on the selection bar; phase 1 opened a row
+          // by double-click only.
+          if (Phase2Scope.of(context)) ToolbarAction.view,
           ToolbarAction.newItem,
           ToolbarAction.delete,
           ToolbarAction.refresh,
@@ -387,6 +439,7 @@ class _BranchWarehouseManagementPageState
         isEnabled: (action) =>
             !_loading &&
             switch (action) {
+              ToolbarAction.view => _hasSelection,
               ToolbarAction.newItem => _canCreateCurrent,
               ToolbarAction.delete => _canDeleteCurrent,
               ToolbarAction.refresh => true,
@@ -396,6 +449,9 @@ class _BranchWarehouseManagementPageState
             },
         onAction: (action) {
           switch (action) {
+            case ToolbarAction.view:
+              _openSelected();
+              break;
             case ToolbarAction.newItem:
               _openCreate();
               break;
@@ -627,10 +683,17 @@ class _BranchWarehouseManagementPageState
       );
 
   Widget _summaryPanel() {
+    final (String title, List<DetailLine> lines) = _summary();
+    return QuickSummaryPanel(title: title, lines: lines);
+  }
+
+  /// The picked row's name and facts, for the side pane (phase 1) and the
+  /// selection bar (phase 2).
+  (String, List<DetailLine>) _summary() {
     return switch (widget.section) {
-      BranchWarehouseSection.branches => QuickSummaryPanel(
-          title: _selectedBranch?.displayName ?? 'No branch selected',
-          lines: _selectedBranch == null
+      BranchWarehouseSection.branches => (
+          _selectedBranch?.displayName ?? 'No branch selected',
+          _selectedBranch == null
               ? const []
               : [
                   DetailLine('Code', _selectedBranch!.code),
@@ -648,9 +711,9 @@ class _BranchWarehouseManagementPageState
                           : _selectedBranch!.phone),
                 ],
         ),
-      BranchWarehouseSection.warehouses => QuickSummaryPanel(
-          title: _selectedWarehouse?.displayName ?? 'No warehouse selected',
-          lines: _selectedWarehouse == null
+      BranchWarehouseSection.warehouses => (
+          _selectedWarehouse?.displayName ?? 'No warehouse selected',
+          _selectedWarehouse == null
               ? const []
               : [
                   DetailLine('Code', _selectedWarehouse!.code),
@@ -665,9 +728,9 @@ class _BranchWarehouseManagementPageState
                       _selectedWarehouse!.coldStorage ? 'Yes' : 'No'),
                 ],
         ),
-      BranchWarehouseSection.storageAreas => QuickSummaryPanel(
-          title: _selectedStorageNode?.name ?? 'No storage node selected',
-          lines: _selectedStorageNode == null
+      BranchWarehouseSection.storageAreas => (
+          _selectedStorageNode?.name ?? 'No storage node selected',
+          _selectedStorageNode == null
               ? const []
               : [
                   DetailLine('Code', _selectedStorageNode!.code),
@@ -677,9 +740,9 @@ class _BranchWarehouseManagementPageState
         ),
       BranchWarehouseSection.branchTypes ||
       BranchWarehouseSection.warehouseTypes =>
-        QuickSummaryPanel(
-          title: _selectedType?.name ?? 'No type selected',
-          lines: _selectedType == null
+        (
+          _selectedType?.name ?? 'No type selected',
+          _selectedType == null
               ? const []
               : [
                   DetailLine('Code', _selectedType!.code),
@@ -691,7 +754,7 @@ class _BranchWarehouseManagementPageState
                 ],
         ),
       BranchWarehouseSection.settings =>
-        const QuickSummaryPanel(title: 'Settings', lines: []),
+        ('Settings', const <DetailLine>[]),
     };
   }
 

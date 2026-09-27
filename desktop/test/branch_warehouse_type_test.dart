@@ -17,6 +17,7 @@ import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/branch_warehouse.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/branches/branch_warehouse_management_page.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -101,11 +102,17 @@ BranchRecord _branch() => BranchRecord.fromJson(<String, dynamic>{
       'currency_code': 'INR',
     });
 
-Future<void> _pump(WidgetTester tester, _TypesApi api) async {
+Future<void> _pump(
+  WidgetTester tester,
+  _TypesApi api, {
+  bool phase2 = false,
+}) async {
   tester.view.physicalSize = const Size(1600, 900);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(MaterialApp(
+    // Above the navigator, so a dialog the page opens is phase 2's too.
+    builder: phase2 ? (context, child) => Phase2Scope(child: child!) : null,
     home: Scaffold(
       body: BranchWarehouseManagementPage(
         api: api,
@@ -187,5 +194,22 @@ void main() {
     expect(api.created, isNotNull);
     expect(api.created!.containsKey('branch_type_id'), isTrue);
     expect(api.created!['branch_type_id'], isNull);
+  });
+
+  testWidgets('phase 2 names the picked branch on a bar, not a side pane',
+      (tester) async {
+    // Option C (owner, 2026-09-27): the side pane re-read a row somebody had
+    // only pointed at; the bar names it and offers Open.
+    await _pump(tester, _TypesApi(), phase2: true);
+    expect(find.byKey(const ValueKey('selection-bar')), findsNothing);
+
+    await tester.tap(find.text('WHL_HO').first);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+    expect(find.textContaining('WHL_HO ·'), findsOneWidget);
+    expect(find.byType(QuickSummaryPanel), findsNothing);
+    expect(find.byKey(const ValueKey('selection-view')), findsOneWidget);
   });
 }
