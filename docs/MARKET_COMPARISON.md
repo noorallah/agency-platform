@@ -267,6 +267,33 @@ months of use.
 | N12 | BOM, job work, marketplace and courier integrations | Busy (BOM, job work); Zoho (courier, Shopify, Amazon) | Outside the distributor profile | L | BACKLOG §42.15 |
 | N13 | Declared industry features: IMEI, prescription, recipe, kitchen, service contracts, projects | Various vertical products | Not our segment; honest placeholders | varies | MODULE_STATUS "Declared, not built" |
 
+### 3.4 Found on a second pass, 2026-09-27
+
+Owner, 2026-09-27: "any features we are missing compared to the market?"
+Each "not found" was checked by searching `backend/app` for the tables or
+columns the feature would need. The first three were planned the same day
+in the backlog.
+
+| # | Item | What it is | Who has it | Why it matters | Priority | Effort | Our reference |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| G1 | **Trade licences** | Firm, branch, customer and vendor licences with validity; goods that need one; a sale check | Marg, Busy (pharma), pharma and agri DMS | A pharma wholesaler may sell only to licensed buyers | **High** (by trade) | M | BACKLOG §54 |
+| G2 | **PAN / TAN checks and TDS both ways** | PAN from GSTIN, TAN on firm and customers, TDS deducted on payments and receipts | Tally, Busy, Zoho | Firms holding a TAN cannot record a deduction today | **High** | S + M | BACKLOG §53, §53.1 (extends M7) |
+| G3 | **Extra fields on documents** | A firm's own fields on orders, deliveries, invoices (vehicle, PO reference, site) | Tally (UDFs), Busy, Zoho (custom fields) | Masters take custom fields; documents do not | Medium | M | BACKLOG §52 |
+| G4 | **Export to Tally** | Vouchers and masters as Tally XML, for the firm's CA | Marg, Busy, most DMS apps | Most CAs keep the books in Tally; a distributor on another tool sends them its data every month | **High** | M | none -- M6 is the other direction |
+| G5 | **Batch-wise MRP and rates** | Each batch carries its own MRP and rates (PTR, PTS in pharma); billing and printing take the batch's | Marg, Busy | Pharma and FMCG receive the same product at a new MRP; one MRP per product (`products.mrp`) cannot hold both | **High** (pharma/FMCG) | M | none |
+| G6 | **Last rate while billing** | The rate and discount this customer last got for this product (and the last purchase rate) shown on the line | Tally, Busy, Marg, Vyapar | Used on nearly every bill; prevents quoting a regular customer a different price | Medium | S | none |
+| G7 | **Picking list and loading sheet** | One sheet per van or route: everything to load for the day's deliveries, by product and batch | Marg, Busy, DMS apps | How a distributor's godown actually dispatches; per-delivery notes alone mean picking the same product ten times | Medium | S | none (delivery notes carry the vehicle number) |
+| G8 | **Debit note to a supplier** | Rate difference, shortage or a scheme owed, without goods going back -- the mirror of a credit note | Tally, Busy, Marg, Zoho | Only a purchase return reduces a supplier bill today, which forces a fake stock movement | Medium | S | none; credit notes are sales-side only |
+| G9 | **Cash discount and interest on overdue** | A discount for paying early; interest charged on overdue bills at the firm's rate | Tally (interest), Busy, Marg | Common credit terms ("2% if paid in 7 days"; 18% on overdue) | Medium | S-M | none |
+| G10 | **Expiry and breakage claims to the principal** | Stock expired or broken in the market, returned or claimed from the company for credit | Marg, pharma and FMCG DMS | A real cost for pharma and FMCG distributors; the figures are partly in sales and purchase returns | Medium | M | extends S2 |
+| G11 | **GSTR-9 annual return; composition-scheme parties** | The annual return from the year's documents; a bill of supply for a firm under composition, and composition customers treated as such | Tally, Busy, Marg, Zoho | Year-end compliance; small firms under composition cannot use the product | Low-Medium | M | none |
+| G12 | **Returnable containers** | Crates, cans, cylinders issued and returned per customer, with deposits | Busy, beverage and dairy DMS | Only for beverage, dairy and gas distributors | Low (by trade) | M | none |
+| G13 | **Invoices printed in Hindi or a regional language** | Party names and item names in a second language on print | Busy, Vyapar, Marg | Asked for by some rural and semi-urban distributors | Low | S-M | none |
+
+**Where they fit in section 4:** G2 before go-live (the two TDS accounts
+and TAN); G1 before go-live for a pharma firm; G4 and G5 with the first
+update; G6, G7 and G8 are small and can ride with whatever release is next.
+
 ---
 
 ## 4. Recommended order for the next items
