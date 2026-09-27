@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
+import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
@@ -22,11 +23,15 @@ class PhysicalCountPage extends StatefulWidget {
   const PhysicalCountPage({
     super.key,
     required this.api,
+    required this.preferences,
     required this.permissions,
     required this.hasActiveFirm,
   });
 
   final ApiClient api;
+
+  /// Where the grid's chosen columns are remembered.
+  final DesktopPreferencesService preferences;
   final PermissionService permissions;
   final bool hasActiveFirm;
 
@@ -38,6 +43,10 @@ class _PhysicalCountPageState extends State<PhysicalCountPage> {
   static const int _rowsPerPage = 20;
   final TextEditingController _search = TextEditingController();
   List<PhysicalCountSheet> _sheets = const [];
+  PhysicalCountSheet? _selected;
+
+  /// The count dates the list is narrowed to (owner, 2026-09-27).
+  DatePeriod _period = const DatePeriod.all();
   int _page = 1;
   int _total = 0;
   bool _loading = false;
@@ -71,11 +80,18 @@ class _PhysicalCountPageState extends State<PhysicalCountPage> {
         page: _page,
         pageSize: _rowsPerPage,
         search: _search.text.trim(),
+        countFrom: _period.from == null ? null : DatePeriod.iso(_period.from!),
+        countTo: _period.to == null ? null : DatePeriod.iso(_period.to!),
       );
       if (!mounted) return;
       setState(() {
         _sheets = result.items;
         _total = result.total;
+        // Keep the picked sheet across a reload, unless it fell off the page.
+        final String? selectedId = _selected?.id;
+        _selected = selectedId == null
+            ? null
+            : result.items.where((item) => item.id == selectedId).firstOrNull;
       });
     } on ApiException catch (exception) {
       if (!mounted) return;
@@ -176,28 +192,10 @@ class _PhysicalCountPageState extends State<PhysicalCountPage> {
         message: 'Choose a firm to count its warehouses.',
       );
     }
+    if (Phase2Scope.of(context)) return _grid(context);
     return LoadingOverlay(
       loading: _loading,
       child: Column(children: [
-        // Phase 2 (4.5): the search and New go on the page's one line.
-        if (Phase2Scope.of(context))
-          Phase2LineTools(children: [
-            SizedBox(
-              width: 260,
-              child: SearchFilterPanel(
-                controller: _search,
-                hintText: 'Search by count number',
-                onSearch: (_) => _load(requestedPage: 1),
-              ),
-            ),
-            if (_canCount)
-              FilledButton(
-                key: const ValueKey('line-new'),
-                onPressed: () => unawaited(_openSheet()),
-                child: const Text('+ New'),
-              ),
-          ])
-        else
           Padding(
             padding: const EdgeInsets.all(AppSpacing.lg),
             child: Row(children: [
@@ -259,6 +257,175 @@ class _PhysicalCountPageState extends State<PhysicalCountPage> {
       ]),
     );
   }
+
+  /// How far a sheet has been walked, in words.
+  static String _progress(PhysicalCountSheet sheet) => sheet.isPosted
+      ? '${sheet.lines.length} lines · posted'
+      : '${sheet.countedLines} of ${sheet.lines.length} lines counted';
+
+  /// Phase 2 (owner, 2026-09-27): a full-width grid, as every list -- the
+  /// Period after the search, Columns, option C's bar naming the picked
+  /// sheet, and a double-click (or Open) to count it or post it.
+  Widget _grid(BuildContext context) {
+    final PhysicalCountSheet? selected = _selected;
+    return LoadingOverlay(
+      loading: _loading,
+      child: ManagementWorkspaceLayout(
+        toolbar: WorkspaceToolbar(
+          actions: const [
+            ToolbarAction.view,
+            ToolbarAction.refresh,
+            ToolbarAction.newItem,
+          ],
+          newLabel: '+ New count',
+          isVisible: (action) => action != ToolbarAction.newItem || _canCount,
+          isEnabled: (action) =>
+              !_loading &&
+              switch (action) {
+                ToolbarAction.view => selected != null,
+                ToolbarAction.refresh => true,
+                ToolbarAction.newItem => _canCount,
+                _ => false,
+              },
+          onAction: (action) {
+            switch (action) {
+              case ToolbarAction.view:
+                if (selected != null) unawaited(_editSheet(selected));
+              case ToolbarAction.refresh:
+                unawaited(_load());
+              case ToolbarAction.newItem:
+                unawaited(_openSheet());
+              default:
+                break;
+            }
+          },
+          // Period right after the search, then Columns (owner).
+          trailing: [
+            DateRangeFilter(
+              value: _period,
+              onChanged: (period) {
+                setState(() => _period = period);
+                unawaited(_load(requestedPage: 1));
+              },
+            ),
+            ColumnsButton(
+              onPressed: () async {
+                if (await _columns.choose(context) && mounted) {
+                  setState(() {});
+                }
+              },
+            ),
+          ],
+        ),
+        selectionBar: true,
+        selection: selected == null
+            ? null
+            : SelectionSummary.document(
+                number: selected.countNumber,
+                party: selected.warehouseName,
+                status: selected.status,
+                onClear: () => setState(() => _selected = null),
+              ),
+        searchPanel: SearchFilterPanel(
+          controller: _search,
+          hintText: 'Search count number or warehouse',
+          onSearch: (_) => unawaited(_load(requestedPage: 1)),
+        ),
+        primaryContent: Column(children: [
+          if (_error != null)
+            MaterialBanner(
+              content: Text(_error!),
+              actions: [
+                TextButton(
+                  onPressed: () => setState(() => _error = null),
+                  child: const Text('Dismiss'),
+                ),
+              ],
+            ),
+          Expanded(
+            child: _sheets.isEmpty
+                ? (_search.text.trim().isEmpty && _period.from == null
+                    ? const StandardEmptyState(
+                        type: EmptyStateType.noRecords,
+                        title: 'No counts yet',
+                        message: 'Opening a count draws up a sheet from what '
+                            'the warehouse currently holds. Posting it turns '
+                            'every difference into a stock adjustment.',
+                      )
+                    : const StandardEmptyState(
+                        type: EmptyStateType.noSearchResults,
+                      ))
+                : EnterpriseDataGrid<PhysicalCountSheet>(
+                    columns: _columns.gridColumns,
+                    items: _sheets,
+                    id: (item) => item.id,
+                    selectedId: selected?.id,
+                    cells: _columns.cells,
+                    onSelect: (item) => setState(() => _selected = item),
+                    onOpen: (item) => unawaited(_editSheet(item)),
+                    total: _total,
+                    pageOffset: (_page - 1) * _rowsPerPage,
+                    rowsPerPage: _rowsPerPage,
+                    onPageChanged: (offset) {
+                      final int next = offset ~/ _rowsPerPage + 1;
+                      if (next != _page) unawaited(_load(requestedPage: next));
+                    },
+                  ),
+          ),
+        ]),
+        statusBar: WorkspaceStatusBar(
+          total: _total,
+          selected: selected != null,
+          message: _loading ? 'Loading...' : null,
+        ),
+      ),
+    );
+  }
+
+  /// Every column the grid can show; Columns picks among them, remembered
+  /// per screen on this PC (owner, 2026-09-27).
+  late final ColumnChoice<PhysicalCountSheet> _columns = ColumnChoice(
+    preferences: widget.preferences,
+    stateKey: 'physical-counts.grid',
+    columns: [
+      ChoosableColumn(
+        column: const GridColumn(key: 'number', label: 'Count Number'),
+        cell: (item) => item.countNumber,
+        required: true,
+      ),
+      // Which warehouse was walked; kept at any width.
+      ChoosableColumn(
+        column:
+            const GridColumn(key: 'warehouse', label: 'Warehouse', priority: 1),
+        cell: (item) => item.warehouseName,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'date', label: 'Count Date'),
+        cell: (item) => item.countDate,
+        shownByDefault: true,
+      ),
+      // How much has been walked is what somebody managing a count wants.
+      ChoosableColumn(
+        column: const GridColumn(key: 'progress', label: 'Progress'),
+        cell: _progress,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'status', label: 'Status'),
+        cell: (item) => item.status,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'posted', label: 'Posted At'),
+        cell: (item) => createdStamp(item.postedAt),
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'remarks', label: 'Remarks'),
+        cell: (item) => item.remarks,
+      ),
+    ],
+  );
 
   Widget _tile(BuildContext context, PhysicalCountSheet sheet) => ListTile(
         title: Text('${sheet.countNumber}  ·  ${sheet.countDate}'),

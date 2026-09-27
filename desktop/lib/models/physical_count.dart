@@ -105,6 +105,7 @@ class PhysicalCountSheet {
     required this.id,
     required this.branchId,
     required this.warehouseId,
+    this.warehouseName = '',
     required this.countNumber,
     required this.countDate,
     required this.status,
@@ -116,6 +117,9 @@ class PhysicalCountSheet {
   final String id;
   final String branchId;
   final String warehouseId;
+
+  /// Which warehouse was counted (owner, 2026-09-27).
+  final String warehouseName;
   final String countNumber;
   final String countDate;
   final String status;
@@ -138,6 +142,7 @@ class PhysicalCountSheet {
       id: stringValue(d['id']),
       branchId: stringValue(d['branch_id']),
       warehouseId: stringValue(d['warehouse_id']),
+      warehouseName: stringValue(d['warehouse_name']),
       countNumber: stringValue(d['count_number']),
       countDate: stringValue(d['count_date']),
       status: stringValue(d['status']),

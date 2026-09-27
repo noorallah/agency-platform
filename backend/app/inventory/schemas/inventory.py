@@ -639,6 +639,8 @@ class PhysicalCountResponse(InventorySchema):
     id: UUID
     branch_id: UUID
     warehouse_id: UUID
+    #: Which warehouse was counted, so the list can say so (owner, 2026-09-27).
+    warehouse_name: str = ""
     count_number: str
     count_date: date
     status: str

@@ -123,6 +123,7 @@ final Map<String, _PageBuilder> _screens = {
   // runs out of width first.
   'physical counts': (d) => PhysicalCountPage(
         api: d.api,
+        preferences: d.preferences,
         permissions: d.permissions,
         hasActiveFirm: false,
       ),

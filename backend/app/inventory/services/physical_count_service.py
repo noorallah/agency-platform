@@ -18,8 +18,9 @@ from uuid import UUID
 from sqlalchemy import Select, func, select
 from sqlalchemy.orm import Session
 
-from app.branches.models import WarehouseStorageNode
+from app.branches.models import Warehouse, WarehouseStorageNode
 from app.common.audit.services import record_audit
+from app.common.report_names import warehouse_names
 from app.core.exceptions import (
     ConflictError,
     ResourceNotFoundError,
@@ -82,14 +83,36 @@ class PhysicalCountService(TransactionalDocumentService):
     # ------------------------------------------------------------------
 
     def list_counts(
-        self, *, firm_id: UUID, page: int, page_size: int, search: str = ""
+        self,
+        *,
+        firm_id: UUID,
+        page: int,
+        page_size: int,
+        search: str = "",
+        count_from: date | None = None,
+        count_to: date | None = None,
     ) -> tuple[list[PhysicalCount], int]:
-        """Return one page of count sheets, newest first."""
+        """Return one page of count sheets, newest first.
+
+        The search also matches the warehouse's name or code, and
+        ``count_from`` / ``count_to`` bound the count date inclusively -- the
+        Period every phase 2 list carries (owner, 2026-09-27).
+        """
         statement = self._scoped(select(PhysicalCount), firm_id)
         if search.strip():
+            token = f"%{search.strip()}%"
             statement = statement.where(
-                PhysicalCount.count_number.ilike(f"%{search.strip()}%")
+                PhysicalCount.count_number.ilike(token)
+                | PhysicalCount.warehouse_id.in_(
+                    select(Warehouse.id).where(
+                        Warehouse.name.ilike(token) | Warehouse.code.ilike(token)
+                    )
+                )
             )
+        if count_from is not None:
+            statement = statement.where(PhysicalCount.count_date >= count_from)
+        if count_to is not None:
+            statement = statement.where(PhysicalCount.count_date <= count_to)
         total = self._session.scalar(
             select(func.count()).select_from(statement.subquery())
         )
@@ -101,6 +124,10 @@ class PhysicalCountService(TransactionalDocumentService):
             .limit(page_size)
         ).all()
         return list(rows), int(total or 0)
+
+    def warehouse_name(self, warehouse_id: UUID) -> str:
+        """Name the warehouse a sheet counts, or nothing for one removed."""
+        return warehouse_names(self._session, [warehouse_id]).get(warehouse_id, "")
 
     def get(self, count_id: UUID, *, firm_id: UUID) -> PhysicalCount:
         """Return one count sheet or raise when it is unavailable."""

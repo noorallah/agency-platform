@@ -1,11 +1,14 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:agency_desktop/core/api/api_client.dart';
+import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/physical_count.dart';
 import 'package:agency_desktop/ui/inventory/physical_count_page.dart';
 import 'package:agency_desktop/ui/inventory/physical_count_sheet_dialog.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -39,6 +42,8 @@ class _CountApi extends ApiClient {
     int page = 1,
     int pageSize = 20,
     String search = '',
+    String? countFrom,
+    String? countTo,
   }) async =>
       PagedResult<PhysicalCountSheet>(items: sheets, total: sheets.length);
 
@@ -89,6 +94,11 @@ Json _line({
       'remarks': '',
     };
 
+/// A fresh folder for the grid's remembered columns.
+DesktopPreferencesService _preferences() => DesktopPreferencesService(
+      directory: Directory.systemTemp.createTempSync('physical-counts'),
+    );
+
 PhysicalCountSheet _sheet({
   String status = 'DRAFT',
   List<Json> lines = const [],
@@ -97,6 +107,7 @@ PhysicalCountSheet _sheet({
       'id': 'pc-1',
       'branch_id': 'b-1',
       'warehouse_id': 'w-1',
+      'warehouse_name': 'Main Godown',
       'count_number': 'PC-2026-2027-000001',
       'count_date': '2027-03-31',
       'status': status,
@@ -255,6 +266,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: PhysicalCountPage(
+              preferences: _preferences(),
               api: api,
               permissions: _permissionsFor(
                 const ['INVENTORY_VIEW', 'INVENTORY_ADJUST'],
@@ -280,6 +292,7 @@ void main() {
         MaterialApp(
           home: Scaffold(
             body: PhysicalCountPage(
+              preferences: _preferences(),
               api: _CountApi(),
               permissions: _permissionsFor(const ['INVENTORY_VIEW']),
               hasActiveFirm: true,
@@ -339,5 +352,57 @@ void main() {
         reason: 'the unlocated row is named by leaving the location out');
     expect((lines[1] as Map)['storage_node_id'], 'node-a');
     expect((lines[1] as Map)['counted_quantity'], '3');
+  });
+
+  // Phase 2 (owner, 2026-09-27): a grid naming each warehouse, with Period
+  // and Columns, the picked sheet named on option C's bar.
+  group('phase 2 grid', () {
+    testWidgets('a grid naming the warehouse and how far along it is',
+        (tester) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          builder: (context, child) => Phase2Scope(child: child!),
+          home: Scaffold(
+            body: PhysicalCountPage(
+              preferences: _preferences(),
+              api: _CountApi(sheets: [
+                _sheet(lines: [
+                  _line(id: 'l-1', expected: '10', counted: '9'),
+                  _line(id: 'l-2', expected: '5'),
+                ]),
+              ]),
+              permissions: _permissionsFor(
+                const ['INVENTORY_VIEW', 'INVENTORY_ADJUST'],
+              ),
+              hasActiveFirm: true,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(
+        find.byType(EnterpriseDataGrid<PhysicalCountSheet>),
+        findsOneWidget,
+      );
+      expect(find.text('Main Godown'), findsOneWidget);
+      expect(find.text('1 of 2 lines counted'), findsOneWidget);
+      expect(find.byType(DateRangeFilter), findsOneWidget);
+      expect(find.byType(ColumnsButton), findsOneWidget);
+
+      await tester.tap(find.text('PC-2026-2027-000001').first);
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+      expect(find.textContaining('Main Godown ·'), findsOneWidget);
+      expect(find.byKey(const ValueKey('selection-view')), findsOneWidget);
+
+      tester.view.physicalSize = const Size(1366, 768);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
   });
 }

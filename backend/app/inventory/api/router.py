@@ -642,6 +642,7 @@ def _count_response(
         id=row.id,
         branch_id=row.branch_id,
         warehouse_id=row.warehouse_id,
+        warehouse_name=service.warehouse_name(row.warehouse_id),
         count_number=row.count_number,
         count_date=row.count_date,
         status=row.status,
@@ -706,12 +707,19 @@ def list_physical_counts(
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
     search: str = Query(default=""),
+    count_from: date | None = None,
+    count_to: date | None = None,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[PhysicalCountResponse]:
     """List count sheets, newest first."""
     service = PhysicalCountService(db)
     rows, total = service.list_counts(
-        firm_id=scope.firm_id, page=page, page_size=page_size, search=search
+        firm_id=scope.firm_id,
+        page=page,
+        page_size=page_size,
+        search=search,
+        count_from=count_from,
+        count_to=count_to,
     )
     return PaginatedResponse(
         data=[_count_response(service, row) for row in rows],
