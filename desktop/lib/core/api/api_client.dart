@@ -5312,6 +5312,8 @@ class ApiClient {
     String? accountingPeriodId,
     String? status,
     String? sourceModule,
+    String? journalFrom,
+    String? journalTo,
   }) =>
       _list(
         '/api/v1/finance/journal-entries',
@@ -5325,6 +5327,9 @@ class ApiClient {
             'accounting_period_id': accountingPeriodId,
           if (status != null) 'status': status,
           if (sourceModule != null) 'source_module': sourceModule,
+          // The Period filter (owner, 2026-09-27): journal dates, inclusive.
+          if (journalFrom != null) 'journal_from': journalFrom,
+          if (journalTo != null) 'journal_to': journalTo,
         },
       );
 

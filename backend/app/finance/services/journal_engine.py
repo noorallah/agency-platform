@@ -618,6 +618,8 @@ class JournalEntryEngine:
         journal_type_id: UUID | None = None,
         source_module: str | None = None,
         descending: bool = True,
+        journal_from: date | None = None,
+        journal_to: date | None = None,
     ) -> tuple[list[JournalEntry], int]:
         """Return a page of journal entries, newest first by default.
 
@@ -647,6 +649,12 @@ class JournalEntryEngine:
         # module's entries (BL-31.15).
         if source_module:
             conditions.append(JournalEntry.source_module == source_module)
+        # The Period filter every phase 2 list carries (owner, 2026-09-27):
+        # journal dates, inclusive.
+        if journal_from is not None:
+            conditions.append(JournalEntry.journal_date >= journal_from)
+        if journal_to is not None:
+            conditions.append(JournalEntry.journal_date <= journal_to)
         if search:
             term = f"%{search.strip()}%"
             conditions.append(

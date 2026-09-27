@@ -280,6 +280,7 @@ class _FinanceWorkspaceState extends State<FinanceWorkspace> {
             ),
           'journal-entries' => JournalEntriesPage(
               api: widget.api,
+              preferences: widget.preferences,
               permissions: widget.permissions,
               hasActiveFirm: widget.hasActiveFirm,
             ),
