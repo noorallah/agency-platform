@@ -62,7 +62,28 @@ GROUPS: tuple[tuple[str, str, AccountTypeEnum], ...] = (
     ("CL", "Current Liabilities", AccountTypeEnum.LIABILITY),
     ("REV", "Revenue", AccountTypeEnum.INCOME),
     ("EXP", "Direct Expenses", AccountTypeEnum.EXPENSE),
+    # The running costs of the business -- rent, salaries, power -- apart from
+    # what goes into the goods, as the usual Indian chart keeps them (owner,
+    # 2026-09-27: what the Expenses screen records against).
+    ("IEXP", "Indirect Expenses", AccountTypeEnum.EXPENSE),
     ("EQ", "Equity", AccountTypeEnum.EQUITY),
+)
+
+#: The day-to-day costs a firm pays and records on the Expenses screen. No
+#: control purpose: nothing posts to them by itself; a person chooses one.
+#: Migration 20260927_0162 gives existing firms the same accounts.
+INDIRECT_EXPENSE_ACCOUNTS: tuple[SeedAccount, ...] = tuple(
+    SeedAccount(code, name, AccountTypeEnum.EXPENSE, "IEXP")
+    for code, name in (
+        ("6000", "Rent"),
+        ("6100", "Salaries and Wages"),
+        ("6200", "Electricity"),
+        ("6300", "Telephone and Internet"),
+        ("6400", "Travel and Conveyance"),
+        ("6500", "Office and General Expenses"),
+        ("6600", "Repairs and Maintenance"),
+        ("6700", "Bank Charges"),
+    )
 )
 
 CHART: tuple[SeedAccount, ...] = (
@@ -252,6 +273,7 @@ CHART: tuple[SeedAccount, ...] = (
         "CL",
         ControlAccountPurpose.LOYALTY_PAYABLE,
     ),
+    *INDIRECT_EXPENSE_ACCOUNTS,
 )
 
 
