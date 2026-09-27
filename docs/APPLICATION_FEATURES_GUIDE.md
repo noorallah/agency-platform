@@ -478,9 +478,11 @@ the IRN it returns, and raises the e-way bill for the goods. *In 1.0.2 only
 the portal's sandbox (test) connection exists*; every reference it returns is
 marked as a sandbox one and can never be mistaken for a real filing.
 
-**TCS.** Tax collected at source under section 206C(1H): charged on the
+**TCS.** Tax collected at source under section 206C(1H), charged on the
 **money received** from a buyer beyond the yearly threshold, not on the bill.
-The screen shows what has been charged against what was due, by customer.
+The Finance Act 2025 **omitted this section from 1 April 2025**, so receipts
+from that date are charged nothing; the screen keeps the record of what was
+collected before it, by customer.
 
 ## 8.4 Structure (configuration)
 
