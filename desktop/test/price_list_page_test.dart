@@ -366,4 +366,35 @@ void main() {
     expect(item['min_quantity'], '50');
     expect(item['discount_percent'], '8');
   });
+
+  testWidgets('phase 2 names the picked list on a bar, with no side pane',
+      (tester) async {
+    // Option C (owner, 2026-09-27): the bar names the list and carries its
+    // actions; its rates open in a window.
+    tester.view.physicalSize = const Size(1700, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => Phase2Scope(child: child!),
+      home: Scaffold(
+        body: PriceListPage(
+          api: _PricingApi(rows: [_list()]),
+          permissions: _permissions(),
+          hasActiveFirm: true,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Rates'), findsNothing);
+
+    await tester.tap(find.text('Everyone').first);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+    expect(find.text('Rates'), findsNothing, reason: 'no side pane');
+
+    await tester.tap(find.byKey(const ValueKey('selection-view')));
+    await tester.pumpAndSettle();
+    expect(find.text('Rates'), findsOneWidget);
+  });
 }

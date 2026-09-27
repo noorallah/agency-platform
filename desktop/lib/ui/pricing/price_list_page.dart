@@ -156,8 +156,43 @@ class _PriceListPageState extends State<PriceListPage> {
     if (!widget.hasActiveFirm) {
       return const StandardEmptyState(type: EmptyStateType.noFirmSelected);
     }
+    final bool phase2 = Phase2Scope.of(context);
+    final PriceListRecord? selected = _selected;
     return ManagementWorkspaceLayout(
-      toolbar: Wrap(
+      toolbar: phase2
+          ? WorkspaceToolbar(
+              actions: [
+                ToolbarAction.view,
+                if (_mayManage) ToolbarAction.edit,
+                if (_mayManage) ToolbarAction.delete,
+                ToolbarAction.refresh,
+                if (_mayManage) ToolbarAction.newItem,
+              ],
+              isEnabled: (action) => switch (action) {
+                ToolbarAction.view ||
+                ToolbarAction.edit ||
+                ToolbarAction.delete =>
+                  selected != null,
+                _ => !_loading,
+              },
+              onAction: (action) {
+                switch (action) {
+                  case ToolbarAction.view:
+                    if (selected != null) unawaited(_read(selected));
+                  case ToolbarAction.edit:
+                    if (selected != null) {
+                      unawaited(_edit(existing: selected));
+                    }
+                  case ToolbarAction.delete:
+                    if (selected != null) unawaited(_delete(selected));
+                  case ToolbarAction.newItem:
+                    unawaited(_edit());
+                  default:
+                    unawaited(_load());
+                }
+              },
+            )
+          : Wrap(
         spacing: 8,
         children: [
           if (_mayManage)
@@ -181,8 +216,21 @@ class _PriceListPageState extends State<PriceListPage> {
         hintText: 'Search by code or name...',
         onSearch: (_) => unawaited(_load(requestedPage: 1)),
       ),
+      // Phase 2 (option C, owner 2026-09-27): the picked list named on a bar
+      // above the grid with its actions; its rates open in a window rather
+      // than a side pane.
+      selectionBar: true,
+      selection: selected == null
+          ? null
+          : SelectionSummary.record(
+              name: selected.name,
+              facts: [selected.code, selected.scopeLabel],
+              status: selected.status,
+              onClear: () => setState(() => _selected = null),
+            ),
       primaryContent: _content(),
-      detailsPanel: _selected == null ? null : _details(_selected!),
+      detailsPanel:
+          phase2 || _selected == null ? null : _details(_selected!),
       statusBar: WorkspaceStatusBar(
         total: _total,
         selected: _selected != null,
@@ -234,7 +282,12 @@ class _PriceListPageState extends State<PriceListPage> {
       onSelect: (row) => setState(() => _selected = row),
       onPageChanged: (page) => unawaited(_load(requestedPage: page)),
       // Double-click edits, as on every other grid; it did nothing here.
-      onOpen: _mayManage ? (row) => unawaited(_edit(existing: row)) : null,
+      // Phase 2 reads it on a double-click, as every list; phase 1 edits.
+      onOpen: Phase2Scope.of(context)
+          ? (row) => unawaited(_read(row))
+          : _mayManage
+              ? (row) => unawaited(_edit(existing: row))
+              : null,
       contextActions: const [
         WorkspaceContextAction.edit,
         WorkspaceContextAction.delete,
@@ -244,6 +297,23 @@ class _PriceListPageState extends State<PriceListPage> {
         if (action == WorkspaceContextAction.edit) unawaited(_edit(existing: row));
         if (action == WorkspaceContextAction.delete) unawaited(_delete(row));
       },
+    );
+  }
+
+  /// Read one list: what the side pane held, in a window.
+  Future<void> _read(PriceListRecord row) async {
+    setState(() => _selected = row);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        content: SizedBox(width: 520, child: _details(row)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
     );
   }
 

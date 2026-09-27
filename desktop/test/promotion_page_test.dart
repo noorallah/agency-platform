@@ -24,6 +24,7 @@ import 'package:agency_desktop/models/pricing.dart';
 import 'package:agency_desktop/models/product.dart';
 import 'package:agency_desktop/ui/pricing/promotion_dialog.dart';
 import 'package:agency_desktop/ui/pricing/promotion_page.dart';
+import 'package:agency_desktop/phase2/phase2_scope.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -144,11 +145,14 @@ Future<void> _pumpPage(
   WidgetTester tester,
   _PromotionApi api, {
   bool manage = true,
+  bool phase2 = false,
 }) async {
   tester.view.physicalSize = const Size(1600, 1200);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(MaterialApp(
+    // Above the navigator, so a dialog the page opens is phase 2's too.
+    builder: phase2 ? (context, child) => Phase2Scope(child: child!) : null,
     home: Scaffold(
       body: PromotionPage(
         api: api,
@@ -508,5 +512,27 @@ void main() {
 
     expect(api.savedBody, isNull);
     expect(find.text('A whole number of 1 or more, or blank'), findsOneWidget);
+  });
+
+  testWidgets('phase 2 names the picked offer on a bar and reads it in a window',
+      (tester) async {
+    // Option C (owner, 2026-09-27): no side pane; the bar names the offer
+    // and carries Open, Edit and Delete.
+    await _pumpPage(
+      tester,
+      _PromotionApi(rows: <PromotionRecord>[_promotion()]),
+      phase2: true,
+    );
+    await tester.tap(find.text('TEN').first);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+    expect(find.byKey(const ValueKey('selection-edit')), findsOneWidget);
+    expect(find.byKey(const ValueKey('selection-delete')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('selection-view')));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
   });
 }

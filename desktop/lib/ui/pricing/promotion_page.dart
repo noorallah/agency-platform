@@ -219,8 +219,11 @@ class _PromotionPageState extends State<PromotionPage> {
     if (!widget.hasActiveFirm) {
       return const StandardEmptyState(type: EmptyStateType.noFirmSelected);
     }
+    final bool phase2 = Phase2Scope.of(context);
     return ManagementWorkspaceLayout(
-      toolbar: Wrap(
+      toolbar: phase2
+          ? _phase2Toolbar()
+          : Wrap(
         spacing: 8,
         crossAxisAlignment: WrapCrossAlignment.center,
         children: [
@@ -269,14 +272,113 @@ class _PromotionPageState extends State<PromotionPage> {
         hintText: 'Search by name...',
         onSearch: (_) => unawaited(_load(requestedPage: 1)),
       ),
+      // Phase 2 (option C, owner 2026-09-27): the picked offer or coupon
+      // named on a bar above the grid with its actions; an offer's detail
+      // opens in a window rather than a side pane.
+      selectionBar: true,
+      selection: _selectionSummary(),
       primaryContent: _showingCoupons ? _couponContent() : _content(),
-      detailsPanel: _showingCoupons
+      detailsPanel: phase2 || _showingCoupons
           ? null
           : (_selected == null ? null : _details(_selected!)),
       statusBar: WorkspaceStatusBar(
         total: _total,
         selected: _showingCoupons ? _selectedCoupon != null : _selected != null,
         message: _loading ? 'Loading...' : null,
+      ),
+    );
+  }
+
+  /// Offers or coupons, on the line beside the search.
+  Widget _switch() => SegmentedButton<bool>(
+        segments: const [
+          ButtonSegment(value: false, label: Text('Offers')),
+          ButtonSegment(value: true, label: Text('Coupons')),
+        ],
+        selected: {_showingCoupons},
+        onSelectionChanged: (choice) {
+          setState(() {
+            _showingCoupons = choice.first;
+            _page = 1;
+          });
+          unawaited(_load(requestedPage: 1));
+        },
+      );
+
+  WorkspaceToolbar _phase2Toolbar() {
+    final PromotionRecord? offer = _showingCoupons ? null : _selected;
+    final PromotionCouponRecord? coupon =
+        _showingCoupons ? _selectedCoupon : null;
+    final bool picked = offer != null || coupon != null;
+    return WorkspaceToolbar(
+      trailing: [_switch()],
+      actions: [
+        if (!_showingCoupons) ToolbarAction.view,
+        if (_mayManage) ToolbarAction.edit,
+        if (_mayManage) ToolbarAction.delete,
+        ToolbarAction.refresh,
+        if (_mayManage) ToolbarAction.newItem,
+      ],
+      isEnabled: (action) => switch (action) {
+        ToolbarAction.view => offer != null,
+        ToolbarAction.edit || ToolbarAction.delete => picked,
+        _ => !_loading,
+      },
+      onAction: (action) {
+        switch (action) {
+          case ToolbarAction.view:
+            if (offer != null) unawaited(_read(offer));
+          case ToolbarAction.edit:
+            if (offer != null) unawaited(_edit(existing: offer));
+            if (coupon != null) unawaited(_editCoupon(existing: coupon));
+          case ToolbarAction.delete:
+            if (offer != null) unawaited(_delete(offer));
+            if (coupon != null) unawaited(_deleteCoupon(coupon));
+          case ToolbarAction.newItem:
+            unawaited(_showingCoupons ? _editCoupon() : _edit());
+          default:
+            unawaited(_load());
+        }
+      },
+    );
+  }
+
+  SelectionSummary? _selectionSummary() {
+    if (_showingCoupons) {
+      final PromotionCouponRecord? coupon = _selectedCoupon;
+      return coupon == null
+          ? null
+          : SelectionSummary.record(
+              name: coupon.code,
+              facts: [coupon.promotionCode, coupon.usageLabel],
+              status: coupon.status,
+              onClear: () => setState(() => _selectedCoupon = null),
+            );
+    }
+    final PromotionRecord? offer = _selected;
+    return offer == null
+        ? null
+        : SelectionSummary.record(
+            name: offer.name,
+            facts: [offer.code, _benefitLabel(offer)],
+            status: offer.status,
+            onClear: () => setState(() => _selected = null),
+          );
+  }
+
+  /// Read one offer: what the side pane held, in a window.
+  Future<void> _read(PromotionRecord row) async {
+    setState(() => _selected = row);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        content: SizedBox(width: 520, child: _details(row)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
       ),
     );
   }
@@ -326,8 +428,13 @@ class _PromotionPageState extends State<PromotionPage> {
       ],
       onSelect: (row) => setState(() => _selected = row),
       onPageChanged: (page) => unawaited(_load(requestedPage: page)),
-      // Double-click edits, as the coupon grid beside it already did.
-      onOpen: _mayManage ? (row) => unawaited(_edit(existing: row)) : null,
+      // Double-click edits, as the coupon grid beside it already did; phase 2
+      // reads it, as every list, with Edit on the bar.
+      onOpen: Phase2Scope.of(context)
+          ? (row) => unawaited(_read(row))
+          : _mayManage
+              ? (row) => unawaited(_edit(existing: row))
+              : null,
       contextActions: const [
         WorkspaceContextAction.edit,
         WorkspaceContextAction.delete,
