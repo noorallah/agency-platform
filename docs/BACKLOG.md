@@ -1130,7 +1130,7 @@ opening balance equity by 25,000 each, deleting them moves both back, and the
 lifecycle nets to zero. The revise path was covered at service level only,
 because the API returned no ETag to send back; that gap is closed below. **All three stores hold together** after a full reset and re-seed.
 
-## 14. Emailing a document to the party it names
+## 14. Emailing a document to the party it names -- planned in §51
 
 Deferred by the owner on 2026-08-22, after printing was built: *"email sending
 we will add to backlog and in future we will build."* Do not start it
@@ -3768,3 +3768,91 @@ year-to-date column, and a quarter or any other span not at all.
 5. The same range choice suits the Trial Balance and the ledger statement,
    which are also one-period today; decide together when this is scheduled.
 
+
+## 51. Email, WhatsApp, SMS and payments -- basic version, planned 2026-09-27
+
+Owner, 2026-09-27: plan email, WhatsApp, SMS and a payment gateway now, as a
+basic version; build after review. This takes up **§14** (emailing a
+document), **§42.1** (WhatsApp, SMS, reminders) and **§42.10** (UPI QR and
+payment links), and answers their open questions by the convention of Tally,
+BUSY, Vyapar and Zoho Books, for the owner to confirm at the review.
+
+### What exists to build on
+
+- **The PDFs.** Every document already prints on the server (for example
+  `GET /api/v1/sales-invoices/{id}/print`); those bytes are what an email
+  attaches and what WhatsApp shares.
+- **Where to send.** A customer has `email` and `phone`, and each contact
+  person a `mobile` and an `email` (`app/customers/models/customer.py`);
+  vendors have the same shape. Vendors have a `upi_id`; the firm has none yet.
+- **Where to record it.** `document_timeline.email_recipient` and
+  `document_states.allows_email` exist with nothing writing them.
+- **What does not exist:** any sending, any provider account, any outbox.
+
+### The one constraint that shapes all of it
+
+**The server sits inside the office.** It can call out to a provider, but a
+provider cannot call in (no public address), so nothing may rely on a
+*webhook*. Every status -- delivered, bounced, paid -- is **fetched by the
+server**, on a timer, from the provider's API. This keeps the product working
+for an installed firm with no IT, and is what decides the payment design
+below.
+
+### Phase A -- basic, no paid provider needed
+
+| # | Feature | How it works | Needs from the firm |
+| --- | --- | --- | --- |
+| A1 | **Email a document** (invoice, order, statement, receipt, purchase order) | From the document's bar: *Email*. Pre-filled to the party's email, a covering message per document type, the PDF attached. Sent through the **firm's own mail account** (SMTP: Gmail or Outlook with an app password, or the firm's domain mail) | Its mail account details, once, in Settings |
+| A2 | **Share on WhatsApp** | *WhatsApp* on the bar opens WhatsApp (desktop app or web) to the party's number with the message typed in (invoice number, amount, due date); the PDF is saved and its folder opened, for the user to attach. No API, no cost -- what Vyapar and most small-business products do | WhatsApp installed on the PC |
+| A3 | **UPI QR on the invoice** | The printed invoice carries a UPI QR for the amount due (`upi://pay?pa=<firm UPI ID>&am=<amount>&tn=<invoice no>`). The customer scans and pays from any UPI app. No gateway, no internet | The firm's UPI ID, once, in Firm Settings |
+| A4 | **Payment reminders, by hand** | On the overdue invoices list and customer statements: *Remind* sends the statement or the overdue list by email (A1) or WhatsApp (A2) | -- |
+| A5 | **A record of every send** | Each send is a line on the document's timeline: channel, to whom, by whom, when, and *sent* or *failed* with the reason. A failure shows on the document; it never blocks or undoes the document | -- |
+
+### Phase B -- automatic, through a provider (the firm pays the provider)
+
+| # | Feature | How it works | Needs from the firm |
+| --- | --- | --- | --- |
+| B1 | **SMS** | Receipt confirmations and payment reminders by SMS through an Indian provider (MSG91, Textlocal and the like) | **DLT registration** with a telecom operator (TRAI rule): its sender ID and each message template registered -- the firm's paperwork, a few days, not ours to do |
+| B2 | **WhatsApp Business API** | The PDF sent directly, no user step, through Meta's Cloud API or a partner (Interakt, AiSensy, Gupshup) | A WhatsApp Business account; each message template approved by Meta; about ₹0.1 to ₹0.9 per message, billed by the provider |
+| B3 | **Automatic reminders** | A schedule per firm: before the due date, on it, and every N days after, by the channels the firm chose; stops when the invoice is paid | -- |
+| B4 | **Payment links** | *Payment link* on an invoice creates a link through Razorpay or Cashfree (card, UPI, net banking), sent by A1, A2, B1 or B2. The server **fetches** the link's status (no webhook, above); when paid it creates a **draft receipt** against the invoice for a person to approve, with the gateway's fee recorded as a bank charge | A merchant account (KYC by the gateway, a few days) |
+
+### Decided by convention (to confirm at the review)
+
+1. **Whose account:** the **firm's own** mail, SMS, WhatsApp and gateway
+   accounts, never one shared by the platform -- the customer sees mail from
+   their own supplier, costs land on the firm that sends, and one firm's
+   spam complaint cannot stop another's messages.
+2. **Credentials** are entered in **Settings → Messaging** and **Settings →
+   Payments** by the firm administrator, stored **encrypted** with a key held
+   in the server's config (not in the database), and never shown again after
+   saving -- only *replace* or *test*.
+3. **Attach, not link**, for email: the customer's accounts department files
+   the attachment, and nothing is served to the internet.
+4. **A failed send never blocks a document** and is never silent: it is on
+   the timeline and shown on the document (A5).
+5. **Sending is its own permission** (`DOCUMENT_SEND`), not `*_VIEW`:
+   printing shows what the screen shows, sending acts for the firm towards
+   somebody outside it. Settings need `SETTINGS_UPDATE`.
+6. **A gateway payment is never posted unseen:** it becomes a draft receipt
+   (B4), because a receipt posts to the books and must be reversible by the
+   same rules as any other.
+7. **Opt-out:** a customer can be marked *no reminders*; B3 skips them.
+
+### Open for the owner at the review
+
+1. **Which providers** to support first -- one each is the basic version: an
+   SMS provider, a WhatsApp partner or Meta direct, and Razorpay or Cashfree.
+2. **Phase B in 1.x at all**, or Phase A first and B after firms ask.
+3. **Message wording** -- the covering message and reminder text per
+   document type, in English only or also in Hindi and regional languages.
+4. **Reminder schedule defaults** for B3 (for example 3 days before, on the
+   due date, then every 7 days).
+
+### Size
+
+Phase A is about the size printing was: a settings page, one sending service
+with an outbox and retry (the server may be offline when a send is asked
+for), the timeline record, and a button on each document's bar. Phase B adds
+one adapter per provider plus the status fetcher, and the draft-receipt step
+for payments.
