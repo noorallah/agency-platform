@@ -471,6 +471,75 @@ void main() {
       expect(find.text('1 selected'), findsNothing);
     });
 
+    testWidgets('phase 2 names the picked record on the selection bar',
+        (tester) async {
+      // Option C (owner, 2026-09-27): every shared list gets the bar the
+      // document lists have. An action about the picked row goes on it; one
+      // that needs no row stays on the line.
+      _desktopViewport(tester);
+      final api = _WorkspaceApi();
+      final ResourceDefinition<Permission> base = permissionDefinition(
+        api,
+        _withPermissions(const ['PERMISSION_VIEW', 'PERMISSION_UPDATE']),
+        showFrame: false,
+      );
+      final ResourceDefinition<Permission> withActions = ResourceDefinition(
+        title: base.title,
+        resource: base.resource,
+        headers: base.headers,
+        cells: base.cells,
+        id: base.id,
+        load: base.load,
+        fields: base.fields,
+        initialValues: base.initialValues,
+        payload: base.payload,
+        showFrame: false,
+        customActions: [
+          ResourceAction<Permission>(
+            label: 'Grant',
+            icon: Icons.key,
+            onInvoke: (_) async => 'Granted.',
+          ),
+          ResourceAction<Permission>(
+            label: 'Sync all',
+            icon: Icons.sync,
+            needsSelection: false,
+            onInvoke: (_) async => 'Synced.',
+          ),
+        ],
+      );
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Phase2Scope(
+            child: ResourceManagementPage<Permission>(
+              api: api,
+              definition: withActions,
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('selection-bar')), findsNothing);
+      expect(find.widgetWithText(OutlinedButton, 'Sync all'), findsOneWidget);
+      expect(find.widgetWithText(OutlinedButton, 'Grant'), findsNothing);
+
+      await tester.tap(find.text('Journal Posting 0'));
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+      // Named by its name, then its code.
+      expect(
+        find.descendant(
+          of: find.byKey(const ValueKey('selection-bar')),
+          matching: find.textContaining('JOURNAL_POST_0'),
+        ),
+        findsOneWidget,
+      );
+      expect(find.byKey(const ValueKey('selection-grant')), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
     testWidgets('clicking a row marks it selected, not just the toolbar',
         (tester) async {
       _desktopViewport(tester);
