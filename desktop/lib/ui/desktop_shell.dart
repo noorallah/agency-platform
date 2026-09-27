@@ -3056,6 +3056,7 @@ class _InventoryWorkspaceState extends State<_InventoryWorkspace> {
         ),
       'physical-counts' => PhysicalCountPage(
           api: widget.api,
+          preferences: widget.preferences,
           permissions: widget.permissions,
           hasActiveFirm: hasActiveFirm,
         ),

@@ -2293,6 +2293,8 @@ class ApiClient {
     int page = 1,
     int pageSize = 20,
     String search = '',
+    String? countFrom,
+    String? countTo,
   }) =>
       _list(
         '/api/v1/inventory/counts',
@@ -2300,6 +2302,11 @@ class ApiClient {
         page,
         search,
         pageSize: pageSize,
+        additionalQuery: {
+          // The Period filter (owner, 2026-09-27): count dates, inclusive.
+          if (countFrom != null) 'count_from': countFrom,
+          if (countTo != null) 'count_to': countTo,
+        },
       );
 
   Future<PhysicalCountSheet> physicalCount(String id) async =>

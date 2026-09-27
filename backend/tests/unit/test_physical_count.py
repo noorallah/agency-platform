@@ -7,7 +7,7 @@ moments -- stock moves while a warehouse is being counted, and a sheet that
 posts what it was drawn up with would undo it.
 """
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -803,3 +803,30 @@ def test_a_named_line_must_be_a_location_of_the_warehouse() -> None:
             firm_id=books.firm.id,
             actor_id=books.actor_id,
         )
+
+
+def test_the_list_finds_a_sheet_by_warehouse_and_date_and_names_it() -> None:
+    """Searched and narrowed like every phase 2 list (owner, 2026-09-27).
+
+    A list of count numbers says nothing about which warehouse was walked;
+    the sheet now names it, and the search finds it by that name.
+    """
+    books = _Warehouse(_session_factory()())
+    count_id = books.sheet(None)
+
+    def total(**kwargs: object) -> int:
+        """Count what the list answers."""
+        _, found = books.counts.list_counts(
+            firm_id=books.firm.id, page=1, page_size=20, **kwargs  # type: ignore[arg-type]
+        )
+        return found
+
+    assert total(search="Main Warehouse") == 1
+    assert total(search="MAIN") == 1
+    assert total(search="nowhere") == 0
+    assert total(count_from=WHEN, count_to=WHEN) == 1
+    assert total(count_from=WHEN + timedelta(days=1)) == 0
+    assert books.counts.warehouse_name(books.warehouse.id) == "Main Warehouse"
+    assert books.counts.get(count_id, firm_id=books.firm.id).warehouse_id == (
+        books.warehouse.id
+    )
