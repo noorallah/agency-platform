@@ -1,6 +1,8 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:agency_desktop/core/api/api_client.dart';
+import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/branch_warehouse.dart';
 import 'package:agency_desktop/models/customer.dart';
@@ -8,6 +10,7 @@ import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/product.dart';
 import 'package:agency_desktop/models/quotation.dart';
 import 'package:agency_desktop/ui/quotations/quotation_management_page.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -32,6 +35,7 @@ const List<String> _fullAccess = [
 
 Quotation _quote({
   String status = 'DRAFT',
+  String customerName = '',
   bool isExpired = false,
   bool canConvert = false,
   String validUntil = '2026-09-13',
@@ -46,6 +50,7 @@ Quotation _quote({
     Quotation.fromJson({
       'id': 'q-1',
       'customer_id': 'cust-1',
+      'customer_name': customerName,
       'branch_id': 'branch-1',
       'warehouse_id': 'wh-1',
       'quotation_number': 'QT-2026-2027-000001',
@@ -303,19 +308,24 @@ Future<void> _pump(
   _QuoteApi api, {
   List<String> perms = _fullAccess,
   bool hasActiveFirm = true,
+  bool phase2 = false,
 }) async {
+  final Widget page = QuotationManagementPage(
+    api: api,
+    preferences: DesktopPreferencesService(
+      directory: Directory.systemTemp.createTempSync('quotations'),
+    ),
+    permissions: _permissionsFor(perms),
+    hasActiveFirm: hasActiveFirm,
+    today: DateTime(2026, 8, 14),
+  );
   tester.view.physicalSize = const Size(1600, 900);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
     MaterialApp(
       home: Scaffold(
-        body: QuotationManagementPage(
-          api: api,
-          permissions: _permissionsFor(perms),
-          hasActiveFirm: hasActiveFirm,
-          today: DateTime(2026, 8, 14),
-        ),
+        body: phase2 ? Phase2Scope(child: page) : page,
       ),
     ),
   );
@@ -1218,6 +1228,71 @@ void main() {
 
       expect(result.quotation.quotationNumber, 'QT-1');
       expect(result.orderNumber, 'SO-9');
+    });
+  });
+
+  // Phase 2 (owner, 2026-09-27): a grid like every other sales list, with
+  // option C's bar carrying the steps and a double-click to read one.
+  group('phase 2 grid', () {
+    Future<void> select(WidgetTester tester) async {
+      await tester.tap(find.text('QT-2026-2027-000001').first);
+      // Past the double-click window, which is when a click is a selection.
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a grid naming each customer and how long the offer stands',
+        (tester) async {
+      await _pump(tester, _QuoteApi(rows: [_quote(customerName: 'Anand Agencies')]), phase2: true);
+
+      expect(find.byType(EnterpriseDataGrid<Quotation>), findsOneWidget);
+      expect(find.text('Customer'), findsOneWidget);
+      expect(find.text('Anand Agencies'), findsOneWidget);
+      expect(find.text('Valid Until'), findsOneWidget);
+      expect(find.text('Offered'), findsNothing);
+      expect(find.byType(ColumnsButton), findsOneWidget);
+
+      // And it fits the smallest screen the app supports.
+      tester.view.physicalSize = const Size(1366, 768);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a lapsed offer says so in its row', (tester) async {
+      await _pump(
+        tester,
+        _QuoteApi(rows: [_quote(status: 'SENT', isExpired: true, customerName: 'Anand Agencies')]),
+        phase2: true,
+      );
+
+      expect(find.text('2026-09-13 · lapsed'), findsOneWidget);
+    });
+
+    testWidgets('the bar names the offer and runs its step', (tester) async {
+      final _QuoteApi api = _QuoteApi(rows: [_quote(customerName: 'Anand Agencies')]);
+      await _pump(tester, api, phase2: true);
+      await select(tester);
+
+      expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+      expect(find.textContaining('Anand Agencies ·'), findsOneWidget);
+      // Nothing to convert until the customer has accepted.
+      expect(find.byKey(const ValueKey('selection-convert')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('selection-send')));
+      await tester.pumpAndSettle();
+      expect(api.actions, ['send']);
+    });
+
+    testWidgets('double-clicking an offer reads it', (tester) async {
+      await _pump(tester, _QuoteApi(rows: [_quote(customerName: 'Anand Agencies')]), phase2: true);
+
+      final Finder row = find.text('QT-2026-2027-000001').first;
+      await tester.tap(row);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.text('Offered'), findsOneWidget);
     });
   });
 }

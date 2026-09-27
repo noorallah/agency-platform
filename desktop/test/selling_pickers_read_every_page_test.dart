@@ -9,8 +9,10 @@
 // page one fails here.
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:agency_desktop/core/api/api_client.dart';
+import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/sales_return.dart';
@@ -270,6 +272,9 @@ void main() {
       home: Scaffold(
         body: QuotationManagementPage(
           api: api,
+          preferences: DesktopPreferencesService(
+            directory: Directory.systemTemp.createTempSync('quotations'),
+          ),
           permissions:
               _permissions(const <String>['SALES_VIEW', 'SALES_QUOTATION_CREATE']),
           hasActiveFirm: true,
