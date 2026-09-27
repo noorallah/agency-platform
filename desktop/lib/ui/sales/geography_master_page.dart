@@ -198,6 +198,32 @@ class _GeographyMasterPageState extends State<GeographyMasterPage> {
     }
   }
 
+  /// Country > State > ... > this level, each step a way back up.
+  Widget _trailChip(BuildContext context) => Row(
+        key: const ValueKey('geo-trail'),
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          for (int depth = 0; depth < _trail.length; depth++) ...[
+            TextButton(
+              style: TextButton.styleFrom(
+                visualDensity: VisualDensity.compact,
+                padding: const EdgeInsets.symmetric(horizontal: 6),
+              ),
+              onPressed: () => _jumpTo(depth),
+              child: Text(_trail[depth].name),
+            ),
+            const Icon(Icons.chevron_right, size: 16),
+          ],
+          Text(
+            _level.plural,
+            style: Theme.of(context)
+                .textTheme
+                .bodyMedium
+                ?.copyWith(fontWeight: FontWeight.w600),
+          ),
+        ],
+      );
+
   @override
   Widget build(BuildContext context) {
     final Widget toolbar = WorkspaceToolbar(
@@ -336,7 +362,14 @@ class _GeographyMasterPageState extends State<GeographyMasterPage> {
               onClear: () => setState(() => _selected = null),
             ),
       searchPanel: searchPanel,
-      filterPanel: breadcrumb,
+      // Phase 2: the level trail is the way back up, so it sits on the page
+      // line; "+ filter" would hide it (review, 2026-09-27).
+      filterPanel: Phase2Scope.of(context) ? null : breadcrumb,
+      lineChips: Phase2Scope.of(context) ? [_trailChip(context)] : const [],
+      notice: _level.child == null
+          ? null
+          : 'Double-click a row to open its '
+              '${_level.child!.plural.toLowerCase()}.',
       primaryContent: content,
       statusBar: WorkspaceStatusBar(
         total: _visible.length,

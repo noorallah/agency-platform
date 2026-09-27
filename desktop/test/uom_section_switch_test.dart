@@ -22,6 +22,7 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/uom/uom_management_page.dart';
+import 'package:agency_desktop/phase2/phase2_scope.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -107,12 +108,15 @@ Future<void> _pump(
   _UomApi api,
   UomManagementSection section, {
   bool platformAdmin = false,
+  bool phase2 = false,
 }) async {
   await tester.binding.setSurfaceSize(const Size(1600, 900));
   addTearDown(() => tester.binding.setSurfaceSize(null));
   // No key, deliberately. That is how the shell builds these, and keying here
   // would hide the very thing under test.
   await tester.pumpWidget(MaterialApp(
+    // Above the navigator, so a dialog the page opens is phase 2's too.
+    builder: phase2 ? (context, child) => Phase2Scope(child: child!) : null,
     home: Scaffold(
       body: UomManagementPage(
         api: api,
@@ -214,5 +218,17 @@ void main() {
       tester.widget<TextField>(find.byType(TextField).first).controller?.text,
       isEmpty,
     );
+  });
+
+  testWidgets('phase 2 offers Edit and Delete for the picked unit on the bar',
+      (tester) async {
+    // Review 2026-09-27: they were right-click only, and the bar was empty.
+    await _pump(tester, _UomApi(), UomManagementSection.uoms,
+        platformAdmin: true, phase2: true);
+    await tester.tap(find.textContaining('PIECEUNIT').first);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('selection-edit')), findsOneWidget);
+    expect(find.byKey(const ValueKey('selection-delete')), findsOneWidget);
   });
 }

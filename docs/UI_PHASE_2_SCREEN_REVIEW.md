@@ -107,3 +107,9 @@ PR number when merged.
   and 6 in part (`StatusBadge` in words): Credit Notes' and E-Invoice's
   notice boxes and Commission's notices and view band are gone from above
   the grid -- PR "phase 2 line: view switch, notice, status in words".
+- Masters: the five Units screens (Edit / Delete on the bar, double-click
+  edits), Storage Areas (a warehouse chip on the line reaches every
+  warehouse), Places (the level trail on the line), Packaging Levels (product
+  picker on the line, the scan is the search, its result on the status bar),
+  Territories (no side pane; the tree opens from the line; ticked rows'
+  Bulk actions on the bar) -- PR "masters review fixes".

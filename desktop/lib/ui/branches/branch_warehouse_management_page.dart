@@ -62,6 +62,11 @@ class _BranchWarehouseManagementPageState
   BranchRecord? _selectedBranch;
   List<WarehouseRecord> _warehouses = const [];
   WarehouseRecord? _selectedWarehouse;
+
+  /// Every warehouse, for the storage section's warehouse chip: storage is
+  /// per warehouse, and only the first one could be reached (review,
+  /// 2026-09-27).
+  List<WarehouseRecord> _storageWarehouses = const [];
   List<TypeRecord> _types = const [];
   TypeRecord? _selectedType;
   List<StorageNodeRecord> _storageNodes = const [];
@@ -206,11 +211,13 @@ class _BranchWarehouseManagementPageState
               _keepSelected(_selectedType?.id, _types, (item) => item.id);
           break;
         case BranchWarehouseSection.storageAreas:
-          final warehouses = await widget.api.warehouses(
-            page: 1,
+          _storageWarehouses = await fetchAllPages<WarehouseRecord>(
+            (int page) => widget.api.warehouses(
+              page: page,
+              pageSize: maxApiPageSize,
+            ),
           );
-          final firstWarehouse =
-              warehouses.items.isEmpty ? null : warehouses.items.first;
+          final firstWarehouse = _storageWarehouses.firstOrNull;
           if (_selectedWarehouse == null && firstWarehouse != null) {
             _selectedWarehouse = firstWarehouse;
           }
@@ -308,6 +315,34 @@ class _BranchWarehouseManagementPageState
             ),
           ],
         ),
+        // Phase 2: storage belongs to one warehouse; the chip says which and
+        // changes it.
+        lineChips: widget.section == BranchWarehouseSection.storageAreas &&
+                _storageWarehouses.isNotEmpty
+            ? [
+                Phase2MenuChip<String>(
+                  key: const ValueKey('storage-warehouse'),
+                  label: 'Warehouse: '
+                      '${_selectedWarehouse?.displayName ?? 'choose'}',
+                  onSelected: (id) {
+                    setState(() {
+                      _selectedWarehouse = _storageWarehouses
+                          .where((w) => w.id == id)
+                          .firstOrNull;
+                      _selectedStorageNode = null;
+                    });
+                    _load(requestedPage: 1);
+                  },
+                  itemBuilder: (_) => [
+                    for (final WarehouseRecord w in _storageWarehouses)
+                      PopupMenuItem<String>(
+                        value: w.id,
+                        child: Text('${w.code}  ${w.displayName}'),
+                      ),
+                  ],
+                ),
+              ]
+            : const [],
         primaryContent: content,
         // Phase 2 (option C, owner 2026-09-27): the picked record named on a
         // bar above the grid, with its actions, rather than re-read in a
