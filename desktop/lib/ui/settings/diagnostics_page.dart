@@ -288,7 +288,9 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
               ],
             ),
           Expanded(
-            child: _groups.isEmpty
+            child: _loading && _groups.isEmpty
+                ? const SizedBox.shrink()
+                : _groups.isEmpty
                 ? const StandardEmptyState(
                     type: EmptyStateType.noRecords,
                     title: 'Nothing has failed',

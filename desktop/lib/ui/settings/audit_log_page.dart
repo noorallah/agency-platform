@@ -301,7 +301,9 @@ class _AuditLogPageState extends State<AuditLogPage> {
               ],
             ),
           Expanded(
-            child: _rows.isEmpty
+            child: _loading && _rows.isEmpty
+                ? const SizedBox.shrink()
+                : _rows.isEmpty
                 ? const StandardEmptyState(
                     type: EmptyStateType.noRecords,
                     title: 'Nothing recorded',

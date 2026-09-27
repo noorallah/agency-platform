@@ -568,7 +568,11 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
               ],
             ),
           Expanded(
-            child: _entries.isEmpty
+            // Nothing yet while the first read is out: the thin bar says it is
+            // loading, and "nothing here" would be a claim not yet known.
+            child: _loading && _entries.isEmpty
+                ? const SizedBox.shrink()
+                : _entries.isEmpty
                 ? (_search.text.trim().isEmpty &&
                         _period.from == null &&
                         _sourceModule == null

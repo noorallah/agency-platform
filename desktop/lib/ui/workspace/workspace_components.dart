@@ -409,9 +409,13 @@ class SummaryCount extends StatelessWidget {
 /// the page's tabs, and its counters (4.5). Drawn by the list layout when it
 /// has claimed the line, and by the frame when nothing has.
 class Phase2PageTitle extends StatelessWidget {
-  const Phase2PageTitle({super.key, required this.bar});
+  const Phase2PageTitle({super.key, required this.bar, this.notice});
 
   final Phase2PageBar bar;
+
+  /// A list's own notice, said behind the same (i) as the description --
+  /// one (i) per page, not two side by side (screenshot pass, 2026-09-27).
+  final String? notice;
 
   @override
   Widget build(BuildContext context) {
@@ -427,9 +431,13 @@ class Phase2PageTitle extends StatelessWidget {
               ?.copyWith(fontWeight: FontWeight.w700),
         ),
       ),
-      if (bar.description.isNotEmpty)
+      if (bar.description.isNotEmpty || (notice?.isNotEmpty ?? false))
         Tooltip(
-          message: bar.description,
+          key: const ValueKey('page-notice'),
+          message: [
+            if (bar.description.isNotEmpty) bar.description,
+            if (notice?.isNotEmpty ?? false) notice!,
+          ].join('\n\n'),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 6),
             child: Icon(
@@ -2207,7 +2215,9 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
         const SizedBox(width: 6),
         layout.viewBar!,
       ],
-      if (layout.notice != null) ...[
+      // With a page bar the notice joins the title's (i); without one this
+      // line is the page, so it carries its own.
+      if (layout.notice != null && bar == null) ...[
         const SizedBox(width: 2),
         Tooltip(
           key: const ValueKey('page-notice'),
@@ -2261,7 +2271,7 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Row(children: [
-                  Phase2PageTitle(bar: bar),
+                  Phase2PageTitle(bar: bar, notice: layout.notice),
                   Flexible(child: Phase2PageCounters(bar: bar)),
                   ...filterChip,
                 ]),
@@ -2280,7 +2290,7 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
           // beside a Spacer split the spare width, and five counters were cut
           // off in half of it.)
           return Row(children: [
-            Phase2PageTitle(bar: bar),
+            Phase2PageTitle(bar: bar, notice: layout.notice),
             Expanded(
               child: Align(
                 alignment: Alignment.centerLeft,

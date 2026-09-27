@@ -383,7 +383,11 @@ class _SettlementsPageState extends State<SettlementsPage> {
               ],
             ),
           Expanded(
-            child: _rows.isEmpty
+            // Nothing yet while the first read is out: the thin bar says it is
+            // loading, and "nothing here" would be a claim not yet known.
+            child: _loading && _rows.isEmpty
+                ? const SizedBox.shrink()
+                : _rows.isEmpty
                 ? (_search.text.trim().isEmpty && _period.from == null
                     ? StandardEmptyState(
                         type: EmptyStateType.noRecords,
