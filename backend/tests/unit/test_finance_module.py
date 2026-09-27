@@ -37,6 +37,7 @@ from app.finance.api.router import (
     update_journal_entry,
 )
 from app.finance.models import (
+    AccountGroup,
     AccountingPeriod,
     CostCenter,
     FinancialYear,
@@ -2108,6 +2109,23 @@ def test_seed_finance_setup_is_complete_and_idempotent() -> None:
     assert created["accounts"] == len(CHART)
     assert created["periods"] == 12
     assert created["mappings"] == sum(1 for entry in CHART if entry.purpose)
+
+    # Running costs have a group of their own, apart from the goods (owner,
+    # 2026-09-27): what the Expenses screen records against.
+    indirect = session.scalar(
+        select(AccountGroup).where(
+            AccountGroup.firm_id == firm.id, AccountGroup.code == "IEXP"
+        )
+    )
+    assert indirect is not None and indirect.name == "Indirect Expenses"
+    rent = session.scalar(
+        select(LedgerAccount).where(
+            LedgerAccount.firm_id == firm.id, LedgerAccount.code == "6000"
+        )
+    )
+    assert rent is not None and rent.name == "Rent"
+    assert rent.account_group_id == indirect.id
+    assert rent.account_type == "EXPENSE"
 
     # Every purpose the sales-invoice posting needs is now mapped.
     posting = DocumentPostingService(session)

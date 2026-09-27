@@ -153,12 +153,15 @@ Recorded so a decision can be made; none of these stops the steps above.
    accountant's permission (post journals). Recommended next: an **Accounts →
    Expenses** screen that writes and posts the journal, with its own
    permission, so a manager can record rent without the journal screen.
-2. **One expense group.** The books open with *Direct Expenses* only, so rent
-   and salaries sit beside Purchases and Cost of Goods Sold. The usual Indian
-   layout separates **Direct Expenses** (gross profit) from **Indirect
-   Expenses** (net profit). A group can be added through the server but not
-   yet from a screen. Recommended: open the books with an *Indirect Expenses*
-   group and let the Chart of Accounts screen add groups.
+2. **Indirect Expenses -- built 2026-09-27.** The books open with an
+   *Indirect Expenses* group holding Rent, Salaries and Wages, Electricity,
+   Telephone and Internet, Travel and Conveyance, Office and General Expenses,
+   Repairs and Maintenance and Bank Charges (6000-6700); migration
+   `20260927_0162` gave every firm with open books the same. **Still open:**
+   the Profit & Loss sections by account type, not by group, so it does not
+   yet show a gross profit (Direct) above a net profit (Indirect) -- that
+   belongs with backlog section 50 -- and the Chart of Accounts screen cannot
+   add a group.
 3. **Payments pays suppliers only.** Buy → Payments settles purchase bills; it
    cannot pay an expense account.
 4. **P&L by year or chosen months** is backlog section 50.
