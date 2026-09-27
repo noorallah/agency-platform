@@ -795,6 +795,39 @@ class _BatchManagementPageState extends State<BatchManagementPage> {
           quarantine: 0,
           recalled: 0,
         );
+    // Phase 2 (review, 2026-09-27): the six figures are counters on the page
+    // line in the theme's colours, and the batches take the rest of the
+    // window -- no coloured cards and no fixed-height grid.
+    if (Phase2Scope.of(context)) {
+      return WorkspaceLayout(
+        title: 'Expiry Monitor',
+        description: 'Track expiring, expired, quarantined, and recalled '
+            'stock at a glance.',
+        breadcrumbs: const ['Workspace', 'Inventory', 'Expiry Monitor'],
+        toolbar: Phase2Refresh(
+          onPressed: _load,
+          child: const SizedBox.shrink(),
+        ),
+        content: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SummaryCards(children: [
+              SummaryCount(label: 'Expired today', value: '${dash.expiredToday}'),
+              SummaryCount(label: 'In 7 days', value: '${dash.expireIn7Days}'),
+              SummaryCount(label: 'In 30 days', value: '${dash.expireIn30Days}'),
+              SummaryCount(label: 'Expired', value: '${dash.totalExpired}'),
+              SummaryCount(label: 'Quarantine', value: '${dash.quarantine}'),
+              SummaryCount(label: 'Recalled', value: '${dash.recalled}'),
+            ]),
+            Expanded(
+              child: _batches.isEmpty
+                  ? const StandardEmptyState(type: EmptyStateType.noRecords)
+                  : _buildBatchGrid(),
+            ),
+          ],
+        ),
+      );
+    }
     return WorkspaceLayout(
       title: 'Expiry Monitor',
       description:

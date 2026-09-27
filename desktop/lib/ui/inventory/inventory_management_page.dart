@@ -13,6 +13,7 @@ import '../../models/inventory.dart';
 import '../../models/product.dart';
 import 'inventory_details_dialog.dart';
 import 'inventory_import_wizard.dart';
+import '../../phase2/document_page.dart' show documentQuantity;
 import '../workspace/desktop_framework.dart';
 import 'stock_action_dialog.dart';
 
@@ -335,6 +336,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
               branchId: _branchId,
               warehouseId: _warehouseId,
               productId: _productId,
+              transactionFrom: _periodFrom,
+              transactionTo: _periodTo,
             ),
           );
           _transactions = result.items;
@@ -356,6 +359,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
               branchId: _branchId,
               warehouseId: _warehouseId,
               productId: _productId,
+              transactionFrom: _periodFrom,
+              transactionTo: _periodTo,
             ),
           );
           _ledger = result.items;
@@ -377,6 +382,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
               branchId: _branchId,
               warehouseId: _warehouseId,
               includeDeleted: _includeDeleted,
+              postingFrom: _periodFrom,
+              postingTo: _periodTo,
             ),
           );
           _openingStock = result.items;
@@ -498,6 +505,69 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
           outOfStockCount: 0,
           negativeStockCount: 0,
         );
+    // Phase 2 (review, 2026-09-27): the headline figures are counters on the
+    // page line, the other balances behind the (i)'s sentence on the status
+    // bar, Export under "..."; the three tables take the window.
+    if (Phase2Scope.of(context)) {
+      return WorkspaceLayout(
+        title: 'Stock Summary',
+        description: 'Reserved ${documentQuantity(summary.reservedQuantity)}'
+            ' · blocked ${documentQuantity(summary.blockedQuantity)}'
+            ' · damaged ${documentQuantity(summary.damagedQuantity)}'
+            ' · quarantine ${documentQuantity(summary.quarantineQuantity)}'
+            ' · in transit ${documentQuantity(summary.inTransitQuantity)}',
+        breadcrumbs: const ['Workspace', 'Inventory', 'Stock Summary'],
+        toolbar: WorkspaceToolbar(
+          actions: [
+            ToolbarAction.refresh,
+            if (_canExport) ToolbarAction.export,
+          ],
+          isEnabled: (_) => !_loading,
+          onAction: (action) => action == ToolbarAction.export
+              ? _saveExportFile(
+                  dataset: 'inventory',
+                  format: _defaultExportFormat,
+                )
+              : _load(),
+        ),
+        content: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            SummaryCards(children: [
+              SummaryCount(label: 'Records', value: '${summary.totalRecords}'),
+              SummaryCount(
+                  label: 'Current',
+                  value: documentQuantity(summary.currentQuantity)),
+              SummaryCount(
+                  label: 'Available',
+                  value: documentQuantity(summary.availableQuantity)),
+              SummaryCount(label: 'Low', value: '${summary.lowStockCount}'),
+              SummaryCount(
+                  label: 'Out of stock', value: '${summary.outOfStockCount}'),
+              SummaryCount(
+                  label: 'Negative', value: '${summary.negativeStockCount}'),
+            ]),
+            Expanded(
+              child: SingleChildScrollView(
+                padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    _summaryTable('Firm stock', _firmSummary, scope: 'firm'),
+                    const SizedBox(height: 12),
+                    _summaryTable('Branch stock', _branchSummary,
+                        scope: 'branch'),
+                    const SizedBox(height: 12),
+                    _summaryTable('Warehouse stock', _warehouseSummary,
+                        scope: 'warehouse'),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     return WorkspaceLayout(
       title: 'Stock Summary',
       description:
@@ -721,7 +791,21 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
               ? () => _openStockAction(action)
               : null,
         );
+    final bool dated = section == InventorySection.stockLedger ||
+        section == InventorySection.transactions ||
+        opening;
     return WorkspaceToolbar(
+      // Period right after the search on the dated lists (owner).
+      trailing: [
+        if (dated)
+          DateRangeFilter(
+            value: _period,
+            onChanged: (period) {
+              setState(() => _period = period);
+              _load(requestedPage: 1);
+            },
+          ),
+      ],
       actions: [
         ToolbarAction.view,
         if ((stock && _canAdjust) || (opening && _canUpdateOpeningStock))
@@ -784,6 +868,14 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
       ],
     );
   }
+
+  /// The dates a movement list is narrowed to (review, 2026-09-27): stock
+  /// ledger, transactions and opening stock are dated, and had no Period.
+  DatePeriod _period = const DatePeriod.all();
+  String? get _periodFrom =>
+      _period.from == null ? null : DatePeriod.iso(_period.from!);
+  String? get _periodTo =>
+      _period.to == null ? null : DatePeriod.iso(_period.to!);
 
   /// Open the picked row, as a double-click does.
   void _openSelected() {

@@ -24,6 +24,7 @@ import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/batch_serial.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/inventory/batch_management_page.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -96,6 +97,7 @@ Future<void> _open(
   WidgetTester tester,
   BatchSerialSection section, {
   Size size = const Size(1600, 1000),
+  bool phase2 = false,
 }) async {
   tester.view.physicalSize = size;
   tester.view.devicePixelRatio = 1;
@@ -104,6 +106,7 @@ Future<void> _open(
   addTearDown(() => temp.deleteSync(recursive: true));
 
   await tester.pumpWidget(MaterialApp(
+    builder: phase2 ? (context, child) => Phase2Scope(child: child!) : null,
     home: Scaffold(
       body: BatchManagementPage(
         api: _BatchApi(),
@@ -145,5 +148,20 @@ void main() {
         BatchSerialSection.expiryMonitor, size: const Size(1366, 768));
 
     expect(find.text('All Batches'), findsOneWidget);
+  });
+
+  testWidgets('phase 2: no coloured cards, and the batches fill the window',
+      (tester) async {
+    // Review 2026-09-27: six coloured cards and a 420 px grid sat in a
+    // scroll view; the figures are counters now and the grid takes the rest.
+    await _open(tester, BatchSerialSection.expiryMonitor, phase2: true);
+
+    expect(find.text('All Batches'), findsNothing);
+    expect(find.byType(Card), findsNothing);
+    expect(find.text('B-001'), findsWidgets);
+    expect(
+      tester.getSize(find.byType(EnterpriseDataGrid<BatchRecord>)).height,
+      greaterThan(420),
+    );
   });
 }
