@@ -919,6 +919,17 @@ class _SalesTerritoryManagementPageState
       ),
       child: ManagementWorkspaceLayout(
         toolbar: toolbar,
+        // Option C (owner, 2026-09-27): the picked territory's actions on a bar
+        // that names it, above the grid, as on the document lists.
+        selectionBar: true,
+        selection: _selected == null
+            ? null
+            : SelectionSummary.record(
+                name: _selected!.name,
+                facts: [_selected!.code, _selected!.hierarchyLevelName],
+                status: _selected!.isDeleted ? 'DELETED' : _selected!.status,
+                onClear: () => setState(() => _selected = null),
+              ),
         searchPanel: searchPanel,
         // Sits between the filters and the grid so the count and the action are
         // next to the rows they apply to, and vanishes when nothing is ticked.

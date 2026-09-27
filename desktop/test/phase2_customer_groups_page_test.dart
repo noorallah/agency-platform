@@ -113,23 +113,22 @@ void main() {
     expect(find.text('RETAILER'), findsOneWidget);
   });
 
-  testWidgets('the everyday actions are icons on the line, live once a row is '
-      'chosen', (tester) async {
+  testWidgets('Refresh stays on the line; Edit and Delete ride the bar once a '
+      'row is chosen', (tester) async {
+    // Option C (owner, 2026-09-27): the picked row's actions move to a bar
+    // that names it, as on every other list.
     await _pump(tester, const ['CUSTOMER_VIEW', 'CUSTOMER_MANAGE_SETTINGS']);
-    IconButton edit() =>
-        tester.widget(find.descendant(
-          of: find.byKey(const ValueKey('toolbar-edit')),
-          matching: find.byType(IconButton),
-        ));
-    expect(find.byKey(const ValueKey('toolbar-delete')), findsOneWidget);
     expect(find.byKey(const ValueKey('toolbar-refresh')), findsOneWidget);
-    expect(edit().onPressed, isNull, reason: 'nothing chosen yet');
+    expect(find.byKey(const ValueKey('toolbar-edit')), findsNothing);
+    expect(find.byKey(const ValueKey('selection-bar')), findsNothing);
     await tester.tap(find.text('RETAILER'));
     // A row that opens on double-click waits out the double-click before a
     // single click selects it.
     await tester.pump(kDoubleTapTimeout + const Duration(milliseconds: 50));
-    expect(edit().onPressed, isNotNull);
-    await tester.tap(find.byKey(const ValueKey('toolbar-edit')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+    expect(find.byKey(const ValueKey('selection-delete')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('selection-edit')));
     await tester.pumpAndSettle();
     expect(find.text('Edit group'), findsOneWidget);
   });

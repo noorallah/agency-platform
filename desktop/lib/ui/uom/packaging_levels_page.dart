@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
@@ -51,6 +53,10 @@ class _PackagingLevelsPageState extends State<PackagingLevelsPage> {
   bool _loading = true;
   bool _loadingLevels = false;
   String? _selectedId;
+
+  /// The picked level, while it is still on the list.
+  PackagingLevelRecord? get _selectedLevel =>
+      _levels.where((level) => level.id == _selectedId).firstOrNull;
 
   bool get _mayManage => widget.permissions.hasPermission('PACKAGING_MANAGE');
 
@@ -208,12 +214,29 @@ class _PackagingLevelsPageState extends State<PackagingLevelsPage> {
       toolbar: Phase2Scope.of(context)
           ? WorkspaceToolbar(
               actions: [
+                if (_mayManage) ToolbarAction.edit,
+                if (_mayManage) ToolbarAction.delete,
                 ToolbarAction.refresh,
                 if (_mayManage) ToolbarAction.newItem,
               ],
-              isEnabled: (_) => _product != null,
-              onAction: (action) =>
-                  action == ToolbarAction.newItem ? _edit() : _reloadLevels(),
+              isEnabled: (action) => switch (action) {
+                ToolbarAction.edit || ToolbarAction.delete =>
+                  _selectedLevel != null,
+                _ => _product != null,
+              },
+              onAction: (action) {
+                final PackagingLevelRecord? level = _selectedLevel;
+                switch (action) {
+                  case ToolbarAction.newItem:
+                    unawaited(_edit());
+                  case ToolbarAction.edit:
+                    if (level != null) unawaited(_edit(level: level));
+                  case ToolbarAction.delete:
+                    if (level != null) unawaited(_delete(level));
+                  default:
+                    unawaited(_reloadLevels());
+                }
+              },
             )
           : Wrap(
               spacing: 8,
@@ -230,6 +253,20 @@ class _PackagingLevelsPageState extends State<PackagingLevelsPage> {
                   label: const Text('Refresh'),
                 ),
               ],
+            ),
+      // Option C (owner, 2026-09-27): the picked level's actions on a bar
+      // that names it, above the grid, as on the document lists.
+      selectionBar: true,
+      selection: _selectedLevel == null
+          ? null
+          : SelectionSummary.record(
+              name: _selectedLevel!.levelName,
+              facts: [
+                '${_selectedLevel!.conversionToBaseFactor} × '
+                    '${_uomLabel(_selectedLevel!.uomId)}',
+              ],
+              status: _selectedLevel!.status,
+              onClear: () => setState(() => _selectedId = null),
             ),
       searchPanel: _scanBox(),
       primaryContent: _loading
