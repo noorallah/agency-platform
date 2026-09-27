@@ -7,6 +7,7 @@ import '../../core/design/design_tokens.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/finance.dart';
 import '../workspace/desktop_framework.dart';
+import 'period_line.dart';
 import 'statement_amount.dart';
 
 // Re-exported so a screen that shows figures does not have to know which file
@@ -120,6 +121,20 @@ class _ProfitLossPageState extends State<ProfitLossPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // Phase 2: the period and refresh on the page line (4.5).
+          if (Phase2Scope.of(context))
+            AccountingPeriodLine(
+              periods: _periods,
+              value: _period,
+              hint: 'Accounting period',
+              onChanged: (period) {
+                setState(() => _period = period);
+                unawaited(_loadReport());
+              },
+              onRefresh: _loading ? null : () => unawaited(_loadReport()),
+              trailing: [],
+            )
+          else
           Padding(
             padding: const EdgeInsets.all(AppSpacing.lg),
             child: Row(children: [

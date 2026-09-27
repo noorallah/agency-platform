@@ -6,6 +6,7 @@ import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/finance.dart';
 import 'package:agency_desktop/ui/finance/control_accounts_page.dart';
 import 'package:agency_desktop/ui/workspace/module_catalog.dart';
+import 'package:agency_desktop/phase2/phase2_scope.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -104,11 +105,14 @@ Future<void> _pump(
   _Api api, {
   List<String> perms = const ['ACCOUNT_VIEW', 'ACCOUNT_MANAGE'],
   bool hasActiveFirm = true,
+  bool phase2 = false,
 }) async {
   tester.view.physicalSize = const Size(1400, 900);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(MaterialApp(
+    // Above the navigator, so a dialog the page opens is phase 2's too.
+    builder: phase2 ? (context, child) => Phase2Scope(child: child!) : null,
     home: Scaffold(
       body: ControlAccountsPage(
         api: api,
@@ -209,5 +213,28 @@ void main() {
         finance.tabs.firstWhere((tab) => tab.id == 'control-accounts');
     expect(tab.label, 'Control Accounts');
     expect(tab.requiredPermissions, ['ACCOUNT_VIEW']);
+  });
+
+  testWidgets('phase 2 maps a purpose from the selection bar', (tester) async {
+    // Review 2026-09-27: a grid with Change on the bar opening a window,
+    // not a sentence band and a button on every row.
+    final _Api api = _Api(rows: rows);
+    await _pump(tester, api, phase2: true);
+    expect(find.byKey(const ValueKey('control-account-edit-INVENTORY')),
+        findsNothing);
+
+    await tester.tap(find.text('1200 Inventory').first);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('selection-edit')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('control-account-INVENTORY')));
+    await tester.pumpAndSettle();
+    expect(find.text('4000 Sales'), findsNothing);
+    await tester.tap(find.text('1250 Stock in hand').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+    await tester.pumpAndSettle();
+    expect(api.assigned, [('INVENTORY', 'a-1250')]);
   });
 }

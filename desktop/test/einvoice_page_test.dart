@@ -11,6 +11,7 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/sales/einvoice_page.dart';
+import 'package:agency_desktop/phase2/phase2_scope.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -103,11 +104,14 @@ Future<void> _pump(
   WidgetTester tester,
   _EInvoiceApi api, {
   PermissionService? permissions,
+  bool phase2 = false,
 }) async {
   tester.view.physicalSize = const Size(1700, 1200);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(MaterialApp(
+    // Above the navigator, so a dialog the page opens is phase 2's too.
+    builder: phase2 ? (context, child) => Phase2Scope(child: child!) : null,
     home: Scaffold(
       body: EInvoicePage(
         api: api,
@@ -379,5 +383,21 @@ void main() {
     await tester.tap(find.text('Raise bill again'));
     await tester.pumpAndSettle();
     expect(find.widgetWithText(TextField, 'Distance (km)'), findsOneWidget);
+  });
+
+  testWidgets('phase 2 puts Withdraw on the selection bar, not a row column',
+      (tester) async {
+    // Review 2026-09-27: Withdraw and Try again were reachable only from
+    // the row's own column.
+    await _pump(
+      tester,
+      _EInvoiceApi(registrations: <Json>[_sandboxRegistration()]),
+      phase2: true,
+    );
+    expect(find.widgetWithText(TextButton, 'Withdraw'), findsNothing);
+    await tester.tap(find.text('SI-2026-2027-000004').first);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('selection-withdraw')), findsOneWidget);
   });
 }

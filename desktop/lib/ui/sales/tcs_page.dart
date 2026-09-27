@@ -35,6 +35,34 @@ class TcsPage extends StatefulWidget {
 class _TcsPageState extends State<TcsPage> {
   TcsSettings? _settings;
   List<TcsCollectionRecord> _rows = const [];
+
+  /// Phase 2's search and Period over the register, applied here: the whole
+  /// register is read at once (review, 2026-09-27).
+  final TextEditingController _search = TextEditingController();
+  DatePeriod _period = const DatePeriod.all();
+  TcsCollectionRecord? _picked;
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  List<TcsCollectionRecord> get _shown {
+    final String term = _search.text.trim().toLowerCase();
+    final String? from =
+        _period.from == null ? null : DatePeriod.iso(_period.from!);
+    final String? to = _period.to == null ? null : DatePeriod.iso(_period.to!);
+    return [
+      for (final TcsCollectionRecord row in _rows)
+        if ((term.isEmpty ||
+                row.settlementNumber.toLowerCase().contains(term) ||
+                row.customerName.toLowerCase().contains(term)) &&
+            (from == null || row.collectedOn.compareTo(from) >= 0) &&
+            (to == null || row.collectedOn.compareTo(to) <= 0))
+          row,
+    ];
+  }
   String? _error;
   bool _loading = true;
 
@@ -105,6 +133,7 @@ class _TcsPageState extends State<TcsPage> {
             'permission.',
       );
     }
+    if (Phase2Scope.of(context)) return _phase2(context);
     return ManagementWorkspaceLayout(
       toolbar: Wrap(
         spacing: AppSpacing.sm,
@@ -133,6 +162,137 @@ class _TcsPageState extends State<TcsPage> {
         message: 'Charged on money received, not on what was invoiced.',
       ),
     );
+  }
+
+  /// Phase 2: search and Period after it, Refresh, Settings behind "...";
+  /// the policy as a counter and a notice on the line; the register a grid.
+  Widget _phase2(BuildContext context) {
+    final TcsSettings? settings = _settings;
+    final List<TcsCollectionRecord> shown = _shown;
+    return ManagementWorkspaceLayout(
+      toolbar: WorkspaceToolbar(
+        actions: const [ToolbarAction.refresh],
+        isEnabled: (_) => !_loading,
+        onAction: (_) => _load(),
+        trailing: [
+          DateRangeFilter(
+            value: _period,
+            onChanged: (period) => setState(() => _period = period),
+          ),
+        ],
+        commands: [
+          ToolbarCommand(
+            id: 'tcs-settings',
+            label: 'TCS settings',
+            icon: Icons.tune,
+            menuOnly: true,
+            onPressed: _mayManage ? _edit : null,
+          ),
+        ],
+      ),
+      searchPanel: SearchFilterPanel(
+        controller: _search,
+        hintText: 'Search receipt or buyer',
+        onSearch: (_) => setState(() {}),
+        onChanged: (_) => setState(() {}),
+      ),
+      notice: settings == null ? null : _policySentence(settings),
+      selectionBar: true,
+      selection: _picked == null
+          ? null
+          : SelectionSummary.document(
+              number: _picked!.settlementNumber,
+              party: _picked!.customerName,
+              status: _picked!.status,
+              total: _picked!.tcsAmount,
+              onClear: () => setState(() => _picked = null),
+            ),
+      primaryContent: Column(children: [
+        if (settings != null)
+          SummaryCards(children: [
+            SummaryCount(
+              label: 'TCS',
+              value: settings.collecting ? 'Collecting' : 'Not collecting',
+            ),
+          ]),
+        Expanded(child: _grid(shown)),
+      ]),
+      statusBar: WorkspaceStatusBar(
+        total: shown.length,
+        selected: _picked != null,
+        message: 'Charged on money received, not on what was invoiced.',
+      ),
+    );
+  }
+
+  Widget _grid(List<TcsCollectionRecord> shown) {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) {
+      return WorkspaceEmptyState(
+        icon: Icons.error_outline,
+        title: 'Nothing could be read',
+        message: _error!,
+      );
+    }
+    if (shown.isEmpty) {
+      return _rows.isEmpty
+          ? const WorkspaceEmptyState(
+              title: 'Nothing collected yet',
+              message: 'The tax is charged when a buyer pays more than the '
+                  'threshold in a financial year. Until one does, there is '
+                  'nothing here.',
+            )
+          : const StandardEmptyState(type: EmptyStateType.noSearchResults);
+    }
+    return EnterpriseDataGrid<TcsCollectionRecord>(
+      items: shown,
+      total: shown.length,
+      pageOffset: 0,
+      rowsPerPage: shown.length,
+      availableRowsPerPage: [shown.length],
+      selectedId: _picked?.settlementNumber,
+      columns: const [
+        GridColumn(key: 'receipt', label: 'Receipt'),
+        GridColumn(key: 'buyer', label: 'Buyer', priority: 1),
+        GridColumn(key: 'on', label: 'On'),
+        GridColumn(key: 'received', label: 'Received', numeric: true),
+        // The two figures that explain the third.
+        GridColumn(key: 'before', label: 'Paid Before', numeric: true),
+        GridColumn(key: 'chargeable', label: 'Chargeable', numeric: true),
+        GridColumn(key: 'rate', label: 'Rate'),
+        GridColumn(key: 'collected', label: 'Collected', numeric: true),
+        GridColumn(key: 'status', label: 'Status'),
+      ],
+      id: (row) => row.settlementNumber,
+      cells: (row) => [
+        row.settlementNumber,
+        row.customerName,
+        row.collectedOn,
+        _money(row.considerationAmount),
+        _money(row.cumulativeBefore),
+        _money(row.taxableAmount),
+        row.withoutPan
+            ? '${row.ratePercent}% (no PAN)'
+            : '${row.ratePercent}%',
+        _money(row.tcsAmount),
+        row.status,
+      ],
+      onSelect: (row) => setState(() => _picked = row),
+      onPageChanged: (_) {},
+    );
+  }
+
+  /// The policy in one sentence: whether it is collecting, and on what.
+  String _policySentence(TcsSettings settings) {
+    final String state = settings.collecting
+        ? 'Collecting under section ${_section(settings.sectionCode)}'
+        : !settings.isEnabled
+            ? 'Not collecting: the section is switched off.'
+            : 'Not collecting: the stated turnover is below the seller '
+                'threshold.';
+    return '$state  •  ${_money(settings.thresholdAmount)} per buyer per '
+        'year, then ${settings.ratePercent}% '
+        '(${settings.rateWithoutPanPercent}% without a PAN)';
   }
 
   Widget _policyBanner() {

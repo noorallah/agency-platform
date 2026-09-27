@@ -113,3 +113,11 @@ PR number when merged.
   picker on the line, the scan is the search, its result on the status bar),
   Territories (no side pane; the tree opens from the line; ticked rows'
   Bulk actions on the bar) -- PR "masters review fixes".
+- Accounts: Trial Balance, Profit & Loss, Balance Sheet and Ledgers (the
+  period, account, Balanced chip and refresh on the page line through
+  `AccountingPeriodLine`; the ledger's four figures as counters), GST
+  Returns (Period on the line, "Filing as" behind the (i)), E-Invoice (no
+  row column; Withdraw and Try again on the bar), TCS (a grid with search,
+  Period, the policy behind the (i), Settings under "..."), Control
+  Accounts (a grid; Map / Change on the bar opening a window) -- PR
+  "accounts review fixes".

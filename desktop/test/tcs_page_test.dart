@@ -11,6 +11,8 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/sales/tcs_page.dart';
+import 'package:agency_desktop/models/tcs.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -96,11 +98,14 @@ Future<void> _pump(
   WidgetTester tester,
   _TcsApi api, {
   PermissionService? permissions,
+  bool phase2 = false,
 }) async {
   tester.view.physicalSize = const Size(1366, 768);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(MaterialApp(
+    // Above the navigator, so a dialog the page opens is phase 2's too.
+    builder: phase2 ? (context, child) => Phase2Scope(child: child!) : null,
     home: Scaffold(
       body: TcsPage(
         api: api,
@@ -180,5 +185,22 @@ void main() {
 
     expect(find.textContaining('view TCS permission'), findsOneWidget);
     expect(find.text('Kumar Stores'), findsNothing);
+  });
+
+  testWidgets('phase 2 shows the register as a grid with search and Period',
+      (tester) async {
+    // Review 2026-09-27: the policy sentence sat in the search slot and
+    // Settings took "+ New"'s place.
+    await _pump(
+      tester,
+      _TcsApi(settings: _settings(), collections: <Json>[_collection()]),
+      phase2: true,
+    );
+    expect(find.byType(EnterpriseDataGrid<TcsCollectionRecord>),
+        findsOneWidget);
+    expect(find.byType(DateRangeFilter), findsOneWidget);
+    expect(find.byKey(const ValueKey('page-notice')), findsOneWidget);
+    expect(find.widgetWithText(FilledButton, 'Settings'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 }

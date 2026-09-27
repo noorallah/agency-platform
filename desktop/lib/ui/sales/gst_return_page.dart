@@ -125,22 +125,52 @@ class _GstReturnPageState extends State<GstReturnPage> {
             'needs the view sales permission.',
       );
     }
+    final bool phase2 = Phase2Scope.of(context);
     return ManagementWorkspaceLayout(
-      toolbar: Wrap(
-        spacing: AppSpacing.sm,
-        runSpacing: AppSpacing.sm,
-        children: [
-          Phase2Refresh(
-            onPressed: _load,
-            child: OutlinedButton.icon(
-              onPressed: _load,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Refresh'),
+      // Phase 2 (review, 2026-09-27): the return's period is the Period
+      // control on the page line, not a panel squeezed into the search slot.
+      toolbar: phase2
+          ? WorkspaceToolbar(
+              actions: const [ToolbarAction.refresh],
+              isEnabled: (_) => !_loading,
+              onAction: (_) => _load(),
+              trailing: [
+                DateRangeFilter(
+                  value: DatePeriod.custom(
+                    _parse(_from.text, DateTime.now()),
+                    _parse(_to.text, DateTime.now()),
+                  ),
+                  onChanged: (period) {
+                    // A return is always for a period; "all" is not one.
+                    if (period.from == null || period.to == null) return;
+                    setState(() {
+                      _from.text = _iso(period.from!);
+                      _to.text = _iso(period.to!);
+                    });
+                    _load();
+                  },
+                ),
+              ],
+            )
+          : Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: [
+                Phase2Refresh(
+                  onPressed: _load,
+                  child: OutlinedButton.icon(
+                    onPressed: _load,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Refresh'),
+                  ),
+                ),
+              ],
             ),
-          ),
-        ],
-      ),
-      searchPanel: _periodPanel(),
+      searchPanel: phase2 ? const SizedBox.shrink() : _periodPanel(),
+      notice: _gstr1 == null
+          ? null
+          : 'Filing as ${stringValue(_gstr1!['gstin'])}. Derived from the '
+              'documents on every read, never stored.',
       viewBar: SegmentedButton<_ReturnView>(
         segments: const [
           ButtonSegment(value: _ReturnView.gstr1, label: Text('GSTR-1')),
@@ -286,9 +316,12 @@ class _GstReturnPageState extends State<GstReturnPage> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Text('Filing as ${stringValue(data['gstin'])}',
-            style: Theme.of(context).textTheme.titleSmall),
-        const SizedBox(height: AppSpacing.md),
+        // Phase 2 says who is filing behind the page line's (i).
+        if (!Phase2Scope.of(context)) ...[
+          Text('Filing as ${stringValue(data['gstin'])}',
+              style: Theme.of(context).textTheme.titleSmall),
+          const SizedBox(height: AppSpacing.md),
+        ],
         _Section(
           title: 'B2B — registered buyers, invoice by invoice',
           // Invoice-wise because the buyer claims credit against the number.
