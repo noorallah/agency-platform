@@ -44,6 +44,9 @@ class _PurchaseInvoiceManagementPageState
     extends State<PurchaseInvoiceManagementPage> {
   static const int _rowsPerPage = 20;
   final TextEditingController _search = TextEditingController();
+
+  /// The document dates the list is narrowed to (owner, 2026-09-27).
+  DatePeriod _period = const DatePeriod.all();
   bool _loading = false;
   String? _error;
   int _page = 1;
@@ -221,6 +224,11 @@ class _PurchaseInvoiceManagementPageState
           search: _search.text.trim(),
           sortBy: 'invoice_date',
           descending: true,
+          additionalQuery: {
+            if (_period.from != null)
+              'invoice_from': DatePeriod.iso(_period.from!),
+            if (_period.to != null) 'invoice_to': DatePeriod.iso(_period.to!),
+          },
         ),
       ]);
       final Map<String, dynamic> summary = _unwrap(responses[0]);
@@ -418,8 +426,25 @@ class _PurchaseInvoiceManagementPageState
                 ),
               ]
             : const [],
+        // Period right after the search, then Columns, as every sales list
+        // (owner, 2026-09-27).
         trailing: Phase2Scope.of(context)
-            ? const []
+            ? [
+                DateRangeFilter(
+                  value: _period,
+                  onChanged: (period) {
+                    setState(() => _period = period);
+                    unawaited(_load(requestedPage: 1));
+                  },
+                ),
+                ColumnsButton(
+                  onPressed: () async {
+                    if (await _columns.choose(context) && mounted) {
+                      setState(() {});
+                    }
+                  },
+                ),
+              ]
             : [
                 _actionButton(
                   'Approve',
@@ -492,26 +517,68 @@ class _PurchaseInvoiceManagementPageState
             : () => unawaited(_act(suffix)),
       );
 
+  /// Every column the grid can show; Columns picks among them, remembered
+  /// per screen on this PC (owner, 2026-09-27).
+  late final ColumnChoice<_PurchaseInvoiceRecord> _columns = ColumnChoice(
+    preferences: widget.preferences,
+    stateKey: 'purchase-invoices.grid',
+    columns: [
+      ChoosableColumn(
+        column: const GridColumn(key: 'number', label: 'Invoice Number'),
+        cell: (item) => item.invoiceNumber,
+        required: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'vendor', label: 'Supplier', priority: 1),
+        cell: (item) => item.vendorName,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'supplier', label: 'Supplier Invoice'),
+        cell: (item) => item.supplierInvoiceNumber,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'due', label: 'Due Date'),
+        cell: (item) => item.dueDate,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'date', label: 'Invoice Date'),
+        cell: (item) => documentDateStamp(item.invoiceDate, item.createdAt),
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'status', label: 'Status'),
+        cell: (item) => item.status,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(
+            key: 'subtotal', label: 'Taxable Value', numeric: true),
+        cell: (item) => item.subtotal,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'tax', label: 'Tax', numeric: true),
+        cell: (item) => item.taxTotal,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'total', label: 'Grand Total'),
+        cell: (item) => item.grandTotal,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'remarks', label: 'Remarks'),
+        cell: (item) => item.remarks,
+      ),
+    ],
+  );
+
   Widget _buildInvoiceGrid() => EnterpriseDataGrid<_PurchaseInvoiceRecord>(
-        columns: const [
-          GridColumn(key: 'number', label: 'Invoice Number'),
-          GridColumn(key: 'vendor', label: 'Supplier'),
-          GridColumn(key: 'supplier', label: 'Supplier Invoice'),
-          GridColumn(key: 'date', label: 'Invoice Date'),
-          GridColumn(key: 'status', label: 'Status'),
-          GridColumn(key: 'total', label: 'Grand Total'),
-        ],
+        columns: _columns.gridColumns,
         items: _invoices,
         id: (item) => item.id,
         selectedId: _selected?.id,
-        cells: (item) => [
-          item.invoiceNumber,
-          item.vendorName,
-          item.supplierInvoiceNumber,
-          item.invoiceDate,
-          item.status,
-          item.grandTotal,
-        ],
+        cells: _columns.cells,
         onSelect: (item) => unawaited(_selectInvoice(item)),
         onOpen: (item) => unawaited(_openInvoice(item)),
         total: _total,
@@ -651,6 +718,8 @@ class _PurchaseInvoiceRecord {
     required this.branchId,
     required this.vendorId,
     this.vendorName = '',
+    this.dueDate = '',
+    this.createdAt = '',
     required this.currencyCode,
     required this.exchangeRate,
     required this.paymentTerms,
@@ -675,6 +744,8 @@ class _PurchaseInvoiceRecord {
 
   /// Whose document it is, so the list can say so (owner, 2026-09-27).
   final String vendorName;
+  final String dueDate;
+  final String createdAt;
   final String currencyCode;
   final String exchangeRate;
   final String paymentTerms;
@@ -705,6 +776,8 @@ class _PurchaseInvoiceRecord {
       branchId: stringValue(json['branch_id']),
       vendorId: stringValue(json['vendor_id']),
       vendorName: stringValue(json['vendor_name']),
+      dueDate: stringValue(json['due_date']),
+      createdAt: stringValue(json['created_at']),
       currencyCode: stringValue(json['currency_code']),
       exchangeRate: stringValue(json['exchange_rate']),
       paymentTerms: stringValue(json['payment_terms']),

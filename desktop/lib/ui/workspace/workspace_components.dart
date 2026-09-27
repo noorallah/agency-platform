@@ -1324,6 +1324,45 @@ class WorkspaceToolbar extends StatelessWidget {
     return _phase1(context);
   }
 
+  /// Roughly how wide the phase 2 line must let this toolbar be: what never
+  /// folds into "..." -- the screen's own tools (a Period, Columns), the
+  /// everyday icons, "..." and "+ New". The page line goes to two lines
+  /// rather than give it less, which is how a list with many counters and a
+  /// Period overflowed at 1600 px (2026-09-27).
+  double phase2MinimumWidth(BuildContext context) {
+    final TextStyle style =
+        (Theme.of(context).textTheme.bodyMedium ?? const TextStyle())
+            .copyWith(fontSize: 13);
+    final TextScaler scaler = MediaQuery.textScalerOf(context);
+    double text(String value) {
+      final TextPainter painter = TextPainter(
+        text: TextSpan(text: value, style: style),
+        textDirection: TextDirection.ltr,
+        textScaler: scaler,
+        maxLines: 1,
+      )..layout();
+      final double width = painter.width;
+      painter.dispose();
+      return width;
+    }
+
+    return _unfoldableWidth(context, text);
+  }
+
+  double _unfoldableWidth(
+    BuildContext context,
+    double Function(String value) text,
+  ) {
+    final List<ToolbarAction> shown =
+        actions.where((action) => isVisible?.call(action) ?? true).toList();
+    return 36.0 * _everyDay.where(shown.contains).length +
+        // "..." is always there once anything folds.
+        46 +
+        (shown.contains(ToolbarAction.newItem) ? text(newLabel) + 36 : 0) +
+        // Trailing widgets cannot be measured before they are laid out.
+        120.0 * trailing.length;
+  }
+
   /// The commands that fit beside everything else in [available], from the
   /// left; the rest go behind "...". All of them where there is no limit.
   List<ToolbarCommand> _fitting(BuildContext context, double available) {
@@ -1346,14 +1385,7 @@ class WorkspaceToolbar extends StatelessWidget {
       return width;
     }
 
-    final List<ToolbarAction> shown =
-        actions.where((action) => isVisible?.call(action) ?? true).toList();
-    double used = 36.0 * _everyDay.where(shown.contains).length +
-        // "..." is always there once anything folds.
-        46 +
-        (shown.contains(ToolbarAction.newItem) ? text(newLabel) + 36 : 0) +
-        // Trailing widgets cannot be measured before they are laid out.
-        120.0 * trailing.length;
+    double used = _unfoldableWidth(context, text);
     final List<ToolbarCommand> fitting = [];
     for (final ToolbarCommand command in commands) {
       if (command.menuOnly) continue;
@@ -2159,7 +2191,10 @@ class _Phase2ManagementLayoutState extends State<_Phase2ManagementLayout> {
           // screen's actions, it becomes two -- title and counters, then the
           // work -- rather than squeezing either.
           final bool twoLines = constraints.maxWidth < 1100 ||
-              constraints.maxWidth - beside < 260;
+              constraints.maxWidth - beside <
+                  (lineToolbar is WorkspaceToolbar
+                      ? lineToolbar.phase2MinimumWidth(context).clamp(260, 800)
+                      : 260);
           if (twoLines) {
             return Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,

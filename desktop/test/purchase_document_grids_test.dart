@@ -20,11 +20,11 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
-import 'package:agency_desktop/phase2/phase2_scope.dart';
 import 'package:agency_desktop/ui/document_framework/document_framework_widgets.dart';
 import 'package:agency_desktop/ui/document_framework/document_view_dialog.dart';
 import 'package:agency_desktop/ui/purchase_invoices/purchase_invoice_management_page.dart';
 import 'package:agency_desktop/ui/purchase_returns/purchase_return_management_page.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -169,6 +169,13 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
       expect(find.textContaining('Sri Ganesh Traders ·'), findsOneWidget);
+      // The Period and Columns every list carries (owner, 2026-09-27), and
+      // the line still fits the smallest supported window.
+      expect(find.byType(DateRangeFilter), findsOneWidget);
+      expect(find.byType(ColumnsButton), findsOneWidget);
+      tester.view.physicalSize = const Size(1366, 768);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('double-clicking a row opens the document', (tester) async {
@@ -238,6 +245,13 @@ void main() {
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
       expect(find.textContaining('Sri Ganesh Traders ·'), findsOneWidget);
+      // The Period and Columns every list carries (owner, 2026-09-27), and
+      // the line still fits the smallest supported window.
+      expect(find.byType(DateRangeFilter), findsOneWidget);
+      expect(find.byType(ColumnsButton), findsOneWidget);
+      tester.view.physicalSize = const Size(1366, 768);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('double-clicking a row opens the document', (tester) async {
