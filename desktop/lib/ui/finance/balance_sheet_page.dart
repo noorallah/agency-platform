@@ -7,6 +7,7 @@ import '../../core/design/design_tokens.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/finance.dart';
 import '../workspace/desktop_framework.dart';
+import 'period_line.dart';
 import 'statement_amount.dart';
 
 /// What the firm owns and owes as at a period end.
@@ -117,6 +118,20 @@ class _BalanceSheetPageState extends State<BalanceSheetPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // Phase 2: the period and refresh on the page line (4.5).
+          if (Phase2Scope.of(context))
+            AccountingPeriodLine(
+              periods: _periods,
+              value: _period,
+              hint: 'As at period end',
+              onChanged: (period) {
+                setState(() => _period = period);
+                unawaited(_loadReport());
+              },
+              onRefresh: _loading ? null : () => unawaited(_loadReport()),
+              trailing: [if (!_report.isEmpty) _balanceBadge(context)],
+            )
+          else
           Padding(
             padding: const EdgeInsets.all(AppSpacing.lg),
             child: Row(children: [

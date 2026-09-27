@@ -194,6 +194,164 @@ class _ControlAccountsPageState extends State<ControlAccountsPage> {
     );
   }
 
+  /// Phase 2 (review, 2026-09-27): a grid with the page line's search and
+  /// counter, Map / Change on the selection bar opening a small window --
+  /// not a sentence band and a button on every row.
+  String? _pickedPurpose;
+  final TextEditingController _search = TextEditingController();
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  Widget _phase2(BuildContext context, int unmapped) {
+    final String term = _search.text.trim().toLowerCase();
+    final List<ControlAccountMapping> shown = [
+      for (final ControlAccountMapping row in _rows)
+        if (term.isEmpty ||
+            row.label.toLowerCase().contains(term) ||
+            row.accountName.toLowerCase().contains(term) ||
+            row.accountCode.toLowerCase().contains(term))
+          row,
+    ];
+    final ControlAccountMapping? picked =
+        _rows.where((row) => row.purpose == _pickedPurpose).firstOrNull;
+    return ManagementWorkspaceLayout(
+      toolbar: WorkspaceToolbar(
+        actions: [
+          if (_canManage) ToolbarAction.edit,
+          ToolbarAction.refresh,
+        ],
+        isEnabled: (action) => action == ToolbarAction.refresh
+            ? !_saving
+            : picked != null && !picked.isHeld && !_saving,
+        onAction: (action) {
+          if (action == ToolbarAction.edit && picked != null) {
+            _choose(picked);
+          } else {
+            _load();
+          }
+        },
+      ),
+      searchPanel: SearchFilterPanel(
+        controller: _search,
+        hintText: 'Search purpose or account',
+        onSearch: (_) => setState(() {}),
+        onChanged: (_) => setState(() {}),
+      ),
+      notice: 'Where each kind of posting lands. A purpose with no account '
+          'refuses a document at approval; one with lines already posted to '
+          'its account is held -- post a transfer entry and map a new account '
+          'from the next period instead.',
+      selectionBar: true,
+      selection: picked == null
+          ? null
+          : SelectionSummary.record(
+              name: picked.label,
+              facts: [
+                picked.isMapped
+                    ? '${picked.accountCode} ${picked.accountName}'
+                    : 'Not mapped',
+                if (picked.isHeld) '${picked.postedLines} posted, held',
+              ],
+              onClear: () => setState(() => _pickedPurpose = null),
+            ),
+      primaryContent: Column(children: [
+        SummaryCards(children: [
+          SummaryCount(label: 'Purposes', value: '${_rows.length}'),
+          SummaryCount(label: 'Not mapped', value: '$unmapped'),
+        ]),
+        Expanded(
+          child: EnterpriseDataGrid<ControlAccountMapping>(
+            items: shown,
+            total: shown.length,
+            pageOffset: 0,
+            rowsPerPage: shown.isEmpty ? 1 : shown.length,
+            availableRowsPerPage: [if (shown.isEmpty) 1 else shown.length],
+            selectedId: _pickedPurpose,
+            columns: const [
+              GridColumn(key: 'purpose', label: 'Purpose'),
+              GridColumn(key: 'types', label: 'Posts To'),
+              GridColumn(key: 'account', label: 'Account', priority: 1),
+              GridColumn(key: 'held', label: 'Posted Lines', numeric: true),
+            ],
+            id: (row) => row.purpose,
+            cells: (row) => [
+              row.label,
+              row.expectedTypes.map(statusInWords).join(' or '),
+              row.isMapped
+                  ? '${row.accountCode} ${row.accountName}'
+                  : 'Not mapped',
+              '${row.postedLines}',
+            ],
+            onSelect: (row) => setState(() => _pickedPurpose = row.purpose),
+            onOpen: _canManage ? (row) => _choose(row) : null,
+            onPageChanged: (_) {},
+          ),
+        ),
+      ]),
+      statusBar: WorkspaceStatusBar(
+        total: shown.length,
+        selected: picked != null,
+        message: _saving ? 'Saving...' : null,
+      ),
+    );
+  }
+
+  /// Choose the account a purpose posts to, in a small window.
+  Future<void> _choose(ControlAccountMapping row) async {
+    if (row.isHeld) return;
+    setState(() => _pickedPurpose = row.purpose);
+    final List<LedgerAccount> candidates = _candidates(row);
+    String? chosen = row.isMapped ? row.ledgerAccountId : null;
+    final bool? ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setLocal) => AlertDialog(
+          title: Text('${row.isMapped ? 'Change' : 'Map'} ${row.label}'),
+          content: SizedBox(
+            width: 440,
+            child: DropdownButtonFormField<String>(
+              key: ValueKey('control-account-${row.purpose}'),
+              isExpanded: true,
+              initialValue: chosen,
+              decoration: InputDecoration(
+                labelText: 'Account',
+                helperText:
+                    'Only ${row.expectedTypes.map(statusInWords).join(' or ')} '
+                    'accounts',
+              ),
+              items: [
+                for (final LedgerAccount account in candidates)
+                  DropdownMenuItem(
+                    value: account.id,
+                    child: Text('${account.code} ${account.name}',
+                        overflow: TextOverflow.ellipsis),
+                  ),
+              ],
+              onChanged: (value) => setLocal(() => chosen = value),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancel'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Save'),
+            ),
+          ],
+        ),
+      ),
+    );
+    if (ok != true || chosen == null || chosen == row.ledgerAccountId) return;
+    _chosen = chosen;
+    await _save(row);
+  }
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -215,6 +373,7 @@ class _ControlAccountsPageState extends State<ControlAccountsPage> {
       );
     }
     final int unmapped = _rows.where((row) => !row.isMapped).length;
+    if (Phase2Scope.of(context)) return _phase2(context, unmapped);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [

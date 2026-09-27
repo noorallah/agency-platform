@@ -331,6 +331,23 @@ class _EInvoicePageState extends State<EInvoicePage> {
                         ? () => _cancelEwayBill(chosen)
                         : null,
                   ),
+                  // Were only in the row's own column (review, 2026-09-27).
+                  ToolbarCommand(
+                    id: 'withdraw',
+                    label: 'Withdraw',
+                    icon: Icons.undo,
+                    onPressed: chosen != null && chosen.isRegistered
+                        ? () => _cancelRegistration(chosen)
+                        : null,
+                  ),
+                  ToolbarCommand(
+                    id: 'try-again',
+                    label: 'Try again',
+                    icon: Icons.replay,
+                    onPressed: chosen != null && chosen.isFailed
+                        ? () => _registerOne(chosen.salesInvoiceId)
+                        : null,
+                  ),
                 ],
               ],
             )
@@ -420,6 +437,36 @@ class _EInvoicePageState extends State<EInvoicePage> {
         title: 'Nothing registered yet',
         message: 'Use “Register an invoice” above; what the authority '
             'answered appears here, refusals included.',
+      );
+    }
+    // Phase 2: every step is on the selection bar, so no actions column, and
+    // the grid truncates long references itself.
+    if (Phase2Scope.of(context)) {
+      return EnterpriseDataGrid<EInvoiceRegistrationRecord>(
+        items: _rows,
+        total: _rows.length,
+        pageOffset: 0,
+        rowsPerPage: _rows.length,
+        availableRowsPerPage: [_rows.length],
+        selectedId: _selectedId,
+        columns: const [
+          GridColumn(key: 'invoice', label: 'Invoice'),
+          GridColumn(key: 'customer', label: 'Customer', priority: 1),
+          GridColumn(key: 'reference', label: 'Reference'),
+          GridColumn(key: 'eway', label: 'E-way bill'),
+        ],
+        id: (row) => row.id,
+        cells: (row) => [
+          row.invoiceNumber.isEmpty ? '—' : row.invoiceNumber,
+          row.customerName.isEmpty ? '—' : row.customerName,
+          row.isRegistered
+              ? row.referenceLabel
+              : '${statusInWords(row.status)}'
+                  '${row.errorMessage.isEmpty ? '' : ' — ${row.errorMessage}'}',
+          _bills[row.salesInvoiceId]?.referenceLabel ?? '—',
+        ],
+        onSelect: (row) => setState(() => _selectedId = row.id),
+        onPageChanged: (_) {},
       );
     }
     return EnterpriseDataGrid<EInvoiceRegistrationRecord>(

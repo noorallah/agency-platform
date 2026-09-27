@@ -7,7 +7,9 @@ import '../../core/design/design_tokens.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/finance.dart';
+import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
+import 'period_line.dart';
 
 /// One account's ledger: what it opened at, every movement, what it closed at.
 ///
@@ -135,6 +137,30 @@ class _LedgerStatementPageState extends State<LedgerStatementPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
+          // Phase 2: the account, the period and refresh on the page line,
+          // the four figures as counters there too (4.5).
+          if (Phase2Scope.of(context)) ...[
+            AccountingPeriodLine(
+              periods: _periods,
+              value: _period,
+              onChanged: (period) {
+                setState(() => _period = period);
+                unawaited(_loadReport());
+              },
+              onRefresh: _loading ? null : () => unawaited(_loadReport()),
+              leading: [SizedBox(width: 260, child: _accountPicker(compact: true))],
+            ),
+            SummaryCards(children: [
+              SummaryCount(
+                  label: 'Opening', value: _lineAmount(_report.openingBalance)),
+              SummaryCount(
+                  label: 'Debits', value: _lineAmount(_report.totalDebit)),
+              SummaryCount(
+                  label: 'Credits', value: _lineAmount(_report.totalCredit)),
+              SummaryCount(
+                  label: 'Closing', value: _lineAmount(_report.closingBalance)),
+            ]),
+          ] else
           Padding(
             padding: const EdgeInsets.all(AppSpacing.lg),
             child: Row(children: [
@@ -168,10 +194,20 @@ class _LedgerStatementPageState extends State<LedgerStatementPage> {
     );
   }
 
-  Widget _accountPicker() => DropdownButtonFormField<String>(
+  /// An amount as the page line shows it: Indian digits, two places.
+  static String _lineAmount(String value) {
+    final double? amount = double.tryParse(value);
+    return amount == null ? value : indianAmount(amount, full: true);
+  }
+
+  Widget _accountPicker({bool compact = false}) =>
+      DropdownButtonFormField<String>(
+        key: compact ? const ValueKey('ledger-account-line') : null,
         initialValue: _account?.id,
         isExpanded: true,
-        decoration: const InputDecoration(labelText: 'Account'),
+        decoration: compact
+            ? const InputDecoration(isDense: true, hintText: 'Account')
+            : const InputDecoration(labelText: 'Account'),
         items: [
           for (final LedgerAccount account in _accounts)
             DropdownMenuItem<String>(
@@ -244,8 +280,11 @@ class _LedgerStatementPageState extends State<LedgerStatementPage> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _summary(context),
-          const SizedBox(height: AppSpacing.lg),
+          // Phase 2 shows the four figures as counters on the page line.
+          if (!Phase2Scope.of(context)) ...[
+            _summary(context),
+            const SizedBox(height: AppSpacing.lg),
+          ],
           if (_report.lines.isEmpty)
             Padding(
               padding: const EdgeInsets.only(bottom: AppSpacing.md),
