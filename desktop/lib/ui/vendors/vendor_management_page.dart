@@ -429,6 +429,17 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
       ),
       child: ManagementWorkspaceLayout(
         toolbar: toolbar,
+        // Option C (owner, 2026-09-27): the supplier's actions on a bar that
+        // names them, above the grid, as on the document lists.
+        selectionBar: true,
+        selection: selected == null
+            ? null
+            : SelectionSummary.record(
+                name: selected.displayName,
+                facts: [selected.code, selected.gstin],
+                status: selected.isDeleted ? 'DELETED' : selected.status,
+                onClear: () => setState(() => _selected = null),
+              ),
         searchPanel: searchPanel,
         filterPanel: filterPanel,
         primaryContent: Phase2Scope.of(context)
