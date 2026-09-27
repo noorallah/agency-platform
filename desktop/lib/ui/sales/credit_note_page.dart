@@ -15,6 +15,7 @@ import 'package:flutter/services.dart';
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
+import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/credit_note.dart';
 import '../../models/entities.dart';
@@ -30,11 +31,15 @@ class CreditNotePage extends StatefulWidget {
   const CreditNotePage({
     super.key,
     required this.api,
+    required this.preferences,
     required this.permissions,
     required this.hasActiveFirm,
   });
 
   final ApiClient api;
+
+  /// Where the grid's chosen columns are remembered.
+  final DesktopPreferencesService preferences;
   final PermissionService permissions;
   final bool hasActiveFirm;
 
@@ -173,17 +178,7 @@ class _CreditNotePageState extends State<CreditNotePage> {
     return ManagementWorkspaceLayout(
       // Phase 2: Refresh as the line's icon and "+ New" last, as every list.
       toolbar: Phase2Scope.of(context)
-          ? WorkspaceToolbar(
-              // Period right after the search, as Sales Returns (owner).
-              trailing: [_periodFilter()],
-              actions: [
-                ToolbarAction.refresh,
-                if (_mayManage) ToolbarAction.newItem,
-              ],
-              isEnabled: (_) => true,
-              onAction: (action) =>
-                  action == ToolbarAction.newItem ? _raise() : _load(),
-            )
+          ? _phase2Toolbar()
           : Wrap(
         spacing: AppSpacing.sm,
         runSpacing: AppSpacing.sm,
@@ -213,6 +208,18 @@ class _CreditNotePageState extends State<CreditNotePage> {
               onSearch: (_) => unawaited(_load()),
             )
           : const SizedBox.shrink(),
+      // Option C (owner, 2026-09-27): the note's steps on a bar that names
+      // it, above the grid.
+      selectionBar: true,
+      selection: _selectedNote == null
+          ? null
+          : SelectionSummary.document(
+              number: _selectedNote!.creditNoteNumber,
+              party: _selectedNote!.customerName,
+              status: _selectedNote!.status,
+              total: _selectedNote!.totalAmount,
+              onClear: () => setState(() => _selectedId = null),
+            ),
       primaryContent: _content(),
       statusBar: WorkspaceStatusBar(
         total: _notes.length,
@@ -238,6 +245,197 @@ class _CreditNotePageState extends State<CreditNotePage> {
     );
   }
 
+  /// The picked note, while it is still on the list.
+  CreditNoteRecord? get _selectedNote =>
+      _notes.where((note) => note.id == _selectedId).firstOrNull;
+
+  /// Phase 2: Period and Columns after the search, Refresh, "+ New" last;
+  /// Approve and Cancel go on the bar when a note is picked.
+  WorkspaceToolbar _phase2Toolbar() {
+    final CreditNoteRecord? selected = _selectedNote;
+    return WorkspaceToolbar(
+      // Period right after the search, then Columns (owner).
+      trailing: [
+        _periodFilter(),
+        ColumnsButton(
+          onPressed: () async {
+            if (await _columns.choose(context) && mounted) setState(() {});
+          },
+        ),
+      ],
+      actions: [
+        ToolbarAction.view,
+        ToolbarAction.refresh,
+        if (_mayManage) ToolbarAction.newItem,
+      ],
+      isEnabled: (action) => action != ToolbarAction.view || selected != null,
+      onAction: (action) {
+        switch (action) {
+          case ToolbarAction.newItem:
+            unawaited(_raise());
+          case ToolbarAction.view:
+            if (selected != null) unawaited(_openNote(selected));
+          default:
+            unawaited(_load());
+        }
+      },
+      commands: [
+        ToolbarCommand(
+          id: 'approve',
+          label: 'Approve',
+          icon: Icons.check_circle_outline,
+          onPressed: selected != null && selected.isDraft && _mayApprove
+              ? () => _act(
+                    selected,
+                    () => widget.api.approveCreditNote(
+                      selected.id,
+                      expectedVersion: selected.version,
+                    ),
+                    'approved. The credit and the tax are on the ledger.',
+                  )
+              : null,
+        ),
+        ToolbarCommand(
+          id: 'cancel',
+          label: 'Cancel',
+          icon: Icons.cancel_outlined,
+          onPressed: selected != null &&
+                  (selected.isDraft || selected.isApproved) &&
+                  _mayApprove
+              ? () => _act(
+                    selected,
+                    () => widget.api.cancelCreditNote(
+                      selected.id,
+                      expectedVersion: selected.version,
+                    ),
+                    'cancelled. Whatever it did has been put back.',
+                  )
+              : null,
+        ),
+      ],
+    );
+  }
+
+  /// Every column the grid can show; Columns picks among them, remembered
+  /// per screen on this PC (owner, 2026-09-27).
+  late final ColumnChoice<CreditNoteRecord> _columns = ColumnChoice(
+    preferences: widget.preferences,
+    stateKey: 'credit-notes.grid',
+    columns: [
+      ChoosableColumn(
+        column: const GridColumn(key: 'number', label: 'Number'),
+        cell: (item) => item.creditNoteNumber,
+        required: true,
+      ),
+      // Whose credit it is; kept at any width.
+      ChoosableColumn(
+        column:
+            const GridColumn(key: 'customer', label: 'Customer', priority: 1),
+        cell: (item) => item.customerName,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'date', label: 'Date'),
+        cell: (item) => item.creditNoteDate,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'invoice', label: 'Invoice'),
+        cell: (item) => item.salesInvoiceNumber,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'reason', label: 'Reason'),
+        cell: (item) => item.reasonLabel,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'status', label: 'Status'),
+        cell: (item) => item.status,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(
+            key: 'taxable', label: 'Taxable Value', numeric: true),
+        cell: (item) => item.taxableAmount,
+      ),
+      // The tax is the whole reason this document exists rather than a
+      // receivable adjustment, so it is shown by default.
+      ChoosableColumn(
+        column: const GridColumn(key: 'tax', label: 'Tax', numeric: true),
+        cell: (item) => item.taxAmount,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'total', label: 'Credited'),
+        cell: (item) => item.totalAmount,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'remarks', label: 'Remarks'),
+        cell: (item) => item.remarks,
+      ),
+    ],
+  );
+
+  /// Read one note: the invoice it corrects, why, and each line's credit.
+  /// Approve and Cancel stay on the bar above the grid, so this only reads.
+  Future<void> _openNote(CreditNoteRecord note) async {
+    setState(() => _selectedId = note.id);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) {
+        final TextStyle? small = Theme.of(dialogContext).textTheme.bodySmall;
+        return AlertDialog(
+          title: Row(children: [
+            Expanded(child: Text(note.creditNoteNumber)),
+            StatusBadge.fromStatus(note.status),
+          ]),
+          content: SizedBox(
+            width: 520,
+            child: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Text(note.customerName),
+                  Text(
+                    'Against ${note.salesInvoiceNumber} · ${note.creditNoteDate}'
+                    ' · ${note.reasonLabel}',
+                    style: small,
+                  ),
+                  const SizedBox(height: AppSpacing.md),
+                  for (final CreditNoteLineRecord line in note.lines)
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 2),
+                      child: Text(
+                        '${line.productName.isEmpty ? line.description : line.productName}'
+                        ' — ${_money(line.taxableAmount)} before tax',
+                        style: small,
+                      ),
+                    ),
+                  const Divider(),
+                  Text(
+                    '${_money(note.taxableAmount)} + '
+                    '${_money(note.taxAmount)} tax = '
+                    '${_money(note.totalAmount)} credited',
+                  ),
+                  if (note.remarks.isNotEmpty) Text(note.remarks, style: small),
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Close'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   Widget _grid() {
     if (_notes.isEmpty) {
       return WorkspaceEmptyState(
@@ -246,6 +444,24 @@ class _CreditNotePageState extends State<CreditNotePage> {
             ? 'Raise one against an approved invoice to credit a rate '
                 'difference or a discount agreed after the sale.'
             : 'Raising one needs the manage credit notes permission.',
+      );
+    }
+    // Phase 2: the chosen columns, with the steps on the bar rather than in
+    // an actions column.
+    if (Phase2Scope.of(context)) {
+      return EnterpriseDataGrid<CreditNoteRecord>(
+        items: _notes,
+        total: _notes.length,
+        pageOffset: 0,
+        rowsPerPage: _notes.length,
+        availableRowsPerPage: [_notes.length],
+        selectedId: _selectedId,
+        columns: _columns.gridColumns,
+        id: (row) => row.id,
+        cells: _columns.cells,
+        onSelect: (row) => setState(() => _selectedId = row.id),
+        onOpen: (row) => unawaited(_openNote(row)),
+        onPageChanged: (_) {},
       );
     }
     return EnterpriseDataGrid<CreditNoteRecord>(
