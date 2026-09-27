@@ -4,6 +4,7 @@ One router serves both directions. They differ only in which service they
 build, so a second copy would be a second place for the same rules to drift.
 """
 
+from datetime import date
 from typing import Annotated
 from uuid import UUID
 
@@ -133,6 +134,8 @@ def _list(
     page_size: int,
     search: str,
     party_id: UUID | None,
+    settlement_from: date | None = None,
+    settlement_to: date | None = None,
 ) -> PaginatedResponse[SettlementResponse]:
     """Return one page of settlements."""
     rows, total = service.list_settlements(
@@ -141,6 +144,8 @@ def _list(
         page_size=page_size,
         search=search,
         party_id=party_id,
+        date_from=settlement_from,
+        date_to=settlement_to,
     )
     return PaginatedResponse(
         data=[_to_response(service, row) for row in rows],
@@ -181,6 +186,8 @@ def list_receipts(
     page_size: int = Query(default=20, ge=1, le=100),
     search: str = Query(default=""),
     customer_id: Annotated[UUID | None, Query()] = None,
+    settlement_from: Annotated[date | None, Query()] = None,
+    settlement_to: Annotated[date | None, Query()] = None,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[SettlementResponse]:
     """List money received from customers."""
@@ -191,6 +198,8 @@ def list_receipts(
         page_size=page_size,
         search=search,
         party_id=customer_id,
+        settlement_from=settlement_from,
+        settlement_to=settlement_to,
     )
 
 
@@ -323,6 +332,8 @@ def list_refunds(
     page_size: int = Query(default=20, ge=1, le=100),
     search: str = Query(default=""),
     customer_id: Annotated[UUID | None, Query()] = None,
+    settlement_from: Annotated[date | None, Query()] = None,
+    settlement_to: Annotated[date | None, Query()] = None,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[SettlementResponse]:
     """List money handed back to customers."""
@@ -333,6 +344,8 @@ def list_refunds(
         page_size=page_size,
         search=search,
         party_id=customer_id,
+        settlement_from=settlement_from,
+        settlement_to=settlement_to,
     )
 
 
@@ -423,6 +436,8 @@ def list_payments(
     page_size: int = Query(default=20, ge=1, le=100),
     search: str = Query(default=""),
     vendor_id: Annotated[UUID | None, Query()] = None,
+    settlement_from: Annotated[date | None, Query()] = None,
+    settlement_to: Annotated[date | None, Query()] = None,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[SettlementResponse]:
     """List money paid to vendors."""
@@ -433,6 +448,8 @@ def list_payments(
         page_size=page_size,
         search=search,
         party_id=vendor_id,
+        settlement_from=settlement_from,
+        settlement_to=settlement_to,
     )
 
 

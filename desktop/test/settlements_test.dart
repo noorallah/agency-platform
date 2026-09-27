@@ -1,12 +1,15 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:agency_desktop/core/api/api_client.dart';
+import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/settlement.dart';
 import 'package:agency_desktop/models/settlement_direction.dart';
 import 'package:agency_desktop/ui/finance/record_settlement_dialog.dart';
 import 'package:agency_desktop/ui/finance/settlements_page.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -45,6 +48,8 @@ class _SettlementApi extends ApiClient {
     int pageSize = 20,
     String search = '',
     String? partyId,
+    String? settlementFrom,
+    String? settlementTo,
   }) async =>
       PagedResult<Settlement>(items: rows, total: rows.length);
 
@@ -224,20 +229,25 @@ Future<void> _pump(
   _SettlementApi api, {
   SettlementDirection direction = SettlementDirection.receipt,
   List<String> perms = const ['RECEIPT_VIEW', 'RECEIPT_CREATE'],
+  bool phase2 = false,
 }) async {
   tester.view.physicalSize = const Size(1400, 900);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
+  final Widget page = SettlementsPage(
+    api: api,
+    preferences: DesktopPreferencesService(
+      directory: Directory.systemTemp.createTempSync('settlements'),
+    ),
+    permissions: _permissionsFor(perms),
+    hasActiveFirm: true,
+    direction: direction,
+  );
   await tester.pumpWidget(
     MaterialApp(
-      home: Scaffold(
-        body: SettlementsPage(
-          api: api,
-          permissions: _permissionsFor(perms),
-          hasActiveFirm: true,
-          direction: direction,
-        ),
-      ),
+      // Above the navigator, so a dialog the page opens is phase 2's too.
+      builder: phase2 ? (context, child) => Phase2Scope(child: child!) : null,
+      home: Scaffold(body: page),
     ),
   );
   await tester.pumpAndSettle();
@@ -843,5 +853,73 @@ void main() {
     await tester.enterText(find.byType(TextFormField).first, 'zzzz');
     await tester.pumpAndSettle();
     expect(find.text('Nobody matches that.'), findsOneWidget);
+  });
+
+  // Phase 2 (owner, 2026-09-27): a grid like every other list, with option
+  // C's bar carrying Apply and Reverse and a double-click to read one.
+  group('phase 2 grid', () {
+    Future<void> select(WidgetTester tester) async {
+      await tester.tap(find.text('RC-2026-2027-000001').first);
+      // Past the double-click window, which is when a click is a selection.
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a grid naming each customer, with Period and Columns',
+        (tester) async {
+      await _pump(tester, _SettlementApi(rows: [_settlement()]), phase2: true);
+
+      expect(find.byType(EnterpriseDataGrid<Settlement>), findsOneWidget);
+      expect(find.text('Customer'), findsOneWidget);
+      expect(find.text('Third Customer'), findsOneWidget);
+      expect(find.byType(DateRangeFilter), findsOneWidget);
+      expect(find.byType(ColumnsButton), findsOneWidget);
+
+      // And it fits the smallest screen the app supports.
+      tester.view.physicalSize = const Size(1366, 768);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the bar names the receipt and offers Reverse',
+        (tester) async {
+      await _pump(tester, _SettlementApi(rows: [_settlement()]), phase2: true);
+      await select(tester);
+
+      expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+      expect(find.textContaining('Third Customer ·'), findsOneWidget);
+      // Fully applied: nothing on account to apply.
+      expect(find.byKey(const ValueKey('selection-apply')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('selection-reverse')));
+      await tester.pumpAndSettle();
+      expect(find.text('Reverse RC-2026-2027-000001'), findsOneWidget);
+    });
+
+    testWidgets('money on account is offered Apply on the bar',
+        (tester) async {
+      await _pump(
+        tester,
+        _SettlementApi(rows: [
+          _settlement(unallocated: '500.00', status: 'POSTED'),
+        ]),
+        phase2: true,
+      );
+      await select(tester);
+
+      expect(find.byKey(const ValueKey('selection-apply')), findsOneWidget);
+    });
+
+    testWidgets('double-clicking a receipt reads it', (tester) async {
+      await _pump(tester, _SettlementApi(rows: [_settlement()]), phase2: true);
+
+      final Finder row = find.text('RC-2026-2027-000001').first;
+      await tester.tap(row);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.text('NEFT-9931'), findsOneWidget);
+    });
   });
 }
