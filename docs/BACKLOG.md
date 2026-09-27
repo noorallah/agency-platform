@@ -3856,3 +3856,31 @@ with an outbox and retry (the server may be offline when a send is asked
 for), the timeline record, and a button on each document's bar. Phase B adds
 one adapter per provider plus the status fetcher, and the draft-receipt step
 for payments.
+
+## 52. Extra fields on documents, not only on masters
+
+Owner, 2026-09-27: the system must stay open to change -- tax, prices, and
+collecting extra information -- without a new release. Tax (versioned rules
+with effective dates) and prices (dated price lists and promotions) already
+are. **Extra information is open on masters only:** `AttributeEntityType`
+(`app/business/models/framework.py`) lists products, customers, vendors,
+branches, warehouses, tax profiles and units. A firm cannot add a field to a
+**document** -- a vehicle number or transporter on a delivery note, the
+buyer's PO reference or a site name on an invoice, a salesman's remark on an
+order -- without a code change.
+
+**To build when scheduled:** add the document types (header first: sales
+order, delivery note, sales invoice, purchase order, goods receipt, purchase
+invoice, returns; lines later if asked) to `AttributeEntityType` and call
+`AttributeService` from each document's service, as customers and vendors do
+(`docs/CUSTOM_FIELDS_FRAMEWORK.md`). Then:
+1. The document screen shows them in an *Additional details* section.
+2. **They carry forward** down the chain (order → delivery → invoice) where
+   the same definition exists on both, as prices do.
+3. A field can be chosen to **print** on the document.
+4. Lists can show and filter by them, through **Columns** and **+ filter**.
+
+**What stays a code change, by nature:** a new *kind* of tax calculation
+(TDS under 194Q, tax on MRP less abatement), and a change in a government
+format (GSTR-1 JSON, the e-invoice schema). Rates, thresholds, and which rate
+applies to what are configuration.
