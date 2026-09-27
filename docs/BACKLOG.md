@@ -3689,19 +3689,34 @@ so making those adapt changes every screen at once.
 5. Reach the server safely from outside the office (HTTPS; the client already
    accepts it -- section 1), so phones work on mobile data.
 
-**Decisions for the review (owner):**
-1. **Which roles get the phone** -- usually salesmen and the owner, not
-   accountants or storemen.
-2. **Offline** -- may a salesman take an order with no signal and send it
-   later? A significant feature of its own (section 39); leave it out at first
-   unless coverage where the salesmen work is poor.
-3. **Android only, or iPhone too** -- the same code builds both; iPhone needs
+**Decided by the owner, 2026-09-27:**
+1. **Tablet: every screen.** Some firm owners run the business from a
+   tablet, so the medium size must support all pages, not a subset.
+2. **Phone: a chosen set of modules**, with **orders and collections working
+   offline** and syncing when back in signal (section 39 holds the offline
+   thinking for collections; orders join it).
+
+**Proposed phone modules, to settle at the review:**
+
+| Fit | Modules | Why |
+| --- | --- | --- |
+| **Yes, offline** | Sales orders, Receipts (collections) | The salesman's day at the outlet, often with poor signal |
+| **Yes, online** | Call list and beat plan, Customers (details, outstanding, statement), Stock search, Home (key figures, to do), Approvals (orders, payouts) | Reading and one-tap decisions; small screens handle them well |
+| **Maybe** | Delivery notes (confirm delivery at the door), Sales returns (record at the outlet), Quotations, Expiry monitor | Useful for van sales or pharma; decide by how firms work |
+| **No, tablet or desktop** | Purchasing, Accounts, GST, Stock movements and counts, Masters setup, Admin, Settings, Reports | Wide grids, long forms, done at a desk |
+
+**Still to decide at the review:**
+1. **Android only, or iPhone too** -- the same code builds both; iPhone needs
    an Apple developer account and a Mac to build on.
-4. **Tablet first or phone first** -- the medium size is cheaper and helps
-   small laptops too; the phone is what salesmen ask for.
-5. **Outside access** -- how the server is reached from outside the office
+2. **Tablet first or phone first** -- the tablet is cheaper and helps small
+   laptops too; the phone is what salesmen ask for.
+3. **Outside access** -- how the server is reached from outside the office
    (a fixed IP and certificate, or a hosted relay), which decides whether
-   phones work beyond the office Wi-Fi at all.
+   phones and tablets work beyond the office Wi-Fi at all.
+4. **Offline conflicts** -- what happens when an order synced late meets
+   stock that has since gone, or a price that has changed (reprice, warn, or
+   hold for approval), and whether a collection synced late may clear an
+   invoice somebody has since credited.
 
 ## 49. Home gadgets -- parked
 
