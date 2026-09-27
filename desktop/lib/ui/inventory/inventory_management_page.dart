@@ -449,7 +449,11 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
   }
 
   Widget _buildGridWorkspace() => ManagementWorkspaceLayout(
-        toolbar: _buildToolbar(),
+        toolbar: Phase2Scope.of(context) ? _phase2Toolbar() : _buildToolbar(),
+        // Phase 2 (option C, owner 2026-09-27): the picked row named on a bar
+        // above the grid, with the steps that apply to it.
+        selectionBar: true,
+        selection: _selectionSummary(),
         searchPanel: SearchFilterPanel(
           controller: _search,
           focusNode: _searchFocus,
@@ -686,6 +690,173 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
           ),
         ),
       );
+
+  /// Phase 2: the line keeps Refresh, Export and "+ New"; what applies to
+  /// the picked row -- Open, thresholds, the stock actions, a draft's edit
+  /// and post -- goes on the selection bar.
+  WorkspaceToolbar _phase2Toolbar() {
+    final InventorySection section = widget.section;
+    final bool stock = section == InventorySection.inventory;
+    final bool opening = section == InventorySection.openingStock;
+    final bool draft = opening &&
+        _selectedOpeningStock != null &&
+        !_selectedOpeningStock!.isPosted;
+    final bool exportable = _canExport &&
+        (stock ||
+            section == InventorySection.stockLedger ||
+            section == InventorySection.transactions ||
+            opening);
+    final bool mayCreate = switch (section) {
+      InventorySection.transactions => _canAdjust,
+      InventorySection.openingStock => _canCreateOpeningStock,
+      _ => false,
+    };
+    ToolbarCommand stockStep(String id, String label, IconData icon,
+            StockAction action) =>
+        ToolbarCommand(
+          id: id,
+          label: label,
+          icon: icon,
+          onPressed: stock && _canAdjust && _selectedInventory != null
+              ? () => _openStockAction(action)
+              : null,
+        );
+    return WorkspaceToolbar(
+      actions: [
+        ToolbarAction.view,
+        if ((stock && _canAdjust) || (opening && _canUpdateOpeningStock))
+          ToolbarAction.edit,
+        if (stock && _canAdjust) ToolbarAction.delete,
+        ToolbarAction.refresh,
+        if (exportable) ToolbarAction.export,
+        if (mayCreate) ToolbarAction.newItem,
+      ],
+      isEnabled: (action) => switch (action) {
+        ToolbarAction.view => _selectedCount > 0,
+        ToolbarAction.edit => stock ? _selectedInventory != null : draft,
+        ToolbarAction.delete => _selectedInventory != null,
+        _ => !_loading,
+      },
+      onAction: (action) {
+        switch (action) {
+          case ToolbarAction.view:
+            _openSelected();
+          case ToolbarAction.edit:
+            if (stock) {
+              _editInventoryThresholds();
+            } else if (draft) {
+              _openOpeningStockDialog(existing: _selectedOpeningStock);
+            }
+          case ToolbarAction.delete:
+            _deleteSelectedInventory();
+          case ToolbarAction.export:
+            _saveExportFile(
+              dataset: section == InventorySection.stockLedger
+                  ? 'ledger'
+                  : 'inventory',
+              format: _defaultExportFormat,
+            );
+          case ToolbarAction.newItem:
+            if (section == InventorySection.transactions) {
+              _openAdjustmentDialog();
+            } else {
+              _openOpeningStockDialog();
+            }
+          default:
+            _load();
+        }
+      },
+      commands: [
+        stockStep('transfer', 'Transfer', Icons.swap_horiz,
+            StockAction.transfer),
+        stockStep('write-off', 'Write off', Icons.remove_circle_outline,
+            StockAction.writeOff),
+        stockStep('quarantine', 'Quarantine', Icons.pan_tool_outlined,
+            StockAction.quarantine),
+        ToolbarCommand(
+          id: 'post-draft',
+          label: 'Post draft',
+          icon: Icons.publish_outlined,
+          onPressed: draft && _canCreateOpeningStock
+              ? _postSelectedOpeningStock
+              : null,
+        ),
+      ],
+    );
+  }
+
+  /// Open the picked row, as a double-click does.
+  void _openSelected() {
+    switch (widget.section) {
+      case InventorySection.inventory || InventorySection.stockSearch:
+        if (_selectedInventory != null) {
+          _openInventoryDetails(_selectedInventory!);
+        }
+      case InventorySection.transactions:
+        final InventoryTransactionRecord? row = _selectedTransaction;
+        if (row != null) _openLinesDialog(() => _selectedTransaction = row);
+      case InventorySection.stockLedger:
+        final InventoryTransactionRecord? row = _selectedLedger;
+        if (row != null) _openLinesDialog(() => _selectedLedger = row);
+      case InventorySection.openingStock:
+        final OpeningStockBatchRecord? row = _selectedOpeningStock;
+        if (row != null) _openLinesDialog(() => _selectedOpeningStock = row);
+      default:
+        break;
+    }
+  }
+
+  /// The picked row as the selection bar names it, or null.
+  SelectionSummary? _selectionSummary() {
+    void clear() => setState(() {
+          _selectedInventory = null;
+          _selectedTransaction = null;
+          _selectedLedger = null;
+          _selectedOpeningStock = null;
+        });
+    SelectionSummary? movement(InventoryTransactionRecord? row) => row == null
+        ? null
+        : SelectionSummary.record(
+            name: row.referenceNumber.isNotEmpty
+                ? row.referenceNumber
+                : row.transactionType,
+            facts: [
+              row.transactionDate,
+              '${row.productCode} - ${row.productName}',
+              'Quantity: ${row.quantity}',
+            ],
+            onClear: clear,
+          );
+    return switch (widget.section) {
+      InventorySection.inventory || InventorySection.stockSearch =>
+        _selectedInventory == null
+            ? null
+            : SelectionSummary.record(
+                name: '${_selectedInventory!.productCode} - '
+                    '${_selectedInventory!.productName}',
+                facts: [
+                  _selectedInventory!.warehouseCode,
+                  'Available: ${_selectedInventory!.availableQuantity}',
+                ],
+                status: _selectedInventory!.status,
+                onClear: clear,
+              ),
+      InventorySection.transactions => movement(_selectedTransaction),
+      InventorySection.stockLedger => movement(_selectedLedger),
+      InventorySection.openingStock => _selectedOpeningStock == null
+          ? null
+          : SelectionSummary.record(
+              name: _selectedOpeningStock!.referenceNumber,
+              facts: [
+                _selectedOpeningStock!.postingDate,
+                _selectedOpeningStock!.warehouseCode,
+              ],
+              status: _selectedOpeningStock!.status,
+              onClear: clear,
+            ),
+      _ => null,
+    };
+  }
 
   Widget _buildToolbar() => Wrap(
         spacing: 8,
