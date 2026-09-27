@@ -138,6 +138,7 @@ final Map<String, _PageBuilder> _screens = {
   // buttons, which is what runs out of width first.
   'quotations': (d) => QuotationManagementPage(
         api: d.api,
+        preferences: d.preferences,
         permissions: d.permissions,
         hasActiveFirm: false,
       ),
@@ -145,6 +146,7 @@ final Map<String, _PageBuilder> _screens = {
   // being a line that names its source document and what is still returnable.
   'sales returns': (d) => SalesReturnManagementPage(
         api: d.api,
+        preferences: d.preferences,
         permissions: d.permissions,
         hasActiveFirm: false,
       ),

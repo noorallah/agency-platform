@@ -1,11 +1,14 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:agency_desktop/core/api/api_client.dart';
+import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/branch_warehouse.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/sales_return.dart';
 import 'package:agency_desktop/ui/sales_returns/sales_return_management_page.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -42,6 +45,7 @@ SalesReturn _return({
     SalesReturn.fromJson({
       'id': id,
       'customer_id': 'cust-1',
+      'customer_name': 'Anand Agencies',
       'branch_id': 'branch-1',
       'warehouse_id': 'wh-1',
       'return_number': number,
@@ -175,19 +179,24 @@ Future<void> _pump(
   _ReturnApi api, {
   List<String> perms = _fullAccess,
   bool hasActiveFirm = true,
+  bool phase2 = false,
 }) async {
+  final Widget page = SalesReturnManagementPage(
+    api: api,
+    preferences: DesktopPreferencesService(
+      directory: Directory.systemTemp.createTempSync('sales-returns'),
+    ),
+    permissions: _permissionsFor(perms),
+    hasActiveFirm: hasActiveFirm,
+    today: DateTime(2026, 8, 14),
+  );
   tester.view.physicalSize = const Size(1600, 900);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
     MaterialApp(
       home: Scaffold(
-        body: SalesReturnManagementPage(
-          api: api,
-          permissions: _permissionsFor(perms),
-          hasActiveFirm: hasActiveFirm,
-          today: DateTime(2026, 8, 14),
-        ),
+        body: phase2 ? Phase2Scope(child: page) : page,
       ),
     ),
   );
@@ -477,6 +486,61 @@ void main() {
 
     test('a line is labelled by what it is, not by its id', () {
       expect(_invoice().lines.single.label, '1. Shampoo Bottle 180ml  ·  12.0000');
+    });
+  });
+
+  // Phase 2 (owner, 2026-09-27): a grid like every other sales list, with
+  // option C's bar carrying the steps and a double-click to read one.
+  group('phase 2 grid', () {
+    Future<void> select(WidgetTester tester) async {
+      await tester.tap(find.text('SR-2026-2027-000001').first);
+      // Past the double-click window, which is when a click is a selection.
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a grid naming each customer, and no side pane',
+        (tester) async {
+      await _pump(tester, _ReturnApi(rows: [_return()]), phase2: true);
+
+      expect(find.byType(EnterpriseDataGrid<SalesReturn>), findsOneWidget);
+      expect(find.text('Customer'), findsOneWidget);
+      expect(find.text('Anand Agencies'), findsOneWidget);
+      expect(find.text('What this moves'), findsNothing);
+      expect(find.byType(ColumnsButton), findsOneWidget);
+      expect(find.byType(DateRangeFilter), findsOneWidget);
+
+      // And it fits the smallest screen the app supports.
+      tester.view.physicalSize = const Size(1366, 768);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the bar names the return and runs its step', (tester) async {
+      final _ReturnApi api = _ReturnApi(rows: [_return()]);
+      await _pump(tester, api, phase2: true);
+      await select(tester);
+
+      expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+      expect(find.textContaining('Anand Agencies ·'), findsOneWidget);
+      // A draft is approved, not completed.
+      expect(find.byKey(const ValueKey('selection-complete')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('selection-approve')));
+      await tester.pumpAndSettle();
+      expect(api.actions, ['approve']);
+    });
+
+    testWidgets('double-clicking a return reads it', (tester) async {
+      await _pump(tester, _ReturnApi(rows: [_return()]), phase2: true);
+
+      final Finder row = find.text('SR-2026-2027-000001').first;
+      await tester.tap(row);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.text('What this moves'), findsOneWidget);
     });
   });
 }

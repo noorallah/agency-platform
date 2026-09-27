@@ -6,6 +6,7 @@ import '../../core/api/api_client.dart';
 import '../../core/api/concurrency.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
+import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
@@ -35,12 +36,16 @@ class QuotationManagementPage extends StatefulWidget {
   const QuotationManagementPage({
     super.key,
     required this.api,
+    required this.preferences,
     required this.permissions,
     required this.hasActiveFirm,
     this.today,
   });
 
   final ApiClient api;
+
+  /// Where the grid's chosen columns are remembered.
+  final DesktopPreferencesService preferences;
   final PermissionService permissions;
   final bool hasActiveFirm;
 
@@ -283,58 +288,33 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
         message: 'Choose a firm to see what it has offered.',
       );
     }
+    if (Phase2Scope.of(context)) return _grid(context);
     return LoadingOverlay(
       loading: _loading,
       child: Column(children: [
-        // Phase 2 (4.5): the search and New go on the page's one line.
-        if (Phase2Scope.of(context))
-          Phase2LineTools(children: [
-            SizedBox(
-              width: 260,
-              child: SearchFilterPanel(
+        Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Row(children: [
+            Expanded(
+              child: TextField(
                 controller: _search,
-                hintText: 'Search number or customer',
-                onSearch: (_) => unawaited(_load(requestedPage: 1)),
+                decoration: const InputDecoration(
+                  labelText: 'Search by quotation number or customer',
+                  prefixIcon: Icon(Icons.search),
+                  hintText: 'QT-…, shop name, code or phone',
+                ),
+                onSubmitted: (_) => unawaited(_load(requestedPage: 1)),
               ),
             ),
-            DateRangeFilter(
-              value: _period,
-              onChanged: (period) {
-                setState(() => _period = period);
-                unawaited(_load(requestedPage: 1));
-              },
-            ),
+            const SizedBox(width: AppSpacing.md),
             if (_canQuote)
-              FilledButton(
-                key: const ValueKey('line-new'),
+              FilledButton.icon(
                 onPressed: () => unawaited(_writeQuotation()),
-                child: const Text('+ New'),
+                icon: const Icon(Icons.request_quote_outlined),
+                label: const Text('New Quotation'),
               ),
-          ])
-        else
-          Padding(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            child: Row(children: [
-              Expanded(
-                child: TextField(
-                  controller: _search,
-                  decoration: const InputDecoration(
-                    labelText: 'Search by quotation number or customer',
-                    prefixIcon: Icon(Icons.search),
-                    hintText: 'QT-…, shop name, code or phone',
-                  ),
-                  onSubmitted: (_) => unawaited(_load(requestedPage: 1)),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.md),
-              if (_canQuote)
-                FilledButton.icon(
-                  onPressed: () => unawaited(_writeQuotation()),
-                  icon: const Icon(Icons.request_quote_outlined),
-                  label: const Text('New Quotation'),
-                ),
-            ]),
-          ),
+          ]),
+        ),
         if (_error != null)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
@@ -370,6 +350,324 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
           onPageChanged: (next) => unawaited(_load(requestedPage: next)),
         ),
       ]),
+    );
+  }
+
+  /// Phase 2 (owner, 2026-09-27): a full-width grid, as Sales Orders,
+  /// Invoices and Delivery Notes -- the Period after the search, Columns,
+  /// option C's bar naming the picked offer with its steps, and a
+  /// double-click to read it. The side pane went: it took more width than
+  /// the list to show an offer somebody had only pointed at.
+  Widget _grid(BuildContext context) {
+    final Quotation? selected = _selected;
+    final bool open = selected != null && (selected.isDraft || selected.isSent);
+    final bool decidable =
+        selected != null && open && !selected.isExpired && _canDecide;
+    return LoadingOverlay(
+      loading: _loading,
+      child: ManagementWorkspaceLayout(
+        toolbar: WorkspaceToolbar(
+          actions: const [
+            ToolbarAction.newItem,
+            ToolbarAction.view,
+            ToolbarAction.refresh,
+          ],
+          isVisible: (action) => action != ToolbarAction.newItem || _canQuote,
+          isEnabled: (action) =>
+              !_loading &&
+              switch (action) {
+                ToolbarAction.newItem => _canQuote,
+                ToolbarAction.view => selected != null,
+                ToolbarAction.refresh => true,
+                _ => false,
+              },
+          onAction: (action) {
+            switch (action) {
+              case ToolbarAction.newItem:
+                unawaited(_writeQuotation());
+              case ToolbarAction.view:
+                if (selected != null) unawaited(_openQuotation(selected));
+              case ToolbarAction.refresh:
+                unawaited(_load());
+              default:
+                break;
+            }
+          },
+          // Period right after the search, then Columns (owner).
+          trailing: [
+            DateRangeFilter(
+              value: _period,
+              onChanged: (period) {
+                setState(() => _period = period);
+                unawaited(_load(requestedPage: 1));
+              },
+            ),
+            ColumnsButton(
+              onPressed: () async {
+                if (await _columns.choose(context) && mounted) {
+                  setState(() {});
+                }
+              },
+            ),
+          ],
+          commands: [
+            // On every offer whatever its state: a declined quotation is
+            // still a document somebody may need to produce.
+            ToolbarCommand(
+              id: 'print',
+              label: 'Print',
+              icon: Icons.print_outlined,
+              onPressed: selected == null
+                  ? null
+                  : () => unawaited(_printQuotation(selected)),
+            ),
+            ToolbarCommand(
+              id: 'send',
+              label: 'Mark as sent',
+              icon: Icons.send_outlined,
+              onPressed: selected != null && selected.isDraft && _canQuote
+                  ? () => unawaited(_act(selected, 'send'))
+                  : null,
+            ),
+            ToolbarCommand(
+              id: 'revise',
+              label: 'Revise',
+              icon: Icons.edit_outlined,
+              onPressed: open && _canQuote
+                  ? () => unawaited(_writeQuotation(existing: selected))
+                  : null,
+            ),
+            ToolbarCommand(
+              id: 'accept',
+              label: 'Customer accepted',
+              icon: Icons.thumb_up_outlined,
+              onPressed: selected != null && decidable
+                  ? () => unawaited(_decide(selected, 'accept', 'Accept'))
+                  : null,
+            ),
+            ToolbarCommand(
+              id: 'decline',
+              label: 'Customer declined',
+              icon: Icons.thumb_down_outlined,
+              onPressed: selected != null && decidable
+                  ? () => unawaited(_decide(selected, 'decline', 'Decline'))
+                  : null,
+            ),
+            // An accepted offer whose prices lapsed is not offered: the
+            // server refuses it, and the dialog says why.
+            ToolbarCommand(
+              id: 'convert',
+              label: 'Convert to order',
+              icon: Icons.arrow_forward,
+              onPressed: selected != null && selected.canConvert && _canDecide
+                  ? () => unawaited(_convert(selected))
+                  : null,
+            ),
+            ToolbarCommand(
+              id: 'withdraw',
+              label: 'Withdraw',
+              icon: Icons.block_outlined,
+              onPressed: selected != null &&
+                      !selected.isConverted &&
+                      !selected.isCancelled &&
+                      _canCancel
+                  ? () => unawaited(_decide(selected, 'cancel', 'Withdraw'))
+                  : null,
+            ),
+          ],
+        ),
+        selectionBar: true,
+        selection: selected == null
+            ? null
+            : SelectionSummary.document(
+                number: selected.quotationNumber,
+                party: selected.customerName,
+                status: selected.status,
+                total: selected.grandTotal,
+                onClear: () => setState(() => _selected = null),
+              ),
+        searchPanel: SearchFilterPanel(
+          controller: _search,
+          hintText: 'Search number or customer',
+          onSearch: (_) => unawaited(_load(requestedPage: 1)),
+        ),
+        primaryContent: Column(children: [
+          if (_error != null)
+            MaterialBanner(
+              content: Text(_error!),
+              actions: [
+                TextButton(
+                  onPressed: () => setState(() => _error = null),
+                  child: const Text('Dismiss'),
+                ),
+              ],
+            ),
+          Expanded(
+            child: _quotations.isEmpty
+                ? (_search.text.trim().isEmpty && _period.from == null
+                    ? const StandardEmptyState(
+                        type: EmptyStateType.noRecords,
+                        title: 'Nothing has been quoted',
+                        message: 'A quotation is a price offered to a '
+                            'customer. It reserves no stock and puts nothing '
+                            'on their account until it becomes an order.',
+                      )
+                    : const StandardEmptyState(
+                        type: EmptyStateType.noSearchResults,
+                      ))
+                : EnterpriseDataGrid<Quotation>(
+                    columns: _columns.gridColumns,
+                    items: _quotations,
+                    id: (item) => item.id,
+                    selectedId: selected?.id,
+                    cells: _columns.cells,
+                    onSelect: (item) => setState(() => _selected = item),
+                    onOpen: (item) => unawaited(_openQuotation(item)),
+                    total: _total,
+                    pageOffset: (_page - 1) * _rowsPerPage,
+                    rowsPerPage: _rowsPerPage,
+                    onPageChanged: (offset) {
+                      final int next = offset ~/ _rowsPerPage + 1;
+                      if (next != _page) unawaited(_load(requestedPage: next));
+                    },
+                  ),
+          ),
+        ]),
+        statusBar: WorkspaceStatusBar(
+          total: _total,
+          selected: selected != null,
+          message: _loading ? 'Loading...' : null,
+        ),
+      ),
+    );
+  }
+
+  /// Every column the grid can show; Columns picks among them, remembered
+  /// per screen on this PC (owner, 2026-09-27).
+  late final ColumnChoice<Quotation> _columns = ColumnChoice(
+    preferences: widget.preferences,
+    stateKey: 'quotations.grid',
+    columns: [
+      ChoosableColumn(
+        column: const GridColumn(key: 'number', label: 'Quotation Number'),
+        cell: (item) => item.quotationNumber,
+        required: true,
+      ),
+      // Whose offer it is; kept at any width.
+      ChoosableColumn(
+        column:
+            const GridColumn(key: 'customer', label: 'Customer', priority: 1),
+        cell: (item) => item.customerName,
+        shownByDefault: true,
+      ),
+      // One date: the quotation's, with the minute it was entered.
+      ChoosableColumn(
+        column: const GridColumn(key: 'date', label: 'Quotation Date'),
+        cell: (item) => documentDateStamp(item.quotationDate, item.createdAt),
+        shownByDefault: true,
+      ),
+      // How long the offer stands is what a status word cannot carry: SENT
+      // reads the same the day before and the day after the prices lapse.
+      ChoosableColumn(
+        column: const GridColumn(key: 'valid', label: 'Valid Until'),
+        cell: (item) =>
+            _lapsed(item) ? '${item.validUntil} · lapsed' : item.validUntil,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'status', label: 'Status'),
+        cell: (item) => item.status,
+        shownByDefault: true,
+      ),
+      // What came of it: the order it became, or why it was declined.
+      ChoosableColumn(
+        column: const GridColumn(key: 'outcome', label: 'Outcome'),
+        cell: _standing,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'reference', label: 'Their Reference'),
+        cell: (item) => item.customerReference,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'payment', label: 'Payment Terms'),
+        cell: (item) => item.paymentTerms,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'delivery', label: 'Delivery Terms'),
+        cell: (item) => item.deliveryTerms,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(
+            key: 'subtotal', label: 'Taxable Value', numeric: true),
+        cell: (item) => item.subtotal,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'tax', label: 'Tax', numeric: true),
+        cell: (item) => item.taxTotal,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'total', label: 'Grand Total'),
+        cell: (item) => item.grandTotal,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'remarks', label: 'Remarks'),
+        cell: (item) => item.remarks,
+      ),
+    ],
+  );
+
+  /// Lapsed and still open: converted or withdrawn offers have no deadline
+  /// left to miss.
+  bool _lapsed(Quotation row) =>
+      row.isExpired && !row.isConverted && !row.isCancelled;
+
+  /// Read one offer: what was offered and what came of it. Its steps stay on
+  /// the bar above the grid, so this only reads.
+  Future<void> _openQuotation(Quotation row) async {
+    setState(() => _selected = row);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Row(children: [
+          Expanded(child: Text(row.quotationNumber)),
+          if (_lapsed(row))
+            const Padding(
+              padding: EdgeInsets.only(right: AppSpacing.sm),
+              child: StatusBadge(label: 'EXPIRED'),
+            ),
+          StatusBadge.fromStatus(row.status),
+        ]),
+        content: SizedBox(
+          width: 560,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (_customer(row).isNotEmpty) Text(_customer(row)),
+                ..._facts(dialogContext, row),
+                // The server refuses to convert lapsed prices; say so here,
+                // since the bar does not offer the step at all.
+                if (row.isAccepted && row.isExpired) ...[
+                  const SizedBox(height: AppSpacing.sm),
+                  Text(
+                    'These prices have lapsed. Revise the quotation and have '
+                    'it accepted again before converting it.',
+                    style: Theme.of(dialogContext).textTheme.bodySmall,
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -451,57 +749,62 @@ class _QuotationManagementPageState extends State<QuotationManagementPage> {
             ),
             StatusBadge(label: row.status),
           ]),
-          Text(_standing(row), style: Theme.of(context).textTheme.bodySmall),
-          const SizedBox(height: AppSpacing.md),
-          Card(
-            child: Padding(
-              padding: const EdgeInsets.all(AppSpacing.md),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text('Offered',
-                      style: Theme.of(context).textTheme.labelLarge),
-                  const SizedBox(height: AppSpacing.sm),
-                  for (final QuotationLine line in row.lines)
-                    Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 2),
-                      child: Text(
-                        '${line.quantity} × ${line.unitPrice}'
-                        '${_lessRate(line.discountPercent)} — '
-                        '${line.description.isEmpty ? "line ${line.lineNumber}" : line.description}',
-                        style: Theme.of(context).textTheme.bodySmall,
-                      ),
-                    ),
-                  const Divider(),
-                  Text('${row.subtotal} + ${row.taxTotal} tax = '
-                      '${row.grandTotal}'),
-                  if (row.paymentTerms.isNotEmpty)
-                    Text('Payment: ${row.paymentTerms}',
-                        style: Theme.of(context).textTheme.bodySmall),
-                  if (row.deliveryTerms.isNotEmpty)
-                    Text('Delivery: ${row.deliveryTerms}',
-                        style: Theme.of(context).textTheme.bodySmall),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: AppSpacing.md),
-          // Said plainly, because a document that looks like an order is one
-          // somebody will assume has reserved the goods.
-          Text(
-            row.isConverted
-                ? 'The order ${row.convertedSalesOrderNumber} carries this '
-                    'now; stock is reserved when that order is approved.'
-                : 'Nothing is reserved and nothing is owed. Converting this '
-                    'to an order is what commits the firm.',
-            style: Theme.of(context).textTheme.bodySmall,
-          ),
+          ..._facts(context, row),
           const SizedBox(height: AppSpacing.md),
           _actions(row),
         ],
       ),
     );
   }
+
+  /// What was offered and what came of it -- the side pane's body, and the
+  /// whole of phase 2's dialog.
+  List<Widget> _facts(BuildContext context, Quotation row) => [
+        Text(_standing(row), style: Theme.of(context).textTheme.bodySmall),
+        const SizedBox(height: AppSpacing.md),
+        Card(
+          child: Padding(
+            padding: const EdgeInsets.all(AppSpacing.md),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text('Offered', style: Theme.of(context).textTheme.labelLarge),
+                const SizedBox(height: AppSpacing.sm),
+                for (final QuotationLine line in row.lines)
+                  Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 2),
+                    child: Text(
+                      '${line.quantity} × ${line.unitPrice}'
+                      '${_lessRate(line.discountPercent)} — '
+                      '${line.description.isEmpty ? "line ${line.lineNumber}" : line.description}',
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ),
+                const Divider(),
+                Text('${row.subtotal} + ${row.taxTotal} tax = '
+                    '${row.grandTotal}'),
+                if (row.paymentTerms.isNotEmpty)
+                  Text('Payment: ${row.paymentTerms}',
+                      style: Theme.of(context).textTheme.bodySmall),
+                if (row.deliveryTerms.isNotEmpty)
+                  Text('Delivery: ${row.deliveryTerms}',
+                      style: Theme.of(context).textTheme.bodySmall),
+              ],
+            ),
+          ),
+        ),
+        const SizedBox(height: AppSpacing.md),
+        // Said plainly, because a document that looks like an order is one
+        // somebody will assume has reserved the goods.
+        Text(
+          row.isConverted
+              ? 'The order ${row.convertedSalesOrderNumber} carries this '
+                  'now; stock is reserved when that order is approved.'
+              : 'Nothing is reserved and nothing is owed. Converting this '
+                  'to an order is what commits the firm.',
+          style: Theme.of(context).textTheme.bodySmall,
+        ),
+      ];
 
   /// Render the offer and hand it to whatever prints on this machine.
   Future<void> _printQuotation(Quotation row) async {

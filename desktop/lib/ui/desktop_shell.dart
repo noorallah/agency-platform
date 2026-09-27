@@ -1865,12 +1865,14 @@ class _DesktopShellState extends State<DesktopShell> {
         AppModule.quotations => QuotationManagementPage(
             key: ValueKey('quotations-${widget.session.firmContextVersion}'),
             api: api,
+            preferences: widget.preferences,
             permissions: widget.permissions,
             hasActiveFirm: widget.session.currentFirm != null,
           ),
         AppModule.salesReturns => SalesReturnManagementPage(
             key: ValueKey('sales-returns-${widget.session.firmContextVersion}'),
             api: api,
+            preferences: widget.preferences,
             permissions: widget.permissions,
             hasActiveFirm: widget.session.currentFirm != null,
           ),

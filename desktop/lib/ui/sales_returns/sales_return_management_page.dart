@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
+import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
@@ -26,12 +27,16 @@ class SalesReturnManagementPage extends StatefulWidget {
   const SalesReturnManagementPage({
     super.key,
     required this.api,
+    required this.preferences,
     required this.permissions,
     required this.hasActiveFirm,
     this.today,
   });
 
   final ApiClient api;
+
+  /// Where the grid's chosen columns are remembered.
+  final DesktopPreferencesService preferences;
   final PermissionService permissions;
   final bool hasActiveFirm;
 
@@ -239,58 +244,33 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
         message: 'Choose a firm to see the goods coming back to it.',
       );
     }
+    if (Phase2Scope.of(context)) return _grid(context);
     return LoadingOverlay(
       loading: _loading,
       child: Column(children: [
-        // Phase 2 (4.5): the search and New go on the page's one line.
-        if (Phase2Scope.of(context))
-          Phase2LineTools(children: [
-            SizedBox(
-              width: 260,
-              child: SearchFilterPanel(
+        Padding(
+          padding: const EdgeInsets.all(AppSpacing.lg),
+          child: Row(children: [
+            Expanded(
+              child: TextField(
                 controller: _search,
-                hintText: 'Search number or customer',
-                onSearch: (_) => unawaited(_load(requestedPage: 1)),
+                decoration: const InputDecoration(
+                  labelText: 'Search by return number',
+                  prefixIcon: Icon(Icons.search),
+                  hintText: 'SR-…',
+                ),
+                onSubmitted: (_) => unawaited(_load(requestedPage: 1)),
               ),
             ),
-            DateRangeFilter(
-              value: _period,
-              onChanged: (period) {
-                setState(() => _period = period);
-                unawaited(_load(requestedPage: 1));
-              },
-            ),
+            const SizedBox(width: AppSpacing.md),
             if (_canRaise)
-              FilledButton(
-                key: const ValueKey('line-new'),
+              FilledButton.icon(
                 onPressed: () => unawaited(_raiseReturn()),
-                child: const Text('+ New'),
+                icon: const Icon(Icons.assignment_return_outlined),
+                label: const Text('New Return'),
               ),
-          ])
-        else
-          Padding(
-            padding: const EdgeInsets.all(AppSpacing.lg),
-            child: Row(children: [
-              Expanded(
-                child: TextField(
-                  controller: _search,
-                  decoration: const InputDecoration(
-                    labelText: 'Search by return number',
-                    prefixIcon: Icon(Icons.search),
-                    hintText: 'SR-…',
-                  ),
-                  onSubmitted: (_) => unawaited(_load(requestedPage: 1)),
-                ),
-              ),
-              const SizedBox(width: AppSpacing.md),
-              if (_canRaise)
-                FilledButton.icon(
-                  onPressed: () => unawaited(_raiseReturn()),
-                  icon: const Icon(Icons.assignment_return_outlined),
-                  label: const Text('New Return'),
-                ),
-            ]),
-          ),
+          ]),
+        ),
         if (_error != null)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: AppSpacing.lg),
@@ -326,6 +306,279 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
           onPageChanged: (next) => unawaited(_load(requestedPage: next)),
         ),
       ]),
+    );
+  }
+
+  /// Phase 2 (owner, 2026-09-27): a full-width grid, as Sales Orders,
+  /// Invoices and Delivery Notes -- the Period after the search, Columns,
+  /// option C's bar naming the picked return with its steps, and a
+  /// double-click to read it. The side pane went: it took more width than
+  /// the list to show a return somebody had only pointed at.
+  Widget _grid(BuildContext context) {
+    final SalesReturn? selected = _selected;
+    VoidCallback? step(bool allowed, String action) =>
+        selected != null && allowed
+            ? () => unawaited(_act(selected, action))
+            : null;
+    return LoadingOverlay(
+      loading: _loading,
+      child: ManagementWorkspaceLayout(
+        toolbar: WorkspaceToolbar(
+          actions: const [
+            ToolbarAction.newItem,
+            ToolbarAction.view,
+            ToolbarAction.refresh,
+          ],
+          isVisible: (action) => action != ToolbarAction.newItem || _canRaise,
+          isEnabled: (action) =>
+              !_loading &&
+              switch (action) {
+                ToolbarAction.newItem => _canRaise,
+                ToolbarAction.view => selected != null,
+                ToolbarAction.refresh => true,
+                _ => false,
+              },
+          onAction: (action) {
+            switch (action) {
+              case ToolbarAction.newItem:
+                unawaited(_raiseReturn());
+              case ToolbarAction.view:
+                if (selected != null) unawaited(_openReturn(selected));
+              case ToolbarAction.refresh:
+                unawaited(_load());
+              default:
+                break;
+            }
+          },
+          // Period right after the search, then Columns (owner).
+          trailing: [
+            DateRangeFilter(
+              value: _period,
+              onChanged: (period) {
+                setState(() => _period = period);
+                unawaited(_load(requestedPage: 1));
+              },
+            ),
+            ColumnsButton(
+              onPressed: () async {
+                if (await _columns.choose(context) && mounted) {
+                  setState(() {});
+                }
+              },
+            ),
+          ],
+          commands: [
+            ToolbarCommand(
+              id: 'print-credit-note',
+              label: 'Print credit note',
+              icon: Icons.print_outlined,
+              onPressed: selected == null
+                  ? null
+                  : () => unawaited(_printCreditNote(selected)),
+            ),
+            ToolbarCommand(
+              id: 'approve',
+              label: 'Approve',
+              icon: Icons.check_circle_outline,
+              onPressed:
+                  step(selected?.isDraft == true && _canApprove, 'approve'),
+            ),
+            ToolbarCommand(
+              id: 'complete',
+              label: 'Complete',
+              icon: Icons.done_all,
+              onPressed:
+                  step(selected?.isApproved == true && _canApprove, 'complete'),
+            ),
+            ToolbarCommand(
+              id: 'close',
+              label: 'Close',
+              icon: Icons.lock_outline,
+              onPressed:
+                  step(selected?.isCompleted == true && _canApprove, 'close'),
+            ),
+            ToolbarCommand(
+              id: 'cancel',
+              label: 'Cancel',
+              icon: Icons.cancel_outlined,
+              onPressed: selected != null &&
+                      !selected.isCancelled &&
+                      !selected.isClosed &&
+                      _canCancel
+                  ? () => unawaited(_cancel(selected))
+                  : null,
+            ),
+          ],
+        ),
+        selectionBar: true,
+        selection: selected == null
+            ? null
+            : SelectionSummary.document(
+                number: selected.returnNumber,
+                party: selected.customerName,
+                status: selected.status,
+                total: selected.grandTotal,
+                onClear: () => setState(() => _selected = null),
+              ),
+        searchPanel: SearchFilterPanel(
+          controller: _search,
+          hintText: 'Search number or customer',
+          onSearch: (_) => unawaited(_load(requestedPage: 1)),
+        ),
+        primaryContent: Column(children: [
+          if (_error != null)
+            MaterialBanner(
+              content: Text(_error!),
+              actions: [
+                TextButton(
+                  onPressed: () => setState(() => _error = null),
+                  child: const Text('Dismiss'),
+                ),
+              ],
+            ),
+          Expanded(
+            child: _returns.isEmpty
+                ? (_search.text.trim().isEmpty && _period.from == null
+                    ? const StandardEmptyState(
+                        type: EmptyStateType.noRecords,
+                        title: 'Nothing has come back',
+                        message: 'A sales return is raised against a delivery '
+                            'note or a sales invoice. Completing one puts the '
+                            'goods back on the shelf and credits what the '
+                            'customer owes.',
+                      )
+                    : const StandardEmptyState(
+                        type: EmptyStateType.noSearchResults,
+                      ))
+                : EnterpriseDataGrid<SalesReturn>(
+                    columns: _columns.gridColumns,
+                    items: _returns,
+                    id: (item) => item.id,
+                    selectedId: selected?.id,
+                    cells: _columns.cells,
+                    onSelect: (item) => setState(() => _selected = item),
+                    onOpen: (item) => unawaited(_openReturn(item)),
+                    total: _total,
+                    pageOffset: (_page - 1) * _rowsPerPage,
+                    rowsPerPage: _rowsPerPage,
+                    onPageChanged: (offset) {
+                      final int next = offset ~/ _rowsPerPage + 1;
+                      if (next != _page) unawaited(_load(requestedPage: next));
+                    },
+                  ),
+          ),
+        ]),
+        statusBar: WorkspaceStatusBar(
+          total: _total,
+          selected: selected != null,
+          message: _loading ? 'Loading...' : null,
+        ),
+      ),
+    );
+  }
+
+  /// Every column the grid can show; Columns picks among them, remembered
+  /// per screen on this PC (owner, 2026-09-27).
+  late final ColumnChoice<SalesReturn> _columns = ColumnChoice(
+    preferences: widget.preferences,
+    stateKey: 'sales-returns.grid',
+    columns: [
+      ChoosableColumn(
+        column: const GridColumn(key: 'number', label: 'Return Number'),
+        cell: (item) => item.returnNumber,
+        required: true,
+      ),
+      // Whose return it is; kept at any width.
+      ChoosableColumn(
+        column:
+            const GridColumn(key: 'customer', label: 'Customer', priority: 1),
+        cell: (item) => item.customerName,
+        shownByDefault: true,
+      ),
+      // One date: the return's, with the minute it was entered.
+      ChoosableColumn(
+        column: const GridColumn(key: 'date', label: 'Return Date'),
+        cell: (item) => documentDateStamp(item.returnDate, item.createdAt),
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'reference', label: 'Their Reference'),
+        cell: (item) => item.customerReturnNumber,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'reason', label: 'Reason'),
+        cell: (item) => item.returnReason,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(
+            key: 'returned', label: 'Quantity Returned', numeric: true),
+        cell: (item) => item.totalCurrentReturnQuantity,
+        shownByDefault: true,
+      ),
+      // Whether it has actually happened is what a list of returns has to
+      // answer: nothing is restocked until the return is completed.
+      ChoosableColumn(
+        column: const GridColumn(
+            key: 'restocked', label: 'Restocked', numeric: true),
+        cell: (item) => item.totalRestockQuantity,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'status', label: 'Status'),
+        cell: (item) => item.status,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(
+            key: 'subtotal', label: 'Taxable Value', numeric: true),
+        cell: (item) => item.subtotal,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'tax', label: 'Tax', numeric: true),
+        cell: (item) => item.taxTotal,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'total', label: 'Grand Total'),
+        cell: (item) => item.grandTotal,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'remarks', label: 'Remarks'),
+        cell: (item) => item.remarks,
+      ),
+    ],
+  );
+
+  /// Read one return: what came back, what it credited, and each line. Its
+  /// steps stay on the bar above the grid, so this only reads.
+  Future<void> _openReturn(SalesReturn row) async {
+    setState(() => _selected = row);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Row(children: [
+          Expanded(child: Text(row.returnNumber)),
+          StatusBadge.fromStatus(row.status),
+        ]),
+        content: SizedBox(
+          width: 560,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (_customer(row).isNotEmpty) Text(_customer(row)),
+                ..._facts(dialogContext, row),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
     );
   }
 
@@ -390,22 +643,27 @@ class _SalesReturnManagementPageState extends State<SalesReturnManagementPage> {
             ),
             StatusBadge(label: row.status),
           ]),
-          if (row.customerReturnNumber.isNotEmpty)
-            Text('Their reference: ${row.customerReturnNumber}',
-                style: Theme.of(context).textTheme.bodySmall),
-          if (row.returnReason.isNotEmpty)
-            Text(row.returnReason,
-                style: Theme.of(context).textTheme.bodySmall),
-          const SizedBox(height: AppSpacing.md),
-          _whatMoved(context, row),
-          const SizedBox(height: AppSpacing.md),
-          _lines(context, row),
+          ..._facts(context, row),
           const SizedBox(height: AppSpacing.md),
           _actions(row),
         ],
       ),
     );
   }
+
+  /// A return's reference, reason, what it moved and its lines -- the side
+  /// pane's body, and the whole of phase 2's dialog.
+  List<Widget> _facts(BuildContext context, SalesReturn row) => [
+        if (row.customerReturnNumber.isNotEmpty)
+          Text('Their reference: ${row.customerReturnNumber}',
+              style: Theme.of(context).textTheme.bodySmall),
+        if (row.returnReason.isNotEmpty)
+          Text(row.returnReason, style: Theme.of(context).textTheme.bodySmall),
+        const SizedBox(height: AppSpacing.md),
+        _whatMoved(context, row),
+        const SizedBox(height: AppSpacing.md),
+        _lines(context, row),
+      ];
 
   /// The three books, and whether each has moved.
   Widget _whatMoved(BuildContext context, SalesReturn row) => Card(
