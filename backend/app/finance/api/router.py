@@ -1,5 +1,6 @@
 """Firm-scoped REST endpoints for finance masters, journals, and reports."""
 
+from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -617,6 +618,8 @@ def list_journal_entries(
     status_value: Annotated[JournalStatusEnum | None, Query(alias="status")] = None,
     journal_type_id: UUID | None = None,
     source_module: str | None = None,
+    journal_from: date | None = None,
+    journal_to: date | None = None,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[JournalEntryResponse]:
     """Return a page of journal entries for the firm in scope.
@@ -636,6 +639,8 @@ def list_journal_entries(
         journal_type_id=journal_type_id,
         source_module=source_module,
         descending=sort_direction == "desc",
+        journal_from=journal_from,
+        journal_to=journal_to,
     )
     return PaginatedResponse(
         data=[JournalEntryResponse.model_validate(row) for row in rows],

@@ -1,11 +1,14 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:agency_desktop/core/api/api_client.dart';
+import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/finance.dart';
 import 'package:agency_desktop/ui/finance/journal_entries_page.dart';
 import 'package:agency_desktop/ui/finance/journal_entry_dialog.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -51,6 +54,8 @@ class _JournalApi extends ApiClient {
     String? accountingPeriodId,
     String? status,
     String? sourceModule,
+    String? journalFrom,
+    String? journalTo,
   }) async {
     sourceModulesAsked.add(sourceModule);
     return PagedResult<JournalEntry>(items: entries, total: entries.length);
@@ -156,15 +161,21 @@ Future<void> _pumpList(
     'JOURNAL_POST',
     'JOURNAL_REVERSE',
   ],
+  bool phase2 = false,
 }) async {
   tester.view.physicalSize = const Size(1400, 900);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
     MaterialApp(
+      // Above the navigator, so a dialog the page opens is phase 2's too.
+      builder: phase2 ? (context, child) => Phase2Scope(child: child!) : null,
       home: Scaffold(
         body: JournalEntriesPage(
           api: api,
+          preferences: DesktopPreferencesService(
+            directory: Directory.systemTemp.createTempSync('journal'),
+          ),
           permissions: _permissionsFor(perms),
           hasActiveFirm: true,
         ),
@@ -462,6 +473,71 @@ void main() {
       expect(find.widgetWithText(FilledButton, 'Post'), findsNothing);
       expect(find.widgetWithText(OutlinedButton, 'Reverse'), findsNothing);
       expect(find.widgetWithText(FilledButton, 'New Entry'), findsNothing);
+    });
+  });
+
+  // Phase 2 (owner, 2026-09-27): a grid with Period, Posted by and Columns;
+  // option C's bar carries Post and Reverse; nothing is picked until the
+  // user picks it.
+  group('phase 2 grid', () {
+    Future<void> select(WidgetTester tester, String reference) async {
+      await tester.tap(find.text(reference).first);
+      // Past the double-click window, which is when a click is a selection.
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a grid, nothing picked, and who posted each entry',
+        (tester) async {
+      await _pumpList(
+        tester,
+        _JournalApi(entries: [
+          _entry(reference: 'JV-001'),
+          _entry(reference: 'SI-9', status: 'POSTED', source: 'sales_invoice'),
+        ]),
+        phase2: true,
+      );
+
+      expect(find.byType(EnterpriseDataGrid<JournalEntry>), findsOneWidget);
+      expect(find.byKey(const ValueKey('selection-bar')), findsNothing);
+      expect(find.text('Sales invoices'), findsWidgets);
+      expect(find.text('By hand'), findsOneWidget);
+      expect(find.byType(DateRangeFilter), findsOneWidget);
+      expect(find.byType(ColumnsButton), findsOneWidget);
+
+      tester.view.physicalSize = const Size(1366, 768);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('the bar posts the picked draft', (tester) async {
+      final _JournalApi api =
+          _JournalApi(entries: [_entry(reference: 'JV-001')]);
+      await _pumpList(tester, api, phase2: true);
+      await select(tester, 'JV-001');
+
+      expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+      // A draft is posted, not reversed.
+      expect(find.byKey(const ValueKey('selection-reverse')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('selection-post')));
+      await tester.pumpAndSettle();
+      expect(api.posted, 'je-JV-001');
+    });
+
+    testWidgets("a document's posted entry offers no Reverse",
+        (tester) async {
+      await _pumpList(
+        tester,
+        _JournalApi(entries: [
+          _entry(reference: 'SI-9', status: 'POSTED', source: 'sales_invoice'),
+        ]),
+        phase2: true,
+      );
+      await select(tester, 'SI-9');
+
+      expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+      expect(find.byKey(const ValueKey('selection-reverse')), findsNothing);
+      expect(find.byKey(const ValueKey('selection-post')), findsNothing);
     });
   });
 }

@@ -432,6 +432,21 @@ def test_journal_entries_can_be_found_and_not_only_created() -> None:
     assert draft_total == 0, "nothing has been posted yet"
     assert drafts == []
 
+    # The Period filter (owner, 2026-09-27): journal dates, inclusive.
+    dated, on_the_tenth = engine.list_entries(
+        firm_id=firm.id,
+        page=1,
+        page_size=10,
+        journal_from=date(2026, 4, 10),
+        journal_to=date(2026, 4, 10),
+    )
+    assert on_the_tenth == 2
+    assert {row.reference_number for row in dated} == {"JV-001", "JV-002"}
+    _, later = engine.list_entries(
+        firm_id=firm.id, page=1, page_size=10, journal_from=date(2026, 4, 11)
+    )
+    assert later == 1
+
     # Another firm's entries are not this firm's, however the list is asked.
     _, foreign = engine.list_entries(firm_id=other.id, page=1, page_size=10)
     assert foreign == 0
