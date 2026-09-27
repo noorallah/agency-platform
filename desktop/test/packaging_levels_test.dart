@@ -16,6 +16,7 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/uom/packaging_levels_page.dart';
+import 'package:agency_desktop/phase2/phase2_scope.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -124,11 +125,13 @@ Json _level() => <String, dynamic>{
     };
 
 Future<void> _pump(WidgetTester tester, _PackagingApi api,
-    {PermissionService? permissions}) async {
+    {PermissionService? permissions, bool phase2 = false}) async {
   tester.view.physicalSize = const Size(1700, 1200);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(MaterialApp(
+    // Above the navigator, so a dialog the page opens is phase 2's too.
+    builder: phase2 ? (context, child) => Phase2Scope(child: child!) : null,
     home: Scaffold(
       body: PackagingLevelsPage(
         api: api,
@@ -282,5 +285,23 @@ void main() {
     // The lookup is still there: reading what a code is needs no authority to
     // change anything.
     expect(find.widgetWithText(FilledButton, 'Look up'), findsOneWidget);
+  });
+
+  testWidgets('phase 2 puts Edit and Delete for the picked level on the bar',
+      (tester) async {
+    // Option C (owner, 2026-09-27): a level's actions were only in the row's
+    // context menu; the bar names the level and offers them.
+    final _PackagingApi api = _PackagingApi(levels: <Json>[_level()]);
+    await _pump(tester, api, phase2: true);
+    await _chooseProduct(tester);
+    expect(find.byKey(const ValueKey('selection-bar')), findsNothing);
+
+    await tester.tap(find.text('CARTON'));
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+    expect(find.byKey(const ValueKey('selection-edit')), findsOneWidget);
+    expect(find.byKey(const ValueKey('selection-delete')), findsOneWidget);
+    expect(tester.takeException(), isNull);
   });
 }

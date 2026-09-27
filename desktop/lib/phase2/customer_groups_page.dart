@@ -219,6 +219,21 @@ class _CustomerGroupsPageState extends State<CustomerGroupsPage> {
             _ => unawaited(_load()),
           },
         ),
+        // Option C (owner, 2026-09-27): the picked group's actions on a bar
+        // that names it, above the grid, as on the document lists.
+        selectionBar: true,
+        selection: selected == null
+            ? null
+            : SelectionSummary.record(
+                name: selected.name,
+                facts: [
+                  selected.code,
+                  if (_rate(selected.defaultDiscountPercent).isNotEmpty)
+                    '${_rate(selected.defaultDiscountPercent)}%',
+                ],
+                status: selected.isActive ? 'ACTIVE' : 'INACTIVE',
+                onClear: () => setState(() => _selectedId = null),
+              ),
         primaryContent: Column(children: [
           SummaryCards(children: [
             SummaryCount(label: 'Groups', value: '${_groups.length}'),

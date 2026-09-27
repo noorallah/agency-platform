@@ -324,6 +324,17 @@ class _GeographyMasterPageState extends State<GeographyMasterPage> {
 
     return ManagementWorkspaceLayout(
       toolbar: toolbar,
+      // Option C (owner, 2026-09-27): the picked place's actions on a bar
+      // that names it, above the grid, as on the document lists.
+      selectionBar: true,
+      selection: _selected == null
+          ? null
+          : SelectionSummary.record(
+              name: _selected!.name,
+              facts: [if (_level.hasCode) _selected!.code],
+              status: _selected!.isActive ? 'ACTIVE' : 'INACTIVE',
+              onClear: () => setState(() => _selected = null),
+            ),
       searchPanel: searchPanel,
       filterPanel: breadcrumb,
       primaryContent: content,
