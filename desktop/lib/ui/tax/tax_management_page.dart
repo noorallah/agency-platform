@@ -262,7 +262,13 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
           hintText: _subtitle,
         ),
         primaryContent: _buildContent(),
-        detailsPanel: _hasSelection ? _summaryPanel() : null,
+        // Phase 2 (option C, owner 2026-09-27): the picked record named on a
+        // bar above the grid, with Open and Delete, rather than a side pane
+        // that said only which section this is.
+        selectionBar: true,
+        selection: Phase2Scope.of(context) ? _selectionSummary() : null,
+        detailsPanel:
+            !Phase2Scope.of(context) && _hasSelection ? _summaryPanel() : null,
         statusBar: WorkspaceStatusBar(
           total: _total,
           selected: _hasSelection,
@@ -326,14 +332,114 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
         _ => false,
       };
 
+  /// The picked record as the selection bar names it, or null.
+  SelectionSummary? _selectionSummary() {
+    void clear() => setState(() {
+          _selectedSystem = null;
+          _selectedComponent = null;
+          _selectedProfile = null;
+          _selectedCountryMapping = null;
+          _selectedMigrationMapping = null;
+          _selectedRule = null;
+        });
+    SelectionSummary named(
+      String name,
+      List<String> facts,
+      String status,
+    ) =>
+        SelectionSummary.record(
+          name: name,
+          facts: facts,
+          status: status,
+          onClear: clear,
+        );
+    String state(bool deleted, String status) => deleted ? 'DELETED' : status;
+    return switch (widget.section) {
+      TaxManagementSection.systems when _selectedSystem != null => named(
+          _selectedSystem!.displayName,
+          [_selectedSystem!.code],
+          state(_selectedSystem!.isDeleted, _selectedSystem!.status),
+        ),
+      TaxManagementSection.components when _selectedComponent != null =>
+        named(
+          _selectedComponent!.label,
+          [_selectedComponent!.code, '${_selectedComponent!.percentage}%'],
+          state(_selectedComponent!.isDeleted, _selectedComponent!.status),
+        ),
+      TaxManagementSection.profiles when _selectedProfile != null => named(
+          _selectedProfile!.label,
+          [
+            _selectedProfile!.code,
+            'Components: ${_selectedProfile!.components.length}',
+          ],
+          state(_selectedProfile!.isDeleted, _selectedProfile!.status),
+        ),
+      TaxManagementSection.countryMapping
+          when _selectedCountryMapping != null =>
+        named(
+          _selectedCountryMapping!.countryId,
+          [_selectedCountryMapping!.taxSystemId],
+          state(
+            _selectedCountryMapping!.isDeleted,
+            _selectedCountryMapping!.status,
+          ),
+        ),
+      TaxManagementSection.migrationMapping
+          when _selectedMigrationMapping != null =>
+        named(
+          _selectedMigrationMapping!.legacyTaxName,
+          [_selectedMigrationMapping!.legacyTaxCode],
+          '',
+        ),
+      TaxManagementSection.rules when _selectedRule != null => named(
+          _selectedRule!.name,
+          [
+            _selectedRule!.code,
+            'Priority: ${_selectedRule!.priority}',
+            'v${_selectedRule!.versionNumber}',
+          ],
+          state(_selectedRule!.isDeleted, _selectedRule!.status),
+        ),
+      _ => null,
+    };
+  }
+
+  /// Open the picked record, as a double-click does.
+  void _openSelected() {
+    switch (widget.section) {
+      case TaxManagementSection.systems:
+        if (_selectedSystem != null) _openSystemEdit(_selectedSystem!);
+      case TaxManagementSection.components:
+        if (_selectedComponent != null) _openComponentEdit(_selectedComponent!);
+      case TaxManagementSection.profiles:
+        if (_selectedProfile != null) _openProfileEdit(_selectedProfile!);
+      case TaxManagementSection.countryMapping:
+        if (_selectedCountryMapping != null) {
+          _openCountryMappingEdit(_selectedCountryMapping!);
+        }
+      case TaxManagementSection.migrationMapping:
+        if (_selectedMigrationMapping != null) {
+          _openMigrationMappingEdit(_selectedMigrationMapping!);
+        }
+      case TaxManagementSection.rules:
+        if (_selectedRule != null) _openRuleEdit(_selectedRule!);
+      default:
+        break;
+    }
+  }
+
   Widget _buildToolbar() => WorkspaceToolbar(
-        actions: const [
+        actions: [
+          // Phase 2 offers Open on the selection bar; phase 1 opened a row
+          // by double-click only.
+          if (Phase2Scope.of(context)) ToolbarAction.view,
           ToolbarAction.newItem,
           ToolbarAction.delete,
           ToolbarAction.settings,
           ToolbarAction.refresh,
         ],
         isVisible: (action) => switch (action) {
+          ToolbarAction.view => true,
           ToolbarAction.newItem => _canCreateCurrent,
           ToolbarAction.delete => _canDeleteCurrent,
           ToolbarAction.settings =>
@@ -344,6 +450,7 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
         isEnabled: (action) =>
             !_loading &&
             switch (action) {
+              ToolbarAction.view => _hasSelection,
               ToolbarAction.newItem => _canCreateCurrent,
               ToolbarAction.delete => _canDeleteCurrent,
               ToolbarAction.settings =>
@@ -366,6 +473,9 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
         ],
         onAction: (action) {
           switch (action) {
+            case ToolbarAction.view:
+              _openSelected();
+              break;
             case ToolbarAction.newItem:
               _openCreate();
               break;
