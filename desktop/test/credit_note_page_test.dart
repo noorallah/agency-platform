@@ -6,13 +6,15 @@
 // is silent, so the screen says so in words.
 
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:agency_desktop/core/api/api_client.dart';
+import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/sales/credit_note_page.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
-    show Phase2Scope;
+    show ColumnsButton, Phase2Scope;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -174,6 +176,11 @@ class _CreditNoteApi extends ApiClient {
   }
 }
 
+/// A fresh folder for the grid's remembered columns.
+DesktopPreferencesService _preferences() => DesktopPreferencesService(
+      directory: Directory.systemTemp.createTempSync('credit-notes'),
+    );
+
 /// One draft note against an invoice, crediting 100 and reversing 18 of tax.
 Json _note() => <String, dynamic>{
       'id': 'cn-1',
@@ -206,6 +213,7 @@ Future<void> _pump(
     home: Scaffold(
       body: CreditNotePage(
         api: api,
+        preferences: _preferences(),
         permissions: permissions ?? _permissions(),
         hasActiveFirm: true,
       ),
@@ -287,6 +295,7 @@ void main() {
       home: Scaffold(
         body: CreditNotePage(
           api: api,
+          preferences: _preferences(),
           permissions: _permissions(),
           hasActiveFirm: true,
         ),
@@ -376,6 +385,7 @@ void main() {
       home: Scaffold(
         body: CreditNotePage(
           api: api,
+          preferences: _preferences(),
           permissions: _permissions(),
           hasActiveFirm: true,
         ),
@@ -404,5 +414,62 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.raised?['sales_invoice_id'], 'inv-1');
     expect(api.raised?['lines'][0]['sales_invoice_line_id'], 'inv-1-line-1');
+  });
+
+  // Phase 2 (owner, 2026-09-27): option C's bar carries Approve and Cancel,
+  // Columns and the Period sit after the search, and a double-click reads.
+  group('phase 2 grid', () {
+    Future<_CreditNoteApi> open(WidgetTester tester) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final _CreditNoteApi api = _CreditNoteApi(notes: <Json>[_note()]);
+      await tester.pumpWidget(MaterialApp(
+        builder: (context, child) => Phase2Scope(child: child!),
+        home: Scaffold(
+          body: CreditNotePage(
+            api: api,
+            preferences: _preferences(),
+            permissions: _permissions(),
+            hasActiveFirm: true,
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      return api;
+    }
+
+    testWidgets('the bar approves the picked note, sending its version',
+        (tester) async {
+      final _CreditNoteApi api = await open(tester);
+      expect(find.byType(ColumnsButton), findsOneWidget);
+      expect(find.text('SI-2026-0009'), findsOneWidget);
+
+      await tester.tap(find.text('CN-2026-0001').first);
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+      expect(find.textContaining('Kumar Stores ·'), findsOneWidget);
+
+      await tester.tap(find.byKey(const ValueKey('selection-approve')));
+      await tester.pumpAndSettle();
+      expect(api.sentVersion, 4);
+
+      tester.view.physicalSize = const Size(1366, 768);
+      await tester.pumpAndSettle();
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('double-clicking a note reads it', (tester) async {
+      await open(tester);
+      final Finder row = find.text('CN-2026-0001').first;
+      await tester.tap(row);
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(row);
+      await tester.pumpAndSettle();
+
+      expect(find.byType(AlertDialog), findsOneWidget);
+      expect(find.textContaining('Against SI-2026-0009'), findsOneWidget);
+    });
   });
 }

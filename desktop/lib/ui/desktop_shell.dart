@@ -1800,6 +1800,7 @@ class _DesktopShellState extends State<DesktopShell> {
         AppModule.sales => _SalesWorkspace(
             key: ValueKey('sales-${widget.session.firmContextVersion}'),
             api: api,
+            preferences: widget.preferences,
             permissions: widget.permissions,
             router: _router,
           ),
@@ -2534,11 +2535,13 @@ class _SalesWorkspace extends StatefulWidget {
   const _SalesWorkspace({
     super.key,
     required this.api,
+    required this.preferences,
     required this.permissions,
     required this.router,
   });
 
   final ApiClient api;
+  final DesktopPreferencesService preferences;
   final PermissionService permissions;
   final WorkspaceRouter router;
 
@@ -2621,6 +2624,7 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
         ),
       'credit-notes' => CreditNotePage(
           api: widget.api,
+          preferences: widget.preferences,
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
         ),
