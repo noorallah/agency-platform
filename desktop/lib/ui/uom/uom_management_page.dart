@@ -161,14 +161,26 @@ class _UomManagementPageState extends State<UomManagementPage> {
       // Phase 2: Refresh as the line's icon and "+ New" last, as every list.
       toolbar: phase2
           ? WorkspaceToolbar(
+              // Edit and Delete were right-click only, and the selection bar
+              // had nothing to offer (review, 2026-09-27).
               actions: [
+                if (_canCreateCurrent) ToolbarAction.edit,
+                if (_canCreateCurrent) ToolbarAction.delete,
                 ToolbarAction.refresh,
                 if (_canCreateCurrent) ToolbarAction.newItem,
               ],
-              isEnabled: (_) => !_loading,
-              onAction: (action) => action == ToolbarAction.newItem
-                  ? _openCreateDialog()
-                  : _load(),
+              isEnabled: (action) => switch (action) {
+                ToolbarAction.edit ||
+                ToolbarAction.delete =>
+                  !_loading && _selectedId != null,
+                _ => !_loading,
+              },
+              onAction: (action) => switch (action) {
+                ToolbarAction.newItem => _openCreateDialog(),
+                ToolbarAction.edit => _actOnSelected(delete: false),
+                ToolbarAction.delete => _actOnSelected(delete: true),
+                _ => _load(),
+              },
             )
           : Wrap(
               spacing: 8,
@@ -206,6 +218,45 @@ class _UomManagementPageState extends State<UomManagementPage> {
       statusBar:
           WorkspaceStatusBar(total: _total, selected: _selectedId != null),
     );
+  }
+
+  /// Edit or delete the picked row of whichever section is on show, as the
+  /// row's context menu does.
+  Future<void> _actOnSelected({required bool delete}) async {
+    final String? id = _selectedId;
+    if (id == null) return;
+    T? pick<T>(List<T> rows, String Function(T) idOf) =>
+        rows.where((row) => idOf(row) == id).firstOrNull;
+    switch (widget.section) {
+      case UomManagementSection.uoms:
+        final UomRecord? row = pick(_uoms, (r) => r.id);
+        if (row == null) return;
+        delete ? await _deleteUom(row) : await _openUomDialog(existing: row);
+      case UomManagementSection.uomGroups:
+        final UomGroupRecord? row = pick(_groups, (r) => r.id);
+        if (row == null) return;
+        delete
+            ? await _deleteGroup(row)
+            : await _openGroupDialog(existing: row);
+      case UomManagementSection.packagingTypes:
+        final PackagingTypeRecord? row = pick(_packaging, (r) => r.id);
+        if (row == null) return;
+        delete
+            ? await _deletePackaging(row)
+            : await _openPackagingDialog(existing: row);
+      case UomManagementSection.conversionRules:
+        final ConversionRuleRecord? row = pick(_conversions, (r) => r.id);
+        if (row == null) return;
+        delete
+            ? await _deleteConversion(row)
+            : await _openConversionDialog(existing: row);
+      case UomManagementSection.industryTemplates:
+        final IndustryTemplateRecord? row = pick(_templates, (r) => r.id);
+        if (row == null) return;
+        delete
+            ? await _deleteTemplate(row)
+            : await _openTemplateDialog(existing: row);
+    }
   }
 
   bool get _canCreateCurrent => switch (widget.section) {
@@ -257,6 +308,13 @@ class _UomManagementPageState extends State<UomManagementPage> {
       cells: (row) =>
           [row.code, row.name, row.symbol, row.dimension, row.status],
       onSelect: (row) => setState(() => _selectedId = row.id),
+      // Phase 2: double-click opens the row to edit, as every list.
+      onOpen: Phase2Scope.of(context) && _canCreateCurrent
+          ? (row) {
+              setState(() => _selectedId = row.id);
+              _actOnSelected(delete: false);
+            }
+          : null,
       onPageChanged: (_) {},
       contextActions: _catalogueActions,
       onContextAction: (action, row) {
@@ -286,6 +344,13 @@ class _UomManagementPageState extends State<UomManagementPage> {
       id: (row) => row.id,
       cells: (row) => [row.code, row.name, row.status],
       onSelect: (row) => setState(() => _selectedId = row.id),
+      // Phase 2: double-click opens the row to edit, as every list.
+      onOpen: Phase2Scope.of(context) && _canCreateCurrent
+          ? (row) {
+              setState(() => _selectedId = row.id);
+              _actOnSelected(delete: false);
+            }
+          : null,
       onPageChanged: (_) {},
       contextActions: _catalogueActions,
       onContextAction: (action, row) {
@@ -315,6 +380,13 @@ class _UomManagementPageState extends State<UomManagementPage> {
       id: (row) => row.id,
       cells: (row) => [row.code, row.name, row.status],
       onSelect: (row) => setState(() => _selectedId = row.id),
+      // Phase 2: double-click opens the row to edit, as every list.
+      onOpen: Phase2Scope.of(context) && _canCreateCurrent
+          ? (row) {
+              setState(() => _selectedId = row.id);
+              _actOnSelected(delete: false);
+            }
+          : null,
       onPageChanged: (_) {},
       contextActions: _catalogueActions,
       onContextAction: (action, row) {
@@ -358,6 +430,13 @@ class _UomManagementPageState extends State<UomManagementPage> {
         row.status
       ],
       onSelect: (row) => setState(() => _selectedId = row.id),
+      // Phase 2: double-click opens the row to edit, as every list.
+      onOpen: Phase2Scope.of(context) && _canCreateCurrent
+          ? (row) {
+              setState(() => _selectedId = row.id);
+              _actOnSelected(delete: false);
+            }
+          : null,
       onPageChanged: (offset) =>
           _load(requestedPage: (offset ~/ _rowsPerPage) + 1),
       contextActions: const [
@@ -392,6 +471,13 @@ class _UomManagementPageState extends State<UomManagementPage> {
       id: (row) => row.id,
       cells: (row) => [row.code, row.name, row.industryType, row.status],
       onSelect: (row) => setState(() => _selectedId = row.id),
+      // Phase 2: double-click opens the row to edit, as every list.
+      onOpen: Phase2Scope.of(context) && _canCreateCurrent
+          ? (row) {
+              setState(() => _selectedId = row.id);
+              _actOnSelected(delete: false);
+            }
+          : null,
       onPageChanged: (_) {},
       contextActions: _catalogueActions,
       onContextAction: (action, row) {

@@ -25,6 +25,7 @@ import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/sales_territory.dart';
 import 'package:agency_desktop/ui/sales/bulk_territory_actions_dialog.dart';
 import 'package:agency_desktop/ui/sales/sales_territory_management_page.dart';
+import 'package:agency_desktop/phase2/phase2_scope.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -195,11 +196,14 @@ Future<void> _pump(
   WidgetTester tester,
   _BulkApi api, {
   PermissionService? permissions,
+  bool phase2 = false,
 }) async {
   tester.view.physicalSize = const Size(1600, 1200);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(MaterialApp(
+    // Above the navigator, so a dialog the page opens is phase 2's too.
+    builder: phase2 ? (context, child) => Phase2Scope(child: child!) : null,
     home: Scaffold(
       body: SalesTerritoryManagementPage(
         api: api,
@@ -369,5 +373,16 @@ void main() {
     expect(find.text('RT03 - East Beat'), findsOneWidget);
     expect(find.text('RT01 - North Beat'), findsNothing);
     expect(find.text('RT02 - South Beat'), findsNothing);
+  });
+
+  testWidgets('phase 2 counts the ticked rows on the bar with Bulk actions',
+      (tester) async {
+    // Review 2026-09-27: the bulk bar sat in the hidden "+ filter" slot.
+    await _pump(tester, _BulkApi(), phase2: true);
+    await _tick(tester, 2);
+    expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+    expect(find.textContaining('2 ticked'), findsOneWidget);
+    expect(
+        find.byKey(const ValueKey('selection-bulk-actions')), findsOneWidget);
   });
 }

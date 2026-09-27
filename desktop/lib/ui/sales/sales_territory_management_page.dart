@@ -771,6 +771,29 @@ class _SalesTerritoryManagementPageState
             break;
         }
       },
+      // Phase 2 (review, 2026-09-27): the tree -- the side pane in phase 1
+      // -- opens from the line, and the ticked rows' bulk actions ride the
+      // selection bar rather than the hidden "+ filter" slot.
+      trailing: Phase2Scope.of(context)
+          ? [
+              OutlinedButton.icon(
+                key: const ValueKey('territory-tree'),
+                onPressed: _openTreeWindow,
+                icon: const Icon(Icons.account_tree_outlined, size: 16),
+                label: const Text('Tree'),
+              ),
+            ]
+          : const [],
+      commands: Phase2Scope.of(context)
+          ? [
+              ToolbarCommand(
+                id: 'bulk-actions',
+                label: 'Bulk actions',
+                icon: Icons.playlist_add_check,
+                onPressed: _bulkIds.isEmpty ? null : _bulkActions,
+              ),
+            ]
+          : const [],
     );
 
     final Widget? bulkBar = _bulkIds.isEmpty
@@ -922,20 +945,28 @@ class _SalesTerritoryManagementPageState
         // Option C (owner, 2026-09-27): the picked territory's actions on a bar
         // that names it, above the grid, as on the document lists.
         selectionBar: true,
-        selection: _selected == null
-            ? null
-            : SelectionSummary.record(
-                name: _selected!.name,
-                facts: [_selected!.code, _selected!.hierarchyLevelName],
-                status: _selected!.isDeleted ? 'DELETED' : _selected!.status,
-                onClear: () => setState(() => _selected = null),
-              ),
+        selection: _bulkIds.isNotEmpty
+            ? SelectionSummary(
+                title: '${_bulkIds.length} ticked',
+                onClear: () => setState(() => _bulkIds = <String>{}),
+              )
+            : _selected == null
+                ? null
+                : SelectionSummary.record(
+                    name: _selected!.name,
+                    facts: [_selected!.code, _selected!.hierarchyLevelName],
+                    status:
+                        _selected!.isDeleted ? 'DELETED' : _selected!.status,
+                    onClear: () => setState(() => _selected = null),
+                  ),
         searchPanel: searchPanel,
         // Sits between the filters and the grid so the count and the action are
         // next to the rows they apply to, and vanishes when nothing is ticked.
-        filterPanel: bulkBar,
+        filterPanel: Phase2Scope.of(context) ? null : bulkBar,
         primaryContent: primaryContent,
-        detailsPanel: _selected == null ? null : _detailsPanel(),
+        detailsPanel: Phase2Scope.of(context) || _selected == null
+            ? null
+            : _detailsPanel(),
         statusBar: WorkspaceStatusBar(
           total: _total,
           selected: _selected != null,

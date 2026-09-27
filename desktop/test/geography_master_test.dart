@@ -18,6 +18,7 @@ import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/geography.dart';
 import 'package:agency_desktop/ui/sales/geography_master_page.dart';
+import 'package:agency_desktop/phase2/phase2_scope.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -116,11 +117,14 @@ Future<void> _pump(
   WidgetTester tester,
   _GeoApi api, {
   bool platformAdmin = false,
+  bool phase2 = false,
 }) async {
   tester.view.physicalSize = const Size(1600, 1200);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(MaterialApp(
+    // Above the navigator, so a dialog the page opens is phase 2's too.
+    builder: phase2 ? (context, child) => Phase2Scope(child: child!) : null,
     home: Scaffold(
       body: GeographyMasterPage(
         api: api,
@@ -212,5 +216,23 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.textContaining('still use this country'), findsOneWidget);
+  });
+
+  testWidgets('phase 2 keeps the way back up on the page line',
+      (tester) async {
+    // Review 2026-09-27: the trail sat under "+ filter", out of sight.
+    final api = _GeoApi();
+    await _pump(tester, api, phase2: true);
+    final Finder row = find.text('India').first;
+    await tester.tap(row);
+    await tester.pump(const Duration(milliseconds: 40));
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+
+    final Finder trail = find.byKey(const ValueKey('geo-trail'));
+    expect(trail, findsOneWidget);
+    await tester.tap(find.descendant(of: trail, matching: find.text('India')));
+    await tester.pumpAndSettle();
+    expect(api.requested.last, startsWith('countries'));
   });
 }

@@ -209,6 +209,7 @@ class _PackagingLevelsPageState extends State<PackagingLevelsPage> {
         message: 'Packaging is recorded per firm, per product.',
       );
     }
+    final bool phase2 = Phase2Scope.of(context);
     return ManagementWorkspaceLayout(
       // Phase 2: Refresh as the line's icon and "+ New" last, as every list.
       toolbar: Phase2Scope.of(context)
@@ -268,14 +269,30 @@ class _PackagingLevelsPageState extends State<PackagingLevelsPage> {
               status: _selectedLevel!.status,
               onClear: () => setState(() => _selectedId = null),
             ),
-      searchPanel: _scanBox(),
+      // Phase 2 (review, 2026-09-27): the scan is the line's search, the
+      // product the line's picker, and what a scan found the status bar's
+      // message -- nothing above the grid but the page line (4.5).
+      searchPanel: phase2
+          ? SearchFilterPanel(
+              controller: _scan,
+              hintText: 'Scan or type a code',
+              onSearch: (_) => _lookup(),
+            )
+          : _scanBox(),
+      lineChips: phase2
+          ? [SizedBox(width: 300, child: _picker(compact: true))]
+          : const [],
+      notice: 'Packaging is recorded per product. A scan finds any level of '
+          "any product in this firm, or a product's own barcode.",
       primaryContent: _loading
           ? const Center(child: CircularProgressIndicator())
           : Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                _picker(),
-                const SizedBox(height: AppSpacing.md),
+                if (!phase2) ...[
+                  _picker(),
+                  const SizedBox(height: AppSpacing.md),
+                ],
                 if (_error != null)
                   Padding(
                     padding: const EdgeInsets.only(bottom: AppSpacing.sm),
@@ -291,16 +308,31 @@ class _PackagingLevelsPageState extends State<PackagingLevelsPage> {
       statusBar: WorkspaceStatusBar(
         total: _levels.length,
         selected: _selectedId != null,
+        message: phase2 ? _scanMessage : null,
       ),
     );
   }
 
-  Widget _picker() => DropdownButtonFormField<String>(
+  /// What the last scan found, or why it found nothing.
+  String? get _scanMessage {
+    final BarcodeLookup? hit = _scanned;
+    if (_scanError != null) return _scanError;
+    if (hit == null) return null;
+    return '${hit.code} is ${hit.productCode} ${hit.productName}'
+        '${hit.levelName.isEmpty ? '' : ' (${hit.levelName})'}'
+        ' — one scan is ${hit.baseQuantity} base units.';
+  }
+
+  Widget _picker({bool compact = false}) => DropdownButtonFormField<String>(
+        key: compact ? const ValueKey('packaging-product') : null,
         initialValue: _product?.id,
-        decoration: const InputDecoration(
-          labelText: 'Product',
-          helperText: 'Packaging is recorded per product.',
-        ),
+        isExpanded: compact,
+        decoration: compact
+            ? const InputDecoration(isDense: true, hintText: 'Choose a product')
+            : const InputDecoration(
+                labelText: 'Product',
+                helperText: 'Packaging is recorded per product.',
+              ),
         items: [
           for (final Product item in _products)
             DropdownMenuItem(
