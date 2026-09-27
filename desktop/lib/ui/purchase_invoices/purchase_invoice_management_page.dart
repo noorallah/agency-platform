@@ -311,17 +311,17 @@ class _PurchaseInvoiceManagementPageState
         toolbar: _buildToolbar(),
         searchPanel: SearchFilterPanel(
           controller: _search,
-          hintText: 'Search invoice number, supplier invoice...',
+          hintText: 'Search invoice number, supplier invoice or supplier',
           onSearch: (_) => _load(requestedPage: 1),
         ),
         // Option C (owner, 2026-09-27): the invoice's actions on a bar that
-        // names it, above the grid. No vendor name rides on the record or
-        // the grid, so the bar names only the number, status and total.
+        // names it and its supplier, above the grid.
         selectionBar: true,
         selection: _selected == null
             ? null
             : SelectionSummary.document(
                 number: _selected!.invoiceNumber,
+                party: _selected!.vendorName,
                 status: _selected!.status,
                 total: _selected!.grandTotal,
                 onClear: () => setState(() => _selected = null),
@@ -495,6 +495,7 @@ class _PurchaseInvoiceManagementPageState
   Widget _buildInvoiceGrid() => EnterpriseDataGrid<_PurchaseInvoiceRecord>(
         columns: const [
           GridColumn(key: 'number', label: 'Invoice Number'),
+          GridColumn(key: 'vendor', label: 'Supplier'),
           GridColumn(key: 'supplier', label: 'Supplier Invoice'),
           GridColumn(key: 'date', label: 'Invoice Date'),
           GridColumn(key: 'status', label: 'Status'),
@@ -505,6 +506,7 @@ class _PurchaseInvoiceManagementPageState
         selectedId: _selected?.id,
         cells: (item) => [
           item.invoiceNumber,
+          item.vendorName,
           item.supplierInvoiceNumber,
           item.invoiceDate,
           item.status,
@@ -648,6 +650,7 @@ class _PurchaseInvoiceRecord {
     required this.businessProfileId,
     required this.branchId,
     required this.vendorId,
+    this.vendorName = '',
     required this.currencyCode,
     required this.exchangeRate,
     required this.paymentTerms,
@@ -669,6 +672,9 @@ class _PurchaseInvoiceRecord {
   final String businessProfileId;
   final String branchId;
   final String vendorId;
+
+  /// Whose document it is, so the list can say so (owner, 2026-09-27).
+  final String vendorName;
   final String currencyCode;
   final String exchangeRate;
   final String paymentTerms;
@@ -698,6 +704,7 @@ class _PurchaseInvoiceRecord {
       businessProfileId: stringValue(json['business_profile_id']),
       branchId: stringValue(json['branch_id']),
       vendorId: stringValue(json['vendor_id']),
+      vendorName: stringValue(json['vendor_name']),
       currencyCode: stringValue(json['currency_code']),
       exchangeRate: stringValue(json['exchange_rate']),
       paymentTerms: stringValue(json['payment_terms']),

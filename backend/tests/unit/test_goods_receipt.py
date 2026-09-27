@@ -2003,3 +2003,37 @@ def test_the_dated_receipt_reports_take_a_window_and_a_page() -> None:
         "/api/v1/goods-receipts/reports/rejected",
         "/api/v1/goods-receipts/reports/damaged",
     )
+
+
+def test_the_list_finds_a_receipt_by_its_supplier_and_names_them() -> None:
+    """Search by the supplier as well as the receipt; each row says whose it is.
+
+    The owner asked the buying lists to name the supplier and be searchable
+    by one, as the selling lists are by the customer (2026-09-27).
+    """
+    from app.goods_receipt.schemas import GoodsReceiptListFilters
+
+    session = _session_factory()()
+    fixture = _Fixture(session, "GRNV")
+    service = GoodsReceiptService(session)
+    receipt = service.create_receipt(
+        fixture.receipt_payload("4"),
+        firm_id=fixture.firm.id,
+        actor_id=fixture.actor_id,
+    )
+
+    for search, expected in ((fixture.vendor.code, 1), ("nobody by this name", 0)):
+        _, found = service.list_receipts(
+            firm_scope=fixture.firm.id,
+            filters=GoodsReceiptListFilters(),
+            page=1,
+            page_size=20,
+            search=search,
+            sort_by="created_at",
+            descending=True,
+        )
+        assert found == expected, search
+
+    response = service.receipt_response(receipt)
+    assert response.vendor_name == fixture.vendor.display_name
+    assert response.vendor_code == fixture.vendor.code

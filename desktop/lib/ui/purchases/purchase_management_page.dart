@@ -1144,7 +1144,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
             ? SearchFilterPanel(
                 controller: _search,
                 focusNode: _searchFocus,
-                hintText: 'Search PO number, remarks, vendor notes, reference',
+                hintText: 'Search PO number, supplier, remarks or reference',
                 onSearch: _runSearch,
               )
             : _buildSearchPanel(),
@@ -1795,7 +1795,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
   Widget _buildSearchPanel() => SearchFilterPanel(
         controller: _search,
         focusNode: _searchFocus,
-        hintText: 'Search PO number, remarks, vendor notes, or reference',
+        hintText: 'Search PO number, supplier, remarks or reference',
         onSearch: _runSearch,
         filters: [
           if (_recentSearches.isNotEmpty)

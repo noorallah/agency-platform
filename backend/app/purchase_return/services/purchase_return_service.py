@@ -15,7 +15,12 @@ from sqlalchemy.orm import Session
 from app.batch_serial.services import BatchSerialService
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
-from app.common.report_names import branch_names, vendor_names, warehouse_names
+from app.common.report_names import (
+    branch_names,
+    vendor_names,
+    vendors_matching,
+    warehouse_names,
+)
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
@@ -193,6 +198,7 @@ class PurchaseReturnService(TransactionalDocumentService):
                 PurchaseReturn.supplier_return_number.ilike(token),
                 PurchaseReturn.reference_number.ilike(token),
                 PurchaseReturn.remarks.ilike(token),
+                PurchaseReturn.vendor_id.in_(vendors_matching(token)),
             )
             statement = statement.where(condition)
             count = count.where(condition)
@@ -992,10 +998,13 @@ class PurchaseReturnService(TransactionalDocumentService):
             supplier_return_number=row.supplier_return_number,
             current_id=row.id,
         )
+        vendor = self._session.get(Vendor, row.vendor_id)
         return PurchaseReturnResponse(
             id=row.id,
             firm_id=row.firm_id,
             vendor_id=row.vendor_id,
+            vendor_name=vendor.display_name if vendor else "",
+            vendor_code=vendor.code if vendor else "",
             branch_id=row.branch_id,
             warehouse_id=row.warehouse_id,
             business_profile_id=row.business_profile_id,

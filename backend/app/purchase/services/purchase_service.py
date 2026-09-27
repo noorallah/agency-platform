@@ -18,6 +18,7 @@ from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import platform_reader
+from app.common.report_names import vendors_matching
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
@@ -185,6 +186,7 @@ class PurchaseService(TransactionalDocumentService):
                 PurchaseOrder.reference_number.ilike(term),
                 PurchaseOrder.external_reference.ilike(term),
                 PurchaseOrder.remarks.ilike(term),
+                PurchaseOrder.vendor_id.in_(vendors_matching(term)),
             )
             statement = statement.where(condition)
             count = count.where(condition)

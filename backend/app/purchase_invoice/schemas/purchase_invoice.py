@@ -274,6 +274,10 @@ class PurchaseInvoiceResponse(PurchaseInvoiceSchema):
     id: UUID
     firm_id: UUID
     vendor_id: UUID
+    #: Whose document it is, so the list can say so (owner, 2026-09-27).
+    #: Empty for a supplier since removed.
+    vendor_name: str = ""
+    vendor_code: str = ""
     branch_id: UUID
     business_profile_id: UUID | None
     invoice_number: str

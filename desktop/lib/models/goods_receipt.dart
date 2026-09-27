@@ -78,9 +78,8 @@ class GoodsReceiptLine {
         id: stringValue(json['id']),
         lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
         purchaseOrderLineId: stringValue(json['purchase_order_line_id']),
-        purchaseOrderLineNumber: (json['purchase_order_line_number'] as num?)
-                ?.toInt() ??
-            0,
+        purchaseOrderLineNumber:
+            (json['purchase_order_line_number'] as num?)?.toInt() ?? 0,
         productId: stringValue(json['product_id']),
         description: stringValue(json['description']),
         orderedQuantity: stringValue(json['ordered_quantity']),
@@ -203,6 +202,8 @@ class GoodsReceiptRecord {
     required this.purchaseOrderId,
     required this.purchaseOrderNumber,
     required this.vendorId,
+    this.vendorName = '',
+    this.vendorCode = '',
     required this.branchId,
     required this.warehouseId,
     required this.receivedById,
@@ -249,6 +250,10 @@ class GoodsReceiptRecord {
   final String purchaseOrderId;
   final String purchaseOrderNumber;
   final String vendorId;
+
+  /// Whose receipt it is, so the list can say so (owner, 2026-09-27).
+  final String vendorName;
+  final String vendorCode;
   final String branchId;
   final String warehouseId;
   final String receivedById;
@@ -290,6 +295,8 @@ class GoodsReceiptRecord {
         purchaseOrderId: stringValue(json['purchase_order_id']),
         purchaseOrderNumber: stringValue(json['purchase_order_number']),
         vendorId: stringValue(json['vendor_id']),
+        vendorName: stringValue(json['vendor_name']),
+        vendorCode: stringValue(json['vendor_code']),
         branchId: stringValue(json['branch_id']),
         warehouseId: stringValue(json['warehouse_id']),
         receivedById: stringValue(json['received_by_id']),
@@ -323,15 +330,18 @@ class GoodsReceiptRecord {
         updatedAt: stringValue(json['updated_at']),
         lines: (json['lines'] as List? ?? const [])
             .whereType<Map>()
-            .map((item) => GoodsReceiptLine.fromJson(Map<String, dynamic>.from(item)))
+            .map((item) =>
+                GoodsReceiptLine.fromJson(Map<String, dynamic>.from(item)))
             .toList(growable: false),
         attachments: (json['attachments'] as List? ?? const [])
             .whereType<Map>()
-            .map((item) => GoodsReceiptAttachment.fromJson(Map<String, dynamic>.from(item)))
+            .map((item) => GoodsReceiptAttachment.fromJson(
+                Map<String, dynamic>.from(item)))
             .toList(growable: false),
         notes: (json['notes'] as List? ?? const [])
             .whereType<Map>()
-            .map((item) => GoodsReceiptNote.fromJson(Map<String, dynamic>.from(item)))
+            .map((item) =>
+                GoodsReceiptNote.fromJson(Map<String, dynamic>.from(item)))
             .toList(growable: false),
         duplicateWarning: stringValue(json['duplicate_warning']),
       );

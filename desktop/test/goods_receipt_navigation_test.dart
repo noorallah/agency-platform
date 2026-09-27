@@ -40,6 +40,7 @@ Json _receiptJson(String number, String status) => <String, dynamic>{
       'firm_id': 'firm-1',
       'grn_number': number,
       'purchase_order_number': 'PO-0001',
+      'vendor_name': 'Sri Ganesh Traders',
       'receipt_date': '2026-08-02',
       'status': status,
       'grand_total': '590.00',
@@ -258,6 +259,9 @@ void main() {
       expect(find.byType(EnterpriseDocumentLines), findsNothing);
       expect(find.byType(EnterpriseTimeline), findsNothing);
       expect(find.text('GRN-0001'), findsWidgets);
+      // Each row names its supplier (owner, 2026-09-27).
+      expect(find.text('Supplier'), findsOneWidget);
+      expect(find.text('Sri Ganesh Traders'), findsWidgets);
     });
 
     testWidgets('double-clicking a row opens the document', (tester) async {

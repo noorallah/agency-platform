@@ -457,17 +457,17 @@ class _GoodsReceiptManagementPageState
         toolbar: _buildToolbar(),
         searchPanel: SearchFilterPanel(
           controller: _search,
-          hintText: 'Search GRN number, purchase order...',
+          hintText: 'Search GRN number, purchase order or supplier',
           onSearch: (_) => _load(requestedPage: 1),
         ),
         // Option C (owner, 2026-09-27): the receipt's actions on a bar that
-        // names it, above the grid. No vendor name rides on the record or the
-        // grid, so the bar names only the number, status and total.
+        // names it and its supplier, above the grid.
         selectionBar: true,
         selection: _selected == null
             ? null
             : SelectionSummary.document(
                 number: _selected!.grnNumber,
+                party: _selected!.vendorName,
                 status: _selected!.status,
                 total: _selected!.grandTotal,
                 onClear: () => setState(() => _selected = null),
@@ -640,6 +640,7 @@ class _GoodsReceiptManagementPageState
   Widget _buildReceiptGrid() => EnterpriseDataGrid<GoodsReceiptRecord>(
         columns: const [
           GridColumn(key: 'grn', label: 'GRN Number'),
+          GridColumn(key: 'vendor', label: 'Supplier'),
           GridColumn(key: 'po', label: 'Purchase Order'),
           GridColumn(key: 'date', label: 'Receipt Date'),
           GridColumn(key: 'status', label: 'Status'),
@@ -650,6 +651,7 @@ class _GoodsReceiptManagementPageState
         selectedId: _selected?.id,
         cells: (item) => [
           item.grnNumber,
+          item.vendorName,
           item.purchaseOrderNumber,
           item.receiptDate,
           item.status,

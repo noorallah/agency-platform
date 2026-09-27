@@ -20,6 +20,7 @@ from app.common.report_names import (
     branch_names,
     product_names,
     vendor_names,
+    vendors_matching,
     warehouse_names,
 )
 from app.core.exceptions import ResourceNotFoundError, ValidationError
@@ -75,6 +76,7 @@ from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
 from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService, assert_quantity_fits_unit
+from app.vendors.models import Vendor
 
 ZERO = Decimal("0")
 
@@ -173,6 +175,7 @@ class GoodsReceiptService(TransactionalDocumentService):
                 GoodsReceipt.invoice_reference.ilike(token),
                 GoodsReceipt.vehicle_number.ilike(token),
                 GoodsReceipt.transport_details.ilike(token),
+                GoodsReceipt.vendor_id.in_(vendors_matching(token)),
             )
             statement = statement.where(condition)
             count = count.where(condition)
@@ -788,6 +791,9 @@ class GoodsReceiptService(TransactionalDocumentService):
             for item in notes
         ]
         payload["duplicate_warning"] = self._duplicate_warning(row)
+        vendor = self._session.get(Vendor, row.vendor_id)
+        payload["vendor_name"] = vendor.display_name if vendor else ""
+        payload["vendor_code"] = vendor.code if vendor else ""
         return GoodsReceiptResponse.model_validate(payload)
 
     def receipt_history(
