@@ -3943,3 +3943,32 @@ and TAN do their work -- in both directions for a distributor:
 they stand in the current Finance Act, and whether any other section (194C,
 194J) matters to these firms. Rates and thresholds go into settings, never
 into code, as TCS already does.
+
+### 53.1 Firms that already hold a TAN -- owner, 2026-09-27
+
+Some firms using the product hold a TAN today, which means they deduct TDS --
+on supplier purchases (194Q), and commonly on **rent (194-I), professional
+fees (194J) and contractors such as transporters (194C)**. None of that can be
+recorded properly yet:
+
+- The firm has **nowhere to enter its TAN**.
+- The default chart has **TCS Payable but no TDS Payable or TDS Receivable**
+  (`app/finance/services/opening_setup.py`).
+- A payment to a supplier, and the coming Expenses screen (#814), can pay
+  only the full amount: there is no *TDS deducted* part.
+
+**Order to build, smallest first:**
+1. TAN on Firm Settings and on customers (a field and a check).
+2. *TDS Payable* (liability) and *TDS Receivable* (asset) in the default
+   chart, backfilled for firms with open books as `20260927_0162` did for
+   Indirect Expenses, each with its control purpose.
+3. *TDS deducted* on **payments** and **expenses**: the section and rate
+   from the vendor (or expense account), the supplier settled in full, the
+   deduction posted to TDS Payable. A quarterly report of deductions by
+   section and deductee PAN, for the 26Q return and the challans.
+4. *TDS deducted* on **receipts** (53 item 3), to TDS Receivable.
+
+**Until then (tell a firm that asks):** add *TDS Payable* and *TDS
+Receivable* under Chart of Accounts, record the payment or receipt for the
+net amount, and a journal entry for the TDS part -- debit the supplier, credit
+TDS Payable; or debit TDS Receivable, credit the customer.
