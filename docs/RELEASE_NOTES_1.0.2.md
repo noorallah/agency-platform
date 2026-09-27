@@ -17,6 +17,7 @@ Built 2026-09-27 from `main` at #813.
 | 4 | **QA functional walkthrough** (version 2) | One firm end to end: set up, buy, stock, sell, collect, return, GST. Section 11 covers the version 2 screens; section 15 covers what is new in 1.0.2 | After sections A and B of the checklist, before section D |
 | 5 | **Profit and loss guide** | How rent, fuel and salaries reach the P&L, and the new Indirect Expenses accounts | When testing section 8 of the walkthrough |
 | 6 | **QA test suite** (`QA test suite` folder, 00 to 14) | Detailed cases by module, for a deeper second round | Optional, after the walkthrough |
+| 7 | **Application features guide** | What every screen does, menu by menu: a reference, not a test script. Also suits anyone who needs to know what the product covers | Any time |
 
 Plus the installer itself: `AgencyPlatform-1.0.2-Setup.exe`.
 
