@@ -3987,3 +3987,87 @@ recorded properly yet:
 Receivable* under Chart of Accounts, record the payment or receipt for the
 net amount, and a journal entry for the TDS part -- debit the supplier, credit
 TDS Payable; or debit TDS Receivable, credit the customer.
+
+## 54. Trade licences: the firm's, the customer's, and the goods that need them
+
+Owner, 2026-09-27: some goods may only be bought and sold under a licence --
+the firm needs one to trade them, and the customer needs one to buy them. The
+product should hold both and act on them.
+
+### What exists (2026-09-27)
+
+| Where | What | Acted on |
+| --- | --- | --- |
+| Branch | `license_number` (one free-text number) | No |
+| Vendor | `license_number`; per tax detail `fssai` and `drug_license` | Only gated: a drug licence may be recorded only by a firm whose profile has the `DRUG_LICENSE` feature |
+| Customer | Nothing (a firm can add a custom field, which nothing reads) | No |
+| Firm | Nothing | No |
+| Product | Nothing says a product needs a licence | No |
+
+No licence has a **type**, a **validity date** or a **scan**, and nothing
+refuses or warns about a sale.
+
+### The trades this covers (India)
+
+| Licence | Who needs it | Goods |
+| --- | --- | --- |
+| **Drug licence**, wholesale (Forms 20B/21B) or retail (20/21); 20C/21C for Schedule X | Seller and buyer | Medicines; Schedule H/H1/X need the matching form |
+| **FSSAI** registration or licence | Seller; printed on every food invoice | Packaged food, beverages |
+| **Insecticide** licence | Seller and dealer buyer | Pesticides |
+| **Fertiliser** authorisation | Seller and dealer buyer | Fertilisers |
+| **Seed** licence | Seller and dealer buyer | Seeds |
+| Others where a firm needs them | Poisons, explosives, arms, excise (liquor), narcotics | Configured, not built in |
+
+### The design (decided by convention -- Marg, BUSY pharma, Tally add-ons)
+
+1. **Licence types are a master**, not code: code, name, which form numbers
+   it covers, whether it expires. The business profile seeds the usual ones
+   (a pharmacy profile gets the drug forms, a food profile FSSAI, an agri
+   profile insecticide, fertiliser and seed); a firm adds its own.
+2. **One licence register for every holder**: the **firm** (per branch,
+   since a drug licence is issued per premises), **customers** and
+   **vendors**. Each licence: type, number, issued by, valid from, **valid
+   to**, the premises it covers, and a scan (PDF or image) when file storage
+   is built. A party may hold several.
+3. **Products name the licence they need**, set on the **category** (all
+   Schedule H medicines) and overridable on the product. A product with none
+   needs none.
+4. **The sale check.** On a sales order, delivery and invoice, each line's
+   required licence type must be held by the **customer** with a valid-to on
+   or after the **document's date**, and by the **selling branch**. Otherwise:
+   - **Warn** by default, naming the line, the licence and why (missing,
+     expired on ..., wrong type);
+   - **Block** if the firm chooses (a firm policy, like credit control), with
+     an override kept to a permission and recorded on the timeline.
+   The server decides; the screen only shows it.
+5. **The purchase check** is the mirror, on purchase orders and goods
+   receipts: the vendor holds the licence for what it supplies. Warn only.
+6. **Printing.** The seller's licence numbers print on documents that carry
+   licensed goods (FSSAI on food invoices is mandatory); the buyer's drug
+   licence prints on pharma invoices, as the trade expects.
+7. **Expiry.** Home shows licences expiring in 30 days -- the firm's own
+   first -- and a report lists every licence by expiry. An expired licence
+   is kept, never deleted: it is the record of what was valid when a past
+   sale was made.
+8. **What stays as it is:** the existing vendor `fssai` / `drug_license` and
+   branch `license_number` values are copied into the register by a
+   migration (only where missing), then read from there.
+
+### Build order
+
+| Step | What | Size |
+| --- | --- | --- |
+| 1 | Licence types and the register (firm/branch, customer, vendor), screens in Masters and on each party | 2-3 days |
+| 2 | Required licence on category and product | 1 day |
+| 3 | The sale check (warn, then block by policy, override permission) | 2-3 days |
+| 4 | Printing, Home expiry alert, expiry report | 1-2 days |
+| 5 | The purchase check | 1 day |
+| Later | Scans, when file storage exists | -- |
+
+### For the owner at the review
+
+1. Which trades the first go-live firms are in -- pharma, food, agri --
+   decides which licence types ship seeded first.
+2. Whether the sale check defaults to **warn** (proposed) or **block**.
+3. Whether a customer **without** any licence may still buy the goods that
+   need none (proposed: yes, the check is per line, not per customer).
