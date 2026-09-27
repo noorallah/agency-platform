@@ -121,3 +121,8 @@ PR number when merged.
   Period, the policy behind the (i), Settings under "..."), Control
   Accounts (a grid; Map / Change on the bar opening a window) -- PR
   "accounts review fixes".
+- Stock: Stock Summary (headline figures as counters, the other balances
+  behind the (i), Export under "..."), Expiry Monitor (counters instead of
+  coloured cards; the batches fill the window), and the Medium rows Stock
+  Ledger, Transactions, Opening Stock (Period on the line) -- PR "stock
+  review fixes".
