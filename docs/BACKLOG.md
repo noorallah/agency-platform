@@ -3535,7 +3535,16 @@ order, goods receipt, return, stock action) opens with them filled in.
 **Depends on:** D-QA-17's fix (an order must name a warehouse before
 approval), which this makes painless rather than replaces.
 
-## 45. A scheduled daily backup (D-QA-4) -- parked, half built
+## 45. A scheduled daily backup (D-QA-4) -- built 2026-09-27
+
+**2026-09-27:** finished. A successful run against a live database (three
+runs with `-KeepDaily 2`: each wrote an 83 MB dump and `.complete`, the third
+removed the oldest), and a restore of that dump into a fresh database gave
+back the same counts of firms, users, sales invoices and journal entries.
+The restore procedure is in `docs/INSTALL_GUIDE.md` section 6. Still to see
+on the next laptop install: the task registering (`Get-ScheduledTask 'Agency
+Platform daily backup'`) and a manual `Start-ScheduledTask` run as SYSTEM.
+The notes below are the history.
 
 Nothing backs up the database on a schedule: `backups\` fills only when Setup
 runs an upgrade, so a firm that never upgrades has no backup, and a disk
