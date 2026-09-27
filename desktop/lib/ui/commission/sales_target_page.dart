@@ -45,6 +45,9 @@ class _SalesTargetPageState extends State<SalesTargetPage> {
   List<SalesTargetRecord> _targets = const [];
   List<SalesTargetAchievementRecord> _achievement = const [];
   bool _showingAchievement = false;
+
+  /// The target picked in phase 2's grid, for the selection bar.
+  String? _pickedId;
   bool _loading = true;
   String? _error;
 
@@ -138,6 +141,7 @@ class _SalesTargetPageState extends State<SalesTargetPage> {
     if (!widget.hasActiveFirm) {
       return const StandardEmptyState(type: EmptyStateType.noFirmSelected);
     }
+    if (Phase2Scope.of(context)) return _phase2(context);
     return ManagementWorkspaceLayout(
       toolbar: Wrap(
         spacing: 8,
@@ -195,6 +199,94 @@ class _SalesTargetPageState extends State<SalesTargetPage> {
     );
   }
 
+  /// Phase 2 (review, 2026-09-27): Targets / Achievement on the line, the
+  /// Period for the achievement window, Refresh and "+ New"; a picked
+  /// target's Edit and Delete on the selection bar (they were right-click
+  /// only, and a row could not be picked).
+  Widget _phase2(BuildContext context) {
+    final SalesTargetRecord? picked = _showingAchievement
+        ? null
+        : _targets.where((row) => row.id == _pickedId).firstOrNull;
+    final DateTime? from = DateTime.tryParse(_from.text.trim());
+    final DateTime? to = DateTime.tryParse(_to.text.trim());
+    return ManagementWorkspaceLayout(
+      toolbar: WorkspaceToolbar(
+        actions: [
+          if (_mayManage && !_showingAchievement) ToolbarAction.edit,
+          if (_mayManage && !_showingAchievement) ToolbarAction.delete,
+          ToolbarAction.refresh,
+          if (_mayManage && !_showingAchievement) ToolbarAction.newItem,
+        ],
+        isEnabled: (action) => switch (action) {
+          ToolbarAction.edit || ToolbarAction.delete => picked != null,
+          _ => !_loading,
+        },
+        onAction: (action) {
+          switch (action) {
+            case ToolbarAction.edit:
+              if (picked != null) unawaited(_edit(existing: picked));
+            case ToolbarAction.delete:
+              if (picked != null) unawaited(_delete(picked));
+            case ToolbarAction.newItem:
+              unawaited(_edit());
+            default:
+              unawaited(_load());
+          }
+        },
+        trailing: [
+          if (_showingAchievement)
+            DateRangeFilter(
+              value: from == null || to == null
+                  ? const DatePeriod.all()
+                  : DatePeriod.custom(from, to),
+              onChanged: (period) {
+                if (period.from == null || period.to == null) return;
+                setState(() {
+                  _from.text = _iso(period.from!);
+                  _to.text = _iso(period.to!);
+                });
+                unawaited(_load());
+              },
+            ),
+        ],
+      ),
+      searchPanel: const SizedBox.shrink(),
+      viewBar: SegmentedButton<bool>(
+        segments: const [
+          ButtonSegment(value: false, label: Text('Targets')),
+          ButtonSegment(value: true, label: Text('Achievement')),
+        ],
+        selected: {_showingAchievement},
+        showSelectedIcon: false,
+        onSelectionChanged: (choice) {
+          setState(() {
+            _showingAchievement = choice.first;
+            _pickedId = null;
+          });
+          unawaited(_load());
+        },
+      ),
+      selectionBar: true,
+      selection: picked == null
+          ? null
+          : SelectionSummary.record(
+              name: picked.scopeLabel,
+              facts: [
+                '${picked.periodStart} to ${picked.periodEnd}',
+                picked.targetAmount,
+              ],
+              status: picked.status,
+              onClear: () => setState(() => _pickedId = null),
+            ),
+      primaryContent: _content(),
+      statusBar: WorkspaceStatusBar(
+        total: _showingAchievement ? _achievement.length : _targets.length,
+        selected: picked != null,
+        message: _loading ? 'Loading...' : null,
+      ),
+    );
+  }
+
   Widget _content() {
     if (_loading) return const Center(child: CircularProgressIndicator());
     if (_error != null) {
@@ -225,12 +317,16 @@ class _SalesTargetPageState extends State<SalesTargetPage> {
         GridColumn(key: 'status', label: 'Status'),
       ],
       id: (row) => row.id,
-      onSelect: (_) {},
+      selectedId: _pickedId,
+      onSelect: (row) => setState(() => _pickedId = row.id),
+      onOpen: _mayManage && Phase2Scope.of(context)
+          ? (row) => unawaited(_edit(existing: row))
+          : null,
       onPageChanged: (_) {},
       cells: (row) => [
         row.scopeLabel,
         '${row.periodStart} to ${row.periodEnd}',
-        row.periodType,
+        statusInWords(row.periodType),
         row.basis == 'COLLECTED' ? 'Money collected' : 'Value invoiced',
         row.targetAmount,
         row.status,

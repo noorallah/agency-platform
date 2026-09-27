@@ -12,6 +12,7 @@ import '../../models/commission.dart';
 import '../../models/firm_member.dart';
 import '../../models/entities.dart';
 import '../../models/product.dart';
+import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
 import 'payout_dialogs.dart';
 
@@ -337,6 +338,12 @@ class _CommissionPageState extends State<CommissionPage> {
     // Phase 2 on the Rates view: Refresh and "+ New" on the line, and the
     // picked rate's Edit and Delete on option C's bar (owner, 2026-09-27).
     final bool rulesBar = onRules && Phase2Scope.of(context);
+    // Phase 2 on Collected and Payouts (review, 2026-09-27): the Period on
+    // the line; a payout's steps on the selection bar, not a row column.
+    final bool otherBar = !onRules && Phase2Scope.of(context);
+    final CommissionPayoutRecord? payout = onPayouts
+        ? _payouts.where((row) => row.id == _selectedPayoutId).firstOrNull
+        : null;
     return ManagementWorkspaceLayout(
       notice: switch (_view) {
         _CommissionView.rules => 'A rule with no salesman is the firm-wide '
@@ -351,7 +358,9 @@ class _CommissionPageState extends State<CommissionPage> {
             'it was accrued. Nothing re-reads it, so approving in April and '
             'asking again in September give the same number.',
       },
-      toolbar: rulesBar
+      toolbar: otherBar
+          ? _phase2OtherToolbar(onPayouts, payout)
+          : rulesBar
           ? WorkspaceToolbar(
               actions: [
                 if (_mayManage) ToolbarAction.edit,
@@ -405,7 +414,7 @@ class _CommissionPageState extends State<CommissionPage> {
           ),
         ],
       ),
-      searchPanel: _view == _CommissionView.report
+      searchPanel: _view == _CommissionView.report && !otherBar
           ? _periodPanel()
           : const SizedBox.shrink(),
       viewBar: SegmentedButton<_CommissionView>(
@@ -442,8 +451,18 @@ class _CommissionPageState extends State<CommissionPage> {
           }
         },
       ),
-      selectionBar: rulesBar,
-      selection: !rulesBar || rule == null
+      selectionBar: rulesBar || otherBar,
+      selection: otherBar
+          ? (payout == null
+              ? null
+              : SelectionSummary.document(
+                  number: payout.salesmanName,
+                  party: payout.periodLabel,
+                  status: payout.status,
+                  total: payout.payableAmount,
+                  onClear: () => setState(() => _selectedPayoutId = null),
+                ))
+          : !rulesBar || rule == null
           ? null
           : SelectionSummary.record(
               name: rule.whoLabel,
@@ -522,14 +541,26 @@ class _CommissionPageState extends State<CommissionPage> {
       pageOffset: 0,
       rowsPerPage: _payouts.length,
       availableRowsPerPage: [_payouts.length],
-      columns: const [
-        GridColumn(key: 'salesman', label: 'Salesman'),
-        GridColumn(key: 'period', label: 'Period'),
-        GridColumn(key: 'earned', label: 'Earned'),
-        GridColumn(key: 'payable', label: 'Payable'),
-        GridColumn(key: 'status', label: 'Status'),
-        GridColumn(key: 'actions', label: ''),
-      ],
+      // Phase 2: no actions column (the steps ride the selection bar), and
+      // the signatures get a column of their own now that the room is there.
+      selectedId: Phase2Scope.of(context) ? _selectedPayoutId : null,
+      columns: Phase2Scope.of(context)
+          ? const [
+              GridColumn(key: 'salesman', label: 'Salesman', priority: 1),
+              GridColumn(key: 'period', label: 'Period'),
+              GridColumn(key: 'earned', label: 'Earned', numeric: true),
+              GridColumn(key: 'payable', label: 'Payable'),
+              GridColumn(key: 'status', label: 'Status'),
+              GridColumn(key: 'signed', label: 'Signed'),
+            ]
+          : const [
+              GridColumn(key: 'salesman', label: 'Salesman'),
+              GridColumn(key: 'period', label: 'Period'),
+              GridColumn(key: 'earned', label: 'Earned'),
+              GridColumn(key: 'payable', label: 'Payable'),
+              GridColumn(key: 'status', label: 'Status'),
+              GridColumn(key: 'actions', label: ''),
+            ],
       id: (row) => row.id,
       cells: (row) => [
         row.salesmanName,
@@ -547,17 +578,134 @@ class _CommissionPageState extends State<CommissionPage> {
         row.basis.isEmpty
             ? row.status
             : '${row.status} · ${basisLabel(row.basis).toLowerCase()}',
-        '',
+        Phase2Scope.of(context) ? _signatures(row) : '',
       ],
-      onSelect: (_) {},
+      onSelect: Phase2Scope.of(context)
+          ? (row) => setState(() => _selectedPayoutId = row.id)
+          : (_) {},
       onPageChanged: (_) {},
-      cellBuilder: (columnIndex, value, row) => columnIndex == 5
-          ? _payoutActions(row)
-          : columnIndex == 4
-              ? _payoutStatus(row, value)
-              : Text(value),
+      cellBuilder: Phase2Scope.of(context)
+          ? null
+          : (columnIndex, value, row) => columnIndex == 5
+              ? _payoutActions(row)
+              : columnIndex == 4
+                  ? _payoutStatus(row, value)
+                  : Text(value),
     );
   }
+
+  /// The payout picked in phase 2's grid.
+  String? _selectedPayoutId;
+
+  /// An amount as a counter shows it.
+  static String _figure(String value) {
+    final double? amount = double.tryParse(value);
+    return amount == null ? value : indianAmount(amount, full: true);
+  }
+
+  /// Phase 2's line on Collected and Payouts: the Period after the search,
+  /// Refresh, "+ Accrue" on Payouts; a payout's Adjust, Approve, Pay and
+  /// Cancel as commands the selection bar carries.
+  WorkspaceToolbar _phase2OtherToolbar(
+    bool onPayouts,
+    CommissionPayoutRecord? payout,
+  ) =>
+      WorkspaceToolbar(
+        actions: [
+          ToolbarAction.refresh,
+          if (onPayouts && _mayManage) ToolbarAction.newItem,
+        ],
+        newLabel: '+ Accrue',
+        isEnabled: (_) => true,
+        onAction: (action) {
+          if (action == ToolbarAction.newItem) {
+            _accrue();
+          } else if (onPayouts) {
+            _loadPayouts();
+          } else {
+            _loadReport();
+          }
+        },
+        trailing: [
+          if (!onPayouts)
+            DateRangeFilter(
+              value: _reportPeriod,
+              onChanged: (period) {
+                if (period.from == null || period.to == null) return;
+                setState(() {
+                  _from.text = _isoDay(period.from!);
+                  _to.text = _isoDay(period.to!);
+                });
+                _loadReport();
+              },
+            ),
+        ],
+        commands: [
+          if (onPayouts) ...[
+            ToolbarCommand(
+              id: 'adjust',
+              label: 'Adjust',
+              icon: Icons.tune,
+              onPressed: payout != null && payout.isDraft && _mayManage
+                  ? () => unawaited(_adjust(payout))
+                  : null,
+            ),
+            ToolbarCommand(
+              id: 'approve',
+              label: 'Approve',
+              icon: Icons.check_circle_outline,
+              onPressed: payout != null && payout.isDraft && _mayManage
+                  ? () => _payoutAction(
+                        payout,
+                        () => widget.api.approveCommissionPayout(
+                          payout.id,
+                          expectedVersion: payout.version,
+                        ),
+                        'approved. The cost and the debt are on the ledger.',
+                      )
+                  : null,
+            ),
+            ToolbarCommand(
+              id: 'pay',
+              label: 'Pay',
+              icon: Icons.payments_outlined,
+              onPressed: payout != null && payout.isApproved && _mayPay
+                  ? () => _pay(payout)
+                  : null,
+            ),
+            ToolbarCommand(
+              id: 'cancel',
+              label: 'Cancel',
+              icon: Icons.cancel_outlined,
+              onPressed: payout != null &&
+                      (payout.isDraft || payout.isApproved) &&
+                      _mayManage
+                  ? () => _payoutAction(
+                        payout,
+                        () => widget.api.cancelCommissionPayout(
+                          payout.id,
+                          expectedVersion: payout.version,
+                        ),
+                        'cancelled. The period is free to accrue again.',
+                      )
+                  : null,
+            ),
+          ],
+        ],
+      );
+
+  /// The report's dates as the Period control holds them.
+  DatePeriod get _reportPeriod {
+    final DateTime? from = DateTime.tryParse(_from.text.trim());
+    final DateTime? to = DateTime.tryParse(_to.text.trim());
+    return from == null || to == null
+        ? const DatePeriod.all()
+        : DatePeriod.custom(from, to);
+  }
+
+  static String _isoDay(DateTime day) => '${day.year.toString().padLeft(4, '0')}-'
+      '${day.month.toString().padLeft(2, '0')}-'
+      '${day.day.toString().padLeft(2, '0')}';
 
   /// Only what this row can actually do next.
   ///
@@ -848,7 +996,22 @@ class _CommissionPageState extends State<CommissionPage> {
     );
   }
 
-  Widget _totals(CommissionReport report) => Wrap(
+  Widget _totals(CommissionReport report) => Phase2Scope.of(context)
+      ? SummaryCards(children: [
+          SummaryCount(
+            label: 'Collected',
+            value: _figure(report.totalCollectedAmount),
+          ),
+          SummaryCount(
+            label: 'Invoiced',
+            value: _figure(report.totalInvoicedAmount),
+          ),
+          SummaryCount(
+            label: 'Commission',
+            value: _figure(report.totalCommissionAmount),
+          ),
+        ])
+      : Wrap(
         spacing: AppSpacing.md,
         runSpacing: AppSpacing.sm,
         children: [

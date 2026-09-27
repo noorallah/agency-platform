@@ -131,3 +131,10 @@ PR number when merged.
   under "+ filter", a Period on the audit trail, the sentence behind the
   (i), nothing picked on arrival, the entry in a window) -- PR "admin
   review fixes".
+- Sell: Customer Statements (Period on the line; ageing and statement as
+  grids; balances as counters), Commission Collected (Period on the line,
+  totals as counters) and Payouts (rows picked, Adjust / Approve / Pay /
+  Cancel on the bar, signatures a column), Targets (Targets / Achievement
+  on the line, Period for achievement, Edit / Delete on the bar), Loyalty
+  (customer chip and balance counters on the line, scheme behind the (i),
+  ledger a grid) -- PR "sell review fixes".

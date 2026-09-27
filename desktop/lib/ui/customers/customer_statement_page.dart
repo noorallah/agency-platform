@@ -11,6 +11,7 @@ import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
+import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
 
 /// Which of the two questions is on screen.
@@ -151,22 +152,48 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
             'permission.',
       );
     }
+    final bool phase2 = Phase2Scope.of(context);
     return ManagementWorkspaceLayout(
-      toolbar: Wrap(
-        spacing: AppSpacing.sm,
-        runSpacing: AppSpacing.sm,
-        children: [
-          Phase2Refresh(
-            onPressed: _refresh,
-            child: OutlinedButton.icon(
-              onPressed: _refresh,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Refresh'),
+      // Phase 2 (review, 2026-09-27): the statement's period is the Period
+      // control on the line, not two free-text boxes in the search slot.
+      toolbar: phase2
+          ? WorkspaceToolbar(
+              actions: const [ToolbarAction.refresh],
+              isEnabled: (_) => !_loading,
+              onAction: (_) => _refresh(),
+              trailing: [
+                DateRangeFilter(
+                  value: _statementPeriod,
+                  onChanged: (period) {
+                    setState(() {
+                      _from.text =
+                          period.from == null ? '' : _iso(period.from!);
+                      _to.text = period.to == null ? '' : _iso(period.to!);
+                    });
+                    if (_view == _View.statement) _refresh();
+                  },
+                ),
+              ],
+            )
+          : Wrap(
+              spacing: AppSpacing.sm,
+              runSpacing: AppSpacing.sm,
+              children: [
+                Phase2Refresh(
+                  onPressed: _refresh,
+                  child: OutlinedButton.icon(
+                    onPressed: _refresh,
+                    icon: const Icon(Icons.refresh),
+                    label: const Text('Refresh'),
+                  ),
+                ),
+              ],
             ),
-          ),
-        ],
-      ),
-      searchPanel: _periodPanel(),
+      searchPanel: phase2 ? const SizedBox.shrink() : _periodPanel(),
+      notice: _view == _View.ageing
+          ? 'What each bill still owes, off the receipts against it. '
+              'Double-click a customer to read their account.'
+          : 'Balances recomputed in date order.',
       viewBar: SegmentedButton<_View>(
         segments: const [
           ButtonSegment(value: _View.ageing, label: Text('Ageing')),
@@ -187,6 +214,127 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
             ? 'What each bill still owes, off the receipts against it.'
             : 'Balances recomputed in date order.',
       ),
+    );
+  }
+
+  /// The statement's dates as the Period control holds them.
+  DatePeriod get _statementPeriod {
+    final DateTime? from = DateTime.tryParse(_from.text.trim());
+    final DateTime? to = DateTime.tryParse(_to.text.trim());
+    return from == null || to == null
+        ? const DatePeriod.all()
+        : DatePeriod.custom(from, to);
+  }
+
+  /// Phase 2's ageing: a grid, a column per band, double-click to read the
+  /// customer's account.
+  Widget _ageingGrid() {
+    final List<dynamic> bands =
+        _ageing.first['buckets'] as List<dynamic>? ?? const [];
+    String band(Object? cell) {
+      final Map c = cell as Map;
+      final Object? upper = c['to_days'];
+      return upper == null ? '${c['from_days']}+ days' : '${c['from_days']}-$upper days';
+    }
+    return EnterpriseDataGrid<Json>(
+      items: _ageing,
+      total: _ageing.length,
+      pageOffset: 0,
+      rowsPerPage: _ageing.length,
+      availableRowsPerPage: [_ageing.length],
+      selectedId: _selectedCustomerId,
+      columns: [
+        const GridColumn(key: 'customer', label: 'Customer', priority: 1),
+        const GridColumn(key: 'code', label: 'Code'),
+        for (int i = 0; i < bands.length; i++)
+          GridColumn(key: 'band$i', label: band(bands[i]), numeric: true),
+        const GridColumn(key: 'total', label: 'Outstanding', numeric: true),
+        const GridColumn(key: 'gap', label: 'Account'),
+      ],
+      id: (row) => stringValue(row['customer_id']),
+      cells: (row) {
+        final List<dynamic> buckets =
+            row['buckets'] as List<dynamic>? ?? const [];
+        return [
+          stringValue(row['customer_name']),
+          stringValue(row['customer_code']),
+          for (int i = 0; i < bands.length; i++)
+            i < buckets.length ? _money((buckets[i] as Map)['amount']) : '0.00',
+          _money(row['total_outstanding']),
+          _gap(row),
+        ];
+      },
+      onSelect: (row) =>
+          setState(() => _selectedCustomerId = stringValue(row['customer_id'])),
+      onOpen: (row) => _loadStatement(stringValue(row['customer_id'])),
+      onPageChanged: (_) {},
+    );
+  }
+
+  /// Phase 2's statement: the balances as counters on the line, the lines
+  /// a grid.
+  Widget _statementGrid(Json statement, List<dynamic> lines) {
+    double amount(Object? value) => double.tryParse('${value ?? 0}') ?? 0;
+    final double advance = amount(statement['unapplied_advance']);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        SummaryCards(children: [
+          SummaryCount(
+            label: stringValue(statement['customer_name']),
+            value: '',
+          ),
+          SummaryCount(
+            label: 'Opening',
+            value: indianAmount(amount(statement['opening_balance']),
+                full: true),
+          ),
+          SummaryCount(
+            label: 'Closing',
+            value: indianAmount(amount(statement['closing_balance']),
+                full: true),
+          ),
+          if (advance > 0)
+            SummaryCount(
+              label: 'On account',
+              value: indianAmount(advance, full: true),
+            ),
+        ]),
+        Expanded(
+          child: lines.isEmpty
+              ? const WorkspaceEmptyState(
+                  title: 'Nothing moved',
+                  message: 'The account had no activity in this period.',
+                )
+              : EnterpriseDataGrid<Map>(
+                  items: [for (final dynamic line in lines) line as Map],
+                  total: lines.length,
+                  pageOffset: 0,
+                  rowsPerPage: lines.length,
+                  availableRowsPerPage: [lines.length],
+                  columns: const [
+                    GridColumn(key: 'date', label: 'Date'),
+                    GridColumn(key: 'type', label: 'Type'),
+                    GridColumn(key: 'reference', label: 'Reference', priority: 1),
+                    GridColumn(key: 'debit', label: 'Debit', numeric: true),
+                    GridColumn(key: 'credit', label: 'Credit', numeric: true),
+                    GridColumn(key: 'balance', label: 'Balance', numeric: true),
+                  ],
+                  id: (line) => '${line['reference_number']}|'
+                      '${line['transaction_date']}|${line.hashCode}',
+                  cells: (line) => [
+                    stringValue(line['transaction_date']),
+                    statusInWords(stringValue(line['transaction_type'])),
+                    stringValue(line['reference_number']),
+                    _money(line['debit']),
+                    _money(line['credit']),
+                    _money(line['balance']),
+                  ],
+                  onSelect: (_) {},
+                  onPageChanged: (_) {},
+                ),
+        ),
+      ],
     );
   }
 
@@ -233,6 +381,7 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
         message: 'Every approved bill has been settled in full.',
       );
     }
+    if (Phase2Scope.of(context)) return _ageingGrid();
     return ListView.builder(
       itemCount: _ageing.length,
       itemBuilder: (context, index) {
@@ -295,6 +444,7 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
       );
     }
     final List<dynamic> lines = _lines();
+    if (Phase2Scope.of(context)) return _statementGrid(statement, lines);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [

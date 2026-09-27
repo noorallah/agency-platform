@@ -336,6 +336,26 @@ void main() {
     expect(find.byKey(const ValueKey('selection-delete')), findsOneWidget);
   });
 
+  testWidgets("phase 2 carries a payout's steps on the selection bar",
+      (tester) async {
+    // Review 2026-09-27: Adjust / Approve / Pay / Cancel lived only in a
+    // column on each row, and a row could not be picked.
+    await _pump(
+      tester,
+      _CommissionApi(payouts: <Json>[_draftPayout()]),
+      phase2: true,
+    );
+    await _showPayouts(tester);
+    expect(find.widgetWithText(TextButton, 'Approve'), findsNothing);
+
+    await tester.tap(find.text('Asha Rao').first);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+    expect(find.byKey(const ValueKey('selection-approve')), findsOneWidget);
+    expect(find.byKey(const ValueKey('selection-adjust')), findsOneWidget);
+  });
+
   testWidgets('a rate is recorded with its window and status', (tester) async {
     final _CommissionApi api = _CommissionApi();
     await _pump(tester, api);

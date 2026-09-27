@@ -7,6 +7,7 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/customers/customer_statement_page.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -103,11 +104,13 @@ Future<void> _pump(
   WidgetTester tester,
   _StatementApi api, {
   PermissionService? permissions,
+  bool phase2 = false,
 }) async {
   tester.view.physicalSize = const Size(1366, 768);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(MaterialApp(
+    builder: phase2 ? (context, child) => Phase2Scope(child: child!) : null,
     home: Scaffold(
       body: CustomerStatementPage(
         api: api,
@@ -199,5 +202,28 @@ void main() {
     // Two reports about one customer that disagree, with nothing to explain
     // the gap, is a bug report waiting to be filed.
     expect(find.textContaining('less 300.00 credit = 1200.00'), findsOneWidget);
+  });
+
+  testWidgets('phase 2: ageing and statement are grids, the period on the line',
+      (tester) async {
+    // Review 2026-09-27: free-text dates in the search slot, cards, a
+    // sentence band and a raw table.
+    await _pump(
+      tester,
+      _StatementApi(ageing: <Json>[_ageingRow()], statement: _statement()),
+      phase2: true,
+    );
+    expect(find.byType(EnterpriseDataGrid<Json>), findsOneWidget);
+    expect(find.byType(DateRangeFilter), findsOneWidget);
+
+    final Finder row = find.text('Kumar Stores').first;
+    await tester.tap(row);
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+
+    expect(find.text('SI-1'), findsOneWidget);
+    expect(find.textContaining('closed at'), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 }
