@@ -122,6 +122,9 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
   ];
 
   final TextEditingController _search = TextEditingController();
+
+  /// The document dates the list is narrowed to (owner, 2026-09-27).
+  DatePeriod _period = const DatePeriod.all();
   final FocusNode _searchFocus = FocusNode();
   final TextEditingController _createdFrom = TextEditingController();
   final TextEditingController _createdTo = TextEditingController();
@@ -468,8 +471,14 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         warehouseId: _warehouseId,
         buyerId: _buyerId,
         purchaseType: _purchaseType,
-        createdFrom: _createdFrom.text.trim(),
-        createdTo: _createdTo.text.trim(),
+        // The Period on the line wins over the typed dates behind
+        // "+ filter"; both bound the order date.
+        createdFrom: _period.from != null
+            ? DatePeriod.iso(_period.from!)
+            : _createdFrom.text.trim(),
+        createdTo: _period.to != null
+            ? DatePeriod.iso(_period.to!)
+            : _createdTo.text.trim(),
         includeDeleted: _includeDeleted,
       );
 
@@ -1486,6 +1495,18 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         ToolbarAction.import,
         ToolbarAction.export,
         ToolbarAction.newItem,
+      ],
+      // Period right after the search, then Columns, as every sales list
+      // (owner, 2026-09-27). Columns opens the chooser that also saves views.
+      trailing: [
+        DateRangeFilter(
+          value: _period,
+          onChanged: (period) {
+            setState(() => _period = period);
+            unawaited(_load(requestedPage: 1));
+          },
+        ),
+        ColumnsButton(onPressed: () => unawaited(_openColumnChooser())),
       ],
       isEnabled: (action) => switch (action) {
         ToolbarAction.view => selected != null,

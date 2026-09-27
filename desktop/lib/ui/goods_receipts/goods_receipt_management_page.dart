@@ -97,6 +97,9 @@ class _GoodsReceiptManagementPageState
     extends State<GoodsReceiptManagementPage> {
   static const int _rowsPerPage = 20;
   final TextEditingController _search = TextEditingController();
+
+  /// The document dates the list is narrowed to (owner, 2026-09-27).
+  DatePeriod _period = const DatePeriod.all();
   bool _loading = false;
   String? _error;
   int _page = 1;
@@ -581,8 +584,25 @@ class _GoodsReceiptManagementPageState
                 ),
               ]
             : const [],
+        // Period right after the search, then Columns, as every sales list
+        // (owner, 2026-09-27).
         trailing: Phase2Scope.of(context)
-            ? const []
+            ? [
+                DateRangeFilter(
+                  value: _period,
+                  onChanged: (period) {
+                    setState(() => _period = period);
+                    unawaited(_load(requestedPage: 1));
+                  },
+                ),
+                ColumnsButton(
+                  onPressed: () async {
+                    if (await _columns.choose(context) && mounted) {
+                      setState(() {});
+                    }
+                  },
+                ),
+              ]
             : [
                 // The action that posts stock. It was labelled "Request approval" --
                 // there is no approval step on a receipt, and calling the thing that
@@ -637,26 +657,77 @@ class _GoodsReceiptManagementPageState
             : null,
       );
 
+  /// Every column the grid can show; Columns picks among them, remembered
+  /// per screen on this PC (owner, 2026-09-27).
+  late final ColumnChoice<GoodsReceiptRecord> _columns = ColumnChoice(
+    preferences: widget.preferences,
+    stateKey: 'goods-receipts.grid',
+    columns: [
+      ChoosableColumn(
+        column: const GridColumn(key: 'grn', label: 'GRN Number'),
+        cell: (item) => item.grnNumber,
+        required: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'vendor', label: 'Supplier', priority: 1),
+        cell: (item) => item.vendorName,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'po', label: 'Purchase Order'),
+        cell: (item) => item.purchaseOrderNumber,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'date', label: 'Receipt Date'),
+        cell: (item) => documentDateStamp(item.receiptDate, item.createdAt),
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'invoice', label: 'Supplier Invoice'),
+        cell: (item) => item.invoiceReference,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'vehicle', label: 'Vehicle'),
+        cell: (item) => item.vehicleNumber,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(
+            key: 'accepted', label: 'Quantity Accepted', numeric: true),
+        cell: (item) => item.totalAcceptedQuantity,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'status', label: 'Status'),
+        cell: (item) => item.status,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(
+            key: 'subtotal', label: 'Taxable Value', numeric: true),
+        cell: (item) => item.subtotal,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'tax', label: 'Tax', numeric: true),
+        cell: (item) => item.taxTotal,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'total', label: 'Grand Total'),
+        cell: (item) => item.grandTotal,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'remarks', label: 'Remarks'),
+        cell: (item) => item.remarks,
+      ),
+    ],
+  );
+
   Widget _buildReceiptGrid() => EnterpriseDataGrid<GoodsReceiptRecord>(
-        columns: const [
-          GridColumn(key: 'grn', label: 'GRN Number'),
-          GridColumn(key: 'vendor', label: 'Supplier'),
-          GridColumn(key: 'po', label: 'Purchase Order'),
-          GridColumn(key: 'date', label: 'Receipt Date'),
-          GridColumn(key: 'status', label: 'Status'),
-          GridColumn(key: 'total', label: 'Grand Total'),
-        ],
+        columns: _columns.gridColumns,
         items: _receipts,
         id: (item) => item.id,
         selectedId: _selected?.id,
-        cells: (item) => [
-          item.grnNumber,
-          item.vendorName,
-          item.purchaseOrderNumber,
-          item.receiptDate,
-          item.status,
-          item.grandTotal,
-        ],
+        cells: _columns.cells,
         onSelect: _selectReceipt,
         onOpen: _openReceipt,
         total: _total,
@@ -708,6 +779,11 @@ class _GoodsReceiptManagementPageState
 
   Map<String, String> _filtersForView() {
     final String? status = _view.status;
-    return status == null ? const {} : {'status': status};
+    return {
+      if (status != null) 'status': status,
+      // The server's created_from/to bound the receipt date.
+      if (_period.from != null) 'created_from': DatePeriod.iso(_period.from!),
+      if (_period.to != null) 'created_to': DatePeriod.iso(_period.to!),
+    };
   }
 }

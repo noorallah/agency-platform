@@ -44,6 +44,9 @@ class _PurchaseReturnManagementPageState
     extends State<PurchaseReturnManagementPage> {
   static const int _rowsPerPage = 20;
   final TextEditingController _search = TextEditingController();
+
+  /// The document dates the list is narrowed to (owner, 2026-09-27).
+  DatePeriod _period = const DatePeriod.all();
   bool _loading = false;
   String? _error;
   int _page = 1;
@@ -216,6 +219,11 @@ class _PurchaseReturnManagementPageState
           search: _search.text.trim(),
           sortBy: 'return_date',
           descending: true,
+          additionalQuery: {
+            if (_period.from != null)
+              'return_from': DatePeriod.iso(_period.from!),
+            if (_period.to != null) 'return_to': DatePeriod.iso(_period.to!),
+          },
         ),
       ]);
       final Map<String, dynamic> summary = _unwrap(responses[0]);
@@ -425,8 +433,25 @@ class _PurchaseReturnManagementPageState
                 ),
               ]
             : const [],
+        // Period right after the search, then Columns, as every sales list
+        // (owner, 2026-09-27).
         trailing: Phase2Scope.of(context)
-            ? const []
+            ? [
+                DateRangeFilter(
+                  value: _period,
+                  onChanged: (period) {
+                    setState(() => _period = period);
+                    unawaited(_load(requestedPage: 1));
+                  },
+                ),
+                ColumnsButton(
+                  onPressed: () async {
+                    if (await _columns.choose(context) && mounted) {
+                      setState(() {});
+                    }
+                  },
+                ),
+              ]
             : [
                 _actionButton(
                   'Approve',
@@ -506,26 +531,68 @@ class _PurchaseReturnManagementPageState
             : () => unawaited(_act(suffix)),
       );
 
+  /// Every column the grid can show; Columns picks among them, remembered
+  /// per screen on this PC (owner, 2026-09-27).
+  late final ColumnChoice<_PurchaseReturnRecord> _columns = ColumnChoice(
+    preferences: widget.preferences,
+    stateKey: 'purchase-returns.grid',
+    columns: [
+      ChoosableColumn(
+        column: const GridColumn(key: 'number', label: 'Return Number'),
+        cell: (item) => item.returnNumber,
+        required: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'vendor', label: 'Supplier', priority: 1),
+        cell: (item) => item.vendorName,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'supplier', label: 'Supplier Return'),
+        cell: (item) => item.supplierReturnNumber,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'reason', label: 'Reason'),
+        cell: (item) => item.returnReason,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'date', label: 'Return Date'),
+        cell: (item) => documentDateStamp(item.returnDate, item.createdAt),
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'status', label: 'Status'),
+        cell: (item) => item.status,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(
+            key: 'subtotal', label: 'Taxable Value', numeric: true),
+        cell: (item) => item.subtotal,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'tax', label: 'Tax', numeric: true),
+        cell: (item) => item.taxTotal,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'total', label: 'Grand Total'),
+        cell: (item) => item.grandTotal,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'remarks', label: 'Remarks'),
+        cell: (item) => item.remarks,
+      ),
+    ],
+  );
+
   Widget _buildReturnGrid() => EnterpriseDataGrid<_PurchaseReturnRecord>(
-        columns: const [
-          GridColumn(key: 'number', label: 'Return Number'),
-          GridColumn(key: 'vendor', label: 'Supplier'),
-          GridColumn(key: 'supplier', label: 'Supplier Return'),
-          GridColumn(key: 'date', label: 'Return Date'),
-          GridColumn(key: 'status', label: 'Status'),
-          GridColumn(key: 'total', label: 'Grand Total'),
-        ],
+        columns: _columns.gridColumns,
         items: _returns,
         id: (item) => item.id,
         selectedId: _selected?.id,
-        cells: (item) => [
-          item.returnNumber,
-          item.vendorName,
-          item.supplierReturnNumber,
-          item.returnDate,
-          item.status,
-          item.grandTotal,
-        ],
+        cells: _columns.cells,
         onSelect: (item) => unawaited(_selectReturn(item)),
         onOpen: (item) => unawaited(_openReturn(item)),
         total: _total,
@@ -665,6 +732,8 @@ class _PurchaseReturnRecord {
     required this.branchId,
     required this.vendorId,
     this.vendorName = '',
+    this.returnReason = '',
+    this.createdAt = '',
     required this.currencyCode,
     required this.exchangeRate,
     required this.paymentTerms,
@@ -689,6 +758,8 @@ class _PurchaseReturnRecord {
 
   /// Whose document it is, so the list can say so (owner, 2026-09-27).
   final String vendorName;
+  final String returnReason;
+  final String createdAt;
   final String currencyCode;
   final String exchangeRate;
   final String paymentTerms;
@@ -719,6 +790,8 @@ class _PurchaseReturnRecord {
       branchId: stringValue(json['branch_id']),
       vendorId: stringValue(json['vendor_id']),
       vendorName: stringValue(json['vendor_name']),
+      returnReason: stringValue(json['return_reason']),
+      createdAt: stringValue(json['created_at']),
       currencyCode: stringValue(json['currency_code']),
       exchangeRate: stringValue(json['exchange_rate']),
       paymentTerms: stringValue(json['payment_terms']),
