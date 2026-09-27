@@ -6,6 +6,7 @@ import 'package:agency_desktop/models/diagnostics.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/settings/diagnostics_page.dart';
 import 'package:agency_desktop/ui/workspace/module_catalog.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -114,12 +115,15 @@ Future<void> _pump(
   WidgetTester tester,
   _DiagnosticsApi api, {
   List<String> perms = const ['DIAGNOSTICS_VIEW'],
+  bool phase2 = false,
 }) async {
   tester.view.physicalSize = const Size(1366, 768);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
     MaterialApp(
+      // Above the navigator, so a dialog the page opens is phase 2's too.
+      builder: phase2 ? (context, child) => Phase2Scope(child: child!) : null,
       home: Scaffold(
         body: DiagnosticsPage(
           api: api,
@@ -332,5 +336,15 @@ void main() {
       expect(api.requestedSource, isNull);
       expect(api.occurrencesFor, isEmpty);
     });
+  });
+
+  testWidgets('phase 2: a grid of faults, nothing opened until asked',
+      (tester) async {
+    // Review 2026-09-27: the first fault used to open itself in a pane.
+    final _DiagnosticsApi api = _DiagnosticsApi(groups: [_group()]);
+    await _pump(tester, api, phase2: true);
+    expect(find.byType(EnterpriseDataGrid<ErrorReportGroup>), findsOneWidget);
+    expect(find.byKey(const ValueKey('selection-bar')), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 }

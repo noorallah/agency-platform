@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../phase2/phase2_scope.dart';
 import '../workspace/module_catalog.dart';
 
 /// One page for several catalogue tabs that share a sidebar entry.
@@ -47,8 +48,10 @@ class TabGroupPage extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           // With one visible member there is nothing to choose between, and a
-          // strip of one button is a control that does nothing.
-          if (members.length > 1)
+          // strip of one button is a control that does nothing. Phase 2's
+          // menu lists each member on its own, and allows no band above the
+          // grid (review, 2026-09-27), so it draws no strip at all.
+          if (members.length > 1 && !Phase2Scope.of(context))
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
               child: Align(
