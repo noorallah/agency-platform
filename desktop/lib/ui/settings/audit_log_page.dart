@@ -41,6 +41,9 @@ class _AuditLogPageState extends State<AuditLogPage> {
   final TextEditingController _action = TextEditingController();
   final TextEditingController _entityType = TextEditingController();
   List<AuditLogEntry> _rows = const [];
+
+  /// Phase 2's Period over the trail (review, 2026-09-27).
+  DatePeriod _period = const DatePeriod.all();
   AuditLogEntry? _selected;
   int _page = 1;
   int _total = 0;
@@ -75,12 +78,21 @@ class _AuditLogPageState extends State<AuditLogPage> {
         pageSize: _rowsPerPage,
         action: _action.text.trim(),
         entityType: _entityType.text.trim(),
+        dateFrom: _period.from == null ? null : DatePeriod.iso(_period.from!),
+        dateTo: _period.to == null ? null : DatePeriod.iso(_period.to!),
       );
       if (!mounted) return;
+      // Phase 2 lists pick nothing until the user does; phase 1's side pane
+      // wanted an entry to show. Read without a dependency: this runs from
+      // initState too.
+      final bool phase2 =
+          context.getInheritedWidgetOfExactType<Phase2Scope>() != null;
       setState(() {
         _rows = result.items;
         _total = result.total;
-        _selected = result.items.isEmpty ? null : result.items.first;
+        _selected = phase2
+            ? result.items.where((row) => row.id == _selected?.id).firstOrNull
+            : (result.items.isEmpty ? null : result.items.first);
       });
     } on ApiException catch (exception) {
       if (!mounted) return;
@@ -103,6 +115,7 @@ class _AuditLogPageState extends State<AuditLogPage> {
         message: 'You do not have permission to read the audit trail.',
       );
     }
+    if (Phase2Scope.of(context)) return _phase2(context);
     return LoadingOverlay(
       loading: _loading,
       child: Column(children: [
@@ -197,6 +210,157 @@ class _AuditLogPageState extends State<AuditLogPage> {
           onPageChanged: (next) => unawaited(_load(requestedPage: next)),
         ),
       ]),
+    );
+  }
+
+  /// Whose trail this is, in one sentence.
+  String get _trailSentence => widget.firmLabel == null
+      ? 'The platform trail: users, roles and firm administration. Each firm '
+          'keeps its own trading history in its own store.'
+      : 'The trail for ${widget.firmLabel}. Platform administration and other '
+          'firms keep their own, in their own stores.';
+
+  /// Phase 2 (review, 2026-09-27): a grid with the action as the line's
+  /// search, the Period after it and the entity type under "+ filter"; the
+  /// entry opens in a window instead of a pane beside the list.
+  Widget _phase2(BuildContext context) {
+    final AuditLogEntry? picked = _selected;
+    return LoadingOverlay(
+      loading: _loading,
+      child: ManagementWorkspaceLayout(
+        toolbar: WorkspaceToolbar(
+          actions: const [ToolbarAction.view, ToolbarAction.refresh],
+          isEnabled: (action) =>
+              action == ToolbarAction.refresh ? !_loading : picked != null,
+          onAction: (action) {
+            if (action == ToolbarAction.view && picked != null) {
+              unawaited(_open(picked));
+            } else {
+              unawaited(_load());
+            }
+          },
+          trailing: [
+            DateRangeFilter(
+              value: _period,
+              onChanged: (period) {
+                setState(() => _period = period);
+                unawaited(_load(requestedPage: 1));
+              },
+            ),
+          ],
+        ),
+        searchPanel: SearchFilterPanel(
+          controller: _action,
+          hintText: 'Search action, e.g. customer.created',
+          onSearch: (_) => unawaited(_load(requestedPage: 1)),
+        ),
+        filterPanel: FilterPanel(
+          activeFilterCount: _entityType.text.trim().isEmpty ? 0 : 1,
+          onApply: () => unawaited(_load(requestedPage: 1)),
+          onClear: () {
+            _entityType.clear();
+            unawaited(_load(requestedPage: 1));
+          },
+          children: [
+            SizedBox(
+              width: 220,
+              child: TextField(
+                controller: _entityType,
+                decoration: const InputDecoration(
+                  labelText: 'Entity type',
+                  hintText: 'customer',
+                ),
+              ),
+            ),
+          ],
+        ),
+        notice: _trailSentence,
+        selectionBar: true,
+        selection: picked == null
+            ? null
+            : SelectionSummary.record(
+                name: picked.action,
+                facts: [
+                  picked.entityLabel.isEmpty
+                      ? picked.entityType
+                      : '${picked.entityType} ${picked.entityLabel}',
+                  picked.actorLabel,
+                  createdStamp(picked.createdAt),
+                ],
+                onClear: () => setState(() => _selected = null),
+              ),
+        primaryContent: Column(children: [
+          if (_error != null)
+            MaterialBanner(
+              content: Text(_error!),
+              actions: [
+                TextButton(
+                  onPressed: () => setState(() => _error = null),
+                  child: const Text('Dismiss'),
+                ),
+              ],
+            ),
+          Expanded(
+            child: _rows.isEmpty
+                ? const StandardEmptyState(
+                    type: EmptyStateType.noRecords,
+                    title: 'Nothing recorded',
+                    message: 'No entry in this trail matches. Every mutation '
+                        'writes one, so an empty result means it happened in '
+                        'a different store or outside the filters.',
+                  )
+                : EnterpriseDataGrid<AuditLogEntry>(
+                    items: _rows,
+                    total: _total,
+                    pageOffset: (_page - 1) * _rowsPerPage,
+                    rowsPerPage: _rowsPerPage,
+                    selectedId: picked?.id,
+                    columns: const [
+                      GridColumn(key: 'when', label: 'When'),
+                      GridColumn(key: 'action', label: 'Action', priority: 1),
+                      GridColumn(key: 'entity', label: 'Entity'),
+                      GridColumn(key: 'subject', label: 'Subject'),
+                      GridColumn(key: 'by', label: 'By'),
+                    ],
+                    id: (row) => row.id,
+                    cells: (row) => [
+                      createdStamp(row.createdAt),
+                      row.action,
+                      row.entityType,
+                      row.entityLabel.isEmpty ? row.entityId : row.entityLabel,
+                      row.actorLabel,
+                    ],
+                    onSelect: (row) => setState(() => _selected = row),
+                    onOpen: (row) => unawaited(_open(row)),
+                    onPageChanged: (offset) => unawaited(
+                      _load(requestedPage: offset ~/ _rowsPerPage + 1),
+                    ),
+                  ),
+          ),
+        ]),
+        statusBar: WorkspaceStatusBar(
+          total: _total,
+          selected: picked != null,
+          message: _loading ? 'Loading...' : null,
+        ),
+      ),
+    );
+  }
+
+  /// Read one entry: what the side pane held, in a window.
+  Future<void> _open(AuditLogEntry row) async {
+    setState(() => _selected = row);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        content: SizedBox(width: 560, child: _detail(dialogContext)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
     );
   }
 

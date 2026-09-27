@@ -5,6 +5,7 @@ import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/audit.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/settings/audit_log_page.dart';
+import 'package:agency_desktop/phase2/phase2_scope.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -74,12 +75,15 @@ Future<void> _pump(
   _AuditApi api, {
   List<String> perms = const ['AUDIT_LOG_VIEW'],
   String? firmLabel = 'Wholesale Hub',
+  bool phase2 = false,
 }) async {
   tester.view.physicalSize = const Size(1400, 900);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(
     MaterialApp(
+      // Above the navigator, so a dialog the page opens is phase 2's too.
+      builder: phase2 ? (context, child) => Phase2Scope(child: child!) : null,
       home: Scaffold(
         body: AuditLogPage(
           api: api,
@@ -204,5 +208,21 @@ void main() {
       expect(find.textContaining('a deleted user'), findsWidgets);
       expect(find.textContaining('u-1'), findsNothing);
     });
+  });
+
+  testWidgets('phase 2: a grid, nothing picked, the entry in a window',
+      (tester) async {
+    // Review 2026-09-27: a filter band, a sentence and a permanent pane.
+    await _pump(tester, _AuditApi(rows: [_entry()]), phase2: true);
+    expect(find.byKey(const ValueKey('selection-bar')), findsNothing);
+    expect(find.text('credit_limit'), findsNothing, reason: 'no side pane');
+
+    await tester.tap(find.text('customer.updated').first);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('selection-view')));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.text('credit_limit'), findsOneWidget);
   });
 }

@@ -88,7 +88,19 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
         _groups = result.items;
         _total = result.total;
       });
-      await _select(result.items.isEmpty ? null : result.items.first);
+      // Phase 2 lists pick nothing until the user does; phase 1's side pane
+      // wanted a fault to show. Read without a dependency: this runs from
+      // initState too.
+      final bool phase2 =
+          context.getInheritedWidgetOfExactType<Phase2Scope>() != null;
+      if (phase2) {
+        final ErrorReportGroup? kept = result.items
+            .where((group) => group.fingerprint == _selected?.fingerprint)
+            .firstOrNull;
+        if (kept == null && _selected != null) await _select(null);
+      } else {
+        await _select(result.items.isEmpty ? null : result.items.first);
+      }
     } on ApiException catch (exception) {
       if (!mounted) return;
       setState(() {
@@ -142,6 +154,7 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
         message: 'You do not have permission to read error reports.',
       );
     }
+    if (Phase2Scope.of(context)) return _phase2(context);
     return LoadingOverlay(
       loading: _loading,
       child: Column(children: [
@@ -193,6 +206,156 @@ class _DiagnosticsPageState extends State<DiagnosticsPage> {
           onPageChanged: (next) => unawaited(_load(requestedPage: next)),
         ),
       ]),
+    );
+  }
+
+  /// Phase 2 (review, 2026-09-27): a grid of faults with the search on the
+  /// line and the source under "+ filter"; a fault and its occurrences open
+  /// in a window rather than a pane beside the list.
+  Widget _phase2(BuildContext context) {
+    final ErrorReportGroup? picked = _selected;
+    return LoadingOverlay(
+      loading: _loading,
+      child: ManagementWorkspaceLayout(
+        toolbar: WorkspaceToolbar(
+          actions: const [ToolbarAction.view, ToolbarAction.refresh],
+          isEnabled: (action) =>
+              action == ToolbarAction.refresh ? !_loading : picked != null,
+          onAction: (action) {
+            if (action == ToolbarAction.view && picked != null) {
+              unawaited(_open(picked));
+            } else {
+              unawaited(_load());
+            }
+          },
+        ),
+        searchPanel: SearchFilterPanel(
+          controller: _search,
+          hintText: 'Search message or error type',
+          onSearch: (_) => unawaited(_load(requestedPage: 1)),
+        ),
+        filterPanel: FilterPanel(
+          activeFilterCount: _source == null ? 0 : 1,
+          onApply: () => unawaited(_load(requestedPage: 1)),
+          onClear: () {
+            setState(() => _source = null);
+            unawaited(_load(requestedPage: 1));
+          },
+          children: [
+            SizedBox(
+              width: 180,
+              child: DropdownButtonFormField<String>(
+                isExpanded: true,
+                initialValue: _source,
+                decoration: const InputDecoration(labelText: 'Source'),
+                items: const [
+                  DropdownMenuItem<String>(value: null, child: Text('All')),
+                  DropdownMenuItem<String>(
+                      value: 'CLIENT', child: Text('Desktop')),
+                  DropdownMenuItem<String>(
+                      value: 'SERVER', child: Text('Server')),
+                ],
+                onChanged: (value) => setState(() => _source = value),
+              ),
+            ),
+          ],
+        ),
+        notice: 'Every firm at once. Error reports are kept in the platform '
+            'store, so this is the whole product rather than one firm. '
+            'Clients queue reports on disk until they can sign in, so a '
+            'fault may arrive later than it happened.',
+        selectionBar: true,
+        selection: picked == null
+            ? null
+            : SelectionSummary.record(
+                name: picked.errorType,
+                facts: [
+                  picked.source == 'CLIENT' ? 'Desktop' : 'Server',
+                  'Occurrences: ${picked.occurrences}',
+                  'Last ${createdStamp(picked.lastSeen)}',
+                ],
+                onClear: () => unawaited(_select(null)),
+              ),
+        primaryContent: Column(children: [
+          if (_error != null)
+            MaterialBanner(
+              content: Text(_error!),
+              actions: [
+                TextButton(
+                  onPressed: () => setState(() => _error = null),
+                  child: const Text('Dismiss'),
+                ),
+              ],
+            ),
+          Expanded(
+            child: _groups.isEmpty
+                ? const StandardEmptyState(
+                    type: EmptyStateType.noRecords,
+                    title: 'Nothing has failed',
+                    message: 'No error report matches.',
+                  )
+                : EnterpriseDataGrid<ErrorReportGroup>(
+                    items: _groups,
+                    total: _total,
+                    pageOffset: (_page - 1) * _rowsPerPage,
+                    rowsPerPage: _rowsPerPage,
+                    selectedId: picked?.fingerprint,
+                    columns: const [
+                      GridColumn(
+                          key: 'type', label: 'Error Type', priority: 1),
+                      GridColumn(key: 'message', label: 'Message'),
+                      GridColumn(key: 'source', label: 'Source'),
+                      GridColumn(
+                          key: 'count', label: 'Occurrences', numeric: true),
+                      GridColumn(key: 'last', label: 'Last Seen'),
+                    ],
+                    id: (group) => group.fingerprint,
+                    cells: (group) => [
+                      group.errorType,
+                      group.message,
+                      group.source == 'CLIENT' ? 'Desktop' : 'Server',
+                      '${group.occurrences}',
+                      createdStamp(group.lastSeen),
+                    ],
+                    onSelect: (group) => unawaited(_select(group)),
+                    onOpen: (group) => unawaited(_open(group)),
+                    onPageChanged: (offset) => unawaited(
+                      _load(requestedPage: offset ~/ _rowsPerPage + 1),
+                    ),
+                  ),
+          ),
+        ]),
+        statusBar: WorkspaceStatusBar(
+          total: _total,
+          selected: picked != null,
+          message: _loading ? 'Loading...' : null,
+        ),
+      ),
+    );
+  }
+
+  /// Read one fault and its occurrences: what the side pane held.
+  Future<void> _open(ErrorReportGroup group) async {
+    if (_selected?.fingerprint != group.fingerprint) await _select(group);
+    if (!mounted) return;
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        content: SizedBox(
+          width: 720,
+          height: 520,
+          child: StatefulBuilder(
+            // Rebuilt as the occurrences arrive.
+            builder: (context, _) => _detail(context),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
     );
   }
 

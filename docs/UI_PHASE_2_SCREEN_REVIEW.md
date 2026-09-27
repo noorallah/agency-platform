@@ -126,3 +126,8 @@ PR number when merged.
   coloured cards; the batches fill the window), and the Medium rows Stock
   Ledger, Transactions, Opening Stock (Period on the line) -- PR "stock
   review fixes".
+- Admin: Roles / Permissions (no strip in phase 2 -- the menu lists each),
+  Audit Logs and Diagnostics (grids with the search on the line, the rest
+  under "+ filter", a Period on the audit trail, the sentence behind the
+  (i), nothing picked on arrival, the entry in a window) -- PR "admin
+  review fixes".
