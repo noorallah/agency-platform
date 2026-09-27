@@ -3944,7 +3944,22 @@ they stand in the current Finance Act, and whether any other section (194C,
 194J) matters to these firms. Rates and thresholds go into settings, never
 into code, as TCS already does.
 
-### 53.1 Firms that already hold a TAN -- owner, 2026-09-27
+### 53.1 Firms that already hold a TAN -- owner, 2026-09-27 -- HIGH PRIORITY
+
+**Priority (owner, 2026-09-27): high.**
+
+| When | What | Size |
+| --- | --- | --- |
+| **Before go-live** | Items 1 and 2 below: TAN on the firm and customers; TDS Payable and TDS Receivable in every firm's chart | About a day |
+| **Before go-live** | The interim steps at the end of this section, in the go-live guide | Docs only |
+| **First update after go-live (1.1)** | Items 3 and 4: *TDS deducted* on payments, expenses and receipts, and the quarterly TDS list for the CA | About a week |
+
+**Move 1.1 before go-live** if a first go-live firm is a mid-size
+distributor (turnover over Rs 10 crore, buying over Rs 50 lakh a year from a
+principal): every payment to the principal carries 194Q TDS, and a journal
+per payment is not a fair ask. Ask each go-live firm: do they hold a TAN, and
+does their CA file their TDS returns?
+
 
 Some firms using the product hold a TAN today, which means they deduct TDS --
 on supplier purchases (194Q), and commonly on **rent (194-I), professional
