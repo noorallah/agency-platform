@@ -10,6 +10,7 @@ import '../workspace/desktop_framework.dart';
 import '../workspace/module_catalog.dart';
 import 'balance_sheet_page.dart';
 import 'control_accounts_page.dart';
+import 'expenses_page.dart';
 import 'journal_entries_page.dart';
 import 'ledger_statement_page.dart';
 import 'profit_loss_page.dart';
@@ -279,6 +280,12 @@ class _FinanceWorkspaceState extends State<FinanceWorkspace> {
               hasActiveFirm: widget.hasActiveFirm,
             ),
           'journal-entries' => JournalEntriesPage(
+              api: widget.api,
+              preferences: widget.preferences,
+              permissions: widget.permissions,
+              hasActiveFirm: widget.hasActiveFirm,
+            ),
+          'expenses' => ExpensesPage(
               api: widget.api,
               preferences: widget.preferences,
               permissions: widget.permissions,

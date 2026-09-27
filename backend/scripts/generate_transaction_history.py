@@ -254,6 +254,9 @@ RESET_ORDER: tuple[str, ...] = (
     # the receipts and payments module and this list did not know about them.
     "settlement_allocations",
     "settlements",
+    # Expenses name the journals they posted, RESTRICT, so they go before the
+    # journals below -- the next table to arrive with a feature (2026-09-27).
+    "expenses",
     # Supplier credit set against a bill names both the purchase return and
     # the bill, RESTRICT each way (D-FIN-19).
     "supplier_credit_applications",

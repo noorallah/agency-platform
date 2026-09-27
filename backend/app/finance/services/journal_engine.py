@@ -67,6 +67,7 @@ SOURCE_DOCUMENT_NAMES = {
     "commission": "commission payout",
     "tcs": "TCS collection",
     "loyalty": "loyalty entry",
+    "expenses": "business expense",
 }
 
 #: The namespace every hand-written journal's reference lives in (D-FIN-9).

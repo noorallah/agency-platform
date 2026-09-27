@@ -7,6 +7,7 @@ import '../../models/entities.dart';
 import '../../models/audit.dart';
 import '../../models/finance.dart';
 import '../../models/physical_count.dart';
+import '../../models/expense.dart';
 import '../../models/settlement.dart';
 import '../../models/settlement_direction.dart';
 import '../../models/batch_serial.dart';
@@ -5242,6 +5243,65 @@ class ApiClient {
             'POST',
             '/api/v1/${direction.path}/$id/reverse',
             body: {if (reason != null && reason.isNotEmpty) 'reason': reason},
+          ),
+        ),
+      );
+
+  /// One page of the firm's expenses -- rent, fuel, salaries -- newest first.
+  Future<PagedResult<Expense>> expenses({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String? status,
+    String? expenseFrom,
+    String? expenseTo,
+  }) =>
+      _list(
+        '/api/v1/expenses',
+        Expense.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        additionalQuery: {
+          if (status != null && status.isNotEmpty) 'status': status,
+          // The Period filter: expense dates, inclusive.
+          if (expenseFrom != null) 'expense_from': expenseFrom,
+          if (expenseTo != null) 'expense_to': expenseTo,
+        },
+      );
+
+  /// One expense, as it stands now.
+  Future<Expense> expense(String id) async => Expense.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/expenses/$id')),
+      );
+
+  /// The accounts the expense form offers: the firm's expense accounts no
+  /// document posts to, and the cash and bank accounts money is paid from.
+  Future<ExpenseAccountChoices> expenseAccountChoices() async =>
+      ExpenseAccountChoices.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/expenses/accounts')),
+      );
+
+  /// Record an expense. The server writes and posts its journal in the same
+  /// request: Dr the expense account, Cr the account the money came from.
+  Future<Expense> recordExpense(Json data) async => Expense.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/expenses', body: data)),
+      );
+
+  /// Cancel an expense with a mirror journal; the original stays. A reason
+  /// is required.
+  Future<Expense> cancelExpense({
+    required String id,
+    required String reason,
+    int? expectedVersion,
+  }) async =>
+      Expense.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/expenses/$id/cancel',
+            body: {'reason': reason},
+            expectedVersion: expectedVersion,
           ),
         ),
       );

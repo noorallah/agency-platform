@@ -888,7 +888,15 @@ abstract final class ModuleCatalog {
       // fix twice over: a cashier would then see the chart of accounts and
       // the journal. Nobody loses a tab -- every code below is held by
       // whoever held `ACCOUNT_VIEW` before.
-      requiredPermissions: ['ACCOUNT_VIEW', 'RECEIPT_VIEW', 'PAYMENT_VIEW'],
+      //
+      // `EXPENSE_VIEW` joined them with the Expenses screen: recording rent
+      // or fuel is a manager's job, not the journal's.
+      requiredPermissions: [
+        'ACCOUNT_VIEW',
+        'RECEIPT_VIEW',
+        'PAYMENT_VIEW',
+        'EXPENSE_VIEW',
+      ],
       requiresAnyPermission: true,
       tabs: [
         ModuleTabDefinition(
@@ -918,6 +926,13 @@ abstract final class ModuleCatalog {
           id: 'journal-entries',
           label: 'Journal Entries',
           requiredPermissions: ['JOURNAL_VIEW'],
+        ),
+        // Rent, fuel, salaries: an expense and where the money came from,
+        // with the journal written and posted for whoever records it.
+        ModuleTabDefinition(
+          id: 'expenses',
+          label: 'Expenses',
+          requiredPermissions: ['EXPENSE_VIEW'],
         ),
         ModuleTabDefinition(
           id: 'receipts',
