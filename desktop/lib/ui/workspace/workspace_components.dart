@@ -1179,6 +1179,40 @@ class SelectionSummary {
         onClear: onClear,
       );
 
+  /// A record a screen already summarises as labelled lines (the side pane
+  /// phase 2 drops): named by [title] or its "Name" line, then its code, then
+  /// its other facts with their labels ("Warehouses: 3" -- a bare 3 says
+  /// nothing), then its "Status" line in words.
+  factory SelectionSummary.lines({
+    String title = '',
+    required List<DetailLine> lines,
+    required VoidCallback onClear,
+  }) {
+    String valueOf(String label) => lines
+        .where((line) => line.label.toLowerCase() == label)
+        .map((line) => line.value)
+        .firstWhere((_) => true, orElse: () => '');
+    final String name = title.isNotEmpty
+        ? title
+        : valueOf('name').isNotEmpty
+            ? valueOf('name')
+            : (lines.isEmpty ? '' : lines.first.value);
+    return SelectionSummary.record(
+      name: name,
+      facts: [
+        for (final DetailLine line in lines)
+          if (line.value.trim().isNotEmpty &&
+              line.value != name &&
+              !const {'name', 'status'}.contains(line.label.toLowerCase()))
+            line.label.toLowerCase() == 'code'
+                ? line.value
+                : '${line.label}: ${line.value}',
+      ],
+      status: valueOf('status'),
+      onClear: onClear,
+    );
+  }
+
   static String _words(String code) => code
       .toLowerCase()
       .split('_')
