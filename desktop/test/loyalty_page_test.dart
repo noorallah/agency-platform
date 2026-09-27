@@ -10,6 +10,7 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/customers/loyalty_page.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -117,11 +118,13 @@ Future<void> _pump(
   WidgetTester tester,
   _LoyaltyApi api, {
   PermissionService? permissions,
+  bool phase2 = false,
 }) async {
   tester.view.physicalSize = const Size(1366, 768);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(MaterialApp(
+    builder: phase2 ? (context, child) => Phase2Scope(child: child!) : null,
     home: Scaffold(
       body: LoyaltyPage(
         api: api,
@@ -349,5 +352,16 @@ void main() {
     });
     expect(find.text('Adjust points'), findsOneWidget,
         reason: 'the dialog closed, only the toolbar button remains');
+  });
+
+  testWidgets('phase 2: the scheme behind the (i), the ledger a grid',
+      (tester) async {
+    // Review 2026-09-27: the scheme sentence, a customer picker and a
+    // balance were crammed into the search slot above a raw table.
+    await _pump(tester, _LoyaltyApi(settings: _settings()), phase2: true);
+    expect(find.byKey(const ValueKey('page-notice')), findsOneWidget);
+    expect(find.byKey(const ValueKey('loyalty-customer')), findsOneWidget);
+    expect(find.byType(DataTable), findsNothing);
+    expect(tester.takeException(), isNull);
   });
 }

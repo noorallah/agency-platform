@@ -15,6 +15,7 @@ import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
+import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
 import 'loyalty_adjust_dialog.dart';
 import 'loyalty_settings_dialog.dart';
@@ -168,6 +169,7 @@ class _LoyaltyPageState extends State<LoyaltyPage> {
             'permission.',
       );
     }
+    if (Phase2Scope.of(context)) return _phase2(context);
     return ManagementWorkspaceLayout(
       toolbar: Wrap(
         spacing: AppSpacing.sm,
@@ -214,6 +216,152 @@ class _LoyaltyPageState extends State<LoyaltyPage> {
         // Said plainly, because "redeem" sounds like a discount and it is not.
         message: 'Spending credit settles a bill; it does not discount it.',
       ),
+    );
+  }
+
+  /// The scheme in one sentence, for phase 2's (i).
+  String? get _schemeSentence {
+    final Json? settings = _settings;
+    if (settings == null) return null;
+    if (settings['is_enabled'] != true) {
+      return 'No scheme is running: nobody is earning anything.';
+    }
+    final String expiry = settings['expiry_months'] == null
+        ? 'and never expire'
+        : 'and expire after ${settings['expiry_months']} months';
+    return '${trimDiscountRate('${settings['points_per_amount']}')} points per '
+        '100, worth ${trimDiscountRate('${settings['amount_per_point']}')} '
+        'each $expiry. At least ${settings['minimum_redemption_points']} '
+        'before any can be spent. Spending credit settles a bill; it does '
+        'not discount it.';
+  }
+
+  /// Phase 2 (review, 2026-09-27): the customer is a chip on the page line,
+  /// their balance counters there too, the scheme behind the (i), Adjust on
+  /// the line and the rarer steps under "..."; the ledger is a grid. Before,
+  /// all of it was crammed into the search slot above a raw table.
+  Widget _phase2(BuildContext context) {
+    final Json? balance = _balance;
+    String customerName = 'Everyone';
+    for (final MapEntry<String, String> customer in _customers) {
+      if (customer.key == _customerId) customerName = customer.value;
+    }
+    return ManagementWorkspaceLayout(
+      toolbar: WorkspaceToolbar(
+        actions: const [ToolbarAction.refresh],
+        isEnabled: (_) => !_loading,
+        onAction: (_) => _load(),
+        trailing: [
+          Phase2MenuChip<String>(
+            key: const ValueKey('loyalty-customer'),
+            label: 'Customer: $customerName',
+            onSelected: (id) {
+              setState(() => _customerId = id.isEmpty ? null : id);
+              _load();
+            },
+            itemBuilder: (_) => [
+              const PopupMenuItem<String>(value: '', child: Text('Everyone')),
+              for (final MapEntry<String, String> customer in _customers)
+                PopupMenuItem<String>(
+                  value: customer.key,
+                  child: Text(customer.value),
+                ),
+            ],
+          ),
+        ],
+        commands: [
+          ToolbarCommand(
+            id: 'adjust-points',
+            label: 'Adjust points',
+            icon: Icons.exposure_outlined,
+            onPressed: _mayAdjust ? _adjust : null,
+          ),
+          ToolbarCommand(
+            id: 'expire-lapsed',
+            label: 'Expire lapsed',
+            icon: Icons.timer_off_outlined,
+            menuOnly: true,
+            onPressed: _mayManage ? _expire : null,
+          ),
+          // Anyone who can read the scheme may open its rule; the dialog is
+          // read-only without the settings permission.
+          ToolbarCommand(
+            id: 'scheme-settings',
+            label: 'Scheme settings',
+            icon: Icons.tune_outlined,
+            menuOnly: true,
+            onPressed: _openSettings,
+          ),
+        ],
+      ),
+      searchPanel: const SizedBox.shrink(),
+      notice: _schemeSentence,
+      primaryContent: Column(children: [
+        if (balance != null)
+          SummaryCards(children: [
+            SummaryCount(label: 'Points', value: _money(balance['points'])),
+            SummaryCount(
+              label: balance['redeemable'] == false
+                  ? 'Worth (below the floor)'
+                  : 'Worth',
+              value: indianAmount(
+                double.tryParse('${balance['amount'] ?? 0}') ?? 0,
+                full: true,
+              ),
+            ),
+          ]),
+        Expanded(child: _ledgerGrid()),
+      ]),
+      statusBar: WorkspaceStatusBar(
+        total: _entries.length,
+        selected: false,
+        message: 'Spending credit settles a bill; it does not discount it.',
+      ),
+    );
+  }
+
+  Widget _ledgerGrid() {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) {
+      return WorkspaceEmptyState(
+        icon: Icons.error_outline,
+        title: 'Nothing could be read',
+        message: _error!,
+      );
+    }
+    if (_entries.isEmpty) {
+      return const WorkspaceEmptyState(
+        title: 'Nothing earned yet',
+        message: 'Points are credited when a bill is approved.',
+      );
+    }
+    return EnterpriseDataGrid<Json>(
+      items: _entries,
+      total: _entries.length,
+      pageOffset: 0,
+      rowsPerPage: _entries.length,
+      availableRowsPerPage: [_entries.length],
+      columns: const [
+        GridColumn(key: 'on', label: 'On'),
+        GridColumn(key: 'customer', label: 'Customer', priority: 1),
+        GridColumn(key: 'why', label: 'Why'),
+        GridColumn(key: 'against', label: 'Against'),
+        GridColumn(key: 'points', label: 'Points', numeric: true),
+        GridColumn(key: 'worth', label: 'Worth', numeric: true),
+        GridColumn(key: 'expires', label: 'Expires'),
+      ],
+      id: (row) => '${row['id'] ?? row.hashCode}',
+      cells: (row) => [
+        stringValue(row['earned_on']),
+        stringValue(row['customer_name']),
+        statusInWords(stringValue(row['kind'])),
+        stringValue(row['sales_invoice_number']),
+        _points(row['points']),
+        _money(row['amount']),
+        row['expires_on'] == null ? 'never' : stringValue(row['expires_on']),
+      ],
+      onSelect: (_) {},
+      onPageChanged: (_) {},
     );
   }
 
