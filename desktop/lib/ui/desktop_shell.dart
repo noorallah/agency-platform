@@ -2619,6 +2619,7 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
         ),
       'proforma-invoices' => ProformaPage(
           api: widget.api,
+          preferences: widget.preferences,
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
         ),

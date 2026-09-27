@@ -298,6 +298,9 @@ void main() {
       home: Scaffold(
         body: ProformaPage(
           api: api,
+          preferences: DesktopPreferencesService(
+            directory: Directory.systemTemp.createTempSync('proforma'),
+          ),
           permissions:
               _permissions(const <String>['PROFORMA_VIEW', 'PROFORMA_MANAGE']),
           hasActiveFirm: true,

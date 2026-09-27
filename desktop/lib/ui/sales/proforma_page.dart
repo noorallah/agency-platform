@@ -13,6 +13,7 @@ import 'package:flutter/services.dart';
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
+import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/product.dart';
@@ -29,11 +30,15 @@ class ProformaPage extends StatefulWidget {
   const ProformaPage({
     super.key,
     required this.api,
+    required this.preferences,
     required this.permissions,
     required this.hasActiveFirm,
   });
 
   final ApiClient api;
+
+  /// Where the grid's chosen columns are remembered.
+  final DesktopPreferencesService preferences;
   final PermissionService permissions;
   final bool hasActiveFirm;
 
@@ -277,13 +282,37 @@ class _ProformaPageState extends State<ProformaPage> {
       // commands, "+ New" last -- as every list.
       toolbar: phase2
           ? WorkspaceToolbar(
-              // Period right after the search, as Sales Returns (owner).
-              trailing: [_periodFilter()],
-              actions: const [ToolbarAction.refresh, ToolbarAction.newItem],
-              isEnabled: (action) =>
-                  action == ToolbarAction.refresh || _mayManage,
-              onAction: (action) =>
-                  action == ToolbarAction.newItem ? _raise() : _load(),
+              // Period right after the search, then Columns (owner).
+              trailing: [
+                _periodFilter(),
+                ColumnsButton(
+                  onPressed: () async {
+                    if (await _columns.choose(context) && mounted) {
+                      setState(() {});
+                    }
+                  },
+                ),
+              ],
+              actions: const [
+                ToolbarAction.view,
+                ToolbarAction.refresh,
+                ToolbarAction.newItem,
+              ],
+              isEnabled: (action) => switch (action) {
+                ToolbarAction.view => selected != null,
+                ToolbarAction.refresh => true,
+                _ => _mayManage,
+              },
+              onAction: (action) {
+                switch (action) {
+                  case ToolbarAction.newItem:
+                    unawaited(_raise());
+                  case ToolbarAction.view:
+                    if (selected != null) unawaited(_openProforma(selected));
+                  default:
+                    unawaited(_load());
+                }
+              },
               commands: [
                 ToolbarCommand(
                   id: 'issue',
@@ -375,8 +404,10 @@ class _ProformaPageState extends State<ProformaPage> {
           style: Theme.of(context).textTheme.bodySmall,
         ),
       ),
-      primaryContent: _list(),
-      detailsPanel: selected == null ? null : _details(selected),
+      // Phase 2: a full-width grid, the proforma read on a double-click
+      // (owner, 2026-09-27); phase 1 keeps its list and side pane.
+      primaryContent: phase2 ? _grid() : _list(),
+      detailsPanel: phase2 || selected == null ? null : _details(selected),
       detailsWidth: 340,
       statusBar: WorkspaceStatusBar(
         total: _rows.length,
@@ -424,6 +455,113 @@ class _ProformaPageState extends State<ProformaPage> {
           ),
         );
       },
+    );
+  }
+
+  /// Phase 2's list: the chosen columns over every proforma.
+  Widget _grid() {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null || _rows.isEmpty) return _list();
+    return EnterpriseDataGrid<ProformaRecord>(
+      items: _rows,
+      total: _rows.length,
+      pageOffset: 0,
+      rowsPerPage: _rows.length,
+      availableRowsPerPage: [_rows.length],
+      selectedId: _selectedId,
+      columns: _columns.gridColumns,
+      id: (row) => row.id,
+      cells: _columns.cells,
+      onSelect: (row) => setState(() => _selectedId = row.id),
+      onOpen: (row) => unawaited(_openProforma(row)),
+      onPageChanged: (_) {},
+    );
+  }
+
+  static String _amount(double value) => value.toStringAsFixed(2);
+
+  /// Every column the grid can show; Columns picks among them, remembered
+  /// per screen on this PC (owner, 2026-09-27).
+  late final ColumnChoice<ProformaRecord> _columns = ColumnChoice(
+    preferences: widget.preferences,
+    stateKey: 'proforma-invoices.grid',
+    columns: [
+      ChoosableColumn(
+        column: const GridColumn(key: 'number', label: 'Number'),
+        cell: (item) => item.proformaNumber,
+        required: true,
+      ),
+      // Whose it is; kept at any width.
+      ChoosableColumn(
+        column:
+            const GridColumn(key: 'customer', label: 'Customer', priority: 1),
+        cell: (item) => item.customerName,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'date', label: 'Date'),
+        cell: (item) => item.proformaDate,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'order', label: 'Sales Order'),
+        cell: (item) => item.salesOrderNumber,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'valid', label: 'Valid Until'),
+        cell: (item) => item.validUntil,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'status', label: 'Status'),
+        cell: (item) => item.status,
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(
+            key: 'subtotal', label: 'Taxable Value', numeric: true),
+        cell: (item) => _amount(item.subtotal),
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'tax', label: 'Tax', numeric: true),
+        cell: (item) => _amount(item.taxTotal),
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'total', label: 'Grand Total'),
+        cell: (item) => _amount(item.grandTotal),
+        shownByDefault: true,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'payment', label: 'Payment Terms'),
+        cell: (item) => item.paymentTerms,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'delivery', label: 'Delivery Terms'),
+        cell: (item) => item.deliveryTerms,
+      ),
+      ChoosableColumn(
+        column: const GridColumn(key: 'remarks', label: 'Remarks'),
+        cell: (item) => item.remarks,
+      ),
+    ],
+  );
+
+  /// Read one proforma: what the side pane held, in a window. Issue and
+  /// Withdraw stay on the bar above the grid, so this only reads.
+  Future<void> _openProforma(ProformaRecord row) async {
+    setState(() => _selectedId = row.id);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        content: SizedBox(width: 520, child: _details(row)),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Close'),
+          ),
+        ],
+      ),
     );
   }
 
