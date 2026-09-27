@@ -16,6 +16,7 @@ import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/commission.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/ui/commission/commission_page.dart';
+import 'package:agency_desktop/phase2/phase2_scope.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -256,11 +257,14 @@ Future<void> _pump(
   WidgetTester tester,
   _CommissionApi api, {
   PermissionService? permissions,
+  bool phase2 = false,
 }) async {
   tester.view.physicalSize = const Size(1700, 1200);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
   await tester.pumpWidget(MaterialApp(
+    // Above the navigator, so a dialog the page opens is phase 2's too.
+    builder: phase2 ? (context, child) => Phase2Scope(child: child!) : null,
     home: Scaffold(
       body: CommissionPage(
         api: api,
@@ -311,6 +315,25 @@ void main() {
       find.textContaining('firm-wide default'),
       findsWidgets,
     );
+  });
+
+  testWidgets('phase 2 puts the picked rate on a bar with Edit and Delete',
+      (tester) async {
+    // Option C (owner, 2026-09-27): a rate's Edit and Delete were only in the
+    // row's context menu.
+    await _pump(
+      tester,
+      _CommissionApi(rules: <Json>[_firmWideRule(), _salesmanRule()]),
+      phase2: true,
+    );
+    expect(find.byKey(const ValueKey('selection-bar')), findsNothing);
+
+    await tester.tap(find.text('Priya Nair').first);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+    expect(find.byKey(const ValueKey('selection-edit')), findsOneWidget);
+    expect(find.byKey(const ValueKey('selection-delete')), findsOneWidget);
   });
 
   testWidgets('a rate is recorded with its window and status', (tester) async {
