@@ -1331,3 +1331,80 @@ def test_the_register_takes_a_window_and_a_page() -> None:
     assert [row.invoice_date for row in page.data] == [days[2]]
 
     assert_page_size_is_bounded(router, "/api/v1/purchase-invoices/reports/register")
+
+
+def test_the_list_finds_an_invoice_by_its_supplier_and_names_them() -> None:
+    """Search by the supplier as well as the bill; each row says whose it is.
+
+    The owner asked the buying lists to name the supplier and be searchable
+    by one, as the selling lists are by the customer (2026-09-27).
+    """
+    from app.purchase_invoice.schemas import PurchaseInvoiceListFilters
+
+    session = _session_factory()()
+    firm = _firm(session)
+    branch = _branch(session, firm_id=firm.id)
+    warehouse = _warehouse(session, firm_id=firm.id, branch_id=branch.id)
+    vendor = _vendor(session, firm_id=firm.id)
+    purchase_order = _purchase_order(
+        session,
+        firm_id=firm.id,
+        vendor_id=vendor.id,
+        branch_id=branch.id,
+        warehouse_id=warehouse.id,
+    )
+    po_line = session.scalar(
+        select(PurchaseOrderLine).where(
+            PurchaseOrderLine.purchase_order_id == purchase_order.id
+        )
+    )
+    assert po_line is not None
+    receipt, receipt_line = _received(session, po_line)
+    service = PurchaseInvoiceService(session)
+    row = service.create_invoice(
+        PurchaseInvoiceCreate(
+            supplier_invoice_number="SUP-7001",
+            supplier_invoice_date=date(2026, 8, 2),
+            invoice_date=date(2026, 8, 2),
+            source_documents=[
+                {
+                    "source_document_type": PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                    "source_document_id": receipt.id,
+                }
+            ],
+            lines=[
+                PurchaseInvoiceLineWrite(
+                    source_document_type=PurchaseInvoiceSourceType.GOODS_RECEIPT,
+                    source_document_id=receipt.id,
+                    source_document_line_id=receipt_line.id,
+                    line_number=1,
+                    current_invoice_quantity=Decimal("4"),
+                    unit_price=Decimal("100"),
+                    discount_amount=Decimal("0"),
+                    charges_amount=Decimal("0"),
+                )
+            ],
+        ),
+        firm_id=firm.id,
+        actor_id=uuid4(),
+    )
+
+    for search, expected in (
+        (vendor.code, 1),
+        (vendor.display_name, 1),
+        ("nobody by this name", 0),
+    ):
+        _, found = service.list_invoices(
+            firm_scope=firm.id,
+            filters=PurchaseInvoiceListFilters(),
+            page=1,
+            page_size=20,
+            search=search,
+            sort_by="created_at",
+            descending=True,
+        )
+        assert found == expected, search
+
+    response = service.invoice_response(row)
+    assert response.vendor_name == vendor.display_name
+    assert response.vendor_code == vendor.code

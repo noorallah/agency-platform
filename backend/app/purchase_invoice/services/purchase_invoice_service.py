@@ -16,7 +16,12 @@ from sqlalchemy.orm import Session
 
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
-from app.common.report_names import branch_names, product_names, vendor_names
+from app.common.report_names import (
+    branch_names,
+    product_names,
+    vendor_names,
+    vendors_matching,
+)
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
@@ -211,6 +216,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 PurchaseInvoice.supplier_invoice_number.ilike(token),
                 PurchaseInvoice.reference_number.ilike(token),
                 PurchaseInvoice.remarks.ilike(token),
+                PurchaseInvoice.vendor_id.in_(vendors_matching(token)),
             )
             statement = statement.where(condition)
             count = count.where(condition)
@@ -760,10 +766,13 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             supplier_invoice_number=row.supplier_invoice_number,
             current_id=row.id,
         )
+        vendor = self._session.get(Vendor, row.vendor_id)
         return PurchaseInvoiceResponse(
             id=row.id,
             firm_id=row.firm_id,
             vendor_id=row.vendor_id,
+            vendor_name=vendor.display_name if vendor else "",
+            vendor_code=vendor.code if vendor else "",
             branch_id=row.branch_id,
             business_profile_id=row.business_profile_id,
             invoice_number=row.invoice_number,

@@ -1507,3 +1507,38 @@ def test_the_return_reports_take_a_window_and_a_page() -> None:
         "/api/v1/purchase-returns/reports/damaged",
         "/api/v1/purchase-returns/reports/expired",
     )
+
+
+def test_the_list_finds_a_return_by_its_supplier_and_names_them() -> None:
+    """Search by the supplier as well as the return; each row says whose it is.
+
+    The owner asked the buying lists to name the supplier and be searchable
+    by one, as the selling lists are by the customer (2026-09-27).
+    """
+    from app.purchase_return.schemas import PurchaseReturnListFilters
+
+    session = _session_factory()()
+    firm = _firm(session)
+    service, row, _ = _approved_return(session, firm_id=firm.id)
+    vendor = session.get(Vendor, row.vendor_id)
+    assert vendor is not None
+
+    for search, expected in (
+        (vendor.code, 1),
+        (vendor.display_name, 1),
+        ("nobody by this name", 0),
+    ):
+        _, found = service.list_returns(
+            firm_scope=firm.id,
+            filters=PurchaseReturnListFilters(),
+            page=1,
+            page_size=20,
+            search=search,
+            sort_by="created_at",
+            descending=True,
+        )
+        assert found == expected, search
+
+    response = service.return_response(row)
+    assert response.vendor_name == vendor.display_name
+    assert response.vendor_code == vendor.code

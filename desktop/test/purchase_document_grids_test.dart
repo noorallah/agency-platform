@@ -20,6 +20,7 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/preferences/desktop_preferences_service.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
+import 'package:agency_desktop/phase2/phase2_scope.dart';
 import 'package:agency_desktop/ui/document_framework/document_framework_widgets.dart';
 import 'package:agency_desktop/ui/document_framework/document_view_dialog.dart';
 import 'package:agency_desktop/ui/purchase_invoices/purchase_invoice_management_page.dart';
@@ -86,6 +87,7 @@ class _DocumentApi extends ApiClient {
       <String, dynamic>{
         'id': 'doc-1',
         numberField: number,
+        'vendor_name': 'Sri Ganesh Traders',
         'status': 'DRAFT',
         'grand_total': '590.00',
         'lines': <Json>[],
@@ -94,11 +96,19 @@ class _DocumentApi extends ApiClient {
   }
 }
 
-Future<void> _pump(WidgetTester tester, Widget page) async {
+Future<void> _pump(
+  WidgetTester tester,
+  Widget page, {
+  bool phase2 = false,
+}) async {
   tester.view.physicalSize = const Size(1600, 1200);
   tester.view.devicePixelRatio = 1;
   addTearDown(tester.view.reset);
-  await tester.pumpWidget(MaterialApp(home: Scaffold(body: page)));
+  await tester.pumpWidget(
+    MaterialApp(
+      home: Scaffold(body: phase2 ? Phase2Scope(child: page) : page),
+    ),
+  );
   await tester.pumpAndSettle();
 }
 
@@ -118,7 +128,10 @@ Directory _temp(WidgetTester tester, String name) {
 
 void main() {
   group('purchase invoices', () {
-    Future<_DocumentApi> open(WidgetTester tester) async {
+    Future<_DocumentApi> open(
+      WidgetTester tester, {
+      bool phase2 = false,
+    }) async {
       final _DocumentApi api =
           _DocumentApi(numberField: 'invoice_number', number: 'PINV-0001');
       await _pump(
@@ -130,6 +143,7 @@ void main() {
           permissions: _permissions(),
           hasActiveFirm: true,
         ),
+        phase2: phase2,
       );
       return api;
     }
@@ -140,6 +154,21 @@ void main() {
       expect(find.byType(EnterpriseDocumentLines), findsNothing);
       expect(find.byType(EnterpriseTimeline), findsNothing);
       expect(find.text('PINV-0001'), findsWidgets);
+      // Each row names its supplier (owner, 2026-09-27).
+      expect(find.text('Supplier'), findsOneWidget);
+      expect(find.text('Sri Ganesh Traders'), findsOneWidget);
+    });
+
+    testWidgets('the selection bar names the supplier', (tester) async {
+      // The bar is phase 2's (option C).
+      await open(tester, phase2: true);
+
+      await tester.tap(find.text('PINV-0001').first);
+      // Past the double-click window, which is when a click is a selection.
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+      expect(find.textContaining('Sri Ganesh Traders ·'), findsOneWidget);
     });
 
     testWidgets('double-clicking a row opens the document', (tester) async {
@@ -154,8 +183,7 @@ void main() {
       expect(find.byType(DocumentViewDialog), findsOneWidget);
     });
 
-    testWidgets('only the actions the backend has are offered',
-        (tester) async {
+    testWidgets('only the actions the backend has are offered', (tester) async {
       await open(tester);
 
       for (final String label in <String>['Approve', 'Cancel', 'Close']) {
@@ -169,7 +197,10 @@ void main() {
   });
 
   group('purchase returns', () {
-    Future<_DocumentApi> open(WidgetTester tester) async {
+    Future<_DocumentApi> open(
+      WidgetTester tester, {
+      bool phase2 = false,
+    }) async {
       final _DocumentApi api =
           _DocumentApi(numberField: 'return_number', number: 'PRET-0001');
       await _pump(
@@ -181,6 +212,7 @@ void main() {
           permissions: _permissions(),
           hasActiveFirm: true,
         ),
+        phase2: phase2,
       );
       return api;
     }
@@ -191,6 +223,21 @@ void main() {
       expect(find.byType(EnterpriseDocumentLines), findsNothing);
       expect(find.byType(EnterpriseTimeline), findsNothing);
       expect(find.text('PRET-0001'), findsWidgets);
+      // Each row names its supplier (owner, 2026-09-27).
+      expect(find.text('Supplier'), findsOneWidget);
+      expect(find.text('Sri Ganesh Traders'), findsOneWidget);
+    });
+
+    testWidgets('the selection bar names the supplier', (tester) async {
+      // The bar is phase 2's (option C).
+      await open(tester, phase2: true);
+
+      await tester.tap(find.text('PRET-0001').first);
+      // Past the double-click window, which is when a click is a selection.
+      await tester.pump(const Duration(milliseconds: 500));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('selection-bar')), findsOneWidget);
+      expect(find.textContaining('Sri Ganesh Traders ·'), findsOneWidget);
     });
 
     testWidgets('double-clicking a row opens the document', (tester) async {

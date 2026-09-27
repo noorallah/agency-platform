@@ -206,6 +206,10 @@ class GoodsReceiptResponse(GoodsReceiptSchema):
     purchase_order_id: UUID
     purchase_order_number: str
     vendor_id: UUID
+    #: Whose document it is, so the list can say so (owner, 2026-09-27).
+    #: Empty for a supplier since removed.
+    vendor_name: str = ""
+    vendor_code: str = ""
     branch_id: UUID
     warehouse_id: UUID
     received_by_id: UUID | None

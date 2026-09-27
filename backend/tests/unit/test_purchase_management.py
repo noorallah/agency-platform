@@ -1080,6 +1080,20 @@ def test_purchase_api_routes_import_export_summary_history_and_permissions() -> 
         db=session,
     )
     assert listed.pagination.total_records == 1
+    # The buying lists are searched by the supplier too (owner, 2026-09-27).
+    from app.purchase.schemas import PurchaseOrderListFilters
+
+    for supplier_search, expected in ((vendor.code, 1), ("nobody by this name", 0)):
+        _, found = PurchaseService(session).list_orders(
+            firm_scope=scope.firm_id,
+            filters=PurchaseOrderListFilters(),
+            page=1,
+            page_size=20,
+            search=supplier_search,
+            sort_by="created_at",
+            descending=True,
+        )
+        assert found == expected, supplier_search
 
     read_response = Response()
     fetched = get_purchase_order(created.data.id, scope, read_response, False, session)

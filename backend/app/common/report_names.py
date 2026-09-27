@@ -38,6 +38,7 @@ __all__ = [
     "salesman_names",
     "territory_names",
     "vendor_names",
+    "vendors_matching",
     "warehouse_names",
 ]
 
@@ -86,6 +87,25 @@ def customer_names(session: Session, ids: Iterable[UUID | None]) -> dict[UUID, s
         session,
         select(Customer.id, Customer.display_name).where(Customer.id.in_(wanted)),
         wanted,
+    )
+
+
+def vendors_matching(token: str) -> Select[tuple[UUID]]:
+    """Select the suppliers a document search names, as a subquery of ids.
+
+    The buying lists are searched by the supplier the way the selling lists
+    are by the shop (owner, 2026-09-27): display name, legal name, name, code,
+    phone and mobile. ``token`` is the ``ilike`` pattern the caller built.
+    """
+    return select(Vendor.id).where(
+        or_(
+            Vendor.display_name.ilike(token),
+            Vendor.name.ilike(token),
+            Vendor.legal_name.ilike(token),
+            Vendor.code.ilike(token),
+            Vendor.phone.ilike(token),
+            Vendor.mobile.ilike(token),
+        )
     )
 
 

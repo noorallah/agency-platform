@@ -308,17 +308,17 @@ class _PurchaseReturnManagementPageState
         toolbar: _buildToolbar(),
         searchPanel: SearchFilterPanel(
           controller: _search,
-          hintText: 'Search return number, supplier return...',
+          hintText: 'Search return number, supplier return or supplier',
           onSearch: (_) => _load(requestedPage: 1),
         ),
         // Option C (owner, 2026-09-27): the return's actions on a bar that
-        // names it, above the grid. No vendor name rides on the record or
-        // the grid, so the bar names only the number, status and total.
+        // names it and its supplier, above the grid.
         selectionBar: true,
         selection: _selected == null
             ? null
             : SelectionSummary.document(
                 number: _selected!.returnNumber,
+                party: _selected!.vendorName,
                 status: _selected!.status,
                 total: _selected!.grandTotal,
                 onClear: () => setState(() => _selected = null),
@@ -509,6 +509,7 @@ class _PurchaseReturnManagementPageState
   Widget _buildReturnGrid() => EnterpriseDataGrid<_PurchaseReturnRecord>(
         columns: const [
           GridColumn(key: 'number', label: 'Return Number'),
+          GridColumn(key: 'vendor', label: 'Supplier'),
           GridColumn(key: 'supplier', label: 'Supplier Return'),
           GridColumn(key: 'date', label: 'Return Date'),
           GridColumn(key: 'status', label: 'Status'),
@@ -519,6 +520,7 @@ class _PurchaseReturnManagementPageState
         selectedId: _selected?.id,
         cells: (item) => [
           item.returnNumber,
+          item.vendorName,
           item.supplierReturnNumber,
           item.returnDate,
           item.status,
@@ -662,6 +664,7 @@ class _PurchaseReturnRecord {
     required this.businessProfileId,
     required this.branchId,
     required this.vendorId,
+    this.vendorName = '',
     required this.currencyCode,
     required this.exchangeRate,
     required this.paymentTerms,
@@ -683,6 +686,9 @@ class _PurchaseReturnRecord {
   final String businessProfileId;
   final String branchId;
   final String vendorId;
+
+  /// Whose document it is, so the list can say so (owner, 2026-09-27).
+  final String vendorName;
   final String currencyCode;
   final String exchangeRate;
   final String paymentTerms;
@@ -712,6 +718,7 @@ class _PurchaseReturnRecord {
       businessProfileId: stringValue(json['business_profile_id']),
       branchId: stringValue(json['branch_id']),
       vendorId: stringValue(json['vendor_id']),
+      vendorName: stringValue(json['vendor_name']),
       currencyCode: stringValue(json['currency_code']),
       exchangeRate: stringValue(json['exchange_rate']),
       paymentTerms: stringValue(json['payment_terms']),
