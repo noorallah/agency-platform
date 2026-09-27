@@ -807,6 +807,31 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
     await _load();
   }
 
+  /// How the selection bar names a record: the cell under the first heading
+  /// that says "name" (the first cell where none does), then its code -- the
+  /// "Code" column, or the first cell when the name is elsewhere -- then its
+  /// status.
+  SelectionSummary _selectionSummary(T item, Set<int> statusColumns) {
+    final List<String> headers = [
+      for (final String h in widget.definition.headers) h.toLowerCase()
+    ];
+    final List<String> cells = widget.definition.cells(item);
+    String at(int index) =>
+        index >= 0 && index < cells.length ? cells[index].trim() : '';
+    final int named = headers.indexWhere((h) => h.contains('name'));
+    final int nameIndex = named < 0 ? 0 : named;
+    final int coded = headers.indexWhere((h) => h.contains('code'));
+    final int codeIndex = coded >= 0 ? coded : (nameIndex > 0 ? 0 : -1);
+    final String name = at(nameIndex);
+    final String code = codeIndex == nameIndex ? '' : at(codeIndex);
+    return SelectionSummary.record(
+      name: name.isEmpty ? code : name,
+      facts: [if (name.isNotEmpty && code.isNotEmpty) code],
+      status: statusColumns.isEmpty ? '' : at(statusColumns.first),
+      onClear: () => setState(() => _selected = null),
+    );
+  }
+
   Future<void> _runCustomAction(ResourceAction<T> action, T? item) async {
     setState(() => _loading = true);
     try {
@@ -876,6 +901,7 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
 
   @override
   Widget build(BuildContext context) {
+    final bool phase2 = Phase2Scope.of(context);
     final Set<int> statusColumnIndexes = widget.definition.headers
         .asMap()
         .entries
@@ -1009,9 +1035,31 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
             break;
         }
       },
+      // Phase 2 (option C, owner 2026-09-27): an action about the picked
+      // row goes on the selection bar; one that needs no row stays on the
+      // line.
+      commands: phase2
+          ? [
+              for (final ResourceAction<T> action
+                  in widget.definition.customActions)
+                if (action.needsSelection &&
+                    (action.isVisible?.call(selected) ?? true))
+                  ToolbarCommand(
+                    id: action.label.toLowerCase().replaceAll(' ', '-'),
+                    label: action.label,
+                    icon: action.icon,
+                    onPressed: !_loading &&
+                            selected != null &&
+                            (action.isEnabled?.call(selected) ?? true)
+                        ? () => _runCustomAction(action, selected)
+                        : null,
+                  ),
+            ]
+          : const [],
       trailing: [
         for (final ResourceAction<T> action in widget.definition.customActions)
-          if (action.isVisible?.call(selected) ?? true)
+          if ((action.isVisible?.call(selected) ?? true) &&
+              !(phase2 && action.needsSelection))
             Tooltip(
               message: action.label,
               child: OutlinedButton.icon(
@@ -1164,6 +1212,12 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
           );
     final Widget layout = ManagementWorkspaceLayout(
       toolbar: activeToolbar,
+      // Option C (owner, 2026-09-27): the picked record's actions on a bar
+      // that names it, above the grid, as on the document lists.
+      selectionBar: true,
+      selection: selected == null || _selectedIds.isNotEmpty
+          ? null
+          : _selectionSummary(selected, statusColumnIndexes),
       searchPanel: search,
       primaryContent: primaryContent,
       // No summary panel. Selecting a row should select it, not open a second
