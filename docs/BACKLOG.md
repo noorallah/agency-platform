@@ -3884,3 +3884,62 @@ invoice, returns; lines later if asked) to `AttributeEntityType` and call
 (TDS under 194Q, tax on MRP less abatement), and a change in a government
 format (GSTR-1 JSON, the e-invoice schema). Rates, thresholds, and which rate
 applies to what are configuration.
+
+## 53. PAN and TAN: record both, check them, and use them
+
+Owner, 2026-09-27: customers in the market carry both a PAN and a TAN; the
+product should tell them apart and put each to work.
+
+**The difference.** **PAN** identifies a taxpayer (every business and person
+has one). **TAN** identifies somebody who **deducts or collects tax at
+source**; only a party that deducts TDS or collects TCS has one, and it is what
+their deduction is filed under -- and what the other side sees in Form 26AS.
+
+**What exists (2026-09-27):**
+
+| Record | PAN | TAN | Used by anything |
+| --- | --- | --- | --- |
+| Firm | `pan_number` | **none** | PAN unique among live firms |
+| Customer | `pan_number` | **none** | TCS: no PAN meant the higher rate (`app/tcs`) |
+| Vendor | `pan` | `tan` | Stored only; nothing reads them |
+
+Nothing checks either format, or that a PAN matches its GSTIN.
+
+**Why it matters now.** The Finance Act 2025 omitted TCS under 206C(1H) from
+1 April 2025 (`app/tcs` already stops charging it on receipts from that day).
+What remains is **TDS under 194Q**, the buyer's side, and that is where PAN
+and TAN do their work -- in both directions for a distributor:
+
+- **As a buyer** (the firm buying from its principal, over Rs 50 lakh a
+  year): the firm deducts TDS from the supplier's payments. It needs **its
+  own TAN** and the **supplier's PAN** (no PAN means the higher rate). This is
+  §42.4.
+- **As a seller** (a large customer buying from the firm): the **customer**
+  deducts TDS and pays the firm short. The firm must record the shortfall as
+  **TDS receivable** -- an asset, claimed against its own income tax -- not as
+  a discount or a bad debt, and match it against 26AS **by the customer's
+  TAN**. Today a short receipt simply leaves the invoice part-open.
+
+**To build when scheduled:**
+1. **Fields.** TAN on the firm (Firm Settings) and on customers; keep the
+   vendor's. Labelled plainly: *PAN (income tax)*, *TAN (deducts tax at
+   source)*, beside *GSTIN*.
+2. **Checks on save.** PAN is `AAAAA9999A`, TAN is `AAAA99999A`; a GSTIN's
+   characters 3 to 12 must equal the party's PAN, so the PAN can be **filled
+   from the GSTIN** and a mismatch refused. The PAN's fourth letter gives the
+   holder type (C company, F partnership, P individual, H HUF ...), which can
+   pre-fill the party's type.
+3. **A customer that deducts TDS.** A flag *deducts TDS on payments to us*
+   (set automatically when a TAN is entered, editable), with the section and
+   rate. The **receipt** then offers *TDS deducted* beside the amount: the
+   invoice is settled in full, the cash posts to the bank, and the TDS part
+   posts to a **TDS receivable** account (a new control purpose).
+4. **Reports.** TDS deducted by customers, by TAN and quarter, to tick
+   against 26AS; parties with no PAN (they cost the higher rate); PAN and
+   GSTIN mismatches.
+5. **194Q as a buyer** is §42.4, and uses the same fields.
+
+**Confirm with the firm's CA at the review:** the rates and the threshold as
+they stand in the current Finance Act, and whether any other section (194C,
+194J) matters to these firms. Rates and thresholds go into settings, never
+into code, as TCS already does.
