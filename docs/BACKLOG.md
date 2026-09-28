@@ -4203,3 +4203,32 @@ built"), never here, so nothing on the work list carried it.
 
 No backend work: the endpoints exist. `test/menu_layout_test.dart` and the
 phase 2 menu tests are what to extend.
+
+## 58. One invoice for several delivery notes (D-SELL-39)
+
+Noticed on 2026-09-28, discussing the sales chain with the owner.
+
+**What exists.** The server bills several delivery notes on one invoice
+(`source_documents` on the create body, one `sales_invoice_sources` row each).
+It refuses a mix unless every note has the same customer and branch, the same
+salesman, territory and route where set, and has been dispatched. The screens
+offer one note only: "Bill this delivery note" is a single dropdown in both
+invoice editors.
+
+**The ask** -- consolidated billing, as Tally, Zoho, Odoo and ERPNext offer it:
+
+1. Choose the **customer** first.
+2. A tick list of that customer's dispatched notes with something left to
+   bill: number, date, order number, amount left.
+3. The ticked notes' lines are gathered into the one bill, each line keeping
+   the note it came from; quantities stay editable within what is left.
+4. Notes that differ in branch, salesman, territory or route are refused on
+   the screen, naming the note and the field, before the server is asked.
+5. Editing a draft keeps its notes fixed, as today for the one note.
+
+**Not changed:** a firm with the delivery-note stage off still bills one sales
+order per invoice -- that bill dispatches the goods itself.
+
+No backend work expected; confirm the preview (`/sales-invoices/preview`) takes
+several sources before relying on it. Tests: the phase 2 invoice editor's
+widget test, plus a backend test that bills two notes from two orders.
