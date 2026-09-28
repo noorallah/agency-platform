@@ -4168,3 +4168,38 @@ Tally, BUSY, Marg, Vyapar, Zoho, Odoo and ERPNext do it. **The design is
 
 Targets for C: a list opens in under 1 second, a report in under 3, on the
 minimum hardware.
+
+## 57. Settings gear: the Selling section
+
+Noticed on 2026-09-28, discussing the sales chain with the owner.
+
+**What exists.** `docs/UI_PHASE_2_DESIGN.md` §4.13 gathers every setting
+behind the **Settings gear**, and appendix A places four under
+**Settings > Selling**. The gear today has Firm, Buying, Stock, Tax and
+Business profile (`MenuLayout.settings` in
+`desktop/lib/phase2/menu_layout.dart`) and **no Selling section**. The four
+are still reachable only from the **...** menu of their own screens:
+
+| Setting | Where it is today |
+| --- | --- |
+| Sales stages (`sales_workflow_settings`) -- which of quotation, sales order and delivery note a firm types; a one-person firm switches all three off and bills straight from the invoice | Sales Invoices > ... > Sales stages |
+| Credit control (`credit_control_settings`) | Customers > ... |
+| Loyalty scheme | Loyalty > ... |
+| TCS | TCS > ... |
+
+It was recorded only in the design and in a code comment
+(`menu_layout.dart`: they "join [settings] when the Settings page of 4.13 is
+built"), never here, so nothing on the work list carried it.
+
+**The ask.**
+
+1. A **Selling** group behind the gear holding the four, each gated by the
+   permission its screen already uses (sales stages: read `SALES_VIEW`,
+   change `SALES_MANAGE_SETTINGS`; credit control: `CUSTOMER_MANAGE_SETTINGS`).
+2. **Each stays in its screen's ... menu as well** -- findable both ways, as
+   §4.13 says.
+3. The Ctrl+K box finds each by name ("sales stages", "credit limit",
+   "loyalty", "TCS").
+
+No backend work: the endpoints exist. `test/menu_layout_test.dart` and the
+phase 2 menu tests are what to extend.
