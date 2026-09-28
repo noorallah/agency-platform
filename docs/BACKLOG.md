@@ -4596,3 +4596,48 @@ dimensions and figures:
 bill register for the same range; a purchase return in the range reduces the
 net; the three bases give different, explainable totals for a part-received,
 part-billed order; drill-down lists exactly the bills summed.
+
+## 67. Sales against a full ERP checklist: what is built, and nine gaps
+
+Owner, 2026-09-28, supplied a 14-part checklist of a complete ERP sales module
+(customers, CRM, quotation, order, delivery, invoice, collection, return,
+credit note, debit note, pricing, tax, receivables, reports). Each part was
+checked against the code the same day.
+
+**Built** (no action): customer master with groups, several billing and
+shipping addresses, contacts, GSTIN and PAN, credit limit and policy, payment
+terms in days, standing discount, opening balance and live outstanding;
+quotations with payment and delivery terms, validity, sent / accepted /
+declined / converted, and "expired" derived from the validity date; orders
+with part delivery, back orders, hold, close; delivery notes with batch and
+serial, vehicle, driver, attachments, part delivery; invoices with due date,
+payment terms, place of supply, bill-to and ship-to on the print, references
+to the order and note; receipts with part payment, advances, one receipt over
+many invoices, reversal; sales returns with reason, condition, restock and
+damaged quantities; credit notes against an invoice's lines; the central tax
+engine (CGST / SGST / IGST, HSN, exemptions, inclusive and reverse charge);
+customer statement and ageing; the flow sales -> inventory -> accounting ->
+tax -> payments, posted automatically. Terms and conditions print from the
+print settings.
+
+**Already recorded elsewhere:** customer-specific rates, maximum discount and
+approval limits (§64); stacking and best offer (§59, §60); daily / monthly /
+by customer / by product / margin reports (§62); payment reconciliation with
+the bank (§42.2); one bill for several notes (§58).
+
+**The nine gaps** -- each to validate with the go-live firms (§55):
+
+| # | Gap | Today | The ask |
+| --- | --- | --- | --- |
+| 1 | **Enquiries and leads (CRM)**: enquiry -> opportunity -> quotation, products and quantity asked, expected value, follow-up dates, status, lost reason | Nothing before the quotation | A light pipeline: an **Enquiry** document (customer or prospect, lines, expected value, salesman, next follow-up, status Open / Quoted / Won / Lost with reason) that converts to a quotation; a follow-ups due list and a Home gadget. A prospect becomes a customer on conversion. |
+| 2 | **Account manager on the customer** | A salesman reaches a customer only through territory, route or the document | `customers.salesman_id`, defaulting onto every new document for that customer; lists and §62 can filter by it. |
+| 3 | **Ship-to chosen per order** | Every document ships to the customer's **default** shipping address | Order, note and invoice carry a `shipping_address_id` picked from the customer's addresses (default preselected), inherited down the chain and printed; place of supply follows it where the law says so. |
+| 4 | **Payment terms on the order** | Only the invoice carries payment terms and due date | The order carries them (from the customer), and the invoice inherits rather than re-reading the customer. |
+| 5 | **Transport details** on the delivery note | Vehicle and driver only | Transporter name and GSTIN, mode, LR / docket number and date, distance -- what the e-way bill needs (§55 M2) -- printed on the challan. |
+| 6 | **Proof of delivery** | Attachments only; a note ends at dispatched / completed | Delivered on (date, time), received by (name), remarks, photo or signature attachment; a note is **Delivered** only with a proof; a list of notes dispatched but not yet proven delivered. |
+| 7 | **Debit note to a customer**: extra charges or a price increase after billing | Nothing (only credit notes) | A debit note against an invoice, mirror of the credit note: raises the receivable, posts revenue and output tax, reported in GSTR-1 as a debit note. |
+| 8 | **Discount report** | Nothing summarises what was given away | Discount given by customer, product, salesman and source (typed, price list, promotion, customer, group, bill), per period -- the discount_source already stored on each line makes it a report, not a data change. |
+| 9 | **Collection report** | The receipts list, and commission on collections | Collections by day, by salesman, by mode (cash / bank / UPI), and against what was due in the period. |
+
+**Suggested order:** 3, 4 (small, correctness of the documents) -> 5, 6
+(delivery, and needed for e-way bill) -> 7 -> 8, 9 -> 2 -> 1.
