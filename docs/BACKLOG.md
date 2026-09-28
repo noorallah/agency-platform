@@ -3330,8 +3330,9 @@ TCS, an audit trail, currency and exchange-rate fields, and a low-stock view.
 ### 42.5 GSTR-2A / 2B matching
 
 - **Who has it:** TallyPrime (download and auto-reconcile), Zoho Books.
-- **Here:** GST returns are outward only -- GSTR-1 and the outward half of 3B,
-  derived from the documents (`app/gst_returns`).
+- **Here:** GSTR-1 and 3B are derived from the documents (`app/gst_returns`);
+  3B carries the input credit from purchase bills (table 4, since D-CMP-20)
+  but nothing checks it against what suppliers filed.
 - **Why it matters:** input tax credit is claimable only on what the supplier
   actually filed. Matching purchase invoices against 2B shows the credit at
   risk before the return is filed. A first version can import the 2B JSON the
@@ -4436,3 +4437,53 @@ customers sees only theirs; margin hidden without the cost permission.
 The same analysis for purchases (by vendor, product, month) follows the same
 design once this lands; the existing Purchase Analytics screen is not offered
 in phase 2.
+
+## 63. Paying the tax: GST payable, set-off and payment; TCS deposit
+
+Owner, 2026-09-28: sales collect tax -- is anything to be paid, and does the
+product show it?
+
+**What exists.**
+
+- Every approved sales document credits **Output tax** (one account,
+  `OUTPUT_TAX`, not split by CGST / SGST / IGST); every approved purchase bill
+  debits **Input tax** split by IGST / CGST / SGST.
+- **GSTR-3B** (`/api/v1/gst-returns/gstr3b`) shows the month's outward tax
+  (3.1) and eligible, reversed and net input credit (table 4), per head.
+- **TCS** collected on receipts is credited to `TCS_PAYABLE`; the TCS screen
+  lists collections and charged-versus-due.
+
+**What is missing -- the step from "collected" to "paid":**
+
+1. **Net GST payable per month.** Output tax less input credit, per head, by
+   the statutory **set-off order**: IGST credit against IGST, then CGST, then
+   SGST; CGST credit against CGST then IGST; SGST credit against SGST then
+   IGST; never CGST against SGST or back. Show credit carried forward, and
+   **cash to pay** per head, with interest at 18% a year for days late after the
+   due date (20th of the next month for monthly filers; 22nd/24th under QRMP).
+   Reverse-charge tax is always paid in cash.
+2. **Recording the payment.** A **GST payment** entry (the PMT-06 challan:
+   CPIN, CIN, bank, date, amount per head, interest, late fee) that posts
+   Dr output tax per head / Cr bank, and a **set-off** entry that posts
+   Dr output tax / Cr input tax for the credit used. After both, output and
+   input tax for the month are zero except credit carried forward -- the check
+   that the books and the return agree.
+3. **Output tax split by head** (`OUTPUT_TAX_IGST / _CGST / _SGST`), mirroring
+   input, so the ledger answers "how much CGST do we owe" without a report.
+4. **A tax calendar on Home** (§49 gadget): GSTR-1 due (11th), 3B due (20th),
+   TCS deposit due (7th), with amounts and a warning when late.
+5. **TCS deposit and returns.** Deposit the month's TCS by the 7th of the next
+   month (challan 281: Dr `TCS_PAYABLE` / Cr bank, with the challan number);
+   the quarterly **27EQ** return listing each collection by customer PAN;
+   **Form 27D** certificates for customers. Ties in with §53 (TAN).
+6. **Late fee and interest** posted to their own expense accounts, not mixed
+   into tax.
+
+**Not in scope:** filing on the portal (the sandbox rule in
+`docs/LEDGER_POSTING_RULES.md` stands); GSTR-2B matching is §42.5.
+
+**Tests:** a month with 18,000 output IGST and 10,000 input IGST shows 8,000
+cash payable; CGST credit never pays SGST; credit beyond liability carries
+forward; after payment and set-off the month's output and input tax accounts
+are zero; a TCS deposit clears `TCS_PAYABLE` for its month; 27EQ lists every
+collection with the customer's PAN.
