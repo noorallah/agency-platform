@@ -44,9 +44,13 @@ from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 from app.goods_receipt.rules import posted_receipt_line, require_posted_receipt
+from app.goods_receipt.schemas import GoodsReceiptStatus
+from app.goods_receipt.services.goods_receipt_service import GoodsReceiptService
 from app.inventory.models import StockLedgerEntry
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderLine
+from app.purchase.schemas import PurchaseOrderStatus
+from app.purchase.services import PurchaseService
 from app.purchase_invoice.models import (
     PurchaseInvoice,
     PurchaseInvoiceAccountingEvent,
@@ -322,11 +326,21 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             feature="ATTACHMENTS",
             values={"attachments": data.attachments},
         )
+        # Raise whatever earlier documents this firm has chosen not to type.
+        # A firm on the whole chain gets its payload back untouched, so this
+        # costs one settings read and changes nothing for anybody else.
+        from app.purchase_invoice.services.purchase_chain_service import (
+            PurchaseChainService,
+        )
+
+        chain = PurchaseChainService(self._session)
+        data = chain.ensure_invoice_source(data, firm_id=firm_id, actor_id=actor_id)
+        own_receipts = frozenset(receipt.id for receipt in chain.raised_receipts)
         document_type, numbering_rule = self._ensure_document_setup(
             firm_id=firm_id, actor_id=actor_id
         )
         header, source_rows, line_specs = self._prepare_invoice_sources(
-            data, firm_id=firm_id
+            data, firm_id=firm_id, own_receipts=own_receipts
         )
         branch_id = data.branch_id or header["branch_id"]
         vendor_id = data.vendor_id or header["vendor_id"]
@@ -375,6 +389,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         )
         self._session.add(row)
         self._session.flush()
+        self._stamp_raised(row, chain.raised_orders, chain.raised_receipts)
         self._replace_sources(row, source_rows, firm_id=firm_id, actor_id=actor_id)
         line_totals = self._replace_lines(
             row,
@@ -383,6 +398,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             invoice_date=data.invoice_date,
             business_profile_id=business_profile_id,
             actor_id=actor_id,
+            own_receipts=own_receipts,
         )
         row.total_source_quantity = line_totals["total_source_quantity"]
         row.total_already_invoiced_quantity = line_totals[
@@ -446,8 +462,31 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         if row.status != PurchaseInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft purchase invoices can be updated.")
         self._delete_children(row.id)
+        own_receipts = frozenset(receipt.id for receipt in self._raised_receipts(row))
+        if any(line.source_document_line_id is None for line in data.lines):
+            # A bill of products restates the whole purchase. The order and
+            # the receipt it raised before are drafts that moved nothing, so
+            # they are withdrawn and raised again from what the bill now says
+            # -- the one-person firm edits the bill, never the documents
+            # behind it.
+            self._withdraw_raised(
+                row,
+                firm_scope=firm_scope,
+                actor_id=actor_id,
+                reason=f"Replaced when {row.invoice_number} was edited.",
+            )
+            from app.purchase_invoice.services.purchase_chain_service import (
+                PurchaseChainService,
+            )
+
+            chain = PurchaseChainService(self._session)
+            data = chain.ensure_invoice_source(
+                data, firm_id=firm_scope, actor_id=actor_id
+            )
+            self._stamp_raised(row, chain.raised_orders, chain.raised_receipts)
+            own_receipts = frozenset(receipt.id for receipt in chain.raised_receipts)
         header, source_rows, line_specs = self._prepare_invoice_sources(
-            data, firm_scope
+            data, firm_scope, own_receipts=own_receipts
         )
         row.vendor_id = data.vendor_id or header["vendor_id"]
         row.branch_id = data.branch_id or header["branch_id"]
@@ -480,6 +519,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             invoice_date=data.invoice_date,
             business_profile_id=data.business_profile_id,
             actor_id=actor_id,
+            own_receipts=own_receipts,
         )
         row.total_source_quantity = line_totals["total_source_quantity"]
         row.total_already_invoiced_quantity = line_totals[
@@ -530,6 +570,17 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         row = self.get_invoice(invoice_id, firm_scope=firm_scope)
         if row.status != PurchaseInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft purchase invoices can be approved.")
+        # A bill that raised its own receipt brings the goods in now: its
+        # approval is the receipt's completion -- stock in, Dr inventory / Cr
+        # goods received not invoiced -- and the bill below clears that
+        # accrual in the same transaction. Only its own draft receipts; a
+        # receipt a person raised was completed by them.
+        receipts = GoodsReceiptService(self._session)
+        for receipt in self._raised_receipts(row):
+            if receipt.status == GoodsReceiptStatus.DRAFT.value:
+                receipts.stage_complete(
+                    receipt.id, firm_scope=firm_scope, actor_id=actor_id
+                )
         # Checked again where the payable is raised, so a draft saved before
         # the check existed cannot post against a line it does not own.
         self._refuse_foreign_lines(row, firm_id=firm_scope)
@@ -592,6 +643,19 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         row.status = PurchaseInvoiceStatus.CANCELLED.value
         row.cancel_reason = reason
         row.updated_by = actor_id
+        if before == PurchaseInvoiceStatus.DRAFT.value:
+            # The order and receipt a draft raised for itself carried nothing
+            # yet -- the receipt completes only at approval -- so they go
+            # with the bill. Flushed first so the receipt no longer reads as
+            # billed. After approval the goods had arrived, and taking them
+            # back is a purchase return, not a cancellation.
+            self._session.flush()
+            self._withdraw_raised(
+                row,
+                firm_scope=firm_scope,
+                actor_id=actor_id,
+                reason=f"{row.invoice_number} was cancelled.",
+            )
         if before == PurchaseInvoiceStatus.APPROVED.value:
             # Approval posted Dr goods-received-not-invoiced, Dr input tax,
             # Cr payable. Cancelling used to change the status and leave all
@@ -1158,6 +1222,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         invoice_date: date,
         business_profile_id: UUID | None,
         actor_id: UUID,
+        own_receipts: frozenset[UUID] = frozenset(),
     ) -> dict[str, Decimal]:
         self._delete_line_taxes(row.id)
         self._session.query(PurchaseInvoiceLine).filter(
@@ -1175,6 +1240,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                     receipt_id=_required_uuid(spec["source_document_id"]),
                     line_id=_required_uuid(spec["source_document_line_id"]),
                     verb="billed",
+                    own_drafts=own_receipts,
                 )
             else:
                 source_line = self._session.scalar(
@@ -1432,8 +1498,29 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             )
 
     def _prepare_invoice_sources(
-        self, data: PurchaseInvoiceCreate, firm_id: UUID
+        self,
+        data: PurchaseInvoiceCreate,
+        firm_id: UUID,
+        *,
+        own_receipts: frozenset[UUID] = frozenset(),
     ) -> tuple[dict[str, UUID], list[dict[str, object]], list[dict[str, object]]]:
+        if any(line.source_document_line_id is None for line in data.lines):
+            # The chain turns product lines into receipt lines for a firm that
+            # switched its stages off; one still bare here is a firm that did
+            # not, or a mixture the chain refused to guess at.
+            raise ValidationError(
+                "Each bill line must name the goods receipt line it bills."
+            )
+        if any(line.product_id is not None for line in data.lines):
+            raise ValidationError(
+                "A bill line names either a goods receipt line or a product, "
+                "not both."
+            )
+        if any(line.free_quantity is not None for line in data.lines):
+            raise ValidationError(
+                "Free goods are the goods receipt's. A bill line naming a "
+                "receipt cannot state its own."
+            )
         lines = [item.model_dump(mode="python") for item in data.lines]
         sources = [item.model_dump(mode="python") for item in data.source_documents]
         inferred_sources = {
@@ -1478,7 +1565,9 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 )
                 if receipt is None:
                     raise ResourceNotFoundError("Goods receipt not found.")
-                require_posted_receipt(receipt, "billed")
+                require_posted_receipt(
+                    receipt, "billed", own_draft=receipt.id in own_receipts
+                )
                 source_rows.append(
                     {
                         "source_document_type": source_type,
@@ -1515,6 +1604,70 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             },
         )
         return header, source_rows, lines
+
+    def _stamp_raised(
+        self,
+        row: PurchaseInvoice,
+        orders: Sequence[PurchaseOrder],
+        receipts: Sequence[GoodsReceipt],
+    ) -> None:
+        """Mark the order and receipt this bill raised as its own."""
+        for order in orders:
+            order.raised_by_purchase_invoice_id = row.id
+        for receipt in receipts:
+            receipt.raised_by_purchase_invoice_id = row.id
+
+    def _raised_receipts(self, row: PurchaseInvoice) -> list[GoodsReceipt]:
+        """Return the goods receipts this bill raised for itself."""
+        return list(
+            self._session.scalars(
+                select(GoodsReceipt).where(
+                    GoodsReceipt.raised_by_purchase_invoice_id == row.id,
+                    GoodsReceipt.firm_id == row.firm_id,
+                    GoodsReceipt.is_deleted.is_(False),
+                )
+            ).all()
+        )
+
+    def _withdraw_raised(
+        self,
+        row: PurchaseInvoice,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        reason: str,
+    ) -> None:
+        """Cancel the draft receipt and the order this bill raised for itself.
+
+        Only what it raised, and only while nothing has arrived: a receipt a
+        person raised is theirs whatever the firm's stage says now, and a
+        completed receipt put stock on the shelf that a purchase return, not
+        a cancellation, takes back.
+        """
+        receipts = GoodsReceiptService(self._session)
+        for receipt in self._raised_receipts(row):
+            if receipt.status == GoodsReceiptStatus.DRAFT.value:
+                receipts.stage_cancel(
+                    receipt.id, firm_scope=firm_scope, actor_id=actor_id, reason=reason
+                )
+        orders = PurchaseService(self._session)
+        for order in self._session.scalars(
+            select(PurchaseOrder).where(
+                PurchaseOrder.raised_by_purchase_invoice_id == row.id,
+                PurchaseOrder.firm_id == row.firm_id,
+                PurchaseOrder.is_deleted.is_(False),
+                PurchaseOrder.status.in_(
+                    (
+                        PurchaseOrderStatus.DRAFT.value,
+                        PurchaseOrderStatus.SUBMITTED.value,
+                        PurchaseOrderStatus.APPROVED.value,
+                    )
+                ),
+            )
+        ).all():
+            orders.stage_cancel(
+                order.id, firm_scope=firm_scope, actor_id=actor_id, reason=reason
+            )
 
     def _refuse_foreign_lines(self, row: PurchaseInvoice, *, firm_id: UUID) -> None:
         """Refuse a saved bill whose line bills another receipt's line."""

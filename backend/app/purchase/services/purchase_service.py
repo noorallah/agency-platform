@@ -692,7 +692,15 @@ class PurchaseService(TransactionalDocumentService):
     def submit_order(
         self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> PurchaseOrder:
-        """Send a draft order for approval.
+        """Send a draft order for approval and commit."""
+        row = self.stage_submit(order_id, firm_scope=firm_scope, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def stage_submit(
+        self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> PurchaseOrder:
+        """Send a draft order for approval without committing.
 
         The first half of the control point this module never had. Until now
         the only way an order reached any status was for the client to state
@@ -727,7 +735,15 @@ class PurchaseService(TransactionalDocumentService):
     def approve_order(
         self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> PurchaseOrder:
-        """Approve a submitted order, committing the firm to buy.
+        """Approve a submitted order and commit."""
+        row = self.stage_approval(order_id, firm_scope=firm_scope, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def stage_approval(
+        self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> PurchaseOrder:
+        """Approve a submitted order, committing the firm to buy, unsaved.
 
         Deliberately requires SUBMITTED rather than accepting a draft. An
         approval anyone can skip is not a control point, and a two-step flow is
@@ -805,13 +821,23 @@ class PurchaseService(TransactionalDocumentService):
             before_data={"status": before},
             after_data={"status": row.status},
         )
-        self._session.commit()
+        self._session.flush()
         return row
 
     def cancel_order(
         self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID, reason: str | None
     ) -> PurchaseOrder:
-        """Cancel order."""
+        """Cancel order and commit."""
+        row = self.stage_cancel(
+            order_id, firm_scope=firm_scope, actor_id=actor_id, reason=reason
+        )
+        self._session.commit()
+        return row
+
+    def stage_cancel(
+        self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID, reason: str | None
+    ) -> PurchaseOrder:
+        """Cancel order without committing."""
         row = self.get_order(order_id, firm_scope=firm_scope)
         if row.status in {
             PurchaseOrderStatus.CANCELLED.value,
@@ -856,7 +882,7 @@ class PurchaseService(TransactionalDocumentService):
             before_data={"status": before},
             after_data={"status": row.status, "reason": reason or ""},
         )
-        self._session.commit()
+        self._session.flush()
         return row
 
     def close_order(

@@ -211,6 +211,11 @@ PERMISSION_GROUPS = {
         "PURCHASE_APPROVE",
         "PURCHASE_IMPORT",
         "PURCHASE_EXPORT",
+        # Which of purchase order and goods receipt this firm raises by hand.
+        # Subtracted from both purchase roles below: turning the receipt stage
+        # off means goods are confirmed by the bill rather than by whoever
+        # counts them in, a control over those roles rather than theirs.
+        "PURCHASE_MANAGE_SETTINGS",
     ),
     "inventory": (
         "INVENTORY_VIEW",
@@ -540,8 +545,9 @@ _SEEDED_ROLE_PERMISSION_CODES = {
             "SALES_VIEW",
         }
     ),
-    "PURCHASE_MANAGER": _codes("purchase"),
-    "PURCHASE_EXECUTIVE": _codes("purchase") - frozenset({"PURCHASE_APPROVE"}),
+    "PURCHASE_MANAGER": _codes("purchase") - frozenset({"PURCHASE_MANAGE_SETTINGS"}),
+    "PURCHASE_EXECUTIVE": _codes("purchase")
+    - frozenset({"PURCHASE_APPROVE", "PURCHASE_MANAGE_SETTINGS"}),
     "INVENTORY_MANAGER": _codes("inventory", "batch_serial"),
     "CASHIER": frozenset(
         # A cashier who can record money and not look at what they recorded

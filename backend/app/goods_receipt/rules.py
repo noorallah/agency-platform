@@ -13,7 +13,9 @@ from app.goods_receipt.models import GoodsReceipt, GoodsReceiptLine
 POSTED_STATES = frozenset({"COMPLETED", "CLOSED"})
 
 
-def require_posted_receipt(receipt: GoodsReceipt, verb: str) -> None:
+def require_posted_receipt(
+    receipt: GoodsReceipt, verb: str, *, own_draft: bool = False
+) -> None:
     """Refuse a receipt whose stock was never posted, or was taken back.
 
     A bill or a return names a receipt because the goods arrived. Neither
@@ -26,11 +28,18 @@ def require_posted_receipt(receipt: GoodsReceipt, verb: str) -> None:
     Args:
         receipt: The receipt being built on.
         verb: What is being done to it, for the refusal ("billed", "returned").
+        own_draft: True when the bill naming it raised it itself, because the
+            firm switched the goods-receipt stage off. That bill completes the
+            receipt when it is approved, so a draft of it may name the receipt
+            while it is still a draft -- and only that bill, since the stamp
+            says who raised it (`raised_by_purchase_invoice_id`).
 
     Raises:
         ValidationError: When the receipt is not completed.
 
     """
+    if own_draft and receipt.status == "DRAFT":
+        return
     if receipt.status not in POSTED_STATES:
         raise ValidationError(
             f"{receipt.grn_number} is {receipt.status.lower()}, so it cannot be "
@@ -45,6 +54,7 @@ def posted_receipt_line(
     receipt_id: UUID,
     line_id: UUID,
     verb: str,
+    own_drafts: frozenset[UUID] = frozenset(),
 ) -> GoodsReceiptLine:
     """Return the receipt line a bill or a return names, and only that.
 
@@ -63,6 +73,8 @@ def posted_receipt_line(
         receipt_id: The receipt the bill or return line names.
         line_id: The receipt line it names.
         verb: What is being done to it, for the refusal ("billed", "returned").
+        own_drafts: Receipts the bill raised for itself, which it may name
+            while they are drafts (see `require_posted_receipt`).
 
     Returns:
         The line, which belongs to that receipt, in that firm.
@@ -82,7 +94,7 @@ def posted_receipt_line(
     )
     if receipt is None:
         raise ResourceNotFoundError("Goods receipt not found.")
-    require_posted_receipt(receipt, verb)
+    require_posted_receipt(receipt, verb, own_draft=receipt.id in own_drafts)
     line = session.scalar(
         select(GoodsReceiptLine).where(
             GoodsReceiptLine.id == line_id,

@@ -7,6 +7,7 @@ from app.purchase.models.purchase import (
     PurchaseOrder,
     PurchaseOrderHistory,
     PurchaseOrderLine,
+    PurchaseWorkflowSettings,
 )
 
 __all__ = [
@@ -16,4 +17,5 @@ __all__ = [
     "PurchaseOrder",
     "PurchaseOrderHistory",
     "PurchaseOrderLine",
+    "PurchaseWorkflowSettings",
 ]
