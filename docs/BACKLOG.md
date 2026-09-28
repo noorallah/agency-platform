@@ -4641,3 +4641,42 @@ the bank (§42.2); one bill for several notes (§58).
 
 **Suggested order:** 3, 4 (small, correctness of the documents) -> 5, 6
 (delivery, and needed for e-way bill) -> 7 -> 8, 9 -> 2 -> 1.
+
+## 68. Purchases against a full ERP checklist: what else to consider
+
+Owner, 2026-09-28: purchasing is well built; compare it anyway with a full ERP
+purchase module (the same shape as the sales checklist in §67): suppliers,
+requisition, RFQ, order, receipt, inspection, bill and matching, payment,
+return, debit note, pricing, tax, payables, reports. Checked against the code
+the same day. §65 already holds fourteen purchase gaps; these are the ones it
+does not.
+
+**Built** (no action): supplier master with categories and types, several
+addresses and contacts, bank accounts (with UPI), GSTIN / PAN / TAN / FSSAI /
+drug licence / IEC; orders with approval, part receipts, over-receipt refusal;
+receipts with accepted / free / rejected / damaged quantities, batches and
+expiry; bills from receipts with due date, part billing, input credit split by
+head; payments with advances, supplier credits from returns, reversal;
+purchase returns off the receipt or the bill; vendor outstanding and overdue
+bills; automatic posting (stock, GRNI, payable, price variance).
+
+**To consider** -- each to validate with the go-live firms (§55):
+
+| # | Item | Today | The ask |
+| --- | --- | --- | --- |
+| 1 | **Supplier payment terms** | No payment terms on the supplier; the bill's due date is typed | `vendors.payment_terms_days`; the bill's due date defaults from it, as customers already do |
+| 2 | **MSME suppliers: pay within 45 days** (Income Tax s.43B(h)) | No MSME / Udyam field | Udyam number and category on the supplier; bills to an MSME supplier due in at most 45 days (15 without an agreement); a list of MSME bills near or past the limit, since an unpaid one is disallowed as an expense at year end |
+| 3 | **Purchase requisition (indent)** | Nothing before the order | A request from a storeman or branch (items, quantity, needed by), approved, then converted into one or more orders -- the reorder suggestion (§42.9) can raise it |
+| 4 | **Approval limits by amount** | Anyone with the permission approves any order | Each role approves orders up to an amount; above it the order waits for a higher role. Shares its rules with §64 row 3 (discount limits) |
+| 5 | **Changing an approved order** | To verify: what an edit to an approved order does | A formal **amendment**: revision number, what changed, re-approval above a threshold, and the supplier's copy reprinted as "Amendment 1" |
+| 6 | **Quality inspection before stock is usable** | Rejected / damaged quantities typed at the receipt | Optional per product or category (pharma, food): received stock lands **on hold** until an inspection passes or rejects it, using the quarantine inventory already has |
+| 7 | **Matching the bill to order and receipt, with tolerances** | Quantity is capped; a price difference posts silently to price variance | A firm tolerance (for example 2% or 100) beyond which a bill's price or quantity difference **holds** the bill for approval, naming the lines |
+| 8 | **Reverse charge on purchases** (GTA freight, legal fees, supplies from unregistered persons where notified) | To verify: the tax engine knows reverse charge; nothing found posting the liability on a bill or reporting 3B 3.1(d) | On such a bill: post output tax payable **and** the input credit, raise the self-invoice number, and report it in 3B; paid in cash (§63) |
+| 9 | **Payment run** | One payment at a time | Pick the bills due by a date across suppliers, approve the run, record every payment at once, and export the bank's bulk-payment file using the supplier bank accounts already stored |
+| 10 | **Supplier's own credit note** (rate difference, discount after billing) with no goods returned | Purchase return only; our debit note is §55 G8 | Record the supplier's credit note against a bill: reduces the payable and the input credit, reported in 3B |
+| 11 | **Supplier performance** | Nothing | On time %, short and rejected %, price trend per supplier (with §66's rate trend) |
+| 12 | **Rate contracts / blanket orders** | Nothing | An agreed rate and total quantity for a period, drawn down by orders -- low for a distributor |
+| 13 | **Imports** | Nothing | Bill of entry, IGST paid at customs as input credit, customs duty into landed cost (§42.12) -- only for importers |
+
+**Suggested order:** 1, 2 (small, and 2 is a legal deadline) -> 8 (verify
+first; tax) -> 7 -> 10 -> 4 -> 9 -> 3, 5, 6 -> the rest.
