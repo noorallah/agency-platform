@@ -4796,8 +4796,9 @@ then 11 -> 13 -> 12 -> 14 -> 18 -> 15 -> 16, 17.
 
 Owner, 2026-09-28: a wireframe for the sign-in screen, and **the logo and
 agency name must be configurable** -- keep it in the backlog. The wireframe is
-view 8 of `dist\windows\Design\UI phase 2 wireframes.html` (switch "not yet
-set" / "configured" to see both states; narrow the window to see it fold).
+view 8 of `dist\windows\Design\UI phase 2 wireframes.html`, in **three
+layouts** (A, B, C) that follow Home's frame and colours; switch "not yet set"
+/ "configured" to see both branding states. **Layout: owner to choose.**
 
 **Today:** the phase 1 sign-in screen reads `config\branding.json` beside the
 executable -- `app_name`, `company_name`, `logo_path`, two colours. That file
@@ -4814,7 +4815,7 @@ must point at a file that exists on that PC.
 | 3 | **Edited in the app** | **Settings > Platform > Branding**, platform administrators only: upload/replace/remove the logo with a preview, name, tagline, accent colour; audited like any other platform change |
 | 4 | **Used everywhere the name shows** | Sign-in panel, the menu bar's logo spot, the window title, About, and the footer's copyright; the product name stays as "Powered by Agency Platform" |
 | 5 | **`branding.json` becomes the fallback** | Kept for the server address and the version; its name/logo apply only until the server's record is set, so an install that set them by hand keeps them |
-| 6 | **Phase 2 sign-in screen** | As the wireframe: brand panel left, form right (username or email, password with show/hide, remember username, keep me signed in, Sign in on Enter, Forgot password), server status and version at the foot, Application Settings behind the gear; below 820 px the brand panel folds into a small logo above the form; a wrong password is one line that does not say which half was wrong |
+| 6 | **Phase 2 sign-in screen** | In the layout the owner picks (**A** brand panel left, form right; **B** Home's frame -- the dark bar carries logo and name and becomes the menu bar after sign-in -- with one card in the middle; **C** as B plus tiles of the people who signed in on this PC, so a counter clerk types only a password). In each: username or email, password with show/hide, remember username, keep me signed in, Sign in on Enter, Forgot password), server status and version at the foot, Application Settings behind the gear; below 820 px the brand panel folds into a small logo above the form; a wrong password is one line that does not say which half was wrong |
 
 Per-firm logos on printed documents are a separate thing (the firm's own
 letterhead) and are not changed by this.
