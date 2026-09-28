@@ -5032,3 +5032,67 @@ firm, first screen, theme, text size, date format, rows per page -- opened
 from the user menu and from Setup's *This PC and me* (§72), with "switching
 firm on the bar is for this session; Start in firm is for next time" said on
 it.
+
+## 74. Money against a full ERP checklist: what else to consider
+
+Owner, 2026-09-28: after sales (§67), purchases (§68) and inventory (§70),
+review the money side the same way -- books, years, receipts and payments,
+party balances, tax filings, statements. Checked against the code the same
+day. Most of the usual gaps already have an entry, so this section first maps
+the checklist to them and then lists only what nothing else covers.
+
+**Built** (no action): chart of accounts with groups, 24 control-account
+purposes per firm, cost and profit centres; financial years and monthly
+periods that close oldest first and a year lock that is final; hand journals
+with draft, edit, reject, post and reverse, refused on the accounts a
+sub-ledger keeps (D-FIN-11); automatic posting from eleven modules; trial
+balance (opening, movement, closing), general ledger per account, P&L for a
+period with the year to date, balance sheet; receipts, payments and refunds
+by cash or bank with allocation to bills, advances, supplier credits and
+reversal (never edit); customer statement and ageing; customer credit notes
+that reverse tax (`app/credit_note`); opening stock and customer opening
+balances posted against opening balance equity; TCS 206C(1H) with its
+settings, collections and charged-versus-due; GSTR-1 and GSTR-3B (outward
+and input credit) derived from the documents; e-invoice and e-way bill in
+sandbox; an append-only audit trail in every store.
+
+**Already planned elsewhere:**
+
+| Checklist item | Where |
+| --- | --- |
+| Expenses (bills without stock: rent, power, travel) | PR #814, draft |
+| Bank reconciliation, statement import | §42.2 |
+| Post-dated cheques, clearing and bounce | §42.3 |
+| TDS payable (194Q, 194C, 194J) and TDS deducted by customers | §42.4, §53, §53.1 |
+| GSTR-2B matching | §42.5 |
+| GST set-off and payment, output tax by head, TCS deposit, 27EQ | §63 |
+| Reverse charge on purchases | §68 row 8 |
+| MSME 45-day payments; payment run | §68 rows 2, 9 |
+| Supplier debit note; supplier's credit note | §55 G8; §68 row 10 |
+| Day book, cash book, bank book | §55 M9 |
+| P&L for any months | §50 |
+| Cash discount for early payment; interest on overdue | §55 G9 |
+| Vendor ageing | §55 S7 |
+| Cheque printing | §55 S11 |
+| GSTR-9, composition | §55 G11 |
+| Export to Tally | §55 G4 |
+| Multi-currency, budgets, recurring entries, payroll | §55 N2, N8, N7, N1 |
+| Live e-invoice through a GSP | §55 M2 |
+| Branch GSTINs; stock value as of a date | §70 |
+| Opening balances from a previous tool | §36, §56 |
+| Screens scoped to a financial year | §37 |
+
+**To consider** -- each to validate with the go-live firms (§55):
+
+| # | Item | Today | The ask |
+| --- | --- | --- | --- |
+| 1 | **The new year's opening** (D-FIN-22) | No closing entry is ever posted. The balance sheet computes earnings from every income and expense account since the start, so it balances, but the trial balance of a second year opens Sales, Purchases and every expense at last year's closing (`JournalEngine._opening_balance` carries every account alike) | In the first period of a year, income and expense accounts open at zero and one line, **Profit and loss brought forward**, carries last year's net. Keep it derived, with no posted closing entry, as the balance sheet already is. The balance sheet splits equity into **surplus brought forward** and **profit for the year** (Schedule III, Reserves and Surplus) |
+| 2 | **Adjusting a party's balance without tax** | Only documents move a customer's or supplier's balance; hand journals are refused on receivables and payables (rightly). A receipt 3.00 short, a bank charge the customer's bank took, a bad debt: none can be cleared, so the bill stays unpaid forever. The only credit note either reverses tax (`/credit-notes`) or is the old route in D-FIN-23 | (a) On a receipt or payment: **deductions** -- rounding / short paid, bank charges, discount allowed or received -- each to its own account, closing the bill. (b) A **party adjustment** document: write-off or bad debt against a customer, balance written back for a supplier, with a reason, approval above an amount, and its journal. (c) **Set-off** between a customer and a supplier who are the same business (Dr payable / Cr receivable, both balances moved) |
+| 3 | **Contra: cash to bank and back** | Possible as a hand journal (cash and bank are open to them), with no document or number of its own | A **contra** voucher: deposit, withdrawal, bank-to-bank transfer, with its own series and print. Warn when cash in hand would go below zero on the day, which the ledger today shows without comment |
+| 4 | **Supplier statement and balance confirmation** | Customer statement and ageing exist; nothing for suppliers | A supplier statement of account (as the customer's) and, at year end, a **balance confirmation** letter for any party -- "our books show you owe / we owe X as of 31 March, please confirm" -- which auditors ask for |
+| 5 | **Cash flow statement** | Trial balance, P&L, balance sheet only | Cash flow for a period by the indirect method (profit, change in receivables, payables, stock, then investing and financing), derived from the same balances. Banks ask for it with a loan application |
+| 6 | **Fixed assets and depreciation** | Nothing; an asset is a ledger account at cost | An asset register (item, date put to use, cost, block), depreciation by written-down value at the income-tax block rates, and the half rate for assets used under 180 days in the year, posted once a year. Low for a trading firm, since the CA often does it; validate before building |
+| 7 | **A document behind every hand journal** | Journals carry a narration only | Attach the scanned bill or letter to a journal, receipt or payment, as auditors expect. Share the store with Expenses (#814) if it has one |
+
+**Suggested order:** 1 (the books a CA reads first; small) -> 2 (every firm
+has short receipts in the first week) -> 3, 4 (small) -> 7 -> 5 -> 6.
