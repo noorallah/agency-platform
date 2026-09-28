@@ -4770,5 +4770,24 @@ G7); returnable containers (§55 G12); free-issue products and "given free" /
 | 9 | **Costing method choice** | Weighted average only (the model already allows FIFO later) | FIFO as a firm setting, if a go-live firm's accountant requires it; most Indian distributors use weighted average, so validate before building |
 | 10 | **Negative stock policy** | Every movement refuses to go below zero | Keep refusing by default; a firm setting to **warn** instead for counter billing where stock is entered late -- validate before building |
 
+**Added the same day from a 60-section "complete inventory module" prompt**
+(review only). Confirmed built besides the above: earliest-expiry-first batch
+allocation that skips expired batches (`allocate_for_dispatch`); serial
+statuses AVAILABLE / RESERVED / SOLD / INSTALLED / RETURNED / REPAIRED /
+SCRAPPED / LOST; reversal by a compensating movement rather than an edit;
+return restock versus damaged / scrap quantities. What it adds:
+
+| # | Item | Today | The ask |
+| --- | --- | --- | --- |
+| 11 | **Adjustment reasons as a list the firm keeps** | Write-off reasons are fixed (damage, expiry, loss) and an adjustment takes free text | A reason master (count variance, found, theft, data correction, internal use, sample, other...) that administrators extend, each mapped to an account; every adjustment and write-off names one |
+| 12 | **Approval for large adjustments and write-offs** | Anyone with the permission posts any size | Above a quantity or value limit per role the movement waits for approval -- the same approval rules as §64 row 3 and §68 row 4, not a third mechanism |
+| 13 | **Evidence on adjustments** | Movements carry no attachments | Photos and documents on adjustments, write-offs, counts and transfers, through the existing attachment storage |
+| 14 | **Incoming and outgoing on the availability figure** | Physical, reserved, available, blocked, damaged, quarantine, in transit | **Incoming** (open purchase orders not yet received) and **outgoing** (open orders not yet reserved) beside available, on the stock screen and the order line, so a salesman can promise a date |
+| 15 | **Issue rule per product** | Earliest expiry first for every batch-tracked product | A setting per product or category: FEFO (today), FIFO by receipt, or **the person picks the batch** -- and when picking is required the note refuses to allocate silently |
+| 16 | **Reservations that lapse** | A reservation lasts until the order ships, is cancelled or closed | Optional expiry per firm (for example 7 days): a reservation not dispatched in time is released and the order flagged, so stock is not held for dead orders |
+| 17 | **Returned goods held until checked** | The return decides restock versus damaged at entry | Optional: returned stock lands in **quarantine** and is released to available only after a check -- the same hold as §68 row 6 for receipts |
+| 18 | **Stock alerts and the inventory dashboard** | Expiry monitor; §42.9 reorder; §55 S12 notifications | Configurable alerts (low, out, over maximum, negative, near expiry, expired, transfer awaiting receipt, count pending) and Home gadgets: stock value by warehouse and category, low and out of stock, near expiry, fast and slow movers, pending transfers and counts -- with §55 S7 ageing and an **inventory turnover** figure per product |
+
 **Suggested order:** 5, 6 (small; accountant and bank) -> 3 -> 1 -> 2 (needed
-before any firm with branches in two states) -> 7 -> 4 -> 8 -> 9, 10.
+before any firm with branches in two states) -> 7 -> 4 -> 8 -> 9, 10;
+then 11 -> 13 -> 12 -> 14 -> 18 -> 15 -> 16, 17.
