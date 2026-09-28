@@ -4791,3 +4791,30 @@ return restock versus damaged / scrap quantities. What it adds:
 **Suggested order:** 5, 6 (small; accountant and bank) -> 3 -> 1 -> 2 (needed
 before any firm with branches in two states) -> 7 -> 4 -> 8 -> 9, 10;
 then 11 -> 13 -> 12 -> 14 -> 18 -> 15 -> 16, 17.
+
+## 71. Sign-in screen for phase 2, with the agency's own logo and name
+
+Owner, 2026-09-28: a wireframe for the sign-in screen, and **the logo and
+agency name must be configurable** -- keep it in the backlog. The wireframe is
+view 8 of `dist\windows\Design\UI phase 2 wireframes.html` (switch "not yet
+set" / "configured" to see both states; narrow the window to see it fold).
+
+**Today:** the phase 1 sign-in screen reads `config\branding.json` beside the
+executable -- `app_name`, `company_name`, `logo_path`, two colours. That file
+is per PC and edited by hand, so ten PCs mean ten edits, Setup overwrites it
+on every upgrade, and nobody can change it from inside the app. The logo path
+must point at a file that exists on that PC.
+
+**The ask:**
+
+| # | Item | Detail |
+| --- | --- | --- |
+| 1 | **Branding held by the server** | Agency name, tagline, logo (PNG/JPG, stored by the backend, size-capped) and accent colour, in one platform-level record -- one agency per installation, above the firms, because sign-in happens before a firm is chosen |
+| 2 | **Read before sign-in** | A public, unauthenticated `GET` for the branding and the logo image (nothing secret in it), cached on the PC so the screen still shows the logo when the server is down, with the "server does not answer" strip beside it |
+| 3 | **Edited in the app** | **Settings > Platform > Branding**, platform administrators only: upload/replace/remove the logo with a preview, name, tagline, accent colour; audited like any other platform change |
+| 4 | **Used everywhere the name shows** | Sign-in panel, the menu bar's logo spot, the window title, About, and the footer's copyright; the product name stays as "Powered by Agency Platform" |
+| 5 | **`branding.json` becomes the fallback** | Kept for the server address and the version; its name/logo apply only until the server's record is set, so an install that set them by hand keeps them |
+| 6 | **Phase 2 sign-in screen** | As the wireframe: brand panel left, form right (username or email, password with show/hide, remember username, keep me signed in, Sign in on Enter, Forgot password), server status and version at the foot, Application Settings behind the gear; below 820 px the brand panel folds into a small logo above the form; a wrong password is one line that does not say which half was wrong |
+
+Per-firm logos on printed documents are a separate thing (the firm's own
+letterhead) and are not changed by this.
