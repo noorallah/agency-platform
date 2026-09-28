@@ -4487,3 +4487,26 @@ cash payable; CGST credit never pays SGST; credit beyond liability carries
 forward; after payment and set-off the month's output and input tax accounts
 are zero; a TCS deposit clears `TCS_PAYABLE` for its month; 27EQ lists every
 collection with the customer's PAN.
+
+## 64. Sales: five gaps no other entry covers
+
+Found 2026-09-28 reviewing sales end to end with the owner, after §57-§63.
+Checked against §42, §55 and `docs/MARKET_COMPARISON.md` so nothing here is
+listed twice. Each is **to validate** with the go-live firms, as §55 says.
+
+| # | Gap | What exists | The ask, by convention |
+| --- | --- | --- | --- |
+| 1 | **Fixed special rates and price levels** -- "Anand pays 80 for detergent"; retail / wholesale / dealer rates | Price lists hold **discount % ladders only** (`price_list_items.discount_percent`); a product has **one** `selling_price` | A price list line may give a **rate** instead of a %; products carry named **price levels** (Retail, Wholesale, Dealer), a customer or group is assigned one, and a rate from a list outranks the level. Ranked in `app/core/utils/pricing.py` like every other tier. |
+| 2 | **Selling below cost or below a minimum price** | Nothing warns; only commission refuses to pay on a sale below cost | The line warns when the net rate is below the product's cost or its **minimum selling price** (a new product field); a firm setting chooses warn or block; a block can be lifted by a role holding a new permission. |
+| 3 | **Discount limit per role** | Anybody who may edit an order may type any discount | Each role has a **maximum discount %**; above it the order is saved but needs approval by a role with a higher limit, and the approval records who allowed it. |
+| 4 | **Typing a rate that includes GST** | Tax-inclusive treatment exists only as a tax-rule property; a line's rate is always before tax | A **Rate includes GST** switch per document (default from firm settings) so a counter can type the shelf price; the line derives the taxable value; the print shows both. |
+| 5 | **Taking payment on the bill** | A receipt is a separate document on another screen | On the invoice: **Received now** (cash / UPI / card, amount, reference); approving the bill records the receipt against it in the same transaction; shows change due. Pairs with §55 M10 fast counter billing. |
+
+**Already recorded, for completeness** -- the sales list as of today: §57
+Selling settings; §58 / D-SELL-39 several notes on one bill; §59 best offer;
+§60 offer types; §62 sales analysis; §63 paying the tax; D-SELL-40 to 43;
+§42.1 WhatsApp and email; §42.6 salesman app; §42.7 scheme claims; §42.10 UPI
+QR on the invoice; §44 user default branch; §52 document fields; §53 PAN/TAN;
+§54 trade licences; §55 G5 batch-wise MRP / PTR, G6 last rate, G7 picking and
+loading sheet, G9 cash discount and overdue interest, G12 returnable
+containers, M2 live e-invoice and e-way bill, M10 counter billing.
