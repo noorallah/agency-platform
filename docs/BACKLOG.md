@@ -4383,3 +4383,56 @@ free-issue product cannot be sold at a price; giving it away posts promotional
 expense at its cost; a gift line on a receipt adds no stock and posts one
 journal by who keeps it; the 194R total per supplier crosses 20,000 when it
 should.
+
+## 62. Sales analysis: any combination of period, product, customer and more
+
+Owner, 2026-09-28: sales needs a section, and Home gadgets, showing how much
+was sold per day, per month, per product, per customer -- every combination.
+
+**What exists.** Fixed reports only: orders by customer, by salesman and by
+territory (`/sales-orders/reports/*`, orders booked rather than sales
+billed); the invoice register, summary, pending and overdue lists
+(`/sales-invoices/reports/*`); notes by route, salesman and warehouse; and
+Home's "sales over 14 days" chart. There is **no** sales-by-product report, no
+day / month trend over billed sales, and no way to cross two of them
+(product by month, customer by product).
+
+**The ask** -- a pivot over billed sales, as Tally (sales register and item
+analysis), BUSY, Zoho (sales by item / customer / salesperson) and every BI
+tool offer it:
+
+1. **Sell → Sales Analysis**, one screen:
+   - **Rows** and optional **Columns**, each any one of: day, week, month,
+     quarter, financial year; product, product category; customer, customer
+     group; salesman, territory, route; branch, warehouse. Examples: product
+     by month; customer by product; salesman by month; category by territory.
+   - **Figures**: quantity (in the sales unit), taxable value, tax, net sales,
+     invoice count, average bill; and **gross margin** (value less cost of
+     goods sold from the delivery notes) for users who may see cost.
+   - **Filters** on every dimension above, plus a period (defaults to this
+     month).
+   - **Net of returns**: approved invoices less credit notes and sales
+     returns in the same period, with a switch to show gross.
+   - A switch to analyse **orders booked** instead of sales billed.
+   - Totals per row and column; **click any figure** to see the invoices
+     behind it; **compare** with the previous period or the same period last
+     year (value and % change); chart view (line for periods, bars for
+     products and customers); export to Excel, CSV and PDF; save a layout by
+     name ("Monthly product sales").
+2. **Home gadgets** (joins §49's gadget catalogue): today's sales; this month
+   against last month; sales by day for the month; top 5 products; top 5
+   customers; top salesmen. Each opens Sales Analysis already set to it.
+3. **Who sees what**: `SALES_VIEW` for the analysis; margin only with a cost
+   permission; a salesman sees only his own customers when his role says so.
+4. **Speed** (§56 stream C targets: a report in under 3 seconds): one grouped
+   query over invoice lines with an index on the invoice date; a daily summary
+   table only if large firms need it.
+
+**Tests:** each dimension alone and crossed with a period; totals equal the
+invoice register for the same period; a credit note in the period reduces net
+sales; drill-down lists exactly the invoices summed; a salesman limited to his
+customers sees only theirs; margin hidden without the cost permission.
+
+The same analysis for purchases (by vendor, product, month) follows the same
+design once this lands; the existing Purchase Analytics screen is not offered
+in phase 2.
