@@ -4316,3 +4316,70 @@ discounted; a bill discount reaches the GST.
 **Suggested order:** D-SELL-42 (screen only) -> 13 -> 1, 2, 3 -> 12 -> 4, 5 -> 6, 7
 -> the rest. Each benefit is a new `PromotionActionType` and each eligibility a
 new `PromotionField`, so none changes how existing offers price.
+
+## 61. Free goods and gifts from suppliers: for customers, and for the firm
+
+Owner, 2026-09-28: suppliers send free items with a purchase delivery. Some
+are meant to be passed on free to customers; some are not for customers at
+all -- they are for the firm or its owner. How is each tracked?
+
+**What exists.**
+
+- **Free quantity of the same item** (a 10+1 scheme) is a field on the
+  purchase order line and the goods receipt line. Receiving puts
+  **accepted + free** into stock as ordinary saleable stock of that product,
+  and spreads the line's value over all of it, so the average cost falls
+  (`GoodsReceiptService._receipt_unit_cost`). The bill charges only what was
+  bought. This works.
+- **A different free item** (50 bowls to give away with detergent) can only be
+  received as an extra receipt line at price 0. It becomes saleable stock at
+  zero cost, and nothing says it was meant to be given away.
+- **Giving it to customers**: a sales line's free quantity of the same item, or
+  a Free product promotion (server only -- D-SELL-42). Stock can also leave by
+  write-off, but its reasons are DAMAGE, EXPIRY and LOSS only.
+- **Gifts for the firm or owner** (a TV, a trip, a gold coin for meeting a
+  target): **nothing**. The only way in is a zero-price receipt, which puts a
+  television into saleable stock.
+- **What the supplier owes back** for a scheme passed on to customers is §42.7.
+
+**The ask**, by the usual convention (Tally and BUSY free-quantity schemes,
+Marg scheme stock, standard accounting for supplier incentives):
+
+1. **Free goods for customers.**
+   - A product flag **For free issue only** ("promotional stock"): it can be
+     received, given away and counted, but never sold at a price. The sales
+     screens refuse a price on it; stock reports show it separately.
+   - On the goods receipt, a free line names the **scheme** it came under
+     (free text, or a link to the supplier's offer when §42.7 lands).
+   - A stock issue reason **Given free to customer** (and **Sample**), naming
+     the customer, costed to a **Promotional expense** account, beside the
+     existing DAMAGE / EXPIRY / LOSS.
+   - A report: free goods received per supplier and scheme, given away per
+     customer, and what is left -- received = given + in stock.
+   - Same-item free goods (10+1) stay as today: ordinary stock at a lower
+     average cost. That is how every Indian trade tool treats them, and it is
+     right, because the item is sold like any other unit.
+2. **Gifts for the firm or owner.** Not stock and not for sale.
+   - A **Supplier gifts and incentives** register: date, supplier, item,
+     value (the supplier's declared value, or fair market value), who received
+     it (firm or owner), and the purchase or scheme it came with.
+   - Saving it posts one journal, chosen by who keeps it:
+     - kept by the business as an asset: Dr **Fixed asset** / Cr **Other income -
+       supplier incentives**;
+     - used up by the business: Dr the expense / Cr the same income;
+     - taken by the owner: Dr **Drawings** / Cr the same income.
+   - No GST input credit is taken on a gift received free.
+   - **TDS 194R:** a supplier giving benefits worth more than 20,000 in a year
+     deducts TDS on them. The register totals value per supplier per financial
+     year, and shows the 194R TDS deducted so it can be matched with Form 26AS
+     (ties in with §53, PAN/TAN and TDS).
+3. **Arriving with the delivery.** The goods receipt screen gets a third kind
+   of line beside ordered and free: **Gift, not stock**. It records the gift in
+   the register (2) instead of stock, so the person unloading the truck
+   records everything that arrived in one place.
+
+**Tests:** a 10+1 receipt lowers the average cost and the bill charges 10; a
+free-issue product cannot be sold at a price; giving it away posts promotional
+expense at its cost; a gift line on a receipt adds no stock and posts one
+journal by who keeps it; the 194R total per supplier crosses 20,000 when it
+should.
