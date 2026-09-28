@@ -4246,3 +4246,27 @@ the preview and the invoice are one feature and must behave the same).
 Backend work is only item 7. Tests: the phase 2 invoice editor's widget test;
 backend tests that preview and then save one bill of two notes from two orders
 and get the same totals, and that its PDF names both notes.
+
+## 59. Promotions: a "best offer only" mode
+
+Noticed on 2026-09-28, explaining promotions to the owner
+(`docs/PROMOTIONS_AND_DISCOUNTS_GUIDE.md` section 4).
+
+**What exists.** Matching promotions always **combine**, in "Applies at"
+order, compounding, until one with stacking switched off ends the stack. The
+only way to make one offer exclude another is priority plus that switch.
+There is no "give the customer whichever single offer is worth most", and no
+cap on the combined discount.
+
+**The ask**, as most retail and distribution tools offer it:
+
+1. A firm-wide choice under Settings > Selling: **Combine offers** (today's
+   behaviour, the default so no firm changes) or **Best offer only**.
+2. Best offer only: evaluate each matching promotion on its own and apply the
+   one that takes the most off the document; ties go to the lower "Applies
+   at". The execution log records every candidate and why it lost.
+3. Optionally a **maximum combined discount %** per line, for Combine mode.
+
+Free goods and free shipping have no rupee value to compare until costed;
+decide at design time whether they are valued at selling price or excluded
+from the comparison.
