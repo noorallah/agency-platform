@@ -104,6 +104,7 @@ from the documents, not from GSTR-1.
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
+| D-CMP-22 | Medium | An invoice line does not keep its HSN/SAC code. GSTR-1's HSN summary (`GstrService._fold_hsn`), the e-invoice payload (`einvoice/services/payload.py`) and the invoice reprint (`invoice_print_service.py`) all read `products.hsn_sac` as it is **today**, so correcting a product's code changes the HSN table of months already filed and reprints old bills with a code they were not issued with. Tax amounts are unaffected (the line keeps its components and rates). Found 2026-09-28 reviewing Money; `docs/BACKLOG.md` §71.1 row 8. | Code |
 
 ### Configuration -- found writing the Configuration data trail, 2026-09-19
 

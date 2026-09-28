@@ -5096,3 +5096,48 @@ sandbox; an append-only audit trail in every store.
 
 **Suggested order:** 1 (the books a CA reads first; small) -> 2 (every firm
 has short receipts in the first week) -> 3, 4 (small) -> 7 -> 5 -> 6.
+
+### 71.1 What the finance master prompt adds (rows 8-16)
+
+Owner, 2026-09-28: a full "Money / Finance & Tax module" master prompt (81
+sections) reviewed against the code the same day. Most of it is built or
+already has an entry, as the table below shows. Nine points are new.
+
+**Already built** (the prompt asks, the code has it): double entry enforced on
+post; posted journals immutable, corrected by reversal; maker and checker
+(`JOURNAL_CREATE` / `JOURNAL_POST`); every automatic journal names its source
+document; firm isolation in the query layer (per-store sessions, `X-Firm-ID`
+membership); years and periods with close, lock and a separate
+`FINANCIAL_YEAR_REOPEN`; several cash and bank accounts (a receipt names its
+ledger account); receipts and payments with part allocation, advances,
+unallocated balance and reversal, never allocated silently; control accounts
+for rounding, discount allowed and received; decimal money throughout
+(`quantize_ledger`); tax rules versioned and matched by date; a tax
+execution log per evaluation; e-invoice behind a portal interface, refusal
+kept for retry, cancellation refused after 24 hours; e-way bill fields;
+`currency_code` on the documents; audit rows on every mutation.
+
+**Already planned:** bank reconciliation §42.2; cheques §42.3; TDS rules,
+payable, receivable, returns and certificates §42.4 / §53 / §53.1; GSTR-2B
+§42.5; GST payable, set-off, challan, TCS deposit and 27EQ §63; approval by
+amount §68 row 4 and §55 S12; expenses #814; supplier debit note §55 G8;
+customer debit note §67; supplier opening balances §36; day, cash and bank
+book §55 M9; cash flow, supplier statement §71 rows 5, 4; finance dashboard
+§49; live IRP through a GSP, with duplicate-IRN handling, §55 M2;
+multi-currency §55 N2.
+
+| # | Item | Today | The ask |
+| --- | --- | --- | --- |
+| 8 | **HSN kept on the invoice line** (D-CMP-22) | Lines keep the tax components and rates, but not the HSN/SAC: GSTR-1's HSN table, the e-invoice payload and a reprint read the product's **current** code | Copy `hsn_sac` onto every sales, purchase, return and credit note line when it is written (backfill existing lines from the product, once); the returns, payload and print read the line |
+| 9 | **GST checks before filing** | GSTR-1 folds a line with no HSN under a blank code; nothing lists what is wrong | An exception list per return period: B2B bill whose GSTIN fails the checksum or state code, missing HSN, HSN shorter than the firm's turnover requires (4 / 6 digits), missing place of supply, e-invoice required but not registered, credit note with no original invoice. Each row opens the document |
+| 10 | **Recording a filed return** | Returns are derived on every read, and nothing records that one was filed | A return register per GSTIN, return type and period: prepared, filed (typed by the person who filed on the portal: date, ARN), by whom. After filing, the period's figures are **kept as filed**, and a later change to a document in that period is shown as an amendment for the next return rather than silently changing the filed one. Never marked FILED by the app itself (the sandbox rule stands) |
+| 11 | **Quarterly filers (QRMP)** | Due dates and periods assume monthly | Filing frequency on the firm's GST registration; GSTR-1 by quarter (with the optional IFF in months 1-2), 3B quarterly, due dates 22nd / 24th by state; §63's payment by PMT-06 in months 1-2 |
+| 12 | **How the money moved** | `method` is CASH or BANK; the instrument is free text | A mode on receipts and payments -- UPI, cheque, NEFT / RTGS / IMPS, card, cash -- with instrument number and date, so the cash and bank books (M9) and bank matching (§42.2) can use it; cheque status stays §42.3 |
+| 13 | **The firm's bank accounts, and masking** | A bank is only a ledger account; supplier and customer bank numbers come back in full from the API | Bank name, account number, IFSC, branch on the firm's bank ledger accounts, printed on invoices ("pay to"); **show only the last four digits** of any account number except to a role that pays (the payment run in §68 row 9 needs the full one) |
+| 14 | **Checks before closing a month** | A period closes if the one before is closed; nothing else is asked | Before close, list and warn (or refuse, by firm setting): draft journals and documents dated in the month, approved documents with no journal, receipts left unallocated, unreconciled bank lines (after §42.2), GST return not recorded as filed (row 10) |
+| 15 | **Why tax was charged, kept on the document** | The line keeps component and rate; the rule that chose them is only in `tax_rule_execution_logs`, which retention may purge | Store the rule code and version on each line tax row, so the reason survives the log's retention and a reprint years later can say which rule applied |
+| 16 | **Ageing buckets and due lists** | Buckets fixed at 0-30-60-90-90+; overdue lists exist | Buckets set per firm; "due today" and "due this week" for receivables and payables, and a collection summary by salesman and route (with §62) |
+
+**Suggested order, whole section:** 8 (small; a filed return must not
+change) -> 1 -> 2 -> 9 -> 12 -> 13 -> 3, 4 -> 10, 11 -> 14 -> 15, 16 -> 7 ->
+5 -> 6.
