@@ -4510,3 +4510,45 @@ QR on the invoice; §44 user default branch; §52 document fields; §53 PAN/TAN;
 §54 trade licences; §55 G5 batch-wise MRP / PTR, G6 last rate, G7 picking and
 loading sheet, G9 cash discount and overdue interest, G12 returnable
 containers, M2 live e-invoice and e-way bill, M10 counter billing.
+
+## 65. Purchases: what the review with the owner found
+
+Owner, 2026-09-28, the purchases half of the review that produced §57-§64.
+`docs/PURCHASE_FRAMEWORK.md` and `docs/PURCHASE_TO_PAYMENT_FLOW.md` describe
+what is built.
+
+**How the documents link today.** Purchase order -> goods receipt ->
+supplier bill -> payment, with returns off the receipt or the bill.
+
+- One order, **many receipts** (part deliveries; receiving more than ordered is
+  refused). A receipt always names **one** order -- there is no receipt
+  without an order.
+- One receipt can be billed in **parts**; one bill can cover **several
+  receipts** of one supplier and branch on the server, but not on the screen
+  (D-BUY-18).
+- A bill never skips the receipt (D-BUY-14). A bill with no source is for
+  services and expenses only (and Expenses, PR #814).
+- A payment needs no bill (an advance); a return off the receipt becomes a
+  supplier credit.
+
+**Gaps, each to validate as §55 says:**
+
+| # | Gap | What exists | The ask, by convention |
+| --- | --- | --- | --- |
+| 1 | **Stage switches** for a one-person firm: type the bill and let the order and receipt follow | Three screens for every purchase | §38 (recorded 2026-09-16) |
+| 2 | **Several receipts on one bill** on the screen | One receipt per bill | D-BUY-18, with §58 |
+| 3 | **Purchase order discount on the whole order** reaching tax, receipt and bill | Subtracted after tax, not carried on | D-BUY-19 |
+| 4 | **Supplier rates**: a vendor's standing discount, a supplier price list with quantity breaks, and the **last purchase rate** while typing | Only a typed discount; the product's one `purchase_price` | Mirror sales: vendor standing % and supplier price lists ranked in `app/core/utils/pricing.py`; last rate is §55 G6 |
+| 5 | **Purchase price variance** explained per bill | Posted to its account, seen only as a P&L line | A bill shows receipt value vs billed value per line, and a report lists variances by supplier and product |
+| 6 | **Debit note** to a supplier for a price difference or a short-supply claim with no goods going back | Purchase return (goods back) only | §55 G8 |
+| 7 | **Supplier free goods and gifts** | Same-item free quantity only | §61 |
+| 8 | **Scheme claims** from the principal | Nothing | §42.7 |
+| 9 | **Input credit at risk**: bills matched to GSTR-2B | 3B table 4 from the bills | §42.5 |
+| 10 | **TDS on purchases (194Q)** above 50 lakh a year per supplier | Nothing | §42.4, §53 |
+| 11 | **Landed cost**: freight, loading and duty added to stock cost | Nothing | §42.12 |
+| 12 | **Reorder**: what to buy, from stock levels and sales | Nothing | §42.9 |
+| 13 | **Purchase analysis by any combination** | Fixed reports by vendor, buyer, product | §62's design, for purchases |
+| 14 | **RFQ and supplier quotations** | Nothing (removed from the screens 2026-08-22) | Low for a distributor; validate |
+
+**Suggested order:** 2 and 3 (defects, small) -> 1 (§38) -> 4 -> 5 -> 6 ->
+the rest as the go-live firms confirm them.

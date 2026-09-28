@@ -348,21 +348,26 @@ a recall.
 ### Buying without an order
 
 Raise the invoice with source `MANUAL`. There is no receipt, so no stock moves;
-this is for services and expenses rather than goods.
+this is for services and expenses rather than goods. Goods always need an
+order and a receipt (`goods_receipts.purchase_order_id` is NOT NULL, and a
+bill naming an order is refused, D-BUY-14); a shortened chain is
+`docs/BACKLOG.md` §38.
 
 ---
 
 ## Not built
 
-- **The purchase order's received status.** Described above. The enum values
-  exist; nothing sets them.
+- ~~The purchase order's received status~~ -- built: receiving moves the
+  order to PARTIALLY_RECEIVED / RECEIVED (`PurchaseService`), corrected
+  2026-09-28.
 - **RFQ and Vendor Quotation.** No model, table, service, endpoint or API
   client method for either. The desktop advertised both in a Sourcing group
   whose two screens said the backend "does not yet expose" them; that group was
   removed on 2026-08-22. Nothing in the product now claims they exist.
-- **Purchase analytics.** No `/api/v1/purchases/reports/*` endpoints. The
-  Analytics entry is a placeholder; the reports catalogue's "Purchase" section
-  is populated entirely by goods-receipt endpoints.
+- **Purchase analytics.** The fixed reports exist (register, pending,
+  overdue, by vendor, by buyer, by product under
+  `/api/v1/purchases/reports/*`, corrected 2026-09-28); an analysis by any
+  combination follows `docs/BACKLOG.md` §62.
 - **Multi-status list filtering.** `GET /api/v1/purchases` accepts one status
   per request, which is why the Purchase Orders "Open" segment filters
   `SUBMITTED` alone while the dashboard's Open card counts five statuses. See
