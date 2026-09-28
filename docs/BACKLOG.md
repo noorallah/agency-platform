@@ -4270,3 +4270,48 @@ cap on the combined discount.
 Free goods and free shipping have no rupee value to compare until costed;
 decide at design time whether they are valued at selling price or excluded
 from the comparison.
+
+## 60. Offers to market standard: festival offers, schemes, coupons, free items
+
+Owner, 2026-09-28: promotions must be flexible enough to run any festival
+offer -- coupons, discounts, free items, anything -- as the market does.
+Designed against Tally/BUSY/Marg schemes, Vyapar, Zoho, Odoo and Shopify-style
+retail offers. `docs/PROMOTIONS_AND_DISCOUNTS_GUIDE.md` is what exists.
+
+**Already possible** (a festival offer is an ordinary promotion with From/Until
+dates): % or amount off a line; % or amount off the bill; buy X get Y of the
+same item; conditions on product, category, customer, territory, route,
+quantity, line value, order value; coupon-only offers with total and
+per-customer limits; priority and stacking; order-value slabs (one promotion
+per slab, highest slab first with stacking off).
+
+**Built on the server, missing on the screen** -- D-SELL-42: free product
+(buy X get a different item), free shipping, conditions on customer group,
+branch, salesman, document type and date, and the tests "is one of", "between",
+"is set". Fixing D-SELL-42 is the first step and needs no backend work.
+
+**Missing, by market convention** (in the order most asked for):
+
+| # | Offer | Example | Note |
+| --- | --- | --- | --- |
+| 1 | Percent off **with a cap** | 20% off, up to 500 | a `max_amount` on the percent benefits |
+| 2 | **Best offer only** | give whichever single offer is worth most | backlog 59 |
+| 3 | **Product and customer sets** | "any of these 12 products" | server has `IN`; needs a multi-pick on the screen (D-SELL-42) |
+| 4 | **Buy X get Y at a discount** | buy 2, second at 50% off | new benefit; today only fully free |
+| 5 | **Combo / bundle price** | shampoo + soap for 150 | new benefit: a set price for a set of lines |
+| 6 | **Festival bonus points** | double loyalty points during Diwali | a benefit that multiplies the loyalty earn rate for the offer's dates |
+| 7 | **Bulk coupon codes** | 500 single-use codes for a campaign, exported to CSV | today codes are made one at a time |
+| 8 | **Customer eligibility** | first order only; customers not billed in 90 days | new conditions |
+| 9 | **Day and time** | weekends only; 4-6 pm | condition on weekday and time; mainly retail |
+| 10 | **Offer templates** | "copy last Diwali's offers, new dates" | copy a promotion, or a set of them |
+| 11 | **Manufacturer scheme claims** | free goods given on the company's scheme, claimed back | track the value per scheme to claim from the supplier |
+| 12 | **Offer shown on the print** | "Diwali offer: 250 saved" on the bill | print each applied offer and the total saved |
+
+**Rules that stay** (from `docs/PRICING_AND_PROMOTIONS.md`): one engine for
+every document; a typed discount beats every offer; offers are counted at
+approval; editing an active offer makes a new revision; free goods are never
+discounted; a bill discount reaches the GST.
+
+**Suggested order:** D-SELL-42 (screen only) -> 1, 2, 3 -> 12 -> 4, 5 -> 6, 7
+-> the rest. Each benefit is a new `PromotionActionType` and each eligibility a
+new `PromotionField`, so none changes how existing offers price.

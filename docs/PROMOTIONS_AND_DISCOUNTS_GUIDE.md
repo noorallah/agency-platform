@@ -108,7 +108,7 @@ than, is at most, is less than.
 The server can also give a **free product** (buy X, get a different product
 free, added as its own line) and **free shipping**, and can check customer
 group, branch, salesman, document type and date. The screen does not offer
-those yet -- D-SELL-42, section 13.
+those yet, nor the tests "is one of" and "between" -- D-SELL-42, section 13.
 
 ## 4. Two promotions together: they combine
 
@@ -278,3 +278,4 @@ approval), TC-INCENT-004 (end of stack), TC-INCENT-005 (loyalty).
 | D-SELL-42 | The promotion screen does not offer Free product or Free shipping, nor conditions on customer group, branch, salesman, document type or date, though the server supports them. |
 | D-SELL-43 | A quotation has no coupon box, so a quote does not show the coupon price the order will get. |
 | Backlog 59 | No "best offer only" mode: matching promotions always combine. |
+| Backlog 60 | Offer types still missing against market practice -- a percent capped at an amount, buy X get Y at a discount, combo prices, festival bonus points, bulk coupon codes, first-order offers, offer templates, scheme claims, offers on the print. |
