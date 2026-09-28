@@ -35,6 +35,8 @@ Full write-ups: PR #435 and `docs/DATA_TRAIL_BY_OPERATION.md` §9.
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
+| D-BUY-18 | Medium | One supplier bill cannot bill several goods receipts from any screen. The server accepts several (`sources`, same vendor and branch), but both bill editors offer a single "Goods receipt being billed" (`desktop/lib/ui/purchase_invoices/purchase_invoice_editor_phase2.dart`, `purchase_invoice_editor_dialog.dart`), so a supplier's monthly bill for four deliveries has to be split into four. The buying twin of D-SELL-39; fix together (`docs/BACKLOG.md` §58). Found 2026-09-28 reviewing purchases with the owner. | Code |
+| D-BUY-19 | Medium | A purchase order's `header_discount_amount` is subtracted after tax (`PurchaseService`, the grand total), so it lowers no taxable value and the input tax is overstated; and it is not carried to the goods receipt or the bill, so the stock is valued and the supplier billed without it. `docs/PRICING_AND_PROMOTIONS.md` records the shape as one not to copy; nothing recorded it as a defect. Fix as sales did: apportion it to the lines as `bill_discount_amount` before tax, and inherit it downstream. Found 2026-09-28. | Code |
 
 ### Stock -- found writing the Stock data trail, 2026-09-18
 
