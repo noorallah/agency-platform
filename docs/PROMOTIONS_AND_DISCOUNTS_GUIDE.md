@@ -5,7 +5,9 @@ line can be discounted -- price lists, the customer's own rate, promotions,
 coupons, a discount typed by hand, a discount on the whole bill -- which one
 wins, how two promotions combine, and what a person typing a discount
 overrides. Every rule has a worked example with the figures to expect, and
-section 12 turns them into test cases anybody can run on their own.
+section 12 shows how to set up each kind of offer, section 13 how to try
+one safely before it goes live, and section 14 turns the examples into
+test cases anybody can run on their own.
 
 Written 2026-09-28 against the version 2 screens, from the code
 (`app/core/utils/pricing.py`, `app/promotions/services/promotion_service.py`)
@@ -108,7 +110,7 @@ than, is at most, is less than.
 The server can also give a **free product** (buy X, get a different product
 free, added as its own line) and **free shipping**, and can check customer
 group, branch, salesman, document type and date. The screen does not offer
-those yet, nor the tests "is one of" and "between" -- D-SELL-42, section 13.
+those yet, nor the tests "is one of" and "between" -- D-SELL-42, section 15.
 
 ## 4. Two promotions together: they combine
 
@@ -237,7 +239,152 @@ Spending points **pays** part of the bill; it does not lower the price, so
 the full GST is still charged. The fixture earns 2 points per 100.
 `INDEPENDENT_TEST_CASES.md` TC-INCENT-005 is the case.
 
-## 12. Test cases
+## 12. Setting up offers, step by step
+
+Everything is under **Sell → Pricing** (the Configuration part of the Sell
+menu): **Price Lists** and **Promotions**. Coupons are on the Promotions page
+under **Coupons**. You need the promotion or price-list permissions to change
+them; a salesman can see them but not edit them.
+
+### Before you save any offer
+
+| Check | Why |
+| --- | --- |
+| **Applies at** | Lower numbers are tried first. Look at the list: where does the new offer sit among the ones already live? |
+| **Other promotions may still apply** | Off means nothing after this offer is tried. Put an offer like that **after** the ones it must not block (a higher number). |
+| **From / Until** | The offer is judged on the **document's date**, and only inside this window. Leave Until blank for no end. |
+| **Status** | Only **ACTIVE** offers apply. DRAFT and INACTIVE never do. |
+| **Only with a coupon** | On means nobody gets it without typing a code on the order. |
+| **Total uses / Uses per customer** | Blank means unlimited. Counted when an order is approved. |
+
+**Editing an ACTIVE offer saves a new revision** and switches the old one
+off. Documents already priced keep what they were given.
+
+### Recipes for common offers
+
+**12.1 Festival discount on everything** (Diwali 10%, 20 Oct to 5 Nov).
+Promotions → **New promotion** → Code `DIWALI10`, Name "Diwali 10%"; Applies
+at **50**; Status **ACTIVE**; From **20-10**, Until **05-11**; Other promotions
+may still apply **on**. Gives → Add benefit → **Percent off each line**, 10.
+Applies when → nothing (every line). Save.
+
+**12.2 Festival discount on one category** (15% on Sweets).
+As 12.1, then Applies when → Add condition → When **Product category**, Test
+**is**, Value: pick *Sweets*. For several categories you need one offer each
+today (D-SELL-42: "is one of" is not on the screen yet).
+
+**12.3 Amount off a big bill** (300 off orders of 5,000 or more).
+Gives → **Amount off the whole bill**, 300. Applies when → **Order value** **is
+at least** 5000. Order value is before any discount.
+
+**12.4 Slabs on order value** (2% at 5,000, 4% at 10,000 -- only one slab).
+Two offers, highest slab first, each **ending the stack**, and numbered
+**after** every line offer so they block nothing:
+
+- `SLAB4`: Applies at **900**, stacking **off**, Order value is at least
+  10000 → Percent off the whole bill 4.
+- `SLAB2`: Applies at **910**, stacking **off**, Order value is at least
+  5000 → Percent off the whole bill 2.
+
+An order of 12,000 gets 4% and stops; one of 6,000 misses SLAB4 and gets 2%.
+
+**12.5 Buy 10, get 1 free** (on Detergent).
+Gives → **Free goods (buy X, get Y)**, Buy **10**, Get free **1**. Applies when
+→ Product **is** Detergent. Whole multiples only: 25 bought gives 2 free.
+Free goods are not discounted and not billed.
+
+**12.6 Festival coupon** (`DIWALI100`: 100 off, once per customer, 500 in all).
+
+1. New promotion `DIWALI-CPN`: **Only with a coupon** on, Gives **Amount off
+   the whole bill** 100, dates as the festival, ACTIVE.
+2. Promotions → **Coupons** → **New coupon**: Offer `DIWALI-CPN`, Code
+   `DIWALI100`, Status Active, **Total claims allowed** 500, **Per customer**
+   1, Live from / Live until as the festival.
+3. The salesman types `DIWALI100` in **Coupon** on the sales order.
+
+Several codes can point at one offer (one per shop, one per salesman), each
+with its own limits; the offer's own limits cap them all together.
+
+**12.7 An offer for some customers only.**
+Applies when → **Customer** is *X*, or **Territory** / **Route** is *Y*. Every
+condition must hold, so "Customer is A" plus "Territory is T" means both.
+
+**12.8 A festival price list instead of an offer.**
+Price Lists → **New price list** → Applies to Everyone / One customer / One
+territory; In force from / Until; Add product with **From qty** and
+**Discount %** for each break. A promotion **outranks** a price list on the
+same line (section 2).
+
+**12.9 Customer and group discounts.**
+The customer's standing discount is on the customer record; a group's is on
+Masters → Parties → **Customer Groups**. Both are last in the ranking.
+
+**Not on the screen yet** (D-SELL-42): buy X get a **different** item free,
+free shipping, and conditions on customer group, branch, salesman or date.
+Offers of that kind can only be made over the API today.
+
+## 13. Trying an offer before it goes live
+
+A quotation is the safe place to try an offer: it **reserves no stock, posts
+nothing to the books and uses up no offer limits**, and it is priced by
+exactly the same engine as an order. Two things stop the obvious approach:
+
+- A **DRAFT** offer never applies, so it cannot be seen on a quotation.
+- The **quotation date is always today**, so an offer dated for next week's
+  festival does not show on today's quotation.
+
+So try it on a **test customer** first, then open it to everyone.
+
+**Step 1 -- a test customer, once.** Masters → Parties → Customers → New:
+code `ZZTEST`, name "TEST - do not bill", no standing discount, no group.
+Keep it for every future offer.
+
+**Step 2 -- create the offer, limited to the test customer.** Set it up as in
+section 12 with Status **ACTIVE**, **From today**, and one extra condition:
+**Customer is ZZTEST**. Nobody else can receive it.
+
+**Step 3 -- try it on quotations.** Sell → Quotations → New, customer
+`ZZTEST`. For each row below add the lines, then read each line's **side
+panel** (Discount, and "from a promotion" or "from the price list") and the
+totals:
+
+| Try | You are checking |
+| --- | --- |
+| A line that should qualify | the offer applies, at the rate you meant |
+| A line just **below** the condition (24 when it needs 25) | it does **not** apply |
+| A line **exactly at** the condition (25) | it **does** apply ("is at least" includes 25) |
+| The largest realistic order | the combined discount with the other live offers is what you intend (section 4) |
+| A line with a discount **typed** | the offer is not applied to that line (section 5) |
+| An offer that should end the stack | the offers after it are absent |
+
+Write the quotation numbers down.
+
+**Coupon offers:** quotations have no coupon box (D-SELL-43). Use a **sales
+order** for ZZTEST instead, type the code, **Create draft** and read it --
+**do not approve it**. A draft uses no limit and reserves nothing.
+
+**Step 4 -- open it to everyone.** Edit the offer: remove the **Customer is
+ZZTEST** condition and set **From / Until** to the festival dates. Saving
+makes a new revision and switches the tested one off.
+
+**Step 5 -- clean up.** Cancel the test quotations and delete the draft
+orders, so they never reach a report.
+
+**Step 6 -- on the first day.** Open the first real order that should get the
+offer and check its side panel. Reports → Operational Reports → **Promotion
+performance** and **Promotion claims** show every approved use.
+
+A proper "try this offer" screen, and a quotation dated in the future, are
+backlog item 60 (row 13): the server already has a trial endpoint
+(`POST /api/v1/promotions/simulate`) that no screen calls.
+
+### Testing before a software release (QA)
+
+On a fresh `selling-firm` fixture (section 1), run the cases in section 14.
+When time is short, this smoke set covers every rule once: **TC-PROMO-001,
+004, 005, 007, 010, 012, 014** and **018**.
+
+## 14. Test cases
 
 Each case runs on a fresh `selling-firm` fixture, on its own, in any order.
 "Order" means Sell → **Sales Orders** → New; after **Create draft**, open it
@@ -262,6 +409,7 @@ again and click the line to read the side panel. Customer C01 unless stated.
 | **TC-PROMO-015** Direct bill | Sales Invoices → ... → Sales stages: switch all three off. New invoice, C01, DET 30, no source | 7.5% from a promotion; **no Coupon box** (D-SELL-40) |
 | **TC-PROMO-016** Price holds along the chain | Order DET 30, approve. Edit BULK5 to **10%** (saves as a new revision). Deliver and bill the order; then a new order DET 30 | note and bill both 7.5%, 189.00; the new order 10%, 252.00 |
 | **TC-PROMO-017** Free goods cannot be refused | With FREE10 from TC-PROMO-012, order DET 25 with Free **0** typed | today: 2 free still given (D-SELL-41); after the fix: 0 |
+| **TC-PROMO-018** Trying an offer before launch | Section 13 steps 1-5 with a new offer TRY20: 20% off each line, Customer is ZZTEST, From today. Quotation ZZTEST DET 12; quotation C01 DET 12; then remove the ZZTEST condition and save; quotation C01 DET 12 again | ZZTEST: 20% from a promotion; C01 first: 2% from the price list (TRY20 reaches nobody else); after: C01 20% from a promotion; the list shows TRY20 revision 2, and revision 1 INACTIVE |
 
 Already covered in `docs/INDEPENDENT_TEST_CASES.md`, with data checks:
 TC-SELL-001 to 004 (ranking), TC-SELL-006 (coupons), TC-SELL-010 (the note
@@ -269,7 +417,7 @@ keeps the order's deal), TC-INCENT-001 (ladder), TC-INCENT-002 (editing an
 active promotion makes a new revision), TC-INCENT-003 (claims counted at
 approval), TC-INCENT-004 (end of stack), TC-INCENT-005 (loyalty).
 
-## 13. Known gaps
+## 15. Known gaps
 
 | Id | Gap |
 | --- | --- |
@@ -278,4 +426,4 @@ approval), TC-INCENT-004 (end of stack), TC-INCENT-005 (loyalty).
 | D-SELL-42 | The promotion screen does not offer Free product or Free shipping, nor conditions on customer group, branch, salesman, document type or date, though the server supports them. |
 | D-SELL-43 | A quotation has no coupon box, so a quote does not show the coupon price the order will get. |
 | Backlog 59 | No "best offer only" mode: matching promotions always combine. |
-| Backlog 60 | Offer types still missing against market practice -- a percent capped at an amount, buy X get Y at a discount, combo prices, festival bonus points, bulk coupon codes, first-order offers, offer templates, scheme claims, offers on the print. |
+| Backlog 60 | No screen to try an offer and no future-dated quotation (row 13); offer types still missing against market practice -- a percent capped at an amount, buy X get Y at a discount, combo prices, festival bonus points, bulk coupon codes, first-order offers, offer templates, scheme claims, offers on the print. |
