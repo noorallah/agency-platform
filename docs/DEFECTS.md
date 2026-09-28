@@ -57,6 +57,7 @@ journals and the receivable; a return with no price takes the source line's.
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
+| D-SELL-39 | Medium | One invoice cannot bill several delivery notes from any screen. The server accepts several (`source_documents`; same customer and branch, and the same salesman, territory and route where set; each note dispatched), but both invoice editors offer a single "Bill this delivery note" dropdown (`desktop/lib/ui/sales/sales_invoice_editor_phase2.dart`, `sales_invoice_editor_dialog.dart`), so a customer's several deliveries -- or several orders -- can only be billed one invoice each. Workaround: one bill per note. Found 2026-09-28 discussing the sales chain with the owner. Fix is desktop only: `docs/BACKLOG.md` §58. A firm with the delivery-note stage off stays one order per bill, by design (`SalesChainService._note_for_order`). | Code |
 
 ### Finance -- found writing the Finance data trail, 2026-09-19
 
