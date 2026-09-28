@@ -4229,6 +4229,20 @@ invoice editors.
 **Not changed:** a firm with the delivery-note stage off still bills one sales
 order per invoice -- that bill dispatches the goods itself.
 
-No backend work expected; confirm the preview (`/sales-invoices/preview`) takes
-several sources before relying on it. Tests: the phase 2 invoice editor's
-widget test, plus a backend test that bills two notes from two orders.
+**The preview and the printed bill follow the invoice** (owner, 2026-09-28:
+the preview and the invoice are one feature and must behave the same).
+
+6. **Preview.** `/sales-invoices/preview` already stages the bill through
+   `stage_invoice`, the same code as saving, so it takes several notes with no
+   change; the editor must send every ticked note to it, and the preview pane
+   shows which note each line came from.
+7. **Printed bill.** The PDF names only the invoice's own `reference_number`
+   (`invoice_print_service.py`), no delivery note or order numbers. The GST
+   convention (Tally's "Delivery Note No." and "Buyer's Order No.") prints
+   them, so the bill lists **every** note and order it covers -- one line each,
+   or "several, see lines" with the note number on each line when there are
+   more than fit. A bill of one note prints its one note and order.
+
+Backend work is only item 7. Tests: the phase 2 invoice editor's widget test;
+backend tests that preview and then save one bill of two notes from two orders
+and get the same totals, and that its PDF names both notes.
