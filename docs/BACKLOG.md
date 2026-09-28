@@ -4728,3 +4728,47 @@ reorder suggestions (§42.9); notifications (§55 S12); sending the PO by email
 Phase 3 is §68 rows 3-4 + rows 1, 11 here; Phase 4 is §68 rows 6, 10 + §55 G8
 + row 7 here; Phase 5 is rows 1-3, 9, 12 here + §42.9; Phase 6 is §68 rows
 11-13 + §42.12 + row 8 here; Phase 7 is §66.
+
+## 70. Inventory against a full ERP checklist: what else to consider
+
+Owner, 2026-09-28: the same review as sales (§67) and purchases (§68, §69),
+for inventory -- **review only, nothing to build yet**. Checked against the
+code the same day.
+
+**Built** (no action): warehouses with storage nodes (bins); several units per
+product with conversion rules; batches, lots and serials with expiry, forward
+and backward trace, an expiry monitor; stock split into current, reserved,
+available, blocked, damaged, quarantine; opening stock (with import);
+adjustments; write-offs by reason (damage, expiry, loss); quarantine hold and
+release; transfers between warehouses and across branches that keep the batch
+and the value; physical counts with posting; reservations from sales orders;
+batches allocated automatically at dispatch, expired ones refused on the
+note's own date; a stock ledger recording before and after for every
+quantity; weighted-average costing with every movement posted to the ledger;
+minimum, maximum, reorder level and safety stock per item; summaries by firm,
+branch, warehouse and product; export.
+
+**Already recorded:** system-numbered movements (§34); reorder suggestions
+(§42.9); landed cost (§42.12); kits and combo packs (§42.13); stock ageing,
+slow and dead stock (§55 S7); barcode counter billing and labels (§55 M10,
+S8); batch-wise MRP / PTR / PTS (§55 G5); picking list and loading sheet (§55
+G7); returnable containers (§55 G12); free-issue products and "given free" /
+"sample" issues (§61); inspection hold on receipt (§68 row 6).
+
+**To consider** -- each to validate with the go-live firms (§55):
+
+| # | Item | Today | The ask |
+| --- | --- | --- | --- |
+| 1 | **A stock transfer as a document** | One product per transfer, applied at once; `in_transit_quantity` exists but a transfer never uses it | A numbered, multi-line **Stock Transfer** with a printed transfer challan; two steps -- **dispatch** (stock goes in transit) and **receive** at the other end, recording any shortage or damage in transit |
+| 2 | **Branches with their own GSTIN** | A branch has a "GST registered" flag but no GSTIN; every document uses the firm's | A GSTIN per branch (a firm registered in two states has two); documents print the branch's GSTIN; a transfer **between two GSTINs** is a taxable supply -- raised as a tax invoice with e-way bill, credited as input tax at the receiving branch -- while one within a GSTIN goes on a delivery challan |
+| 3 | **Issue for internal use** | Stock leaves only by sale, transfer, write-off (damage, expiry, loss), return | Reasons **Internal use / consumption**, **Staff**, **Display / demo**, each with its expense account (sits beside §61's given-free and sample) |
+| 4 | **Repacking and bulk breaking** | Nothing | Convert one product into another -- a 25 kg bag into 25 x 1 kg packs, loose into packed, cartons into pieces as separate items -- with the cost carried across and any wastage recorded |
+| 5 | **Stock value on any date** | The summary shows value now | Closing stock quantity and value **as of a date**, by warehouse and category, from the ledger's `average_cost_after` -- what the accountant needs at 31 March and for bank stock statements |
+| 6 | **Monthly stock statement for the bank** | Nothing | Opening, receipts, issues, closing, value -- the drawing-power statement banks ask of distributors with a cash credit limit |
+| 7 | **Expiry rules per product** | Near-expiry is fixed at 30 days in the expiry monitor | Per product or category: days before expiry to stop selling (sell-by), to alert, and to return to the supplier; near-expiry stock offered last or flagged on the order |
+| 8 | **Count planning** | A physical count is started by hand | **Cycle counts** by ABC class or bin on a schedule; blind count (quantity hidden from the counter); variance above a limit needs approval before posting |
+| 9 | **Costing method choice** | Weighted average only (the model already allows FIFO later) | FIFO as a firm setting, if a go-live firm's accountant requires it; most Indian distributors use weighted average, so validate before building |
+| 10 | **Negative stock policy** | Every movement refuses to go below zero | Keep refusing by default; a firm setting to **warn** instead for counter billing where stock is entered late -- validate before building |
+
+**Suggested order:** 5, 6 (small; accountant and bank) -> 3 -> 1 -> 2 (needed
+before any firm with branches in two states) -> 7 -> 4 -> 8 -> 9, 10.
