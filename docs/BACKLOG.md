@@ -4547,8 +4547,52 @@ supplier bill -> payment, with returns off the receipt or the bill.
 | 10 | **TDS on purchases (194Q)** above 50 lakh a year per supplier | Nothing | §42.4, §53 |
 | 11 | **Landed cost**: freight, loading and duty added to stock cost | Nothing | §42.12 |
 | 12 | **Reorder**: what to buy, from stock levels and sales | Nothing | §42.9 |
-| 13 | **Purchase analysis by any combination** | Fixed reports by vendor, buyer, product | §62's design, for purchases |
+| 13 | **Purchase analysis by any combination** | Fixed reports by vendor, buyer, product | §66 |
 | 14 | **RFQ and supplier quotations** | Nothing (removed from the screens 2026-08-22) | Low for a distributor; validate |
 
 **Suggested order:** 2 and 3 (defects, small) -> 1 (§38) -> 4 -> 5 -> 6 ->
 the rest as the go-live firms confirm them.
+
+## 66. Purchase analysis: any combination of period, product, supplier and more
+
+Owner, 2026-09-28: purchase reports like the sales ones (§62) -- by product,
+by month, by year, by supplier, over any date range -- and as Home gadgets.
+
+**What exists.** Fixed purchase-order reports: register, pending, overdue, by
+vendor, by buyer, by product (`/api/v1/purchases/reports/*`), plus the goods
+receipt and purchase return reports. They count **orders placed**; nothing
+analyses what was actually **received and billed**, over time, or crosses two
+dimensions (product by month, supplier by product).
+
+**The ask** -- the §62 screen, built once and used for both, with purchase
+dimensions and figures:
+
+1. **Buy → Purchase Analysis**:
+   - **Rows** and optional **Columns**, each any one of: day, week, month,
+     quarter, financial year, calendar year; product, product category;
+     supplier, supplier category; buyer; branch, warehouse.
+   - **Period**: any date range, with quick picks (this month, last month,
+     this quarter, this financial year, last financial year).
+   - **Figures**: quantity (purchase unit), free quantity, taxable value,
+     input tax, total billed, bill count, **average rate** per unit, and the
+     **price difference** between receipt and bill (§65 row 5).
+   - **Basis** switch: bills approved (the default, net of purchase returns
+     and debit notes), goods received, or orders placed.
+   - Totals, click-through to the bills behind a figure, compare with the
+     previous period or the same period last year, chart view, export to
+     Excel / CSV / PDF, saved layouts ("Monthly purchases by supplier").
+2. **Rate trend**: for one product, the rate paid per supplier over time --
+   who is cheapest, and whether prices are rising.
+3. **Home gadgets** (§49 catalogue): purchases this month against last month;
+   purchases by month for the year; top 5 suppliers; top 5 products bought;
+   bills due to pay this week; goods received not yet billed. Each opens the
+   analysis already set to it.
+4. **Buy and sell side by side** (once §62 lands): per product per period,
+   quantity bought vs sold and average buy rate vs average sell rate.
+5. **Who sees what**: `PURCHASE_VIEW` for the analysis; a buyer may be limited
+   to his own purchases when his role says so.
+
+**Tests:** each dimension alone and crossed with a period; totals equal the
+bill register for the same range; a purchase return in the range reduces the
+net; the three bases give different, explainable totals for a part-received,
+part-billed order; drill-down lists exactly the bills summed.
