@@ -4680,3 +4680,51 @@ bills; automatic posting (stock, GRNI, payable, price variance).
 
 **Suggested order:** 1, 2 (small, and 2 is a legal deadline) -> 8 (verify
 first; tax) -> 7 -> 10 -> 4 -> 9 -> 3, 5, 6 -> the rest.
+
+## 69. The full procurement specification: what it adds to §61, §65, §66, §68
+
+Owner, 2026-09-28, supplied a 53-section "complete Purchase module"
+specification (requisition -> RFQ -> supplier quotations -> comparison -> PO ->
+GRN -> inspection -> invoice -> payment, plus returns, notes, pricing,
+planning, budgets, contracts, landed cost, reports, RBAC, audit, testing) --
+**for review, not for building**. Checked against the code and this backlog.
+
+**Already built:** firm isolation at the service layer, RBAC, audit, document
+numbering, attachments, pagination, the PO -> GRN -> bill -> payment chain
+with partial receipts and billing, over-receipt refusal, accepted / rejected /
+damaged / free quantities, batches, expiry, serials, inventory posting through
+the inventory service, returns off receipt or bill with reason codes, supplier
+credits from returns, advances, allocation, reversal, centralised pricing and
+tax, reorder level and safety stock fields in inventory, `purchase_type` on
+the order (the spec's "purchase channel"), transport details and the supplier's
+invoice reference on the receipt, and the never-lose-typed-data form rule.
+
+**Already recorded:** requisition, approval limits, amendments, inspection,
+three-way match with tolerances, reverse charge, payment run, supplier credit
+notes, performance, contracts, imports (§68); supplier rates, price variance,
+debit notes, RFQ and supplier quotations (§65); free goods and gifts (§61);
+purchase analysis, rate trend, dashboard gadgets (§66); landed cost (§42.12);
+reorder suggestions (§42.9); notifications (§55 S12); sending the PO by email
+(§51).
+
+**What the specification adds** -- each to validate (§55):
+
+| # | Item | Today | The ask |
+| --- | --- | --- | --- |
+| 1 | **Supplier product catalogue** | A supplier code is typed per order line (`vendor_product_code`); nothing per supplier per product | Per supplier and product: supplier's name and SKU, price with effective dates (history kept, never overwritten), MOQ, order multiple, pack size, minimum order value, lead time, and a **preferred supplier** per product. The order line fills from it. |
+| 2 | **MOQ and order-multiple checks** | None | Ordering 115 against MOQ 100, multiple 20 **warns** (or refuses, by firm setting) and suggests 120 -- never changes the quantity silently. |
+| 3 | **Lead time used and measured** | None | Expected delivery defaults from the supplier-product lead time; actual lead time and delay per receipt feed §68 performance and §42.9 planning. |
+| 4 | **Blocked supplier** | Statuses DRAFT / ACTIVE / INACTIVE / ARCHIVED | **BLOCKED** with a reason: no new orders or bills, existing ones can still be received, paid and returned. |
+| 5 | **One quantity picture per order line** | Receipt and bill services each derive their own figures | One service answers ordered / received / accepted / rejected / returned / invoiced / pending per PO line, and the order API and screen show it; PO statuses gain **partially invoiced** and **completed** from the same figures. To verify first what the order screen shows today. |
+| 6 | **Sent to supplier** | Approval is the last step before receiving | A **Sent** state with date and how (email, print, WhatsApp), so "approved but never sent" is findable. |
+| 7 | **What a return comes back as** | A return gives a credit; a refund service exists for customers | The return records the outcome -- **credit**, **replacement** (a receipt against the return, no new order) or **refund** -- and a supplier **refund** is received as money in against the supplier's credit. To verify whether settlements already take a supplier refund. |
+| 8 | **Supplier rebates and offers** | Only free quantity on a line | Target and volume rebates ("2% back on the year's purchases over 10 lakh"): the agreement, purchases counted against it, the rebate accrued as a receivable from the supplier, and claimed -- with §42.7 on the sales side. |
+| 9 | **Purchase budget** | None (§55 N8 is a general finance budget) | Budget by firm, branch, category and period; used and available shown on the order; warn, or require approval, when exceeded -- never block by default. |
+| 10 | **Supplier rating by people** | None | Price, quality, delivery, support, communication scores given by users, kept **apart** from the computed §68 metrics and labelled as opinion. |
+| 11 | **Quotation comparison** | §65 row 14, rated low | If validated, the spec's side-by-side: effective landed cost per unit, delivery days, payment terms, rating; the chosen supplier and the **reason** recorded; never auto-picks the cheapest. |
+| 12 | **Planning formula** | §42.9 reorder suggestions | Required = demand over lead time + safety stock - on hand + reserved - open orders, rounded up to MOQ / multiple; the formula's parts configurable; suggestions first, automatic POs only with a permission. |
+
+**The spec's phasing, mapped to this product:** its Phase 2 (core) is built;
+Phase 3 is §68 rows 3-4 + rows 1, 11 here; Phase 4 is §68 rows 6, 10 + §55 G8
++ row 7 here; Phase 5 is rows 1-3, 9, 12 here + §42.9; Phase 6 is §68 rows
+11-13 + §42.12 + row 8 here; Phase 7 is §66.
