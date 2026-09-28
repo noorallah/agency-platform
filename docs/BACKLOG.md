@@ -4819,3 +4819,35 @@ must point at a file that exists on that PC.
 
 Per-firm logos on printed documents are a separate thing (the firm's own
 letterhead) and are not changed by this.
+
+**After sign-in, when it is given, and our own name (owner, same day).** The
+owner asked that the logo and name carry into the main app, that we decide
+when they are provided, and that the maker's name be visible somewhere, as
+market tools do. Wireframe: view 9 "Logo and names" (tabs: installer,
+first-run setup, main app, Settings > Branding, Help > About).
+
+How the market does it (checked 2026-09-28): **Odoo** takes the login page
+logo from the company record (Settings > Companies), editable any time, with
+"Powered by Odoo" under the form; **Zoho Books** uploads the organisation logo
+under Settings > Organization Profile, used in the app and on PDFs and emails;
+**Business Central** always shows the company name top left (click = Role
+Centre), a company badge top right, and the logo from Company Information on
+printed documents; **TallyPrime** asks the company name when the company is
+created -- not at install -- and prints a logo only if configured. None asks
+for the customer's name in the installer, and every one keeps its own name on
+the product (title, About, login footer) while leaving it off the customer's
+documents.
+
+**Decided by that convention** -- three names, three owners:
+
+| Name | Who sets it, when | Where it shows |
+| --- | --- | --- |
+| **The agency** (the customer) | Its first administrator, in a **first-run setup** after the first sign-in (step 1 of: agency, first firm, users, done; name required, logo and tagline optional, skippable with a "Finish setting up" card on Home); changed any time in Settings > Platform > Branding | Sign-in; **left of the menu bar on every screen** (logo + name, click = Home, name hides below 820 px); window and taskbar title "Firm - Agency"; About's "Licensed to" |
+| **The firm** | As today, when the firm is created | Firm switcher, Home greeting, the firm's letterhead on printed documents -- unchanged |
+| **Our company** (the maker) | Fixed at build time (`AppPublisher` in `packaging/AgencyPlatform.iss`, `CompanyName` in `Runner.rc`, the product constants); **never editable by a customer** | Installer and Windows Apps list as publisher; exe properties; sign-in footer "Powered by Agency Platform"; the status line's right end "Agency Platform 1.0.2 - <maker>"; Help > About (version, build, maker, support email, phone, website, copyright, "Copy details for support"). **Not** on the customer's printed invoices |
+
+**The installer asks nothing about branding** -- a name typed there would sit
+on one PC, and the server record is what every PC reads.
+
+**Owner owes:** the company's legal name, support email, phone and website
+(the wireframe shows "Your Company Pvt Ltd"), and the product `.ico` (§47).
