@@ -268,6 +268,24 @@ The owner's Lenovo laptop, installed from `AgencyPlatform-1.0.0-Setup.exe`
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
 
+### Dialogs -- found reviewing every dialog for phase 2, 2026-09-29
+
+Full write-up: `docs/UI_PHASE_2_DIALOG_REVIEW.md`; the standard and the fix
+order are `docs/BACKLOG.md` §73. Paths below are under `desktop/lib/`.
+
+| Id | Severity | Summary | Evidence |
+| --- | --- | --- | --- |
+| D-DLG-1 | Medium | About 25 dialogs close on Save and leave the create/update call to the caller, so a server refusal is a toast after the dialog is gone and everything typed is lost: territory, beat plan, branch, warehouse, types, storage node and copy-hierarchy editors; the four territory assignment pickers; the geography place editor (`ui/masters/geography_master_page.dart` `_openEditor`, confirmed); the UOM and tax "simple dialog" clusters; inventory thresholds, new adjustment, opening-stock draft, stock action; raise proforma; e-way bill. `CrudWorkspaceDialog`, `ConversionRuleDialog`, `CouponDialog` and `CreditNoteDialog` keep the call inside and are the pattern. | Code |
+| D-DLG-2 | Medium | Five deletes ask nothing: price list (`_delete` in `price_list_page.dart`, confirmed), promotion, storage node / branch type / warehouse type, customer group (the x), sales target -- each beside a sibling in the same file that confirms. | Code |
+| D-DLG-3 | Medium | Product import wizard: a failure part-way through the batch is uncaught, leaving an unknown number of products created and no error shown (`product_management_page.dart` import step). | Code |
+| D-DLG-4 | Medium | `_taxSimpleDialog` (`ui/tax/tax_management_page.dart`) creates and edits five tax masters as raw text boxes labelled by API keys (`tax_system_id`, `is_default`), with a tax rule's conditions and a profile's components typed as JSON; also closes before saving and leaks its controllers. | Code |
+| D-DLG-5 | Low | "Retire this numbering series?" shows the literal text `${rule.name}` -- an escaped `\$` (`ui/settings/numbering_series_page.dart`, confirmed). | Code |
+| D-DLG-6 | Low | Batch, lot and serial forms report a server refusal with a SnackBar, which draws behind the dialog's barrier and is not seen (`batch_management_page.dart`). | Code |
+| D-DLG-7 | Low | Can overflow at 1366 x 768: one audit entry's detail (`ui/settings/audit_log_page.dart`, width bound only) and the opening-stock draft (900 px, no height bound as lines are added). | Code |
+| D-DLG-8 | Low | Phase 2's "Close without saving?" guard notices only typed characters (`phase2/document_tabs.dart` `_watch`), so a document changed only by a drop-down, switch or date picker closes without a warning. | Code |
+| D-DLG-9 | Low | Six password boxes have no show/hide: change password, reset password, the clone-user temporary password, the forced first-sign-in change; only the sign-in box has one. | Code |
+| D-DLG-10 | Low | E-invoice's own reason prompt (`ui/sales/einvoice_page.dart` `_askReason`) re-creates the "controller disposed during the close animation" bug that `askForReason` records as fixed, and Enter does not submit. | Code |
+
 ### Found in manual testing and not yet fixed -- `docs/BACKLOG.md` §31
 
 | Id | Severity | Summary | Evidence |

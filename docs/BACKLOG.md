@@ -4917,3 +4917,54 @@ that every catalogue screen has exactly one place.
 accountants) stays under Accounts in the daily menu as well as Setup's
 list; whether Price Lists and Promotions (changed weekly by some sales
 managers) stay in Sell.
+
+## 73. One standard for dialogs, and the review of every dialog against it
+
+Owner, 2026-09-29: review, for the new UI, every form that opens on a click,
+like Change password; and a user sets his own preferences -- theme, and the
+firm he starts in when he has several.
+
+**The standard** (drawn in view 11 "Dialogs" of `dist\windows\Design\UI
+phase 2 wireframes.html`; screenshots in `dist\windows\Design\Dialogs
+screenshots\`): documents and master records open as full-page tabs (4.8); a
+**dialog** is a short task (a few fields, one decision); a **confirm** is a
+yes/no. Every dialog: a title that names the action; the main button named
+by its verb, on the right, Cancel beside it, a destructive one in red naming
+what it destroys; first box focused, **Enter** does the main action, **Esc**
+cancels; mistakes under the box, a server refusal inside the dialog, which
+**stays open and keeps what was typed**; the button shows it is saving and
+cannot be pressed twice; widths small 420 / medium 580 / large 820, the body
+scrolls, the buttons never do; closing with unsaved edits asks first. This is
+Windows' and Business Central's convention, and what `CrudWorkspaceDialog`,
+`askForReason` and `AppDialogs.confirm` already do.
+
+**The review** (`docs/UI_PHASE_2_DIALOG_REVIEW.md`): about 150 dialogs read
+in code; about 69 with a finding; defects `D-DLG-1`..`D-DLG-10` in
+`docs/DEFECTS.md`. Fix order, one PR each, each with a test that fails when
+reverted:
+
+1. **Keep the save inside the dialog** (D-DLG-1, D-DLG-4): the dialog calls
+   the server, stays open while it runs and closes only on success --
+   copying `CrudWorkspaceDialog`. The largest item; do it by area.
+2. **Confirm every delete** (D-DLG-2) and **make `AppDialogs.confirm` the one
+   confirm**, replacing about 100 hand-built yes/no dialogs as each file is
+   touched.
+3. **Small, one-line fixes:** D-DLG-5, D-DLG-6, D-DLG-7, D-DLG-10.
+4. **One `PasswordField`** with show/hide, used by all seven (D-DLG-9).
+5. **Unsaved-changes guard** in `WorkspaceDialog` (opt-in), and phase 2's
+   document guard noticing drop-downs, switches and dates (D-DLG-8).
+6. **Enter submits** a short `WorkspaceDialog` task, as Ctrl+S does today.
+7. **Rebuild the five tax masters' dialog** as proper forms (D-DLG-4, after 1).
+8. Product import staged and committed once, reporting the failed row
+   (D-DLG-3), as the backend's other imports are.
+
+**My preferences in one place.** Already built: each user's theme is saved
+on the server; the firm opened at sign-in is the **primary firm**, set from
+the user menu (offered only to somebody with more than one firm, listing only
+the firms they are a member of, the server refusing any other); failing that
+the last firm, then the first; a platform administrator starts in none. What
+is missing is one place: a **My preferences** dialog (view 11) -- start-in
+firm, first screen, theme, text size, date format, rows per page -- opened
+from the user menu and from Setup's *This PC and me* (§72), with "switching
+firm on the bar is for this session; Start in firm is for next time" said on
+it.
