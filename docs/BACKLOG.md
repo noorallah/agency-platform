@@ -4851,3 +4851,69 @@ on one PC, and the server record is what every PC reads.
 
 **Owner owes:** the company's legal name, support email, phone and website
 (the wireframe shows "Your Company Pvt Ltd"), and the product `.ico` (§47).
+
+## 72. Configuration apart from the daily menu, shown by permission
+
+Owner, 2026-09-29: separate configuration from the menu items people use
+every day -- configuration is rarely used, and mostly by administrators --
+with wireframes, and **only shown to those whose permissions allow it**.
+Wireframe: view 10 "Menu and Setup" of `dist\windows\Design\UI phase 2
+wireframes.html` (switch Option A / B and the role: administrator, sales
+manager, accountant, billing clerk); screenshots in `dist\windows\Design\Menu
+and Setup screenshots\`.
+
+**Today** (`desktop/lib/phase2/menu_layout.dart`): configuration groups sit
+inside the daily drop-downs, drawn apart under a CONFIGURATION heading
+(Sell: Pricing, Territories & routes; Accounts: Structure; Masters: the lookup
+lists, units, packing, locations). Admin is an area on the bar. The gear
+opens Settings (Firm, Buying, Stock, Tax, Business profile). Every item is
+already offered only when `ModuleVisibility` allows it.
+
+**How the market does it** (checked 2026-09-29): **Odoo** ends each app's
+menu with a Configuration menu, and its Settings menu can be limited to
+managers by group; **Zoho Books** puts every setting behind the gear on one
+Settings page (organisation, users and roles, taxes, preferences,
+customisation...); **Business Central** lists setup pages by area on one
+Manual Setup page, with an administrator role centre.
+
+**Two options:**
+
+| | Option | What changes |
+| --- | --- | --- |
+| A | **Configure row per area** (Odoo) | Each drop-down lists daily work; a Configure row at its foot holds that area's setup screens, drawn only for roles that may open them; Admin stays on the bar |
+| B | **Setup behind the gear** (Zoho, Business Central) -- *recommended* | Drop-downs hold only daily work; **Admin leaves the bar** (seven areas: Home, Sell, Buy, Stock, Accounts, Masters, Reports); the gear opens **Setup**: one page, topics on the left, cards on the right, a search across every topic the person may open |
+
+**Split proposed** (every screen of today's menu placed; none dropped):
+
+- **Daily menu:** Sell (the seven documents; Receipts, Refunds, Customer
+  Statements; Commission, Targets; Beat Plans, Call Lists, Coverage); Buy
+  (four documents, Payments, Purchase Dashboard); Stock (all of it); Accounts
+  (Journal Entries, Ledgers, the three statements, GST Returns, E-Invoice,
+  TCS); Masters (Customers, Vendors, Products); Reports.
+- **Setup:** *For everyone* -- This PC and me (appearance, server address,
+  landing page, password). *The firm* -- Firm (Firm Settings, Financial
+  Years, Numbering Series, Branches, Warehouses, Storage Areas, Branch and
+  Warehouse Types); Selling (Price Lists, Promotions, Loyalty, Customer
+  Groups, Territories, Route Types, Route Builder); Buying (Purchase
+  Settings, Vendor Categories, Vendor Types); Items and stock (Product
+  Categories, Units, UOM Groups, Packaging Types and Levels, Conversion
+  Rules, Inventory Settings); Accounts and tax (Chart of Accounts, Control
+  Accounts, Cost and Profit Centres, Tax Configuration, Tax Rules, Rule
+  Simulator, Execution Log, Tax Settings); Places. *Administration* -- People
+  and access (Users, Roles, Permissions, User Templates, User-Firm
+  Assignments); Business profile (six screens); Firms and system (Platform
+  Dashboard, Firms, Business Profiles, Branding §71, Audit Logs, Diagnostics,
+  Licensing).
+
+**Permissions (both options):** a screen is drawn only if `ModuleVisibility`
+lets the person open it -- the same rule as today, and the server still
+refuses the request whatever the menu shows; a topic with nothing left
+disappears; the gear always shows *This PC and me*, so a billing clerk sees
+only that; an area with no daily item left leaves the bar; Ctrl+K finds any
+setup screen the person may open. `menu_layout_test.dart` keeps guarding
+that every catalogue screen has exactly one place.
+
+**Owner to decide:** A or B; whether Chart of Accounts (looked up often by
+accountants) stays under Accounts in the daily menu as well as Setup's
+list; whether Price Lists and Promotions (changed weekly by some sales
+managers) stay in Sell.
