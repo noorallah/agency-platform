@@ -5,6 +5,7 @@ import 'dart:io';
 import '../../models/geography.dart';
 import '../../models/entities.dart';
 import '../../models/audit.dart';
+import '../../models/bulk_action.dart';
 import '../../models/finance.dart';
 import '../../models/physical_count.dart';
 import '../../models/settlement.dart';
@@ -3417,6 +3418,49 @@ class ApiClient {
       PurchaseOrder.fromJson(_unwrapMap(
         await request('POST', '/api/v1/purchases/$id/approve'),
       ));
+
+  /// Approve several purchase orders in one call. Rows are acted on one by
+  /// one, so some can be refused while others succeed.
+  Future<BulkActionResult> bulkApprovePurchaseOrders(List<BulkRow> rows) =>
+      _bulk('/api/v1/purchases/bulk-approve', rows);
+
+  Future<BulkActionResult> bulkCancelPurchaseOrders(
+    List<BulkRow> rows,
+    String reason,
+  ) =>
+      _bulk('/api/v1/purchases/bulk-cancel', rows, reason: reason);
+
+  /// Approve several sales orders in one call.
+  Future<BulkActionResult> bulkApproveSalesOrders(List<BulkRow> rows) =>
+      _bulk('/api/v1/sales-orders/bulk-approve', rows);
+
+  Future<BulkActionResult> bulkCancelSalesOrders(
+    List<BulkRow> rows,
+    String reason,
+  ) =>
+      _bulk('/api/v1/sales-orders/bulk-cancel', rows, reason: reason);
+
+  /// `version` is left out when unknown: the server rejects unknown fields but
+  /// accepts an item without one.
+  Future<BulkActionResult> _bulk(
+    String path,
+    List<BulkRow> rows, {
+    String? reason,
+  }) async =>
+      BulkActionResult.fromJson(_unwrapMap(await request(
+        'POST',
+        path,
+        body: <String, dynamic>{
+          'items': [
+            for (final BulkRow row in rows)
+              <String, dynamic>{
+                'id': row.id,
+                if (row.version != null) 'version': row.version,
+              },
+          ],
+          if (reason != null) 'reason': reason,
+        },
+      )));
 
   Future<PurchaseOrder> cancelPurchaseOrder(String id,
           {String reason = ''}) async =>
