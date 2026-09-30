@@ -50,6 +50,10 @@ from app.sales_order.schemas import (
     SalesWorkflowSettingsWrite,
 )
 from app.sales_order.services import SalesOrderService, SalesWorkflowService
+from app.trade_licences.api.override import (
+    LicenceOverrideReason,
+    authorised_override,
+)
 
 router = APIRouter(
     prefix="/api/v1/sales-orders",
@@ -299,11 +303,15 @@ def approve_sales_order(
     order_id: UUID,
     scope: SalesOrderApproveScope,
     db: Session = Depends(get_db),
+    licence_override_reason: LicenceOverrideReason = None,
 ) -> ApiResponse[SalesOrderResponse]:
     """Approve one sales order."""
     service = SalesOrderService(db)
     row = service.approve_order(
-        order_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+        order_id,
+        firm_scope=scope.firm_id,
+        actor_id=scope.actor_id,
+        licence_override_reason=authorised_override(scope, licence_override_reason),
     )
     return ApiResponse(data=service.order_response(row))
 

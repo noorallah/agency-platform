@@ -61,6 +61,14 @@ class ProductCategory(BaseEntity):
     is_active: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
     )
+    #: The trade licence a buyer and seller must hold to trade what this
+    #: category holds -- all Schedule H medicines, say (backlog 54). A
+    #: sub-category without one inherits its parent's.
+    required_licence_type_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey("trade_licence_types.id", ondelete="RESTRICT"),
+        index=True,
+    )
 
     children: Mapped[list["ProductCategory"]] = relationship(
         back_populates="parent",
@@ -115,6 +123,13 @@ class Product(BaseEntity):
     )
     sub_category_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("product_categories.id", ondelete="RESTRICT")
+    )
+    #: The trade licence this product needs, overriding its category's; null
+    #: takes the category's (backlog 54).
+    required_licence_type_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(),
+        ForeignKey("trade_licence_types.id", ondelete="RESTRICT"),
+        index=True,
     )
     unit: Mapped[str | None] = mapped_column(String(20))
     brand: Mapped[str | None] = mapped_column(String(120))

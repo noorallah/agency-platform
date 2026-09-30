@@ -12,13 +12,20 @@ from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.responses.models import ApiResponse
 from app.trade_licences.schemas import (
+    LicenceCheckResponse,
     LicenceHolderType,
     TradeLicenceResponse,
+    TradeLicenceSettingsResponse,
+    TradeLicenceSettingsWrite,
     TradeLicenceTypeResponse,
     TradeLicenceTypeWrite,
     TradeLicenceWrite,
 )
 from app.trade_licences.services import TradeLicenceService
+from app.trade_licences.services.licence_check import (
+    LicenceCheckService,
+    LicenceDocument,
+)
 from app.trade_licences.services.trade_licence_service import EXPIRY_WARNING_DAYS
 
 router = APIRouter(
@@ -32,6 +39,12 @@ LicenceViewScope = Annotated[
 ]
 LicenceManageScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("TRADE_LICENCE_MANAGE")
+]
+#: Whether a sale without a licence is refused is a control over the people
+#: who sell, so it is not `TRADE_LICENCE_MANAGE`, which sales managers hold --
+#: the split `CUSTOMER_MANAGE_SETTINGS` makes for the credit policy.
+LicenceSettingsScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("TRADE_LICENCE_MANAGE_SETTINGS")
 ]
 
 
@@ -97,6 +110,50 @@ def delete_licence_type(
         type_id, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data={"status": "deleted"})
+
+
+@router.get("/settings", response_model=ApiResponse[TradeLicenceSettingsResponse])
+def get_licence_settings(
+    scope: LicenceViewScope, db: Session = Depends(get_db)
+) -> ApiResponse[TradeLicenceSettingsResponse]:
+    """Return what a missing licence does to a sale and to a purchase."""
+    return ApiResponse(data=LicenceCheckService(db).settings_response(scope.firm_id))
+
+
+@router.put("/settings", response_model=ApiResponse[TradeLicenceSettingsResponse])
+def update_licence_settings(
+    data: TradeLicenceSettingsWrite,
+    scope: LicenceSettingsScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[TradeLicenceSettingsResponse]:
+    """Set whether a missing licence warns or blocks a sale, and the purchase."""
+    return ApiResponse(
+        data=LicenceCheckService(db).update_settings(
+            data, firm_id=scope.firm_id, actor_id=scope.actor_id
+        )
+    )
+
+
+@router.get(
+    "/check/{document}/{document_id}",
+    response_model=ApiResponse[LicenceCheckResponse],
+)
+def check_document_licences(
+    document: LicenceDocument,
+    document_id: UUID,
+    scope: LicenceViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[LicenceCheckResponse]:
+    """Say, before approving, what a document's lines need and who lacks it.
+
+    The same judgement the approval makes, on the document's own date; a
+    screen shows it and offers the override where the policy blocks.
+    """
+    return ApiResponse(
+        data=LicenceCheckService(db).check_document(
+            document, document_id, firm_id=scope.firm_id
+        )
+    )
 
 
 @router.get("/expiring", response_model=ApiResponse[list[TradeLicenceResponse]])

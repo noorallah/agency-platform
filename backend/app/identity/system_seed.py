@@ -249,6 +249,13 @@ PERMISSION_GROUPS = {
         # is the product's own licence to run.
         "TRADE_LICENCE_VIEW",
         "TRADE_LICENCE_MANAGE",
+        # Whether a sale without the licence warns or is refused. A control
+        # over the people who sell, so no sales role holds it.
+        "TRADE_LICENCE_MANAGE_SETTINGS",
+        # Approve a sale the licence check refuses, with a reason that is
+        # recorded on the document. Not a sales role's either, for the same
+        # reason.
+        "TRADE_LICENCE_OVERRIDE",
     ),
     "promotions": (
         "PROMOTION_VIEW",
@@ -562,7 +569,7 @@ _SEEDED_ROLE_PERMISSION_CODES = {
     # A vendor's licence is vendor master data, which the purchase manager
     # owns; the executive reads it to know a supplier may supply the goods.
     "PURCHASE_MANAGER": (_codes("purchase") - frozenset({"PURCHASE_MANAGE_SETTINGS"}))
-    | _codes("trade_licences"),
+    | frozenset({"TRADE_LICENCE_VIEW", "TRADE_LICENCE_MANAGE"}),
     "PURCHASE_EXECUTIVE": (
         _codes("purchase") - frozenset({"PURCHASE_APPROVE", "PURCHASE_MANAGE_SETTINGS"})
     )

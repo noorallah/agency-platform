@@ -18,6 +18,7 @@ import '../../models/product.dart';
 import '../document_framework/document_framework_widgets.dart';
 import '../document_framework/document_status_gate.dart';
 import '../document_framework/document_view_dialog.dart';
+import '../trade_licences/licence_check_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/printed_document.dart';
 import '../workspace/print_settings_dialog.dart';
@@ -550,7 +551,7 @@ class _DeliveryNoteManagementPageState
                             !_mayRun(action) ||
                             !_statusAllows(action, _selected?.status)
                         ? null
-                        : () => unawaited(_act(suffix)),
+                        : () => unawaited(_run(action, suffix)),
                   ),
                 ToolbarCommand(
                   id: 'print-settings',
@@ -636,22 +637,50 @@ class _DeliveryNoteManagementPageState
                   !_mayRun(action) ||
                   !_statusAllows(action, _selected?.status)
               ? null
-              : () => unawaited(_act(suffix)),
+              : () => unawaited(_run(action, suffix)),
           icon: Icon(action.icon, size: 18),
           label: Text(action.label),
         ),
       );
+
+  /// Run a lifecycle action, checking the licences it needs first where the
+  /// action is approving the note (backlog 54) -- before the call, since
+  /// that is the decision being checked.
+  Future<void> _run(DocumentToolbarAction action, String suffix) async {
+    final _DeliveryNoteRecord? selected = _selected;
+    if (selected == null) return;
+    if (action == DocumentToolbarAction.approve) {
+      final LicenceCheckOutcome licence = await confirmLicenceCheck(
+        context,
+        widget.api,
+        widget.permissions,
+        document: 'DELIVERY_NOTE',
+        documentId: selected.id,
+      );
+      if (!licence.proceed) return;
+      await _act(suffix, overrideReason: licence.overrideReason);
+      return;
+    }
+    await _act(suffix);
+  }
 
   /// Run a lifecycle action against the selected note and reload.
   ///
   /// The try/catch used to sit around the toolbar's `onAction` switch; it
   /// lives here now that each button calls this directly, so a refusal still
   /// reaches the user instead of becoming an unhandled exception.
-  Future<void> _act(String suffix) async {
+  Future<void> _act(String suffix, {String? overrideReason}) async {
     final _DeliveryNoteRecord? selected = _selected;
     if (selected == null) return;
     try {
-      await widget.api.documentAction('delivery-notes', selected.id, suffix);
+      await widget.api.documentAction(
+        'delivery-notes',
+        selected.id,
+        suffix,
+        query: overrideReason == null
+            ? null
+            : {'licence_override_reason': overrideReason},
+      );
       await _load();
     } on ApiException catch (error) {
       if (!mounted) return;

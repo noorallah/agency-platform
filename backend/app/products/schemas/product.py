@@ -44,6 +44,9 @@ class ProductCategoryCreate(ProductSchema):
     name: str = Field(min_length=1, max_length=200)
     parent_id: UUID | None = None
     is_active: bool = True
+    #: The trade licence its goods need (backlog 54). On an update, absent
+    #: leaves it alone and an explicit null clears it.
+    required_licence_type_id: UUID | None = None
 
     @field_validator("code", mode="before")
     @classmethod
@@ -67,6 +70,7 @@ class ProductCategoryResponse(ProductSchema):
     level: int
     path: str
     is_active: bool
+    required_licence_type_id: UUID | None = None
     created_at: datetime
     updated_at: datetime
     #: The concurrency counter, echoed as `If-Match` on the next edit.
@@ -109,6 +113,9 @@ class ProductWrite(ProductSchema):
     product_type: ProductType
     category_id: UUID | None = None
     sub_category_id: UUID | None = None
+    #: The trade licence this product needs, overriding its category's;
+    #: null takes the category's (backlog 54).
+    required_licence_type_id: UUID | None = None
     unit: str | None = Field(default=None, max_length=20)
     brand: str | None = Field(default=None, max_length=120)
     model: str | None = Field(default=None, max_length=120)
@@ -232,6 +239,7 @@ class ProductResponse(ProductSchema):
     product_type: ProductType
     category_id: UUID | None
     sub_category_id: UUID | None
+    required_licence_type_id: UUID | None = None
     unit: str | None
     brand: str | None
     model: str | None

@@ -12,6 +12,7 @@ import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/product.dart';
+import '../../models/trade_licence.dart';
 import '../../models/uom_packaging.dart';
 import '../workspace/desktop_framework.dart';
 import '../../phase2/document_page.dart';
@@ -37,6 +38,11 @@ class ProductController extends ChangeNotifier {
 
   List<ProductCategoryRecord> categories = const [];
   List<UomRecord> uoms = const [];
+
+  /// The firm's active trade licence types, for the "Licence needed"
+  /// dropdown (backlog 54). Empty for a firm with no `TRADE_LICENCE_VIEW`,
+  /// same as every other optional catalogue this bootstrap reads.
+  List<TradeLicenceTypeRecord> licenceTypes = const [];
 
   /// The firm's industry defaults, used to pre-fill a new product's units.
   ///
@@ -95,6 +101,12 @@ class ProductController extends ChangeNotifier {
       uoms = await _api.uoms();
     } on ApiException {
       uoms = const [];
+    }
+    try {
+      licenceTypes =
+          (await _api.tradeLicenceTypes()).where((type) => type.isActive).toList();
+    } on ApiException {
+      licenceTypes = const [];
     }
     try {
       profileUomDefaults = await _api.firmUomDefaults();
@@ -702,6 +714,9 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
             : (categoryId ?? product.categoryId),
         'sub_category_id':
             product.subCategoryId.isEmpty ? null : product.subCategoryId,
+        'required_licence_type_id': product.requiredLicenceTypeId.isEmpty
+            ? null
+            : product.requiredLicenceTypeId,
         'unit': product.unit.isEmpty ? null : product.unit,
         'brand': product.brand.isEmpty ? null : product.brand,
         'model': product.model.isEmpty ? null : product.model,
@@ -807,6 +822,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         product: product,
         categories: _controller.categories,
         uoms: _controller.uoms,
+        licenceTypes: _controller.licenceTypes,
         profileUomDefaults: _controller.profileUomDefaults,
         definitions: _controller.attributeDefinitions,
         metadata: _controller.metadata,
@@ -1647,6 +1663,7 @@ class ProductWorkspaceDialog extends StatefulWidget {
     required this.product,
     required this.categories,
     required this.uoms,
+    this.licenceTypes = const [],
     required this.definitions,
     required this.metadata,
     required this.initialTab,
@@ -1660,6 +1677,10 @@ class ProductWorkspaceDialog extends StatefulWidget {
   final Product? product;
   final List<ProductCategoryRecord> categories;
   final List<UomRecord> uoms;
+
+  /// Active trade licence types, for the "Licence needed" dropdown
+  /// (backlog 54).
+  final List<TradeLicenceTypeRecord> licenceTypes;
 
   /// The firm's industry defaults, applied only to a product being created.
   final BusinessProfileUomDefaults? profileUomDefaults;
@@ -1705,6 +1726,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   late String _productType;
   late String _status;
   late String _categoryId;
+  late String _requiredLicenceTypeId;
   late String _taxProfileGroupCode;
   late String _baseUomId;
   late String _inventoryUomId;
@@ -1794,6 +1816,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
         : 'STOCK_ITEM';
     _status = product?.status.isNotEmpty == true ? product!.status : 'ACTIVE';
     _categoryId = product?.categoryId ?? '';
+    _requiredLicenceTypeId = product?.requiredLicenceTypeId ?? '';
     _taxProfileGroupCode = product?.taxProfileGroupCode ?? '';
     // A new product starts on the firm's industry defaults; an existing one
     // keeps exactly what it was saved with. Defaulting an edit would silently
@@ -2147,6 +2170,40 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
                         _normalizeTabSelection();
                       });
                     },
+            ),
+          ),
+          SizedBox(
+            width: 260,
+            child: DropdownButtonFormField<String>(
+              key: const ValueKey('product-licence-type'),
+              isExpanded: true,
+              // A type since deactivated is not offered, but must not crash
+              // a dropdown built to only ever offer active ones -- it stays
+              // the product's value until somebody actually changes it.
+              initialValue: _requiredLicenceTypeId.isNotEmpty &&
+                      widget.licenceTypes
+                          .any((type) => type.id == _requiredLicenceTypeId)
+                  ? _requiredLicenceTypeId
+                  : null,
+              decoration: InputDecoration(
+                labelText: 'Licence needed',
+                helperText: _requiredLicenceTypeId.isNotEmpty &&
+                        !widget.licenceTypes
+                            .any((type) => type.id == _requiredLicenceTypeId)
+                    ? 'Currently set to a retired type'
+                    : 'From category unless named here',
+              ),
+              items: [
+                for (final TradeLicenceTypeRecord type in widget.licenceTypes)
+                  DropdownMenuItem(
+                    value: type.id,
+                    child: Text(type.name, overflow: TextOverflow.ellipsis),
+                  ),
+              ],
+              onChanged: _readOnly
+                  ? null
+                  : (value) =>
+                      setState(() => _requiredLicenceTypeId = value ?? ''),
             ),
           ),
           _field(_unit, 'Unit'),
@@ -2883,6 +2940,8 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       'product_type': _productType,
       'status': _status,
       'category_id': _categoryId.isEmpty ? null : _categoryId,
+      'required_licence_type_id':
+          _requiredLicenceTypeId.isEmpty ? null : _requiredLicenceTypeId,
       'tax_profile_group_code':
           _taxProfileGroupCode.isEmpty ? null : _taxProfileGroupCode,
       'base_uom_id': _baseUomId.isEmpty ? null : _baseUomId,

@@ -146,8 +146,9 @@ class SalesChainService:
             # refused in those words rather than for an order nobody typed.
             raised_as="bill",
         )
+        # Checked for licences at the bill's approval, not here (backlog 54).
         SalesOrderService(self._session).stage_approval(
-            order.id, firm_scope=firm_id, actor_id=actor_id
+            order.id, firm_scope=firm_id, actor_id=actor_id, check_licences=False
         )
         # The order's lines were raised one per bill line, under its number.
         stated = {
@@ -282,7 +283,9 @@ class SalesChainService:
             firm_id=firm_id,
             actor_id=actor_id,
         )
-        notes.stage_approval(note.id, firm_scope=firm_id, actor_id=actor_id)
+        notes.stage_approval(
+            note.id, firm_scope=firm_id, actor_id=actor_id, check_licences=False
+        )
         self.raised_notes.append(note)
         return self._rebind(data, note=note)
 

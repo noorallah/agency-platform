@@ -107,6 +107,10 @@ from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.place_of_supply import SALES_INTERSTATE
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
+from app.trade_licences.services.licence_check import (
+    LicenceCheckService,
+    LicenceDocument,
+)
 from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService, assert_quantity_fits_unit
 
@@ -598,24 +602,55 @@ class SalesOrderService(TransactionalDocumentService):
         )
 
     def approve_order(
-        self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID
+        self,
+        order_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        licence_override_reason: str | None = None,
     ) -> SalesOrder:
         """Approve one sales order and commit it."""
-        row = self.stage_approval(order_id, firm_scope=firm_scope, actor_id=actor_id)
+        row = self.stage_approval(
+            order_id,
+            firm_scope=firm_scope,
+            actor_id=actor_id,
+            licence_override_reason=licence_override_reason,
+        )
         self._session.commit()
         return row
 
     def stage_approval(
-        self, order_id: UUID, *, firm_scope: UUID, actor_id: UUID
+        self,
+        order_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        licence_override_reason: str | None = None,
+        check_licences: bool = True,
     ) -> SalesOrder:
         """Approve one sales order without committing it.
 
         Reserves stock and commits credit, so a caller composing the chain gets
         both effects rolled back with everything else if a later step refuses.
+        ``check_licences`` is false only where the chain approves an order a
+        person never typed: the invoice that raised it is checked at its own
+        approval, on its own date, and checking here too would refuse -- or
+        warn -- twice for one sale.
         """
         row = self.get_order(order_id, firm_scope=firm_scope)
         if row.status != SalesOrderStatus.DRAFT.value:
             raise ValidationError("Only draft sales orders can be approved.")
+        # Before anything is reserved: a refused licence leaves nothing held.
+        licence_remark, licence_details = (
+            LicenceCheckService(self._session).approve_sale(
+                LicenceDocument.SALES_ORDER,
+                row.id,
+                firm_id=firm_scope,
+                override_reason=licence_override_reason,
+            )
+            if check_licences
+            else (None, None)
+        )
         # Credit is committed here, before any stock moves: approving the order
         # is the promise, invoicing only bills it. Under BLOCK it raises before
         # reserving; a warning is recorded on the APPROVED event and in the
@@ -653,10 +688,22 @@ class SalesOrderService(TransactionalDocumentService):
             from_state=SalesOrderStatus.DRAFT.value,
             to_state=SalesOrderStatus.APPROVED.value,
             actor_id=actor_id,
-            remarks=None if assessment is None else assessment.message,
-            details=(
-                None if credit_warning is None else {"credit_warning": credit_warning}
+            remarks=(
+                " ".join(
+                    part
+                    for part in (
+                        None if assessment is None else assessment.message,
+                        licence_remark,
+                    )
+                    if part
+                )
+                or None
             ),
+            details=(
+                ({} if credit_warning is None else {"credit_warning": credit_warning})
+                | (licence_details or {})
+            )
+            or None,
         )
         approved: dict[str, object] = {
             "order_number": row.order_number,
@@ -664,6 +711,8 @@ class SalesOrderService(TransactionalDocumentService):
         }
         if credit_warning is not None:
             approved["credit_warning"] = credit_warning
+        if licence_details is not None:
+            approved.update(licence_details)
         record_audit(
             self._session,
             action="sales_order.approved",

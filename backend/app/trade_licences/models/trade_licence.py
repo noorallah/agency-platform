@@ -123,3 +123,36 @@ class TradeLicence(BaseEntity):
     #: The address the licence covers, as printed on it.
     premises: Mapped[str | None] = mapped_column(String(250))
     remarks: Mapped[str | None] = mapped_column(Text)
+
+
+class TradeLicenceSettings(BaseEntity):
+    """One firm's policy on selling and buying goods without a licence.
+
+    The shape of ``credit_control_settings``: one row per firm, and a firm
+    with no row gets the default -- warn on both sides, never block -- because
+    a check that stops trade on the day it ships is a check nobody switches on.
+    """
+
+    __tablename__ = "trade_licence_settings"
+    __table_args__ = (
+        Index(
+            "UQ_trade_licence_settings_firm_active",
+            "firm_id",
+            unique=True,
+            postgresql_where=text("NOT is_deleted"),
+            sqlite_where=text("NOT is_deleted"),
+        ),
+    )
+
+    #: No foreign key: `firms` lives only in the platform schema.
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    #: OFF, WARN or BLOCK, for sales orders, delivery notes and invoices.
+    sale_enforcement: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="WARN", server_default="WARN"
+    )
+    #: OFF or WARN, for purchase orders and goods receipts. Never BLOCK: the
+    #: firm is the licensed party receiving the goods, and refusing to record
+    #: goods already on the dock records nothing about whether they arrived.
+    purchase_enforcement: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="WARN", server_default="WARN"
+    )

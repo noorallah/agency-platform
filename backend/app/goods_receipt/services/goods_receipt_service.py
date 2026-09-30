@@ -75,6 +75,10 @@ from app.purchase_invoice.schemas import PurchaseInvoiceStatus
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
+from app.trade_licences.services.licence_check import (
+    LicenceCheckService,
+    LicenceDocument,
+)
 from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService, assert_quantity_fits_unit
 from app.vendors.models import Vendor
@@ -428,6 +432,10 @@ class GoodsReceiptService(TransactionalDocumentService):
         self._validate_lines(
             row, purchase_order=purchase_order, previous_map=previous_map
         )
+        # Warns only: the goods are on the dock whatever it says (backlog 54).
+        licence_remark, licence_details = LicenceCheckService(
+            self._session
+        ).approve_purchase(LicenceDocument.GOODS_RECEIPT, row.id, firm_id=firm_scope)
         self._post_inventory(row, purchase_order=purchase_order, actor_id=actor_id)
         before = row.status
         row.status = GoodsReceiptStatus.COMPLETED.value
@@ -446,6 +454,8 @@ class GoodsReceiptService(TransactionalDocumentService):
             from_state=before,
             to_state=row.status,
             actor_id=actor_id,
+            remarks=licence_remark,
+            details=licence_details,
         )
         record_audit(
             self._session,

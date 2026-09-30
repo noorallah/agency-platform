@@ -4119,10 +4119,26 @@ never deleted, only superseded by a new row. The **expiry report** is the
 register itself sorted by valid-to -- a separate report adds nothing a
 filtered list does not.
 
-**Still to build:** step 2 (required licence on category and product),
-step 3 (the sale check: warn by default, block by firm policy, override by
-permission and recorded on the timeline), step 5 (the purchase check, warn
-only).
+### Built: steps 2, 3 and 5 (2026-09-30)
+
+| Piece | Where |
+| --- | --- |
+| `required_licence_type_id` on product categories and products. A product's own outranks its sub-category's, then its category's, then any category above -- the nearest wins. Null on a product takes the category's; a category edit that omits the field leaves it alone | `app/products`, migration `20260930_0168` |
+| One judgement, `LicenceCheckService`: each line's required type must be held by the **customer** and by the **firm as seller** (a whole-firm licence or one for the selling branch) -- for a purchase, by the **vendor** -- valid on the **document's own date**. Findings name the lines, products, party and why: missing, expired on ..., valid only from ... A licence of another type does not count | `app/trade_licences/services/licence_check.py` |
+| Firm policy `trade_licence_settings`: sale OFF / WARN / BLOCK, purchase OFF / WARN (BLOCK refused -- the goods on the dock have arrived). No row warns on both | `GET/PUT /api/v1/trade-licences/settings`, `TRADE_LICENCE_MANAGE_SETTINGS` |
+| The sale check at the approval of the sales order, delivery note and sales invoice; the purchase check at purchase-order approval and goods-receipt completion. A warning is recorded on the APPROVED / COMPLETED timeline event and the audit row; BLOCK refuses before stock is reserved or shipped | the five services |
+| Override: `?licence_override_reason=` on the three sales approve endpoints, refused 403 without `TRADE_LICENCE_OVERRIDE`; recorded on the timeline with what it overrode | `app/trade_licences/api/override.py` |
+| A preview for the screen: `GET /api/v1/trade-licences/check/{document}/{id}` answers exactly what approval would | same service |
+| A counter bill's chain (the order and note it raises) is not checked; the bill is, once, at its own approval -- two refusals for one sale would be one too many | `SalesChainService` passes `check_licences=False` |
+| Deleting a licence type products or categories need is refused by name | `TradeLicenceService.delete_type` |
+
+Decided by convention (owner questions 2 and 3 below): the sale check
+**defaults to warn**; the check is **per line**, so a customer without any
+licence still buys goods that need none. `TRADE_LICENCE_MANAGE_SETTINGS` and
+`TRADE_LICENCE_OVERRIDE` go to the firm administrator and firm manager only --
+both are controls over the people who sell, the split credit control makes.
+A product can only add or change a requirement, not waive its category's;
+a product that needs none belongs in a category that needs none.
 
 ### For the owner at the review
 

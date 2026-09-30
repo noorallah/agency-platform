@@ -12,6 +12,7 @@ import '../document_framework/document_line_labels.dart';
 import '../document_framework/document_view_dialog.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../models/entities.dart';
+import '../trade_licences/licence_check_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
 import 'credit_notice.dart';
@@ -286,7 +287,7 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
     }
   }
 
-  Future<void> _act(String suffix) async {
+  Future<void> _act(String suffix, {String? overrideReason}) async {
     final Map<String, dynamic>? selected = _selected;
     if (selected == null) return;
     try {
@@ -294,6 +295,9 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         'sales-orders',
         selected['id'] as String,
         suffix,
+        query: overrideReason == null
+            ? null
+            : {'licence_override_reason': overrideReason},
       );
       await _load();
     } on ApiException catch (error) {
@@ -321,6 +325,18 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
         widget.api,
         customerId: order['customer_id'] as String?,
         amount: '${order['grand_total'] ?? '0'}',
+      );
+
+  /// Ask what the order's lines need, licence-wise, before approving it
+  /// (backlog 54). Same reason as [_warnOnCredit]: before the call, because
+  /// approval is the decision being checked.
+  Future<LicenceCheckOutcome> _checkLicences(Map<String, dynamic> order) =>
+      confirmLicenceCheck(
+        context,
+        widget.api,
+        widget.permissions,
+        document: 'SALES_ORDER',
+        documentId: order['id'] as String,
       );
 
   DocumentHeaderSnapshot _headerFor(Map<String, dynamic> row) =>
@@ -840,6 +856,11 @@ class _SalesOrderManagementPageState extends State<SalesOrderManagementPage> {
     if (selected == null) return;
     if (action == DocumentToolbarAction.approve) {
       await _warnOnCredit(selected);
+      if (!mounted) return;
+      final LicenceCheckOutcome licence = await _checkLicences(selected);
+      if (!licence.proceed) return;
+      await _act(suffix, overrideReason: licence.overrideReason);
+      return;
     }
     await _act(suffix);
   }
