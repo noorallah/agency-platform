@@ -12,7 +12,12 @@ import pytest
 
 from app.core.utils import chunks as chunk_module
 from app.core.utils.chunks import chunks, over_chunks
-from tests.unit import test_customer_statement, test_gst_returns
+from tests.unit import (
+    test_customer_statement,
+    test_delivery_note_module,
+    test_document_summaries_in_sql,
+    test_gst_returns,
+)
 
 
 def test_chunks_splits_and_drops_repeats() -> None:
@@ -54,3 +59,16 @@ def test_the_ageing_reads_the_same_in_chunks(monkeypatch: pytest.MonkeyPatch) ->
     monkeypatch.setattr(chunk_module, "CHUNK_SIZE", 1)
     test_customer_statement.test_the_ageing_ages_what_record_receipt_says_is_owed()
     test_customer_statement.test_the_ageing_row_reconciles_with_the_account()
+
+
+def test_the_delivery_reports_read_the_same_in_chunks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The delivery-note page summary sent every order id in one statement.
+
+    Found timing PERF01 (109,566 orders): the summary answered 503. Its order
+    lines and what was delivered against them are now read in chunks.
+    """
+    monkeypatch.setattr(chunk_module, "CHUNK_SIZE", 1)
+    test_delivery_note_module.test_the_delivery_reports_count_what_left_the_warehouse()
+    test_document_summaries_in_sql.test_delivery_note_summary()

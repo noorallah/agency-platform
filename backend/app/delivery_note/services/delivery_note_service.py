@@ -36,6 +36,7 @@ from app.common.report_names import (
 from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
+from app.core.utils.chunks import chunks
 from app.core.utils.dates import utc_now
 from app.core.utils.pricing import (
     LineDiscount,
@@ -1069,13 +1070,16 @@ class DeliveryNoteService(TransactionalDocumentService):
             return mapped_like(order_rows, [])
         order_ids = [order.id for order in order_rows]
         lines_by_order: dict[UUID, list[SalesOrderLine]] = defaultdict(list)
-        for line in self._session.scalars(
-            select(SalesOrderLine).where(
-                SalesOrderLine.sales_order_id.in_(order_ids),
-                SalesOrderLine.is_deleted.is_(False),
-            )
-        ).all():
-            lines_by_order[line.sales_order_id].append(line)
+        # In chunks: a firm's open orders over two years are more ids than
+        # one statement may name (backlog 56 C, found timing PERF01).
+        for part in chunks(order_ids):
+            for line in self._session.scalars(
+                select(SalesOrderLine).where(
+                    SalesOrderLine.sales_order_id.in_(part),
+                    SalesOrderLine.is_deleted.is_(False),
+                )
+            ).all():
+                lines_by_order[line.sales_order_id].append(line)
         sent = delivered_by_order_line(
             self._session, firm_id=firm_scope, sales_order_ids=order_ids
         )
