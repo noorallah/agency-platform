@@ -17,10 +17,14 @@ extension _Phase2VendorForm on _VendorEditorDialogState {
     'Notes',
     'Custom fields',
     'Licences',
+    'Opening bills',
   ];
 
-  bool _sectionVisible(String section) =>
-      section != 'Licences' || widget.loadLicences != null;
+  bool _sectionVisible(String section) => switch (section) {
+        'Licences' => widget.loadLicences != null,
+        'Opening bills' => widget.loadOpeningBills != null,
+        _ => true,
+      };
 
   void _submit() {
     final String? customField = _customFields.validate();
@@ -202,6 +206,11 @@ extension _Phase2VendorForm on _VendorEditorDialogState {
             if (widget.loadLicences != null) ...[
               _heading(context, 'Licences', 'trade licences this vendor holds'),
               _licencesTab(),
+            ],
+            if (widget.loadOpeningBills != null) ...[
+              _heading(context, 'Opening bills',
+                  'what this supplier was owed on the firm\'s first day here'),
+              _openingBillsTab(),
             ],
           ],
         ),

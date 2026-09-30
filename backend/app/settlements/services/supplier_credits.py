@@ -305,6 +305,15 @@ def apply_supplier_credit(
             "That bill is not this supplier's, is not approved, or is already "
             "settled in full."
         )
+    if bill.is_opening_bill:
+        # The application names a purchase invoice, and an opening bill is not
+        # one. Setting a return's credit against day-one debt is a real need
+        # but a separate change; until then it is refused by name rather than
+        # failing on the foreign key.
+        raise ValidationError(
+            f"{bill.invoice_number} is an opening bill; supplier credit is set "
+            "against purchase bills only."
+        )
     if asked > bill.outstanding_amount:
         raise ValidationError(
             f"{bill.invoice_number} owes only {bill.outstanding_amount}."

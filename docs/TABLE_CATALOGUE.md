@@ -380,7 +380,7 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `settlement_allocations` | firm store ¹ | Store how much of one settlement cleared one invoice. | `firms`, `settlements`, `sales_invoices`, `purchase_invoices` |
+| `settlement_allocations` | firm store ¹ | Store how much of one settlement cleared one invoice. | `firms`, `settlements`, `sales_invoices`, `purchase_invoices`, `vendor_opening_bills` |
 | `settlements` | firm store ¹ | Store one receipt from a customer or payment to a vendor. | `firms`, `customers`, `vendors`, `ledger_accounts`, `sales_orders`, `journal_entries` |
 | `supplier_credit_applications` | firm store ¹ | Store how much of one purchase return's supplier credit cleared one bill. | `vendors`, `purchase_returns`, `purchase_invoices` |
 
@@ -441,6 +441,7 @@ trigger each schema owns its own copy of.
 | `vendor_categories` | firm store ¹ | Persist a reusable vendor category per firm. | `firms` |
 | `vendor_contacts` | firm store ¹ | Represent one vendor contact person. | `vendors` |
 | `vendor_notes` | firm store ¹ | Represent one vendor note/history item. | `vendors` |
+| `vendor_opening_bills` | firm store ¹ | Store one bill a supplier was owed on the firm's first day here. | `vendors`, `journal_entries` |
 | `vendor_tax_details` | firm store ¹ | Represent one vendor tax detail set. | `vendors` |
 | `vendor_types` | firm store ¹ | Persist a reusable vendor type per firm. | `firms` |
 | `vendors` | firm store ¹ | Represent one vendor master owned by a firm. | `firms`, `vendor_categories`, `vendor_types`, `business_profiles` |

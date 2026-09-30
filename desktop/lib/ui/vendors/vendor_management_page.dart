@@ -12,8 +12,10 @@ import '../../models/geography.dart';
 import '../../models/entities.dart';
 import '../../models/trade_licence.dart';
 import '../../models/vendor.dart';
+import '../../models/vendor_opening_bill.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/reason_prompt.dart';
 import '../workspace/trade_licence_quick_add.dart';
 import '../../phase2/document_page.dart';
 
@@ -182,6 +184,12 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
                             ? vendor.name
                             : vendor.displayName,
                       ),
+              loadOpeningBills: vendor != null &&
+                      widget.permissions.hasPermission('VENDOR_VIEW')
+                  ? () => widget.api.vendorOpeningBills(vendor.id)
+                  : null,
+              canManageOpeningBills:
+                  widget.permissions.hasPermission('VENDOR_UPDATE'),
             ),
           )
         : await showDialog<Json>(
@@ -504,6 +512,8 @@ class _VendorEditorDialog extends StatefulWidget {
     this.loadLicences,
     this.canManageLicences = false,
     this.onAddLicence,
+    this.loadOpeningBills,
+    this.canManageOpeningBills = false,
   });
 
   /// Needed for the geography ladder behind an address.
@@ -522,6 +532,15 @@ class _VendorEditorDialog extends StatefulWidget {
   /// Opens the licence form pre-set to this vendor. Returns whether one was
   /// saved, so the section knows to re-read the list.
   final Future<bool> Function()? onAddLicence;
+
+  /// What this supplier was owed on the firm's first day here. Null hides
+  /// the Opening bills section entirely -- while the vendor is still being
+  /// created, or for a user without `VENDOR_VIEW`.
+  final Future<List<VendorOpeningBill>> Function()? loadOpeningBills;
+
+  /// Whether the user holds `VENDOR_UPDATE`, so "Add opening bill" and
+  /// "Cancel" show.
+  final bool canManageOpeningBills;
 
   @override
   State<_VendorEditorDialog> createState() => _VendorEditorDialogState();
@@ -613,6 +632,10 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
   List<TradeLicenceRecord>? _licences;
   bool _licencesRequested = false;
 
+  /// Null until the opening bills have been read; empty means read and none.
+  List<VendorOpeningBill>? _openingBills;
+  bool _openingBillsRequested = false;
+
   /// Phase 2: the sections are one scroll rather than tabs.
   bool _flat = false;
   final Map<String, GlobalKey> _sectionKeys = {
@@ -625,6 +648,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
       'Notes',
       'Custom fields',
       'Licences',
+      'Opening bills',
     ])
       section: GlobalKey(),
   };
@@ -753,6 +777,147 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
     if (!saved) return;
     _licencesRequested = false;
     if (mounted) setState(() {});
+  }
+
+  /// What this supplier was owed on the firm's first day here (vendor
+  /// opening bills) -- entered once at cutover, so the balance here matches
+  /// the old books without re-keying every historical purchase invoice.
+  /// Read-only besides "Add opening bill" and, per row, "Cancel".
+  Widget _openingBillsTab() {
+    if (widget.loadOpeningBills == null) {
+      return const SizedBox.shrink();
+    }
+    if (!_openingBillsRequested) {
+      _openingBillsRequested = true;
+      unawaited(_reloadOpeningBills());
+    }
+    final List<VendorOpeningBill>? rows = _openingBills;
+    final Widget addButton = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(children: [
+        Expanded(
+          child: Text(rows == null || rows.isEmpty
+              ? 'No opening bills yet'
+              : '${rows.length} opening bill(s)'),
+        ),
+        if (widget.canManageOpeningBills)
+          OutlinedButton.icon(
+            onPressed: _addOpeningBill,
+            icon: const Icon(Icons.add),
+            label: const Text('Add opening bill'),
+          ),
+      ]),
+    );
+    if (rows == null) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        addButton,
+        const Divider(height: 1),
+        const Center(child: CircularProgressIndicator()),
+      ]);
+    }
+    if (rows.isEmpty) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        addButton,
+        const Divider(height: 1),
+        const StandardEmptyState(
+          type: EmptyStateType.noRecords,
+          message: 'What this supplier was owed on the firm\'s first day '
+              'here. Nothing recorded yet.',
+        ),
+      ]);
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      addButton,
+      const Divider(height: 1),
+      SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: DataTable(
+          columns: const [
+            DataColumn(label: Text('Bill no.')),
+            DataColumn(label: Text('Supplier ref')),
+            DataColumn(label: Text('Bill date')),
+            DataColumn(label: Text('Due')),
+            DataColumn(label: Text('Amount'), numeric: true),
+            DataColumn(label: Text('Paid'), numeric: true),
+            DataColumn(label: Text('Owed'), numeric: true),
+            DataColumn(label: Text('Status')),
+            DataColumn(label: Text('')),
+          ],
+          rows: [
+            for (final VendorOpeningBill bill in rows)
+              DataRow(cells: [
+                DataCell(Text(bill.billNumber)),
+                DataCell(Text(bill.referenceNumber)),
+                DataCell(Text(bill.billDate)),
+                DataCell(Text(bill.dueDate)),
+                DataCell(Text(bill.amount)),
+                DataCell(Text(bill.paidAmount)),
+                DataCell(Text(bill.outstandingAmount)),
+                DataCell(StatusBadge.fromStatus(bill.status)),
+                DataCell(
+                  widget.canManageOpeningBills && bill.canCancel
+                      ? TextButton(
+                          key: ValueKey<String>(
+                              'opening-bill-cancel-${bill.id}'),
+                          onPressed: () => unawaited(_cancelOpeningBill(bill)),
+                          child: const Text('Cancel'),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+              ]),
+          ],
+        ),
+      ),
+    ]);
+  }
+
+  Future<void> _reloadOpeningBills() async {
+    try {
+      final List<VendorOpeningBill> rows = await widget.loadOpeningBills!();
+      if (mounted) setState(() => _openingBills = rows);
+    } on Object {
+      // A list that cannot be read costs this section, not the form.
+      if (mounted) setState(() => _openingBills = const <VendorOpeningBill>[]);
+    }
+  }
+
+  Future<void> _addOpeningBill() async {
+    final Vendor? vendor = widget.vendor;
+    if (vendor == null) return;
+    final Json? payload = await showDialog<Json>(
+      context: context,
+      builder: (context) => const _AddOpeningBillDialog(),
+    );
+    if (payload == null || !mounted) return;
+    try {
+      await widget.api.createVendorOpeningBill(vendor.id, payload);
+      _openingBillsRequested = false;
+      if (mounted) setState(() {});
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      NotificationService.show(context, exception.message,
+          kind: AppNotificationKind.error);
+    }
+  }
+
+  Future<void> _cancelOpeningBill(VendorOpeningBill bill) async {
+    final String? reason = await askForReason(
+      context,
+      title: 'Cancel ${bill.billNumber}',
+      explanation: 'This takes back what the bill added to the supplier\'s '
+          'balance. Refused once any payment has been applied to it.',
+      confirmLabel: 'Cancel bill',
+    );
+    if (reason == null || !mounted) return;
+    try {
+      await widget.api.cancelVendorOpeningBill(bill.id, reason);
+      _openingBillsRequested = false;
+      if (mounted) setState(() {});
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      NotificationService.show(context, exception.message,
+          kind: AppNotificationKind.error);
+    }
   }
 
   /// A picker for one master, with the stored id kept selectable.
@@ -1752,4 +1917,179 @@ class _EditableAddress {
         'locality_id': _at(GeoLevel.locality),
         'is_primary': isPrimary,
       };
+}
+
+/// One bill a supplier was owed at cutover, typed in.
+///
+/// Returns a payload holding only the keys the write schema declares --
+/// `reference_number`, `bill_date`, `due_date`, `posting_date`, `amount`,
+/// `narration` -- and only the optional ones that were actually filled in,
+/// because the server forbids extra fields and treats an absent key as
+/// "leave it to the default" rather than null.
+class _AddOpeningBillDialog extends StatefulWidget {
+  const _AddOpeningBillDialog();
+
+  @override
+  State<_AddOpeningBillDialog> createState() => _AddOpeningBillDialogState();
+}
+
+class _AddOpeningBillDialogState extends State<_AddOpeningBillDialog> {
+  final TextEditingController _reference = TextEditingController();
+  final TextEditingController _amount = TextEditingController();
+  final TextEditingController _narration = TextEditingController();
+  DateTime _billDate = DateTime.now();
+  DateTime? _dueDate;
+  DateTime? _postingDate;
+  String? _error;
+
+  @override
+  void dispose() {
+    _reference.dispose();
+    _amount.dispose();
+    _narration.dispose();
+    super.dispose();
+  }
+
+  String _iso(DateTime date) => date.toIso8601String().substring(0, 10);
+
+  Future<void> _pickDate({
+    required DateTime initial,
+    required ValueChanged<DateTime> onPicked,
+  }) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (picked != null) onPicked(picked);
+  }
+
+  void _submit() {
+    final double amount = double.tryParse(_amount.text.trim()) ?? 0;
+    if (amount <= 0) {
+      setState(() => _error = 'Enter how much was owed on this bill.');
+      return;
+    }
+    Navigator.of(context).pop(<String, dynamic>{
+      'bill_date': _iso(_billDate),
+      if (_reference.text.trim().isNotEmpty)
+        'reference_number': _reference.text.trim(),
+      if (_dueDate != null) 'due_date': _iso(_dueDate!),
+      if (_postingDate != null) 'posting_date': _iso(_postingDate!),
+      'amount': _amount.text.trim(),
+      if (_narration.text.trim().isNotEmpty)
+        'narration': _narration.text.trim(),
+    });
+  }
+
+  Widget _dateBox({
+    required String label,
+    required DateTime? value,
+    required VoidCallback onTap,
+    VoidCallback? onClear,
+    String? helperText,
+  }) =>
+      InkWell(
+        onTap: onTap,
+        child: InputDecorator(
+          decoration: InputDecoration(
+            labelText: label,
+            helperText: helperText,
+            helperMaxLines: 2,
+            suffixIcon: onClear != null && value != null
+                ? IconButton(
+                    tooltip: 'Clear',
+                    icon: const Icon(Icons.close),
+                    onPressed: onClear,
+                  )
+                : const Icon(Icons.calendar_today, size: 18),
+          ),
+          child: Text(value == null ? '' : _iso(value)),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Add opening bill'),
+        content: SizedBox(
+          width: 420,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (_error != null) ...[
+                  Text(
+                    _error!,
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.error),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                TextField(
+                  controller: _reference,
+                  decoration: const InputDecoration(
+                    labelText: 'Supplier reference',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _dateBox(
+                  label: 'Bill date',
+                  value: _billDate,
+                  onTap: () => _pickDate(
+                    initial: _billDate,
+                    onPicked: (picked) => setState(() => _billDate = picked),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _dateBox(
+                  label: 'Due date',
+                  value: _dueDate,
+                  onTap: () => _pickDate(
+                    initial: _dueDate ?? _billDate,
+                    onPicked: (picked) => setState(() => _dueDate = picked),
+                  ),
+                  onClear: () => setState(() => _dueDate = null),
+                ),
+                const SizedBox(height: 12),
+                _dateBox(
+                  label: 'Posting date',
+                  value: _postingDate,
+                  onTap: () => _pickDate(
+                    initial: _postingDate ?? DateTime.now(),
+                    onPicked: (picked) =>
+                        setState(() => _postingDate = picked),
+                  ),
+                  onClear: () => setState(() => _postingDate = null),
+                  helperText:
+                      'blank = today; the day your books here start',
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _amount,
+                  decoration: const InputDecoration(labelText: 'Amount'),
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _narration,
+                  decoration: const InputDecoration(labelText: 'Narration'),
+                  maxLines: 3,
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: _submit,
+            child: const Text('Save'),
+          ),
+        ],
+      );
 }

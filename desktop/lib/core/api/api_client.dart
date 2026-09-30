@@ -33,6 +33,7 @@ import '../../models/tax_framework.dart';
 import '../../models/uom_packaging.dart';
 import '../../models/inventory.dart';
 import '../../models/vendor.dart';
+import '../../models/vendor_opening_bill.dart';
 import '../../models/report.dart';
 import '../../models/trade_licence.dart';
 import '../preferences/desktop_preferences_service.dart';
@@ -1366,6 +1367,39 @@ class ApiClient {
 
   Future<Vendor> restoreVendor(String id) async => Vendor.fromJson(_unwrapMap(
         await request('POST', '/api/v1/vendors/$id/restore'),
+      ));
+
+  /// What this supplier was owed on the firm's first day here.
+  Future<List<VendorOpeningBill>> vendorOpeningBills(String vendorId) async =>
+      _unwrapList(
+        await request('GET', '/api/v1/vendors/$vendorId/opening-bills'),
+        VendorOpeningBill.fromJson,
+      );
+
+  /// Record one bill the supplier was owed at cutover, and post it.
+  Future<VendorOpeningBill> createVendorOpeningBill(
+    String vendorId,
+    Json data,
+  ) async =>
+      VendorOpeningBill.fromJson(_unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/vendors/$vendorId/opening-bills',
+          body: data,
+        ),
+      ));
+
+  /// Take back an opening bill entered in error; refused once it is paid.
+  Future<VendorOpeningBill> cancelVendorOpeningBill(
+    String billId,
+    String reason,
+  ) async =>
+      VendorOpeningBill.fromJson(_unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/vendors/opening-bills/$billId/cancel',
+          body: {'reason': reason},
+        ),
       ));
 
   Future<int> bulkDeleteVendors(List<String> ids) async {

@@ -81,7 +81,11 @@ def _to_response(service: SettlementService, row: Settlement) -> SettlementRespo
     summaries = service.invoice_summaries(allocations)
     allocation_rows: list[SettlementAllocationResponse] = []
     for allocation in allocations:
-        invoice_id = allocation.sales_invoice_id or allocation.purchase_invoice_id
+        invoice_id = (
+            allocation.sales_invoice_id
+            or allocation.purchase_invoice_id
+            or allocation.vendor_opening_bill_id
+        )
         if invoice_id is None:  # pragma: no cover - one side is always set
             continue
         number, invoice_date, total = summaries[invoice_id]

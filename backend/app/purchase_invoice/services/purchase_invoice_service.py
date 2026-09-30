@@ -955,23 +955,32 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                     )
                 ).all()
             }
-        names = self._vendor_names({row.vendor_id for row in bills.values()})
+        names = self._vendor_names(
+            {record.party_id for record in owing if record.party_id is not None}
+        )
         records: list[PurchaseInvoiceOverdueRecord] = []
         for record in owing:
-            row = bills[record.invoice_id]
-            if record.due_date is None:  # pragma: no cover - filtered above
+            if record.due_date is None or record.party_id is None:  # pragma: no cover
                 continue
+            # A supplier's opening bill is owed and can be overdue like any
+            # other, but it is not a purchase invoice, so the record carries
+            # what the row would have said.
+            row = bills.get(record.invoice_id)
             records.append(
                 PurchaseInvoiceOverdueRecord(
-                    invoice_id=row.id,
-                    invoice_number=row.invoice_number,
-                    supplier_invoice_number=row.supplier_invoice_number,
-                    vendor_id=row.vendor_id,
-                    vendor_name=names.get(row.vendor_id, str(row.vendor_id)),
-                    invoice_date=row.invoice_date,
+                    invoice_id=record.invoice_id,
+                    invoice_number=record.invoice_number,
+                    supplier_invoice_number=(
+                        None if row is None else row.supplier_invoice_number
+                    ),
+                    vendor_id=record.party_id,
+                    vendor_name=names.get(record.party_id, str(record.party_id)),
+                    invoice_date=record.invoice_date,
                     due_date=record.due_date,
                     days_overdue=(today - record.due_date).days,
-                    grand_total=row.grand_total,
+                    grand_total=(
+                        record.invoice_total if row is None else row.grand_total
+                    ),
                     allocated_amount=record.allocated_amount,
                     outstanding_amount=record.outstanding_amount,
                 )

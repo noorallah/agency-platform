@@ -145,6 +145,10 @@ class OutstandingInvoiceRecord(SettlementSchema):
     #: overdue reports ask about every party at once (D-RPT-2).
     party_id: UUID | None = None
     due_date: date | None = None
+    #: A bill the supplier was owed before the firm started here, rather than
+    #: a purchase invoice. It is paid the same way, but it is not a purchase
+    #: invoice and cannot be opened as one.
+    is_opening_bill: bool = False
 
 
 class SettlementPartyRecord(SettlementSchema):

@@ -173,6 +173,16 @@ class SettlementAllocation(BaseEntity):
         ),
         Index("IX_settlement_allocations_sales", "firm_id", "sales_invoice_id"),
         Index("IX_settlement_allocations_purchase", "firm_id", "purchase_invoice_id"),
+        UniqueConstraint(
+            "settlement_id",
+            "vendor_opening_bill_id",
+            name="UQ_settlement_allocations_opening_bill",
+        ),
+        Index(
+            "IX_settlement_allocations_opening_bill",
+            "firm_id",
+            "vendor_opening_bill_id",
+        ),
     )
 
     firm_id: Mapped[UUID] = mapped_column(
@@ -189,6 +199,12 @@ class SettlementAllocation(BaseEntity):
     )
     purchase_invoice_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("purchase_invoices.id", ondelete="RESTRICT")
+    )
+    #: A payment against what a supplier was owed before the firm started
+    #: here. It is a bill to the payment screen, but not a purchase invoice --
+    #: see `VendorOpeningBill` for why it cannot be one.
+    vendor_opening_bill_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("vendor_opening_bills.id", ondelete="RESTRICT")
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     #: The day the money met the bill. For an allocation made with the

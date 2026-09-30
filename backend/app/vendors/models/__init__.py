@@ -1,5 +1,6 @@
 """Vendor persistence models."""
 
+from app.vendors.models.opening_bill import VendorOpeningBill, VendorOpeningBillStatus
 from app.vendors.models.vendor import (
     Vendor,
     VendorAddress,
@@ -22,6 +23,8 @@ __all__ = [
     "VendorCategory",
     "VendorContact",
     "VendorNote",
+    "VendorOpeningBill",
+    "VendorOpeningBillStatus",
     "VendorTaxDetail",
     "VendorType",
 ]

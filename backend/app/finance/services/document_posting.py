@@ -85,6 +85,12 @@ OPENING_BALANCE_PURPOSES = (
     ControlAccountPurpose.OPENING_BALANCE_EQUITY,
 )
 
+#: What a day-one supplier bill moves: the payable twin of the above.
+VENDOR_OPENING_BILL_PURPOSES = (
+    ControlAccountPurpose.ACCOUNTS_PAYABLE,
+    ControlAccountPurpose.OPENING_BALANCE_EQUITY,
+)
+
 OPENING_STOCK_PURPOSES = (
     ControlAccountPurpose.INVENTORY,
     ControlAccountPurpose.OPENING_BALANCE_EQUITY,
@@ -944,6 +950,62 @@ class DocumentPostingService:
             ],
             source_module="customers",
             source_id=customer_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_vendor_opening_bill(
+        self,
+        *,
+        firm_id: UUID,
+        opening_bill_id: UUID,
+        bill_number: str,
+        posting_date: date,
+        amount: Decimal,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Post one bill a supplier was owed on the day the firm started here.
+
+        The payable twin of `post_opening_balance`: the debt arrived from books
+        this ledger never saw, so its counterpart is opening balance equity --
+        Dr equity, Cr accounts payable. No goods and no tax: those belong to
+        the period in which the bill was raised, in the other books.
+
+        Raises:
+            ValidationError: If the amount is nil, or accounts or an open
+                period are missing on the posting date.
+
+        """
+        total = quantize_ledger(quantize_money(amount))
+        if total <= ZERO:
+            raise ValidationError("An opening bill must be for more than nothing.")
+        accounts = self._require_mapping(firm_id, VENDOR_OPENING_BILL_PURPOSES)
+        context = self.context_for(firm_id, posting_date)
+        description = f"Opening bill {bill_number}"
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=posting_date,
+            reference_number=bill_number,
+            description=description,
+            lines=[
+                JournalLineData(
+                    ledger_account_id=accounts[
+                        ControlAccountPurpose.OPENING_BALANCE_EQUITY
+                    ],
+                    debit_amount=total,
+                    description=description,
+                ),
+                JournalLineData(
+                    ledger_account_id=accounts[ControlAccountPurpose.ACCOUNTS_PAYABLE],
+                    credit_amount=total,
+                    description=description,
+                ),
+            ],
+            source_module="vendor_opening_bills",
+            source_id=opening_bill_id,
             actor_id=actor_id,
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)

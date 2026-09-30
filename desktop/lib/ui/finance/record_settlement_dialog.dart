@@ -690,7 +690,13 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
         rows: [
           for (final OutstandingInvoice invoice in _invoices)
             DataRow(cells: [
-              DataCell(Text(invoice.invoiceNumber)),
+              DataCell(Row(mainAxisSize: MainAxisSize.min, children: [
+                Text(invoice.invoiceNumber),
+                if (invoice.isOpeningBill) ...[
+                  const SizedBox(width: 6),
+                  const StatusBadge(label: 'Opening'),
+                ],
+              ])),
               DataCell(Text(invoice.invoiceDate)),
               DataCell(Text(invoice.invoiceTotal)),
               DataCell(Text(invoice.outstandingAmount)),
