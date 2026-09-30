@@ -369,6 +369,10 @@ void main() {
       (tester) async {
     _setDesktopSurface(tester);
     final _PricingPurchaseApi api = _PricingPurchaseApi();
+    final PermissionService permissions = PermissionService()
+      ..applyAccessToken(_accessToken({
+        'permissions': ['PURCHASE_VIEW', 'PURCHASE_APPROVE'],
+      }));
     PurchaseEditorOutcome? outcome;
     await tester.pumpWidget(MaterialApp(
       home: Scaffold(
@@ -381,6 +385,7 @@ void main() {
                     body: Phase2Scope(
                       child: PurchaseOrderEditorDialog(
                         api: api,
+                        permissions: permissions,
                         mode: PurchaseDialogMode.create,
                         order: null,
                         vendors: const [_vendor],

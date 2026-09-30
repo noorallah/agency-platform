@@ -251,6 +251,8 @@ abstract final class MenuLayout {
               AppModule.masters, 'vendor-categories', 'Vendor Categories'),
           MenuItemSpec(AppModule.masters, 'vendor-types', 'Vendor Types'),
           MenuItemSpec(AppModule.masters, 'licence-types', 'Licence Types'),
+          MenuItemSpec(
+              AppModule.masters, 'licence-check-settings', 'Licence Check'),
         ],
         configuration: true,
       ),

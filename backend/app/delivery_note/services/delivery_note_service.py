@@ -95,6 +95,10 @@ from app.sales_order.schemas import SalesOrderStatus
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
+from app.trade_licences.services.licence_check import (
+    LicenceCheckService,
+    LicenceDocument,
+)
 from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService, assert_quantity_fits_unit
 
@@ -513,23 +517,53 @@ class DeliveryNoteService(TransactionalDocumentService):
         return row
 
     def approve_note(
-        self, note_id: UUID, *, firm_scope: UUID, actor_id: UUID
+        self,
+        note_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        licence_override_reason: str | None = None,
     ) -> DeliveryNote:
         """Approve one delivery note and commit it."""
-        row = self.stage_approval(note_id, firm_scope=firm_scope, actor_id=actor_id)
+        row = self.stage_approval(
+            note_id,
+            firm_scope=firm_scope,
+            actor_id=actor_id,
+            licence_override_reason=licence_override_reason,
+        )
         self._session.commit()
         return row
 
     def stage_approval(
-        self, note_id: UUID, *, firm_scope: UUID, actor_id: UUID
+        self,
+        note_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        licence_override_reason: str | None = None,
+        check_licences: bool = True,
     ) -> DeliveryNote:
-        """Approve one delivery note without committing it."""
+        """Approve one delivery note without committing it.
+
+        ``check_licences`` is false only for a note the chain raised for an
+        invoice, which is checked at its own approval (backlog 54).
+        """
         row = self.get_note(note_id, firm_scope=firm_scope)
         if row.status != DeliveryNoteStatus.DRAFT.value:
             raise ValidationError("Only draft delivery notes can be approved.")
         order = self._sales_order(row.sales_order_id, firm_id=firm_scope)
         self._refuse_unless_order_open(order)
         self._refuse_if_held(order)
+        licence_remark, licence_details = (
+            LicenceCheckService(self._session).approve_sale(
+                LicenceDocument.DELIVERY_NOTE,
+                row.id,
+                firm_id=firm_scope,
+                override_reason=licence_override_reason,
+            )
+            if check_licences
+            else (None, None)
+        )
         row.status = DeliveryNoteStatus.APPROVED.value
         row.approved_at = utc_now()
         row.updated_by = actor_id
@@ -541,6 +575,8 @@ class DeliveryNoteService(TransactionalDocumentService):
             from_state=DeliveryNoteStatus.DRAFT.value,
             to_state=row.status,
             actor_id=actor_id,
+            remarks=licence_remark,
+            details=licence_details,
         )
         record_audit(
             self._session,
@@ -549,6 +585,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+            after_data=licence_details,
         )
         return row
 
@@ -2316,6 +2353,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         to_state: str | None,
         actor_id: UUID,
         remarks: str | None = None,
+        details: dict[str, object] | None = None,
     ) -> None:
         self._documents.record_event(
             firm_id,
@@ -2331,6 +2369,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                 details_json={
                     "delivery_note_number": document.delivery_note_number,
                     "grand_total": str(document.grand_total),
+                    **(details or {}),
                 },
                 snapshot_json={
                     "status": document.status,

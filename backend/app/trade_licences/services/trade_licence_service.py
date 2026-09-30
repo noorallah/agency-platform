@@ -11,6 +11,7 @@ from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.customers.models import Customer
+from app.products.models import Product, ProductCategory
 from app.trade_licences.models import TradeLicence, TradeLicenceType
 from app.trade_licences.schemas import (
     LicenceHolderType,
@@ -223,6 +224,30 @@ class TradeLicenceService:
             raise ConflictError(
                 f"{row.name} is on {in_use} licence(s). Deactivate it instead: "
                 "the licences it names are the record of past trade."
+            )
+        # A soft delete never reaches the foreign key, so the goods that name
+        # the type are counted here (backlog 54).
+        needed_by = (
+            self._session.scalar(
+                select(func.count(Product.id)).where(
+                    Product.required_licence_type_id == row.id,
+                    Product.is_deleted.is_(False),
+                )
+            )
+            or 0
+        ) + (
+            self._session.scalar(
+                select(func.count(ProductCategory.id)).where(
+                    ProductCategory.required_licence_type_id == row.id,
+                    ProductCategory.is_deleted.is_(False),
+                )
+            )
+            or 0
+        )
+        if needed_by:
+            raise ConflictError(
+                f"{needed_by} product(s) or categories need a {row.name}. "
+                "Change what they need first, or deactivate the type."
             )
         row.is_deleted = True
         row.deleted_at = utc_now()

@@ -3066,6 +3066,23 @@ class ApiClient {
   /// any catalogue larger than that: with 163 permissions, 63 of them could not
   /// be granted to a role because the selector never showed them.
   Future<List<AssignmentOption>> options(String resource) async {
+    // The generic list below returns every row a firm holds, active or not --
+    // fine for most catalogues, wrong for a licence type: a picker that
+    // offers a retired one lets it be assigned to a fresh product or category
+    // as though it were still in use. `tradeLicenceTypes()` carries the flag
+    // this generic path throws away, so it is filtered here instead.
+    if (resource == 'trade-licences/types') {
+      final List<TradeLicenceTypeRecord> types = await tradeLicenceTypes();
+      return [
+        for (final TradeLicenceTypeRecord type in types)
+          if (type.isActive)
+            AssignmentOption(
+              id: type.id,
+              label: type.code,
+              detail: type.name == type.code ? null : type.name,
+            ),
+      ];
+    }
     const int pageSize = 100;
     // A catalogue this large is already unusual; the ceiling stops a bad
     // total_records from looping forever.
@@ -3792,11 +3809,21 @@ class ApiClient {
   /// refused with 422 "body: Field required" and those buttons had never
   /// worked from the desktop (plan item 9.9, 2026-09-13). An action that takes
   /// no body ignores the empty object.
-  Future<Json> documentAction(String resource, String id, String action) =>
+  ///
+  /// [query] carries a query-string parameter a lifecycle action takes beside
+  /// its (always empty) body -- `licence_override_reason` on the sales
+  /// approve endpoints (backlog 54) is the one example today.
+  Future<Json> documentAction(
+    String resource,
+    String id,
+    String action, {
+    Map<String, String>? query,
+  }) =>
       request(
         'POST',
         '/api/v1/$resource/$id/${action.startsWith('/') ? action.substring(1) : action}',
         body: const <String, dynamic>{},
+        query: query,
       );
 
   /// Price a supplier bill as saving it would, and save nothing: what the
@@ -5170,6 +5197,45 @@ class ApiClient {
           },
         ),
         TradeLicenceRecord.fromJson,
+      );
+
+  /// What a missing or lapsed licence does to a sale, and to a purchase.
+  /// Needs `TRADE_LICENCE_VIEW`.
+  Future<TradeLicenceSettingsRecord> licenceSettings() async =>
+      TradeLicenceSettingsRecord.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/trade-licences/settings')),
+      );
+
+  /// Replace the firm's policy. Needs `TRADE_LICENCE_MANAGE_SETTINGS`; the
+  /// server refuses `BLOCK` on the purchase side.
+  Future<TradeLicenceSettingsRecord> updateLicenceSettings(
+    TradeLicenceSettingsRecord settings,
+  ) async =>
+      TradeLicenceSettingsRecord.fromJson(
+        _unwrapMap(
+          await request(
+            'PUT',
+            '/api/v1/trade-licences/settings',
+            body: settings.toJson(),
+          ),
+        ),
+      );
+
+  /// Say, before approving, what a document's lines need and who lacks it --
+  /// the same judgement the approval itself makes, on the document's own
+  /// date. [document] is one of SALES_ORDER, DELIVERY_NOTE, SALES_INVOICE,
+  /// PURCHASE_ORDER or GOODS_RECEIPT. Needs `TRADE_LICENCE_VIEW`.
+  Future<LicenceCheckRecord> checkLicences(
+    String document,
+    String documentId,
+  ) async =>
+      LicenceCheckRecord.fromJson(
+        _unwrapMap(
+          await request(
+            'GET',
+            '/api/v1/trade-licences/check/$document/$documentId',
+          ),
+        ),
       );
 
   /// The trial balance for one accounting period.

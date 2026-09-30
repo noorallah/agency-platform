@@ -57,6 +57,7 @@ import 'pricing/price_list_page.dart';
 import 'pricing/promotion_page.dart';
 import 'products/product_management_page.dart';
 import 'purchases/purchase_management_page.dart';
+import 'trade_licences/licence_check_settings_page.dart';
 import 'quotations/quotation_management_page.dart';
 import 'sales/sales_order_management_page.dart';
 import 'sales_returns/sales_return_management_page.dart';
@@ -2476,6 +2477,10 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           definition:
               tradeLicenceTypeDefinition(widget.api, widget.permissions),
         ),
+      'licence-check-settings' => LicenceCheckSettingsPage(
+          api: widget.api,
+          permissions: widget.permissions,
+        ),
       _ => WorkspaceEmptyState(
           title:
               '${visibleTabs.firstWhere((tab) => tab.id == tabId).label} is coming soon',
@@ -2502,6 +2507,7 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
         'geography-masters' => 'Places',
         'trade-licences' => 'Trade Licences',
         'licence-types' => 'Licence Types',
+        'licence-check-settings' => 'Licence Check',
         _ => 'Firm Management',
       },
       description: switch (tabId) {
@@ -2540,6 +2546,9 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
         'licence-types' =>
           'The kinds of trade licence this firm holds or asks its customers '
               'and vendors for.',
+        'licence-check-settings' =>
+          'What a missing or lapsed licence does to a sale, and to a '
+              'purchase.',
         'firm-settings' =>
           'Configure the active firm\'s business profile and related settings.',
         _ => 'Manage organization records and future firm configuration.',
@@ -2563,6 +2572,7 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           'geography-masters' => 'Places',
           'trade-licences' => 'Trade Licences',
           'licence-types' => 'Licence Types',
+          'licence-check-settings' => 'Licence Check',
           _ => 'Firm Management',
         },
       ],
@@ -5279,63 +5289,87 @@ ResourceDefinition<VendorClassification> vendorClassificationDefinition(
 ResourceDefinition<ProductCategoryRecord> productCategoryDefinition(
   ApiClient api,
   PermissionService permissions,
-) =>
-    ResourceDefinition(
-      title: 'Product Categories',
-      resource: 'products/categories',
-      description: 'Group products into a tree, for the product form, '
-          'reports and category rules.',
-      searchHint: 'Search categories by code or name',
-      headers: const ['Code', 'Name', 'Path', 'Active'],
-      cells: (ProductCategoryRecord row) => [
-        row.code,
-        row.name,
-        row.path,
-        row.isActive ? 'Yes' : 'No',
-      ],
-      id: (ProductCategoryRecord row) => row.id,
-      load: api.productCategoryPage,
-      canUseAction: (action, _) => _canUseResourceAction(
-        permissions,
-        action,
-        view: const ['PRODUCT_VIEW'],
-        create: const ['PRODUCT_UPDATE'],
-        update: const ['PRODUCT_UPDATE'],
-        delete: const ['PRODUCT_UPDATE'],
+) {
+  // Whether the picker's own options actually arrived, read the same way
+  // `tradeLicenceDefinition` reads its own -- once, when the register opens.
+  // `payload` sends the field only once this is true: a category form built
+  // before it answered must not decide, on nothing, that the category names
+  // no licence at all (backlog 54).
+  bool licenceTypesLoaded = false;
+  unawaited(api.tradeLicenceTypes().then((_) => licenceTypesLoaded = true));
+
+  return ResourceDefinition(
+    title: 'Product Categories',
+    resource: 'products/categories',
+    description: 'Group products into a tree, for the product form, '
+        'reports and category rules.',
+    searchHint: 'Search categories by code or name',
+    headers: const ['Code', 'Name', 'Path', 'Active'],
+    cells: (ProductCategoryRecord row) => [
+      row.code,
+      row.name,
+      row.path,
+      row.isActive ? 'Yes' : 'No',
+    ],
+    id: (ProductCategoryRecord row) => row.id,
+    load: api.productCategoryPage,
+    canUseAction: (action, _) => _canUseResourceAction(
+      permissions,
+      action,
+      view: const ['PRODUCT_VIEW'],
+      create: const ['PRODUCT_UPDATE'],
+      update: const ['PRODUCT_UPDATE'],
+      delete: const ['PRODUCT_UPDATE'],
+    ),
+    fields: const [
+      FieldSpec(
+        key: 'code',
+        label: 'Category code',
+        required: true,
+        helperText: '2-50 characters: A-Z, 0-9, underscore or hyphen.',
       ),
-      fields: const [
-        FieldSpec(
-          key: 'code',
-          label: 'Category code',
-          required: true,
-          helperText: '2-50 characters: A-Z, 0-9, underscore or hyphen.',
-        ),
-        FieldSpec(key: 'name', label: 'Name', required: true),
-        FieldSpec(
-          key: 'parent_id',
-          label: 'Parent category',
-          optionsResource: 'products/categories',
-          singleSelection: true,
-          helperText: 'Leave empty for a top-level category.',
-        ),
-        FieldSpec(key: 'is_active', label: 'Active', boolean: true),
-      ],
-      initialValues: (ProductCategoryRecord? row) => row == null
-          ? <String, dynamic>{'is_active': true}
-          : <String, dynamic>{
-              'code': row.code,
-              'name': row.name,
-              'parent_id': row.parentId,
-              'is_active': row.isActive,
-            },
-      // The update replaces the node, so every field is sent both ways.
-      payload: (values, isCreating) => {
-        'code': values['code'],
-        'name': values['name'],
-        'parent_id': _blankToNull(values['parent_id']),
-        'is_active': values['is_active'],
-      },
-    );
+      FieldSpec(key: 'name', label: 'Name', required: true),
+      FieldSpec(
+        key: 'parent_id',
+        label: 'Parent category',
+        optionsResource: 'products/categories',
+        singleSelection: true,
+        helperText: 'Leave empty for a top-level category.',
+      ),
+      FieldSpec(
+        key: 'required_licence_type_id',
+        label: 'Licence needed',
+        optionsResource: 'trade-licences/types',
+        singleSelection: true,
+        helperText: 'None: a product filed here needs no licence unless it '
+            'or a category above it names one.',
+      ),
+      FieldSpec(key: 'is_active', label: 'Active', boolean: true),
+    ],
+    initialValues: (ProductCategoryRecord? row) => row == null
+        ? <String, dynamic>{'is_active': true}
+        : <String, dynamic>{
+            'code': row.code,
+            'name': row.name,
+            'parent_id': row.parentId,
+            'required_licence_type_id': row.requiredLicenceTypeId,
+            'is_active': row.isActive,
+          },
+    // The update replaces the node, so every field but the licence type is
+    // sent both ways; that one is sent only once the picker's own options
+    // have actually loaded, so a slow or failed fetch leaves it alone rather
+    // than clearing it on every other edit.
+    payload: (values, isCreating) => {
+      'code': values['code'],
+      'name': values['name'],
+      'parent_id': _blankToNull(values['parent_id']),
+      if (licenceTypesLoaded)
+        'required_licence_type_id':
+            _blankToNull(values['required_licence_type_id']),
+      'is_active': values['is_active'],
+    },
+  );
+}
 
 /// The kinds of trade licence this firm holds or asks its customers and
 /// vendors for -- Drug Licence, FSSAI, Shop Act and the like (backlog 54).

@@ -250,9 +250,9 @@ trigger each schema owns its own copy of.
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
 | `product_attribute_values` | firm store ¹ | Store one configurable attribute value for a product. | `products`, `firms`, `attribute_definitions` |
-| `product_categories` | firm store ¹ | Represent a hierarchical firm category tree for products. | `firms` |
+| `product_categories` | firm store ¹ | Represent a hierarchical firm category tree for products. | `firms`, `trade_licence_types` |
 | `product_media` | firm store ¹ | Store product images, attachments, and reference documents. | `firms`, `products` |
-| `products` | firm store ¹ | Represent one configurable product core master row. | `firms`, `product_categories`, `uoms` |
+| `products` | firm store ¹ | Represent one configurable product core master row. | `firms`, `product_categories`, `trade_licence_types`, `uoms` |
 
 ### `app/proforma`
 
@@ -414,6 +414,7 @@ trigger each schema owns its own copy of.
 | --- | --- | --- | --- |
 | `trade_licence_types` | firm store ¹ | One kind of trade licence (drug, FSSAI, insecticide ...) and whether it expires. |  |
 | `trade_licences` | firm store ¹ | One licence held by the firm (per branch), a customer or a vendor, with its validity. | `trade_licence_types`, `branches`, `customers`, `vendors` |
+| `trade_licence_settings` | firm store ¹ | One firm's licence-check policy: sale OFF / WARN / BLOCK, purchase OFF / WARN. No row warns on both. |  |
 
 ### `app/uom`
 

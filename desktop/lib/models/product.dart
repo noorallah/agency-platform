@@ -70,6 +70,7 @@ class ProductCategoryRecord {
     required this.level,
     required this.path,
     required this.isActive,
+    this.requiredLicenceTypeId = '',
   });
 
   final String id;
@@ -80,6 +81,11 @@ class ProductCategoryRecord {
   final String path;
   final bool isActive;
 
+  /// The trade licence a product filed under this category needs, unless the
+  /// product or a nearer category names its own (backlog 54). Empty means
+  /// none -- a category's own is never required by inheriting nothing.
+  final String requiredLicenceTypeId;
+
   factory ProductCategoryRecord.fromJson(Json json) => ProductCategoryRecord(
         id: stringValue(json['id']),
         code: stringValue(json['code']),
@@ -88,6 +94,7 @@ class ProductCategoryRecord {
         level: (json['level'] as num?)?.toInt() ?? 0,
         path: stringValue(json['path']),
         isActive: boolValue(json['is_active'], fallback: true),
+        requiredLicenceTypeId: stringValue(json['required_licence_type_id']),
       );
 }
 
@@ -180,6 +187,7 @@ class Product {
     required this.productType,
     required this.categoryId,
     required this.subCategoryId,
+    this.requiredLicenceTypeId = '',
     required this.unit,
     required this.brand,
     required this.model,
@@ -242,6 +250,10 @@ class Product {
   final String productType;
   final String categoryId;
   final String subCategoryId;
+
+  /// The trade licence this product needs, overriding its category's; empty
+  /// takes the category's (backlog 54).
+  final String requiredLicenceTypeId;
   final String unit;
   final String brand;
   final String model;
@@ -303,6 +315,7 @@ class Product {
         productType: stringValue(json['product_type']),
         categoryId: stringValue(json['category_id']),
         subCategoryId: stringValue(json['sub_category_id']),
+        requiredLicenceTypeId: stringValue(json['required_licence_type_id']),
         unit: stringValue(json['unit']),
         brand: stringValue(json['brand']),
         model: stringValue(json['model']),

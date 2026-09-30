@@ -17,6 +17,7 @@ import '../../models/goods_receipt.dart';
 import '../../models/product.dart';
 import '../../models/purchase.dart';
 import '../document_framework/document_framework_widgets.dart';
+import '../trade_licences/licence_check_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import '../document_framework/document_status_gate.dart';
 import 'goods_receipt_editor_dialog.dart';
@@ -346,9 +347,23 @@ class _GoodsReceiptManagementPageState
   }
 
   /// Run a lifecycle action against the selected receipt and reload.
+  ///
+  /// Completing checks the licences it needs first (backlog 54), before the
+  /// call: a purchase only ever warns, so there is no override, just
+  /// "Approve anyway".
   Future<void> _runReceiptAction(DocumentToolbarAction action) async {
     final GoodsReceiptRecord? selected = _selected;
     if (selected == null || !_isReceiptActionAllowed(action)) return;
+    if (action == DocumentToolbarAction.requestApproval) {
+      final LicenceCheckOutcome licence = await confirmLicenceCheck(
+        context,
+        widget.api,
+        widget.permissions,
+        document: 'GOODS_RECEIPT',
+        documentId: selected.id,
+      );
+      if (!licence.proceed || !mounted) return;
+    }
     try {
       switch (action) {
         case DocumentToolbarAction.requestApproval:

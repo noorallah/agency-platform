@@ -136,3 +136,84 @@ class TradeLicenceResponse(TradeLicenceSchema):
     standing: LicenceStanding
     #: Days until it runs out, negative once it has; null with no valid-to.
     days_to_expiry: int | None
+
+
+class LicenceEnforcement(StrEnum):
+    """What a missing or lapsed licence does to a document."""
+
+    OFF = "OFF"
+    WARN = "WARN"
+    BLOCK = "BLOCK"
+
+
+class TradeLicenceSettingsWrite(TradeLicenceSchema):
+    """Replace the firm's licence-check policy."""
+
+    sale_enforcement: LicenceEnforcement
+    purchase_enforcement: LicenceEnforcement
+
+    @model_validator(mode="after")
+    def _purchase_never_blocks(self) -> "TradeLicenceSettingsWrite":
+        """Refuse BLOCK on the buying side, which only ever warns."""
+        if self.purchase_enforcement is LicenceEnforcement.BLOCK:
+            raise ValueError(
+                "The purchase check only warns: the goods a receipt records "
+                "have already arrived."
+            )
+        return self
+
+
+class TradeLicenceSettingsResponse(TradeLicenceSettingsWrite):
+    """The firm's policy, and whether the firm actually chose it."""
+
+    is_configured: bool
+
+
+class LicenceParty(StrEnum):
+    """Whose licence a finding is about."""
+
+    CUSTOMER = "CUSTOMER"
+    #: The firm itself, as seller: a licence for the whole firm or the
+    #: selling branch.
+    SELLER = "SELLER"
+    VENDOR = "VENDOR"
+
+
+class LicenceShortfall(StrEnum):
+    """Why a needed licence does not cover the document."""
+
+    MISSING = "MISSING"
+    EXPIRED = "EXPIRED"
+    NOT_YET_VALID = "NOT_YET_VALID"
+
+
+class LicenceFinding(TradeLicenceSchema):
+    """One licence a document's lines need and a party does not hold."""
+
+    party: LicenceParty
+    party_name: str
+    licence_type_id: UUID
+    licence_type_name: str
+    shortfall: LicenceShortfall
+    #: The latest licence of the type the party does hold, where it has one:
+    #: the one that ran out, or the one not yet started.
+    licence_number: str | None = None
+    valid_from: date | None = None
+    valid_to: date | None = None
+    line_numbers: list[int]
+    product_names: list[str]
+    message: str
+
+
+class LicenceCheckResponse(TradeLicenceSchema):
+    """What a document's lines need, and what the parties do not hold."""
+
+    #: SALE or PURCHASE.
+    direction: str
+    enforcement: LicenceEnforcement
+    on: date
+    findings: list[LicenceFinding]
+    #: True when the firm's policy refuses the document as it stands.
+    would_block: bool
+    #: Every finding in one paragraph, or null when there are none.
+    message: str | None

@@ -23,6 +23,7 @@ import '../../models/vendor.dart';
 import '../inventory/inventory_import_wizard.dart';
 import 'purchase_import_sample.dart';
 import '../document_framework/document_framework_widgets.dart';
+import '../trade_licences/licence_check_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/print_settings_dialog.dart';
 import '../workspace/printed_document.dart';
@@ -596,6 +597,7 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
       title: 'Purchase order',
       builder: (_) => PurchaseOrderEditorDialog(
         api: widget.api,
+        permissions: widget.permissions,
         mode: mode,
         order: order,
         vendors: _vendors,
@@ -1410,7 +1412,18 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
   /// Takes `PURCHASE_APPROVE`, which `SALES_MANAGER`-style roles hold and the
   /// raiser may not — the point of the two steps is that the person who
   /// raises an order need not be the person who commits the firm to it.
+  ///
+  /// Checks the licences it needs first (backlog 54) -- a purchase only ever
+  /// warns, so there is no override to offer, just "Approve anyway".
   Future<void> _approveSelected(PurchaseOrder order) async {
+    final LicenceCheckOutcome licence = await confirmLicenceCheck(
+      context,
+      widget.api,
+      widget.permissions,
+      document: 'PURCHASE_ORDER',
+      documentId: order.id,
+    );
+    if (!licence.proceed || !mounted) return;
     await _runOrderAction(
       () => widget.api.approvePurchaseOrder(order.id),
       done: '${order.poNumber} approved.',
@@ -2285,6 +2298,7 @@ class PurchaseOrderEditorDialog extends StatefulWidget {
   const PurchaseOrderEditorDialog({
     super.key,
     required this.api,
+    required this.permissions,
     required this.mode,
     required this.order,
     required this.vendors,
@@ -2300,6 +2314,7 @@ class PurchaseOrderEditorDialog extends StatefulWidget {
   });
 
   final ApiClient api;
+  final PermissionService permissions;
   final PurchaseDialogMode mode;
   final PurchaseOrder? order;
   final List<Vendor> vendors;
@@ -4026,6 +4041,24 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
     }
   }
 
+  /// Check the licences the order needs before approving it (backlog 54),
+  /// before the call: a purchase only ever warns, so this is just "Approve
+  /// anyway", never an override.
+  Future<void> _approveWithLicenceCheck() async {
+    final LicenceCheckOutcome licence = await confirmLicenceCheck(
+      context,
+      widget.api,
+      widget.permissions,
+      document: 'PURCHASE_ORDER',
+      documentId: _draft.id,
+    );
+    if (!licence.proceed || !mounted) return;
+    await _runLifecycle(
+      () => widget.api.approvePurchaseOrder(_draft.id),
+      done: '${_draft.poNumber} approved.',
+    );
+  }
+
   void _handleToolbarAction(DocumentToolbarAction action) {
     switch (action) {
       case DocumentToolbarAction.save:
@@ -4048,12 +4081,7 @@ class _PurchaseOrderEditorDialogState extends State<PurchaseOrderEditorDialog> {
         break;
       case DocumentToolbarAction.approve:
         if (_toolbarActionEnabled(action)) {
-          unawaited(
-            _runLifecycle(
-              () => widget.api.approvePurchaseOrder(_draft.id),
-              done: '${_draft.poNumber} approved.',
-            ),
-          );
+          unawaited(_approveWithLicenceCheck());
         }
         break;
       case DocumentToolbarAction.printDocument:

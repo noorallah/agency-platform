@@ -114,6 +114,10 @@ from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.place_of_supply import SALES_INTERSTATE
 from app.tax.services.tax_framework_service import TaxFrameworkService
 from app.tax.services.tax_rule_service import TaxRuleService
+from app.trade_licences.services.licence_check import (
+    LicenceCheckService,
+    LicenceDocument,
+)
 from app.uom.schemas import ConversionRequest
 from app.uom.services import UomService, assert_quantity_fits_unit
 
@@ -720,15 +724,30 @@ class SalesInvoiceService(TransactionalDocumentService):
         return row
 
     def approve_invoice(
-        self, invoice_id: UUID, *, firm_scope: UUID, actor_id: UUID
+        self,
+        invoice_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        licence_override_reason: str | None = None,
     ) -> SalesInvoice:
         """Approve one sales invoice and commit it."""
-        row = self.stage_approval(invoice_id, firm_scope=firm_scope, actor_id=actor_id)
+        row = self.stage_approval(
+            invoice_id,
+            firm_scope=firm_scope,
+            actor_id=actor_id,
+            licence_override_reason=licence_override_reason,
+        )
         self._session.commit()
         return row
 
     def stage_approval(
-        self, invoice_id: UUID, *, firm_scope: UUID, actor_id: UUID
+        self,
+        invoice_id: UUID,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        licence_override_reason: str | None = None,
     ) -> SalesInvoice:
         """Approve one sales invoice without committing it.
 
@@ -776,6 +795,15 @@ class SalesInvoiceService(TransactionalDocumentService):
             CreditControlService(self._session).assert_within_limit(
                 customer, additional_amount=self._q(row.grand_total)
             )
+        # Judged on the bill's date, before any stock leaves (backlog 54).
+        licence_remark, licence_details = LicenceCheckService(
+            self._session
+        ).approve_sale(
+            LicenceDocument.SALES_INVOICE,
+            row.id,
+            firm_id=firm_scope,
+            override_reason=licence_override_reason,
+        )
         # The goods leave now, not when the draft was saved: a draft is a
         # proposal, and it used to ship the stock and post cost of goods sold
         # the moment it was typed (D-SELL-13, driven 2026-09-19).
@@ -835,6 +863,8 @@ class SalesInvoiceService(TransactionalDocumentService):
             from_state=before,
             to_state=row.status,
             actor_id=actor_id,
+            remarks=licence_remark,
+            details=licence_details,
         )
         record_audit(
             self._session,
@@ -843,6 +873,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+            after_data=licence_details,
         )
         return row
 
@@ -3393,6 +3424,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         to_state: str | None,
         actor_id: UUID,
         remarks: str | None = None,
+        details: dict[str, object] | None = None,
     ) -> None:
         self._documents.record_event(
             firm_id,
@@ -3409,6 +3441,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                     "invoice_number": invoice.invoice_number,
                     "customer_invoice_number": invoice.customer_invoice_number,
                     "grand_total": str(invoice.grand_total),
+                    **(details or {}),
                 },
                 snapshot_json={
                     "status": invoice.status,

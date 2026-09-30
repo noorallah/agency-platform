@@ -70,6 +70,7 @@ from app.products.schemas import (
 )
 from app.products.schemas.product import ProductCategoryResponse
 from app.tax.models import TaxProfile
+from app.trade_licences.models import TradeLicenceType
 from app.uom.models import Uom
 
 #: The product fields that are somebody's separate duty, by the code that owns
@@ -329,6 +330,7 @@ class ProductService:
             sub_category_id=data.sub_category_id,
         )
         self._validate_tax_profile_group_code(firm_id, data.tax_profile_group_code)
+        self._validate_licence_type(firm_id, data.required_licence_type_id)
         self._validate_uom_references(data)
         self._validate_feature_gated_fields(data, firm_id)
         product = Product(
@@ -431,6 +433,8 @@ class ProductService:
             self._validate_tax_profile_group_code(
                 firm_scope, data.tax_profile_group_code
             )
+        if "required_licence_type_id" in values:
+            self._validate_licence_type(firm_scope, data.required_licence_type_id)
         self._validate_uom_references(data)
         self._validate_feature_gated_fields(data, firm_scope)
         self._assert_stock_shape_unchanged(product, self._product_values(data))
@@ -797,6 +801,7 @@ class ProductService:
         self, data: ProductCategoryCreate, *, firm_id: UUID, actor_id: UUID
     ) -> ProductCategory:
         parent = self._validate_category_reference(firm_id, data.parent_id)
+        self._validate_licence_type(firm_id, data.required_licence_type_id)
         self._assert_category_free(
             firm_id, code=data.code, name=data.name, parent_id=data.parent_id
         )
@@ -810,6 +815,7 @@ class ProductService:
             level=level,
             path=path,
             is_active=data.is_active,
+            required_licence_type_id=data.required_licence_type_id,
             created_by=actor_id,
             updated_by=actor_id,
         )
@@ -892,6 +898,11 @@ class ProductService:
         row.level = 0 if parent is None else parent.level + 1
         row.path = data.code if parent is None else f"{parent.path}/{data.code}"
         row.is_active = data.is_active
+        # Absent leaves it alone: a client that predates the field must not
+        # clear a licence requirement by saving the category's name.
+        if "required_licence_type_id" in data.model_fields_set:
+            self._validate_licence_type(firm_scope, data.required_licence_type_id)
+            row.required_licence_type_id = data.required_licence_type_id
         row.updated_by = actor_id
         if row.path != old_path:
             self._repath_category_descendants(row)
@@ -1550,6 +1561,23 @@ class ProductService:
                 "Selected sub category does not belong to the selected category."
             )
 
+    def _validate_licence_type(
+        self, firm_id: UUID, licence_type_id: UUID | None
+    ) -> None:
+        """Refuse a licence type that is not this firm's live, active one."""
+        if licence_type_id is None:
+            return
+        found = self._session.scalar(
+            select(TradeLicenceType.id).where(
+                TradeLicenceType.id == licence_type_id,
+                TradeLicenceType.firm_id == firm_id,
+                TradeLicenceType.is_deleted.is_(False),
+                TradeLicenceType.is_active.is_(True),
+            )
+        )
+        if found is None:
+            raise ValidationError("Licence type not found, or not active.")
+
     def _validate_tax_profile_group_code(
         self, firm_id: UUID, tax_profile_group_code: str | None
     ) -> None:
@@ -1727,6 +1755,7 @@ class ProductService:
             "product_type": product.product_type,
             "category_id": product.category_id,
             "sub_category_id": product.sub_category_id,
+            "required_licence_type_id": product.required_licence_type_id,
             "unit": product.unit,
             "brand": product.brand,
             "model": product.model,

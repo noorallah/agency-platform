@@ -115,3 +115,151 @@ class TradeLicenceRecord {
         daysToExpiry: (json['days_to_expiry'] as num?)?.toInt(),
       );
 }
+
+/// The firm's licence-check policy (backlog 54): what a missing or lapsed
+/// licence does to a sale, and to a purchase.
+///
+/// `GET`/`PUT /api/v1/trade-licences/settings`. A purchase only ever warns --
+/// the goods a receipt records have already arrived -- so `purchaseEnforcement`
+/// is never `BLOCK`; the server refuses a write that tries.
+class TradeLicenceSettingsRecord {
+  const TradeLicenceSettingsRecord({
+    required this.saleEnforcement,
+    required this.purchaseEnforcement,
+    required this.isConfigured,
+  });
+
+  /// OFF, WARN or BLOCK.
+  final String saleEnforcement;
+
+  /// OFF or WARN.
+  final String purchaseEnforcement;
+
+  /// False until the firm has ever saved this; the values are then the
+  /// server's own default of warn on both sides.
+  final bool isConfigured;
+
+  factory TradeLicenceSettingsRecord.fromJson(Json json) {
+    final String sale = stringValue(json['sale_enforcement']);
+    final String purchase = stringValue(json['purchase_enforcement']);
+    return TradeLicenceSettingsRecord(
+      saleEnforcement: sale.isEmpty ? 'WARN' : sale,
+      purchaseEnforcement: purchase.isEmpty ? 'WARN' : purchase,
+      isConfigured: boolValue(json['is_configured']),
+    );
+  }
+
+  Json toJson() => {
+        'sale_enforcement': saleEnforcement,
+        'purchase_enforcement': purchaseEnforcement,
+      };
+
+  TradeLicenceSettingsRecord copyWith({
+    String? saleEnforcement,
+    String? purchaseEnforcement,
+  }) =>
+      TradeLicenceSettingsRecord(
+        saleEnforcement: saleEnforcement ?? this.saleEnforcement,
+        purchaseEnforcement: purchaseEnforcement ?? this.purchaseEnforcement,
+        isConfigured: isConfigured,
+      );
+}
+
+/// One licence a document's lines need and a party does not hold.
+class LicenceFindingRecord {
+  const LicenceFindingRecord({
+    required this.party,
+    required this.partyName,
+    required this.licenceTypeId,
+    required this.licenceTypeName,
+    required this.shortfall,
+    required this.licenceNumber,
+    required this.validFrom,
+    required this.validTo,
+    required this.lineNumbers,
+    required this.productNames,
+    required this.message,
+  });
+
+  /// CUSTOMER, SELLER or VENDOR.
+  final String party;
+  final String partyName;
+  final String licenceTypeId;
+  final String licenceTypeName;
+
+  /// MISSING, EXPIRED or NOT_YET_VALID.
+  final String shortfall;
+
+  /// The latest licence of the type the party does hold, where it has one.
+  final String licenceNumber;
+  final String validFrom;
+  final String validTo;
+  final List<int> lineNumbers;
+  final List<String> productNames;
+  final String message;
+
+  factory LicenceFindingRecord.fromJson(Json json) => LicenceFindingRecord(
+        party: stringValue(json['party']),
+        partyName: stringValue(json['party_name']),
+        licenceTypeId: stringValue(json['licence_type_id']),
+        licenceTypeName: stringValue(json['licence_type_name']),
+        shortfall: stringValue(json['shortfall']),
+        licenceNumber: stringValue(json['licence_number']),
+        validFrom: stringValue(json['valid_from']),
+        validTo: stringValue(json['valid_to']),
+        lineNumbers: (json['line_numbers'] as List? ?? const [])
+            .map((item) => (item as num).toInt())
+            .toList(),
+        productNames: stringList(json['product_names']),
+        message: stringValue(json['message']),
+      );
+}
+
+/// What a document's lines need, and what its parties do not hold --
+/// `GET /api/v1/trade-licences/check/{document}/{document_id}` (backlog 54).
+///
+/// The same judgement the approve endpoint makes itself, on the document's
+/// own date, so a screen can show it before the call that would be refused.
+class LicenceCheckRecord {
+  const LicenceCheckRecord({
+    required this.direction,
+    required this.enforcement,
+    required this.on,
+    required this.findings,
+    required this.wouldBlock,
+    required this.message,
+  });
+
+  /// SALE or PURCHASE.
+  final String direction;
+
+  /// OFF, WARN or BLOCK -- the policy actually applied.
+  final String enforcement;
+
+  /// The date the check was judged on.
+  final String on;
+  final List<LicenceFindingRecord> findings;
+
+  /// True when the firm's policy refuses the document as it stands.
+  final bool wouldBlock;
+
+  /// Every finding in one paragraph, or null when there are none.
+  final String? message;
+
+  factory LicenceCheckRecord.fromJson(Json json) => LicenceCheckRecord(
+        direction: stringValue(json['direction']),
+        enforcement: stringValue(json['enforcement']),
+        on: stringValue(json['on']),
+        findings: (json['findings'] as List? ?? const [])
+            .whereType<Map>()
+            .map(
+              (item) => LicenceFindingRecord.fromJson(
+                Map<String, dynamic>.from(item),
+              ),
+            )
+            .toList(),
+        wouldBlock: boolValue(json['would_block']),
+        message:
+            json['message'] == null ? null : stringValue(json['message']),
+      );
+}

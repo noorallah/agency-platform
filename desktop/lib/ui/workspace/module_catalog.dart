@@ -493,6 +493,11 @@ abstract final class ModuleCatalog {
           label: 'Licence Types',
           requiredPermissions: ['TRADE_LICENCE_VIEW'],
         ),
+        ModuleTabDefinition(
+          id: 'licence-check-settings',
+          label: 'Licence Check',
+          requiredPermissions: ['TRADE_LICENCE_VIEW'],
+        ),
       ],
     ),
     ModuleDefinition(
@@ -1515,7 +1520,12 @@ abstract final class ModuleCatalog {
       //
       // Grouping only. Every path is unchanged, so a stored workspace still
       // resolves and no permission moved.
-      if (hasAny(['financial-years', 'firm-settings', 'licence-types']))
+      if (hasAny([
+        'financial-years',
+        'firm-settings',
+        'licence-types',
+        'licence-check-settings',
+      ]))
         WorkspaceNavigationNode(
           label: 'Configuration',
           icon: Icons.tune_outlined,
@@ -1537,6 +1547,12 @@ abstract final class ModuleCatalog {
                 label: 'Licence Types',
                 path: 'licence-types',
                 icon: Icons.badge_outlined,
+              ),
+            if (visibleTabIds.contains('licence-check-settings'))
+              const WorkspaceNavigationNode(
+                label: 'Licence Check',
+                path: 'licence-check-settings',
+                icon: Icons.fact_check_outlined,
               ),
           ],
         ),
