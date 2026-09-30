@@ -184,7 +184,7 @@ def test_a_clean_file_imports_whole_with_its_references_resolved() -> None:
     content = _csv(
         "Code,Name,Category,SubCategory,Unit,HSN,TaxGroup,PurchasePrice,"
         "SellingPrice,MRP,TrackBatch,TrackExpiry",
-        'rice-5,Basmati 5 kg,grocery,Rice and grains,kg,10063020,gst5,400,'
+        "rice-5,Basmati 5 kg,grocery,Rice and grains,kg,10063020,gst5,400,"
         '"1,450",1499,Yes,y',
         "salt-1,Salt,GROCERY,,Pieces,,,,,,,",
     )
