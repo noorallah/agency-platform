@@ -11,7 +11,7 @@ from datetime import date
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import case, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.business.gating import assert_feature_fields
@@ -24,7 +24,8 @@ from app.common.report_names import (
 )
 from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
-from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
+from app.core.pagination import WHOLE_HISTORY, ReportRows, ReportWindow, mapped_like
+from app.core.utils.chunks import chunks
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger
 from app.core.utils.pricing import (
@@ -1106,57 +1107,90 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         return records
 
     def reconciliation_report(
-        self, *, firm_scope: UUID
+        self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
     ) -> list[PurchaseInvoiceReconciliationRecord]:
         """Say what is billed against each received line, and what is left.
 
         One row per source line, summed over the bills that still stand: a
         cancelled bill billed nothing, a draft has not billed yet (D-RPT-13).
         Most recently billed first.
+
+        The window picks the source lines billed on a bill dated inside it;
+        the sums still run over every bill of those lines. Grouped and paged
+        in SQL, as the sales-invoice reconciliation is: reading every line of
+        the firm took 5 s on the volume firm (backlog 56 C, step 4).
         """
-        rows = list(
-            self._session.execute(
-                select(PurchaseInvoiceLine, PurchaseInvoice)
-                .join(
-                    PurchaseInvoice,
-                    PurchaseInvoice.id == PurchaseInvoiceLine.purchase_invoice_id,
+        live = (
+            PurchaseInvoice.firm_id == firm_scope,
+            PurchaseInvoice.is_deleted.is_(False),
+            PurchaseInvoice.status != PurchaseInvoiceStatus.CANCELLED.value,
+            PurchaseInvoiceLine.is_deleted.is_(False),
+        )
+        joined = (
+            PurchaseInvoice,
+            PurchaseInvoice.id == PurchaseInvoiceLine.purchase_invoice_id,
+        )
+        in_window = (
+            select(PurchaseInvoiceLine.source_document_line_id)
+            .join(*joined)
+            .where(*live, *window.dated(PurchaseInvoice.invoice_date))
+        )
+        is_draft = PurchaseInvoice.status == PurchaseInvoiceStatus.DRAFT.value
+        quantity = PurchaseInvoiceLine.current_invoice_quantity
+        grouped = (
+            select(
+                PurchaseInvoiceLine.source_document_line_id,
+                func.coalesce(func.sum(case((is_draft, ZERO), else_=quantity)), 0),
+                func.coalesce(func.sum(case((is_draft, quantity), else_=ZERO)), 0),
+            )
+            .join(*joined)
+            .where(
+                *live,
+                PurchaseInvoiceLine.firm_id == firm_scope,
+                PurchaseInvoiceLine.source_document_line_id.in_(in_window),
+            )
+            .group_by(PurchaseInvoiceLine.source_document_line_id)
+            .order_by(
+                func.max(PurchaseInvoice.invoice_date).desc(),
+                func.max(PurchaseInvoice.created_at).desc(),
+                PurchaseInvoiceLine.source_document_line_id,
+            )
+        )
+        total: int | None = None
+        if window.page is not None:
+            total = int(
+                self._session.scalar(
+                    select(func.count()).select_from(grouped.order_by(None).subquery())
                 )
-                .where(
-                    PurchaseInvoice.firm_id == firm_scope,
-                    PurchaseInvoice.is_deleted.is_(False),
-                    PurchaseInvoice.status != PurchaseInvoiceStatus.CANCELLED.value,
-                    PurchaseInvoiceLine.is_deleted.is_(False),
-                )
+                or 0
+            )
+            grouped = grouped.offset((window.page - 1) * window.page_size).limit(
+                window.page_size
+            )
+        sums = {
+            line_id: (Decimal(str(billed)), Decimal(str(drafted)))
+            for line_id, billed, drafted in self._session.execute(grouped).all()
+        }
+        lines: dict[UUID, list[tuple[PurchaseInvoiceLine, str]]] = {
+            line_id: [] for line_id in sums
+        }
+        for part in chunks(list(sums)):
+            for line, number in self._session.execute(
+                select(PurchaseInvoiceLine, PurchaseInvoice.invoice_number)
+                .join(*joined)
+                .where(*live, PurchaseInvoiceLine.source_document_line_id.in_(part))
                 .order_by(
                     PurchaseInvoice.invoice_date.desc(),
                     PurchaseInvoice.created_at.desc(),
                 )
-            ).all()
+            ).all():
+                lines[line.source_document_line_id].append((line, number))
+        products = product_names(
+            self._session, (found[0][0].product_id for found in lines.values())
         )
-        grouped: dict[UUID, list[tuple[PurchaseInvoiceLine, PurchaseInvoice]]] = {}
-        for line, invoice in rows:
-            grouped.setdefault(line.source_document_line_id, []).append((line, invoice))
-        # One read for every product the report names, never one per row.
-        products = product_names(self._session, (line.product_id for line, _ in rows))
         result: list[PurchaseInvoiceReconciliationRecord] = []
-        for lines in grouped.values():
-            newest, _ = lines[0]
-            billed = sum(
-                (
-                    line.current_invoice_quantity
-                    for line, invoice in lines
-                    if invoice.status != PurchaseInvoiceStatus.DRAFT.value
-                ),
-                ZERO,
-            )
-            drafted = sum(
-                (
-                    line.current_invoice_quantity
-                    for line, invoice in lines
-                    if invoice.status == PurchaseInvoiceStatus.DRAFT.value
-                ),
-                ZERO,
-            )
+        for line_id, (billed, drafted) in sums.items():
+            newest, _ = lines[line_id][0]
             pending = self._q(newest.received_quantity - billed - drafted)
             result.append(
                 PurchaseInvoiceReconciliationRecord(
@@ -1176,12 +1210,10 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                     invoiced_quantity=self._q(billed),
                     draft_quantity=self._q(drafted),
                     pending_quantity=pending if pending >= ZERO else ZERO,
-                    invoice_numbers=", ".join(
-                        invoice.invoice_number for _, invoice in lines
-                    ),
+                    invoice_numbers=", ".join(number for _, number in lines[line_id]),
                 )
             )
-        return result
+        return result if total is None else ReportRows(result, total_records=total)
 
     def export_invoices_csv(
         self, *, firm_scope: UUID, search: str | None = None

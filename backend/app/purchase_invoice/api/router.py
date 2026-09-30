@@ -400,15 +400,22 @@ def vendor_outstanding_placeholder(
 
 @router.get(
     "/reports/reconciliation",
-    response_model=ApiResponse[list[PurchaseInvoiceReconciliationRecord]],
+    response_model=PaginatedResponse[PurchaseInvoiceReconciliationRecord],
 )
 def invoice_reconciliation_report(
     scope: PurchaseInvoiceReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
-) -> ApiResponse[list[PurchaseInvoiceReconciliationRecord]]:
-    """Return the invoice reconciliation report for the visible firm scope."""
-    return ApiResponse(
-        data=PurchaseInvoiceService(db).reconciliation_report(firm_scope=scope.firm_id)
+) -> PaginatedResponse[PurchaseInvoiceReconciliationRecord]:
+    """Say what is billed against each received line billed in the window."""
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return window.respond(
+        PurchaseInvoiceService(db).reconciliation_report(
+            firm_scope=scope.firm_id, window=window
+        )
     )
 
 

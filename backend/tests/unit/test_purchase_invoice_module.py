@@ -1,6 +1,6 @@
 """Purchase invoice backend lifecycle and source-matching tests."""
 
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID, uuid4
 
@@ -17,6 +17,7 @@ from app.business.models import framework as _business_models  # noqa: F401
 from app.common.audit.models import AuditLog
 from app.core.database.base import Base
 from app.core.exceptions import ValidationError
+from app.core.pagination import ReportRows, ReportWindow
 from app.customers.models import customer as _customer_models  # noqa: F401
 from app.document_framework.models import DocumentTypeDefinition
 from app.finance.models import JournalEntry, JournalLine, LedgerAccount
@@ -870,6 +871,17 @@ def test_the_reconciliation_counts_the_bills_that_still_stand() -> None:
         product.code,
         product.name,
     )
+
+    # Backlog 56 C, step 4: a period on the bill date, paged in SQL. A line
+    # billed in the window is reported with every bill of it summed.
+    day = first.invoice_date
+    before = ReportWindow(to_date=day - timedelta(days=1))
+    assert service.reconciliation_report(firm_scope=firm.id, window=before) == []
+    paged = service.reconciliation_report(
+        firm_scope=firm.id, window=ReportWindow(from_date=day, page=1, page_size=1)
+    )
+    assert isinstance(paged, ReportRows) and paged.total_records == 1
+    assert [row.invoiced_quantity for row in paged] == [Decimal("3.00")]
 
 
 def _gst_profile(session: Session, *, firm: Firm, actor_id: UUID) -> TaxProfile:
