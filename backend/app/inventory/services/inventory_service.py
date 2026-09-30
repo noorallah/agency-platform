@@ -191,9 +191,6 @@ class InventoryService:
                 WarehouseStorageNode.id == InventoryRecord.storage_node_id,
             )
             .where(InventoryRecord.firm_id == firm_scope)
-            .options(
-                selectinload(InventoryRecord.transactions),
-            )
         )
         count = (
             select(func.count())
