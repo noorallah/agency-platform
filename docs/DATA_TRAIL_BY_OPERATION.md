@@ -3051,12 +3051,10 @@ advances, TCS). What finance adds:
   in the period open then (§12.4), and marks the settlement REVERSED; a
   receipt or refund also writes a receivable `REVERSAL` row dated the
   **original's** date (§12.10).
-- **`POST /customers/{id}/receivables/transactions`** (`RECEIPT_CREATE`) is a
-  second way to move a customer's balance. It refuses RECEIPT and
-  ADVANCE_RECEIPT and posts a journal only for CREDIT_NOTE (Dr 4100 / Cr
-  1100, reference as typed or `CN-<8 chars>`); **INVOICE, TCS, LOYALTY,
-  ADVANCE_APPLY and REFUND move the balance with no journal**, no document
-  and no allocation (D-FIN-4). No desktop screen calls it.
+- **`POST /customers/{id}/receivables/transactions`** was a second way to
+  move a customer's balance. D-FIN-4 refused every type but CREDIT_NOTE, and
+  that one reversed no output tax; the route was **retired on 2026-09-30**
+  (D-FIN-23). A credit note is raised at `/credit-notes`.
 - **Check** — every settlement and its journals, and whether the two books
   agree:
   ```sql

@@ -1131,20 +1131,6 @@ class ApiClient {
             pageSize: pageSize,
           );
 
-  Future<CustomerReceivableTransaction> postCustomerReceivableTransaction(
-    String customerId,
-    Json data,
-  ) async =>
-      CustomerReceivableTransaction.fromJson(
-        _unwrapMap(
-          await request(
-            'POST',
-            '/api/v1/customers/$customerId/receivables/transactions',
-            body: data,
-          ),
-        ),
-      );
-
   /// Ask whether one more document fits inside the customer's credit limit.
   ///
   /// [amount] is the value of the document being considered, so the answer is
