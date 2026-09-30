@@ -4,6 +4,8 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../models/product.dart';
+import '../../models/purchase.dart';
+import '../../models/vendor.dart';
 import '../../models/tax_framework.dart';
 import '../../models/uom_packaging.dart';
 import '../document_framework/document_line_labels.dart';
@@ -58,6 +60,12 @@ class _PurchaseInvoiceManagementPageState
   // Reference data the editor needs, loaded once with the workspace.
   List<GoodsReceiptRecord> _billableReceipts = const [];
   List<Product> _products = const [];
+
+  /// What a new bill names follows the firm's buying stages (backlog §38):
+  /// receipts, approved orders, or -- typed directly -- a supplier.
+  PurchaseWorkflowSettings _stages = PurchaseWorkflowSettings.wholeChain;
+  List<PurchaseOrder> _billableOrders = const [];
+  List<Vendor> _vendors = const [];
 
   bool get _canCreate => widget.permissions.hasPermission('PURCHASE_CREATE');
 
@@ -136,6 +144,64 @@ class _PurchaseInvoiceManagementPageState
       if (!mounted) return;
       setState(() => _billableReceipts = const []);
     }
+    await _loadStages();
+  }
+
+  /// Learn which buying stages this firm types, and load what a bill can
+  /// name when receipts are not typed.
+  ///
+  /// Fails open to the whole chain, as the sidebar does: an unreadable
+  /// setting must not offer a mode the server would refuse, and on the whole
+  /// chain a bill names a receipt, which it always may.
+  Future<void> _loadStages() async {
+    PurchaseWorkflowSettings stages = PurchaseWorkflowSettings.wholeChain;
+    try {
+      stages = await widget.api.purchaseWorkflowSettings();
+    } on ApiException {
+      stages = PurchaseWorkflowSettings.wholeChain;
+    }
+    if (!mounted) return;
+    setState(() => _stages = stages);
+    if (stages.goodsReceiptStage) return;
+    try {
+      final List<dynamic> results = await Future.wait<dynamic>([
+        fetchAllPages<Vendor>(
+          (int page) => widget.api.vendors(page: page),
+        ),
+        if (stages.purchaseOrderStage)
+          for (final String status in const ['APPROVED', 'PARTIALLY_RECEIVED'])
+            fetchAllPages<PurchaseOrder>(
+              (int page) => widget.api.purchases(
+                page: page,
+                pageSize: maxApiPageSize,
+                sortBy: 'purchase_date',
+                descending: true,
+                filters: PurchaseQuery(status: status),
+              ),
+            ),
+      ]);
+      if (!mounted) return;
+      setState(() {
+        _vendors = results[0] as List<Vendor>;
+        _billableOrders = [
+          for (final dynamic list in results.skip(1))
+            ...list as List<PurchaseOrder>,
+        ];
+      });
+    } on ApiException {
+      if (!mounted) return;
+      setState(() {
+        _vendors = const [];
+        _billableOrders = const [];
+      });
+    }
+  }
+
+  /// Whether there is anything a new bill could name.
+  bool get _canStartBill {
+    if (_stages.goodsReceiptStage) return _billableReceipts.isNotEmpty;
+    if (_stages.purchaseOrderStage) return _billableOrders.isNotEmpty;
+    return _vendors.isNotEmpty && _products.isNotEmpty;
   }
 
   /// Open the editor and reload if it saved a bill.
@@ -152,6 +218,9 @@ class _PurchaseInvoiceManagementPageState
         api: widget.api,
         receipts: _billableReceipts,
         products: _products,
+        stages: _stages,
+        orders: _billableOrders,
+        vendors: _vendors,
       ),
     );
     if (saved == null || !mounted) return;
@@ -372,11 +441,10 @@ class _PurchaseInvoiceManagementPageState
         isEnabled: (action) =>
             !_loading &&
             switch (action) {
-              // A bill line needs a completed receipt line behind it, so
-              // nothing to bill against is a disabled button rather than an
-              // empty dialog.
-              ToolbarAction.newItem =>
-                _canCreate && _billableReceipts.isNotEmpty,
+              // A bill line needs a receipt line, an order line or -- typed
+              // directly -- a product behind it, so nothing to bill against
+              // is a disabled button rather than an empty dialog.
+              ToolbarAction.newItem => _canCreate && _canStartBill,
               ToolbarAction.view => _selected != null,
               ToolbarAction.refresh => true,
               _ => false,

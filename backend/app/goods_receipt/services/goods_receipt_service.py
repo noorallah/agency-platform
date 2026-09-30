@@ -248,7 +248,15 @@ class GoodsReceiptService(TransactionalDocumentService):
     def create_receipt(
         self, data: GoodsReceiptCreate, *, firm_id: UUID, actor_id: UUID
     ) -> GoodsReceipt:
-        """Create receipt."""
+        """Create receipt and commit."""
+        row = self.stage_receipt(data, firm_id=firm_id, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def stage_receipt(
+        self, data: GoodsReceiptCreate, *, firm_id: UUID, actor_id: UUID
+    ) -> GoodsReceipt:
+        """Build one receipt as a draft without committing it."""
         assert_feature_fields(
             self._session,
             firm_id,
@@ -323,7 +331,6 @@ class GoodsReceiptService(TransactionalDocumentService):
             after_data={"grn_number": row.grn_number, "status": row.status},
         )
         self._flush_or_conflict("Goods receipt number already exists in this firm.")
-        self._session.commit()
         return row
 
     def update_receipt(
@@ -391,7 +398,15 @@ class GoodsReceiptService(TransactionalDocumentService):
     def complete_receipt(
         self, receipt_id: UUID, *, firm_scope: UUID, actor_id: UUID
     ) -> GoodsReceipt:
-        """Complete receipt."""
+        """Complete receipt and commit."""
+        row = self.stage_complete(receipt_id, firm_scope=firm_scope, actor_id=actor_id)
+        self._session.commit()
+        return row
+
+    def stage_complete(
+        self, receipt_id: UUID, *, firm_scope: UUID, actor_id: UUID
+    ) -> GoodsReceipt:
+        """Complete receipt -- stock in, accrual posted -- without committing."""
         row = self.get_receipt(receipt_id, firm_scope=firm_scope)
         if row.status == GoodsReceiptStatus.COMPLETED.value:
             return row
@@ -441,13 +456,23 @@ class GoodsReceiptService(TransactionalDocumentService):
             before_data={"status": before},
             after_data={"status": row.status},
         )
-        self._session.commit()
+        self._session.flush()
         return row
 
     def cancel_receipt(
         self, receipt_id: UUID, *, firm_scope: UUID, actor_id: UUID, reason: str | None
     ) -> GoodsReceipt:
-        """Cancel receipt."""
+        """Cancel receipt and commit."""
+        row = self.stage_cancel(
+            receipt_id, firm_scope=firm_scope, actor_id=actor_id, reason=reason
+        )
+        self._session.commit()
+        return row
+
+    def stage_cancel(
+        self, receipt_id: UUID, *, firm_scope: UUID, actor_id: UUID, reason: str | None
+    ) -> GoodsReceipt:
+        """Cancel receipt without committing."""
         row = self.get_receipt(receipt_id, firm_scope=firm_scope)
         if row.status in {
             GoodsReceiptStatus.CANCELLED.value,
@@ -507,7 +532,7 @@ class GoodsReceiptService(TransactionalDocumentService):
                 "reversed_inventory_lines": reversed_lines,
             },
         )
-        self._session.commit()
+        self._session.flush()
         return row
 
     def _receipt_unit_cost(self, line: GoodsReceiptLine) -> Decimal:

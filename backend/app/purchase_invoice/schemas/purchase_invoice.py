@@ -67,11 +67,23 @@ class PurchaseInvoiceSourceWrite(PurchaseInvoiceSchema):
 
 
 class PurchaseInvoiceLineWrite(PurchaseInvoiceSchema):
-    """Carry one purchase invoice line into a request."""
+    """Carry one purchase invoice line into a request.
 
-    source_document_type: PurchaseInvoiceSourceType
-    source_document_id: UUID
-    source_document_line_id: UUID
+    A line names the goods-receipt line it bills. For a firm that switched the
+    purchase-order and goods-receipt stages off (`purchase_workflow_settings`)
+    a line may instead name only a **product** -- the source fields left out --
+    and `PurchaseChainService` raises the order and the receipt behind the bill
+    and points the line at them. ``free_quantity`` is read on such a line only;
+    on a line naming a receipt the free goods are the receipt's.
+    """
+
+    source_document_type: PurchaseInvoiceSourceType | None = None
+    source_document_id: UUID | None = None
+    source_document_line_id: UUID | None = None
+    product_id: UUID | None = None
+    free_quantity: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=4
+    )
     line_number: int = Field(ge=1)
     current_invoice_quantity: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
     #: None means the caller said nothing, so the price on the source line

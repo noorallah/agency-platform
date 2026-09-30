@@ -12,6 +12,8 @@ import 'package:agency_desktop/models/document_preview.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/goods_receipt.dart';
 import 'package:agency_desktop/models/product.dart';
+import 'package:agency_desktop/models/purchase.dart';
+import 'package:agency_desktop/models/vendor.dart';
 import 'package:agency_desktop/ui/purchase_invoices/purchase_invoice_editor_dialog.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
     show Phase2Scope;
@@ -397,5 +399,240 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.sent?['supplier_invoice_number'], 'SUP-1');
     expect(api.sent?['lines'][0]['unit_price'], '24');
+  });
+
+  // Backlog §38: a firm that types no receipts bills an order, and one that
+  // types neither bills products; the server raises what is missing.
+  group('buying stages switched off', () {
+    const PurchaseWorkflowSettings direct = PurchaseWorkflowSettings(
+      purchaseOrderStage: false,
+      goodsReceiptStage: false,
+      isConfigured: true,
+    );
+    const PurchaseWorkflowSettings ordersOnly = PurchaseWorkflowSettings(
+      purchaseOrderStage: true,
+      goodsReceiptStage: false,
+      isConfigured: true,
+    );
+    final Product tracked = Product.fromJson({
+      'id': 'prod-1',
+      'code': 'SKU-1',
+      'name': 'Amoxicillin 500mg',
+      'purchase_price': '25',
+      'track_batch': true,
+      'track_expiry': true,
+    });
+    final Vendor vendor = Vendor.fromJson({
+      'id': 'vendor-1',
+      'code': 'V-001',
+      'name': 'Medico Distributors',
+      'display_name': 'Medico Distributors',
+    });
+
+    Future<void> pumpPhase2(
+      WidgetTester tester,
+      _InvoiceApi api, {
+      required PurchaseWorkflowSettings stages,
+      List<PurchaseOrder> orders = const [],
+      List<GoodsReceiptRecord> receipts = const [],
+    }) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: Phase2Scope(
+              child: PurchaseInvoiceEditorDialog(
+                api: api,
+                receipts: receipts,
+                products: [tracked],
+                stages: stages,
+                orders: orders,
+                vendors: [vendor],
+              ),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> choose(WidgetTester tester, String key, String text) async {
+      await tester.tap(find.byKey(ValueKey<String>(key)));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining(text).last);
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> typeSupplierNumber(WidgetTester tester) async {
+      await tester.enterText(
+        find.byKey(
+          const ValueKey<String>('purchase-invoice-supplier-number-0'),
+        ),
+        'SUP-900',
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> typeDirectLine(WidgetTester tester) async {
+      await choose(tester, 'purchase-invoice-vendor', 'Medico Distributors');
+      await choose(tester, 'purchase-invoice-direct-product-0', 'SKU-1');
+      await tester.enterText(
+        find.byKey(
+          const ValueKey<String>('purchase-invoice-direct-quantity-direct-0'),
+        ),
+        '10',
+      );
+      await tester.enterText(
+        find.byKey(
+          const ValueKey<String>('purchase-invoice-direct-free-direct-0'),
+        ),
+        '1',
+      );
+      await typeSupplierNumber(tester);
+    }
+
+    testWidgets('a tracked product is refused without its batch and expiry', (
+      tester,
+    ) async {
+      final _InvoiceApi api = _InvoiceApi();
+      await pumpPhase2(tester, api, stages: direct);
+      expect(
+        find.byKey(const ValueKey('purchase-invoice-receipt')),
+        findsNothing,
+      );
+      await typeDirectLine(tester);
+
+      await tester.tap(find.byKey(const ValueKey('purchase-invoice-save')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('tracked by batch'), findsOneWidget);
+      expect(api.sent, isNull);
+
+      await tester.enterText(
+        find.byKey(
+          const ValueKey<String>('purchase-invoice-batch-direct-0-prod-1'),
+        ),
+        'B-77',
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('purchase-invoice-save')));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('tracked by expiry'), findsOneWidget);
+      expect(api.sent, isNull);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('a bill of products names the supplier and each product', (
+      tester,
+    ) async {
+      final _InvoiceApi api = _InvoiceApi();
+      await pumpPhase2(tester, api, stages: direct);
+      await typeDirectLine(tester);
+      await tester.enterText(
+        find.byKey(
+          const ValueKey<String>('purchase-invoice-batch-direct-0-prod-1'),
+        ),
+        'B-77',
+      );
+      await tester.pumpAndSettle();
+      // The expiry box is a date picker: take the day it opens on.
+      await tester.tap(
+        find.byKey(
+          const ValueKey<String>('purchase-invoice-expiry-direct-0-prod-1'),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('OK'));
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('purchase-invoice-save')));
+      await tester.pumpAndSettle();
+
+      final Json sent = api.sent!;
+      expect(sent['vendor_id'], 'vendor-1');
+      expect(sent.containsKey('source_documents'), isFalse);
+      final Json line = (sent['lines'] as List<dynamic>).single as Json;
+      expect(line['product_id'], 'prod-1');
+      expect(line['line_number'], 1);
+      expect(line['current_invoice_quantity'], '10');
+      expect(line['free_quantity'], '1');
+      expect(line['batch_number'], 'B-77');
+      expect(
+        '${line['expiry_date']}',
+        matches(RegExp(r'^\d{4}-\d{2}-\d{2}$')),
+      );
+      expect(line.containsKey('source_document_line_id'), isFalse);
+      // Blank is absent, never '0': absent takes the product's price.
+      expect(line.containsKey('unit_price'), isFalse);
+      expect(line.containsKey('discount_percent'), isFalse);
+    });
+
+    testWidgets('an order is billed at what is still to arrive', (
+      tester,
+    ) async {
+      final PurchaseOrder order = PurchaseOrder.fromJson({
+        'id': 'po-1',
+        'po_number': 'PO-2026-000004',
+        'vendor_id': 'vendor-1',
+        'purchase_date': '2026-08-01',
+        'status': 'PARTIALLY_RECEIVED',
+        'lines': [
+          {
+            'id': 'po-line-1',
+            'line_number': 1,
+            'product_id': 'prod-1',
+            'ordered_quantity': '30',
+            'unit_price': '25',
+            'purchase_uom_id': 'uom-box',
+            'warehouse_id': 'wh-1',
+          },
+        ],
+      });
+      // Twenty of the thirty already came in on a receipt.
+      final GoodsReceiptRecord earlier = GoodsReceiptRecord.fromJson({
+        'id': 'grn-9',
+        'grn_number': 'GRN-9',
+        'purchase_order_id': 'po-1',
+        'status': 'COMPLETED',
+        'lines': [
+          {
+            'id': 'grn-9-1',
+            'purchase_order_line_id': 'po-line-1',
+            'product_id': 'prod-1',
+            'accepted_quantity': '20',
+          },
+        ],
+      });
+      final _InvoiceApi api = _InvoiceApi();
+      await pumpPhase2(
+        tester,
+        api,
+        stages: ordersOnly,
+        orders: [order],
+        receipts: [earlier],
+      );
+      expect(find.text('No purchase order chosen'), findsOneWidget);
+
+      await choose(tester, 'purchase-invoice-order', 'PO-2026-000004');
+      await tester.enterText(
+        find.byKey(const ValueKey<String>('purchase-invoice-batch-po-1-0')),
+        'B-12',
+      );
+      await typeSupplierNumber(tester);
+      await tester.tap(find.byKey(const ValueKey('purchase-invoice-save')));
+      await tester.pumpAndSettle();
+
+      final Json sent = api.sent!;
+      expect(sent.containsKey('vendor_id'), isFalse);
+      expect(sent.containsKey('source_documents'), isFalse);
+      final Json line = (sent['lines'] as List<dynamic>).single as Json;
+      expect(line['source_document_type'], 'PURCHASE_ORDER');
+      expect(line['source_document_id'], 'po-1');
+      expect(line['source_document_line_id'], 'po-line-1');
+      expect(line['current_invoice_quantity'], '10');
+      expect(line['batch_number'], 'B-12');
+      expect(tester.takeException(), isNull);
+    });
   });
 }

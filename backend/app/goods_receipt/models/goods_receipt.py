@@ -77,6 +77,15 @@ class GoodsReceipt(BaseEntity):
     status: Mapped[str] = mapped_column(
         String(30), nullable=False, default="DRAFT", server_default="DRAFT"
     )
+    #: The supplier bill that raised this receipt because the firm switched the
+    #: goods-receipt stage off. Only that bill may bill it before it is
+    #: completed, complete it on approval (which is when the stock arrives),
+    #: or cancel it when a draft of it is cancelled; a receipt a person raised
+    #: is billed like any other, once completed. A bare id, like every source
+    #: reference: the bill module depends on this one, not the other way round.
+    raised_by_purchase_invoice_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), nullable=True, index=True
+    )
     total_ordered_quantity: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )

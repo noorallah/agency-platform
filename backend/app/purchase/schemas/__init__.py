@@ -26,6 +26,8 @@ from app.purchase.schemas.purchase import (
     PurchaseOrderUpdate,
     PurchaseSummary,
     PurchaseType,
+    PurchaseWorkflowSettingsResponse,
+    PurchaseWorkflowSettingsWrite,
 )
 
 __all__ = [
@@ -54,4 +56,6 @@ __all__ = [
     "PurchaseOrderUpdate",
     "PurchaseSummary",
     "PurchaseType",
+    "PurchaseWorkflowSettingsResponse",
+    "PurchaseWorkflowSettingsWrite",
 ]

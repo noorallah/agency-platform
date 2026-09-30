@@ -30,6 +30,7 @@ import '../../models/document_framework.dart';
 import '../../models/document_preview.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
+import 'purchase_workflow_settings_dialog.dart';
 
 part 'purchase_order_editor_phase2.dart';
 
@@ -1311,6 +1312,28 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
                   'Manage saved views, grid columns, and enterprise workspace defaults.',
             ),
             const SizedBox(height: 16),
+            Card(
+              child: ListTile(
+                leading: const Icon(Icons.linear_scale_outlined),
+                title: const Text('Buying stages'),
+                subtitle: const Text(
+                  "Which of order, receipt and supplier's bill this firm "
+                  'types. A stage switched off is raised by the bill.',
+                ),
+                trailing: FilledButton.tonal(
+                  key: const ValueKey('purchase-stages-open'),
+                  onPressed: () => showDialog<bool>(
+                    context: context,
+                    builder: (_) => PurchaseWorkflowSettingsDialog(
+                      api: widget.api,
+                      permissions: widget.permissions,
+                    ),
+                  ),
+                  child: const Text('Open'),
+                ),
+              ),
+            ),
+            const SizedBox(height: 12),
             Card(
               child: ListTile(
                 leading: const Icon(Icons.view_column_outlined),

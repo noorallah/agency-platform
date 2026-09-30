@@ -47,11 +47,14 @@ from app.purchase.schemas import (
     PurchaseOrderUpdate,
     PurchaseSummary,
     PurchaseType,
+    PurchaseWorkflowSettingsResponse,
+    PurchaseWorkflowSettingsWrite,
 )
 from app.purchase.services import PurchaseService
 from app.purchase.services.purchase_print_service import (
     PurchaseOrderPrintService,
 )
+from app.purchase.services.workflow_settings_service import PurchaseWorkflowService
 
 router = APIRouter(
     prefix="/api/v1/purchases",
@@ -95,6 +98,9 @@ PurchaseApproveScope = Annotated[
 ]
 PurchaseCancelScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("PURCHASE_CANCEL")
+]
+PurchaseWorkflowSettingsScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("PURCHASE_MANAGE_SETTINGS")
 ]
 
 
@@ -413,6 +419,38 @@ def purchase_orders_by_product(
     return window.respond(
         PurchaseService(db).by_product_report(firm_scope=scope.firm_id, window=window)
     )
+
+
+# Both declared above `/{order_id}`: FastAPI matches in declaration order, and
+# below it "workflow-settings" is read as an order id and answered 422.
+@router.get(
+    "/workflow-settings",
+    response_model=ApiResponse[PurchaseWorkflowSettingsResponse],
+)
+def get_purchase_workflow_settings(
+    scope: PurchaseViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PurchaseWorkflowSettingsResponse]:
+    """Report which buying stages this firm fills in by hand."""
+    return ApiResponse(
+        data=PurchaseWorkflowService(db).settings_response(scope.firm_id)
+    )
+
+
+@router.put(
+    "/workflow-settings",
+    response_model=ApiResponse[PurchaseWorkflowSettingsResponse],
+)
+def update_purchase_workflow_settings(
+    data: PurchaseWorkflowSettingsWrite,
+    scope: PurchaseWorkflowSettingsScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PurchaseWorkflowSettingsResponse]:
+    """Replace which buying stages this firm fills in by hand."""
+    settings = PurchaseWorkflowService(db).update_settings(
+        data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=settings)
 
 
 @router.get("/{order_id}", response_model=ApiResponse[PurchaseOrderResponse])

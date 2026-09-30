@@ -1185,6 +1185,30 @@ class ApiClient {
         ),
       );
 
+  /// Which stages of buying this firm fills in by hand (backlog §38).
+  ///
+  /// Readable with `PURCHASE_VIEW` and writable only with
+  /// `PURCHASE_MANAGE_SETTINGS`, as the sales twin above.
+  Future<PurchaseWorkflowSettings> purchaseWorkflowSettings() async =>
+      PurchaseWorkflowSettings.fromJson(
+        _unwrapMap(
+          await request('GET', '/api/v1/purchases/workflow-settings'),
+        ),
+      );
+
+  Future<PurchaseWorkflowSettings> updatePurchaseWorkflowSettings(
+    PurchaseWorkflowSettings settings,
+  ) async =>
+      PurchaseWorkflowSettings.fromJson(
+        _unwrapMap(
+          await request(
+            'PUT',
+            '/api/v1/purchases/workflow-settings',
+            body: settings.toJson(),
+          ),
+        ),
+      );
+
   /// The segments this firm sells to.
   ///
   /// Readable with `CUSTOMER_VIEW` -- a segment decides a price, so anyone
@@ -3793,8 +3817,7 @@ class ApiClient {
   ) async =>
       PurchaseReturnPreviewRecord.fromJson(
         _unwrapMap(
-          await request('POST', '/api/v1/purchase-returns/preview',
-              body: data),
+          await request('POST', '/api/v1/purchase-returns/preview', body: data),
         ),
       );
 

@@ -478,6 +478,7 @@ class PurchaseOrder {
     if (status == 'CLOSED') return 'Closed purchase orders cannot be changed.';
     return null;
   }
+
   final String subtotal;
   final String lineDiscountTotal;
   final String headerDiscountAmount;
@@ -749,3 +750,77 @@ List<Json> _objects(dynamic value) => value is List
         .map((item) => Map<String, dynamic>.from(item))
         .toList()
     : const [];
+
+/// Which stages of buying this firm fills in by hand.
+///
+/// The chain is purchase order, goods receipt, bill. A stage that is off is
+/// still raised -- by the server, as part of saving the bill -- so this
+/// decides which screens a firm sees, never whether the documents exist.
+class PurchaseWorkflowSettings {
+  const PurchaseWorkflowSettings({
+    required this.purchaseOrderStage,
+    required this.goodsReceiptStage,
+    required this.isConfigured,
+    this.defaultBranchId,
+    this.defaultWarehouseId,
+  });
+
+  final bool purchaseOrderStage;
+  final bool goodsReceiptStage;
+  final String? defaultBranchId;
+  final String? defaultWarehouseId;
+
+  /// False while the firm is still on the platform default: the whole chain.
+  final bool isConfigured;
+
+  /// What a firm gets before anybody configures anything, and what the client
+  /// falls back to when the settings cannot be read -- failing open, so an
+  /// unreachable endpoint never hides screens a firm depends on.
+  static const PurchaseWorkflowSettings wholeChain = PurchaseWorkflowSettings(
+    purchaseOrderStage: true,
+    goodsReceiptStage: true,
+    isConfigured: false,
+  );
+
+  /// True when the bill is the only buying document its user types, so a
+  /// bill names products rather than a receipt.
+  bool get billsDirectly => !goodsReceiptStage;
+
+  /// A stage the answer does not mention is taken as typed: failing open, as
+  /// [wholeChain] does, since reading "off" hides screens and changes what a
+  /// bill names.
+  factory PurchaseWorkflowSettings.fromJson(Json json) =>
+      PurchaseWorkflowSettings(
+        purchaseOrderStage:
+            boolValue(json['purchase_order_stage'], fallback: true),
+        goodsReceiptStage:
+            boolValue(json['goods_receipt_stage'], fallback: true),
+        defaultBranchId: _idOrNull(json['default_branch_id']),
+        defaultWarehouseId: _idOrNull(json['default_warehouse_id']),
+        isConfigured: boolValue(json['is_configured']),
+      );
+
+  /// The two switches only. The server leaves an omitted default as it is,
+  /// so a stages save cannot clear one (the rule D-CFG-14 taught sales).
+  Json toJson() => <String, dynamic>{
+        'purchase_order_stage': purchaseOrderStage,
+        'goods_receipt_stage': goodsReceiptStage,
+      };
+
+  PurchaseWorkflowSettings copyWith({
+    bool? purchaseOrderStage,
+    bool? goodsReceiptStage,
+  }) =>
+      PurchaseWorkflowSettings(
+        purchaseOrderStage: purchaseOrderStage ?? this.purchaseOrderStage,
+        goodsReceiptStage: goodsReceiptStage ?? this.goodsReceiptStage,
+        defaultBranchId: defaultBranchId,
+        defaultWarehouseId: defaultWarehouseId,
+        isConfigured: isConfigured,
+      );
+}
+
+String? _idOrNull(dynamic value) {
+  final String text = stringValue(value);
+  return text.isEmpty ? null : text;
+}
