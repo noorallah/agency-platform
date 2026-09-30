@@ -127,15 +127,20 @@ class InventoryRecord(BaseEntity):
         String(20), nullable=False, default="ACTIVE", server_default="ACTIVE"
     )
 
+    #: A stock row's whole movement history, loaded only when asked for.
+    #: These were ``lazy="selectin"``, so every read of a stock row -- the
+    #: Inventory list, and every dispatch, receipt and adjustment -- loaded
+    #: every movement it ever had, and grew slower each year (backlog 56 C).
+    #: Nothing reads them in bulk; ask the movement tables instead.
     transactions: Mapped[list["InventoryTransaction"]] = relationship(
         back_populates="inventory",
         order_by="InventoryTransaction.created_at",
-        lazy="selectin",
+        lazy="select",
     )
     ledger_entries: Mapped[list["StockLedgerEntry"]] = relationship(
         back_populates="inventory",
         order_by="StockLedgerEntry.created_at",
-        lazy="selectin",
+        lazy="select",
     )
 
 
@@ -159,6 +164,11 @@ class InventoryTransaction(BaseEntity):
         Index("IX_inventory_transactions_firm_type", "firm_id", "transaction_type"),
         Index("IX_inventory_transactions_firm_product", "firm_id", "product_id"),
         Index("IX_inventory_transactions_firm_reference", "firm_id", "reference_type"),
+        # Backlog 56 C: a stock row's movements, the default newest-first list,
+        # and the number-uniqueness check all scanned the table without these.
+        Index("IX_inventory_transactions_inventory", "inventory_id"),
+        Index("IX_inventory_transactions_firm_created", "firm_id", "created_at"),
+        Index("IX_inventory_transactions_firm_number", "firm_id", "reference_number"),
     )
 
     inventory_id: Mapped[UUID] = mapped_column(
@@ -285,7 +295,7 @@ class InventoryTransaction(BaseEntity):
     ledger_entries: Mapped[list["StockLedgerEntry"]] = relationship(
         back_populates="transaction",
         order_by="StockLedgerEntry.created_at",
-        lazy="selectin",
+        lazy="select",
     )
 
 
@@ -302,6 +312,13 @@ class StockLedgerEntry(BaseEntity):
         Index("IX_stock_ledger_entries_firm_warehouse", "firm_id", "warehouse_id"),
         Index("IX_stock_ledger_entries_firm_type", "firm_id", "transaction_type"),
         Index("IX_stock_ledger_entries_firm_batch", "firm_id", "batch_id"),
+        # Backlog 56 C: the dispatch cost read on every invoice approval looks
+        # a document up by type and number, and scanned the whole ledger.
+        Index("IX_stock_ledger_entries_inventory", "inventory_id"),
+        Index("IX_stock_ledger_entries_firm_created", "firm_id", "created_at"),
+        Index(
+            "IX_stock_ledger_entries_reference", "reference_type", "reference_number"
+        ),
     )
 
     transaction_id: Mapped[UUID] = mapped_column(

@@ -318,6 +318,8 @@ class JournalEntry(BaseEntity):
         Index("IX_journal_entries_firm_status", "firm_id", "status"),
         Index("IX_journal_entries_firm_period", "firm_id", "accounting_period_id"),
         Index("IX_journal_entries_source", "source_module", "source_id"),
+        # Backlog 56 C: the journal list filters and sorts on the date.
+        Index("IX_journal_entries_firm_date", "firm_id", "journal_date"),
     )
 
     firm_id: Mapped[UUID] = mapped_column(

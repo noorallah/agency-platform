@@ -35,6 +35,8 @@ class SalesInvoice(BaseEntity):
         Index("IX_sales_invoices_firm_customer", "firm_id", "customer_id"),
         Index("IX_sales_invoices_firm_branch", "firm_id", "branch_id"),
         Index("IX_sales_invoices_firm_due_date", "firm_id", "due_date"),
+        # Backlog 56 C: the list's default sort, newest first.
+        Index("IX_sales_invoices_firm_created", "firm_id", "created_at"),
     )
 
     firm_id: Mapped[UUID] = mapped_column(

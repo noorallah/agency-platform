@@ -15,6 +15,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import StreamingResponse
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
@@ -26,7 +27,7 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.core.utils.dates import utc_now
-from app.inventory.models import PhysicalCount
+from app.inventory.models import InventoryTransaction, PhysicalCount
 from app.inventory.schemas import (
     InventoryAdjustmentCreate,
     InventoryCreate,
@@ -898,7 +899,12 @@ def delete_inventory(
         )
     ):
         raise ValidationError("Inventory with stock balances cannot be deleted.")
-    if row.transactions:
+    # Asked as a yes/no, not by loading the row's whole history.
+    if db.scalar(
+        select(InventoryTransaction.id)
+        .where(InventoryTransaction.inventory_id == row.id)
+        .limit(1)
+    ):
         raise ValidationError("Inventory with transaction history cannot be deleted.")
     row.is_deleted = True
     row.deleted_at = utc_now()
