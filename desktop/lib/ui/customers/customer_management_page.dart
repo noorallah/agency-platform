@@ -832,6 +832,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     'display_name': _controller(widget.customer?.displayName),
     'gst_number': _controller(widget.customer?.gstNumber),
     'pan_number': _controller(widget.customer?.panNumber),
+    'tan_number': _controller(widget.customer?.tanNumber),
     'email': _controller(widget.customer?.email),
     'phone': _controller(widget.customer?.phone),
     'alternate_phone': _controller(widget.customer?.alternatePhone),
@@ -1051,6 +1052,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         'display_name': _fields['display_name']!.text.trim(),
         'gst_number': _nullable('gst_number'),
         'pan_number': _nullable('pan_number'),
+        'tan_number': _nullable('tan_number'),
         'email': _nullable('email'),
         'phone': _nullable('phone'),
         'alternate_phone': _nullable('alternate_phone'),
@@ -1180,6 +1182,11 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
             ),
             _text('gst_number', 'GST number'),
             _text('pan_number', 'PAN number'),
+            _text(
+              'tan_number',
+              'TAN',
+              helper: 'Only if they deduct TDS from what they pay you',
+            ),
             _text('email', 'Email'),
             // Both are validated as E.164 server-side, and the refusal names
             // the standard rather than showing the shape it wants.

@@ -8,7 +8,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
-from app.core.validation import validate_email, validate_phone
+from app.core.validation import normalize_tan, validate_email, validate_phone
 
 
 class CustomerType(StrEnum):
@@ -154,6 +154,7 @@ class CustomerWrite(CustomerSchema):
     display_name: str | None = Field(default=None, max_length=200)
     gst_number: str | None = Field(default=None, max_length=32)
     pan_number: str | None = Field(default=None, max_length=32)
+    tan_number: str | None = Field(default=None, max_length=10)
     email: str | None = Field(default=None, max_length=320)
     phone: str | None = Field(default=None, max_length=20)
     alternate_phone: str | None = Field(default=None, max_length=20)
@@ -187,6 +188,12 @@ class CustomerWrite(CustomerSchema):
             return None
         normalized = value.strip().upper()
         return normalized or None
+
+    @field_validator("tan_number", mode="before")
+    @classmethod
+    def _tan(cls, value: str | None) -> str | None:
+        """Check a TAN's format; a blank one is no TAN."""
+        return normalize_tan(value)
 
     @field_validator("name", "display_name", mode="before")
     @classmethod
@@ -265,6 +272,7 @@ class CustomerResponse(CustomerSchema):
     display_name: str
     gst_number: str | None
     pan_number: str | None
+    tan_number: str | None = None
     email: str | None
     phone: str | None
     alternate_phone: str | None

@@ -143,6 +143,7 @@ class Customer {
     required this.displayName,
     required this.gstNumber,
     required this.panNumber,
+    this.tanNumber = '',
     required this.email,
     required this.phone,
     required this.alternatePhone,
@@ -185,6 +186,10 @@ class Customer {
   final String displayName;
   final String gstNumber;
   final String panNumber;
+
+  /// The customer's TAN: it deducts TDS from what it pays, and the
+  /// certificate it issues names it (backlog 53.1).
+  final String tanNumber;
   final String email;
   final String phone;
   final String alternatePhone;
@@ -230,6 +235,7 @@ class Customer {
         displayName: stringValue(json['display_name']),
         gstNumber: stringValue(json['gst_number']),
         panNumber: stringValue(json['pan_number']),
+        tanNumber: stringValue(json['tan_number']),
         email: stringValue(json['email']),
         phone: stringValue(json['phone']),
         alternatePhone: stringValue(json['alternate_phone']),
