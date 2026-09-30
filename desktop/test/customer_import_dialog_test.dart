@@ -1,4 +1,4 @@
-// Products are imported from a file the server checks. Import is offered only
+// Customers are imported from a file the server checks. Import is offered only
 // after a clean check of the file as it now stands, and the server -- not the
 // client -- says what is wrong with it.
 
@@ -8,7 +8,7 @@ import 'dart:io';
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/file_import.dart';
-import 'package:agency_desktop/ui/products/product_import_dialog.dart';
+import 'package:agency_desktop/ui/workspace/master_import_dialog.dart';
 import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -42,13 +42,13 @@ class _Api extends ApiClient {
   final List<String> templates = <String>[];
 
   @override
-  Future<List<int>> productImportTemplate({String format = 'xlsx'}) async {
+  Future<List<int>> customerImportTemplate({String format = 'xlsx'}) async {
     templates.add(format);
     return <int>[1, 2, 3];
   }
 
   @override
-  Future<FileImportReport> checkProductImportFile({
+  Future<FileImportReport> checkCustomerImportFile({
     required String fileName,
     required List<int> bytes,
     required bool updateExisting,
@@ -77,8 +77,8 @@ FileImportReport _report({
     );
 
 XFile _csv() {
-  final Directory dir = Directory.systemTemp.createTempSync('product-import');
-  final File file = File('${dir.path}/products.csv')
+  final Directory dir = Directory.systemTemp.createTempSync('customer-import');
+  final File file = File('${dir.path}/customers.csv')
     ..writeAsStringSync('code,name\nA,Apple\n');
   return XFile(file.path);
 }
@@ -103,9 +103,13 @@ Future<FileImportReport?> Function() _open(
               onPressed: () async {
                 result = await showDialog<FileImportReport>(
                   context: context,
-                  builder: (context) => ProductImportDialog(
-                    api: api,
-                    permissions: permissions,
+                  builder: (context) => MasterImportDialog(
+                    noun: 'customers',
+                    fileStem: 'customer',
+                    downloadTemplate: (format) =>
+                        api.customerImportTemplate(format: format),
+                    checkFile: api.checkCustomerImportFile,
+                    canUpdate: permissions.hasPermission('CUSTOMER_UPDATE'),
                     pickFileOverride: () async => _csv(),
                     saveBytesOverride: (name, bytes) async => saved?.add(name),
                   ),
@@ -148,10 +152,12 @@ void main() {
       ]),
     );
     final List<String> saved = <String>[];
-    await _open(tester, api, _permissions(['PRODUCT_IMPORT']), saved: saved)();
+    await _open(tester, api, _permissions(['CUSTOMER_IMPORT']), saved: saved)();
     await _chooseFile(tester);
     expect(_import(tester).onPressed, isNull);
 
+    await tester.ensureVisible(find.text('Check file'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Check file'));
     await tester.pumpAndSettle();
 
@@ -165,7 +171,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Save problems…'));
     await tester.pumpAndSettle();
-    expect(saved, ['product_import_problems.csv']);
+    expect(saved, ['customer_import_problems.csv']);
     expect(tester.takeException(), isNull);
   });
 
@@ -175,8 +181,10 @@ void main() {
       checkReport: _report(),
       applyReport: _report(imported: true),
     );
-    await _open(tester, api, _permissions(['PRODUCT_IMPORT']))();
+    await _open(tester, api, _permissions(['CUSTOMER_IMPORT']))();
     await _chooseFile(tester);
+    await tester.ensureVisible(find.text('Check file'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Check file'));
     await tester.pumpAndSettle();
     expect(_import(tester).onPressed, isNotNull);
@@ -186,7 +194,7 @@ void main() {
 
     expect(api.calls.map((c) => c.apply), [false, true]);
     expect(api.calls.last.update, isFalse);
-    expect(find.text('Import products'), findsNothing);
+    expect(find.text('Import customers'), findsNothing);
   });
 
   testWidgets('changing the update choice needs a fresh check and is sent',
@@ -198,9 +206,11 @@ void main() {
     await _open(
       tester,
       api,
-      _permissions(['PRODUCT_IMPORT', 'PRODUCT_UPDATE']),
+      _permissions(['CUSTOMER_IMPORT', 'CUSTOMER_UPDATE']),
     )();
     await _chooseFile(tester);
+    await tester.ensureVisible(find.text('Check file'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Check file'));
     await tester.pumpAndSettle();
     expect(_import(tester).onPressed, isNotNull);
@@ -209,6 +219,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(_import(tester).onPressed, isNull);
 
+    await tester.ensureVisible(find.text('Check file'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Check file'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(FilledButton, 'Import'));
@@ -218,10 +230,10 @@ void main() {
     expect(api.calls.last.apply, isTrue);
   });
 
-  testWidgets('the update checkbox is disabled without PRODUCT_UPDATE',
+  testWidgets('the update checkbox is disabled without CUSTOMER_UPDATE',
       (tester) async {
     final _Api api = _Api(checkReport: _report());
-    await _open(tester, api, _permissions(['PRODUCT_IMPORT']))();
+    await _open(tester, api, _permissions(['CUSTOMER_IMPORT']))();
     final CheckboxListTile box =
         tester.widget<CheckboxListTile>(find.byType(CheckboxListTile));
     expect(box.onChanged, isNull);
@@ -231,15 +243,15 @@ void main() {
   testWidgets('both templates download through the save path', (tester) async {
     final _Api api = _Api(checkReport: _report());
     final List<String> saved = <String>[];
-    await _open(tester, api, _permissions(['PRODUCT_IMPORT']), saved: saved)();
+    await _open(tester, api, _permissions(['CUSTOMER_IMPORT']), saved: saved)();
     await tester.tap(find.text('Template (Excel)'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Template (CSV)'));
     await tester.pumpAndSettle();
     expect(api.templates, ['xlsx', 'csv']);
     expect(saved, [
-      'product_import_template.xlsx',
-      'product_import_template.csv',
+      'customer_import_template.xlsx',
+      'customer_import_template.csv',
     ]);
   });
 }

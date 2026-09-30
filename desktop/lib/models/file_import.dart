@@ -2,9 +2,9 @@ import 'entities.dart';
 
 int _count(dynamic value) => (value as num?)?.toInt() ?? 0;
 
-/// One problem the server found in a product import file.
-class ProductImportIssue {
-  const ProductImportIssue({
+/// One problem the server found in a import file.
+class FileImportIssue {
+  const FileImportIssue({
     required this.row,
     required this.message,
     required this.text,
@@ -12,7 +12,7 @@ class ProductImportIssue {
     this.column,
   });
 
-  factory ProductImportIssue.fromJson(Json json) => ProductImportIssue(
+  factory FileImportIssue.fromJson(Json json) => FileImportIssue(
         row: _count(json['row']),
         code: json['code'] == null ? null : stringValue(json['code']),
         column: json['column'] == null ? null : stringValue(json['column']),
@@ -30,9 +30,9 @@ class ProductImportIssue {
   final String text;
 }
 
-/// What the server made of a product import file, checked or applied.
-class ProductImportReport {
-  const ProductImportReport({
+/// What the server made of a import file, checked or applied.
+class FileImportReport {
+  const FileImportReport({
     required this.rows,
     required this.toCreate,
     required this.toUpdate,
@@ -43,7 +43,7 @@ class ProductImportReport {
     required this.imported,
   });
 
-  factory ProductImportReport.fromJson(Json json) => ProductImportReport(
+  factory FileImportReport.fromJson(Json json) => FileImportReport(
         rows: _count(json['rows']),
         toCreate: _count(json['to_create']),
         toUpdate: _count(json['to_update']),
@@ -54,7 +54,7 @@ class ProductImportReport {
             ? (json['issues'] as List)
                 .whereType<Map>()
                 .map((item) =>
-                    ProductImportIssue.fromJson(Map<String, dynamic>.from(item)))
+                    FileImportIssue.fromJson(Map<String, dynamic>.from(item)))
                 .toList()
             : const [],
         imported: json['imported'] == true,
@@ -66,7 +66,7 @@ class ProductImportReport {
   final int skippedBlank;
   final List<String> columnsUsed;
   final List<String> columnsIgnored;
-  final List<ProductImportIssue> issues;
+  final List<FileImportIssue> issues;
 
   /// True only when the whole file was written.
   final bool imported;

@@ -19,6 +19,11 @@ from fastapi import (
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
+from app.common.file_import import (
+    ImportReportResponse,
+    file_format_of,
+    report_response,
+)
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
@@ -36,8 +41,6 @@ from app.products.schemas import (
     ProductCategoryResponse,
     ProductCategoryUpdate,
     ProductCreate,
-    ProductImportIssueResponse,
-    ProductImportReportResponse,
     ProductImportRequest,
     ProductListFilters,
     ProductMetadataResponse,
@@ -46,11 +49,7 @@ from app.products.schemas import (
     ProductUpdate,
 )
 from app.products.services import ProductService
-from app.products.services.product_import import (
-    ImportReport,
-    template_csv,
-    template_workbook,
-)
+from app.products.services.product_import import template_csv, template_workbook
 from app.products.services.product_service import PRODUCT_DUTIES
 
 
@@ -266,14 +265,14 @@ def product_import_template(
     )
 
 
-@router.post("/import-file", response_model=ApiResponse[ProductImportReportResponse])
+@router.post("/import-file", response_model=ApiResponse[ImportReportResponse])
 async def import_product_file(
     scope: ProductImportScope,
     file: Annotated[UploadFile, File()],
     db: Session = Depends(get_db),
     existing: Annotated[Literal["refuse", "update"], Form()] = "refuse",
     apply: Annotated[bool, Form()] = False,
-) -> ApiResponse[ProductImportReportResponse]:
+) -> ApiResponse[ImportReportResponse]:
     """Check a CSV or XLSX product file, and with ``apply`` import it whole.
 
     Every row is checked and every problem returned with its row number. An
@@ -281,13 +280,7 @@ async def import_product_file(
     ``imported: false``; the report is the answer either way, so the screen
     can list the problems for the file to be fixed and sent again.
     """
-    name = (file.filename or "").lower()
-    if name.endswith(".csv"):
-        file_format: Literal["csv", "xlsx"] = "csv"
-    elif name.endswith((".xlsx", ".xlsm")):
-        file_format = "xlsx"
-    else:
-        raise ValidationError("Choose a .csv or .xlsx file.")
+    file_format = file_format_of(file.filename)
     if existing == "update" and not scope.principal.has_permission("PRODUCT_UPDATE"):
         raise AuthorizationError(
             "Updating existing products from a file needs the right to edit "
@@ -303,30 +296,7 @@ async def import_product_file(
         existing=existing,
         apply=apply,
     )
-    return ApiResponse(data=_report(report))
-
-
-def _report(report: ImportReport) -> ProductImportReportResponse:
-    """Shape the importer's report for the wire."""
-    return ProductImportReportResponse(
-        rows=report.rows,
-        to_create=report.to_create,
-        to_update=report.to_update,
-        skipped_blank=report.skipped_blank,
-        columns_used=report.columns_used,
-        columns_ignored=report.columns_ignored,
-        issues=[
-            ProductImportIssueResponse(
-                row=issue.row,
-                code=issue.code,
-                column=issue.column,
-                message=issue.message,
-                text=issue.describe(),
-            )
-            for issue in report.issues
-        ],
-        imported=report.imported,
-    )
+    return ApiResponse(data=report_response(report))
 
 
 @router.get("/export")

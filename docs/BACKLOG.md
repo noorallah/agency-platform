@@ -3626,7 +3626,7 @@ folder on the next run; the folder ACL is admin-only.
    `pg_restore --clean --if-exists -d <database> <file>` per store, start it).
 4. Move D-QA-4 to Fixed in `docs/DEFECTS.md`.
 
-## 46. Import products, customers and vendors from a file, with templates -- products built 2026-09-30
+## 46. Import products, customers and vendors from a file, with templates -- products and customers built 2026-09-30
 
 **Products: built 2026-09-30.** `GET /api/v1/products/import-template`
 (XLSX with Products, Notes and Lists sheets -- the Lists sheet carries the
@@ -3641,7 +3641,24 @@ audit writes are the form's. The desktop Products **Import** opens a file
 wizard: template download, choose file, check, save the problems as CSV,
 import. The old CSV/XLSX branch of `POST /products/import` goes through the
 same importer, so a row with a name and no code is now reported rather than
-skipped. **Customers and vendors remain** (5d, 5e), the same shape.
+skipped.
+
+**Customers: built 2026-09-30.** The file rules above moved to
+`app/common/file_import.py` (`FileImporter`, `RowReader`, the template
+builder), so a master states only its columns and how to stage one row.
+`GET /api/v1/customers/import-template` (Customers, Notes and Lists sheets --
+the firm's segments, the types and statuses) and
+`POST /api/v1/customers/import-file`, same parameters; updating needs
+`CUSTOMER_UPDATE` as well as `CUSTOMER_IMPORT`. The importer is
+`app/customers/services/customer_import.py`. One row is one customer with
+one address (default billing and shipping) and one primary contact; on an
+update those two change in place and every other address and contact is
+kept. The opening balance is booked exactly as the form books it, and
+`1,200 Dr` / `500 Cr` are read as Tally writes them; a firm without its
+books is told per row. A standing discount or a credit limit needs
+`CUSTOMER_MANAGE_SETTINGS`, as on the form. A 10-digit phone is taken as
+Indian (+91). A blank currency is the firm's own. The desktop Customers
+**Import** opens the same wizard as Products. **Vendors remain** (5e).
 
 
 Owner's note, 2026-09-25: a firm moving from other software (Tally, Excel,

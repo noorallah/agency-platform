@@ -7,16 +7,21 @@ from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.business.schemas import AttributeValueResponse
+from app.common.file_import import (
+    ImportReportResponse,
+    file_format_of,
+    report_response,
+)
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
-from app.core.exceptions import ValidationError
+from app.core.exceptions import AuthorizationError, ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
@@ -55,6 +60,11 @@ from app.customers.services import (
     CustomerGroupService,
     CustomerService,
     CustomerStatementService,
+)
+from app.customers.services.customer_import import (
+    CustomerFileImporter,
+    template_csv,
+    template_workbook,
 )
 from app.customers.services.opening_bill_service import CustomerOpeningBillService
 
@@ -385,6 +395,73 @@ def create_customer_opening_bill(
     service = CustomerOpeningBillService(db)
     row = service.create(customer_id, data, firm_id=firm_id, actor_id=scope.actor_id)
     return ApiResponse(data=service.response_for(row, firm_id=firm_id))
+
+
+@router.get("/import-template")
+def customer_import_template(
+    scope: CustomerImportScope,
+    format: Literal["csv", "xlsx"] = "xlsx",
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Download the customer import template (backlog 46).
+
+    The workbook carries the sheet to fill, a notes sheet naming every column
+    and what it takes, and a lists sheet with this firm's segments.
+    """
+    if scope.firm_id is None:
+        raise ValidationError("X-Firm-ID is required when importing customers.")
+    if format == "csv":
+        return StreamingResponse(
+            iter([template_csv()]),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": 'attachment; filename="customer-template.csv"'
+            },
+        )
+    return StreamingResponse(
+        iter([template_workbook(db, scope.firm_id)]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="customer-template.xlsx"'
+        },
+    )
+
+
+@router.post("/import-file", response_model=ApiResponse[ImportReportResponse])
+async def import_customer_file(
+    scope: CustomerImportScope,
+    file: Annotated[UploadFile, File()],
+    db: Session = Depends(get_db),
+    existing: Annotated[Literal["refuse", "update"], Form()] = "refuse",
+    apply: Annotated[bool, Form()] = False,
+) -> ApiResponse[ImportReportResponse]:
+    """Check a CSV or XLSX customer file, and with ``apply`` import it whole.
+
+    Every row is checked and every problem returned with its row number. An
+    apply that finds any problem writes nothing and says so with
+    ``imported: false``.
+    """
+    if scope.firm_id is None:
+        raise ValidationError("X-Firm-ID is required when importing customers.")
+    file_format = file_format_of(file.filename)
+    if existing == "update" and not scope.principal.has_permission("CUSTOMER_UPDATE"):
+        raise AuthorizationError(
+            "Updating existing customers from a file needs the right to edit "
+            "customers."
+        )
+    report = CustomerFileImporter(
+        db,
+        CustomerService(db),
+        may_manage_settings=scope.principal.has_permission("CUSTOMER_MANAGE_SETTINGS"),
+    ).run(
+        await file.read(),
+        file_format=file_format,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        existing=existing,
+        apply=apply,
+    )
+    return ApiResponse(data=report_response(report))
 
 
 # Declared with the other literals above `/{customer_id}`: FastAPI matches in

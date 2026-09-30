@@ -99,7 +99,7 @@ class CustomerService:
             [data], allowed=may_set_standing_discount
         )
         try:
-            customer = self._stage_create(data, firm_id=firm_id, actor_id=actor_id)
+            customer = self.stage_create(data, firm_id=firm_id, actor_id=actor_id)
         except IntegrityError as error:
             self._session.rollback()
             raise self._unique_conflict() from error
@@ -125,7 +125,7 @@ class CustomerService:
         )
         try:
             customers = [
-                self._stage_create(data, firm_id=firm_id, actor_id=actor_id)
+                self.stage_create(data, firm_id=firm_id, actor_id=actor_id)
                 for data in records
             ]
         except (ConflictError, IntegrityError) as error:
@@ -136,7 +136,7 @@ class CustomerService:
         self._commit_unique()
         return customers
 
-    def _stage_create(
+    def stage_create(
         self, data: CustomerCreate, *, firm_id: UUID, actor_id: UUID
     ) -> Customer:
         """Stage one customer and audit event without committing."""
@@ -213,6 +213,34 @@ class CustomerService:
         one that resends the stored figure goes through.
         """
         customer = self.get(customer_id, firm_scope=firm_scope)
+        self.stage_update(
+            customer,
+            data,
+            actor_id=actor_id,
+            may_change_credit_limit=may_change_credit_limit,
+            may_change_standing_discount=may_change_standing_discount,
+        )
+        self._commit_unique()
+        self._session.expire(customer, ["addresses", "contacts"])
+        return customer
+
+    def stage_update(
+        self,
+        customer: Customer,
+        data: CustomerUpdate,
+        *,
+        actor_id: UUID,
+        may_change_credit_limit: bool = False,
+        may_change_standing_discount: bool = False,
+    ) -> Customer:
+        """Apply, guard and audit one update without committing it.
+
+        Split out so a file import can update customers by code and commit the
+        whole file once (backlog 46), as ``stage_create`` does for a create.
+        Flushed at the end, so a later row of the same file that claims this
+        customer's new GST or PAN number is refused by the uniqueness check
+        rather than by the database at commit.
+        """
         self._assert_unique(customer.firm_id, data, excluding_id=customer.id)
         # Partial on update: a field the caller never mentioned keeps what the
         # row holds. Every optional field on the write model has a default, so
@@ -306,8 +334,11 @@ class CustomerService:
             before_data=before,
             after_data=self._audit_snapshot(customer),
         )
-        self._commit_unique()
-        self._session.expire(customer, ["addresses", "contacts"])
+        try:
+            self._session.flush()
+        except IntegrityError as error:
+            self._session.rollback()
+            raise self._unique_conflict() from error
         return customer
 
     def delete(

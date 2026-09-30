@@ -71,6 +71,9 @@ class FirmMetadata:
     #: an e-invoice payload names the seller.
     name: str | None = None
     gst_number: str | None = None
+    #: The firm's own currency -- what a customer or vendor imported from a
+    #: file trades in when the file does not say.
+    currency_code: str | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -118,7 +121,11 @@ class FirmMetadataReader:
         try-and-fall-back would poison the caller's unit of work.
         """
         statement = select(
-            Firm.code, Firm.financial_year_start, Firm.name, Firm.gst_number
+            Firm.code,
+            Firm.financial_year_start,
+            Firm.name,
+            Firm.gst_number,
+            Firm.currency_code,
         ).where(Firm.id == firm_id)
         bind = self._session.get_bind()
         if bind.dialect.name != "postgresql":
@@ -128,7 +135,7 @@ class FirmMetadataReader:
 
     @staticmethod
     def _materialise(
-        row: Row[tuple[str, date, str, str | None]] | None,
+        row: Row[tuple[str, date, str, str | None, str]] | None,
     ) -> FirmMetadata:
         """Turn a result row into metadata, tolerating an unknown firm."""
         if row is None:
@@ -138,6 +145,7 @@ class FirmMetadataReader:
             financial_year_start=row[1],
             name=row[2],
             gst_number=row[3],
+            currency_code=row[4],
         )
 
     def exists(self, firm_id: UUID) -> bool:
