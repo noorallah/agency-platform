@@ -1,16 +1,14 @@
 import 'dart:async';
 
-import 'dart:convert';
-
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
-import '../../core/api/concurrency.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/tax_framework.dart';
 import '../workspace/desktop_framework.dart';
+import 'tax_master_dialogs.dart';
 import 'tax_setup_page.dart';
 
 enum TaxManagementSection {
@@ -69,6 +67,7 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
   List<TaxHistoryRecord> _history = const [];
   TaxSettingsRecord? _settings;
   TaxRuleSimulationResultRecord? _simulationResult;
+
   /// Whether retired rows are listed. Off by default, because a list of
   /// live tax systems is what somebody configuring tax wants to see.
   bool _showRetired = false;
@@ -96,7 +95,6 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
       widget.permissions.hasPermission('TAX_RULE_DELETE');
   bool get _canSimulate =>
       widget.hasActiveFirm && widget.permissions.hasPermission('TAX_SIMULATE');
-  String get _firstSystemId => _systems.isEmpty ? '' : _systems.first.id;
   String get _firstProfileId => _profiles.isEmpty ? '' : _profiles.first.id;
 
   @override
@@ -360,8 +358,7 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
           [_selectedSystem!.code],
           state(_selectedSystem!.isDeleted, _selectedSystem!.status),
         ),
-      TaxManagementSection.components when _selectedComponent != null =>
-        named(
+      TaxManagementSection.components when _selectedComponent != null => named(
           _selectedComponent!.label,
           [_selectedComponent!.code, '${_selectedComponent!.percentage}%'],
           state(_selectedComponent!.isDeleted, _selectedComponent!.status),
@@ -1296,192 +1293,32 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
   }
 
   Future<void> _openComponentEdit(TaxComponentRecord? current) async {
-    final payload = await _taxSimpleDialog(
-      title: current == null ? 'Create tax component' : 'Edit tax component',
-      fields: {
-        'tax_system_id': current?.taxSystemId ?? _firstSystemId,
-        'code': current?.code ?? '',
-        'name': current?.name ?? '',
-        'label': current?.label ?? '',
-        'percentage': current?.percentage ?? '0',
-      },
-    );
-    if (payload == null) return;
-    try {
-      if (current == null) {
-        await widget.api.createTaxComponent(payload);
-      } else {
-        await widget.api.updateTaxComponent(
-          current.id,
-          payload,
-          expectedVersion: preconditionFor(current.version),
-        );
-      }
-      await _load();
-    } on ApiException catch (exception) {
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        saveFailureMessage(exception, 'tax component', changesKept: false),
-        kind: AppNotificationKind.error,
-      );
-    }
+    final bool? saved =
+        await showTaxComponentForm(context, widget.api, current);
+    if (saved == true) await _load();
   }
 
   Future<void> _openProfileEdit(TaxProfileRecord? current) async {
-    final payload = await _taxSimpleDialog(
-      title: current == null ? 'Create tax profile' : 'Edit tax profile',
-      fields: {
-        'tax_system_id': current?.taxSystemId ?? _firstSystemId,
-        'code': current?.code ?? '',
-        'name': current?.name ?? '',
-        'label': current?.label ?? '',
-        'components': '[]',
-      },
-      parseJsonFieldKeys: const {'components'},
-    );
-    if (payload == null) return;
-    try {
-      if (current == null) {
-        await widget.api.createTaxProfile(payload);
-      } else {
-        await widget.api.updateTaxProfile(
-          current.id,
-          payload,
-          expectedVersion: preconditionFor(current.version),
-        );
-      }
-      await _load();
-    } on ApiException catch (exception) {
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        saveFailureMessage(exception, 'tax profile', changesKept: false),
-        kind: AppNotificationKind.error,
-      );
-    }
+    final bool? saved = await showTaxProfileForm(context, widget.api, current);
+    if (saved == true) await _load();
   }
 
   Future<void> _openCountryMappingEdit(TaxCountryMappingRecord? current) async {
-    final payload = await _taxSimpleDialog(
-      title:
-          current == null ? 'Create country mapping' : 'Edit country mapping',
-      fields: {
-        'country_id': current?.countryId ?? '',
-        'tax_system_id': current?.taxSystemId ?? '',
-        'business_profile_id': current?.businessProfileId ?? '',
-        'is_default': (current?.isDefault ?? true).toString(),
-      },
-      parseBoolFieldKeys: const {'is_default'},
-    );
-    if (payload == null) return;
-    try {
-      if (current == null) {
-        await widget.api.createTaxCountryMapping(payload);
-      } else {
-        await widget.api.updateTaxCountryMapping(current.id, payload);
-      }
-      await _load();
-    } on ApiException catch (exception) {
-      if (!mounted) return;
-      NotificationService.show(context, exception.message,
-          kind: AppNotificationKind.error);
-    }
+    final bool? saved =
+        await showTaxCountryMappingForm(context, widget.api, current);
+    if (saved == true) await _load();
   }
 
   Future<void> _openMigrationMappingEdit(
       TaxMigrationMappingRecord? current) async {
-    final payload = await _taxSimpleDialog(
-      title: current == null
-          ? 'Create migration mapping'
-          : 'Edit migration mapping',
-      fields: {
-        'legacy_tax_code': current?.legacyTaxCode ?? '',
-        'legacy_tax_name': current?.legacyTaxName ?? '',
-        'source_system': current?.sourceSystem ?? '',
-        'legacy_rate': current?.legacyRate ?? '',
-        'target_tax_profile_id': current?.targetTaxProfileId ?? '',
-        'keep_historical': (current?.keepHistorical ?? true).toString(),
-      },
-      parseBoolFieldKeys: const {'keep_historical'},
-    );
-    if (payload == null) return;
-    try {
-      if (current == null) {
-        await widget.api.createTaxMigrationMapping(payload);
-      } else {
-        await widget.api.updateTaxMigrationMapping(current.id, payload);
-      }
-      await _load();
-    } on ApiException catch (exception) {
-      if (!mounted) return;
-      NotificationService.show(context, exception.message,
-          kind: AppNotificationKind.error);
-    }
+    final bool? saved =
+        await showTaxMigrationMappingForm(context, widget.api, current);
+    if (saved == true) await _load();
   }
 
   Future<void> _openRuleEdit(TaxRuleRecord? current) async {
-    final payload = await _taxSimpleDialog(
-      title: current == null ? 'Create tax rule' : 'Edit tax rule',
-      fields: {
-        'code': current?.code ?? '',
-        'name': current?.name ?? '',
-        'description': current?.description ?? '',
-        'priority': '${current?.priority ?? 100}',
-        'status': current?.status ?? 'DRAFT',
-        'country_id': current?.countryId ?? '',
-        'business_profile_id': current?.businessProfileId ?? '',
-        'tax_profile_id': current?.taxProfileId ?? _firstProfileId,
-        'conditions': current == null
-            ? '[]'
-            : jsonEncode(current.conditions
-                .map((item) => {
-                      'sequence': item.sequence,
-                      'field_key': item.fieldKey,
-                      'operator': item.operatorType,
-                      if (item.valueText.isNotEmpty)
-                        'value_text': item.valueText,
-                      if (item.valueNumber.isNotEmpty)
-                        'value_number': item.valueNumber,
-                    })
-                .toList()),
-        'actions': current == null
-            ? '[]'
-            : jsonEncode(current.actions
-                .map((item) => {
-                      'sequence': item.sequence,
-                      'action_type': item.actionType,
-                      if (item.targetTaxProfileId.isNotEmpty)
-                        'target_tax_profile_id': item.targetTaxProfileId,
-                      if (item.targetTaxComponentId.isNotEmpty)
-                        'target_tax_component_id': item.targetTaxComponentId,
-                      if (item.percentageOverride.isNotEmpty)
-                        'percentage_override': item.percentageOverride,
-                    })
-                .toList()),
-      },
-      parseJsonFieldKeys: const {'conditions', 'actions'},
-    );
-    if (payload == null) return;
-    try {
-      if (current == null) {
-        await widget.api.createTaxRule(payload);
-      } else {
-        await widget.api.updateTaxRule(
-          current.id,
-          payload,
-          expectedVersion: preconditionFor(current.version),
-        );
-      }
-      await _load();
-    } on ApiException catch (exception) {
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        saveFailureMessage(exception, 'tax rule', changesKept: false),
-        kind: AppNotificationKind.error,
-      );
-    }
+    final bool? saved = await showTaxRuleForm(context, widget.api, current);
+    if (saved == true) await _load();
   }
 
   Future<void> _runSimulation(Json payload) async {
@@ -1502,76 +1339,5 @@ class _TaxManagementPageState extends State<TaxManagementPage> {
       NotificationService.show(context, exception.message,
           kind: AppNotificationKind.error);
     }
-  }
-
-  Future<Json?> _taxSimpleDialog({
-    required String title,
-    required Map<String, String> fields,
-    Set<String> parseBoolFieldKeys = const {},
-    Set<String> parseJsonFieldKeys = const {},
-  }) async {
-    final Map<String, TextEditingController> controllers = {
-      for (final entry in fields.entries)
-        entry.key: TextEditingController(text: entry.value),
-    };
-    return showDialog<Json>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: SizedBox(
-          width: 640,
-          child: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: controllers.entries
-                  .map(
-                    (entry) => Padding(
-                      padding: const EdgeInsets.only(bottom: 10),
-                      child: TextField(
-                        controller: entry.value,
-                        decoration: InputDecoration(labelText: entry.key),
-                      ),
-                    ),
-                  )
-                  .toList(),
-            ),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final Json payload = {};
-              for (final entry in controllers.entries) {
-                final raw = entry.value.text.trim();
-                if (raw.isEmpty) continue;
-                if (parseBoolFieldKeys.contains(entry.key)) {
-                  payload[entry.key] = raw.toLowerCase() == 'true';
-                  continue;
-                }
-                if (parseJsonFieldKeys.contains(entry.key)) {
-                  payload[entry.key] = decodeJsonOrEmptyArray(raw);
-                  continue;
-                }
-                payload[entry.key] = raw;
-              }
-              Navigator.of(context).pop(payload);
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-dynamic decodeJsonOrEmptyArray(String value) {
-  try {
-    return jsonDecode(value);
-  } catch (_) {
-    return const [];
   }
 }
