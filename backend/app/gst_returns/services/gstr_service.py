@@ -241,6 +241,7 @@ _LINE_COLUMNS = (
     SalesInvoiceLine.sales_invoice_id,
     SalesInvoiceLine.line_number,
     SalesInvoiceLine.product_id,
+    SalesInvoiceLine.hsn_sac,
     SalesInvoiceLine.current_invoice_quantity,
     SalesInvoiceLine.tax_profile_id,
     SalesInvoiceLine.gross_amount,
