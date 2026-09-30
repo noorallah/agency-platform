@@ -27,6 +27,7 @@ from app.common.report_names import (
 )
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
+from app.core.utils.chunks import chunks
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger
 from app.core.utils.pricing import (
@@ -307,36 +308,43 @@ class SalesInvoiceService(TransactionalDocumentService):
         return rows, int(self._session.scalar(count) or 0)
 
     def summary(self, *, firm_scope: UUID) -> SalesInvoiceSummary:
-        """Return aggregate sales invoice values for the visible firm scope."""
-        rows = list(
-            self._session.scalars(
-                select(SalesInvoice).where(
+        """Return aggregate sales invoice values for the visible firm scope.
+
+        Counted and summed in SQL, one row per status. It loaded every invoice
+        the firm ever raised to count them in Python, on every visit to the
+        Sales Invoices page (backlog 56 C).
+        """
+        by_status: dict[str, tuple[int, Decimal]] = {
+            status: (int(count), Decimal(str(total)))
+            for status, count, total in self._session.execute(
+                select(
+                    SalesInvoice.status,
+                    func.count(),
+                    func.coalesce(func.sum(SalesInvoice.grand_total), 0),
+                )
+                .where(
                     SalesInvoice.firm_id == firm_scope,
                     SalesInvoice.is_deleted.is_(False),
                 )
+                .group_by(SalesInvoice.status)
             ).all()
-        )
+        }
+
+        def count(status: SalesInvoiceStatus) -> int:
+            """Return how many invoices are in one status."""
+            return by_status.get(status.value, (0, ZERO))[0]
+
         # The tile and the overdue report must agree, so the tile counts the
         # report's rows: invoices past due that still owe something (D-RPT-3).
         overdue = len(self.overdue_report(firm_scope=firm_scope))
         return SalesInvoiceSummary(
-            total=len(rows),
-            draft=sum(
-                1 for row in rows if row.status == SalesInvoiceStatus.DRAFT.value
-            ),
-            approved=sum(
-                1 for row in rows if row.status == SalesInvoiceStatus.APPROVED.value
-            ),
-            cancelled=sum(
-                1 for row in rows if row.status == SalesInvoiceStatus.CANCELLED.value
-            ),
-            closed=sum(
-                1 for row in rows if row.status == SalesInvoiceStatus.CLOSED.value
-            ),
-            total_value=self._q(sum((row.grand_total for row in rows), ZERO)),
-            pending_invoices=sum(
-                1 for row in rows if row.status == SalesInvoiceStatus.DRAFT.value
-            ),
+            total=sum(number for number, _ in by_status.values()),
+            draft=count(SalesInvoiceStatus.DRAFT),
+            approved=count(SalesInvoiceStatus.APPROVED),
+            cancelled=count(SalesInvoiceStatus.CANCELLED),
+            closed=count(SalesInvoiceStatus.CLOSED),
+            total_value=self._q(sum((value for _, value in by_status.values()), ZERO)),
+            pending_invoices=count(SalesInvoiceStatus.DRAFT),
             overdue_invoices=overdue,
         )
 
@@ -1513,10 +1521,9 @@ class SalesInvoiceService(TransactionalDocumentService):
         if owing:
             invoices = {
                 row.id: row
+                for part in chunks([item.invoice_id for item in owing])
                 for row in self._session.scalars(
-                    select(SalesInvoice).where(
-                        SalesInvoice.id.in_([item.invoice_id for item in owing])
-                    )
+                    select(SalesInvoice).where(SalesInvoice.id.in_(part))
                 ).all()
             }
         names = self._customer_names({row.customer_id for row in invoices.values()})

@@ -287,28 +287,38 @@ class SalesOrderService(TransactionalDocumentService):
         return rows, int(self._session.scalar(count) or 0)
 
     def summary(self, *, firm_scope: UUID) -> SalesOrderSummary:
-        """Return aggregate sales order values for the visible firm scope."""
-        rows = list(
-            self._session.scalars(
-                select(SalesOrder).where(
+        """Return aggregate sales order values for the visible firm scope.
+
+        Counted and summed in SQL, one row per status, rather than loading every
+        document the firm ever raised (backlog 56 C).
+        """
+        by_status: dict[str, tuple[int, Decimal]] = {
+            status: (int(count), Decimal(str(total)))
+            for status, count, total in self._session.execute(
+                select(
+                    SalesOrder.status,
+                    func.count(),
+                    func.coalesce(func.sum(SalesOrder.grand_total), 0),
+                )
+                .where(
                     SalesOrder.firm_id == firm_scope,
                     SalesOrder.is_deleted.is_(False),
                 )
+                .group_by(SalesOrder.status)
             ).all()
-        )
+        }
+
+        def count(status: SalesOrderStatus) -> int:
+            """Return how many documents are in one status."""
+            return by_status.get(status.value, (0, ZERO))[0]
+
         return SalesOrderSummary(
-            total=len(rows),
-            draft=sum(1 for row in rows if row.status == SalesOrderStatus.DRAFT.value),
-            approved=sum(
-                1 for row in rows if row.status == SalesOrderStatus.APPROVED.value
-            ),
-            cancelled=sum(
-                1 for row in rows if row.status == SalesOrderStatus.CANCELLED.value
-            ),
-            closed=sum(
-                1 for row in rows if row.status == SalesOrderStatus.CLOSED.value
-            ),
-            total_value=self._q(sum((row.grand_total for row in rows), ZERO)),
+            total=sum(number for number, _ in by_status.values()),
+            draft=count(SalesOrderStatus.DRAFT),
+            approved=count(SalesOrderStatus.APPROVED),
+            cancelled=count(SalesOrderStatus.CANCELLED),
+            closed=count(SalesOrderStatus.CLOSED),
+            total_value=self._q(sum((value for _, value in by_status.values()), ZERO)),
         )
 
     def create_order(

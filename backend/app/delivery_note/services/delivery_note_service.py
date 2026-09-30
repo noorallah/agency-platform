@@ -245,37 +245,41 @@ class DeliveryNoteService(TransactionalDocumentService):
         return rows, int(self._session.scalar(count) or 0)
 
     def summary(self, *, firm_scope: UUID) -> DeliveryNoteSummary:
-        """Return aggregate delivery note values for the visible firm scope."""
-        rows = list(
-            self._session.scalars(
-                select(DeliveryNote).where(
+        """Return aggregate delivery note values for the visible firm scope.
+
+        Counted and summed in SQL, one row per status, rather than loading every
+        document the firm ever raised (backlog 56 C).
+        """
+        by_status: dict[str, tuple[int, Decimal]] = {
+            status: (int(count), Decimal(str(total)))
+            for status, count, total in self._session.execute(
+                select(
+                    DeliveryNote.status,
+                    func.count(),
+                    func.coalesce(func.sum(DeliveryNote.grand_total), 0),
+                )
+                .where(
                     DeliveryNote.firm_id == firm_scope,
                     DeliveryNote.is_deleted.is_(False),
                 )
+                .group_by(DeliveryNote.status)
             ).all()
-        )
+        }
+
+        def count(status: DeliveryNoteStatus) -> int:
+            """Return how many documents are in one status."""
+            return by_status.get(status.value, (0, ZERO))[0]
+
         progress = self.partially_delivered_orders(firm_scope=firm_scope)
         return DeliveryNoteSummary(
-            total=len(rows),
-            draft=sum(
-                1 for row in rows if row.status == DeliveryNoteStatus.DRAFT.value
-            ),
-            approved=sum(
-                1 for row in rows if row.status == DeliveryNoteStatus.APPROVED.value
-            ),
-            dispatched=sum(
-                1 for row in rows if row.status == DeliveryNoteStatus.DISPATCHED.value
-            ),
-            completed=sum(
-                1 for row in rows if row.status == DeliveryNoteStatus.COMPLETED.value
-            ),
-            cancelled=sum(
-                1 for row in rows if row.status == DeliveryNoteStatus.CANCELLED.value
-            ),
-            closed=sum(
-                1 for row in rows if row.status == DeliveryNoteStatus.CLOSED.value
-            ),
-            total_value=self._q(sum((row.grand_total for row in rows), ZERO)),
+            total=sum(number for number, _ in by_status.values()),
+            draft=count(DeliveryNoteStatus.DRAFT),
+            approved=count(DeliveryNoteStatus.APPROVED),
+            dispatched=count(DeliveryNoteStatus.DISPATCHED),
+            completed=count(DeliveryNoteStatus.COMPLETED),
+            cancelled=count(DeliveryNoteStatus.CANCELLED),
+            closed=count(DeliveryNoteStatus.CLOSED),
+            total_value=self._q(sum((value for _, value in by_status.values()), ZERO)),
             pending_orders=sum(
                 1 for item in progress if item.delivered_quantity <= ZERO
             ),
