@@ -5582,6 +5582,34 @@ class ApiClient {
         ),
       );
 
+  /// Where the firm's books stood on its cutover date (backlog 36), or the
+  /// empty statement if nothing has ever been entered.
+  Future<OpeningTrialBalance> getOpeningTrialBalance() async =>
+      OpeningTrialBalance.fromJson(
+        _unwrapMap(
+          await request('GET', '/api/v1/finance/opening-trial-balance'),
+        ),
+      );
+
+  /// Replace the whole opening trial balance; an empty `lines` list takes it
+  /// off. Posts straight to the ledger, so it needs `JOURNAL_POST`.
+  ///
+  /// Returns the statement now standing alongside the server's message,
+  /// which names every row a bad statement was refused on.
+  Future<(OpeningTrialBalance, String)> replaceOpeningTrialBalance(
+    Json body,
+  ) async {
+    final Json response = await request(
+      'PUT',
+      '/api/v1/finance/opening-trial-balance',
+      body: body,
+    );
+    return (
+      OpeningTrialBalance.fromJson(_unwrapMap(response)),
+      stringValue(response['message']),
+    );
+  }
+
   Future<List<FinanceTypeRef>> journalTypes() async => _unwrapList(
         await request('GET', '/api/v1/finance/journal-types'),
         FinanceTypeRef.fromJson,

@@ -2918,6 +2918,13 @@ good enough that onboarding is a day's work rather than a project.
   balances can only be entered as hand-typed journal entries, one at a time. The
   `OPENING_BALANCE_EQUITY` control account exists precisely as their
   counterpart, and nothing but stock and customer balances posts to it.
+  **Built 2026-09-30 as the opening trial balance** (Accounts > Opening
+  Balances, `GET`/`PUT /api/v1/finance/opening-trial-balance`; the rules are in
+  `docs/LEDGER_POSTING_RULES.md`, "The opening trial balance is one journal,
+  replaced whole"). One statement on a cutover date, by account code, the
+  difference to opening balance equity, replaced whole by reversing the one
+  standing; sub-ledger accounts refused. The same `PUT` is what §46's file
+  import will send.
 - Smaller: the customer opening balance posts dated **today**, not a chosen
   cutover date, and firm readiness has no "opening balances" or "masters loaded"
   step, so nothing tells a firm its cutover is incomplete.

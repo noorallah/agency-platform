@@ -199,6 +199,8 @@ abstract final class MenuLayout {
             AppModule.accounting, 'chart-of-accounts', 'Chart of Accounts'),
         MenuItemSpec(
             AppModule.accounting, 'journal-entries', 'Journal Entries'),
+        MenuItemSpec(
+            AppModule.accounting, 'opening-balances', 'Opening Balances'),
         MenuItemSpec(AppModule.accounting, 'ledgers', 'Ledgers'),
       ]),
       MenuGroupSpec('Statements', [
