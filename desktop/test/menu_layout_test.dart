@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/sales_invoice.dart';
@@ -165,6 +166,80 @@ void main() {
         // other area offered here is a leak.
         if (shown != null) expect(shown.id, 'home');
       }
+    });
+  });
+
+  group('Settings > Selling (backlog 57)', () {
+    MenuGroupSpec selling() => MenuLayout.settings.groups
+        .singleWhere((group) => group.label == 'Selling');
+
+    test('holds the four settings that were only behind a screen', () {
+      expect(selling().items.map((item) => item.label), [
+        'Sales Stages',
+        'Credit Control',
+        'Loyalty Scheme',
+        'TCS Settings',
+      ]);
+      expect(selling().items.every((item) => item.isSetting), isTrue);
+      expect(selling().items.map((item) => item.path), [
+        MenuLayout.salesStagesRoute,
+        MenuLayout.creditControlRoute,
+        MenuLayout.loyaltySchemeRoute,
+        MenuLayout.tcsSettingsRoute,
+      ]);
+    });
+
+    test('each is gated by the permission its own screen asks', () {
+      expect(selling().items.map((item) => item.permission), [
+        'SALES_VIEW',
+        'CUSTOMER_VIEW',
+        'LOYALTY_VIEW',
+        'TCS_MANAGE',
+      ]);
+    });
+
+    List<String> offered(List<String> codes, {bool firm = true}) {
+      final ModuleVisibility visibility = ModuleVisibility(
+        permissions: _holding(codes),
+        activeBusinessModules: null,
+        salesStages: SalesWorkflowSettings.wholeChain,
+        hasActiveFirm: firm,
+      );
+      final MenuAreaSpec? shown =
+          MenuLayout.visible(MenuLayout.settings, visibility);
+      return [
+        for (final MenuGroupSpec group in shown?.groups ?? const [])
+          if (group.label == 'Selling')
+            for (final MenuItemSpec item in group.items) item.label,
+      ];
+    }
+
+    test('an item appears only for whoever holds its code', () {
+      expect(offered(const []), isEmpty);
+      expect(offered(['SALES_VIEW']), ['Sales Stages']);
+      expect(offered(['CUSTOMER_VIEW']), ['Credit Control']);
+      expect(offered(['LOYALTY_VIEW']), ['Loyalty Scheme']);
+      expect(offered(['TCS_MANAGE']), ['TCS Settings']);
+      // Viewing TCS is not changing it, and the dialog has no read-only form.
+      expect(offered(['TCS_VIEW']), isEmpty);
+      expect(
+        offered(
+            ['SALES_VIEW', 'CUSTOMER_VIEW', 'LOYALTY_VIEW', 'TCS_MANAGE']),
+        hasLength(4),
+      );
+    });
+
+    test('a firm-scoped setting is not offered with no firm chosen', () {
+      expect(
+        offered(['SALES_VIEW', 'CUSTOMER_VIEW'], firm: false),
+        isEmpty,
+      );
+    });
+
+    test('the menu comment no longer says these are waiting', () {
+      final String source =
+          File('lib/phase2/menu_layout.dart').readAsStringSync();
+      expect(source, isNot(contains('join [settings] when the Settings page')));
     });
   });
 }

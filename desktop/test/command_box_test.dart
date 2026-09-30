@@ -56,6 +56,19 @@ void main() {
     expect(_labels('supplier'), contains('Vendors'));
   });
 
+  test('the Selling settings are found by name (backlog 57)', () {
+    expect(_labels('sales stages').first, 'Sales Stages');
+    expect(_labels('credit limit'), contains('Credit Control'));
+    expect(_labels('credit control').first, 'Credit Control');
+    expect(_labels('loyalty'), contains('Loyalty Scheme'));
+    expect(_labels('tcs'), contains('TCS Settings'));
+    for (final String query in ['sales stages', 'credit limit', 'tcs']) {
+      final CommandScreen hit = matchScreens(_all, query)
+          .firstWhere((screen) => screen.item.isSetting);
+      expect(hit.place, startsWith('Settings'), reason: query);
+    }
+  });
+
   test('several words must all match', () {
     expect(_labels('stock ledger'), ['Stock Ledger']);
     expect(_labels('zzz'), isEmpty);
