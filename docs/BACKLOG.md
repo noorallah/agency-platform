@@ -5032,3 +5032,159 @@ firm, first screen, theme, text size, date format, rows per page -- opened
 from the user menu and from Setup's *This PC and me* (§72), with "switching
 firm on the bar is for this session; Start in firm is for next time" said on
 it.
+
+## 74. Money against a full ERP checklist: what else to consider
+
+Owner, 2026-09-28: after sales (§67), purchases (§68) and inventory (§70),
+review the money side the same way -- books, years, receipts and payments,
+party balances, tax filings, statements. Checked against the code the same
+day. Most of the usual gaps already have an entry, so this section first maps
+the checklist to them and then lists only what nothing else covers.
+
+**Built** (no action): chart of accounts with groups, 24 control-account
+purposes per firm, cost and profit centres; financial years and monthly
+periods that close oldest first and a year lock that is final; hand journals
+with draft, edit, reject, post and reverse, refused on the accounts a
+sub-ledger keeps (D-FIN-11); automatic posting from eleven modules; trial
+balance (opening, movement, closing), general ledger per account, P&L for a
+period with the year to date, balance sheet; receipts, payments and refunds
+by cash or bank with allocation to bills, advances, supplier credits and
+reversal (never edit); customer statement and ageing; customer credit notes
+that reverse tax (`app/credit_note`); opening stock and customer opening
+balances posted against opening balance equity; TCS 206C(1H) with its
+settings, collections and charged-versus-due; GSTR-1 and GSTR-3B (outward
+and input credit) derived from the documents; e-invoice and e-way bill in
+sandbox; an append-only audit trail in every store.
+
+**Already planned elsewhere:**
+
+| Checklist item | Where |
+| --- | --- |
+| Expenses (bills without stock: rent, power, travel) | PR #814, draft |
+| Bank reconciliation, statement import | §42.2 |
+| Post-dated cheques, clearing and bounce | §42.3 |
+| TDS payable (194Q, 194C, 194J) and TDS deducted by customers | §42.4, §53, §53.1 |
+| GSTR-2B matching | §42.5 |
+| GST set-off and payment, output tax by head, TCS deposit, 27EQ | §63 |
+| Reverse charge on purchases | §68 row 8 |
+| MSME 45-day payments; payment run | §68 rows 2, 9 |
+| Supplier debit note; supplier's credit note | §55 G8; §68 row 10 |
+| Day book, cash book, bank book | §55 M9 |
+| P&L for any months | §50 |
+| Cash discount for early payment; interest on overdue | §55 G9 |
+| Vendor ageing | §55 S7 |
+| Cheque printing | §55 S11 |
+| GSTR-9, composition | §55 G11 |
+| Export to Tally | §55 G4 |
+| Multi-currency, budgets, recurring entries, payroll | §55 N2, N8, N7, N1 |
+| Live e-invoice through a GSP | §55 M2 |
+| Branch GSTINs; stock value as of a date | §70 |
+| Opening balances from a previous tool | §36, §56 |
+| Screens scoped to a financial year | §37 |
+
+**To consider** -- each to validate with the go-live firms (§55):
+
+| # | Item | Today | The ask |
+| --- | --- | --- | --- |
+| 1 | **The new year's opening** (D-FIN-22) | No closing entry is ever posted. The balance sheet computes earnings from every income and expense account since the start, so it balances, but the trial balance of a second year opens Sales, Purchases and every expense at last year's closing (`JournalEngine._opening_balance` carries every account alike) | In the first period of a year, income and expense accounts open at zero and one line, **Profit and loss brought forward**, carries last year's net. Keep it derived, with no posted closing entry, as the balance sheet already is. The balance sheet splits equity into **surplus brought forward** and **profit for the year** (Schedule III, Reserves and Surplus) |
+| 2 | **Adjusting a party's balance without tax** | Only documents move a customer's or supplier's balance; hand journals are refused on receivables and payables (rightly). A receipt 3.00 short, a bank charge the customer's bank took, a bad debt: none can be cleared, so the bill stays unpaid forever. The only credit note either reverses tax (`/credit-notes`) or is the old route in D-FIN-23 | (a) On a receipt or payment: **deductions** -- rounding / short paid, bank charges, discount allowed or received -- each to its own account, closing the bill. (b) A **party adjustment** document: write-off or bad debt against a customer, balance written back for a supplier, with a reason, approval above an amount, and its journal. (c) **Set-off** between a customer and a supplier who are the same business (Dr payable / Cr receivable, both balances moved) |
+| 3 | **Contra: cash to bank and back** | Possible as a hand journal (cash and bank are open to them), with no document or number of its own | A **contra** voucher: deposit, withdrawal, bank-to-bank transfer, with its own series and print. Warn when cash in hand would go below zero on the day, which the ledger today shows without comment |
+| 4 | **Supplier statement and balance confirmation** | Customer statement and ageing exist; nothing for suppliers | A supplier statement of account (as the customer's) and, at year end, a **balance confirmation** letter for any party -- "our books show you owe / we owe X as of 31 March, please confirm" -- which auditors ask for |
+| 5 | **Cash flow statement** | Trial balance, P&L, balance sheet only | Cash flow for a period by the indirect method (profit, change in receivables, payables, stock, then investing and financing), derived from the same balances. Banks ask for it with a loan application |
+| 6 | **Fixed assets and depreciation** | Nothing; an asset is a ledger account at cost | An asset register (item, date put to use, cost, block), depreciation by written-down value at the income-tax block rates, and the half rate for assets used under 180 days in the year, posted once a year. Low for a trading firm, since the CA often does it; validate before building |
+| 7 | **A document behind every hand journal** | Journals carry a narration only | Attach the scanned bill or letter to a journal, receipt or payment, as auditors expect. Share the store with Expenses (#814) if it has one |
+
+**Suggested order:** 1 (the books a CA reads first; small) -> 2 (every firm
+has short receipts in the first week) -> 3, 4 (small) -> 7 -> 5 -> 6.
+
+### 74.1 What the finance master prompt adds (rows 8-16)
+
+Owner, 2026-09-28: a full "Money / Finance & Tax module" master prompt (81
+sections) reviewed against the code the same day. Most of it is built or
+already has an entry, as the table below shows. Nine points are new.
+
+**Already built** (the prompt asks, the code has it): double entry enforced on
+post; posted journals immutable, corrected by reversal; maker and checker
+(`JOURNAL_CREATE` / `JOURNAL_POST`); every automatic journal names its source
+document; firm isolation in the query layer (per-store sessions, `X-Firm-ID`
+membership); years and periods with close, lock and a separate
+`FINANCIAL_YEAR_REOPEN`; several cash and bank accounts (a receipt names its
+ledger account); receipts and payments with part allocation, advances,
+unallocated balance and reversal, never allocated silently; control accounts
+for rounding, discount allowed and received; decimal money throughout
+(`quantize_ledger`); tax rules versioned and matched by date; a tax
+execution log per evaluation; e-invoice behind a portal interface, refusal
+kept for retry, cancellation refused after 24 hours; e-way bill fields;
+`currency_code` on the documents; audit rows on every mutation.
+
+**Already planned:** bank reconciliation §42.2; cheques §42.3; TDS rules,
+payable, receivable, returns and certificates §42.4 / §53 / §53.1; GSTR-2B
+§42.5; GST payable, set-off, challan, TCS deposit and 27EQ §63; approval by
+amount §68 row 4 and §55 S12; expenses #814; supplier debit note §55 G8;
+customer debit note §67; supplier opening balances §36; day, cash and bank
+book §55 M9; cash flow, supplier statement §74 rows 5, 4; finance dashboard
+§49; live IRP through a GSP, with duplicate-IRN handling, §55 M2;
+multi-currency §55 N2.
+
+| # | Item | Today | The ask |
+| --- | --- | --- | --- |
+| 8 | **HSN kept on the invoice line** (D-CMP-22) | Lines keep the tax components and rates, but not the HSN/SAC: GSTR-1's HSN table, the e-invoice payload and a reprint read the product's **current** code | Copy `hsn_sac` onto every sales, purchase, return and credit note line when it is written (backfill existing lines from the product, once); the returns, payload and print read the line |
+| 9 | **GST checks before filing** | GSTR-1 folds a line with no HSN under a blank code; nothing lists what is wrong | An exception list per return period: B2B bill whose GSTIN fails the checksum or state code, missing HSN, HSN shorter than the firm's turnover requires (4 / 6 digits), missing place of supply, e-invoice required but not registered, credit note with no original invoice. Each row opens the document |
+| 10 | **Recording a filed return** | Returns are derived on every read, and nothing records that one was filed | A return register per GSTIN, return type and period: prepared, filed (typed by the person who filed on the portal: date, ARN), by whom. After filing, the period's figures are **kept as filed**, and a later change to a document in that period is shown as an amendment for the next return rather than silently changing the filed one. Never marked FILED by the app itself (the sandbox rule stands) |
+| 11 | **Quarterly filers (QRMP)** | Due dates and periods assume monthly | Filing frequency on the firm's GST registration; GSTR-1 by quarter (with the optional IFF in months 1-2), 3B quarterly, due dates 22nd / 24th by state; §63's payment by PMT-06 in months 1-2 |
+| 12 | **How the money moved** | `method` is CASH or BANK; the instrument is free text | A mode on receipts and payments -- UPI, cheque, NEFT / RTGS / IMPS, card, cash -- with instrument number and date, so the cash and bank books (M9) and bank matching (§42.2) can use it; cheque status stays §42.3 |
+| 13 | **The firm's bank accounts, and masking** | A bank is only a ledger account; supplier and customer bank numbers come back in full from the API | Bank name, account number, IFSC, branch on the firm's bank ledger accounts, printed on invoices ("pay to"); **show only the last four digits** of any account number except to a role that pays (the payment run in §68 row 9 needs the full one) |
+| 14 | **Checks before closing a month** | A period closes if the one before is closed; nothing else is asked | Before close, list and warn (or refuse, by firm setting): draft journals and documents dated in the month, approved documents with no journal, receipts left unallocated, unreconciled bank lines (after §42.2), GST return not recorded as filed (row 10) |
+| 15 | **Why tax was charged, kept on the document** | The line keeps component and rate; the rule that chose them is only in `tax_rule_execution_logs`, which retention may purge | Store the rule code and version on each line tax row, so the reason survives the log's retention and a reprint years later can say which rule applied |
+| 16 | **Ageing buckets and due lists** | Buckets fixed at 0-30-60-90-90+; overdue lists exist | Buckets set per firm; "due today" and "due this week" for receivables and payables, and a collection summary by salesman and route (with §62) |
+
+**Suggested order, whole section:** 8 (small; a filed return must not
+change) -> 1 -> 2 -> 9 -> 12 -> 13 -> 3, 4 -> 10, 11 -> 14 -> 15, 16 -> 7 ->
+5 -> 6.
+
+## 75. Masters and configuration against a full ERP checklist
+
+Owner, 2026-09-28: after Money (§74), review the masters -- customers,
+suppliers, products, branches and warehouses -- and the configuration they
+lean on: price lists, units, tax, business profiles, numbering. Checked against
+the code the same day.
+
+**Built** (no action): customers with groups, type, credit limit and terms,
+standing discount, ON_HOLD, several addresses and contacts on the geography
+masters, credit-control policy; suppliers with categories and types, contacts,
+addresses, bank accounts with UPI, tax details (GSTIN, PAN, TAN, FSSAI, drug
+licence, IEC), attachments and notes; products with a category tree, barcode
+and QR, HSN/SAC, tax profile group, seven unit roles and packaging levels,
+dimensions, batch / serial / expiry / warranty flags, media, MRP; branches and
+warehouses with storage bins; price lists by customer or territory with
+quantity breaks and dates; promotions; units and conversions; tax rules;
+business profiles and features; custom fields on every master; document
+numbering with prefix, financial year, branch code, reset and a manual switch;
+unique codes among live rows (D-MST-11); import from files (§46).
+
+**Already planned:** price levels and fixed rates §64 row 1; supplier rates
+§65 row 4; PAN / TAN / GSTIN format checks §53; licences §54; supplier payment
+terms and MSME §68 rows 1-2; supplier catalogue, MOQ, blocked supplier §69;
+branch GSTINs §70; batch-wise MRP §55 G5; ship-to per order §67; supplier
+opening balances §36; firm bank details §74.1 row 13; HSN kept on the line
+§74.1 row 8; extra fields on documents §52.
+
+**To consider** -- each to validate with the go-live firms (§55):
+
+| # | Item | Today | The ask |
+| --- | --- | --- | --- |
+| 1 | **Principal and brand** | `products.brand` is free text; nothing ties a product to the company whose agency the firm holds, or that company to its supplier record | A **principal** master (the company: HUL, Nestle) linked to its supplier, and a **brand** master under it; products name a brand. Principal-wise sales, stock and claims (§42.7), targets and reports all key on it |
+| 2 | **Customer's GST registration type** | Customers carry only a GSTIN and INDIVIDUAL / BUSINESS; suppliers have `gst_registration`. The e-invoice builder says "SEZ and deemed exports need a marker no customer carries yet" (`einvoice/services/payload.py`) | Regular, Composition, Unregistered, SEZ (with or without payment), Deemed export, Overseas on the customer, driving the GSTR-1 table (B2B, SEZWP / SEZWOP, DE, EXP), the e-invoice supply type, and a warning when an SEZ bill charges tax the LUT says it should not |
+| 3 | **One GSTIN or PAN on several customer accounts** | `UQ_customers_firm_gst_number_active` and `..._pan_number_active` refuse a second customer with the same GSTIN or PAN | Decide: outlets of one business, or one proprietor with two shops, are routinely kept as separate accounts on separate routes. Either allow the same GSTIN / PAN with a warning (as Tally does), or model outlets as delivery addresses of one customer (§67). Validate with the go-live firms before changing the keys D-MST-11 made |
+| 4 | **Customer and supplier as one party** | Two unrelated records | Link a customer to a supplier record; one combined statement, and the set-off of §74 row 2 |
+| 5 | **Discontinued, and not for sale** | Product status is ACTIVE or INACTIVE only | DISCONTINUED: refused on purchase orders, still sold until stock runs out, then flagged. Not-for-sale (samples, consumables, packing material): stock kept, never on a sales document |
+| 6 | **Shelf life** | Expiry is typed per batch | Shelf life (days) on the product fills expiry from the manufacturing date at receipt; a customer's **minimum remaining life** (modern trade refuses stock under a set share of its life) is warned at order and refused at dispatch |
+| 7 | **Price revision with an effective date** | `selling_price` and `purchase_price` are overwritten on edit, with no history and no future date | Schedule "new rates from the 1st" (from a principal's circular, often by file); the old rate holds until then, and the product keeps its rate history. Combines with §64 row 1 price levels |
+| 8 | **Duplicate check and merge** | Codes are unique; nothing warns of a second "Sri Balaji Stores" with the same phone; §36 notes there is no merge tool | Warn on create when name, phone or GSTIN resembles a live record; a **merge** that moves documents, balances and route membership to the survivor and records it, refused across a locked year |
+| 9 | **Customer attachments and bank account** | Suppliers have both; customers neither | Attachments (licence copies, KYC, agreements) and a bank account (for refunds by NEFT, masked per §74.1 row 13) on the customer |
+| 10 | **Codes from a series** | Customer, supplier and product codes are typed (`code` is required and pattern-checked) | Optional automatic codes from the numbering framework (CUS-0001, per firm or per category), as §34 does for stock movements; typing stays allowed. To verify what the phase 2 forms do |
+| 11 | **New outlet approval** | A new customer is ACTIVE at once | Optionally, a customer added by a salesman (in the field, §39) starts PENDING: orders taken, but no credit sale or invoice until the office approves it. Goes with §39 and §56 bulk approval |
+
+**Suggested order:** 2 (tax: SEZ and composition buyers are billed wrong
+without it) -> 5, 7 (small, and weekly work) -> 1 -> 3 (decide first) -> 4
+-> 6 -> 9, 10 -> 8 -> 11.
