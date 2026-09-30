@@ -62,7 +62,7 @@ Already right: trial balance, P&L and balance sheet read the maintained
 | Step | What | Status |
 | --- | --- | --- |
 | 1 | Stop loading movement histories; indexes for the hot look-ups and sorts | Done |
-| 2 | Chunk every large id list; summaries and outstanding in SQL | Next |
+| 2 | Chunk every large id list; summaries and outstanding in SQL | Done (#856) |
 | 3 | Build each list page in bulk, same response | Done: every document list, settlements, the inventory list/movements/ledger and the journal list read each child table and each name once per page (`children_by_parent` in `app/core/database/batch.py`, a `*_responses(rows)` per module that the single-row builder calls with `[row]`); the inventory export builds each row once, not once per column. At 12 rows a sales-invoice page went from 148 statements to 13, a purchase-invoice page from 170 to 10, and no page grows with its length -- `tests/unit/test_list_pages_are_batched.py` pins that and that every row equals the document built alone. Left: opening-stock batches (lines and names per line, rarely listed) |
 | 4 | SQL grouping for the report families; set-based back-dated carry | |
 | 5 | Measure: a bulk seeder at the target volume and a timing script over every list and report route, run on the minimum hardware | |
