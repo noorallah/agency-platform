@@ -4099,6 +4099,31 @@ refuses or warns about a sale.
 | 5 | The purchase check | 1 day |
 | Later | Scans, when file storage exists | -- |
 
+### Built so far (2026-09-30): steps 1 and 4
+
+The owner settled question 1 on 2026-09-30: **all four trades go live**, so
+pharma makes the whole of §54 a go-live item, steps 2, 3 and 5 included.
+
+| Piece | Where |
+| --- | --- |
+| Licence types master, every type seeded for every firm (DRUG_WHOLESALE, DRUG_RETAIL, DRUG_SCHEDULE_X, FSSAI, INSECTICIDE, FERTILISER, SEED, OTHER) -- not per profile, since all four trades go live and a type a firm does not use costs nothing | `app/trade_licences`, `GET/POST/PUT/DELETE /api/v1/trade-licences/types` |
+| One register for the firm (per branch), customers and vendors; standing (valid, expiring, expired, no valid-to) is derived on every read, never stored | `/api/v1/trade-licences`, `/expiring` (the firm's own first) |
+| `TRADE_LICENCE_VIEW` / `_MANAGE`, group `trade_licences` -- not `LICENSE_*`, which is product licensing. Sales and purchase managers manage, executives view | `app/identity/system_seed.py`, migration `20260930_0167` |
+| The old vendor `fssai` / `drug_license` and branch and vendor `license_number` copied into the register, only where missing | `20260930_0167` |
+| Licences valid on the bill date printed for the seller (firm and branch) and the buyer on the sales invoice | `PartyBlock.licences` |
+| Desktop: Trade Licences register in Masters, Licence Types under configuration, Home tile for licences expiring, licences listed on the customer and vendor forms | phase 2 |
+
+Decisions taken by convention: **valid-to is required when the type
+expires**, refused by the server and the dialog alike; an expired licence is
+never deleted, only superseded by a new row. The **expiry report** is the
+register itself sorted by valid-to -- a separate report adds nothing a
+filtered list does not.
+
+**Still to build:** step 2 (required licence on category and product),
+step 3 (the sale check: warn by default, block by firm policy, override by
+permission and recorded on the timeline), step 5 (the purchase check, warn
+only).
+
 ### For the owner at the review
 
 1. Which trades the first go-live firms are in -- pharma, food, agri --

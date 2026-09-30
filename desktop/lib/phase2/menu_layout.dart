@@ -236,6 +236,9 @@ abstract final class MenuLayout {
         MenuItemSpec(AppModule.masters, 'branches', 'Branches'),
         MenuItemSpec(AppModule.masters, 'warehouses', 'Warehouses'),
       ]),
+      MenuGroupSpec('Compliance', [
+        MenuItemSpec(AppModule.masters, 'trade-licences', 'Trade Licences'),
+      ]),
       // Set up once, rarely touched: drawn apart, under CONFIGURATION.
       MenuGroupSpec(
         'Parties',
@@ -247,6 +250,7 @@ abstract final class MenuLayout {
           MenuItemSpec(
               AppModule.masters, 'vendor-categories', 'Vendor Categories'),
           MenuItemSpec(AppModule.masters, 'vendor-types', 'Vendor Types'),
+          MenuItemSpec(AppModule.masters, 'licence-types', 'Licence Types'),
         ],
         configuration: true,
       ),

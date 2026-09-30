@@ -23,6 +23,10 @@ abstract class HomeSource {
   /// Batches that expire within 30 days.
   Future<int> batchesExpiringIn30Days();
 
+  /// Trade licences -- the firm's own, and its customers' and vendors' --
+  /// that have run out or run out within the server's warning window.
+  Future<int> expiringLicences();
+
   /// A document list's summary, by its screen's path.
   Future<Map<String, dynamic>> summary(String path);
 }
@@ -110,6 +114,7 @@ class Phase2HomePage extends StatefulWidget {
   static const String salesInvoices = 'salesInvoices/sales-invoices';
   static const String stock = 'inventory/inventory';
   static const String expiry = 'inventory/expiry-monitor';
+  static const String tradeLicences = 'masters/trade-licences';
 
   /// The to-do list, in the order of a trading day.
   ///
@@ -185,11 +190,13 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
   final _Figure<List<Map<String, dynamic>>> _outstanding = _Figure();
   final _Figure<int> _belowReorder = _Figure();
   final _Figure<int> _expiring = _Figure();
+  final _Figure<int> _licencesExpiring = _Figure();
   final Map<String, _Figure<Map<String, dynamic>>> _summaries = {};
 
   bool get _sales => widget.allowed(Phase2HomePage.salesInvoices);
   bool get _stock => widget.allowed(Phase2HomePage.stock);
   bool get _batches => widget.allowed(Phase2HomePage.expiry);
+  bool get _licences => widget.allowed(Phase2HomePage.tradeLicences);
 
   DateTime get _day =>
       DateTime(widget.today.year, widget.today.month, widget.today.day);
@@ -208,6 +215,9 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
     }
     if (_stock) _load(_belowReorder, widget.source.itemsBelowReorder());
     if (_batches) _load(_expiring, widget.source.batchesExpiringIn30Days());
+    if (_licences) {
+      _load(_licencesExpiring, widget.source.expiringLicences());
+    }
     for (final HomeTodo todo in Phase2HomePage.todos) {
       if (!widget.allowed(todo.path) || _summaries.containsKey(todo.path)) {
         continue;
@@ -347,7 +357,7 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
   Set<String> get _available => {
         if (_sales || _stock) 'figures',
         if (_sales) ...{'chart', 'recent'},
-        if (_todoRows().isNotEmpty || _batches) 'todo',
+        if (_todoRows().isNotEmpty || _batches || _licences) 'todo',
         if (_screens().isNotEmpty) 'screens',
       };
 
@@ -710,6 +720,18 @@ class _Phase2HomePageState extends State<Phase2HomePage> {
             strong: true,
             alert: (_expiring.value ?? 0) > 0,
             onTap: () => _open(Phase2HomePage.expiry),
+          ),
+        if (_licences)
+          _row(
+            context,
+            key: 'todo-licences-expiring',
+            left: 'Licences expiring',
+            right: _licencesExpiring.failed
+                ? '-'
+                : _licencesExpiring.value?.toString() ?? '…',
+            strong: true,
+            alert: (_licencesExpiring.value ?? 0) > 0,
+            onTap: () => _open(Phase2HomePage.tradeLicences),
           ),
       ]),
     );

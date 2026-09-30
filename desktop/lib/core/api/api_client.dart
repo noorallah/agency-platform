@@ -34,6 +34,7 @@ import '../../models/uom_packaging.dart';
 import '../../models/inventory.dart';
 import '../../models/vendor.dart';
 import '../../models/report.dart';
+import '../../models/trade_licence.dart';
 import '../preferences/desktop_preferences_service.dart';
 import '../preferences/user_preferences.dart';
 
@@ -5076,6 +5077,99 @@ class ApiClient {
           },
         ),
         AccountingPeriod.fromJson,
+      );
+
+  // ── Trade Licences ────────────────────────────────────────────────────
+  // Backlog 54. Every list here is a plain list, not a page -- a firm holds
+  // a handful of its own licences and one or two per customer or vendor -- so
+  // each is wrapped into a `PagedResult` here rather than pretending the
+  // server paginates. Types and licences are both written through the
+  // generic `create`/`update`/`delete` (`resource: 'trade-licences/types'`
+  // and `resource: 'trade-licences'`), so no named write methods are needed;
+  // `options('trade-licences/types')` serves the type dropdown the same way.
+
+  Future<List<TradeLicenceTypeRecord>> tradeLicenceTypes() async =>
+      _unwrapList(
+        await request('GET', '/api/v1/trade-licences/types'),
+        TradeLicenceTypeRecord.fromJson,
+      );
+
+  /// The types register as one page, for `ResourceDefinition.load`. The
+  /// endpoint has no search, so it is applied here, as `productCategoryPage`
+  /// does for the same reason.
+  Future<PagedResult<TradeLicenceTypeRecord>> tradeLicenceTypesPage({
+    int page = 1,
+    String search = '',
+    String sortBy = 'code',
+    bool descending = false,
+  }) async {
+    final List<TradeLicenceTypeRecord> rows = await tradeLicenceTypes();
+    final String needle = search.trim().toLowerCase();
+    final List<TradeLicenceTypeRecord> filtered = rows
+        .where((row) =>
+            needle.isEmpty ||
+            row.code.toLowerCase().contains(needle) ||
+            row.name.toLowerCase().contains(needle))
+        .toList()
+      ..sort((a, b) => a.code.compareTo(b.code));
+    return PagedResult(items: filtered, total: filtered.length);
+  }
+
+  Future<List<TradeLicenceRecord>> tradeLicences({
+    String? holderType,
+    String? branchId,
+    String? customerId,
+    String? vendorId,
+    String? licenceTypeId,
+  }) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/trade-licences',
+          query: {
+            if (holderType != null) 'holder_type': holderType,
+            if (branchId != null) 'branch_id': branchId,
+            if (customerId != null) 'customer_id': customerId,
+            if (vendorId != null) 'vendor_id': vendorId,
+            if (licenceTypeId != null) 'licence_type_id': licenceTypeId,
+          },
+        ),
+        TradeLicenceRecord.fromJson,
+      );
+
+  /// The whole register as one page, for `ResourceDefinition.load`.
+  Future<PagedResult<TradeLicenceRecord>> tradeLicencesPage({
+    int page = 1,
+    String search = '',
+    String sortBy = 'created_at',
+    bool descending = true,
+  }) async {
+    final List<TradeLicenceRecord> rows = await tradeLicences();
+    final String needle = search.trim().toLowerCase();
+    final List<TradeLicenceRecord> filtered = needle.isEmpty
+        ? rows
+        : rows
+            .where((row) =>
+                row.licenceNumber.toLowerCase().contains(needle) ||
+                row.holderName.toLowerCase().contains(needle) ||
+                row.licenceTypeName.toLowerCase().contains(needle))
+            .toList();
+    return PagedResult(items: filtered, total: filtered.length);
+  }
+
+  /// Licences that ran out or run out soon, the firm's own first -- what the
+  /// Home alert counts and, on a tap, opens the register to show.
+  Future<List<TradeLicenceRecord>> expiringTradeLicences(
+          {int? withinDays}) async =>
+      _unwrapList(
+        await request(
+          'GET',
+          '/api/v1/trade-licences/expiring',
+          query: {
+            if (withinDays != null) 'within_days': '$withinDays',
+          },
+        ),
+        TradeLicenceRecord.fromJson,
       );
 
   /// The trial balance for one accounting period.

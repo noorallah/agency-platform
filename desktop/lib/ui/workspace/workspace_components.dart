@@ -3667,7 +3667,8 @@ class StatusBadge extends StatelessWidget {
       'PENDING' ||
       'DRAFT' ||
       'NEAR EXPIRY' ||
-      'NEAR_EXPIRY' =>
+      'NEAR_EXPIRY' ||
+      'EXPIRING' =>
         StatusBadgeTone.warning,
       'INACTIVE' ||
       'REJECTED' ||
