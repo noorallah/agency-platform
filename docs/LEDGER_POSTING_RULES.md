@@ -222,6 +222,34 @@ Cancelling an approved bill mirrors its journal leg for leg, so the split
 reverses itself. Nothing on the sales side changed: output tax has always
 carried its components and 3B's outward half has always read them.
 
+## The opening trial balance is one journal, replaced whole
+
+Built 2026-09-30 (`docs/BACKLOG.md` §36, the second cutover gap). Cash, bank,
+fixed assets, loans, capital and tax balances brought over from the previous
+tool are entered as **one statement as at one cutover date**, account by
+account -- Tally's opening balances per ledger, Xero's conversion balances --
+at **Accounts > Opening Balances** or `PUT /api/v1/finance/opening-trial-balance`
+(`JOURNAL_POST`; read with `JOURNAL_VIEW`).
+
+- **It is kept as one posted journal**, `OTB-n`, source `opening_balances`
+  (`app/finance/services/opening_balances.py`), not in a table of its own: the
+  ledger already is the record. Saving again **reverses the standing journal
+  on its own date** (`OTB-n-REV`) and posts the new one, so what was entered
+  and when stays readable; an empty statement just takes it off. The journal
+  screen's reverse refuses it, as it refuses any document's journal.
+- **Lines name accounts by code**, so a statement exported from the old tool
+  loads without looking ids up. It is all or nothing: every bad row is named
+  in one refusal and nothing is written, and a date with no open period is
+  refused **before** the old statement is reversed.
+- **Whatever the lines leave unbalanced goes to Opening Balance Equity** --
+  credited when debits exceed credits, debited otherwise -- the counterpart
+  opening stock, customer balances and supplier bills already post to. So
+  the equity account itself is refused as a line.
+- **Sub-ledger accounts are refused** (the same set as hand journals,
+  D-FIN-11): receivables, payables, stock and the rest each have their own
+  opening path that keeps the party or the batch beside the figure --
+  a customer's opening balance, a supplier's opening bills, opening stock.
+
 ## A return is a view of the documents
 
 **A return is a view of the documents, and a supply is placed by the tax it

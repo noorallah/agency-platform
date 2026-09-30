@@ -706,6 +706,51 @@ class AccountSummary(FinanceSchema):
     closing_balance: Decimal
 
 
+class OpeningBalanceLineInput(FinanceSchema):
+    """One account's balance on the cutover date, named by its code.
+
+    By code rather than id, so a statement exported from the old tool can be
+    loaded without anybody looking ids up.
+    """
+
+    account_code: str = Field(min_length=1, max_length=20)
+    debit_amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18)
+    credit_amount: Decimal = Field(default=Decimal("0"), ge=0, max_digits=18)
+    description: str | None = Field(default=None, max_length=255)
+
+
+class OpeningTrialBalanceReplace(FinanceSchema):
+    """Replace the whole opening trial balance; an empty list takes it off."""
+
+    as_of_date: date
+    lines: list[OpeningBalanceLineInput] = Field(default_factory=list)
+
+
+class OpeningBalanceLineResponse(FinanceSchema):
+    """One account's opening balance as it stands in the ledger."""
+
+    ledger_account_id: UUID
+    account_code: str
+    account_name: str
+    account_type: AccountTypeEnum
+    debit_amount: Decimal
+    credit_amount: Decimal
+    description: str | None
+
+
+class OpeningTrialBalanceResponse(FinanceSchema):
+    """The opening trial balance standing and its difference to equity."""
+
+    as_of_date: date | None
+    journal_entry_id: UUID | None
+    reference_number: str | None
+    lines: list[OpeningBalanceLineResponse]
+    total_debit: Decimal
+    total_credit: Decimal
+    #: Credited to opening balance equity when positive, debited when negative.
+    equity_difference: Decimal
+
+
 __all__ = [
     "AccountGroupCreate",
     "AccountGroupResponse",
@@ -738,6 +783,10 @@ __all__ = [
     "LedgerAccountResponse",
     "LedgerAccountUpdate",
     "LedgerBalanceResponse",
+    "OpeningBalanceLineInput",
+    "OpeningBalanceLineResponse",
+    "OpeningTrialBalanceReplace",
+    "OpeningTrialBalanceResponse",
     "PeriodStatusEnum",
     "PostingStatusEnum",
     "ProfitCenterCreate",

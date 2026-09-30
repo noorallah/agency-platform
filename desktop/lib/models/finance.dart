@@ -826,3 +826,94 @@ class FinancialYear {
         isLocked: boolValue(json['is_locked']),
       );
 }
+
+/// One account's opening balance, as it stands in the ledger
+/// (`GET /finance/opening-trial-balance`).
+class OpeningBalanceLine {
+  const OpeningBalanceLine({
+    required this.ledgerAccountId,
+    required this.accountCode,
+    required this.accountName,
+    required this.accountType,
+    required this.debitAmount,
+    required this.creditAmount,
+    required this.description,
+  });
+
+  final String ledgerAccountId;
+  final String accountCode;
+  final String accountName;
+  final String accountType;
+  final String debitAmount;
+  final String creditAmount;
+  final String description;
+
+  factory OpeningBalanceLine.fromJson(Json json) => OpeningBalanceLine(
+        ledgerAccountId: stringValue(json['ledger_account_id']),
+        accountCode: stringValue(json['account_code']),
+        accountName: stringValue(json['account_name']),
+        accountType: stringValue(json['account_type']),
+        debitAmount: stringValue(json['debit_amount']),
+        creditAmount: stringValue(json['credit_amount']),
+        description: stringValue(json['description']),
+      );
+}
+
+/// Where a firm's books stood on its cutover date, as one posted journal
+/// (backlog 36): `GET`/`PUT /finance/opening-trial-balance`.
+///
+/// Sub-ledger accounts and Opening Balance Equity itself are refused as
+/// lines -- a customer's opening balance, a supplier's opening bills and
+/// opening stock each keep their own path, and equity is the answer, not a
+/// line: whatever the statement leaves unbalanced lands there.
+class OpeningTrialBalance {
+  const OpeningTrialBalance({
+    required this.asOfDate,
+    required this.journalEntryId,
+    required this.referenceNumber,
+    required this.lines,
+    required this.totalDebit,
+    required this.totalCredit,
+    required this.equityDifference,
+  });
+
+  /// Null when nothing has ever been entered.
+  final String? asOfDate;
+  final String? journalEntryId;
+  final String? referenceNumber;
+  final List<OpeningBalanceLine> lines;
+  final String totalDebit;
+  final String totalCredit;
+
+  /// Credited to Opening Balance Equity when positive, debited when
+  /// negative, as a decimal string.
+  final String equityDifference;
+
+  static const OpeningTrialBalance empty = OpeningTrialBalance(
+    asOfDate: null,
+    journalEntryId: null,
+    referenceNumber: null,
+    lines: [],
+    totalDebit: '0.00',
+    totalCredit: '0.00',
+    equityDifference: '0.00',
+  );
+
+  factory OpeningTrialBalance.fromJson(Json json) => OpeningTrialBalance(
+        asOfDate:
+            json['as_of_date'] == null ? null : stringValue(json['as_of_date']),
+        journalEntryId: json['journal_entry_id'] == null
+            ? null
+            : stringValue(json['journal_entry_id']),
+        referenceNumber: json['reference_number'] == null
+            ? null
+            : stringValue(json['reference_number']),
+        lines: (json['lines'] as List? ?? const [])
+            .map((item) =>
+                OpeningBalanceLine.fromJson(Map<String, dynamic>.from(item as Map)))
+            .toList(),
+        totalDebit: stringValue(json['total_debit']),
+        totalCredit: stringValue(json['total_credit']),
+        equityDifference: stringValue(json['equity_difference']),
+      );
+}

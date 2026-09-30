@@ -935,6 +935,14 @@ abstract final class ModuleCatalog {
           label: 'Journal Entries',
           requiredPermissions: ['JOURNAL_VIEW'],
         ),
+        // Where the books stood on the firm's cutover date (backlog 36).
+        // Posts straight to the ledger like a journal, so it reads on the
+        // same code and is saved with JOURNAL_POST.
+        ModuleTabDefinition(
+          id: 'opening-balances',
+          label: 'Opening Balances',
+          requiredPermissions: ['JOURNAL_VIEW'],
+        ),
         ModuleTabDefinition(
           id: 'receipts',
           label: 'Receipts',
