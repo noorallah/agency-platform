@@ -1,41 +1,37 @@
 """Bring a firm's products in from a spreadsheet, with a template to fill in.
 
-Backlog 46. A firm moving from Tally, Excel or another ERP brings its item
-master as a file. The rules the import keeps:
+Backlog 46. The rules every master import keeps -- check every row, write all
+or nothing, match headings loosely, update by code on request -- live in
+``app.common.file_import``. What is particular to products:
 
-* **Every row is checked before anything is written**, and every problem is
-  reported with its row number and column -- not only the first, because a
-  3,000-row file that fails one row at a time is re-run 3,000 times.
-* **All or nothing.** Each row goes through ``stage_product`` or
-  ``stage_update_product`` -- the same guards and audit writes as the form --
-  and the file commits once, or not at all.
 * **References are matched, never guessed.** A category, unit or tax group is
   found by code or by name, ignoring case; one that is not there is reported.
-* **Headings are matched ignoring case, spaces and punctuation**, with the
-  names other software commonly exports ("Item Code", "HSN/SAC", "Sale
-  Price"), so an export needs little editing.
-* **Update by code is an option.** With ``existing="update"`` a row whose
-  code is already a product updates it, and a blank cell leaves that field
-  alone -- so a migration can be corrected and re-run.
+* **Headings answer to the names other software exports** ("Item Code",
+  "HSN/SAC", "Sale Price"), so an export needs little editing.
 """
 
 # ruff: noqa: D102, D107
 
-import csv
-import io
-import re
-from collections.abc import Callable, Iterator
-from dataclasses import dataclass, field
-from decimal import Decimal, InvalidOperation
-from io import BytesIO
-from typing import TYPE_CHECKING, Literal
+from collections.abc import Callable
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import ApplicationError, ValidationError
+from app.common import file_import
+from app.common.file_import import (
+    Column,
+    ExistingRows,
+    FileImporter,
+    ImportIssue,
+    ImportReport,
+    ImportRow,
+    RowReader,
+    schema_issues,
+)
+from app.core.exceptions import ApplicationError
 from app.products.models import Product, ProductCategory
 from app.products.schemas import ProductCreate, ProductUpdate
 from app.products.schemas.product import ProductStatus, ProductType
@@ -45,19 +41,14 @@ from app.uom.models import Uom
 if TYPE_CHECKING:
     from app.products.services.product_service import ProductService
 
-ExistingRows = Literal["refuse", "update"]
-
-
-@dataclass(frozen=True)
-class Column:
-    """One template column: its heading, the names it also answers to, and help."""
-
-    heading: str
-    aliases: tuple[str, ...]
-    required: bool
-    takes: str
-    example: str
-
+__all__ = [
+    "COLUMNS",
+    "ExistingRows",
+    "ImportReport",
+    "ProductFileImporter",
+    "template_csv",
+    "template_workbook",
+]
 
 #: The template, in the order it is laid out. The headings are what the notes
 #: sheet explains and what every error names.
@@ -226,59 +217,6 @@ _FLAG_FIELDS: dict[str, str] = {
     "TrackSerial": "track_serial",
     "AllowNegativeStock": "allow_negative_stock",
 }
-_YES = {"yes", "y", "true", "1", "t"}
-_NO = {"no", "n", "false", "0", "f"}
-
-
-def normalise_heading(value: object) -> str:
-    """Reduce a heading to letters and digits, lower case."""
-    return re.sub(r"[^a-z0-9]", "", str(value or "").lower())
-
-
-_HEADING_LOOKUP: dict[str, str] = {}
-for _column in COLUMNS:
-    _HEADING_LOOKUP[normalise_heading(_column.heading)] = _column.heading
-    for _alias in _column.aliases:
-        _HEADING_LOOKUP[_alias] = _column.heading
-
-
-@dataclass
-class ImportIssue:
-    """One problem with one row: where, and what."""
-
-    row: int
-    code: str | None
-    column: str | None
-    message: str
-
-    def describe(self) -> str:
-        """Render it the way every import error in this module reads."""
-        where = f"Row {self.row}" + (f" ({self.code})" if self.code else "")
-        column = f"{self.column}: " if self.column else ""
-        return f"{where}: {column}{self.message}"
-
-
-@dataclass
-class ImportReport:
-    """What a file would do, or did."""
-
-    rows: int = 0
-    to_create: int = 0
-    to_update: int = 0
-    skipped_blank: int = 0
-    columns_used: list[str] = field(default_factory=list)
-    columns_ignored: list[str] = field(default_factory=list)
-    issues: list[ImportIssue] = field(default_factory=list)
-    imported: bool = False
-    products: list[Product] = field(default_factory=list)
-
-
-@dataclass
-class _Row:
-    """One data row read off the file, by canonical heading."""
-
-    number: int
-    cells: dict[str, str]
 
 
 class _References:
@@ -338,120 +276,22 @@ class _References:
         return None
 
 
-def read_rows(
-    content: bytes, file_format: Literal["csv", "xlsx"]
-) -> tuple[list[_Row], list[str], list[str]]:
-    """Read a file into rows keyed by canonical heading.
-
-    Returns the rows, the headings used and the headings ignored. The header
-    is row 1, as a spreadsheet shows it, so data starts at row 2.
-    """
-    grid = _read_csv(content) if file_format == "csv" else _read_xlsx(content)
-    try:
-        header = next(grid)
-    except StopIteration:
-        return [], [], []
-    positions: dict[str, int] = {}
-    ignored: list[str] = []
-    for position, raw in enumerate(header):
-        heading = _HEADING_LOOKUP.get(normalise_heading(raw))
-        if heading is None or heading in positions:
-            if str(raw or "").strip():
-                ignored.append(str(raw).strip())
-            continue
-        positions[heading] = position
-    rows: list[_Row] = []
-    for number, values in enumerate(grid, start=2):
-        cells = {
-            heading: _cell_text(values[position]) if position < len(values) else ""
-            for heading, position in positions.items()
-        }
-        rows.append(_Row(number=number, cells=cells))
-    used = [column.heading for column in COLUMNS if column.heading in positions]
-    return rows, used, ignored
-
-
-def _read_csv(content: bytes) -> Iterator[list[object]]:
-    """Yield CSV rows, taking the byte-order mark Excel writes."""
-    try:
-        text = content.decode("utf-8-sig")
-    except UnicodeDecodeError:
-        # Excel on Windows saves "CSV" in the ANSI code page.
-        text = content.decode("cp1252")
-    yield from csv.reader(io.StringIO(text))
-
-
-def _read_xlsx(content: bytes) -> Iterator[list[object]]:
-    """Yield the rows of the workbook's first sheet."""
-    try:
-        from openpyxl import load_workbook  # type: ignore[import-untyped]
-    except ImportError as error:
-        raise ValidationError(
-            "XLSX import dependency is unavailable. Install openpyxl."
-        ) from error
-    try:
-        workbook = load_workbook(filename=BytesIO(content), read_only=True)
-    except Exception as error:  # noqa: BLE001 -- any unreadable file
-        raise ValidationError("The file is not a readable XLSX workbook.") from error
-    sheet = workbook.worksheets[0]
-    for values in sheet.iter_rows(values_only=True):
-        yield list(values)
-
-
-def _cell_text(value: object) -> str:
-    """Read a cell as trimmed text; a whole float loses its ``.0``."""
-    if value is None:
-        return ""
-    if isinstance(value, bool):
-        return "Yes" if value else "No"
-    if isinstance(value, float) and value.is_integer():
-        return str(int(value))
-    return str(value).strip()
-
-
-class ProductFileImporter:
+class ProductFileImporter(FileImporter[Product]):
     """Check a product file row by row, and import it whole or not at all."""
 
+    COLUMNS = COLUMNS
+    NOUN = "product"
+
     def __init__(self, session: Session, service: "ProductService") -> None:
-        self._session = session
+        super().__init__(session)
         self._service = service
+        self._references: _References | None = None
 
-    def run(
-        self,
-        content: bytes,
-        *,
-        file_format: Literal["csv", "xlsx"],
-        firm_id: UUID,
-        actor_id: UUID,
-        existing: ExistingRows = "refuse",
-        apply: bool,
-    ) -> ImportReport:
-        """Check every row; with ``apply``, commit the file if nothing failed.
+    def _prepare(self, firm_id: UUID) -> None:
+        self._references = _References(self._session, firm_id)
 
-        Nothing is written by a check, and nothing is written by an apply
-        that found a problem: the staged rows are rolled back either way.
-        """
-        rows, used, ignored = read_rows(content, file_format)
-        report = ImportReport(columns_used=used, columns_ignored=ignored)
-        missing = [
-            column.heading
-            for column in COLUMNS
-            if column.required and column.heading not in used
-        ]
-        if missing:
-            report.issues.append(
-                ImportIssue(
-                    row=1,
-                    code=None,
-                    column=None,
-                    message="The heading row has no "
-                    + " or ".join(missing)
-                    + " column. Download the template to see the headings.",
-                )
-            )
-            return report
-        references = _References(self._session, firm_id)
-        stored = {
+    def _stored(self, firm_id: UUID) -> dict[str, Product]:
+        return {
             product.code: product
             for product in self._session.scalars(
                 select(Product).where(
@@ -459,73 +299,21 @@ class ProductFileImporter:
                 )
             ).all()
         }
-        seen: dict[str, int] = {}
-        try:
-            for row in rows:
-                if not any(row.cells.values()):
-                    report.skipped_blank += 1
-                    continue
-                report.rows += 1
-                code = row.cells.get("Code", "").strip().upper()
-                if not code:
-                    report.issues.append(
-                        ImportIssue(row.number, None, "Code", "is required.")
-                    )
-                    continue
-                if code in seen:
-                    report.issues.append(
-                        ImportIssue(
-                            row.number,
-                            code,
-                            "Code",
-                            f"appears again; row {seen[code]} already has it.",
-                        )
-                    )
-                    continue
-                seen[code] = row.number
-                current = stored.get(code)
-                if current is not None and existing == "refuse":
-                    report.issues.append(
-                        ImportIssue(
-                            row.number,
-                            code,
-                            "Code",
-                            "is already a product. Choose to update existing "
-                            "products to change it from this file.",
-                        )
-                    )
-                    continue
-                self._stage(row, code, current, references, firm_id, actor_id, report)
-        except Exception:
-            self._session.rollback()
-            raise
-        if report.rows == 0 and not report.issues:
-            report.issues.append(
-                ImportIssue(1, None, None, "The file has no product rows.")
-            )
-        if not apply or report.issues:
-            self._session.rollback()
-            report.products = []
-            return report
+
+    def _commit(self) -> None:
         self._service._commit()
-        for product in report.products:
-            self._session.refresh(product)
-        report.imported = True
-        return report
 
     def _stage(
         self,
-        row: _Row,
+        row: ImportRow,
         code: str,
         current: Product | None,
-        references: _References,
         firm_id: UUID,
         actor_id: UUID,
-        report: ImportReport,
+        report: ImportReport[Product],
     ) -> None:
-        """Build, validate and stage one row; record what went wrong if not."""
         issues: list[ImportIssue] = []
-        values = self._values(row, code, current, references, issues)
+        values = self._values(RowReader(row, code, issues), code, current)
         if issues:
             report.issues.extend(issues)
             return
@@ -536,14 +324,7 @@ class ProductFileImporter:
                 else ProductUpdate.model_validate(values)
             )
         except PydanticValidationError as error:
-            for detail in error.errors():
-                name = str(detail["loc"][0]) if detail["loc"] else ""
-                message = str(detail["msg"]).removeprefix("Value error, ")
-                report.issues.append(
-                    ImportIssue(
-                        row.number, code, _FIELD_HEADINGS.get(name), message + "."
-                    )
-                )
+            report.issues.extend(schema_issues(error, row, code, _FIELD_HEADINGS))
             return
         try:
             if isinstance(data, ProductCreate):
@@ -561,15 +342,10 @@ class ProductFileImporter:
             # still sound and the rest of the file can be checked.
             report.issues.append(ImportIssue(row.number, code, None, error.message))
             return
-        report.products.append(product)
+        report.records.append(product)
 
     def _values(
-        self,
-        row: _Row,
-        code: str,
-        current: Product | None,
-        references: _References,
-        issues: list[ImportIssue],
+        self, reader: RowReader, code: str, current: Product | None
     ) -> dict[str, object]:
         """Turn one row's cells into write-schema values.
 
@@ -577,55 +353,40 @@ class ProductFileImporter:
         cell -- or a column the file does not have -- is left out, so it leaves
         the stored value alone.
         """
-        cells = row.cells
-
-        def fail(column: str, message: str) -> None:
-            """Record one problem with this row."""
-            issues.append(ImportIssue(row.number, code, column, message))
-
         values: dict[str, object] = {"code": code}
-        name = cells.get("Name", "")
+        name = reader.text("Name")
         if name:
             values["name"] = name
         elif current is None:
-            fail("Name", "is required.")
+            reader.fail("Name", "is required.")
         else:
             values["name"] = current.name
-        kind = cells.get("Type", "").upper().replace(" ", "_")
+        kind = reader.text("Type").upper().replace(" ", "_")
         if kind:
             values["product_type"] = kind
         else:
             values["product_type"] = (
                 current.product_type if current is not None else "STOCK_ITEM"
             )
-        status = cells.get("Status", "").upper()
+        status = reader.text("Status").upper()
         if status:
             values["status"] = status
         for heading, target in _TEXT_FIELDS.items():
-            if cells.get(heading):
-                values[target] = cells[heading]
-        hsn = cells.get("HSN", "")
+            if reader.text(heading):
+                values[target] = reader.text(heading)
+        hsn = reader.text("HSN")
         if hsn:
             values["hsn_sac"] = hsn.upper()
         for heading, target in _MONEY_FIELDS.items():
-            raw = cells.get(heading, "")
-            if not raw:
-                continue
-            try:
-                values[target] = Decimal(raw.replace(",", "").strip())
-            except InvalidOperation:
-                fail(heading, f"'{raw}' is not a number.")
+            amount = reader.number(heading)
+            if amount is not None:
+                values[target] = amount
         for heading, target in _FLAG_FIELDS.items():
-            raw = cells.get(heading, "").lower()
-            if not raw:
-                continue
-            if raw in _YES:
-                values[target] = True
-            elif raw in _NO:
-                values[target] = False
-            else:
-                fail(heading, f"'{cells[heading]}' should be Yes or No.")
-        self._resolve(cells, current, references, values, fail)
+            flag = reader.flag(heading)
+            if flag is not None:
+                values[target] = flag
+        assert self._references is not None
+        self._resolve(reader.cells, current, self._references, values, reader.fail)
         return values
 
     @staticmethod
@@ -690,57 +451,18 @@ class ProductFileImporter:
 
 def template_workbook(session: Session, firm_id: UUID) -> bytes:
     """Build the XLSX template: the sheet to fill, the notes, and the lists."""
-    try:
-        from openpyxl import Workbook
-        from openpyxl.styles import Font  # type: ignore[import-untyped]
-    except ImportError as error:
-        raise ValidationError(
-            "XLSX export dependency is unavailable. Install openpyxl."
-        ) from error
-    workbook = Workbook()
-    sheet = workbook.active
-    sheet.title = "Products"
-    sheet.append([column.heading for column in COLUMNS])
-    sheet.append([column.example for column in COLUMNS])
-    for cell in sheet[1]:
-        cell.font = Font(bold=True)
-    for index, column in enumerate(COLUMNS, start=1):
-        letter = sheet.cell(row=1, column=index).column_letter
-        sheet.column_dimensions[letter].width = max(12, len(column.heading) + 4)
-    sheet.freeze_panes = "A2"
-
-    notes = workbook.create_sheet("Notes")
-    notes.append(["Column", "Required", "What it takes", "Also read from"])
-    for column in COLUMNS:
-        notes.append(
-            [
-                column.heading,
-                "Yes" if column.required else "No",
-                column.takes,
-                ", ".join(column.aliases),
-            ]
-        )
-    notes.append([])
-    for line in (
-        "Replace the example row with your products; only the Products sheet "
-        "is read.",
-        "Headings are matched ignoring case and spaces, and the names in "
-        "'Also read from' are accepted too; other columns are ignored.",
-        "Nothing is saved until every row passes the check.",
-        "When updating existing products, a blank cell leaves that field " "as it is.",
-        "Opening stock is imported separately, under Inventory.",
-    ):
-        notes.append([line])
-    for cell in notes[1]:
-        cell.font = Font(bold=True)
-    notes.column_dimensions["A"].width = 20
-    notes.column_dimensions["C"].width = 70
-    notes.column_dimensions["D"].width = 50
-
     references = _References(session, firm_id)
-    lists = workbook.create_sheet("Lists")
-    lists.append(
-        [
+    parents = {item.id: item.code for item in references.categories}
+    categories = sorted(references.categories, key=lambda item: item.path)
+    units = sorted(
+        {unit.id: unit for unit in references.units.values()}.values(),
+        key=lambda unit: unit.code,
+    )
+    return file_import.template_workbook(
+        sheet_title="Products",
+        columns=COLUMNS,
+        notes=["Opening stock is imported separately, under Inventory."],
+        lists_header=[
             "Category code",
             "Category name",
             "Parent",
@@ -749,46 +471,23 @@ def template_workbook(session: Session, firm_id: UUID) -> bytes:
             "Unit name",
             "",
             "Tax group",
-        ]
-    )
-    parents = {item.id: item.code for item in references.categories}
-    categories = sorted(references.categories, key=lambda item: item.path)
-    units = sorted(
-        {unit.id: unit for unit in references.units.values()}.values(),
-        key=lambda unit: unit.code,
-    )
-    groups = sorted(references.tax_groups.values())
-    for index in range(max(len(categories), len(units), len(groups))):
-        category = categories[index] if index < len(categories) else None
-        unit = units[index] if index < len(units) else None
-        group = groups[index] if index < len(groups) else None
-        lists.append(
+        ],
+        lists=[
+            [item.code for item in categories],
+            [item.name for item in categories],
             [
-                category.code if category else None,
-                category.name if category else None,
-                (
-                    parents.get(category.parent_id)
-                    if category and category.parent_id
-                    else None
-                ),
-                None,
-                unit.code if unit else None,
-                unit.name if unit else None,
-                None,
-                group,
-            ]
-        )
-    for cell in lists[1]:
-        cell.font = Font(bold=True)
-    buffer = BytesIO()
-    workbook.save(buffer)
-    return buffer.getvalue()
+                parents.get(item.parent_id) if item.parent_id else None
+                for item in categories
+            ],
+            [],
+            [unit.code for unit in units],
+            [unit.name for unit in units],
+            [],
+            sorted(references.tax_groups.values()),
+        ],
+    )
 
 
 def template_csv() -> str:
     """Build the CSV template: the headings and one example row."""
-    buffer = io.StringIO()
-    writer = csv.writer(buffer, lineterminator="\n")
-    writer.writerow([column.heading for column in COLUMNS])
-    writer.writerow([column.example for column in COLUMNS])
-    return buffer.getvalue()
+    return file_import.template_csv(COLUMNS)

@@ -1201,7 +1201,7 @@ class ProductService:
         actor_id: UUID,
         existing: ExistingRows,
         apply: bool,
-    ) -> ImportReport:
+    ) -> ImportReport[Product]:
         """Check a product file, and with ``apply`` import it if it is clean."""
         return ProductFileImporter(self._session, self).run(
             content,
@@ -1243,7 +1243,7 @@ class ProductService:
                 f"{first}{tail} Nothing was imported.",
                 details={"issues": [issue.describe() for issue in report.issues]},
             )
-        return report.products
+        return report.records
 
     def _apply_filters(
         self,

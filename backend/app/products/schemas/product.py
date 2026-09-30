@@ -365,28 +365,3 @@ class BulkProductRequest(ProductSchema):
     """Bulk operation target identifiers."""
 
     ids: list[UUID] = Field(min_length=1, max_length=2000)
-
-
-class ProductImportIssueResponse(ProductSchema):
-    """One problem with one row of an imported file (backlog 46)."""
-
-    row: int
-    code: str | None
-    column: str | None
-    message: str
-    #: The whole line as the desktop lists it, "Row 3 (RICE): Unit: ...".
-    text: str
-
-
-class ProductImportReportResponse(ProductSchema):
-    """What checking, or importing, a product file found."""
-
-    rows: int
-    to_create: int
-    to_update: int
-    skipped_blank: int
-    columns_used: list[str]
-    columns_ignored: list[str]
-    issues: list[ProductImportIssueResponse]
-    #: True only when the file was applied and committed.
-    imported: bool
