@@ -3109,6 +3109,11 @@ APK**, built to look at screens on a phone, not a field application.
 sync them when back at the office, with the system remaining the authority on
 what was actually applied.
 
+**Design, 2026-09-30:** `docs/FIELD_COLLECTIONS.md` -- the online and offline
+options (office Wi-Fi, file exchange with a small offline app, QR), the daily
+route-pack / collect / sync cycle, and the integrity checks that stop a receipt
+or a file going missing.
+
 **Shape of the work.**
 
 - **A route pack before he leaves.** One download: his route's customers in
@@ -3804,6 +3809,10 @@ basic version; build after review. This takes up **§14** (emailing a
 document), **§42.1** (WhatsApp, SMS, reminders) and **§42.10** (UPI QR and
 payment links), and answers their open questions by the convention of Tally,
 BUSY, Vyapar and Zoho Books, for the owner to confirm at the review.
+
+**Detail for Phase B, and the rule that it ships off and each firm switches
+it on with its own provider account:** `docs/MESSAGING_FRAMEWORK.md`
+(2026-09-30).
 
 ### What exists to build on
 
