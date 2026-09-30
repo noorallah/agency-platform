@@ -23,6 +23,7 @@ from app.core.exceptions import ConflictError, ResourceNotFoundError, Validation
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO
+from app.core.utils.pricing import apportion, resolve_bill_discount
 from app.document_framework.models import (
     DocumentTypeDefinition,
 )
@@ -48,6 +49,7 @@ from app.purchase.models import (
 from app.purchase.schemas import (
     PurchaseAttachmentResponse,
     PurchaseDeliveryScheduleResponse,
+    PurchaseLineWrite,
     PurchaseNoteResponse,
     PurchaseOrderByBuyerRecord,
     PurchaseOrderByProductRecord,
@@ -1292,6 +1294,24 @@ class PurchaseService(TransactionalDocumentService):
         gross_total = Decimal("0")
         line_discount_total = Decimal("0")
         tax_total = Decimal("0")
+        # The whole-order discount is split across the lines *before* tax, in
+        # proportion to what each is worth after its own discount. It used to
+        # come off the grand total after tax, so it lowered no taxable value
+        # and the input tax was overstated by the tax on it (D-BUY-19).
+        taxables = [
+            self._q(
+                self._q(line.ordered_quantity * line.unit_price)
+                - self._line_discount_amount(
+                    line, self._q(line.ordered_quantity * line.unit_price)
+                )
+            )
+            for line in data.lines
+        ]
+        header_discount = resolve_bill_discount(
+            taxable=self._q(sum(taxables, ZERO)),
+            amount=data.header_discount_amount or None,
+        ).amount
+        shares = apportion(header_discount, taxables)
         for idx, line in enumerate(data.lines, start=1):
             product = self._active_product(order.firm_id, line.product_id)
             conversion = self._conversion(
@@ -1303,12 +1323,9 @@ class PurchaseService(TransactionalDocumentService):
                 firm_id=order.firm_id,
             )
             gross_amount = self._q(line.ordered_quantity * line.unit_price)
-            discount_amount = (
-                self._q(gross_amount * line.discount_percent / Decimal("100"))
-                if line.discount_amount <= 0
-                else self._q(line.discount_amount)
-            )
-            taxable = self._q(gross_amount - discount_amount)
+            discount_amount = self._line_discount_amount(line, gross_amount)
+            bill_share = shares[idx - 1]
+            taxable = self._q(gross_amount - discount_amount - bill_share)
             # A product names its tax group, not a version, so the rate is
             # resolved from the document date. product.tax_profile_id has not
             # existed since the group_code refactor and raised AttributeError
@@ -1351,6 +1368,7 @@ class PurchaseService(TransactionalDocumentService):
                 unit_price=self._q(line.unit_price),
                 discount_percent=self._q(line.discount_percent),
                 discount_amount=discount_amount,
+                bill_discount_amount=bill_share,
                 gross_amount=gross_amount,
                 tax_profile_id=tax_profile_id,
                 tax_amount=tax_amount,
@@ -1395,7 +1413,7 @@ class PurchaseService(TransactionalDocumentService):
         subtotal = self._q(gross_total - line_discount_total)
         grand_total = self._q(
             subtotal
-            - data.header_discount_amount
+            - header_discount
             + tax_total
             + data.additional_charges
             + data.round_off
@@ -1406,6 +1424,14 @@ class PurchaseService(TransactionalDocumentService):
             "tax_total": self._q(tax_total),
             "grand_total": grand_total,
         }
+
+    def _line_discount_amount(
+        self, line: PurchaseLineWrite, gross_amount: Decimal
+    ) -> Decimal:
+        """Return a line's own discount: the typed amount, else the rate."""
+        if line.discount_amount <= 0:
+            return self._q(gross_amount * line.discount_percent / Decimal("100"))
+        return self._q(line.discount_amount)
 
     def _replace_schedules(
         self,

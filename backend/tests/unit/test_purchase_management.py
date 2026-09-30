@@ -555,9 +555,12 @@ def test_purchase_service_calculations_lifecycle_audit_and_history() -> None:
     # It previously reported gross before discount, which no other document did.
     assert response.subtotal == Decimal("18.0000")
     assert response.line_discount_total == Decimal("2.0000")
-    assert response.tax_total == Decimal("0.9000")
-    # grand_total is unchanged by the redefinition; only the name's meaning was.
-    assert response.grand_total == Decimal("20.4000")
+    # The whole-order discount of 1.00 reaches the line before tax, so 5% is
+    # charged on 17.00, not 18.00 (D-BUY-19: it came off after tax and the
+    # input tax was overstated by 0.05).
+    assert response.lines[0].bill_discount_amount == Decimal("1.0000")
+    assert response.tax_total == Decimal("0.8500")
+    assert response.grand_total == Decimal("20.3500")
     assert response.lines[0].base_quantity == Decimal("30.0000")
     assert response.lines[0].conversion_factor == Decimal("10")
     assert response.lines[0].conversion_version == 1
@@ -624,8 +627,9 @@ def test_purchase_service_calculations_lifecycle_audit_and_history() -> None:
     # reset an approved order. The lifecycle endpoints own it now.
     assert updated_response.status == PurchaseOrderStatus.DRAFT
     assert updated_response.subtotal == Decimal("48.0000")
-    assert updated_response.tax_total == Decimal("2.4000")
-    assert updated_response.grand_total == Decimal("49.9000")
+    # 5% of 46.00 -- the subtotal less the 2.00 whole-order discount.
+    assert updated_response.tax_total == Decimal("2.3000")
+    assert updated_response.grand_total == Decimal("49.8000")
 
     history = service.order_history(order_id=created.id, firm_scope=firm.id)
     assert [entry.action for entry in history] == [

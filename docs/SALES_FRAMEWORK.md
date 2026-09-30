@@ -1191,8 +1191,8 @@ lines by the same `apportion`, on the same weights — what each line is worth
 after its own discount — and both give the rounding residual to the largest line
 so the shares sum exactly to the header figure. Being *on the line* is what
 makes the tax right: a document-level figure that never touches a taxable value
-taxes nothing, which is the mistake `header_discount_amount` makes on a purchase
-order and is deliberately not copied here.
+taxes nothing, which is the mistake `header_discount_amount` made on a purchase
+order until D-BUY-19 (2026-09-30) put it on the lines as well.
 
 Three consequences worth knowing:
 
