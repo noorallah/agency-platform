@@ -589,6 +589,8 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Retire'));
     await tester.pumpAndSettle();
     expect(api.deleted, ['promo-1']);
+  });
+
   // D-SELL-42: the screen offered only part of what the server supports.
   group('the promotion screen offers everything the server accepts', () {
     Future<void> pickFrom(
