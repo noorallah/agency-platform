@@ -42,6 +42,8 @@ from app.finance.schemas import (
     LedgerAccountCreate,
     LedgerAccountResponse,
     LedgerAccountUpdate,
+    OpeningTrialBalanceReplace,
+    OpeningTrialBalanceResponse,
     ProfitCenterCreate,
     ProfitCenterResponse,
     ProfitCenterUpdate,
@@ -62,6 +64,10 @@ from app.finance.services.control_accounts import (
     ControlAccountView,
 )
 from app.finance.services.journal_engine import assert_manual_reference
+from app.finance.services.opening_balances import (
+    OpeningLineInput,
+    OpeningTrialBalanceService,
+)
 
 router = APIRouter(
     prefix="/api/v1/finance",
@@ -795,6 +801,63 @@ def reverse_journal_entry(
     )
     db.commit()
     return ApiResponse(data=JournalEntryResponse.model_validate(reversal))
+
+
+# ----------------------------------------------------------------------
+# Opening trial balance
+# ----------------------------------------------------------------------
+
+
+@router.get(
+    "/opening-trial-balance",
+    response_model=ApiResponse[OpeningTrialBalanceResponse],
+)
+def get_opening_trial_balance(
+    scope: JournalViewScope, db: Session = Depends(get_db)
+) -> ApiResponse[OpeningTrialBalanceResponse]:
+    """Return where the firm's books stood on its cutover date (backlog 36)."""
+    view = OpeningTrialBalanceService(db).current(scope.firm_id)
+    return ApiResponse(data=OpeningTrialBalanceResponse.model_validate(view))
+
+
+@router.put(
+    "/opening-trial-balance",
+    response_model=ApiResponse[OpeningTrialBalanceResponse],
+)
+def replace_opening_trial_balance(
+    payload: OpeningTrialBalanceReplace,
+    scope: JournalPostScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[OpeningTrialBalanceResponse]:
+    """Replace the opening trial balance with this statement, all or nothing.
+
+    Posts straight to the ledger, so it takes the posting permission. The
+    standing statement is reversed and this one posted, with whatever the
+    lines leave unbalanced going to opening balance equity.
+    """
+    view = OpeningTrialBalanceService(db).replace(
+        firm_id=scope.firm_id,
+        as_of_date=payload.as_of_date,
+        lines=[
+            OpeningLineInput(
+                account_code=line.account_code,
+                debit_amount=line.debit_amount,
+                credit_amount=line.credit_amount,
+                description=line.description,
+            )
+            for line in payload.lines
+        ],
+        actor_id=scope.actor_id,
+    )
+    db.commit()
+    return ApiResponse(
+        data=OpeningTrialBalanceResponse.model_validate(view),
+        message=(
+            f"Opening trial balance saved as {view.reference_number}."
+            if view.reference_number
+            else "Opening trial balance cleared."
+        ),
+    )
 
 
 # ----------------------------------------------------------------------
