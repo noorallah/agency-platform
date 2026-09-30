@@ -23,6 +23,7 @@ from app.business.models import BusinessProfile
 from app.common.audit.services import record_audit
 from app.core.concurrency import assert_version
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
+from app.core.utils.chunks import chunks
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_money
 from app.finance.services.document_posting import DocumentPostingService
@@ -152,6 +153,89 @@ class ReservationPlan:
 
     batches: list[tuple[UUID | None, Decimal]]
     expired_note: str = ""
+
+
+@dataclass(frozen=True, slots=True)
+class _Labels:
+    """The codes and names a page of stock rows shows, read once per table.
+
+    Each accessor answers exactly what the matching ``_lookup_*`` on the
+    service answers for one id, so a row built from a page's labels is the
+    row built alone (backlog 56 C, step 3).
+    """
+
+    branches: dict[UUID, tuple[str | None, str | None]]
+    warehouses: dict[UUID, tuple[str | None, str | None]]
+    storage: dict[UUID, tuple[str | None, str | None]]
+    products: dict[UUID, tuple[str | None, str | None]]
+    batches: dict[UUID, tuple[str | None, date | None]]
+    profiles: dict[UUID, str | None]
+
+    def branch_code(self, branch_id: UUID) -> str:
+        """Return the branch code, or an empty string."""
+        return str(self.branches.get(branch_id, (None, None))[0] or "")
+
+    def branch_name(self, branch_id: UUID) -> str:
+        """Return the branch name, or an empty string."""
+        return str(self.branches.get(branch_id, (None, None))[1] or "")
+
+    def warehouse_code(self, warehouse_id: UUID) -> str:
+        """Return the warehouse code, or an empty string."""
+        return str(self.warehouses.get(warehouse_id, (None, None))[0] or "")
+
+    def warehouse_name(self, warehouse_id: UUID) -> str:
+        """Return the warehouse name, or an empty string."""
+        return str(self.warehouses.get(warehouse_id, (None, None))[1] or "")
+
+    def storage_code(self, storage_node_id: UUID | None) -> str | None:
+        """Return the storage node code, or None."""
+        if storage_node_id is None:
+            return None
+        value = self.storage.get(storage_node_id, (None, None))[0]
+        return str(value) if value is not None else None
+
+    def storage_name(self, storage_node_id: UUID | None) -> str | None:
+        """Return the storage node name, or None."""
+        if storage_node_id is None:
+            return None
+        value = self.storage.get(storage_node_id, (None, None))[1]
+        return str(value) if value is not None else None
+
+    def product_code(self, product_id: UUID) -> str:
+        """Return the product code, or an empty string."""
+        return str(self.products.get(product_id, (None, None))[0] or "")
+
+    def product_name(self, product_id: UUID) -> str:
+        """Return the product name, or an empty string."""
+        return str(self.products.get(product_id, (None, None))[1] or "")
+
+    def batch(self, batch_id: UUID | None) -> tuple[str | None, date | None]:
+        """Return the batch number and expiry, or a pair of None."""
+        if batch_id is None:
+            return None, None
+        return self.batches.get(batch_id, (None, None))
+
+    def profile_code(self, profile_id: UUID | None) -> str | None:
+        """Return the business profile code, or None."""
+        if profile_id is None:
+            return None
+        value = self.profiles.get(profile_id)
+        return str(value) if value is not None else None
+
+
+def _pairs(
+    session: Session,
+    key: InstrumentedAttribute[Any],
+    columns: tuple[InstrumentedAttribute[Any], ...],
+    ids: Iterable[UUID | None],
+) -> dict[UUID, Any]:
+    """Read ``columns`` for every id in ``ids``, in chunks, keyed by id."""
+    wanted = [value for value in ids if value is not None]
+    found: dict[UUID, Any] = {}
+    for chunk in chunks(wanted):
+        for row in session.execute(select(key, *columns).where(key.in_(chunk))):
+            found[row[0]] = tuple(row[1:]) if len(columns) > 1 else row[1]
+    return found
 
 
 class InventoryService:
@@ -2868,15 +2952,17 @@ class InventoryService:
         output = [
             "ProductCode,ProductName,BranchCode,WarehouseCode,StorageNodeCode,Current,Available,Reserved,Blocked,Damaged,Quarantine,InTransit,ReorderLevel,Status"
         ]
-        for item in rows:
+        # One response per row, built for the whole export at once -- it used
+        # to be rebuilt for every column, eleven look-ups each time.
+        for item, response in zip(rows, self.inventory_responses(rows), strict=True):
             output.append(
                 ",".join(
                     [
-                        self._csv(item.product_id, item, "product_code"),
-                        self._csv(item.product_id, item, "product_name"),
-                        self._csv(item.branch_id, item, "branch_code"),
-                        self._csv(item.warehouse_id, item, "warehouse_code"),
-                        self._csv(item.storage_node_id, item, "storage_node_code"),
+                        self._csv(response, "product_code"),
+                        self._csv(response, "product_name"),
+                        self._csv(response, "branch_code"),
+                        self._csv(response, "warehouse_code"),
+                        self._csv(response, "storage_node_code"),
                         str(item.current_quantity),
                         str(item.available_quantity),
                         str(item.reserved_quantity),
@@ -2908,6 +2994,7 @@ class InventoryService:
             sort_by="product_code",
             descending=False,
         )
+        labels = self.labels_for(rows)
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = "Inventory"
@@ -2932,11 +3019,11 @@ class InventoryService:
         for item in rows:
             sheet.append(
                 [
-                    self._lookup_product_code(item.product_id),
-                    self._lookup_product_name(item.product_id),
-                    self._lookup_branch_code(item.branch_id),
-                    self._lookup_warehouse_code(item.warehouse_id),
-                    self._lookup_storage_code(item.storage_node_id),
+                    labels.product_code(item.product_id),
+                    labels.product_name(item.product_id),
+                    labels.branch_code(item.branch_id),
+                    labels.warehouse_code(item.warehouse_id),
+                    labels.storage_code(item.storage_node_id),
                     item.current_quantity,
                     item.available_quantity,
                     item.reserved_quantity,
@@ -2963,6 +3050,7 @@ class InventoryService:
             sort_by="transaction_date",
             descending=False,
         )
+        labels = self.labels_for(rows)
         output = [
             "TransactionDate,TransactionType,ReferenceNumber,ProductCode,WarehouseCode,Quantity,CurrentDelta,ReservedDelta,BlockedDelta,DamagedDelta,QuarantineDelta,InTransitDelta,NewCurrent,NewAvailable"
         ]
@@ -2973,8 +3061,8 @@ class InventoryService:
                         item.transaction_date.isoformat(),
                         item.transaction_type,
                         item.reference_number,
-                        self._lookup_product_code(item.product_id),
-                        self._lookup_warehouse_code(item.warehouse_id),
+                        labels.product_code(item.product_id),
+                        labels.warehouse_code(item.warehouse_id),
                         str(item.quantity),
                         str(item.current_quantity_delta),
                         str(item.reserved_quantity_delta),
@@ -3006,6 +3094,7 @@ class InventoryService:
             sort_by="transaction_date",
             descending=False,
         )
+        labels = self.labels_for(rows)
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = "StockLedger"
@@ -3033,8 +3122,8 @@ class InventoryService:
                     item.transaction_date.isoformat(),
                     item.transaction_type,
                     item.reference_number,
-                    self._lookup_product_code(item.product_id),
-                    self._lookup_warehouse_code(item.warehouse_id),
+                    labels.product_code(item.product_id),
+                    labels.warehouse_code(item.warehouse_id),
                     item.quantity,
                     item.current_quantity_delta,
                     item.reserved_quantity_delta,
@@ -3050,9 +3139,71 @@ class InventoryService:
         workbook.save(buffer)
         return buffer.getvalue()
 
+    def labels_for(
+        self, rows: Sequence[InventoryRecord | InventoryTransaction | StockLedgerEntry]
+    ) -> _Labels:
+        """Read every code and name a page of stock rows shows, once per table."""
+        return _Labels(
+            branches=_pairs(
+                self._session,
+                Branch.id,
+                (Branch.code, Branch.name),
+                (row.branch_id for row in rows),
+            ),
+            warehouses=_pairs(
+                self._session,
+                Warehouse.id,
+                (Warehouse.code, Warehouse.name),
+                (row.warehouse_id for row in rows),
+            ),
+            storage=_pairs(
+                self._session,
+                WarehouseStorageNode.id,
+                (WarehouseStorageNode.code, WarehouseStorageNode.name),
+                (row.storage_node_id for row in rows),
+            ),
+            products=_pairs(
+                self._session,
+                Product.id,
+                (Product.code, Product.name),
+                (row.product_id for row in rows),
+            ),
+            batches=_pairs(
+                self._session,
+                BatchRecord.id,
+                (BatchRecord.batch_number, BatchRecord.expiry_date),
+                (row.batch_id for row in rows),
+            ),
+            profiles=_pairs(
+                self._session,
+                BusinessProfile.id,
+                (BusinessProfile.code,),
+                (row.business_profile_id for row in rows),
+            ),
+        )
+
     def inventory_response(self, row: InventoryRecord) -> InventoryResponse:
         """Expose one stock projection."""
-        batch_number, batch_expiry = self._lookup_batch(row.batch_id)
+        return self.inventory_responses([row])[0]
+
+    def inventory_responses(
+        self, rows: Sequence[InventoryRecord]
+    ) -> list[InventoryResponse]:
+        """Expose a page of stock projections, naming them once per table.
+
+        About eleven look-ups per row became six reads per page (backlog 56 C,
+        step 3). The single-row builder is this with a list of one.
+        """
+        if not rows:
+            return []
+        labels = self.labels_for(rows)
+        return [self._inventory_response(row, labels) for row in rows]
+
+    def _inventory_response(
+        self, row: InventoryRecord, labels: _Labels
+    ) -> InventoryResponse:
+        """Build one projection's response from a page's labels."""
+        batch_number, batch_expiry = labels.batch(row.batch_id)
         return InventoryResponse.model_validate(
             {
                 "batch_id": row.batch_id,
@@ -3062,21 +3213,19 @@ class InventoryService:
                 "version": row.version,
                 "firm_id": row.firm_id,
                 "branch_id": row.branch_id,
-                "branch_code": self._lookup_branch_code(row.branch_id),
-                "branch_name": self._lookup_branch_name(row.branch_id),
+                "branch_code": labels.branch_code(row.branch_id),
+                "branch_name": labels.branch_name(row.branch_id),
                 "warehouse_id": row.warehouse_id,
-                "warehouse_code": self._lookup_warehouse_code(row.warehouse_id),
-                "warehouse_name": self._lookup_warehouse_name(row.warehouse_id),
+                "warehouse_code": labels.warehouse_code(row.warehouse_id),
+                "warehouse_name": labels.warehouse_name(row.warehouse_id),
                 "storage_node_id": row.storage_node_id,
-                "storage_node_code": self._lookup_storage_code(row.storage_node_id),
-                "storage_node_name": self._lookup_storage_name(row.storage_node_id),
+                "storage_node_code": labels.storage_code(row.storage_node_id),
+                "storage_node_name": labels.storage_name(row.storage_node_id),
                 "product_id": row.product_id,
-                "product_code": self._lookup_product_code(row.product_id),
-                "product_name": self._lookup_product_name(row.product_id),
+                "product_code": labels.product_code(row.product_id),
+                "product_name": labels.product_name(row.product_id),
                 "business_profile_id": row.business_profile_id,
-                "business_profile_code": self._lookup_profile_code(
-                    row.business_profile_id
-                ),
+                "business_profile_code": labels.profile_code(row.business_profile_id),
                 "current_quantity": row.current_quantity,
                 "reserved_quantity": row.reserved_quantity,
                 "available_quantity": row.available_quantity,
@@ -3102,14 +3251,26 @@ class InventoryService:
         self, row: InventoryTransaction
     ) -> InventoryTransactionResponse:
         """Expose one inventory movement."""
-        payload = self._movement_payload(row)
-        payload["entered_quantity"] = row.entered_quantity
-        payload["entered_uom_id"] = row.entered_uom_id
-        payload["conversion_version"] = row.conversion_version
-        return InventoryTransactionResponse.model_validate(payload)
+        return self.transaction_responses([row])[0]
+
+    def transaction_responses(
+        self, rows: Sequence[InventoryTransaction]
+    ) -> list[InventoryTransactionResponse]:
+        """Expose a page of inventory movements, naming them once per table."""
+        if not rows:
+            return []
+        labels = self.labels_for(rows)
+        responses: list[InventoryTransactionResponse] = []
+        for row in rows:
+            payload = self._movement_payload(row, labels)
+            payload["entered_quantity"] = row.entered_quantity
+            payload["entered_uom_id"] = row.entered_uom_id
+            payload["conversion_version"] = row.conversion_version
+            responses.append(InventoryTransactionResponse.model_validate(payload))
+        return responses
 
     def _movement_payload(
-        self, row: InventoryTransaction | StockLedgerEntry
+        self, row: InventoryTransaction | StockLedgerEntry, labels: _Labels
     ) -> dict[str, object]:
         """Build the fields a transaction and its ledger row have in common.
 
@@ -3124,19 +3285,19 @@ class InventoryService:
             "inventory_id": row.inventory_id,
             "firm_id": row.firm_id,
             "branch_id": row.branch_id,
-            "branch_code": self._lookup_branch_code(row.branch_id),
-            "branch_name": self._lookup_branch_name(row.branch_id),
+            "branch_code": labels.branch_code(row.branch_id),
+            "branch_name": labels.branch_name(row.branch_id),
             "warehouse_id": row.warehouse_id,
-            "warehouse_code": self._lookup_warehouse_code(row.warehouse_id),
-            "warehouse_name": self._lookup_warehouse_name(row.warehouse_id),
+            "warehouse_code": labels.warehouse_code(row.warehouse_id),
+            "warehouse_name": labels.warehouse_name(row.warehouse_id),
             "storage_node_id": row.storage_node_id,
-            "storage_node_code": self._lookup_storage_code(row.storage_node_id),
-            "storage_node_name": self._lookup_storage_name(row.storage_node_id),
+            "storage_node_code": labels.storage_code(row.storage_node_id),
+            "storage_node_name": labels.storage_name(row.storage_node_id),
             "product_id": row.product_id,
-            "product_code": self._lookup_product_code(row.product_id),
-            "product_name": self._lookup_product_name(row.product_id),
+            "product_code": labels.product_code(row.product_id),
+            "product_name": labels.product_name(row.product_id),
             "batch_id": row.batch_id,
-            "batch_number": self._lookup_batch(row.batch_id)[0],
+            "batch_number": labels.batch(row.batch_id)[0],
             "business_profile_id": row.business_profile_id,
             "transaction_type": row.transaction_type,
             "reference_number": row.reference_number,
@@ -3169,11 +3330,23 @@ class InventoryService:
 
     def ledger_response(self, row: StockLedgerEntry) -> StockLedgerResponse:
         """Expose one immutable ledger row."""
-        payload = self._movement_payload(row)
-        payload["transaction_id"] = row.transaction_id
-        payload["entered_quantity"] = row.original_quantity
-        payload["entered_uom_id"] = row.original_uom_id
-        return StockLedgerResponse.model_validate(payload)
+        return self.ledger_responses([row])[0]
+
+    def ledger_responses(
+        self, rows: Sequence[StockLedgerEntry]
+    ) -> list[StockLedgerResponse]:
+        """Expose a page of ledger rows, naming them once per table."""
+        if not rows:
+            return []
+        labels = self.labels_for(rows)
+        responses: list[StockLedgerResponse] = []
+        for row in rows:
+            payload = self._movement_payload(row, labels)
+            payload["transaction_id"] = row.transaction_id
+            payload["entered_quantity"] = row.original_quantity
+            payload["entered_uom_id"] = row.original_uom_id
+            responses.append(StockLedgerResponse.model_validate(payload))
+        return responses
 
     def opening_stock_batch_response(
         self, row: OpeningStockBatch
@@ -4150,8 +4323,7 @@ class InventoryService:
         )
         return str(value) if value is not None else None
 
-    def _csv(self, _id: UUID | None, row: InventoryRecord, attribute: str) -> str:
-        response = self.inventory_response(row)
+    def _csv(self, response: InventoryResponse, attribute: str) -> str:
         value = getattr(response, attribute, None)
         return str(value or "")
 

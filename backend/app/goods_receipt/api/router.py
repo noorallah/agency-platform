@@ -157,7 +157,7 @@ def list_goods_receipts(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=[service.receipt_response(item) for item in rows],
+        data=service.receipt_responses(rows),
         pagination=params.metadata(total),
     )
 
@@ -425,4 +425,4 @@ async def import_goods_receipts(
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )
-    return ApiResponse(data=[service.receipt_response(item) for item in rows])
+    return ApiResponse(data=service.receipt_responses(rows))

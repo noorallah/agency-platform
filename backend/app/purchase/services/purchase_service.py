@@ -5,6 +5,8 @@ from __future__ import annotations
 import csv
 import io
 import json
+from collections import defaultdict
+from collections.abc import Sequence
 from datetime import date, datetime, timedelta
 from decimal import Decimal
 from io import BytesIO
@@ -19,6 +21,7 @@ from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.common.firm_metadata import platform_reader
 from app.common.report_names import vendors_matching
+from app.core.database.batch import children_by_parent
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
@@ -1193,49 +1196,82 @@ class PurchaseService(TransactionalDocumentService):
 
     def order_response(self, row: PurchaseOrder) -> PurchaseOrderResponse:
         """Order response."""
-        lines = list(
-            self._session.scalars(
-                select(PurchaseOrderLine)
-                .where(
-                    PurchaseOrderLine.purchase_order_id == row.id,
-                    PurchaseOrderLine.is_deleted.is_(False),
-                )
-                .order_by(PurchaseOrderLine.line_number.asc())
-            ).all()
+        return self.order_responses([row])[0]
+
+    def order_responses(
+        self, rows: Sequence[PurchaseOrder]
+    ) -> list[PurchaseOrderResponse]:
+        """Render a page of purchase orders, reading each child table once.
+
+        One query per child table for the whole page, grouped by order in
+        Python, rather than four per order (backlog 56 C, step 3). The
+        single-order builder is this with a list of one.
+        """
+        if not rows:
+            return []
+        ids = [row.id for row in rows]
+        lines = children_by_parent(
+            self._session,
+            PurchaseOrderLine,
+            PurchaseOrderLine.purchase_order_id,
+            ids,
+            PurchaseOrderLine.line_number.asc(),
         )
-        schedules = list(
-            self._session.scalars(
+        order_of_line = {
+            item.id: order_id for order_id, group in lines.items() for item in group
+        }
+        # One read in delivery-date order across the page, so each order's
+        # share keeps the order its own read gave it.
+        schedules: dict[UUID, list[PurchaseDeliverySchedule]] = defaultdict(list)
+        if order_of_line:
+            for schedule in self._session.scalars(
                 select(PurchaseDeliverySchedule)
                 .where(
-                    PurchaseDeliverySchedule.firm_id == row.firm_id,
                     PurchaseDeliverySchedule.is_deleted.is_(False),
-                    (
-                        PurchaseDeliverySchedule.purchase_order_line_id.in_(
-                            [item.id for item in lines]
-                        )
-                        if lines
-                        else false()
+                    PurchaseDeliverySchedule.purchase_order_line_id.in_(
+                        list(order_of_line)
                     ),
                 )
                 .order_by(PurchaseDeliverySchedule.delivery_date.asc())
-            ).all()
+            ):
+                order_id = order_of_line[schedule.purchase_order_line_id]
+                schedules[order_id].append(schedule)
+        attachments = children_by_parent(
+            self._session,
+            PurchaseAttachment,
+            PurchaseAttachment.purchase_order_id,
+            ids,
         )
-        attachments = list(
-            self._session.scalars(
-                select(PurchaseAttachment).where(
-                    PurchaseAttachment.purchase_order_id == row.id,
-                    PurchaseAttachment.is_deleted.is_(False),
-                )
-            ).all()
+        notes = children_by_parent(
+            self._session,
+            PurchaseNote,
+            PurchaseNote.purchase_order_id,
+            ids,
         )
-        notes = list(
-            self._session.scalars(
-                select(PurchaseNote).where(
-                    PurchaseNote.purchase_order_id == row.id,
-                    PurchaseNote.is_deleted.is_(False),
-                )
-            ).all()
-        )
+        return [
+            self._order_response(
+                row,
+                lines=lines[row.id],
+                # A schedule counts only under its own firm, as it always did.
+                schedules=[
+                    item for item in schedules[row.id] if item.firm_id == row.firm_id
+                ],
+                attachments=attachments[row.id],
+                notes=notes[row.id],
+            )
+            for row in rows
+        ]
+
+    def _order_response(
+        self,
+        row: PurchaseOrder,
+        *,
+        lines: list[PurchaseOrderLine],
+        schedules: list[PurchaseDeliverySchedule],
+        attachments: list[PurchaseAttachment],
+        notes: list[PurchaseNote],
+    ) -> PurchaseOrderResponse:
+        """Build one order's response from what the page already read."""
         payload = PurchaseOrderResponse.model_validate(row).model_dump(mode="python")
         payload["lines"] = [
             PurchaseOrderLineResponse.model_validate(item).model_dump(mode="python")

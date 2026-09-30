@@ -154,7 +154,7 @@ def list_quotations(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=[service.quotation_response(row) for row in rows],
+        data=service.quotation_responses(rows),
         pagination=params.metadata(total),
     )
 
@@ -287,7 +287,7 @@ async def import_quotations(
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )
-    return ApiResponse(data=[service.quotation_response(item) for item in rows])
+    return ApiResponse(data=service.quotation_responses(rows))
 
 
 @router.get(

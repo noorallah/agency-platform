@@ -24,6 +24,7 @@ from sqlalchemy.orm import Session
 from app.common.audit.services import record_audit
 from app.common.report_names import customers_matching, vendors_matching
 from app.core.constants.core import MAX_PAGE_SIZE
+from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.chunks import over_chunks
 from app.core.utils.dates import utc_now
@@ -1401,6 +1402,86 @@ class SettlementService(TransactionalDocumentService):
         if party_id is None:  # pragma: no cover - the check constraint forbids it
             raise ValidationError("Settlement has no party.")
         return self._require_party(firm_id=row.firm_id, party_id=party_id)
+
+    def parties_of(
+        self, rows: Sequence[Settlement]
+    ) -> dict[UUID, tuple[UUID, str, str]]:
+        """Answer `party_of` for a page of settlements in one read.
+
+        Keyed by settlement id: the party's id, code and name. A party that
+        `party_of` would refuse -- another firm's, or deleted since -- is
+        refused the same way, so a page and a single row cannot disagree.
+        """
+        is_customer = self.DIRECTION in (
+            SettlementDirection.RECEIPT,
+            SettlementDirection.REFUND,
+        )
+        model: type[Customer] | type[Vendor] = Customer if is_customer else Vendor
+        wanted = {
+            row.id: (row.firm_id, row.customer_id if is_customer else row.vendor_id)
+            for row in rows
+        }
+        found = {
+            (firm_id, party_id): (party_id, code, name)
+            for party_id, firm_id, code, name in self._session.execute(
+                select(model.id, model.firm_id, model.code, model.name).where(
+                    model.id.in_(
+                        {party for _, party in wanted.values() if party is not None}
+                    ),
+                    model.is_deleted.is_(False),
+                )
+            )
+        }
+        answer: dict[UUID, tuple[UUID, str, str]] = {}
+        for settlement_id, key in wanted.items():
+            if key[1] is None:  # pragma: no cover - the check constraint forbids it
+                raise ValidationError("Settlement has no party.")
+            party = found.get(key)
+            if party is None:
+                raise ResourceNotFoundError(
+                    "Customer not found." if is_customer else "Vendor not found."
+                )
+            answer[settlement_id] = party
+        return answer
+
+    def allocations_for_many(
+        self, settlement_ids: Sequence[UUID]
+    ) -> dict[UUID, list[SettlementAllocation]]:
+        """Answer `allocations_for` for a page of settlements in one read."""
+        return children_by_parent(
+            self._session,
+            SettlementAllocation,
+            SettlementAllocation.settlement_id,
+            settlement_ids,
+            SettlementAllocation.created_at.asc(),
+        )
+
+    def order_numbers_of(self, rows: Sequence[Settlement]) -> dict[UUID, str]:
+        """Answer `order_number_of` for a page, keyed by order id."""
+        wanted = {row.sales_order_id for row in rows if row.sales_order_id}
+        if not wanted:
+            return {}
+        return {
+            found[0]: found[1]
+            for found in self._session.execute(
+                select(SalesOrder.id, SalesOrder.order_number).where(
+                    SalesOrder.id.in_(wanted)
+                )
+            )
+        }
+
+    def ledger_account_names(self, account_ids: Sequence[UUID]) -> dict[UUID, str]:
+        """Answer `ledger_account_name` for a page, keyed by account id."""
+        if not account_ids:
+            return {}
+        return {
+            found[0]: found[1] or ""
+            for found in self._session.execute(
+                select(LedgerAccount.id, LedgerAccount.name).where(
+                    LedgerAccount.id.in_(set(account_ids))
+                )
+            )
+        }
 
     def invoice_summaries(
         self, allocations: Sequence[SettlementAllocation]

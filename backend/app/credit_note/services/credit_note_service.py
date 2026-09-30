@@ -16,8 +16,9 @@ from sqlalchemy import Select, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
-from app.common.report_names import customers_matching
+from app.common.report_names import customer_names, customers_matching, product_names
 from app.core.concurrency import assert_version
+from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
@@ -46,7 +47,6 @@ from app.document_framework.services.transactional_document_service import (
 )
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
-from app.products.models import Product
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
 
 HUNDRED = Decimal("100")
@@ -757,29 +757,61 @@ class CreditNoteService(TransactionalDocumentService):
             The response model.
 
         """
-        lines = self.lines_of(row)
+        return self.note_responses([row])[0]
+
+    def note_responses(self, rows: Sequence[CreditNote]) -> list[CreditNoteResponse]:
+        """Build the responses for a page of credit notes.
+
+        One read per table for the whole page -- lines, product names,
+        invoice numbers, customer names -- rather than four per note (backlog
+        56 C, step 3). The single-note builder is this with a list of one.
+        """
+        if not rows:
+            return []
+        lines = children_by_parent(
+            self._session,
+            CreditNoteLine,
+            CreditNoteLine.credit_note_id,
+            [row.id for row in rows],
+            CreditNoteLine.line_number.asc(),
+        )
         names = {
             product_id: name
-            for product_id, name in self._session.execute(
-                select(Product.id, Product.name).where(
-                    Product.id.in_([line.product_id for line in lines] or [None])
-                )
-            ).all()
+            for product_id, (_code, name) in product_names(
+                self._session,
+                (line.product_id for group in lines.values() for line in group),
+            ).items()
         }
-        invoice_number = (
-            self._session.scalar(
-                select(SalesInvoice.invoice_number).where(
-                    SalesInvoice.id == row.sales_invoice_id
+        invoices = {
+            found[0]: found[1]
+            for found in self._session.execute(
+                select(SalesInvoice.id, SalesInvoice.invoice_number).where(
+                    SalesInvoice.id.in_({row.sales_invoice_id for row in rows})
                 )
             )
-            or ""
-        )
-        customer_name = (
-            self._session.scalar(
-                select(Customer.display_name).where(Customer.id == row.customer_id)
+        }
+        customers = customer_names(self._session, (row.customer_id for row in rows))
+        return [
+            self._note_response(
+                row,
+                lines=lines[row.id],
+                names=names,
+                invoice_number=invoices.get(row.sales_invoice_id) or "",
+                customer_name=customers.get(row.customer_id) or "",
             )
-            or ""
-        )
+            for row in rows
+        ]
+
+    def _note_response(
+        self,
+        row: CreditNote,
+        *,
+        lines: list[CreditNoteLine],
+        names: dict[UUID, str],
+        invoice_number: str,
+        customer_name: str,
+    ) -> CreditNoteResponse:
+        """Build one note's response from what the page already read."""
         return CreditNoteResponse(
             id=row.id,
             firm_id=row.firm_id,

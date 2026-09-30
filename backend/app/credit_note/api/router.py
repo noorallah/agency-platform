@@ -84,7 +84,7 @@ def list_credit_notes(
         credit_note_to=credit_note_to,
     )
     return PaginatedResponse(
-        data=[service.note_response(row) for row in rows],
+        data=service.note_responses(rows),
         pagination=PaginationParams(page=page, page_size=page_size).metadata(total),
     )
 

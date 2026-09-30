@@ -16,6 +16,7 @@ from __future__ import annotations
 import csv
 import io
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -43,6 +44,7 @@ from app.common.report_names import (
     customers_matching,
     warehouse_names,
 )
+from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
@@ -2137,39 +2139,87 @@ class SalesReturnService(TransactionalDocumentService):
 
     def return_response(self, row: SalesReturn) -> SalesReturnResponse:
         """Build the full response for one sales return."""
-        lines = self._lines_of(row.id)
-        serials = self._trail.picked_serials(line.id for line in lines)
-        sources = list(
-            self._session.scalars(
-                select(SalesReturnSource).where(
-                    SalesReturnSource.sales_return_id == row.id,
-                    SalesReturnSource.is_deleted.is_(False),
-                )
-            ).all()
+        return self.return_responses([row])[0]
+
+    def return_responses(
+        self, rows: Sequence[SalesReturn]
+    ) -> list[SalesReturnResponse]:
+        """Render a page of sales returns, reading each child table once.
+
+        One query per child table for the whole page, grouped by return in
+        Python, rather than six per return (backlog 56 C, step 3). The
+        single-return builder is this with a list of one.
+        """
+        if not rows:
+            return []
+        ids = [row.id for row in rows]
+        lines = children_by_parent(
+            self._session,
+            SalesReturnLine,
+            SalesReturnLine.sales_return_id,
+            ids,
+            SalesReturnLine.line_number.asc(),
         )
-        attachments = list(
-            self._session.scalars(
-                select(SalesReturnAttachment).where(
-                    SalesReturnAttachment.sales_return_id == row.id,
-                    SalesReturnAttachment.is_deleted.is_(False),
-                )
-            ).all()
+        serials = self._trail.picked_serials(
+            line.id for group in lines.values() for line in group
         )
-        notes = list(
-            self._session.scalars(
-                select(SalesReturnNote).where(
-                    SalesReturnNote.sales_return_id == row.id,
-                    SalesReturnNote.is_deleted.is_(False),
-                )
-            ).all()
+        sources = children_by_parent(
+            self._session,
+            SalesReturnSource,
+            SalesReturnSource.sales_return_id,
+            ids,
         )
-        customer = self._session.get(Customer, row.customer_id)
+        attachments = children_by_parent(
+            self._session,
+            SalesReturnAttachment,
+            SalesReturnAttachment.sales_return_id,
+            ids,
+        )
+        notes = children_by_parent(
+            self._session,
+            SalesReturnNote,
+            SalesReturnNote.sales_return_id,
+            ids,
+        )
+        customers = {
+            found[0]: (found[1], found[2])
+            for found in self._session.execute(
+                select(Customer.id, Customer.display_name, Customer.code).where(
+                    Customer.id.in_({row.customer_id for row in rows})
+                )
+            )
+        }
+        return [
+            self._return_response(
+                row,
+                lines=lines[row.id],
+                serials=serials,
+                sources=sources[row.id],
+                attachments=attachments[row.id],
+                notes=notes[row.id],
+                customer=customers.get(row.customer_id),
+            )
+            for row in rows
+        ]
+
+    def _return_response(
+        self,
+        row: SalesReturn,
+        *,
+        lines: list[SalesReturnLine],
+        serials: dict[UUID, list[PickedSerial]],
+        sources: list[SalesReturnSource],
+        attachments: list[SalesReturnAttachment],
+        notes: list[SalesReturnNote],
+        customer: tuple[str, str] | None,
+    ) -> SalesReturnResponse:
+        """Build one return's response from what the page already read."""
         return SalesReturnResponse(
             id=row.id,
             firm_id=row.firm_id,
             customer_id=row.customer_id,
-            customer_name=customer.display_name if customer else "",
-            customer_code=customer.code if customer else "",
+            customer_name=customer[0] if customer else "",
+            customer_code=customer[1] if customer else "",
             branch_id=row.branch_id,
             warehouse_id=row.warehouse_id,
             salesman_id=row.salesman_id,

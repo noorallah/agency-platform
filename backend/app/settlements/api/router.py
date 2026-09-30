@@ -4,6 +4,7 @@ One router serves both directions. They differ only in which service they
 build, so a second copy would be a second place for the same rules to drift.
 """
 
+from collections.abc import Sequence
 from datetime import date
 from typing import Annotated
 from uuid import UUID
@@ -76,59 +77,87 @@ PaymentCreateScope = Annotated[
 
 def _to_response(service: SettlementService, row: Settlement) -> SettlementResponse:
     """Build the response for one settlement, with its allocations."""
-    party = service.party_of(row)
-    allocations = service.allocations_for(row.id)
-    summaries = service.invoice_summaries(allocations)
-    allocation_rows: list[SettlementAllocationResponse] = []
-    for allocation in allocations:
-        invoice_id = (
-            allocation.sales_invoice_id
-            or allocation.purchase_invoice_id
-            or allocation.vendor_opening_bill_id
-            or allocation.customer_opening_bill_id
-        )
-        if invoice_id is None:  # pragma: no cover - one side is always set
-            continue
-        number, invoice_date, total = summaries[invoice_id]
-        allocation_rows.append(
-            SettlementAllocationResponse(
-                id=allocation.id,
-                invoice_id=invoice_id,
-                invoice_number=number,
-                invoice_date=invoice_date,
-                invoice_total=total,
-                amount=allocation.amount,
-                # Rows older than the column carry nothing; the settlement's
-                # date is what the backfill wrote for them.
-                allocated_on=allocation.allocated_on or row.settlement_date,
+    return _to_responses(service, [row])[0]
+
+
+def _to_responses(
+    service: SettlementService, rows: Sequence[Settlement]
+) -> list[SettlementResponse]:
+    """Build the responses for a page of settlements, one read per table.
+
+    Parties, allocations, the invoices they name, orders and ledger accounts
+    are each read once for the whole page rather than once per settlement
+    (backlog 56 C, step 3). The single-row builder is this with a list of one.
+    """
+    if not rows:
+        return []
+    parties = service.parties_of(rows)
+    allocations = service.allocations_for_many([row.id for row in rows])
+    summaries = service.invoice_summaries(
+        [item for group in allocations.values() for item in group]
+    )
+    orders = service.order_numbers_of(rows)
+    accounts = service.ledger_account_names([row.ledger_account_id for row in rows])
+    responses: list[SettlementResponse] = []
+    for row in rows:
+        allocation_rows: list[SettlementAllocationResponse] = []
+        for allocation in allocations.get(row.id, []):
+            invoice_id = (
+                allocation.sales_invoice_id
+                or allocation.purchase_invoice_id
+                or allocation.vendor_opening_bill_id
+                or allocation.customer_opening_bill_id
+            )
+            if invoice_id is None:  # pragma: no cover - one side is always set
+                continue
+            number, invoice_date, total = summaries[invoice_id]
+            allocation_rows.append(
+                SettlementAllocationResponse(
+                    id=allocation.id,
+                    invoice_id=invoice_id,
+                    invoice_number=number,
+                    invoice_date=invoice_date,
+                    invoice_total=total,
+                    amount=allocation.amount,
+                    # Rows older than the column carry nothing; the settlement's
+                    # date is what the backfill wrote for them.
+                    allocated_on=allocation.allocated_on or row.settlement_date,
+                )
+            )
+        party_id, party_code, party_name = parties[row.id]
+        responses.append(
+            SettlementResponse(
+                id=row.id,
+                direction=row.direction,
+                party_id=party_id,
+                party_code=party_code,
+                party_name=party_name,
+                settlement_number=row.settlement_number,
+                settlement_date=row.settlement_date,
+                amount=row.amount,
+                allocated_amount=row.allocated_amount,
+                unallocated_amount=row.unallocated_amount,
+                sales_order_id=row.sales_order_id,
+                sales_order_number=(
+                    None
+                    if row.sales_order_id is None
+                    else orders.get(row.sales_order_id)
+                ),
+                method=row.method,
+                ledger_account_id=row.ledger_account_id,
+                ledger_account_name=accounts.get(row.ledger_account_id, ""),
+                instrument_reference=row.instrument_reference,
+                narration=row.narration,
+                status=row.status,
+                journal_entry_id=row.journal_entry_id,
+                reversal_journal_entry_id=row.reversal_journal_entry_id,
+                reversed_at=row.reversed_at,
+                reversal_reason=row.reversal_reason,
+                allocations=allocation_rows,
+                version=row.version,
             )
         )
-    return SettlementResponse(
-        id=row.id,
-        direction=row.direction,
-        party_id=party.id,
-        party_code=party.code,
-        party_name=party.name,
-        settlement_number=row.settlement_number,
-        settlement_date=row.settlement_date,
-        amount=row.amount,
-        allocated_amount=row.allocated_amount,
-        unallocated_amount=row.unallocated_amount,
-        sales_order_id=row.sales_order_id,
-        sales_order_number=service.order_number_of(row),
-        method=row.method,
-        ledger_account_id=row.ledger_account_id,
-        ledger_account_name=service.ledger_account_name(row.ledger_account_id),
-        instrument_reference=row.instrument_reference,
-        narration=row.narration,
-        status=row.status,
-        journal_entry_id=row.journal_entry_id,
-        reversal_journal_entry_id=row.reversal_journal_entry_id,
-        reversed_at=row.reversed_at,
-        reversal_reason=row.reversal_reason,
-        allocations=allocation_rows,
-        version=row.version,
-    )
+    return responses
 
 
 def _list(
@@ -153,7 +182,7 @@ def _list(
         date_to=settlement_to,
     )
     return PaginatedResponse(
-        data=[_to_response(service, row) for row in rows],
+        data=_to_responses(service, rows),
         pagination=PaginationParams(page=page, page_size=page_size).metadata(total),
     )
 

@@ -22,6 +22,7 @@ from app.common.report_names import (
     vendor_names,
     vendors_matching,
 )
+from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
@@ -776,77 +777,102 @@ class PurchaseInvoiceService(TransactionalDocumentService):
 
     def invoice_response(self, row: PurchaseInvoice) -> PurchaseInvoiceResponse:
         """Render one purchase invoice row as its API contract."""
-        sources = list(
-            self._session.scalars(
-                select(PurchaseInvoiceSource).where(
-                    PurchaseInvoiceSource.purchase_invoice_id == row.id,
-                    PurchaseInvoiceSource.is_deleted.is_(False),
-                )
-            ).all()
+        return self.invoice_responses([row])[0]
+
+    def invoice_responses(
+        self, rows: Sequence[PurchaseInvoice]
+    ) -> list[PurchaseInvoiceResponse]:
+        """Render a page of purchase invoices, reading each child table once.
+
+        One query per child table for the whole page, grouped by invoice in
+        Python, rather than about eight per invoice (backlog 56 C, step 3).
+        The single-invoice builder is this with a list of one.
+        """
+        if not rows:
+            return []
+        ids = [row.id for row in rows]
+        sources = children_by_parent(
+            self._session,
+            PurchaseInvoiceSource,
+            PurchaseInvoiceSource.purchase_invoice_id,
+            ids,
         )
-        lines = list(
-            self._session.scalars(
-                select(PurchaseInvoiceLine)
-                .where(
-                    PurchaseInvoiceLine.purchase_invoice_id == row.id,
-                    PurchaseInvoiceLine.is_deleted.is_(False),
-                )
-                .order_by(PurchaseInvoiceLine.line_number.asc())
-            ).all()
+        lines = children_by_parent(
+            self._session,
+            PurchaseInvoiceLine,
+            PurchaseInvoiceLine.purchase_invoice_id,
+            ids,
+            PurchaseInvoiceLine.line_number.asc(),
         )
-        # Read for the whole invoice rather than per line: a bill with thirty
-        # lines would otherwise be thirty queries, the shape `values_for_many`
-        # exists to avoid.
-        taxes: dict[UUID, list[PurchaseInvoiceLineTax]] = defaultdict(list)
-        if lines:
-            for component in self._session.scalars(
-                select(PurchaseInvoiceLineTax)
-                .where(
-                    PurchaseInvoiceLineTax.purchase_invoice_line_id.in_(
-                        [item.id for item in lines]
-                    ),
-                    PurchaseInvoiceLineTax.is_deleted.is_(False),
-                )
-                .order_by(PurchaseInvoiceLineTax.sequence.asc())
-            ):
-                taxes[component.purchase_invoice_line_id].append(component)
-        attachments = list(
-            self._session.scalars(
-                select(PurchaseInvoiceAttachment).where(
-                    PurchaseInvoiceAttachment.purchase_invoice_id == row.id,
-                    PurchaseInvoiceAttachment.is_deleted.is_(False),
-                )
-            ).all()
+        taxes = children_by_parent(
+            self._session,
+            PurchaseInvoiceLineTax,
+            PurchaseInvoiceLineTax.purchase_invoice_line_id,
+            [item.id for group in lines.values() for item in group],
+            PurchaseInvoiceLineTax.sequence.asc(),
         )
-        notes = list(
-            self._session.scalars(
-                select(PurchaseInvoiceNote).where(
-                    PurchaseInvoiceNote.purchase_invoice_id == row.id,
-                    PurchaseInvoiceNote.is_deleted.is_(False),
+        attachments = children_by_parent(
+            self._session,
+            PurchaseInvoiceAttachment,
+            PurchaseInvoiceAttachment.purchase_invoice_id,
+            ids,
+        )
+        notes = children_by_parent(
+            self._session,
+            PurchaseInvoiceNote,
+            PurchaseInvoiceNote.purchase_invoice_id,
+            ids,
+        )
+        accounting_events = children_by_parent(
+            self._session,
+            PurchaseInvoiceAccountingEvent,
+            PurchaseInvoiceAccountingEvent.purchase_invoice_id,
+            ids,
+        )
+        warnings = self._duplicate_warnings(rows)
+        vendors = {
+            found[0]: (found[1], found[2])
+            for found in self._session.execute(
+                select(Vendor.id, Vendor.display_name, Vendor.code).where(
+                    Vendor.id.in_({row.vendor_id for row in rows})
                 )
-            ).all()
-        )
-        accounting_events = list(
-            self._session.scalars(
-                select(PurchaseInvoiceAccountingEvent).where(
-                    PurchaseInvoiceAccountingEvent.purchase_invoice_id == row.id,
-                    PurchaseInvoiceAccountingEvent.is_deleted.is_(False),
-                )
-            ).all()
-        )
-        warning = self._duplicate_warning(
-            firm_id=row.firm_id,
-            vendor_id=row.vendor_id,
-            supplier_invoice_number=row.supplier_invoice_number,
-            current_id=row.id,
-        )
-        vendor = self._session.get(Vendor, row.vendor_id)
+            )
+        }
+        return [
+            self._invoice_response(
+                row,
+                lines=lines[row.id],
+                taxes=taxes,
+                sources=sources[row.id],
+                attachments=attachments[row.id],
+                notes=notes[row.id],
+                accounting_events=accounting_events[row.id],
+                warning=warnings.get(row.id),
+                vendor=vendors.get(row.vendor_id),
+            )
+            for row in rows
+        ]
+
+    def _invoice_response(
+        self,
+        row: PurchaseInvoice,
+        *,
+        lines: list[PurchaseInvoiceLine],
+        taxes: dict[UUID, list[PurchaseInvoiceLineTax]],
+        sources: list[PurchaseInvoiceSource],
+        attachments: list[PurchaseInvoiceAttachment],
+        notes: list[PurchaseInvoiceNote],
+        accounting_events: list[PurchaseInvoiceAccountingEvent],
+        warning: str | None,
+        vendor: tuple[str, str] | None,
+    ) -> PurchaseInvoiceResponse:
+        """Build one invoice's response from what the page already read."""
         return PurchaseInvoiceResponse(
             id=row.id,
             firm_id=row.firm_id,
             vendor_id=row.vendor_id,
-            vendor_name=vendor.display_name if vendor else "",
-            vendor_code=vendor.code if vendor else "",
+            vendor_name=vendor[0] if vendor else "",
+            vendor_code=vendor[1] if vendor else "",
             branch_id=row.branch_id,
             business_profile_id=row.business_profile_id,
             invoice_number=row.invoice_number,
@@ -876,7 +902,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             is_deleted=row.is_deleted,
             created_at=row.created_at,
             updated_at=row.updated_at,
-            lines=[self._line_response(item, taxes[item.id]) for item in lines],
+            lines=[self._line_response(item, taxes.get(item.id, [])) for item in lines],
             sources=[self._source_response(item) for item in sources],
             attachments=[self._attachment_response(item) for item in attachments],
             notes=[self._note_response(item) for item in notes],
@@ -2024,6 +2050,35 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             current_id=current_id,
         ):
             return
+
+    def _duplicate_warnings(self, rows: Sequence[PurchaseInvoice]) -> dict[UUID, str]:
+        """Answer `_duplicate_warning` for a page of invoices in one query."""
+        holders: dict[tuple[UUID, UUID, str], set[UUID]] = defaultdict(set)
+        for found_id, firm_id, vendor_id, number in self._session.execute(
+            select(
+                PurchaseInvoice.id,
+                PurchaseInvoice.firm_id,
+                PurchaseInvoice.vendor_id,
+                PurchaseInvoice.supplier_invoice_number,
+            ).where(
+                PurchaseInvoice.firm_id.in_({row.firm_id for row in rows}),
+                PurchaseInvoice.supplier_invoice_number.in_(
+                    {row.supplier_invoice_number for row in rows}
+                ),
+                PurchaseInvoice.is_deleted.is_(False),
+            )
+        ):
+            holders[(firm_id, vendor_id, number)].add(found_id)
+        return {
+            row.id: (
+                "A purchase invoice with this supplier invoice number already exists."
+            )
+            for row in rows
+            if holders.get(
+                (row.firm_id, row.vendor_id, row.supplier_invoice_number), set()
+            )
+            - {row.id}
+        }
 
     def _duplicate_warning(
         self,
