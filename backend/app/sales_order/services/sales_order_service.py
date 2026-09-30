@@ -11,7 +11,7 @@ from decimal import Decimal
 from uuid import UUID
 
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.branches.models import Branch, Warehouse
 from app.business.gating import assert_feature_fields
@@ -29,6 +29,7 @@ from app.common.report_names import (
 from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
+from app.core.utils.chunks import chunks
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger
 from app.core.utils.pricing import (
@@ -1519,6 +1520,39 @@ class SalesOrderService(TransactionalDocumentService):
             )
         return result
 
+    def _orders_grouped[KeyT](
+        self,
+        *,
+        firm_scope: UUID,
+        window: ReportWindow,
+        column: InstrumentedAttribute[KeyT],
+    ) -> tuple[dict[KeyT, int], dict[KeyT, Decimal]]:
+        """Count and value the window's orders by ``column``, in SQL.
+
+        Cancellations excluded. The by-customer, by-salesman and by-territory
+        reports read every order of the window whole to add them up: 3-5 s for
+        a year on the volume firm (backlog 56 C, step 4).
+        """
+        counts: dict[KeyT, int] = {}
+        totals: dict[KeyT, Decimal] = {}
+        for key, count, total in self._session.execute(
+            select(
+                column,
+                func.count(),
+                func.coalesce(func.sum(SalesOrder.grand_total), 0),
+            )
+            .where(
+                SalesOrder.firm_id == firm_scope,
+                SalesOrder.is_deleted.is_(False),
+                SalesOrder.status != SalesOrderStatus.CANCELLED.value,
+                *window.dated(SalesOrder.order_date),
+            )
+            .group_by(column)
+        ).all():
+            counts[key] = int(count)
+            totals[key] = Decimal(str(total))
+        return counts, totals
+
     def orders_by_customer(
         self, *, firm_scope: UUID, window: ReportWindow = WHOLE_HISTORY
     ) -> list[SalesOrderByCustomerRecord]:
@@ -1530,25 +1564,14 @@ class SalesOrderService(TransactionalDocumentService):
         differs for most trading businesses, so the same customer was one name
         here and another on the credit-note and return reports (D-RPT-19).
         """
-        rows = list(
-            self._session.scalars(
-                select(SalesOrder).where(
-                    SalesOrder.firm_id == firm_scope,
-                    SalesOrder.is_deleted.is_(False),
-                    SalesOrder.status != SalesOrderStatus.CANCELLED.value,
-                    *window.dated(SalesOrder.order_date),
-                )
-            ).all()
+        counts, totals = self._orders_grouped(
+            firm_scope=firm_scope, window=window, column=SalesOrder.customer_id
         )
-        totals: dict[UUID, Decimal] = defaultdict(lambda: ZERO)
-        counts: dict[UUID, int] = defaultdict(int)
-        for row in rows:
-            totals[row.customer_id] += row.grand_total
-            counts[row.customer_id] += 1
-        names = {
-            customer.id: customer.display_name
-            for customer in self._session.scalars(
-                select(Customer).where(Customer.id.in_(list(totals)))
+        names: dict[UUID, str] = {
+            customer_id: name
+            for part in chunks(list(totals))
+            for customer_id, name in self._session.execute(
+                select(Customer.id, Customer.display_name).where(Customer.id.in_(part))
             ).all()
         }
         return [
@@ -1596,21 +1619,9 @@ class SalesOrderService(TransactionalDocumentService):
         unattributed orders cannot be reconciled against the register
         (D-RPT-19).
         """
-        rows = list(
-            self._session.scalars(
-                select(SalesOrder).where(
-                    SalesOrder.firm_id == firm_scope,
-                    SalesOrder.is_deleted.is_(False),
-                    SalesOrder.status != SalesOrderStatus.CANCELLED.value,
-                    *window.dated(SalesOrder.order_date),
-                )
-            ).all()
+        counts, totals = self._orders_grouped(
+            firm_scope=firm_scope, window=window, column=SalesOrder.salesman_id
         )
-        totals: dict[UUID | None, Decimal] = defaultdict(lambda: ZERO)
-        counts: dict[UUID | None, int] = defaultdict(int)
-        for row in rows:
-            totals[row.salesman_id] += row.grand_total
-            counts[row.salesman_id] += 1
         # One read for every salesman rather than one per row, and against the
         # platform store rather than this firm's.
         labels: dict[UUID | None, str] = {None: UNASSIGNED}
@@ -1640,29 +1651,17 @@ class SalesOrderService(TransactionalDocumentService):
         one, and the names are read in one query rather than one per node
         (D-RPT-19).
         """
-        rows = list(
-            self._session.scalars(
-                select(SalesOrder).where(
-                    SalesOrder.firm_id == firm_scope,
-                    SalesOrder.is_deleted.is_(False),
-                    SalesOrder.status != SalesOrderStatus.CANCELLED.value,
-                    *window.dated(SalesOrder.order_date),
-                )
-            ).all()
+        counts, totals = self._orders_grouped(
+            firm_scope=firm_scope, window=window, column=SalesOrder.territory_id
         )
-        totals: dict[UUID | None, Decimal] = defaultdict(lambda: ZERO)
-        counts: dict[UUID | None, int] = defaultdict(int)
-        for row in rows:
-            totals[row.territory_id] += row.grand_total
-            counts[row.territory_id] += 1
         labels: dict[UUID | None, str] = {None: UNASSIGNED}
         # One read for every node named, rather than one query per node.
-        for node in self._session.scalars(
-            select(SalesTerritoryNode).where(
+        for node_id, node_name in self._session.execute(
+            select(SalesTerritoryNode.id, SalesTerritoryNode.name).where(
                 SalesTerritoryNode.id.in_([key for key in totals if key is not None])
             )
         ).all():
-            labels[node.id] = node.name
+            labels[node_id] = node_name
         return [
             SalesOrderByTerritoryRecord(
                 territory_id=territory_id,
