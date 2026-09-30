@@ -359,9 +359,11 @@ shows an opening balance for an income or expense account must go through it.
 ## A credit note that states its lines reverses tax
 
 **A credit note that states its lines reverses tax; the bare receivable
-adjustment does not.** `post_credit_note` posts two legs -- receivable and
-sales returns -- because a `customer_receivable_transactions` row carries one
-figure and no lines, so it has nothing to say what rate to take off. A firm
+adjustment did not.** It posted two legs -- receivable and sales returns --
+because a `customer_receivable_transactions` row carries one figure and no
+lines, so it had nothing to say what rate to take off. Its route,
+`POST /customers/{id}/receivables/transactions`, was retired on 2026-09-30
+(D-FIN-23). A firm
 correcting a rate after invoicing therefore kept declaring output tax on a
 price nobody paid. `app/credit_note` is the document that closes it:
 `post_credit_note_document` posts the third leg. It is **not** a sales

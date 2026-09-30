@@ -57,10 +57,6 @@ const Map<String, String> _accepted = <String, String>{
   'beatPlan': 'as batchRecord',
   'einvoiceRegistration': 'as batchRecord; the registrations list carries the '
       'reference, the mode and the failure reason already',
-  'postCustomerReceivableTransaction':
-      'deliberately unreachable. It moves a customer balance without writing a '
-          'journal, so the two books drift by every rupee recorded through it -- '
-          'money is recorded through /receipts and /payments, which post',
   'customerReceivableSummary':
       'superseded by the customer statement and ageing screens, which '
           'reconcile the bills against the account rather than reporting one side',
