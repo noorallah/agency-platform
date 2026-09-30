@@ -1005,6 +1005,67 @@ class DocumentPostingService:
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
 
+    def post_customer_opening_bill(
+        self,
+        *,
+        firm_id: UUID,
+        opening_bill_id: UUID,
+        bill_number: str,
+        posting_date: date,
+        amount: Decimal,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Post one bill a customer owed on the day the firm started here.
+
+        The receivable twin of `post_vendor_opening_bill`, and the bill-wise
+        form of `post_opening_balance`: the debt arrived from books this ledger
+        never saw, so its counterpart is opening balance equity -- Dr accounts
+        receivable, Cr equity. No revenue and no tax: those belong to the
+        period the bill was raised in, in the other books. The customer is the
+        receivable's party through the `OPENING_BILL` receivable transaction
+        the caller writes beside it, which is what the statement reads.
+
+        Raises:
+            ValidationError: If the amount is nil, or accounts or an open
+                period are missing on the posting date.
+
+        """
+        total = quantize_ledger(quantize_money(amount))
+        if total <= ZERO:
+            raise ValidationError("An opening bill must be for more than nothing.")
+        accounts = self._require_mapping(firm_id, OPENING_BALANCE_PURPOSES)
+        context = self.context_for(firm_id, posting_date)
+        description = f"Opening bill {bill_number}"
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=posting_date,
+            reference_number=bill_number,
+            description=description,
+            lines=[
+                JournalLineData(
+                    ledger_account_id=accounts[
+                        ControlAccountPurpose.ACCOUNTS_RECEIVABLE
+                    ],
+                    debit_amount=total,
+                    description=description,
+                ),
+                JournalLineData(
+                    ledger_account_id=accounts[
+                        ControlAccountPurpose.OPENING_BALANCE_EQUITY
+                    ],
+                    credit_amount=total,
+                    description=description,
+                ),
+            ],
+            source_module="customer_opening_bills",
+            source_id=opening_bill_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
     def post_customer_refund(
         self,
         *,

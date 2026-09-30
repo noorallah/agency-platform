@@ -44,12 +44,19 @@ from app.customers.schemas.customer import (
     CustomerStatus,
     CustomerType,
 )
+from app.customers.schemas.opening_bill import (
+    CustomerOpeningBillCancel,
+    CustomerOpeningBillImportRequest,
+    CustomerOpeningBillResponse,
+    CustomerOpeningBillWrite,
+)
 from app.customers.services import (
     CreditControlService,
     CustomerGroupService,
     CustomerService,
     CustomerStatementService,
 )
+from app.customers.services.opening_bill_service import CustomerOpeningBillService
 
 router = APIRouter(
     prefix="/api/v1/customers",
@@ -295,6 +302,89 @@ def import_customers(
         ),
     )
     return ApiResponse(data=_responses(customers, db))
+
+
+def _firm(scope: ResolvedFirmScope) -> UUID:
+    """Return the firm a customer's opening bills belong to, or refuse."""
+    if scope.firm_id is None:
+        raise ValidationError("X-Firm-ID is required for a customer's opening bills.")
+    return scope.firm_id
+
+
+# Opening bills: what each customer owed the firm on its first day here, bill
+# by bill. The literal paths come before `/{customer_id}`, for the reason
+# given at `/ageing` below.
+@router.post(
+    "/opening-bills/import",
+    response_model=ApiResponse[list[CustomerOpeningBillResponse]],
+    status_code=status.HTTP_201_CREATED,
+)
+def import_customer_opening_bills(
+    data: CustomerOpeningBillImportRequest,
+    scope: CustomerImportScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[CustomerOpeningBillResponse]]:
+    """Record a file of opening bills, naming customers by code; all or none."""
+    firm_id = _firm(scope)
+    service = CustomerOpeningBillService(db)
+    rows = service.import_bills(data.records, firm_id=firm_id, actor_id=scope.actor_id)
+    return ApiResponse(
+        data=[service.response_for(row, firm_id=firm_id) for row in rows]
+    )
+
+
+@router.post(
+    "/opening-bills/{bill_id}/cancel",
+    response_model=ApiResponse[CustomerOpeningBillResponse],
+)
+def cancel_customer_opening_bill(
+    bill_id: UUID,
+    data: CustomerOpeningBillCancel,
+    scope: CustomerUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CustomerOpeningBillResponse]:
+    """Take back an opening bill entered in error; refused once received against."""
+    firm_id = _firm(scope)
+    service = CustomerOpeningBillService(db)
+    row = service.cancel(
+        bill_id, reason=data.reason, firm_id=firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=service.response_for(row, firm_id=firm_id))
+
+
+@router.get(
+    "/{customer_id}/opening-bills",
+    response_model=ApiResponse[list[CustomerOpeningBillResponse]],
+)
+def list_customer_opening_bills(
+    customer_id: UUID,
+    scope: CustomerViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[CustomerOpeningBillResponse]]:
+    """List one customer's opening bills with what is received and owed on each."""
+    return ApiResponse(
+        data=CustomerOpeningBillService(db).list_for_customer(
+            customer_id, firm_id=_firm(scope)
+        )
+    )
+
+
+@router.post(
+    "/{customer_id}/opening-bills",
+    response_model=ApiResponse[CustomerOpeningBillResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_customer_opening_bill(
+    customer_id: UUID,
+    data: CustomerOpeningBillWrite,
+    scope: CustomerUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[CustomerOpeningBillResponse]:
+    """Record one bill the customer owed at cutover, and post it."""
+    firm_id = _firm(scope)
+    service = CustomerOpeningBillService(db)
+    row = service.create(customer_id, data, firm_id=firm_id, actor_id=scope.actor_id)
+    return ApiResponse(data=service.response_for(row, firm_id=firm_id))
 
 
 # Declared with the other literals above `/{customer_id}`: FastAPI matches in

@@ -28,12 +28,25 @@ from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.chunks import over_chunks
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO
-from app.customers.models import Customer, CustomerReceivableTransaction
+from app.customers.models import (
+    Customer,
+    CustomerOpeningBill,
+    CustomerReceivableTransaction,
+)
 from app.customers.schemas.customer import (
     CustomerReceivableTransactionCreate,
     CustomerReceivableTransactionType,
 )
 from app.customers.services.customer_service import CustomerService
+from app.customers.services.opening_bill_service import (
+    opening_bill_label as customer_opening_bill_label,
+)
+from app.customers.services.opening_bill_service import (
+    opening_bill_receipts,
+)
+from app.customers.services.opening_bill_service import (
+    standing_opening_bills as standing_customer_opening_bills,
+)
 from app.document_framework.services.transactional_document_service import (
     DocumentStateSpec,
     DocumentTypeSpec,
@@ -393,12 +406,47 @@ class SettlementService(TransactionalDocumentService):
                     due_date=row.due_date,
                 )
             )
-        if not is_receipt:
-            records.extend(
-                self._owing_opening_bills(firm_id=firm_id, party_id=party_id)
-            )
-            records.sort(
-                key=lambda record: (record.invoice_date, record.invoice_number)
+        records.extend(
+            self._owing_customer_opening_bills(firm_id=firm_id, party_id=party_id)
+            if is_receipt
+            else self._owing_opening_bills(firm_id=firm_id, party_id=party_id)
+        )
+        records.sort(key=lambda record: (record.invoice_date, record.invoice_number))
+        return records
+
+    def _owing_customer_opening_bills(
+        self, *, firm_id: UUID, party_id: UUID | None
+    ) -> list[OutstandingInvoiceRecord]:
+        """Offer what customers owed at cutover as bills to be received against.
+
+        The receivable twin of `_owing_opening_bills`: beside the sales
+        invoices, in the one derivation Record Receipt, the outstanding and
+        overdue reports and the customer delete guard all read.
+        """
+        bills = standing_customer_opening_bills(
+            self._session, firm_id=firm_id, customer_id=party_id
+        )
+        received = opening_bill_receipts(
+            self._session, firm_id=firm_id, bill_ids=[row.id for row in bills]
+        )
+        records: list[OutstandingInvoiceRecord] = []
+        for row in bills:
+            total = quantize_ledger(row.amount)
+            already = received.get(row.id, ZERO)
+            if total - already <= ZERO:
+                continue
+            records.append(
+                OutstandingInvoiceRecord(
+                    invoice_id=row.id,
+                    invoice_number=customer_opening_bill_label(row),
+                    invoice_date=row.bill_date,
+                    invoice_total=total,
+                    allocated_amount=already,
+                    outstanding_amount=total - already,
+                    party_id=row.customer_id,
+                    due_date=row.due_date,
+                    is_opening_bill=True,
+                )
             )
         return records
 
@@ -440,13 +488,19 @@ class SettlementService(TransactionalDocumentService):
         return records
 
     def _opening_bill_ids(self, ids: Sequence[UUID]) -> set[UUID]:
-        """Say which of the ids a payment names are opening bills."""
+        """Say which of the ids a settlement names are opening bills.
+
+        A customer's for a receipt, a supplier's for a payment.
+        """
         if not ids:
             return set()
+        model: type[CustomerOpeningBill] | type[VendorOpeningBill] = (
+            CustomerOpeningBill
+            if self.DIRECTION == SettlementDirection.RECEIPT
+            else VendorOpeningBill
+        )
         return set(
-            self._session.scalars(
-                select(VendorOpeningBill.id).where(VendorOpeningBill.id.in_(list(ids)))
-            ).all()
+            self._session.scalars(select(model.id).where(model.id.in_(list(ids)))).all()
         )
 
     @over_chunks("invoice_ids")
@@ -659,10 +713,8 @@ class SettlementService(TransactionalDocumentService):
         self._session.add(row)
         self._session.flush()
 
-        opening_bills = (
-            set()
-            if is_receipt
-            else self._opening_bill_ids([item.invoice_id for item in data.allocations])
+        opening_bills = self._opening_bill_ids(
+            [item.invoice_id for item in data.allocations]
         )
         for allocation in data.allocations:
             opening = allocation.invoice_id in opening_bills
@@ -670,11 +722,9 @@ class SettlementService(TransactionalDocumentService):
                 SettlementAllocation(
                     firm_id=firm_id,
                     settlement_id=row.id,
-                    sales_invoice_id=allocation.invoice_id if is_receipt else None,
-                    purchase_invoice_id=(
-                        None if is_receipt or opening else allocation.invoice_id
+                    **self._allocation_target(
+                        allocation.invoice_id, is_receipt=is_receipt, opening=opening
                     ),
-                    vendor_opening_bill_id=allocation.invoice_id if opening else None,
                     amount=quantize_ledger(allocation.amount),
                     # Applied with the money, so it met the bill the day the
                     # money arrived.
@@ -934,7 +984,11 @@ class SettlementService(TransactionalDocumentService):
             )
         opening = record.is_opening_bill
         invoice_column = (
-            SettlementAllocation.sales_invoice_id
+            (
+                SettlementAllocation.customer_opening_bill_id
+                if opening
+                else SettlementAllocation.sales_invoice_id
+            )
             if is_receipt
             else (
                 SettlementAllocation.vendor_opening_bill_id
@@ -960,9 +1014,9 @@ class SettlementService(TransactionalDocumentService):
             SettlementAllocation(
                 firm_id=firm_id,
                 settlement_id=row.id,
-                sales_invoice_id=invoice_id if is_receipt else None,
-                purchase_invoice_id=None if is_receipt or opening else invoice_id,
-                vendor_opening_bill_id=invoice_id if opening else None,
+                **self._allocation_target(
+                    invoice_id, is_receipt=is_receipt, opening=opening
+                ),
                 amount=asked,
                 # The day the money met the bill: the bill's own date, or the
                 # receipt's where the receipt came later. Not today, which
@@ -1131,6 +1185,26 @@ class SettlementService(TransactionalDocumentService):
     # ------------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------------
+
+    @staticmethod
+    def _allocation_target(
+        invoice_id: UUID, *, is_receipt: bool, opening: bool
+    ) -> dict[str, UUID | None]:
+        """Say which of the four bill columns an allocation fills.
+
+        A sales invoice or a customer's opening bill for a receipt, a purchase
+        invoice or a supplier's opening bill for a payment -- exactly one.
+        """
+        return {
+            "sales_invoice_id": invoice_id if is_receipt and not opening else None,
+            "customer_opening_bill_id": invoice_id if is_receipt and opening else None,
+            "purchase_invoice_id": (
+                invoice_id if not is_receipt and not opening else None
+            ),
+            "vendor_opening_bill_id": (
+                invoice_id if not is_receipt and opening else None
+            ),
+        }
 
     def _rows_written_by(self, row: Settlement) -> list[CustomerReceivableTransaction]:
         """Return the receivable rows a settlement wrote, to be undone in order.
@@ -1369,6 +1443,22 @@ class SettlementService(TransactionalDocumentService):
                     opening_bill_label(bill),
                     bill.bill_date,
                     quantize_ledger(bill.amount),
+                )
+        customer_ids = [
+            allocation.customer_opening_bill_id
+            for allocation in allocations
+            if allocation.customer_opening_bill_id is not None
+        ]
+        if customer_ids:
+            for customer_bill in self._session.scalars(
+                select(CustomerOpeningBill).where(
+                    CustomerOpeningBill.id.in_(customer_ids)
+                )
+            ).all():
+                summaries[customer_bill.id] = (
+                    customer_opening_bill_label(customer_bill),
+                    customer_bill.bill_date,
+                    quantize_ledger(customer_bill.amount),
                 )
         return summaries
 

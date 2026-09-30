@@ -125,6 +125,7 @@ trigger each schema owns its own copy of.
 | `customer_attribute_values` | firm store ¹ | Store one configurable attribute value for a customer. | `customers`, `firms`, `attribute_definitions` |
 | `customer_contacts` | firm store ¹ | Represent one customer contact person. | `customers` |
 | `customer_groups` | firm store ¹ | A commercial segment a firm sells to: Retailer, Wholesaler, Institution. | `firms` |
+| `customer_opening_bills` | firm store ¹ | Store one bill a customer owed on the firm's first day here. | `customers`, `journal_entries` |
 | `customer_receivable_transactions` | firm store ¹ | Represent one immutable receivable movement for a customer. | `firms`, `customers`, `journal_entries` |
 | `customers` | firm store ¹ | Represent one customer master owned by a firm. | `firms`, `customer_groups` |
 
@@ -380,7 +381,7 @@ trigger each schema owns its own copy of.
 
 | Table | Store | Holds | Points at |
 | --- | --- | --- | --- |
-| `settlement_allocations` | firm store ¹ | Store how much of one settlement cleared one invoice. | `firms`, `settlements`, `sales_invoices`, `purchase_invoices`, `vendor_opening_bills` |
+| `settlement_allocations` | firm store ¹ | Store how much of one settlement cleared one invoice. | `firms`, `settlements`, `sales_invoices`, `purchase_invoices`, `vendor_opening_bills`, `customer_opening_bills` |
 | `settlements` | firm store ¹ | Store one receipt from a customer or payment to a vendor. | `firms`, `customers`, `vendors`, `ledger_accounts`, `sales_orders`, `journal_entries` |
 | `supplier_credit_applications` | firm store ¹ | Store how much of one purchase return's supplier credit cleared one bill. | `vendors`, `purchase_returns`, `purchase_invoices` |
 

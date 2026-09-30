@@ -17,6 +17,7 @@ extension _Phase2CustomerForm on _CustomerWorkspaceDialogState {
     'Custom fields',
     'Rounds',
     'Licences',
+    'Opening bills',
   ];
 
   Widget _phase2Page(BuildContext context) {
@@ -114,6 +115,7 @@ extension _Phase2CustomerForm on _CustomerWorkspaceDialogState {
   bool _shows(String section) => switch (section) {
         'Custom fields' => _customFields != null,
         'Licences' => widget.loadLicences != null,
+        'Opening bills' => widget.loadOpeningBills != null,
         _ => true,
       };
 
@@ -245,6 +247,15 @@ extension _Phase2CustomerForm on _CustomerWorkspaceDialogState {
                   child: _licencesTab(),
                 ),
               ),
+            ],
+            if (widget.loadOpeningBills != null) ...[
+              _heading(
+                context,
+                'Opening bills',
+                note: 'what they owed on the firm\'s first day here, bill by '
+                    'bill',
+              ),
+              _openingBillsTab(),
             ],
           ],
         ),
