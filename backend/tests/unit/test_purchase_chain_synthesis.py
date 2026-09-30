@@ -128,7 +128,7 @@ class _Firm:
     def product_bill(
         self, quantity: str = "10", price: str | None = "100", number: str = "S-1"
     ) -> PurchaseInvoiceCreate:
-        """A supplier bill that names only products."""
+        """Build a supplier bill that names only products."""
         line: dict[str, object] = {
             "line_number": 1,
             "product_id": self.product.id,
@@ -147,7 +147,7 @@ class _Firm:
         )
 
     def approved_order(self) -> PurchaseOrder:
-        """An order a person raised and approved, for ten at 100."""
+        """Raise and approve an order as a person would, for ten at 100."""
         service = PurchaseService(self.session)
         order = service.create_order(
             PurchaseOrderCreate.model_validate(
@@ -174,11 +174,11 @@ class _Firm:
         )
 
     def bills(self) -> PurchaseInvoiceService:
-        """The bill service on this session."""
+        """Return the bill service on this session."""
         return PurchaseInvoiceService(self.session)
 
     def stock(self) -> Decimal:
-        """What the warehouse holds of the product."""
+        """Return what the warehouse holds of the product."""
         row = self.session.scalar(
             select(InventoryRecord).where(
                 InventoryRecord.firm_id == self.firm.id,
@@ -210,7 +210,7 @@ class _Firm:
         return Decimal(str(total or 0))
 
     def raised(self, bill: PurchaseInvoice) -> tuple[PurchaseOrder, GoodsReceipt]:
-        """The live order and receipt a bill raised for itself."""
+        """Return the live order and receipt a bill raised for itself."""
         receipt = self.session.scalar(
             select(GoodsReceipt).where(
                 GoodsReceipt.raised_by_purchase_invoice_id == bill.id,
@@ -225,7 +225,7 @@ class _Firm:
 
 @pytest.fixture
 def firm() -> _Firm:
-    """A firm on a fresh in-memory store."""
+    """Build a firm on a fresh in-memory store."""
     engine = create_engine(
         "sqlite://",
         connect_args={"check_same_thread": False},
