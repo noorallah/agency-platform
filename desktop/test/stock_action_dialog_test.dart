@@ -1,3 +1,4 @@
+import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/ui/inventory/stock_action_dialog.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -94,5 +95,64 @@ void main() {
       find.descendant(of: banner, matching: find.byIcon(Icons.error_outline)),
       findsOneWidget,
     );
+  });
+
+  testWidgets('a refused stock action stays open with what was typed',
+      (tester) async {
+    // D-DLG-1: the dialog used to close on Save and the page made the call.
+    tester.view.physicalSize = const Size(1366, 768);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    int calls = 0;
+    Map<String, dynamic>? sent;
+    Object? result;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Builder(
+          builder: (context) => TextButton(
+            onPressed: () async => result = await showDialog<Object>(
+              context: context,
+              builder: (context) => Dialog(
+                child: StockActionDialog(
+                  action: StockAction.writeOff,
+                  productLabel: 'Detergent Powder 1kg',
+                  warehouseLabel: 'North Warehouse',
+                  sourceWarehouseId: 'wh-north',
+                  available: 12,
+                  quarantined: 0,
+                  warehouses: const [],
+                  onSave: (Map<String, dynamic> values) async {
+                    calls++;
+                    if (calls == 1) {
+                      throw const ApiException('The period is closed.');
+                    }
+                    sent = values;
+                  },
+                ),
+              ),
+            ),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.widgetWithText(TextField, 'Quantity'), '5');
+    await tester.enterText(find.widgetWithText(TextField, 'Remarks'), 'cracked');
+    await tester.tap(find.text('Write off'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(StockActionDialog), findsOneWidget);
+    expect(find.text('The period is closed.'), findsOneWidget);
+    expect(find.text('5'), findsOneWidget);
+    expect(find.text('cracked'), findsOneWidget);
+    expect(sent, isNull);
+
+    await tester.tap(find.text('Write off'));
+    await tester.pumpAndSettle();
+    expect(find.byType(StockActionDialog), findsNothing);
+    expect(sent!['quantity'], '5');
+    expect(result, isNotNull);
   });
 }

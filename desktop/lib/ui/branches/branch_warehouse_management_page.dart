@@ -939,28 +939,25 @@ class _BranchWarehouseManagementPageState
     if (!mounted) return;
     final payload = await showDialog<Json>(
       context: context,
-      builder: (context) =>
-          _BranchDialog(api: widget.api, current: current, types: types),
+      builder: (context) => _BranchDialog(
+        api: widget.api,
+        current: current,
+        types: types,
+        onSave: (Json values) async {
+          if (current == null) {
+            await widget.api.createBranch(values);
+          } else {
+            await widget.api.updateBranch(
+              current.id,
+              values,
+              expectedVersion: preconditionFor(current.version),
+            );
+          }
+        },
+      ),
     );
     if (payload == null || !mounted) return;
-    try {
-      if (current == null) {
-        await widget.api.createBranch(payload);
-      } else {
-        await widget.api.updateBranch(
-          current.id,
-          payload,
-          expectedVersion: preconditionFor(current.version),
-        );
-      }
-      await _load();
-    } on ApiException catch (exception) {
-      if (!mounted) return;
-      NotificationService.show(
-          context,
-          saveFailureMessage(exception, 'branch', changesKept: false),
-          kind: AppNotificationKind.error);
-    }
+    await _load();
   }
 
   Future<void> _openWarehouseEdit(WarehouseRecord? current) async {
@@ -974,55 +971,47 @@ class _BranchWarehouseManagementPageState
         current: current,
         branches: branches.items,
         types: types,
+        onSave: (Json values) async {
+          if (current == null) {
+            await widget.api.createWarehouse(values);
+          } else {
+            await widget.api.updateWarehouse(
+              current.id,
+              values,
+              expectedVersion: preconditionFor(current.version),
+            );
+          }
+        },
       ),
     );
     if (payload == null || !mounted) return;
-    try {
-      if (current == null) {
-        await widget.api.createWarehouse(payload);
-      } else {
-        await widget.api.updateWarehouse(
-          current.id,
-          payload,
-          expectedVersion: preconditionFor(current.version),
-        );
-      }
-      await _load();
-    } on ApiException catch (exception) {
-      if (!mounted) return;
-      NotificationService.show(
-          context,
-          saveFailureMessage(exception, 'warehouse', changesKept: false),
-          kind: AppNotificationKind.error);
-    }
+    await _load();
   }
 
   Future<void> _openTypeEdit(TypeRecord? current) async {
     final payload = await showDialog<Json>(
       context: context,
-      builder: (context) => _TypeDialog(current: current),
+      builder: (context) => _TypeDialog(
+        current: current,
+        onSave: (Json values) async {
+          if (widget.section == BranchWarehouseSection.branchTypes) {
+            if (current == null) {
+              await widget.api.createBranchType(values);
+            } else {
+              await widget.api.updateBranchType(current.id, values);
+            }
+          } else {
+            if (current == null) {
+              await widget.api.createWarehouseType(values);
+            } else {
+              await widget.api.updateWarehouseType(current.id, values);
+            }
+          }
+        },
+      ),
     );
     if (payload == null || !mounted) return;
-    try {
-      if (widget.section == BranchWarehouseSection.branchTypes) {
-        if (current == null) {
-          await widget.api.createBranchType(payload);
-        } else {
-          await widget.api.updateBranchType(current.id, payload);
-        }
-      } else {
-        if (current == null) {
-          await widget.api.createWarehouseType(payload);
-        } else {
-          await widget.api.updateWarehouseType(current.id, payload);
-        }
-      }
-      await _load();
-    } on ApiException catch (exception) {
-      if (!mounted) return;
-      NotificationService.show(context, exception.message,
-          kind: AppNotificationKind.error);
-    }
+    await _load();
   }
 
   Future<void> _openStorageEdit(StorageNodeRecord? current) async {
@@ -1033,21 +1022,17 @@ class _BranchWarehouseManagementPageState
         current: current,
         warehouseId: _selectedWarehouse!.id,
         availableParents: _storageNodes,
+        onSave: (Json values) async {
+          if (current == null) {
+            await widget.api.createStorageNode(values);
+          } else {
+            await widget.api.updateStorageNode(current.id, values);
+          }
+        },
       ),
     );
     if (payload == null || !mounted) return;
-    try {
-      if (current == null) {
-        await widget.api.createStorageNode(payload);
-      } else {
-        await widget.api.updateStorageNode(current.id, payload);
-      }
-      await _load();
-    } on ApiException catch (exception) {
-      if (!mounted) return;
-      NotificationService.show(context, exception.message,
-          kind: AppNotificationKind.error);
-    }
+    await _load();
   }
 
   Future<void> _deleteBranch(BranchRecord branch) async {
@@ -1088,7 +1073,12 @@ class _BranchWarehouseManagementPageState
 }
 
 class _BranchDialog extends StatefulWidget {
-  const _BranchDialog({required this.api, required this.types, this.current});
+  const _BranchDialog({
+    required this.api,
+    required this.types,
+    required this.onSave,
+    this.current,
+  });
 
   /// Needed for the geography ladder behind the branch address.
   final ApiClient api;
@@ -1098,11 +1088,15 @@ class _BranchDialog extends StatefulWidget {
   /// optional, and a firm that has defined none must still be able to save.
   final List<TypeRecord> types;
 
+  /// Saves the branch; throws [ApiException] on a refusal.
+  final Future<void> Function(Json values) onSave;
+
   @override
   State<_BranchDialog> createState() => _BranchDialogState();
 }
 
-class _BranchDialogState extends State<_BranchDialog> {
+class _BranchDialogState extends State<_BranchDialog>
+    with SaveInDialog<_BranchDialog> {
   late final TextEditingController _code =
       TextEditingController(text: widget.current?.code ?? '');
   late final TextEditingController _name =
@@ -1203,6 +1197,7 @@ class _BranchDialogState extends State<_BranchDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                saveErrorBanner(),
                 Row(
                   children: [
                     Expanded(child: _field(_code, 'Branch Code', errorText: _codeError)),
@@ -1301,10 +1296,10 @@ class _BranchDialogState extends State<_BranchDialog> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: cancelHandler,
               child: const Text('Cancel')),
           FilledButton(
-            onPressed: () {
+            onPressed: saving ? null : () {
               setState(() {
                 _codeError = _codeProblem(_code.text.trim(), 'Branch');
                 _nameError = _name.text.trim().isEmpty
@@ -1318,7 +1313,7 @@ class _BranchDialogState extends State<_BranchDialog> {
                     kind: AppNotificationKind.warning);
                 return;
               }
-              Navigator.pop(context, _payload());
+              submit<Json>(_payload(), widget.onSave);
             },
             child: const Text('Save'),
           ),
@@ -1413,6 +1408,7 @@ class _WarehouseDialog extends StatefulWidget {
     required this.current,
     required this.branches,
     required this.types,
+    required this.onSave,
   });
 
   /// Needed for the geography ladder behind the warehouse address.
@@ -1424,11 +1420,15 @@ class _WarehouseDialog extends StatefulWidget {
   /// optional, and a firm that has defined none must still be able to save.
   final List<TypeRecord> types;
 
+  /// Saves the warehouse; throws [ApiException] on a refusal.
+  final Future<void> Function(Json values) onSave;
+
   @override
   State<_WarehouseDialog> createState() => _WarehouseDialogState();
 }
 
-class _WarehouseDialogState extends State<_WarehouseDialog> {
+class _WarehouseDialogState extends State<_WarehouseDialog>
+    with SaveInDialog<_WarehouseDialog> {
   late final TextEditingController _code =
       TextEditingController(text: widget.current?.code ?? '');
 
@@ -1562,6 +1562,7 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                saveErrorBanner(),
                 DropdownButtonFormField<String>(
                   isExpanded: true,
                   initialValue: _branchId,
@@ -1689,10 +1690,10 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: cancelHandler,
               child: const Text('Cancel')),
           FilledButton(
-            onPressed: _branchId == null
+            onPressed: _branchId == null || saving
                 ? null
                 : () {
                     setState(() {
@@ -1709,7 +1710,7 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
                           kind: AppNotificationKind.warning);
                       return;
                     }
-                    Navigator.pop(context, _payload());
+                    submit<Json>(_payload(), widget.onSave);
                   },
             child: const Text('Save'),
           ),
@@ -1775,14 +1776,18 @@ class _WarehouseDialogState extends State<_WarehouseDialog> {
 }
 
 class _TypeDialog extends StatefulWidget {
-  const _TypeDialog({this.current});
+  const _TypeDialog({required this.onSave, this.current});
   final TypeRecord? current;
+
+  /// Saves the type; throws [ApiException] on a refusal.
+  final Future<void> Function(Json values) onSave;
 
   @override
   State<_TypeDialog> createState() => _TypeDialogState();
 }
 
-class _TypeDialogState extends State<_TypeDialog> {
+class _TypeDialogState extends State<_TypeDialog>
+    with SaveInDialog<_TypeDialog> {
   late final TextEditingController _code =
       TextEditingController(text: widget.current?.code ?? '');
   late final TextEditingController _name =
@@ -1813,6 +1818,7 @@ class _TypeDialogState extends State<_TypeDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              saveErrorBanner(),
               TextField(
                   controller: _code,
                   decoration: const InputDecoration(labelText: 'Code')),
@@ -1836,15 +1842,17 @@ class _TypeDialogState extends State<_TypeDialog> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: cancelHandler,
               child: const Text('Cancel')),
           FilledButton(
-            onPressed: () => Navigator.pop(context, {
-              'code': _code.text.trim().toUpperCase(),
-              'name': _name.text.trim(),
-              'description': _description.text.trim(),
-              'is_active': _active,
-            }),
+            onPressed: saving
+                ? null
+                : () => submit<Json>({
+                      'code': _code.text.trim().toUpperCase(),
+                      'name': _name.text.trim(),
+                      'description': _description.text.trim(),
+                      'is_active': _active,
+                    }, widget.onSave),
             child: const Text('Save'),
           ),
         ],
@@ -1856,16 +1864,21 @@ class _StorageNodeDialog extends StatefulWidget {
     required this.current,
     required this.warehouseId,
     required this.availableParents,
+    required this.onSave,
   });
   final StorageNodeRecord? current;
   final String warehouseId;
   final List<StorageNodeRecord> availableParents;
 
+  /// Saves the node; throws [ApiException] on a refusal.
+  final Future<void> Function(Json values) onSave;
+
   @override
   State<_StorageNodeDialog> createState() => _StorageNodeDialogState();
 }
 
-class _StorageNodeDialogState extends State<_StorageNodeDialog> {
+class _StorageNodeDialogState extends State<_StorageNodeDialog>
+    with SaveInDialog<_StorageNodeDialog> {
   late final TextEditingController _code =
       TextEditingController(text: widget.current?.code ?? '');
   late final TextEditingController _name =
@@ -1901,6 +1914,7 @@ class _StorageNodeDialogState extends State<_StorageNodeDialog> {
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
+              saveErrorBanner(),
               DropdownButtonFormField<String>(
                 isExpanded: true,
                 initialValue: _type,
@@ -1951,18 +1965,20 @@ class _StorageNodeDialogState extends State<_StorageNodeDialog> {
         ),
         actions: [
           TextButton(
-              onPressed: () => Navigator.pop(context),
+              onPressed: cancelHandler,
               child: const Text('Cancel')),
           FilledButton(
-            onPressed: () => Navigator.pop(context, {
-              'warehouse_id': widget.warehouseId,
-              'parent_id': _parentId,
-              'node_type': _type,
-              'code': _code.text.trim().toUpperCase(),
-              'name': _name.text.trim(),
-              'sort_order': 0,
-              'is_active': true,
-            }),
+            onPressed: saving
+                ? null
+                : () => submit<Json>({
+                      'warehouse_id': widget.warehouseId,
+                      'parent_id': _parentId,
+                      'node_type': _type,
+                      'code': _code.text.trim().toUpperCase(),
+                      'name': _name.text.trim(),
+                      'sort_order': 0,
+                      'is_active': true,
+                    }, widget.onSave),
             child: const Text('Save'),
           ),
         ],

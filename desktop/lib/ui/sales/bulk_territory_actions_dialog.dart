@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 
+import '../workspace/save_in_dialog.dart';
+
 /// What a bulk action does to the ticked territories.
 enum BulkTerritoryAction {
   /// Set every ticked territory to one status.
@@ -53,6 +55,7 @@ class BulkTerritoryActionsDialog extends StatefulWidget {
     this.canAssignCustomers = true,
     this.canAssignSalesmen = true,
     this.canUpdate = true,
+    this.onApply,
   });
 
   /// How many territories are ticked.
@@ -65,13 +68,19 @@ class BulkTerritoryActionsDialog extends StatefulWidget {
   final bool canAssignSalesmen;
   final bool canUpdate;
 
+  /// Applies a status or move choice; throws [ApiException] on a refusal,
+  /// which the dialog shows without closing. The two assignment choices need a
+  /// second dialog to say who, and that dialog saves, so they close at once.
+  final Future<void> Function(BulkTerritoryChoice choice)? onApply;
+
   @override
   State<BulkTerritoryActionsDialog> createState() =>
       _BulkTerritoryActionsDialogState();
 }
 
 class _BulkTerritoryActionsDialogState
-    extends State<BulkTerritoryActionsDialog> {
+    extends State<BulkTerritoryActionsDialog>
+    with SaveInDialog<BulkTerritoryActionsDialog> {
   BulkTerritoryAction? _action;
   String _status = 'ACTIVE';
   String _parentId = '';
@@ -104,6 +113,7 @@ class _BulkTerritoryActionsDialogState
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                saveErrorBanner(),
                 Text(
                   'The whole batch is applied together. If one territory is '
                   'refused, none of them change.',
@@ -201,20 +211,26 @@ class _BulkTerritoryActionsDialogState
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(context),
+          onPressed: cancelHandler,
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: _action == null
+          onPressed: _action == null || saving
               ? null
-              : () => Navigator.pop(
-                    context,
-                    BulkTerritoryChoice(
-                      action: _action!,
-                      status: _status,
-                      parentId: _parentId,
-                    ),
-                  ),
+              : () {
+                  final BulkTerritoryChoice choice = BulkTerritoryChoice(
+                    action: _action!,
+                    status: _status,
+                    parentId: _parentId,
+                  );
+                  final bool needsPicker =
+                      _action == BulkTerritoryAction.customers ||
+                          _action == BulkTerritoryAction.salesmen;
+                  submit<BulkTerritoryChoice>(
+                    choice,
+                    needsPicker ? null : widget.onApply,
+                  );
+                },
           child: const Text('Continue'),
         ),
       ],

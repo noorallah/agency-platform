@@ -20,6 +20,7 @@ class CallOrderDialog extends StatefulWidget {
     required this.routeName,
     required this.assignments,
     required this.nameFor,
+    this.onSave,
   });
 
   final String routeName;
@@ -31,11 +32,17 @@ class CallOrderDialog extends StatefulWidget {
   /// Resolves a customer id to something a person recognises.
   final String Function(String customerId) nameFor;
 
+  /// Saves the order; throws [ApiException] on a refusal, which the dialog
+  /// shows without closing. Null closes with the order at once.
+  final Future<void> Function(List<TerritoryCustomerAssignmentRecord> order)?
+      onSave;
+
   @override
   State<CallOrderDialog> createState() => _CallOrderDialogState();
 }
 
-class _CallOrderDialogState extends State<CallOrderDialog> {
+class _CallOrderDialogState extends State<CallOrderDialog>
+    with SaveInDialog<CallOrderDialog> {
   late final List<TerritoryCustomerAssignmentRecord> _order =
       List<TerritoryCustomerAssignmentRecord>.from(widget.assignments);
 
@@ -54,6 +61,7 @@ class _CallOrderDialogState extends State<CallOrderDialog> {
                 )
               : Column(
                   children: [
+                    saveErrorBanner(),
                     Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
@@ -104,18 +112,18 @@ class _CallOrderDialogState extends State<CallOrderDialog> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: cancelHandler,
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: _order.isEmpty
+            onPressed: _order.isEmpty || saving
                 ? null
-                : () => Navigator.pop<List<TerritoryCustomerAssignmentRecord>>(
-                      context,
+                : () => submit<List<TerritoryCustomerAssignmentRecord>>(
                       <TerritoryCustomerAssignmentRecord>[
                         for (int index = 0; index < _order.length; index++)
                           _order[index].withSequence(index + 1),
                       ],
+                      widget.onSave,
                     ),
             child: const Text('Save order'),
           ),

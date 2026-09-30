@@ -156,35 +156,31 @@ class _ProformaPageState extends State<ProformaPage> {
     final Map<String, String> names =
         phase2 ? await _productNames() : const {};
     if (!mounted) return;
-    final Json? chosen = phase2
-        ? await showDocument<Json>(
+    Future<ProformaRecord> create(Json values) =>
+        widget.api.createProformaInvoice(values);
+    final ProformaRecord? row = phase2
+        ? await showDocument<ProformaRecord>(
             context,
             title: 'New proforma',
             builder: (_) => _Phase2RaiseProforma(
               orders: orders,
               productNames: names,
               today: DateTime.now(),
+              onSave: create,
             ),
           )
-        : await showDialog<Json>(
+        : await showDialog<ProformaRecord>(
             context: context,
-            builder: (context) => _RaiseProformaDialog(orders: orders),
+            builder: (context) =>
+                _RaiseProformaDialog(orders: orders, onSave: create),
           );
-    if (chosen == null || !mounted) return;
-    try {
-      final ProformaRecord row = await widget.api.createProformaInvoice(chosen);
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        '${row.proformaNumber} raised. Issue it when the customer needs it.',
-        kind: AppNotificationKind.success,
-      );
-      await _load();
-    } on ApiException catch (error) {
-      if (!mounted) return;
-      NotificationService.show(context, error.message,
-          kind: AppNotificationKind.error);
-    }
+    if (row == null || !mounted) return;
+    NotificationService.show(
+      context,
+      '${row.proformaNumber} raised. Issue it when the customer needs it.',
+      kind: AppNotificationKind.success,
+    );
+    await _load();
   }
 
   /// The orders a proforma may state.
@@ -656,15 +652,20 @@ String proformaOrderLabel(Json order) {
 }
 
 class _RaiseProformaDialog extends StatefulWidget {
-  const _RaiseProformaDialog({required this.orders});
+  const _RaiseProformaDialog({required this.orders, required this.onSave});
 
   final List<Json> orders;
+
+  /// Raises the proforma; throws [ApiException] on a refusal, which the dialog
+  /// shows without closing.
+  final Future<ProformaRecord> Function(Json values) onSave;
 
   @override
   State<_RaiseProformaDialog> createState() => _RaiseProformaDialogState();
 }
 
-class _RaiseProformaDialogState extends State<_RaiseProformaDialog> {
+class _RaiseProformaDialogState extends State<_RaiseProformaDialog>
+    with SaveInDialog<_RaiseProformaDialog> {
   late String _orderId = '${widget.orders.first['id']}';
   final TextEditingController _paymentTerms = TextEditingController();
   final TextEditingController _deliveryTerms = TextEditingController();
@@ -697,6 +698,7 @@ class _RaiseProformaDialogState extends State<_RaiseProformaDialog> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
+                saveErrorBanner(),
                 Text(
                   'The order’s lines are copied as they stand. Editing the '
                   'order afterwards will not change the document the customer '
@@ -748,11 +750,11 @@ class _RaiseProformaDialogState extends State<_RaiseProformaDialog> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.of(context).pop(),
+            onPressed: cancelHandler,
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () => Navigator.of(context).pop(<String, dynamic>{
+            onPressed: saving ? null : () => saveAndClose<ProformaRecord>(() => widget.onSave(<String, dynamic>{
               'sales_order_id': _orderId,
               'proforma_date': _today(),
               // Blank means no deadline, which is a real choice -- so an
@@ -763,7 +765,7 @@ class _RaiseProformaDialogState extends State<_RaiseProformaDialog> {
                 'payment_terms': _paymentTerms.text.trim(),
               if (_deliveryTerms.text.trim().isNotEmpty)
                 'delivery_terms': _deliveryTerms.text.trim(),
-            }),
+            })),
             child: const Text('Raise'),
           ),
         ],
