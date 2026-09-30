@@ -6,6 +6,7 @@ import 'package:agency_desktop/models/commission.dart';
 import 'package:agency_desktop/models/entities.dart';
 import 'package:agency_desktop/models/firm_member.dart';
 import 'package:agency_desktop/ui/commission/sales_target_page.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -23,6 +24,13 @@ PermissionService _permissions() {
   return PermissionService()..applyAccessToken('h.$payload.s');
 }
 
+const SalesTargetRecord _row = SalesTargetRecord(
+  id: 't-1',
+  periodStart: '2026-09-01',
+  periodEnd: '2026-09-30',
+  targetAmount: '1000',
+);
+
 class _TargetApi extends ApiClient {
   _TargetApi()
       : super(
@@ -33,13 +41,17 @@ class _TargetApi extends ApiClient {
         );
 
   final List<Json> created = [];
+  final List<String> deleted = [];
 
   @override
   Future<PagedResult<SalesTargetRecord>> salesTargets({
     int page = 1,
     int pageSize = 50,
   }) async =>
-      const PagedResult<SalesTargetRecord>(items: [], total: 0);
+      const PagedResult<SalesTargetRecord>(items: [_row], total: 1);
+
+  @override
+  Future<void> deleteSalesTarget(String id) async => deleted.add(id);
 
   @override
   Future<List<FirmMember>> firmMembers() async => const [
@@ -108,5 +120,40 @@ void main() {
     expect(api.created.single.containsKey('salesman_id'), isTrue,
         reason: 'on an edit, an absent key would leave the person in place');
     expect(api.created.single['salesman_id'], isNull);
+  });
+
+  testWidgets('withdrawing a target asks first (D-DLG-2)', (tester) async {
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _TargetApi api = _TargetApi();
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => Phase2Scope(child: child!),
+      home: Scaffold(
+        body: SalesTargetPage(
+          api: api,
+          permissions: _permissions(),
+          hasActiveFirm: true,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('2026-09-01 to').first);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('selection-delete')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(api.deleted, isEmpty);
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+    expect(api.deleted, isEmpty);
+
+    await tester.tap(find.byKey(const ValueKey('selection-delete')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Withdraw'));
+    await tester.pumpAndSettle();
+    expect(api.deleted, ['t-1']);
   });
 }

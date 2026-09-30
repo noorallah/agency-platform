@@ -10,6 +10,7 @@ import '../../models/customer.dart';
 import '../../models/entities.dart';
 import '../../models/pricing.dart';
 import '../../models/product.dart';
+import '../../core/dialogs/app_dialogs.dart';
 import '../workspace/desktop_framework.dart';
 import 'price_list_dialog.dart';
 
@@ -131,6 +132,15 @@ class _PriceListPageState extends State<PriceListPage> {
   }
 
   Future<void> _delete(PriceListRecord row) async {
+    final bool confirmed = await showWorkspaceConfirmDialog(
+      context,
+      title: 'Withdraw ${row.code}?',
+      message: 'Documents already priced under it are unchanged; the rate is '
+          'stored on the line. New documents can no longer use it.',
+      confirmLabel: 'Withdraw',
+      type: ConfirmationType.delete,
+    );
+    if (!confirmed || !mounted) return;
     try {
       await widget.api.deletePriceList(row.id);
       if (!mounted) return;

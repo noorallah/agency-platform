@@ -16,6 +16,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/einvoice.dart';
 import '../../models/entities.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/reason_prompt.dart';
 
 /// List what has been registered, and act on one invoice at a time.
 class EInvoicePage extends StatefulWidget {
@@ -250,35 +251,13 @@ class _EInvoicePageState extends State<EInvoicePage> {
   Future<String?> _askReason({
     required String title,
     required String hint,
-  }) async {
-    final TextEditingController controller = TextEditingController();
-    final String? answer = await showDialog<String>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: SizedBox(
-          width: 420,
-          child: TextField(
-            controller: controller,
-            autofocus: true,
-            decoration: InputDecoration(labelText: 'Reason', helperText: hint),
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.of(context).pop(),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: const Text('Withdraw'),
-          ),
-        ],
-      ),
-    );
-    controller.dispose();
-    return (answer == null || answer.isEmpty) ? null : answer;
-  }
+  }) =>
+      askForReason(
+        context,
+        title: title,
+        explanation: hint,
+        confirmLabel: 'Withdraw',
+      );
 
   @override
   Widget build(BuildContext context) {

@@ -13,6 +13,7 @@ import '../core/diagnostics/diagnostics_share.dart';
 import '../core/preferences/desktop_preferences_service.dart';
 import '../core/theme/theme_manager.dart';
 import 'theme_selector.dart';
+import 'workspace/password_field.dart';
 
 const String _buildNumber =
     String.fromEnvironment('BUILD_NUMBER', defaultValue: 'Unknown');
@@ -1418,9 +1419,8 @@ class _ChangeInitialPasswordScreenState
     String label, {
     bool confirmation = false,
   }) =>
-      TextFormField(
+      PasswordField(
         controller: controller,
-        obscureText: true,
         decoration: InputDecoration(labelText: label),
         validator: (value) {
           if (value == null || value.length < 12) {

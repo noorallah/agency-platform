@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/api/api_refusal.dart';
+import '../workspace/password_field.dart';
 
 /// Change your own password, from My profile.
 ///
@@ -122,9 +123,8 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
                           ?.copyWith(color: theme.colorScheme.error),
                     ),
                   ),
-                TextFormField(
+                PasswordField(
                   controller: _current,
-                  obscureText: true,
                   autofocus: true,
                   decoration:
                       const InputDecoration(labelText: 'Current password'),
@@ -133,9 +133,8 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
                       : null,
                 ),
                 const SizedBox(height: 12),
-                TextFormField(
+                PasswordField(
                   controller: _next,
-                  obscureText: true,
                   decoration: const InputDecoration(
                     labelText: 'New password',
                     helperText: 'At least 12 characters, with an uppercase '
@@ -146,9 +145,8 @@ class _ChangePasswordDialogState extends State<ChangePasswordDialog> {
                   validator: ChangePasswordPolicy.check,
                 ),
                 const SizedBox(height: 12),
-                TextFormField(
+                PasswordField(
                   controller: _confirm,
-                  obscureText: true,
                   decoration:
                       const InputDecoration(labelText: 'Confirm new password'),
                   validator: (value) =>

@@ -157,6 +157,27 @@ void main() {
     expect(api.sent, isEmpty);
     expect(answers, [false]);
   });
+
+  testWidgets('every password box has a show/hide eye (D-DLG-9)',
+      (tester) async {
+    await _open(tester, _Api());
+
+    bool obscured(int index) => tester
+        .widget<EditableText>(find
+            .descendant(
+              of: find.byType(TextFormField).at(index),
+              matching: find.byType(EditableText),
+            ))
+        .obscureText;
+
+    expect(find.byTooltip('Show password'), findsNWidgets(3));
+    expect(obscured(0), isTrue);
+    await tester.tap(find.byTooltip('Show password').first);
+    await tester.pumpAndSettle();
+    expect(obscured(0), isFalse);
+    expect(obscured(1), isTrue, reason: 'each box toggles on its own');
+    expect(find.byTooltip('Hide password'), findsOneWidget);
+  });
 }
 
 /// The policy is a static on the state class, reached through this alias

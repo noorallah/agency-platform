@@ -10,6 +10,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/commission.dart';
 import '../../models/entities.dart';
 import '../../models/firm_member.dart';
+import '../../core/dialogs/app_dialogs.dart';
 import '../workspace/desktop_framework.dart';
 
 /// What a firm expects to sell, and how it went.
@@ -117,6 +118,14 @@ class _SalesTargetPageState extends State<SalesTargetPage> {
   }
 
   Future<void> _delete(SalesTargetRecord row) async {
+    final bool confirmed = await showWorkspaceConfirmDialog(
+      context,
+      title: 'Withdraw this target?',
+      message: 'It stops counting towards achievement and commission from now on.',
+      confirmLabel: 'Withdraw',
+      type: ConfirmationType.delete,
+    );
+    if (!confirmed || !mounted) return;
     try {
       await widget.api.deleteSalesTarget(row.id);
       if (!mounted) return;

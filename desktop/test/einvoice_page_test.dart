@@ -400,4 +400,25 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('selection-withdraw')), findsOneWidget);
   });
+
+  testWidgets('the reason prompt is the shared one: Enter submits (D-DLG-10)',
+      (tester) async {
+    final _EInvoiceApi api =
+        _EInvoiceApi(registrations: <Json>[_sandboxRegistration()]);
+    await _pump(tester, api, phase2: true);
+    await tester.tap(find.text('SI-2026-2027-000004').first);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('selection-withdraw')));
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(TextField), 'Wrong customer');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+
+    expect(api.sentBody, {'reason': 'Wrong customer'},
+        reason: 'Enter sent the reason, and the prompt closed without the '
+            'controller being used after disposal');
+    expect(tester.takeException(), isNull);
+  });
 }

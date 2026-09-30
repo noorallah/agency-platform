@@ -48,6 +48,7 @@ class _TypesApi extends ApiClient {
 
   final List<TypeRecord> types;
   Json? created;
+  final List<String> deletedTypes = <String>[];
 
   @override
   Future<List<TypeRecord>> branchTypes({bool includeDeleted = false}) async =>
@@ -78,6 +79,9 @@ class _TypesApi extends ApiClient {
     WarehouseQuery filters = const WarehouseQuery(),
   }) async =>
       PagedResult<WarehouseRecord>(items: <WarehouseRecord>[], total: 0);
+
+  @override
+  Future<void> deleteBranchType(String id) async => deletedTypes.add(id);
 
   @override
   Future<BranchRecord> createBranch(Json data) async {
@@ -211,5 +215,47 @@ void main() {
     expect(find.textContaining('WHL_HO ·'), findsOneWidget);
     expect(find.byType(QuickSummaryPanel), findsNothing);
     expect(find.byKey(const ValueKey('selection-view')), findsOneWidget);
+  });
+
+  testWidgets('deleting a branch type asks first (D-DLG-2)', (tester) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _TypesApi api = _TypesApi(
+      types: <TypeRecord>[_type('t-1', 'DISTRIBUTOR', 'Distributor')],
+    );
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => Phase2Scope(child: child!),
+      home: Scaffold(
+        body: BranchWarehouseManagementPage(
+          api: api,
+          permissions: PermissionService()
+            ..applyAccessToken(_accessToken({
+              'roles': <String>['user'],
+              'permissions': <String>['BRANCH_VIEW', 'BRANCH_DELETE'],
+            })),
+          hasActiveFirm: true,
+          section: BranchWarehouseSection.branchTypes,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Distributor').first);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('selection-delete')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(api.deletedTypes, isEmpty);
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+    expect(api.deletedTypes, isEmpty);
+
+    await tester.tap(find.byKey(const ValueKey('selection-delete')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Delete'));
+    await tester.pumpAndSettle();
+    expect(api.deletedTypes, ['t-1']);
   });
 }
