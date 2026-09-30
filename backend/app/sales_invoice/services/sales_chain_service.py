@@ -42,6 +42,21 @@ from app.sales_order.services.workflow_settings_service import SalesWorkflowServ
 ZERO = Decimal("0")
 
 
+def refuse_coupon_on_documents(data: SalesInvoiceCreate) -> None:
+    """Refuse a coupon on a bill of documents already raised (D-SELL-40).
+
+    Their lines are billed at the prices they were raised at, so a coupon
+    would change nothing -- and a field that gives money away must not be
+    accepted and quietly do nothing.
+    """
+    if data.coupon_code:
+        raise ValidationError(
+            "A coupon is applied where the price is set: on the order, or on "
+            "a bill typed straight in. This bill continues documents already "
+            "priced, so it cannot take one."
+        )
+
+
 class SalesChainService:
     """Synthesise the sales documents a firm's configuration skips."""
 
@@ -67,6 +82,7 @@ class SalesChainService:
         settings = SalesWorkflowService(self._session).settings_for(firm_id)
         bare = [line for line in data.lines if line.source_document_line_id is None]
         if not bare:
+            refuse_coupon_on_documents(data)
             if settings.delivery_note_stage:
                 return data
             return self._note_for_order(data, firm_id=firm_id, actor_id=actor_id)
@@ -116,6 +132,7 @@ class SalesChainService:
                 currency_code=data.currency_code,
                 exchange_rate=data.exchange_rate,
                 remarks=data.remarks,
+                coupon_code=data.coupon_code,
                 additional_charges=data.additional_charges,
                 round_off=data.round_off,
                 bill_discount_percent=data.bill_discount_percent,
@@ -126,7 +143,9 @@ class SalesChainService:
                         line_number=line.line_number,
                         product_id=self._product_of(line),
                         quantity=line.current_invoice_quantity,
-                        free_quantity=line.free_quantity or ZERO,
+                        # None lets the order's offers give free goods; a
+                        # typed zero refuses them (D-SELL-41).
+                        free_quantity=line.free_quantity,
                         sales_uom_id=line.invoice_uom_id,
                         packaging_type_id=line.packaging_type_id,
                         unit_price=line.unit_price,
@@ -409,6 +428,9 @@ class SalesChainService:
                     )
                 ],
                 "lines": lines,
+                # Spent on the order, which priced the lines this bill now
+                # continues; the bill itself carries no coupon.
+                "coupon_code": None,
             }
         )
 

@@ -60,8 +60,11 @@ class SalesOrderLineWrite(SalesOrderSchema):
     product_id: UUID
     description: str | None = Field(default=None, max_length=500)
     quantity: Decimal = Field(ge=0, max_digits=18, decimal_places=4)
-    free_quantity: Decimal = Field(
-        default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
+    #: None means the caller said nothing, so a promotion's free goods apply.
+    #: Zero is an answer -- no free goods on this line, offer or not
+    #: (D-SELL-41). It defaulted to zero once, which made the two the same.
+    free_quantity: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=4
     )
     sales_uom_id: UUID | None = None
     inventory_uom_id: UUID | None = None

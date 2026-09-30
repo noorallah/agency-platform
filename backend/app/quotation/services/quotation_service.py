@@ -84,7 +84,10 @@ from app.sales.services.scope_resolution import resolve_sales_scope
 from app.sales_order.models import SalesOrder
 from app.sales_order.schemas import SalesOrderCreate, SalesOrderLineWrite
 from app.sales_order.services import SalesOrderService
-from app.sales_order.services.sales_order_service import PromotionBenefits
+from app.sales_order.services.sales_order_service import (
+    PromotionBenefits,
+    normalized_coupon,
+)
 from app.tax.schemas import TaxRuleSimulationRequest
 from app.tax.services.place_of_supply import SALES_INTERSTATE
 from app.tax.services.tax_framework_service import TaxFrameworkService
@@ -418,6 +421,7 @@ class QuotationService(TransactionalDocumentService):
             currency_code=data.currency_code,
             exchange_rate=data.exchange_rate,
             remarks=data.remarks,
+            coupon_code=normalized_coupon(data.coupon_code),
             status=QuotationStatus.DRAFT.value,
             additional_charges=self._q(data.additional_charges),
             round_off=self._q(data.round_off),
@@ -514,6 +518,7 @@ class QuotationService(TransactionalDocumentService):
         row.currency_code = data.currency_code
         row.exchange_rate = data.exchange_rate
         row.remarks = data.remarks
+        row.coupon_code = normalized_coupon(data.coupon_code)
         row.additional_charges = self._q(data.additional_charges)
         row.round_off = self._q(data.round_off)
         row.updated_by = actor_id
@@ -723,6 +728,7 @@ class QuotationService(TransactionalDocumentService):
                 currency_code=row.currency_code,
                 exchange_rate=row.exchange_rate,
                 remarks=row.remarks,
+                coupon_code=row.coupon_code,
                 additional_charges=row.additional_charges,
                 round_off=row.round_off,
                 # The deal carries over as the deal, not as each line's share
@@ -745,7 +751,10 @@ class QuotationService(TransactionalDocumentService):
                         product_id=line.product_id,
                         description=line.description,
                         quantity=line.quantity,
-                        free_quantity=line.free_quantity,
+                        # Zero on the quotation is "none given", which the
+                        # order must read as silence and ask the offers again,
+                        # not as a refusal of them (D-SELL-41).
+                        free_quantity=line.free_quantity or None,
                         sales_uom_id=line.sales_uom_id,
                         inventory_uom_id=line.inventory_uom_id,
                         packaging_type_id=line.packaging_type_id,
@@ -946,6 +955,7 @@ class QuotationService(TransactionalDocumentService):
                 branch_id=row.branch_id,
                 territory_id=row.territory_id,
                 salesman_id=row.salesman_id,
+                coupon_code=row.coupon_code,
                 caller_priced_bill=bill_priced,
                 freight_amount=self._q(freight_amount or ZERO),
                 lines=[
@@ -1259,10 +1269,12 @@ class QuotationService(TransactionalDocumentService):
             line.product_id = item.product_id
             line.description = item.description or product.name
             line.quantity = quantity
-            # An offer's free goods apply where the line asked for none, as on
-            # the order.
-            line.free_quantity = self._q(item.free_quantity) or self._q(
+            # An offer's free goods apply where the line said nothing; an
+            # explicit zero refuses them, as on the order (D-SELL-41).
+            line.free_quantity = self._q(
                 benefits.free_quantity(index)
+                if item.free_quantity is None
+                else item.free_quantity
             )
             line.sales_uom_id = item.sales_uom_id
             line.inventory_uom_id = item.inventory_uom_id
@@ -1543,6 +1555,7 @@ class QuotationService(TransactionalDocumentService):
             currency_code=row.currency_code,
             exchange_rate=row.exchange_rate,
             remarks=row.remarks,
+            coupon_code=row.coupon_code,
             status=QuotationStatus(row.status),
             customer_discount_percent=row.customer_discount_percent,
             bill_discount_percent=row.bill_discount_percent,

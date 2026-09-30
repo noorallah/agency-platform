@@ -106,7 +106,10 @@ from app.sales_invoice.schemas import (
     SalesInvoiceStatus,
     SalesInvoiceSummary,
 )
-from app.sales_invoice.services.sales_chain_service import SalesChainService
+from app.sales_invoice.services.sales_chain_service import (
+    SalesChainService,
+    refuse_coupon_on_documents,
+)
 from app.sales_order.models import SalesOrder, SalesOrderLine
 from app.sales_order.schemas import SalesOrderStatus
 from app.sales_order.services.workflow_settings_service import SalesWorkflowService
@@ -594,6 +597,8 @@ class SalesInvoiceService(TransactionalDocumentService):
         row = self.get_invoice(invoice_id, firm_scope=firm_id)
         if row.status != SalesInvoiceStatus.DRAFT.value:
             raise ValidationError("Only draft sales invoices can be updated.")
+        # An edit bills the documents the first save raised, at their prices.
+        refuse_coupon_on_documents(data)
         own_notes = self._notes_raised_by(row)
         data = self._restate_own_serials(
             data, row=row, own_notes=own_notes, firm_id=firm_id, actor_id=actor_id
