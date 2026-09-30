@@ -34,7 +34,8 @@ from pydantic import BaseModel
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy.orm import Session
 
-from app.core.exceptions import ValidationError
+from app.core.exceptions import ApplicationError, ValidationError
+from app.core.validation import validate_email, validate_phone
 
 ExistingRows = Literal["refuse", "update"]
 #: The classic spelling, deliberately: a PEP 695 class (``class X[T]``) leaves
@@ -235,6 +236,24 @@ def _cell_text(value: object) -> str:
     return str(value).strip()
 
 
+def indian_phone(value: str) -> str:
+    """Write a bare Indian number as E.164; anything else is left as typed.
+
+    Every Indian export writes a mobile as ten digits, sometimes with the
+    trunk 0 or a bare 91, and the stored form is E.164.
+    """
+    digits = re.sub(r"[\s().-]", "", value)
+    if digits.startswith("+"):
+        return digits
+    if len(digits) == 10 and digits.isdigit():
+        return "+91" + digits
+    if len(digits) == 11 and digits.startswith("0") and digits.isdigit():
+        return "+91" + digits[1:]
+    if len(digits) == 12 and digits.startswith("91") and digits.isdigit():
+        return "+" + digits
+    return digits
+
+
 class RowReader:
     """Read typed values off one row, recording each cell that will not parse."""
 
@@ -272,6 +291,36 @@ class RowReader:
             self.fail(heading, f"'{self.text(heading)}' is not a whole number.")
             return None
         return int(value)
+
+    def email(self, heading: str) -> str | None:
+        """Read and check an email cell, naming its column when it is wrong.
+
+        Checked here rather than left to the write schema, whose validator
+        raises the application's own error and would name no column.
+        """
+        raw = self.text(heading)
+        if not raw:
+            return None
+        try:
+            return validate_email(raw)
+        except ApplicationError as error:
+            self.fail(heading, error.message)
+            return None
+
+    def phone(self, heading: str) -> str | None:
+        """Read and check a phone cell; 10 digits are taken as Indian."""
+        raw = self.text(heading)
+        if not raw:
+            return None
+        try:
+            return validate_phone(indian_phone(raw))
+        except ApplicationError:
+            self.fail(
+                heading,
+                f"'{raw}' is not a phone number. Give 10 digits, or the full "
+                "number with its country code (+44 20 7946 0000).",
+            )
+            return None
 
     def flag(self, heading: str) -> bool | None:
         """Read Yes or No; a blank cell is None."""

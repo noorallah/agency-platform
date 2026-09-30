@@ -10,6 +10,7 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/geography.dart';
 import '../../models/entities.dart';
+import '../../models/file_import.dart';
 import '../../models/trade_licence.dart';
 import '../../models/vendor.dart';
 import '../../models/vendor_opening_bill.dart';
@@ -63,6 +64,7 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
   bool get _canDelete => widget.permissions.hasPermission('VENDOR_DELETE');
   bool get _canRestore => widget.permissions.hasPermission('VENDOR_RESTORE');
   bool get _canExport => widget.permissions.hasPermission('VENDOR_EXPORT');
+  bool get _canImport => widget.permissions.hasPermission('VENDOR_IMPORT');
 
   @override
   void initState() {
@@ -242,6 +244,29 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
     }
   }
 
+  Future<void> _runImport() async {
+    final FileImportReport? report = await showDialog<FileImportReport>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => MasterImportDialog(
+        noun: 'suppliers',
+        fileStem: 'supplier',
+        downloadTemplate: (format) =>
+            widget.api.vendorImportTemplate(format: format),
+        checkFile: widget.api.checkVendorImportFile,
+        canUpdate: _canEdit,
+      ),
+    );
+    if (!mounted || report == null) return;
+    await _load();
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      'Imported ${report.toCreate} new, updated ${report.toUpdate} suppliers.',
+      kind: AppNotificationKind.success,
+    );
+  }
+
   Future<void> _restore(Vendor vendor) async {
     if (!_canRestore || !vendor.isDeleted) return;
     try {
@@ -294,12 +319,14 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
         ToolbarAction.edit,
         ToolbarAction.delete,
         ToolbarAction.refresh,
+        ToolbarAction.import,
         ToolbarAction.export,
       ],
       isVisible: (action) => switch (action) {
         ToolbarAction.newItem => _canCreate,
         ToolbarAction.edit => _canEdit,
         ToolbarAction.delete => _canDelete,
+        ToolbarAction.import => _canImport,
         ToolbarAction.export => _canExport,
         _ => true,
       },
@@ -310,6 +337,7 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
             ToolbarAction.edit => selected != null && !selected.isDeleted,
             ToolbarAction.delete => selected != null && !selected.isDeleted,
             ToolbarAction.refresh => true,
+            ToolbarAction.import => _canImport && widget.hasActiveFirm,
             ToolbarAction.export => _items.isNotEmpty,
             _ => false,
           },
@@ -326,6 +354,9 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
             break;
           case ToolbarAction.refresh:
             _load();
+            break;
+          case ToolbarAction.import:
+            _runImport();
             break;
           case ToolbarAction.export:
             _export();

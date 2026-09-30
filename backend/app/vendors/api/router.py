@@ -6,17 +6,22 @@ from datetime import date
 from typing import Annotated, Literal
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
 from sqlalchemy.orm import Session
 
 from app.business.schemas import AttributeValueResponse
+from app.common.file_import import (
+    ImportReportResponse,
+    file_format_of,
+    report_response,
+)
 from app.common.scope import ResolvedFirmScope, firm_permission_scope
 from app.core.concurrency import ExpectedVersion, assert_version, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
-from app.core.exceptions import ValidationError
+from app.core.exceptions import AuthorizationError, ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.responses.models import ApiResponse, PaginatedResponse
@@ -42,6 +47,11 @@ from app.vendors.schemas.opening_bill import (
 )
 from app.vendors.services import VendorService
 from app.vendors.services.opening_bill_service import VendorOpeningBillService
+from app.vendors.services.vendor_import import VendorFileImporter
+from app.vendors.services.vendor_import import template_csv as vendor_template_csv
+from app.vendors.services.vendor_import import (
+    template_workbook as vendor_template_workbook,
+)
 
 router = APIRouter(
     prefix="/api/v1/vendors",
@@ -402,6 +412,74 @@ def create_vendor_opening_bill(
     service = VendorOpeningBillService(db)
     row = service.create(vendor_id, data, firm_id=firm_id, actor_id=scope.actor_id)
     return ApiResponse(data=service.response_for(row, firm_id=firm_id))
+
+
+@router.get("/import-template")
+def vendor_import_template(
+    scope: VendorImportScope,
+    format: Literal["csv", "xlsx"] = "xlsx",
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Download the supplier import template (backlog 46).
+
+    The workbook carries the sheet to fill, a notes sheet naming every column
+    and what it takes, and a lists sheet with this firm's supplier categories
+    and types.
+    """
+    if scope.firm_id is None:
+        raise ValidationError("X-Firm-ID is required when importing vendors.")
+    if format == "csv":
+        return StreamingResponse(
+            iter([vendor_template_csv()]),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": 'attachment; filename="supplier-template.csv"'
+            },
+        )
+    return StreamingResponse(
+        iter([vendor_template_workbook(db, scope.firm_id)]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": 'attachment; filename="supplier-template.xlsx"'
+        },
+    )
+
+
+@router.post("/import-file", response_model=ApiResponse[ImportReportResponse])
+async def import_vendor_file(
+    scope: VendorImportScope,
+    file: Annotated[UploadFile, File()],
+    db: Session = Depends(get_db),
+    existing: Annotated[Literal["refuse", "update"], Form()] = "refuse",
+    apply: Annotated[bool, Form()] = False,
+) -> ApiResponse[ImportReportResponse]:
+    """Check a CSV or XLSX supplier file, and with ``apply`` import it whole.
+
+    Every row is checked and every problem returned with its row number. An
+    apply that finds any problem writes nothing and says so with
+    ``imported: false``.
+    """
+    if scope.firm_id is None:
+        raise ValidationError("X-Firm-ID is required when importing vendors.")
+    file_format = file_format_of(file.filename)
+    if existing == "update" and not scope.principal.has_permission("VENDOR_UPDATE"):
+        raise AuthorizationError(
+            "Updating existing suppliers from a file needs the right to edit "
+            "suppliers."
+        )
+    report = VendorFileImporter(
+        db,
+        VendorService(db),
+        may_manage_bank_details=_may_manage_bank(scope),
+    ).run(
+        await file.read(),
+        file_format=file_format,
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+        existing=existing,
+        apply=apply,
+    )
+    return ApiResponse(data=report_response(report))
 
 
 # The two masters come first on purpose. FastAPI matches in declaration

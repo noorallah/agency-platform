@@ -21,7 +21,7 @@ from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.pool import StaticPool
 
 from app.common.audit.models import AuditLog
-from app.common.file_import import ImportReport
+from app.common.file_import import ImportReport, indian_phone
 from app.core.database.base import Base
 from app.customers.models import (
     Customer,
@@ -35,7 +35,6 @@ from app.customers.services import CustomerService
 from app.customers.services.customer_import import (
     COLUMNS,
     CustomerFileImporter,
-    indian_phone,
     template_csv,
     template_workbook,
 )
