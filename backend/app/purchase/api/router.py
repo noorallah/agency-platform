@@ -30,6 +30,12 @@ from app.core.exceptions import ValidationError
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
+from app.document_framework.schemas.bulk_actions import (
+    BulkActionResult,
+    BulkApproveRequest,
+    BulkCancelRequest,
+)
+from app.document_framework.services.bulk_actions import run_each
 from app.purchase.schemas import (
     PurchaseOrderByBuyerRecord,
     PurchaseOrderByProductRecord,
@@ -451,6 +457,56 @@ def update_purchase_workflow_settings(
         data, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data=settings)
+
+
+@router.post("/bulk-approve", response_model=ApiResponse[BulkActionResult])
+def bulk_approve_purchase_orders(
+    data: BulkApproveRequest,
+    scope: PurchaseApproveScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BulkActionResult]:
+    """Approve the ticked submitted orders, each on its own (backlog 56 A).
+
+    Each goes through `approve_order` exactly as a single approval does, under
+    the same `PURCHASE_APPROVE`; a draft not yet submitted is refused with the
+    service's reason and the rest are approved.
+    """
+    service = PurchaseService(db)
+    return ApiResponse(
+        data=run_each(
+            db,
+            data.items,
+            load=lambda order_id: service.get_order(order_id, firm_scope=scope.firm_id),
+            act=lambda order_id: service.approve_order(
+                order_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+            ),
+            number=lambda row: row.po_number,
+        )
+    )
+
+
+@router.post("/bulk-cancel", response_model=ApiResponse[BulkActionResult])
+def bulk_cancel_purchase_orders(
+    data: BulkCancelRequest,
+    scope: PurchaseCancelScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BulkActionResult]:
+    """Cancel the ticked orders with one reason, each on its own (backlog 56 A)."""
+    service = PurchaseService(db)
+    return ApiResponse(
+        data=run_each(
+            db,
+            data.items,
+            load=lambda order_id: service.get_order(order_id, firm_scope=scope.firm_id),
+            act=lambda order_id: service.cancel_order(
+                order_id,
+                firm_scope=scope.firm_id,
+                actor_id=scope.actor_id,
+                reason=data.reason,
+            ),
+            number=lambda row: row.po_number,
+        )
+    )
 
 
 @router.get("/{order_id}", response_model=ApiResponse[PurchaseOrderResponse])
