@@ -190,7 +190,13 @@ class EInvoicePayloadBuilder:
         }
         for line in lines:
             product = products.get(line.product_id)
-            hsn = (getattr(product, "hsn_sac", None) or "").strip()
+            # The code the line was billed under (D-CMP-22), else the
+            # product's for a line written before lines kept one.
+            hsn = (
+                getattr(line, "hsn_sac", None)
+                or getattr(product, "hsn_sac", None)
+                or ""
+            ).strip()
             if not hsn:
                 name = getattr(product, "name", "a product")
                 problems.append(f"{name} has no HSN or SAC code")

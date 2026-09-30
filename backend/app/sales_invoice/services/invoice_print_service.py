@@ -151,7 +151,9 @@ class SalesInvoicePrintService:
                     description=line.description
                     or (product.name if product else "")
                     or "",
-                    hsn=product.hsn_sac if product else None,
+                    # As billed (D-CMP-22); an old line with none stamped
+                    # falls back to the product.
+                    hsn=line.hsn_sac or (product.hsn_sac if product else None),
                     quantity=line.current_invoice_quantity,
                     free_quantity=line.free_quantity,
                     uom=(unit.code if unit else None),

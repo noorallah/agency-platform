@@ -936,6 +936,17 @@ class SalesInvoiceService(TransactionalDocumentService):
             )
         return data.model_copy(update={"lines": kept})
 
+    def _billed_hsn(self, product_id: UUID | None) -> str | None:
+        """Return the HSN or SAC code the product carries now, for the line.
+
+        Read once, as the line is written, and kept on it (D-CMP-22).
+        """
+        if product_id is None:
+            return None
+        product = self._session.get(Product, product_id)
+        code = (product.hsn_sac or "").strip() if product is not None else ""
+        return code or None
+
     def _notes_raised_by(self, row: SalesInvoice) -> frozenset[UUID]:
         """Return the ids of the delivery notes this bill raised for itself."""
         return frozenset(
@@ -2155,6 +2166,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 source_document_line_id=priced_source.id,
                 source_document_line_number=self._source_line_number(priced_source),
                 product_id=self._product_id(priced_source),
+                hsn_sac=self._billed_hsn(self._product_id(priced_source)),
                 description=self._source_description(priced_source),
                 delivered_quantity=source_quantity,
                 already_invoiced_quantity=already_invoiced,

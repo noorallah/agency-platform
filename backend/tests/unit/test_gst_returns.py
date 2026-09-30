@@ -156,6 +156,8 @@ class _Books:
             source_document_line_id=uuid4(),
             source_document_line_number=1,
             product_id=self.product.id,
+            # Stamped as `SalesInvoiceService` stamps it (D-CMP-22).
+            hsn_sac=self.product.hsn_sac,
             delivered_quantity=Decimal("10"),
             current_invoice_quantity=Decimal("10"),
             unit_price=Decimal("100"),
@@ -1276,3 +1278,22 @@ def test_a_late_cancellation_gives_back_its_untaxed_lines_too() -> None:
     # Nothing was taxed, so there is no CDNR row to write.
     assert may["cdnr"] == []
     assert may["hsn"][0]["taxable_value"] == -1000.0
+
+
+def test_correcting_a_products_hsn_does_not_rewrite_a_filed_month() -> None:
+    """D-CMP-22: the HSN summary reads the code each line was billed under.
+
+    It read the product's code as it is today, so correcting a product moved
+    the supplies of a month already filed -- and their credit notes and
+    returns with them -- to a code they were never billed under.
+    """
+    books = _Books(_session_factory()())
+    invoice = books.invoice("SI-1", gross="1000", tax="180")
+    books.credit("CN-1", invoice, taxable="100", tax="18")
+    books.returned("SR-1", invoice, taxable="100", tax="18")
+
+    books.product.hsn_sac = "99999999"
+    books.session.commit()
+    hsn = books.gstr1()["hsn"]
+
+    assert [(row["hsn"], row["taxable_value"]) for row in hsn] == [("33061020", 800.0)]

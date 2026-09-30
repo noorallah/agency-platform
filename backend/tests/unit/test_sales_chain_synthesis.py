@@ -849,3 +849,21 @@ def test_a_coupon_on_a_bill_of_documents_already_priced_is_refused() -> None:
         service.update_invoice(
             invoice.id, sourced, firm_id=setup.firm.id, actor_id=uuid4()
         )
+
+
+def test_an_invoice_line_keeps_the_hsn_it_was_billed_under() -> None:
+    """D-CMP-22: the line is stamped with the product's code when written."""
+    session = _session_factory()()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    setup.product.hsn_sac = "10063020"
+    session.commit()
+
+    SalesInvoiceService(session).create_invoice(
+        setup.bare_bill(), firm_id=setup.firm.id, actor_id=uuid4()
+    )
+    setup.product.hsn_sac = "99999999"
+    session.commit()
+
+    line = session.scalars(select(SalesInvoiceLine)).one()
+    assert line.hsn_sac == "10063020"

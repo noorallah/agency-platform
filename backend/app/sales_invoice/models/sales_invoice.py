@@ -225,6 +225,11 @@ class SalesInvoiceLine(BaseEntity):
     product_id: Mapped[UUID] = mapped_column(
         UUIDType(), ForeignKey("products.id", ondelete="RESTRICT"), nullable=False
     )
+    #: The HSN or SAC code the line was billed under (D-CMP-22). Stamped from
+    #: the product when the line is written, so correcting a product's code
+    #: later does not rewrite the HSN summary of a month already filed or
+    #: reprint an old bill with a code it was not issued with.
+    hsn_sac: Mapped[str | None] = mapped_column(String(20))
     description: Mapped[str | None] = mapped_column(String(500))
     delivered_quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False)
     already_invoiced_quantity: Mapped[Decimal] = mapped_column(
