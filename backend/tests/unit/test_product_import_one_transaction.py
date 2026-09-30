@@ -149,7 +149,7 @@ def test_a_csv_with_an_unknown_status_names_the_row() -> None:
     firm = _firm(session)
     content = "Code,Name,Status\nCSV-1,One,RETIRED\n"
 
-    with pytest.raises(ValidationError, match="Row 2 \\(CSV-1\\): status"):
+    with pytest.raises(ValidationError, match="Row 2 \\(CSV-1\\): Status"):
         ProductService(session).import_products_csv(
             content, firm_scope=firm.id, actor_id=uuid4()
         )
@@ -164,7 +164,9 @@ def test_a_good_csv_and_a_good_workbook_import_whole() -> None:
     csv_rows = service.import_products_csv(
         "Code,Name,Type,Brand,HSN,SellingPrice,Status\n"
         "csv-1,One,stock_item,Acme,ab12,10.50,active\n"
-        ",Skipped for having no code,,,,,\n",
+        # A blank row is skipped. A row with a name and no code is not: it
+        # is reported (backlog 46), where it used to vanish silently.
+        ",,,,,,\n",
         firm_scope=firm.id,
         actor_id=uuid4(),
     )
