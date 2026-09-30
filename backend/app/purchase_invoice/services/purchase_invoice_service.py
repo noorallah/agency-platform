@@ -270,7 +270,14 @@ class PurchaseInvoiceService(TransactionalDocumentService):
 
         # The tile and the overdue report must agree, so the tile counts the
         # report's rows: bills past due that still owe something (D-RPT-2).
-        overdue = len(self.overdue_report(firm_scope=firm_scope))
+        # Counted off the owing bills themselves: building the report's rows
+        # to count them read every one back (backlog 56 C, step 4).
+        today = utc_now().date()
+        overdue = sum(
+            1
+            for record in self._owing(firm_scope=firm_scope)
+            if record.due_date is not None and record.due_date < today
+        )
         return PurchaseInvoiceSummary(
             total=sum(number for number, _ in by_status.values()),
             draft=count(PurchaseInvoiceStatus.DRAFT),
@@ -957,9 +964,10 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         if not vendor_ids:
             return {}
         return {
-            vendor.id: vendor.display_name
-            for vendor in self._session.scalars(
-                select(Vendor).where(Vendor.id.in_(list(vendor_ids)))
+            vendor_id: name
+            for part in chunks(list(vendor_ids))
+            for vendor_id, name in self._session.execute(
+                select(Vendor.id, Vendor.display_name).where(Vendor.id.in_(part))
             ).all()
         }
 
@@ -978,14 +986,20 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             for record in self._owing(firm_scope=firm_scope)
             if record.due_date is not None and record.due_date < today
         ]
-        bills: dict[UUID, PurchaseInvoice] = {}
+        # The two things the row needs of the bill, never the whole row, and
+        # in chunks: a firm's overdue bills can be more ids than one statement
+        # may name.
+        bills: dict[UUID, tuple[str | None, Decimal]] = {}
         if owing:
             bills = {
-                row.id: row
-                for row in self._session.scalars(
-                    select(PurchaseInvoice).where(
-                        PurchaseInvoice.id.in_([item.invoice_id for item in owing])
-                    )
+                bill_id: (number, total)
+                for part in chunks([item.invoice_id for item in owing])
+                for bill_id, number, total in self._session.execute(
+                    select(
+                        PurchaseInvoice.id,
+                        PurchaseInvoice.supplier_invoice_number,
+                        PurchaseInvoice.grand_total,
+                    ).where(PurchaseInvoice.id.in_(part))
                 ).all()
             }
         names = self._vendor_names(
@@ -1003,17 +1017,13 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 PurchaseInvoiceOverdueRecord(
                     invoice_id=record.invoice_id,
                     invoice_number=record.invoice_number,
-                    supplier_invoice_number=(
-                        None if row is None else row.supplier_invoice_number
-                    ),
+                    supplier_invoice_number=None if row is None else row[0],
                     vendor_id=record.party_id,
                     vendor_name=names.get(record.party_id, str(record.party_id)),
                     invoice_date=record.invoice_date,
                     due_date=record.due_date,
                     days_overdue=(today - record.due_date).days,
-                    grand_total=(
-                        record.invoice_total if row is None else row.grand_total
-                    ),
+                    grand_total=record.invoice_total if row is None else row[1],
                     allocated_amount=record.allocated_amount,
                     outstanding_amount=record.outstanding_amount,
                 )
