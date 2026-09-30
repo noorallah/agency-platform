@@ -236,6 +236,11 @@ class SalesInvoiceCreate(SalesInvoiceSchema):
     source_documents: list[SalesInvoiceSourceWrite] = Field(
         default_factory=list, max_length=100
     )
+    #: The coupon the customer presented, read only on a bill that names
+    #: products: the order raised behind it is priced with it, exactly as a
+    #: typed order is (D-SELL-40). A bill of documents already raised bills
+    #: them at their own prices, so a coupon there is refused.
+    coupon_code: str | None = Field(default=None, max_length=40)
     #: A discount on the whole document, taken off what the lines discounted
     #: to and split across them so the tax is charged on the reduced value.
     #: An amount beats a rate, exactly as on a line.

@@ -60,6 +60,11 @@ class SalesInvoiceEditorDialog extends StatefulWidget {
 class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   final GlobalKey<FormState> _form = GlobalKey<FormState>();
   final TextEditingController _reference = TextEditingController();
+
+  /// A coupon the customer presents, on a bill that names products. Only a
+  /// new direct bill takes one: the server refuses a coupon on a bill whose
+  /// lines name documents, because those were priced when they were raised.
+  final TextEditingController _coupon = TextEditingController();
   final TextEditingController _billDiscount = TextEditingController();
   final TextEditingController _freight = TextEditingController();
   final Map<String, TextEditingController> _quantities =
@@ -164,6 +169,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   void dispose() {
     _previewTimer?.cancel();
     _reference.dispose();
+    _coupon.dispose();
     _billDiscount.dispose();
     _freight.dispose();
     for (final TextEditingController controller in _quantities.values) {
@@ -533,6 +539,9 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       'invoice_date': _iso(widget.today),
       if (_reference.text.trim().isNotEmpty)
         'reference_number': _reference.text.trim(),
+      // Omitted when blank: an empty string is a code that matches nothing,
+      // not the absence of one. Never sent from the document path above.
+      if (_coupon.text.trim().isNotEmpty) 'coupon_code': _coupon.text.trim(),
       if (_billDiscount.text.trim().isNotEmpty)
         'bill_discount_percent': _billDiscount.text.trim(),
       if (_freight.text.trim().isNotEmpty)

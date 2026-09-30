@@ -107,10 +107,12 @@ than, is at most, is less than.
 **Other promotions may still apply** (the stacking switch, section 4),
 **Only with a coupon**, **Total uses**, **Uses per customer**.
 
-The server can also give a **free product** (buy X, get a different product
-free, added as its own line) and **free shipping**, and can check customer
-group, branch, salesman, document type and date. The screen does not offer
-those yet, nor the tests "is one of" and "between" -- D-SELL-42, section 15.
+The screen also offers a **free product** (buy X, get a different product
+free, added as its own line: pick the product, say how many, and optionally how
+many must be bought) and **free delivery**, and can check customer group,
+branch, salesman, document type (sales order or quotation) and document date.
+Tests include "is one of", "is none of", "is between" (numbers only), "is set"
+and "is not set" (D-SELL-42, fixed 2026-09-30).
 
 ## 4. Two promotions together: they combine
 
@@ -166,7 +168,7 @@ Discount **263.76**, taxable 2,424.24.
 | **0** in Disc % | No discount at all on that line (example 2e). |
 | Discount on the whole order (% or amount) | **Bill-level promotions are skipped.** Line-level promotions still apply. A bill offer that ends the stack still ends it. |
 | Only the **Rate** (price) | Does **not** block promotions -- the offer is worked out on your price. |
-| Free goods on a line | Replaces the offer's free goods on that line. Typing **0** does not refuse them -- D-SELL-41. |
+| Free goods on a line | Blank takes the offer's free goods; a typed number replaces them on that line, and **0** refuses them (D-SELL-41, fixed 2026-09-30). |
 
 ### Examples (customer C01)
 
@@ -184,9 +186,11 @@ Discount **263.76**, taxable 2,424.24.
   and usage limits.
 - The code is typed in **Coupon** on the **sales order**. An unknown code is
   ignored -- it neither gives a discount nor refuses the order.
-- Quotations have **no coupon box**, so a quote does not show a coupon's
-  offer (D-SELL-43). A bill typed straight in by a firm with the stages off
-  has none either (D-SELL-40).
+- **Quotations** have a Coupon box too (D-SELL-43), so a quote shows the
+  coupon's offer and the order converted from it is priced the same. A bill
+  typed straight in by a firm with the stages off has one (D-SELL-40), on a
+  new bill only: a bill of a delivery note carries none, because that note was
+  priced when it was raised.
 
 ### Examples (customer C01, DET 12, gross 1,008)
 
@@ -229,9 +233,9 @@ list or the promotions later: switch BULK5 off after an order was approved at
 
 With Sales Invoices → ... → **Sales stages** all switched off, a bill typed
 straight in raises its order behind the scenes, and that order is priced the
-ordinary way, so **automatic promotions apply**. **Coupons cannot be used**:
-the invoice has no coupon box (D-SELL-40). This part is read from the code and
-not yet driven -- test case TC-PROMO-015 is the check.
+ordinary way, so **automatic promotions apply**, and a **Coupon** box on the new
+bill takes the customer's code (D-SELL-40, fixed 2026-09-30). The box is on a
+new bill only. Test case TC-PROMO-015 is the check.
 
 ## 11. Loyalty points are not a discount
 
@@ -270,8 +274,8 @@ Applies when → nothing (every line). Save.
 
 **12.2 Festival discount on one category** (15% on Sweets).
 As 12.1, then Applies when → Add condition → When **Product category**, Test
-**is**, Value: pick *Sweets*. For several categories you need one offer each
-today (D-SELL-42: "is one of" is not on the screen yet).
+**is one of**, then pick each category (*Sweets*, *Snacks*, ...) -- one offer
+covers them all (D-SELL-42).
 
 **12.3 Amount off a big bill** (300 off orders of 5,000 or more).
 Gives → **Amount off the whole bill**, 300. Applies when → **Order value** **is
@@ -319,9 +323,9 @@ same line (section 2).
 The customer's standing discount is on the customer record; a group's is on
 Masters → Parties → **Customer Groups**. Both are last in the ranking.
 
-**Not on the screen yet** (D-SELL-42): buy X get a **different** item free,
-free shipping, and conditions on customer group, branch, salesman or date.
-Offers of that kind can only be made over the API today.
+**Also on the screen** (D-SELL-42): buy X get a **different** item free
+(*A free product*), *Free delivery*, and conditions on customer group, branch,
+salesman, document type or date.
 
 ## 13. Trying an offer before it goes live
 
@@ -359,8 +363,9 @@ totals:
 
 Write the quotation numbers down.
 
-**Coupon offers:** quotations have no coupon box (D-SELL-43). Use a **sales
-order** for ZZTEST instead, type the code, **Create draft** and read it --
+**Coupon offers:** type the code in **Coupon** on a quotation for ZZTEST
+(D-SELL-43) and read the price -- a quotation uses no limit. To see the order
+side, use a **sales order**, type the code, **Create draft** and read it --
 **do not approve it**. A draft uses no limit and reserves nothing.
 
 **Step 4 -- open it to everyone.** Edit the offer: remove the **Customer is
@@ -406,9 +411,9 @@ again and click the line to read the side panel. Customer C01 unless stated.
 | **TC-PROMO-012** Free goods | New promotion FREE10: applies at 5, others may still apply, condition Product is DET, Free goods buy 10 get 1, ACTIVE. Order DET 25 | Free **2** (not 2.5); discount 7.5% of 2,100 = 157.50 (free goods are never discounted); taxable 1,942.50 |
 | **TC-PROMO-013** Dates and status | New promotion OLD5: applies at 1, 5% off each line, Until = yesterday, ACTIVE. New promotion DRAFT5: same but From today, Status DRAFT. Order DET 12 | 2% from the price list -- neither applies |
 | **TC-PROMO-014** Usage limit | Promotions → Coupons → New coupon `ONCE1` on WELCOME, Total uses 1. Two orders DET 12 with `ONCE1`; approve the first, then the second | first approves; second refused: "Coupon ONCE1 has been used as often as it ..."; cancel the first, and the second then approves |
-| **TC-PROMO-015** Direct bill | Sales Invoices → ... → Sales stages: switch all three off. New invoice, C01, DET 30, no source | 7.5% from a promotion; **no Coupon box** (D-SELL-40) |
+| **TC-PROMO-015** Direct bill | Sales Invoices → ... → Sales stages: switch all three off. New invoice, C01, DET 30, no source | 7.5% from a promotion; a **Coupon** box is on the new bill (D-SELL-40) |
 | **TC-PROMO-016** Price holds along the chain | Order DET 30, approve. Edit BULK5 to **10%** (saves as a new revision). Deliver and bill the order; then a new order DET 30 | note and bill both 7.5%, 189.00; the new order 10%, 252.00 |
-| **TC-PROMO-017** Free goods cannot be refused | With FREE10 from TC-PROMO-012, order DET 25 with Free **0** typed | today: 2 free still given (D-SELL-41); after the fix: 0 |
+| **TC-PROMO-017** Free goods cannot be refused | With FREE10 from TC-PROMO-012, order DET 25 with Free **0** typed | 0 free (D-SELL-41, fixed 2026-09-30); with Free left blank, 2 |
 | **TC-PROMO-018** Trying an offer before launch | Section 13 steps 1-5 with a new offer TRY20: 20% off each line, Customer is ZZTEST, From today. Quotation ZZTEST DET 12; quotation C01 DET 12; then remove the ZZTEST condition and save; quotation C01 DET 12 again | ZZTEST: 20% from a promotion; C01 first: 2% from the price list (TRY20 reaches nobody else); after: C01 20% from a promotion; the list shows TRY20 revision 2, and revision 1 INACTIVE |
 
 Already covered in `docs/INDEPENDENT_TEST_CASES.md`, with data checks:
@@ -419,11 +424,11 @@ approval), TC-INCENT-004 (end of stack), TC-INCENT-005 (loyalty).
 
 ## 15. Known gaps
 
+D-SELL-40, 41, 42 and 43 (direct-bill coupon, refusing free goods with 0, the
+full promotion screen, the quotation coupon) were fixed on 2026-09-30 and are
+described where they apply above.
+
 | Id | Gap |
 | --- | --- |
-| D-SELL-40 | A bill typed straight in (stages off) has no coupon box, so a one-person firm cannot honour a coupon. |
-| D-SELL-41 | Typing 0 free goods on a line cannot refuse an offer's free goods. |
-| D-SELL-42 | The promotion screen does not offer Free product or Free shipping, nor conditions on customer group, branch, salesman, document type or date, though the server supports them. |
-| D-SELL-43 | A quotation has no coupon box, so a quote does not show the coupon price the order will get. |
 | Backlog 59 | No "best offer only" mode: matching promotions always combine. |
 | Backlog 60 | No screen to try an offer and no future-dated quotation (row 13); offer types still missing against market practice -- a percent capped at an amount, buy X get Y at a discount, combo prices, festival bonus points, bulk coupon codes, first-order offers, offer templates, scheme claims, offers on the print. |

@@ -86,6 +86,10 @@ class SalesQuotation(BaseEntity):
     currency_code: Mapped[str | None] = mapped_column(String(10))
     exchange_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
     remarks: Mapped[str | None] = mapped_column(Text)
+    #: The coupon the customer presented, if any (D-SELL-43). The quote is
+    #: priced with it and the order it becomes carries it; only that order's
+    #: approval counts the claim -- a quotation is an offer, not a claim.
+    coupon_code: Mapped[str | None] = mapped_column(String(40))
     #: The customer's standing discount when this document was raised. The
     #: rate is a starting point and every line may override it, so this says
     #: what it would have been rather than what any line was charged.

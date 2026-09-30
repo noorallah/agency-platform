@@ -113,7 +113,12 @@ class _InvoiceApi extends ApiClient {
     if (method == 'GET' && path.startsWith('/api/v1/customers')) {
       return <String, dynamic>{
         'data': <Json>[
-          <String, dynamic>{'id': 'cust-1', 'name': 'Walk-in Customer'},
+          <String, dynamic>{
+            'id': 'cust-1',
+            'code': 'C-1',
+            'name': 'Walk-in Customer',
+            'display_name': 'Walk-in Customer',
+          },
         ],
       };
     }
@@ -397,6 +402,9 @@ void main() {
       // Echoed back as `If-Match`, so a concurrent edit is refused rather
       // than silently overwritten.
       expect(api.sentVersion, 5);
+      // D-SELL-40: an edit sends source lines, and the server refuses a coupon
+      // on such a bill, so none is ever sent with one.
+      expect(api.updated!.containsKey('coupon_code'), isFalse);
     });
 
     testWidgets('a draft may keep what it bills plus whatever is still free',
@@ -619,5 +627,70 @@ void main() {
     expect(
         find.byKey(const ValueKey('sales-invoice-customer')), findsOneWidget);
     expect(find.byKey(const ValueKey('document-side-panel')), findsOneWidget);
+  });
+
+  Future<void> fillDirectBill(WidgetTester tester) async {
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-customer')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Walk-in Customer').last);
+    await tester.pumpAndSettle();
+    await tester.tap(
+        find.byKey(const ValueKey<String>('sales-invoice-direct-product-0')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Widget').last);
+    await tester.pumpAndSettle();
+    final Finder cells = find.descendant(
+      of: find.byKey(const ValueKey<String>('sales-invoice-direct-0')),
+      matching: find.byType(EditableText),
+    );
+    await tester.enterText(cells.at(1), '3');
+    await tester.enterText(cells.at(2), '150');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+  }
+
+  // D-SELL-40: a bill that names products takes the customer's coupon, priced
+  // by the preview and sent on create; blank says nothing at all.
+  testWidgets('phase 2 direct bill sends its coupon, priced and saved',
+      (tester) async {
+    final _InvoiceApi api = _InvoiceApi()
+      ..salesOrderStage = false
+      ..deliveryNoteStage = false;
+    await pumpPhase2(tester, api);
+    await fillDirectBill(tester);
+    expect(api.previews.last.containsKey('coupon_code'), isFalse);
+
+    await tester.enterText(
+        find.byKey(const ValueKey('sales-invoice-coupon')), '  SAVE10 ');
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(api.previews.last['coupon_code'], 'SAVE10');
+
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+    expect(api.created?['coupon_code'], 'SAVE10');
+  });
+
+  testWidgets('phase 2 direct bill with no coupon omits the key',
+      (tester) async {
+    final _InvoiceApi api = _InvoiceApi()
+      ..salesOrderStage = false
+      ..deliveryNoteStage = false;
+    await pumpPhase2(tester, api);
+    await fillDirectBill(tester);
+
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+    expect(api.created, isNotNull);
+    expect(api.created!.containsKey('coupon_code'), isFalse);
+  });
+
+  testWidgets('a bill of a delivery note offers no coupon box', (tester) async {
+    final _InvoiceApi api = _InvoiceApi(billable: <Json>[_billable()]);
+    await pumpPhase2(tester, api);
+    expect(find.byKey(const ValueKey('sales-invoice-coupon')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('sales-invoice-save')));
+    await tester.pumpAndSettle();
+    expect(api.created!.containsKey('coupon_code'), isFalse);
   });
 }

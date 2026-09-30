@@ -117,7 +117,7 @@ from app.uom.services import UomService, assert_quantity_fits_unit
 ZERO = Decimal("0")
 
 
-def _normalized_coupon(code: str | None) -> str | None:
+def normalized_coupon(code: str | None) -> str | None:
     """Store a coupon the one way it is matched.
 
     Upper case and trimmed, so `save10`, ` SAVE10 ` and `SAVE10` are the same
@@ -446,7 +446,7 @@ class SalesOrderService(TransactionalDocumentService):
             currency_code=data.currency_code,
             exchange_rate=data.exchange_rate,
             remarks=data.remarks,
-            coupon_code=_normalized_coupon(data.coupon_code),
+            coupon_code=normalized_coupon(data.coupon_code),
             credit_limit_snapshot=self._q(customer.credit_limit),
             # What the customer owed when the order was taken, not what they
             # opened with years ago (D-SELL-25).
@@ -554,7 +554,7 @@ class SalesOrderService(TransactionalDocumentService):
         row.currency_code = data.currency_code
         row.exchange_rate = data.exchange_rate
         row.remarks = data.remarks
-        row.coupon_code = _normalized_coupon(data.coupon_code)
+        row.coupon_code = normalized_coupon(data.coupon_code)
         row.credit_limit_snapshot = self._q(customer.credit_limit)
         row.outstanding_balance_snapshot = self._q(customer.current_outstanding)
         row.additional_charges = self._q(data.additional_charges)
@@ -2040,12 +2040,14 @@ class SalesOrderService(TransactionalDocumentService):
             bill_share = shares[index]
             freight_share = freight[index]
             quantity = self._q(item.quantity)
-            # A promotion's free goods apply only where the line asked for
-            # none. The write schema defaults this to zero rather than None, so
-            # "said nothing" and "said none" cannot be told apart here -- an
-            # explicit zero therefore loses to an offer, which is the one place
-            # this module cannot honour the None-is-not-zero rule.
-            free_quantity = self._q(item.free_quantity) or benefits.free_quantity(index)
+            # A promotion's free goods apply only where the line said nothing.
+            # An explicit zero refuses them, as a zero discount refuses a
+            # standing rate (D-SELL-41).
+            free_quantity = (
+                benefits.free_quantity(index)
+                if item.free_quantity is None
+                else self._q(item.free_quantity)
+            )
             conversion = self._conversion(
                 quantity=self._q(quantity + free_quantity),
                 sales_uom_id=item.sales_uom_id,

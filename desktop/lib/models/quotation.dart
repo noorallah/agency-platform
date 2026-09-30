@@ -84,6 +84,7 @@ class Quotation {
     required this.validUntil,
     this.createdAt = '',
     required this.customerReference,
+    this.couponCode = '',
     required this.paymentTerms,
     required this.deliveryTerms,
     required this.status,
@@ -125,6 +126,9 @@ class Quotation {
   final String validUntil;
   final String createdAt;
   final String customerReference;
+
+  /// The coupon the offer was priced with, empty when none.
+  final String couponCode;
   final String paymentTerms;
   final String deliveryTerms;
   final String status;
@@ -183,6 +187,7 @@ class Quotation {
         validUntil: stringValue(json['valid_until']),
         createdAt: stringValue(json['created_at']),
         customerReference: stringValue(json['customer_reference']),
+        couponCode: stringValue(json['coupon_code']),
         paymentTerms: stringValue(json['payment_terms']),
         deliveryTerms: stringValue(json['delivery_terms']),
         status: stringValue(json['status']),

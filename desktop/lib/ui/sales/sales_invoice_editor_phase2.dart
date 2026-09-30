@@ -382,6 +382,20 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
           decoration: documentBoxDecoration(context, hint: 'their PO number'),
         ),
       ),
+      // New bills of products only: a coupon is applied when the bill is
+      // first priced, and the server refuses one on a bill of documents.
+      if (_direct)
+        DocumentField(
+          label: 'Coupon',
+          width: 130,
+          child: TextFormField(
+            key: const ValueKey('sales-invoice-coupon'),
+            controller: _coupon,
+            decoration: documentBoxDecoration(context),
+            textCapitalization: TextCapitalization.characters,
+            onChanged: (_) => _schedulePreview(),
+          ),
+        ),
     ]);
   }
 
