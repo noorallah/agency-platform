@@ -12,8 +12,10 @@ import '../../models/entities.dart';
 import '../../models/geography.dart';
 import '../../models/product.dart';
 import '../../models/sales_territory.dart';
+import '../../models/trade_licence.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/trade_licence_quick_add.dart';
 import 'credit_settings_dialog.dart';
 import 'customer_group_dialog.dart';
 import '../../phase2/document_page.dart';
@@ -266,6 +268,25 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
             widget.permissions.hasPermission('CUSTOMER_MANAGE_SETTINGS'),
         mayChangeStandingDiscount:
             widget.permissions.hasPermission('CUSTOMER_MANAGE_SETTINGS'),
+        // Licences (backlog 54): only for a record that already exists, and
+        // only for somebody who may see them at all.
+        loadLicences: customer != null &&
+                widget.permissions.hasPermission('TRADE_LICENCE_VIEW')
+            ? () => widget.api.tradeLicences(customerId: customer.id)
+            : null,
+        canManageLicences:
+            widget.permissions.hasPermission('TRADE_LICENCE_MANAGE'),
+        onAddLicence: customer == null
+            ? null
+            : () => addTradeLicenceFor(
+                  context,
+                  api: widget.api,
+                  holderType: 'CUSTOMER',
+                  customerId: customer.id,
+                  holderLabel: customer.displayName.isEmpty
+                      ? customer.name
+                      : customer.displayName,
+                ),
       );
     final Customer? saved = phase2
         ? await showDocument<Customer>(
@@ -777,6 +798,9 @@ class CustomerWorkspaceDialog extends StatefulWidget {
     this.loadGroups,
     this.mayChangeCreditLimit = true,
     this.mayChangeStandingDiscount = true,
+    this.loadLicences,
+    this.canManageLicences = false,
+    this.onAddLicence,
   });
 
   final CustomerDialogMode mode;
@@ -814,6 +838,18 @@ class CustomerWorkspaceDialog extends StatefulWidget {
   /// server refuses a new customer that starts with one just the same.
   final bool mayChangeStandingDiscount;
 
+  /// The trade licences this customer holds (backlog 54). Null hides the
+  /// Licences tab entirely -- while the customer is still being created, or
+  /// for a user without `TRADE_LICENCE_VIEW`.
+  final Future<List<TradeLicenceRecord>> Function()? loadLicences;
+
+  /// Whether the user holds `TRADE_LICENCE_MANAGE`, so "Add licence" shows.
+  final bool canManageLicences;
+
+  /// Opens the licence form pre-set to this customer. Returns whether one
+  /// was saved, so the tab knows to re-read the list.
+  final Future<bool> Function()? onAddLicence;
+
   @override
   State<CustomerWorkspaceDialog> createState() =>
       _CustomerWorkspaceDialogState();
@@ -823,6 +859,10 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
   /// Null until the rounds have been read; empty means read and none.
   List<CustomerRouteRecord>? _routes;
   bool _routesRequested = false;
+
+  /// Null until the licences have been read; empty means read and none.
+  List<TradeLicenceRecord>? _licences;
+  bool _licencesRequested = false;
 
   final List<GlobalKey<FormState>> _forms =
       List.generate(4, (_) => GlobalKey<FormState>());
@@ -883,6 +923,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
       'Contacts',
       'Custom fields',
       'Rounds',
+      'Licences',
     ])
       section: GlobalKey(),
   };
@@ -1127,6 +1168,8 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
               ]),
             ),
           WorkspaceDialogTab(label: 'Routes', child: _routesTab()),
+          if (widget.loadLicences != null)
+            WorkspaceDialogTab(label: 'Licences', child: _licencesTab()),
           WorkspaceDialogTab(label: 'Audit', child: _auditTab()),
         ],
         footer: Padding(
@@ -1366,6 +1409,92 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         ),
       ),
     ]);
+  }
+
+  /// The trade licences this customer holds (backlog 54) -- read-only here;
+  /// "Add licence" opens the licence form itself, pre-set to this customer.
+  Widget _licencesTab() {
+    if (widget.loadLicences == null) {
+      return _tabPage([
+        const WorkspaceEmptyState(
+          title: 'Licences appear after save',
+          message: 'A licence is recorded once the customer has been created.',
+          icon: Icons.badge_outlined,
+        ),
+      ]);
+    }
+    if (!_licencesRequested) {
+      _licencesRequested = true;
+      unawaited(_reloadLicences());
+    }
+    final List<TradeLicenceRecord>? rows = _licences;
+    final Widget header = SectionHeader(
+      title: 'Trade licences',
+      description: 'Licences this customer holds and when each runs out.',
+      trailing: !widget.canManageLicences || widget.onAddLicence == null
+          ? null
+          : FilledButton.tonalIcon(
+              onPressed: _addLicence,
+              icon: const Icon(Icons.add),
+              label: const Text('Add licence'),
+            ),
+    );
+    if (rows == null) {
+      return _tabPage([header, const Center(child: CircularProgressIndicator())]);
+    }
+    if (rows.isEmpty) {
+      return _tabPage([
+        header,
+        const SizedBox(height: 12),
+        const StandardEmptyState(
+          type: EmptyStateType.noRecords,
+          message: 'No licences have been recorded for this customer.',
+        ),
+      ]);
+    }
+    return _tabPage([
+      header,
+      const SizedBox(height: 12),
+      Card(
+        child: Column(
+          children: [
+            for (final TradeLicenceRecord row in rows)
+              ListTile(
+                leading: const Icon(Icons.badge_outlined),
+                title: Text(
+                  '${row.licenceTypeName.isEmpty ? row.licenceTypeCode : row.licenceTypeName}'
+                  ' — ${row.licenceNumber}',
+                ),
+                subtitle: Text(
+                  row.validTo.isEmpty
+                      ? 'No expiry recorded'
+                      : 'Valid to ${row.validTo}',
+                ),
+                trailing: StatusBadge.fromStatus(row.standing),
+              ),
+          ],
+        ),
+      ),
+    ]);
+  }
+
+  Future<void> _reloadLicences() async {
+    try {
+      final List<TradeLicenceRecord> rows = await widget.loadLicences!();
+      if (mounted) setState(() => _licences = rows);
+    } on Object {
+      // A licence list that cannot be read costs this tab, not the dialog.
+      if (mounted) setState(() => _licences = const <TradeLicenceRecord>[]);
+    }
+  }
+
+  Future<void> _addLicence() async {
+    final Future<bool> Function()? onAddLicence = widget.onAddLicence;
+    if (onAddLicence == null) return;
+    final bool saved = await onAddLicence();
+    if (!saved) return;
+    _licencesRequested = false;
+    if (mounted) setState(() {});
   }
 
   Widget _auditTab() {

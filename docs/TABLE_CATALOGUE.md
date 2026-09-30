@@ -408,6 +408,13 @@ trigger each schema owns its own copy of.
 | `tcs_collections` | firm store ¹ | One receipt's worth of tax collected at source. | `customers`, `settlements`, `journal_entries` |
 | `tcs_settings` | firm store ¹ | One firm's 206C(1H) parameters. |  |
 
+### `app/trade_licences`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `trade_licence_types` | firm store ¹ | One kind of trade licence (drug, FSSAI, insecticide ...) and whether it expires. |  |
+| `trade_licences` | firm store ¹ | One licence held by the firm (per branch), a customer or a vendor, with its validity. | `trade_licence_types`, `branches`, `customers`, `vendors` |
+
 ### `app/uom`
 
 | Table | Store | Holds | Points at |

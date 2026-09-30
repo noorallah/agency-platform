@@ -80,6 +80,9 @@ class _Source implements HomeSource {
   Future<int> batchesExpiringIn30Days() => _answer('expiring', 2);
 
   @override
+  Future<int> expiringLicences() => _answer('licences', 0);
+
+  @override
   Future<Map<String, dynamic>> summary(String path) => _answer(path, {
         'draft': 4,
         'pending_orders': 6,

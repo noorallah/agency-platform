@@ -39,6 +39,7 @@ class FieldSpec {
     this.alwaysReadOnly = false,
     this.fullWidth,
     this.lockedWhileSet,
+    this.visibleWhen,
   });
   final String key, label;
 
@@ -106,6 +107,13 @@ class FieldSpec {
       (multiline ||
           kind == FieldKind.addressList ||
           kind == FieldKind.documentList);
+
+  /// Shows this field only while another field's current value satisfies a
+  /// rule -- a licence's holder picks a branch, a customer or a vendor
+  /// depending on who holds it, and offering all three at once would ask
+  /// somebody to leave two blank rather than say which one applies. Left
+  /// null the field is always shown, which is every field but these.
+  final bool Function(Map<String, dynamic> values)? visibleWhen;
 }
 
 enum CrudDialogMode { create, view, edit }
@@ -1542,7 +1550,19 @@ class _CrudWorkspaceDialogState extends State<CrudWorkspaceDialog> {
 
   bool _isVisible(FieldSpec field) =>
       !((field.createOnly && !widget.isCreating) ||
-          (field.editOnly && widget.isCreating));
+          (field.editOnly && widget.isCreating)) &&
+      (field.visibleWhen?.call(_liveValues()) ?? true);
+
+  /// A snapshot of what every field currently holds, for [FieldSpec.visibleWhen]
+  /// -- the same shape [_save] sends, but read mid-edit rather than at submit.
+  Map<String, dynamic> _liveValues() => {
+        for (final MapEntry<String, TextEditingController> entry
+            in _controllers.entries)
+          entry.key: entry.value.text.trim(),
+        for (final MapEntry<String, Set<String>> entry in _selections.entries)
+          entry.key: entry.value.join(','),
+        ..._booleans,
+      };
 
   /// Groups options by inferring a category from the code prefix before the
   /// first underscore (e.g. "USER_CREATE" -> "User"). Falls back to a single

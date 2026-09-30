@@ -588,3 +588,26 @@ def test_each_copy_on_a_roll_is_a_page_of_its_own() -> None:
     printed = _text_of(pdf)
     assert "ORIGINAL" in printed and "DUPLICATE" in printed
     assert printed.count("DRAFT - NOT A TAX INVOICE") == 2
+
+
+def test_both_sides_licence_numbers_print_under_their_names() -> None:
+    """A pharma bill carries the seller's and the buyer's drug licence (54)."""
+    document = _document()
+    printed = _text_of(
+        InvoicePdfRenderer().render(
+            replace(
+                document,
+                seller=replace(
+                    document.seller,
+                    licences=(("Drug licence, wholesale", "KA-B20-1234"),),
+                ),
+                buyer=replace(
+                    document.buyer,
+                    licences=(("Drug licence, retail", "KA-R20-9876"),),
+                ),
+            )
+        )
+    )
+    assert "KA-B20-1234" in printed
+    assert "KA-R20-9876" in printed
+    assert "Drug licence, wholesale" in printed

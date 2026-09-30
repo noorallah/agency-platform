@@ -10,9 +10,11 @@ import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/geography.dart';
 import '../../models/entities.dart';
+import '../../models/trade_licence.dart';
 import '../../models/vendor.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/trade_licence_quick_add.dart';
 import '../../phase2/document_page.dart';
 
 part 'vendor_editor_phase2.dart';
@@ -160,8 +162,27 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
                 : vendor.displayName.isEmpty
                     ? vendor.name
                     : vendor.displayName,
-            builder: (context) =>
-                _VendorEditorDialog(api: widget.api, vendor: vendor),
+            builder: (context) => _VendorEditorDialog(
+              api: widget.api,
+              vendor: vendor,
+              loadLicences: vendor != null &&
+                      widget.permissions.hasPermission('TRADE_LICENCE_VIEW')
+                  ? () => widget.api.tradeLicences(vendorId: vendor.id)
+                  : null,
+              canManageLicences:
+                  widget.permissions.hasPermission('TRADE_LICENCE_MANAGE'),
+              onAddLicence: vendor == null
+                  ? null
+                  : () => addTradeLicenceFor(
+                        context,
+                        api: widget.api,
+                        holderType: 'VENDOR',
+                        vendorId: vendor.id,
+                        holderLabel: vendor.displayName.isEmpty
+                            ? vendor.name
+                            : vendor.displayName,
+                      ),
+            ),
           )
         : await showDialog<Json>(
             context: context,
@@ -477,11 +498,30 @@ class _VendorManagementPageState extends State<VendorManagementPage> {
 }
 
 class _VendorEditorDialog extends StatefulWidget {
-  const _VendorEditorDialog({required this.api, this.vendor});
+  const _VendorEditorDialog({
+    required this.api,
+    this.vendor,
+    this.loadLicences,
+    this.canManageLicences = false,
+    this.onAddLicence,
+  });
 
   /// Needed for the geography ladder behind an address.
   final ApiClient api;
   final Vendor? vendor;
+
+  /// The trade licences this vendor holds (backlog 54). Null hides the
+  /// Licences section entirely -- while the vendor is still being created,
+  /// or for a user without `TRADE_LICENCE_VIEW`. Left null by the phase 1
+  /// caller, which keeps its fixed seven-tab layout unchanged.
+  final Future<List<TradeLicenceRecord>> Function()? loadLicences;
+
+  /// Whether the user holds `TRADE_LICENCE_MANAGE`, so "Add licence" shows.
+  final bool canManageLicences;
+
+  /// Opens the licence form pre-set to this vendor. Returns whether one was
+  /// saved, so the section knows to re-read the list.
+  final Future<bool> Function()? onAddLicence;
 
   @override
   State<_VendorEditorDialog> createState() => _VendorEditorDialogState();
@@ -569,6 +609,10 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
   String? _categoryId;
   String? _typeId;
 
+  /// Null until the licences have been read; empty means read and none.
+  List<TradeLicenceRecord>? _licences;
+  bool _licencesRequested = false;
+
   /// Phase 2: the sections are one scroll rather than tabs.
   bool _flat = false;
   final Map<String, GlobalKey> _sectionKeys = {
@@ -580,6 +624,7 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
       'Tax',
       'Notes',
       'Custom fields',
+      'Licences',
     ])
       section: GlobalKey(),
   };
@@ -619,6 +664,95 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
       // payload, so nothing is lost by the list not arriving.
       if (mounted) setState(() => _classificationsLoaded = false);
     }
+  }
+
+  /// The trade licences this vendor holds (backlog 54) -- read-only here;
+  /// "Add licence" opens the licence form itself, pre-set to this vendor.
+  /// No heading of its own: `_body` already prints one, as it does for every
+  /// section here.
+  Widget _licencesTab() {
+    if (widget.loadLicences == null) {
+      return const SizedBox.shrink();
+    }
+    if (!_licencesRequested) {
+      _licencesRequested = true;
+      unawaited(_reloadLicences());
+    }
+    final List<TradeLicenceRecord>? rows = _licences;
+    final Widget addButton = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(children: [
+        Expanded(
+          child: Text(rows == null || rows.isEmpty
+              ? 'No licences yet'
+              : '${rows.length} licence(s)'),
+        ),
+        if (widget.canManageLicences && widget.onAddLicence != null)
+          OutlinedButton.icon(
+            onPressed: _addLicence,
+            icon: const Icon(Icons.add),
+            label: const Text('Add licence'),
+          ),
+      ]),
+    );
+    if (rows == null) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        addButton,
+        const Divider(height: 1),
+        const Center(child: CircularProgressIndicator()),
+      ]);
+    }
+    if (rows.isEmpty) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        addButton,
+        const Divider(height: 1),
+        const StandardEmptyState(
+          type: EmptyStateType.noRecords,
+          message: 'No licences have been recorded for this vendor.',
+        ),
+      ]);
+    }
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      addButton,
+      const Divider(height: 1),
+      Card(
+        child: Column(children: [
+          for (final TradeLicenceRecord row in rows)
+            ListTile(
+              leading: const Icon(Icons.badge_outlined),
+              title: Text(
+                '${row.licenceTypeName.isEmpty ? row.licenceTypeCode : row.licenceTypeName}'
+                ' — ${row.licenceNumber}',
+              ),
+              subtitle: Text(
+                row.validTo.isEmpty
+                    ? 'No expiry recorded'
+                    : 'Valid to ${row.validTo}',
+              ),
+              trailing: StatusBadge.fromStatus(row.standing),
+            ),
+        ]),
+      ),
+    ]);
+  }
+
+  Future<void> _reloadLicences() async {
+    try {
+      final List<TradeLicenceRecord> rows = await widget.loadLicences!();
+      if (mounted) setState(() => _licences = rows);
+    } on Object {
+      // A licence list that cannot be read costs this section, not the form.
+      if (mounted) setState(() => _licences = const <TradeLicenceRecord>[]);
+    }
+  }
+
+  Future<void> _addLicence() async {
+    final Future<bool> Function()? onAddLicence = widget.onAddLicence;
+    if (onAddLicence == null) return;
+    final bool saved = await onAddLicence();
+    if (!saved) return;
+    _licencesRequested = false;
+    if (mounted) setState(() {});
   }
 
   /// A picker for one master, with the stored id kept selectable.
