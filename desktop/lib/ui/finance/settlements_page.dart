@@ -966,8 +966,10 @@ class _ApplyDialogState extends State<_ApplyDialog> {
                     DropdownMenuItem<String>(
                       value: invoice.invoiceId,
                       child: Text(
-                        '${invoice.invoiceNumber} — owes '
+                        '${invoice.invoiceNumber}'
+                        '${invoice.isOpeningBill ? ' (opening)' : ''} — owes '
                         '${invoice.outstandingAmount}',
+                        overflow: TextOverflow.ellipsis,
                       ),
                     ),
                 ],

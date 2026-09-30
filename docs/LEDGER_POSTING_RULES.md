@@ -126,6 +126,39 @@ shortfall it leaves is collected on the next receipt. Both fall out of
 stand and dated on or before the receipt, exactly as the consideration is
 summed from the receipts.
 
+## A supplier's opening balance is bills, not a balance
+
+Built 2026-09-30 (`docs/BACKLOG.md` §36, the first cutover gap). A supplier has
+no balance column -- what the firm owes is its bills less what was paid,
+returned and credited against them, all derived by
+`PaymentService.outstanding_invoices`. So a day-one debt is recorded the way
+the old books held it, **bill by bill** (`vendor_opening_bills`): the
+supplier's reference, the bill date the ageing counts from, a due date, and
+what was still owed at cutover. Each posts **Dr Opening Balance Equity / Cr
+Accounts Payable** on the **posting date** -- the day the books here start,
+not the bill's own date, whose period is not open and whose trading happened
+elsewhere. Numbered `OB-00001` across the firm, which is also the journal's
+reference.
+
+- **Not a purchase invoice.** It carries no goods and no tax; a row in
+  `purchase_invoices` would be read by the GST returns, the purchase register
+  and every purchase analysis as trading done here.
+- **Paid like a bill.** `outstanding_invoices` lists it beside the purchase
+  bills (`is_opening_bill: true`), so Record Payment, applying an advance
+  later, the vendor outstanding and overdue reports and the vendor delete
+  guard all see it without knowing it exists. A payment's allocation to it
+  lands in `settlement_allocations.vendor_opening_bill_id`.
+- **Cancelled, never edited.** `POST /vendors/opening-bills/{id}/cancel`
+  posts the mirror (`OB-00001-REV`) and is refused while any payment is
+  applied: reverse the payment first. The number is not reissued.
+- **Imported all or nothing** by supplier code
+  (`POST /vendors/opening-bills/import`): every unknown code is named with its
+  row number before anything is written, then the batch is staged and
+  committed once.
+- **Not yet:** a purchase return's supplier credit cannot be set against an
+  opening bill (refused by name), and there is no file wizard on the desktop
+  (backlog 46).
+
 ## Tax deducted at source has accounts, and no posting yet
 
 Built 2026-09-30 (`docs/BACKLOG.md` 53.1, items 1 and 2): a firm records its

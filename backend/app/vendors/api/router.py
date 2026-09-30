@@ -34,7 +34,14 @@ from app.vendors.schemas import (
     VendorTypeWrite,
     VendorUpdate,
 )
+from app.vendors.schemas.opening_bill import (
+    VendorOpeningBillCancel,
+    VendorOpeningBillImportRequest,
+    VendorOpeningBillResponse,
+    VendorOpeningBillWrite,
+)
 from app.vendors.services import VendorService
+from app.vendors.services.opening_bill_service import VendorOpeningBillService
 
 router = APIRouter(
     prefix="/api/v1/vendors",
@@ -313,6 +320,88 @@ def import_vendors(
         may_manage_bank_details=_may_manage_bank(scope),
     )
     return ApiResponse(data=_responses(vendors, db, scope))
+
+
+def _firm(scope: ResolvedFirmScope) -> UUID:
+    """Return the firm a supplier's opening bills belong to, or refuse."""
+    if scope.firm_id is None:
+        raise ValidationError("X-Firm-ID is required for a supplier's opening bills.")
+    return scope.firm_id
+
+
+# Opening bills: what the firm owed each supplier on its first day here. The
+# literal paths come before `/{vendor_id}`, for the reason given below.
+@router.post(
+    "/opening-bills/import",
+    response_model=ApiResponse[list[VendorOpeningBillResponse]],
+    status_code=status.HTTP_201_CREATED,
+)
+def import_vendor_opening_bills(
+    data: VendorOpeningBillImportRequest,
+    scope: VendorImportScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[VendorOpeningBillResponse]]:
+    """Record a file of opening bills, naming suppliers by code; all or none."""
+    firm_id = _firm(scope)
+    service = VendorOpeningBillService(db)
+    rows = service.import_bills(data.records, firm_id=firm_id, actor_id=scope.actor_id)
+    return ApiResponse(
+        data=[service.response_for(row, firm_id=firm_id) for row in rows]
+    )
+
+
+@router.post(
+    "/opening-bills/{bill_id}/cancel",
+    response_model=ApiResponse[VendorOpeningBillResponse],
+)
+def cancel_vendor_opening_bill(
+    bill_id: UUID,
+    data: VendorOpeningBillCancel,
+    scope: VendorUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[VendorOpeningBillResponse]:
+    """Take back an opening bill entered in error; refused once it is paid."""
+    firm_id = _firm(scope)
+    service = VendorOpeningBillService(db)
+    row = service.cancel(
+        bill_id, reason=data.reason, firm_id=firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=service.response_for(row, firm_id=firm_id))
+
+
+@router.get(
+    "/{vendor_id}/opening-bills",
+    response_model=ApiResponse[list[VendorOpeningBillResponse]],
+)
+def list_vendor_opening_bills(
+    vendor_id: UUID,
+    scope: VendorViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[VendorOpeningBillResponse]]:
+    """List one supplier's opening bills with what is paid and owed on each."""
+    return ApiResponse(
+        data=VendorOpeningBillService(db).list_for_vendor(
+            vendor_id, firm_id=_firm(scope)
+        )
+    )
+
+
+@router.post(
+    "/{vendor_id}/opening-bills",
+    response_model=ApiResponse[VendorOpeningBillResponse],
+    status_code=status.HTTP_201_CREATED,
+)
+def create_vendor_opening_bill(
+    vendor_id: UUID,
+    data: VendorOpeningBillWrite,
+    scope: VendorUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[VendorOpeningBillResponse]:
+    """Record one bill the supplier was owed at cutover, and post it."""
+    firm_id = _firm(scope)
+    service = VendorOpeningBillService(db)
+    row = service.create(vendor_id, data, firm_id=firm_id, actor_id=scope.actor_id)
+    return ApiResponse(data=service.response_for(row, firm_id=firm_id))
 
 
 # The two masters come first on purpose. FastAPI matches in declaration

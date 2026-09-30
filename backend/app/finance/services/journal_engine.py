@@ -62,6 +62,7 @@ SOURCE_DOCUMENT_NAMES = {
     "purchase_return": "purchase return",
     "settlements": "receipt, payment or refund",
     "customers": "customer's opening balance or credit note",
+    "vendor_opening_bills": "supplier's opening bill",
     "inventory": "stock adjustment or transfer",
     "physical_count": "physical count",
     "commission": "commission payout",

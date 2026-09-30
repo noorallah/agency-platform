@@ -254,6 +254,10 @@ RESET_ORDER: tuple[str, ...] = (
     # the receipts and payments module and this list did not know about them.
     "settlement_allocations",
     "settlements",
+    # A supplier's opening bills are numbered from a series the reset puts
+    # back to one, and their allocations above point at them; their journals
+    # go with the journal entries below.
+    "vendor_opening_bills",
     # Supplier credit set against a bill names both the purchase return and
     # the bill, RESTRICT each way (D-FIN-19).
     "supplier_credit_applications",

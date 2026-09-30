@@ -2912,6 +2912,18 @@ good enough that onboarding is a day's work rather than a project.
   `VendorPayableTransaction`, and `post_opening_balance` is hardcoded to
   `customer_id` and `ACCOUNTS_RECEIVABLE`. A firm cannot load what it owes its
   suppliers on day one.
+  **Built 2026-09-30 as supplier opening bills** (`vendor_opening_bills`,
+  migration `20260930_0169`; the rules are in `docs/LEDGER_POSTING_RULES.md`,
+  "A supplier's opening balance is bills, not a balance"). Decided by
+  convention -- Tally's bill-wise opening balances: one row per unpaid bill
+  with its own date and due date, posted Dr Opening Balance Equity / Cr
+  Payables on a chosen cutover date, and paid through Record Payment like any
+  bill. Not a lump sum per supplier (every payment would become an advance
+  with nothing to clear) and not a purchase invoice (the GST returns would
+  read it as trading). Entered on the vendor form's *Opening bills* section;
+  `POST /vendors/opening-bills/import` takes a batch by supplier code, all or
+  nothing, for the file wizard of §46. Still open: supplier credit from a
+  return cannot be set against an opening bill yet.
 - **No opening trial balance loader.** `LedgerBalance.opening_balance` is
   derived and carried forward, never written as an input, and `app/finance` has
   no import route. Cash, bank, fixed assets, loans, retained earnings and tax

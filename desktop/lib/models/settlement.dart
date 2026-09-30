@@ -138,6 +138,7 @@ class OutstandingInvoice {
     required this.invoiceTotal,
     required this.allocatedAmount,
     required this.outstandingAmount,
+    this.isOpeningBill = false,
   });
 
   final String invoiceId;
@@ -146,6 +147,11 @@ class OutstandingInvoice {
   final String invoiceTotal;
   final String allocatedAmount;
   final String outstandingAmount;
+
+  /// A bill the supplier was owed before the firm started here, rather than
+  /// a purchase invoice. It is paid the same way here, but it is not a
+  /// purchase invoice and this screen must never try to open it as one.
+  final bool isOpeningBill;
 
   double get outstanding => double.tryParse(outstandingAmount) ?? 0;
 
@@ -156,6 +162,7 @@ class OutstandingInvoice {
         invoiceTotal: stringValue(json['invoice_total']),
         allocatedAmount: stringValue(json['allocated_amount']),
         outstandingAmount: stringValue(json['outstanding_amount']),
+        isOpeningBill: boolValue(json['is_opening_bill'], fallback: false),
       );
 }
 
