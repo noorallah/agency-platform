@@ -27,7 +27,7 @@ from collections.abc import Iterator, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal, InvalidOperation
 from io import BytesIO
-from typing import ClassVar, Literal
+from typing import ClassVar, Generic, Literal, TypeVar
 from uuid import UUID
 
 from pydantic import BaseModel
@@ -37,6 +37,9 @@ from sqlalchemy.orm import Session
 from app.core.exceptions import ValidationError
 
 ExistingRows = Literal["refuse", "update"]
+#: The classic spelling, deliberately: a PEP 695 class (``class X[T]``) leaves
+#: its type parameter in the class body when Nuitka compiles it (D-SETUP-6).
+RecordT = TypeVar("RecordT")
 FileFormat = Literal["csv", "xlsx"]
 
 _YES = {"yes", "y", "true", "1", "t"}
@@ -71,7 +74,7 @@ class ImportIssue:
 
 
 @dataclass
-class ImportReport[RecordT]:
+class ImportReport(Generic[RecordT]):  # noqa: UP046
     """What a file would do, or did."""
 
     rows: int = 0
@@ -118,7 +121,7 @@ class ImportReportResponse(BaseModel):
     imported: bool
 
 
-def report_response[RecordT](report: ImportReport[RecordT]) -> ImportReportResponse:
+def report_response[ItemT](report: ImportReport[ItemT]) -> ImportReportResponse:
     """Shape an importer's report for the wire."""
     return ImportReportResponse(
         rows=report.rows,
@@ -283,7 +286,7 @@ class RowReader:
         return None
 
 
-class FileImporter[RecordT](ABC):
+class FileImporter(ABC, Generic[RecordT]):  # noqa: UP046
     """Check a file row by row, and import it whole or not at all.
 
     A module states its ``COLUMNS``, the noun a row is, how to read the records
