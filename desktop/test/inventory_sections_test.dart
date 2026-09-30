@@ -240,6 +240,9 @@ void main() {
           expect(find.textContaining('2075'), shows,
               reason: 'the summary totals never reached the screen');
         case InventorySection.openingStock:
+          // The cutover count comes in from a file (backlog 36, 46).
+          expect(find.text('Import from file'), findsOneWidget,
+              reason: 'the opening stock file import has no button');
         case InventorySection.inventoryImport:
         case InventorySection.inventoryExport:
         case InventorySection.settings:

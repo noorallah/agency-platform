@@ -2368,6 +2368,40 @@ class ApiClient {
             await request('POST', '/api/v1/inventory/opening-stock/$id/post')),
       );
 
+  /// The blank opening stock import file, as bytes: xlsx (with notes and the
+  /// firm's warehouses and products) or csv.
+  Future<List<int>> openingStockImportTemplate({String format = 'xlsx'}) =>
+      downloadBytes(
+        '/api/v1/inventory/opening-stock/import-template',
+        query: {'format': format},
+      );
+
+  /// Check (`apply: false`, writes nothing) or import a stock count: one
+  /// opening stock document per warehouse, created and posted on
+  /// [postingDate] (`yyyy-mm-dd`).
+  Future<FileImportReport> checkOpeningStockImportFile({
+    required String fileName,
+    required List<int> bytes,
+    required String postingDate,
+    required bool apply,
+  }) async {
+    final Json response = await multipartRequest(
+      'POST',
+      '/api/v1/inventory/opening-stock/import-file',
+      fields: {
+        'posting_date': postingDate,
+        'apply': apply ? 'true' : 'false',
+      },
+      fileField: 'file',
+      fileName: fileName,
+      fileBytes: bytes,
+      fileContentType: fileName.toLowerCase().endsWith('.xlsx')
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : 'text/csv',
+    );
+    return FileImportReport.fromJson(_unwrapMap(response));
+  }
+
   // Counting a warehouse. The sheet is drawn up from what the system holds,
   // walked over hours, and posted once at the end -- so it is a document with
   // a draft the client saves into, not a form that applies on submit.
@@ -5266,8 +5300,7 @@ class ApiClient {
   // and `resource: 'trade-licences'`), so no named write methods are needed;
   // `options('trade-licences/types')` serves the type dropdown the same way.
 
-  Future<List<TradeLicenceTypeRecord>> tradeLicenceTypes() async =>
-      _unwrapList(
+  Future<List<TradeLicenceTypeRecord>> tradeLicenceTypes() async => _unwrapList(
         await request('GET', '/api/v1/trade-licences/types'),
         TradeLicenceTypeRecord.fromJson,
       );

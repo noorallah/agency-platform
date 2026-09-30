@@ -44,6 +44,8 @@ class MasterImportDialog extends StatefulWidget {
     required this.downloadTemplate,
     required this.checkFile,
     required this.canUpdate,
+    this.offersUpdate = true,
+    this.extraFields,
     this.pickFileOverride,
     this.saveBytesOverride,
   });
@@ -68,6 +70,17 @@ class MasterImportDialog extends StatefulWidget {
 
   /// Whether the user may update existing records.
   final bool canUpdate;
+
+  /// Whether "update existing" means anything for this import at all. Opening
+  /// stock is posted once, so it has nothing to update and hides the option.
+  final bool offersUpdate;
+
+  /// Fields the import needs besides the file -- the posting date of opening
+  /// stock -- shown under the file. The owner keeps their values and reads
+  /// them in [checkFile]; it calls `changed` whenever one changes, which
+  /// discards the last check so Import is offered only for what was checked.
+  final Widget Function(BuildContext context, VoidCallback changed)?
+      extraFields;
 
   /// Injected by tests, which cannot open a native file dialog.
   final Future<XFile?> Function()? pickFileOverride;
@@ -101,6 +114,14 @@ class _MasterImportDialogState extends State<MasterImportDialog> {
       _report!.isClean &&
       _report!.rows > 0 &&
       _checkedWithUpdate == _updateExisting;
+
+  void _extraChanged() {
+    if (!mounted) return;
+    setState(() {
+      _report = null;
+      _notice = null;
+    });
+  }
 
   Future<void> _save(String name, List<int> bytes) async {
     if (widget.saveBytesOverride != null) {
@@ -255,25 +276,30 @@ class _MasterImportDialogState extends State<MasterImportDialog> {
                     ),
                 ],
               ),
+              if (widget.extraFields != null) ...[
+                const SizedBox(height: AppSpacing.md),
+                widget.extraFields!(context, _extraChanged),
+              ],
               const SizedBox(height: AppSpacing.sm),
-              CheckboxListTile(
-                contentPadding: EdgeInsets.zero,
-                controlAffinity: ListTileControlAffinity.leading,
-                dense: true,
-                value: _updateExisting && _canUpdate,
-                onChanged: _busy || !_canUpdate
-                    ? null
-                    : (value) =>
-                        setState(() => _updateExisting = value == true),
-                title: Text(
-                  'Update ${widget.noun} that already exist (matched by code)',
+              if (widget.offersUpdate)
+                CheckboxListTile(
+                  contentPadding: EdgeInsets.zero,
+                  controlAffinity: ListTileControlAffinity.leading,
+                  dense: true,
+                  value: _updateExisting && _canUpdate,
+                  onChanged: _busy || !_canUpdate
+                      ? null
+                      : (value) =>
+                          setState(() => _updateExisting = value == true),
+                  title: Text(
+                    'Update ${widget.noun} that already exist (matched by code)',
+                  ),
+                  subtitle: _canUpdate
+                      ? null
+                      : Text(
+                          'You do not have permission to update ${widget.noun}.',
+                        ),
                 ),
-                subtitle: _canUpdate
-                    ? null
-                    : Text(
-                        'You do not have permission to update ${widget.noun}.',
-                      ),
-              ),
               const SizedBox(height: AppSpacing.sm),
               Text('3. Check the file.', style: theme.textTheme.bodyMedium),
               const SizedBox(height: AppSpacing.sm),
@@ -289,8 +315,10 @@ class _MasterImportDialogState extends State<MasterImportDialog> {
               if (report != null) ...[
                 const SizedBox(height: AppSpacing.lg),
                 SelectableText(
-                  '${report.rows} rows: ${report.toCreate} new, '
-                  '${report.toUpdate} to update.',
+                  widget.offersUpdate
+                      ? '${report.rows} rows: ${report.toCreate} new, '
+                          '${report.toUpdate} to update.'
+                      : '${report.rows} rows to import.',
                   style: theme.textTheme.titleSmall,
                 ),
                 if (report.columnsUsed.isNotEmpty)

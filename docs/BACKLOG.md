@@ -2957,6 +2957,33 @@ good enough that onboarding is a day's work rather than a project.
   difference to opening balance equity, replaced whole by reversing the one
   standing; sub-ledger accounts refused. The same `PUT` is what §46's file
   import will send.
+- **Stock on hand at cutover from one file: built 2026-10-01.**
+  `GET /api/v1/inventory/opening-stock/import-template` (Opening stock, Notes
+  and Lists sheets -- the firm's warehouses and up to 2,000 products, each
+  marked where it needs a batch or an expiry; the example row names the
+  firm's own product and warehouse, so the template imports as it comes) and
+  `POST /api/v1/inventory/opening-stock/import-file` (`posting_date`,
+  `apply`; `INVENTORY_IMPORT`, as the old import). Columns ProductCode,
+  Warehouse (blank means the only one), Quantity, UnitCost, Batch, Expiry
+  (dd-mm-yyyy, dd/mm/yyyy, yyyy-mm-dd or an Excel date), Unit, Remarks. Rows
+  are grouped into one document per warehouse, `OS-IMPORT-<yyyymmdd>-<code>`,
+  each **created and posted** through the form's own `stage_*` methods and
+  committed once -- all warehouses or none. A check stages and posts too
+  before rolling back, so a firm without its books is told on the check.
+  Refused by row and column: an unknown product or warehouse, a quantity not
+  above 0, a batch missing on a batch- or expiry-tracked product or present on
+  a plain one, a missing or unreadable expiry, the same product, warehouse
+  and batch twice (naming the first row), a unit with no conversion, a
+  serial-numbered product (an opening-stock line carries no serials; entered
+  on screen), and an item (product, warehouse, batch) that **already has
+  posted opening stock**, naming that document. One rule with the form
+  (decided 2026-10-01, as ERPs do it): the form's post refuses the same item
+  too, while a second document for a warehouse -- the items forgotten the
+  first time -- is allowed either way. A correction belongs in an adjustment. The importer is
+  `app/inventory/services/opening_stock_import.py`; the desktop Opening
+  Stock screen has **Import from file** (the shared wizard with a posting
+  date). The old `POST /inventory/opening-stock/import` (one warehouse,
+  product ids, stops at the first problem) is kept and has no desktop caller.
 - Smaller: the customer opening balance posts dated **today**, not a chosen
   cutover date, and firm readiness has no "opening balances" or "masters loaded"
   step, so nothing tells a firm its cutover is incomplete.
@@ -3671,6 +3698,14 @@ state, and a place that matches none is reported rather than guessed. A bank
 account needs `VENDOR_MANAGE_BANK_DETAILS`, as on the form. A GSTIN marks the
 supplier registered. Opening balances stay bill-wise, through supplier opening
 bills. The desktop Suppliers **Import** opens the same wizard.
+
+**Opening stock: built 2026-10-01** (point 7 above: "opening stock stays with
+its own import" -- it now has one in the same shape). The template and the
+check-then-import file route are described under §36. The shared desktop
+wizard gained two generic options for it: `offersUpdate: false` hides "update
+existing" (opening stock is posted once), and `extraFields` shows fields the
+import needs besides the file -- here the posting date -- whose change
+discards the last check.
 
 
 Owner's note, 2026-09-25: a firm moving from other software (Tally, Excel,

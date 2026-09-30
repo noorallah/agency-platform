@@ -9,10 +9,12 @@ import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/entities.dart';
+import '../../models/file_import.dart';
 import '../../models/inventory.dart';
 import '../../models/product.dart';
 import 'inventory_details_dialog.dart';
 import 'inventory_import_wizard.dart';
+import 'opening_stock_import_dialog.dart';
 import '../../phase2/document_page.dart' show documentQuantity;
 import '../workspace/desktop_framework.dart';
 import 'stock_action_dialog.dart';
@@ -139,6 +141,10 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
   bool get _canUpdateOpeningStock =>
       widget.permissions.hasPermission('OPENING_STOCK_UPDATE');
   bool get _canExport => widget.permissions.hasPermission('INVENTORY_EXPORT');
+
+  /// The same code the server's file import is held to (backlog 36, 46).
+  bool get _canImportOpeningStock =>
+      widget.permissions.hasPermission('INVENTORY_IMPORT');
   bool get _canAdjust => widget.permissions.hasPermission('INVENTORY_ADJUST');
 
   @override
@@ -781,8 +787,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
       InventorySection.openingStock => _canCreateOpeningStock,
       _ => false,
     };
-    ToolbarCommand stockStep(String id, String label, IconData icon,
-            StockAction action) =>
+    ToolbarCommand stockStep(
+            String id, String label, IconData icon, StockAction action) =>
         ToolbarCommand(
           id: id,
           label: label,
@@ -851,8 +857,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
         }
       },
       commands: [
-        stockStep('transfer', 'Transfer', Icons.swap_horiz,
-            StockAction.transfer),
+        stockStep(
+            'transfer', 'Transfer', Icons.swap_horiz, StockAction.transfer),
         stockStep('write-off', 'Write off', Icons.remove_circle_outline,
             StockAction.writeOff),
         stockStep('quarantine', 'Quarantine', Icons.pan_tool_outlined,
@@ -920,7 +926,8 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
             onClear: clear,
           );
     return switch (widget.section) {
-      InventorySection.inventory || InventorySection.stockSearch =>
+      InventorySection.inventory ||
+      InventorySection.stockSearch =>
         _selectedInventory == null
             ? null
             : SelectionSummary.record(
@@ -1010,6 +1017,13 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
               onPressed: _openOpeningStockDialog,
               icon: const Icon(Icons.add),
               label: const Text('New opening stock'),
+            ),
+          if (widget.section == InventorySection.openingStock &&
+              _canImportOpeningStock)
+            OutlinedButton.icon(
+              onPressed: _importOpeningStock,
+              icon: const Icon(Icons.upload_file_outlined),
+              label: const Text('Import from file'),
             ),
           if (widget.section == InventorySection.openingStock &&
               _canUpdateOpeningStock &&
@@ -1719,6 +1733,24 @@ class _InventoryManagementPageState extends State<InventoryManagementPage> {
     );
     _selectedOpeningStock = saved;
     await _load(requestedPage: 1);
+  }
+
+  /// Bring the cutover stock count in from a file: one posted document per
+  /// warehouse, all or none.
+  Future<void> _importOpeningStock() async {
+    final FileImportReport? report = await showDialog<FileImportReport>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => OpeningStockImportDialog(api: widget.api),
+    );
+    if (!mounted || report == null) return;
+    await _load();
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      'Imported and posted ${report.toCreate} opening stock lines.',
+      kind: AppNotificationKind.success,
+    );
   }
 
   Future<void> _postSelectedOpeningStock() async {
