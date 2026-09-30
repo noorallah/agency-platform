@@ -3626,7 +3626,7 @@ folder on the next run; the folder ACL is admin-only.
    `pg_restore --clean --if-exists -d <database> <file>` per store, start it).
 4. Move D-QA-4 to Fixed in `docs/DEFECTS.md`.
 
-## 46. Import products, customers and vendors from a file, with templates -- products and customers built 2026-09-30
+## 46. Import products, customers and vendors from a file, with templates -- built 2026-09-30
 
 **Products: built 2026-09-30.** `GET /api/v1/products/import-template`
 (XLSX with Products, Notes and Lists sheets -- the Lists sheet carries the
@@ -3658,7 +3658,19 @@ kept. The opening balance is booked exactly as the form books it, and
 books is told per row. A standing discount or a credit limit needs
 `CUSTOMER_MANAGE_SETTINGS`, as on the form. A 10-digit phone is taken as
 Indian (+91). A blank currency is the firm's own. The desktop Customers
-**Import** opens the same wizard as Products. **Vendors remain** (5e).
+**Import** opens the same wizard as Products.
+
+**Suppliers: built 2026-09-30.** `GET /api/v1/vendors/import-template?format=xlsx|csv`
+(`VENDOR_IMPORT`) and `POST /api/v1/vendors/import-file` (multipart `file`,
+`existing` = `refuse|update`, `apply` = `true|false`, the same report as
+customers); updating needs `VENDOR_UPDATE` as well. The importer is
+`app/vendors/services/vendor_import.py`. One row is one supplier with one
+address, one contact and one bank account, each updated in place on an
+update. Addresses are placed in the geography masters by PIN, then city, then
+state, and a place that matches none is reported rather than guessed. A bank
+account needs `VENDOR_MANAGE_BANK_DETAILS`, as on the form. A GSTIN marks the
+supplier registered. Opening balances stay bill-wise, through supplier opening
+bills. The desktop Suppliers **Import** opens the same wizard.
 
 
 Owner's note, 2026-09-25: a firm moving from other software (Tally, Excel,

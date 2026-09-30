@@ -2700,6 +2700,37 @@ class ApiClient {
     return FileImportReport.fromJson(_unwrapMap(response));
   }
 
+  /// The blank vendor import file, as bytes: xlsx (with notes and lists) or csv.
+  Future<List<int>> vendorImportTemplate({String format = 'xlsx'}) =>
+      downloadBytes(
+        '/api/v1/vendors/import-template',
+        query: {'format': format},
+      );
+
+  /// Check (`apply: false`, writes nothing) or import a vendor file.
+  Future<FileImportReport> checkVendorImportFile({
+    required String fileName,
+    required List<int> bytes,
+    required bool updateExisting,
+    required bool apply,
+  }) async {
+    final Json response = await multipartRequest(
+      'POST',
+      '/api/v1/vendors/import-file',
+      fields: {
+        'existing': updateExisting ? 'update' : 'refuse',
+        'apply': apply ? 'true' : 'false',
+      },
+      fileField: 'file',
+      fileName: fileName,
+      fileBytes: bytes,
+      fileContentType: fileName.toLowerCase().endsWith('.xlsx')
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : 'text/csv',
+    );
+    return FileImportReport.fromJson(_unwrapMap(response));
+  }
+
   Future<TerritoryHierarchyRecord> territoryHierarchy() async =>
       TerritoryHierarchyRecord.fromJson(_unwrapMap(
         await request('GET', '/api/v1/sales-territories/hierarchy-levels'),
