@@ -1976,9 +1976,9 @@ class SalesInvoiceService(TransactionalDocumentService):
 
         # The bill discount is split across the lines here, between pricing
         # them and taxing them. It has to reach a taxable value to reduce any
-        # tax, which is what `header_discount_amount` on a purchase order does
-        # not do -- that one is subtracted after tax and so the customer pays
-        # tax on money they were never charged.
+        # tax. `header_discount_amount` on a purchase order was subtracted
+        # after tax, so tax was paid on money never charged, until D-BUY-19
+        # moved it onto the lines too.
         shares = self._bill_discount_shares(
             row,
             percent=bill_percent,

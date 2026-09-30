@@ -1342,8 +1342,8 @@ class DeliveryNoteService(TransactionalDocumentService):
         # the whole document has to be split across the lines *before* tax is
         # asked for. Tax is charged per line, so a document-level deduction
         # that never reaches a taxable value reduces no tax -- which is what
-        # `header_discount_amount` does on a purchase order, and the reason
-        # that shape is not copied here. Nothing in this pass touches the
+        # `header_discount_amount` did on a purchase order until D-BUY-19
+        # moved it onto the lines too. Nothing in this pass touches the
         # database, so every validation below still runs in its own order.
         # Resolved once and used everywhere below, so the price a line is
         # discounted at, taxed at and stored at cannot disagree.

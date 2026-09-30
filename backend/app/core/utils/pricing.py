@@ -200,7 +200,7 @@ def apportion(total: Decimal, weights: list[Decimal]) -> list[Decimal]:
     A discount on the whole bill has to reach the individual lines, because tax
     is charged per line and a document-level deduction that never touches a
     taxable value reduces no tax -- which is what ``header_discount_amount``
-    does on a purchase order, deliberately not copied here.
+    did on a purchase order until D-BUY-19 split it here too.
 
     Rounding is the whole difficulty. Quantising each share independently
     leaves a residual of a few paise that belongs to nobody, and a document
@@ -235,3 +235,29 @@ def apportion(total: Decimal, weights: list[Decimal]) -> list[Decimal]:
         largest = max(range(len(weights)), key=lambda index: weights[index])
         shares[largest] = quantize_money(shares[largest] + residual)
     return shares
+
+
+def inherited_share(amount: Decimal, *, part: Decimal, whole: Decimal) -> Decimal:
+    """Return the part of a source line's discount share a later line inherits.
+
+    A downstream document inherits an *amount* pro-rated by the share of the
+    source line it covers -- a receipt of 4 of an ordered 10 takes four tenths
+    of the order line's share of the whole-order discount -- where a *rate*
+    would be inherited as itself. Capped at the whole: covering more than the
+    source line never inherits more than the source line was given.
+
+    Args:
+        amount: The source line's share.
+        part: The quantity this line covers.
+        whole: The source line's quantity the share was computed on.
+
+    Returns:
+        The inherited share, quantised to money; zero when there is nothing to
+        inherit or nothing to pro-rate against.
+
+    """
+    if amount <= ZERO or part <= ZERO or whole <= ZERO:
+        return ZERO
+    if part >= whole:
+        return quantize_money(amount)
+    return quantize_money(amount * part / whole)

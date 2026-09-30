@@ -26,7 +26,11 @@ from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger
-from app.core.utils.pricing import LineDiscount, resolve_line_discount
+from app.core.utils.pricing import (
+    LineDiscount,
+    inherited_share,
+    resolve_line_discount,
+)
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentTypeDefinition,
@@ -1307,6 +1311,16 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 spec=spec, source_line=source_line, gross=gross_amount
             )
             discount_amount = line_discount.amount
+            # The source line's share of the order's whole-order discount, for
+            # the part of it billed here, comes off before tax (D-BUY-19).
+            bill_share = min(
+                inherited_share(
+                    getattr(source_line, "bill_discount_amount", ZERO) or ZERO,
+                    part=invoice_quantity,
+                    whole=source_quantity,
+                ),
+                self._q(gross_amount - discount_amount),
+            )
             line_tax = self._resolve_tax(
                 document_id=row.id,
                 line_number=index,
@@ -1321,14 +1335,18 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 invoice_value=self._line_net_amount(
                     quantity=invoice_quantity,
                     unit_price=unit_price,
-                    discount_amount=discount_amount,
+                    discount_amount=discount_amount + bill_share,
                     charges_amount=charges_amount,
                 ),
                 actor_id=actor_id,
             )
             tax_amount = line_tax.total
             net_amount = self._q(
-                gross_amount - discount_amount + charges_amount + tax_amount
+                gross_amount
+                - discount_amount
+                - bill_share
+                + charges_amount
+                + tax_amount
             )
             line = PurchaseInvoiceLine(
                 purchase_invoice_id=row.id,
@@ -1347,6 +1365,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 unit_price=unit_price,
                 discount_percent=line_discount.percent,
                 discount_amount=discount_amount,
+                bill_discount_amount=bill_share,
                 charges_amount=charges_amount,
                 gross_amount=gross_amount,
                 tax_profile_id=line_tax.profile_id,
@@ -1399,7 +1418,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             # before charges. Line charges used to be folded in here, which made
             # this module's subtotal mean something different from every other
             # document's; they are carried separately and added to grand_total.
-            totals["subtotal"] += self._q(gross_amount - discount_amount)
+            totals["subtotal"] += self._q(gross_amount - discount_amount - bill_share)
             totals["line_charges_total"] += charges_amount
             totals["tax_total"] += tax_amount
         return {key: self._q(value) for key, value in totals.items()}
@@ -2372,6 +2391,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             unit_price=row.unit_price,
             discount_percent=row.discount_percent,
             discount_amount=row.discount_amount,
+            bill_discount_amount=row.bill_discount_amount,
             charges_amount=row.charges_amount,
             gross_amount=row.gross_amount,
             tax_profile_id=row.tax_profile_id,

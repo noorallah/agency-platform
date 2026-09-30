@@ -186,6 +186,11 @@ class GoodsReceiptLine(BaseEntity):
     discount_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: This line's share of the order's whole-order discount, taken off before
+    #: tax and inherited downstream pro-rated by quantity (D-BUY-19).
+    bill_discount_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
     gross_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )

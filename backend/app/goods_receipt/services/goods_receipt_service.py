@@ -26,6 +26,7 @@ from app.common.report_names import (
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
+from app.core.utils.pricing import inherited_share
 from app.document_framework.models import (
     DocumentLifecycleEvent,
     DocumentTypeDefinition,
@@ -1224,7 +1225,18 @@ class GoodsReceiptService(TransactionalDocumentService):
             )
             if discount_amount > gross_amount:
                 raise ValidationError("Discount cannot exceed the line amount.")
-            line_subtotal = self._q(gross_amount - discount_amount)
+            # The order line's share of the whole-order discount, for the part
+            # of it received, comes off before tax as it did on the order; the
+            # stock is valued without it otherwise (D-BUY-19).
+            bill_share = min(
+                inherited_share(
+                    purchase_line.bill_discount_amount,
+                    part=accepted,
+                    whole=ordered_quantity,
+                ),
+                self._q(gross_amount - discount_amount),
+            )
+            line_subtotal = self._q(gross_amount - discount_amount - bill_share)
             tax_amount = self._line_tax_amount(
                 document_id=receipt.id,
                 line_number=line.line_number,
@@ -1253,6 +1265,7 @@ class GoodsReceiptService(TransactionalDocumentService):
                 unit_price=unit_price,
                 discount_percent=self._q(line.discount_percent),
                 discount_amount=discount_amount,
+                bill_discount_amount=bill_share,
                 gross_amount=gross_amount,
                 tax_profile_id=line.tax_profile_id or purchase_line.tax_profile_id,
                 tax_amount=tax_amount,

@@ -258,6 +258,7 @@ class PurchaseInvoiceLineResponse(PurchaseInvoiceSchema):
     unit_price: Decimal
     discount_percent: Decimal
     discount_amount: Decimal
+    bill_discount_amount: Decimal = Decimal("0")
     charges_amount: Decimal
     gross_amount: Decimal
     tax_profile_id: UUID | None

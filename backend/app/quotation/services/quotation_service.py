@@ -1106,8 +1106,8 @@ class QuotationService(TransactionalDocumentService):
         # discount on the whole bill has to be split across the lines *before*
         # tax is asked for. Tax is charged per line, so a document-level
         # deduction that never reaches a taxable value reduces no tax -- which
-        # is what `header_discount_amount` does on a purchase order, and the
-        # reason that shape is not copied here.
+        # is what `header_discount_amount` did on a purchase order until
+        # D-BUY-19 moved it onto the lines too.
         products: list[Product] = []
         grosses: list[Decimal] = []
         for item in lines:
