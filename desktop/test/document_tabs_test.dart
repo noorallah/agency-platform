@@ -93,8 +93,8 @@ void main() {
         lessThan(4),
       );
       // The buttons are along the bottom of the page.
-      expect(tester.getBottomLeft(find.text('Create draft')).dy,
-          greaterThan(700));
+      expect(
+          tester.getBottomLeft(find.text('Create draft')).dy, greaterThan(700));
       expect(tester.takeException(), isNull);
     });
 
@@ -179,5 +179,87 @@ void main() {
       await tester.pump();
       expect(tabs.documents, isEmpty);
     });
+
+    // D-DLG-8: the guard used to notice only typed characters.
+    group('the close guard notices any change', () {
+      Widget choices() => Material(
+            child: StatefulBuilder(
+              builder: (context, set) => Column(
+                children: [
+                  DropdownButton<String>(
+                    key: const ValueKey('terms'),
+                    value: _terms,
+                    items: const [
+                      DropdownMenuItem(value: 'cash', child: Text('Cash')),
+                      DropdownMenuItem(value: 'credit', child: Text('Credit')),
+                    ],
+                    onChanged: (v) => set(() => _terms = v!),
+                  ),
+                  Switch(
+                    key: const ValueKey('gift'),
+                    value: _gift,
+                    onChanged: (v) => set(() => _gift = v),
+                  ),
+                ],
+              ),
+            ),
+          );
+
+      Future<void> open(WidgetTester tester) async {
+        _terms = 'cash';
+        _gift = false;
+        await pumpHost(tester);
+        final BuildContext context = tester.element(find.text('the list'));
+        showDocument<bool>(
+          context,
+          title: 'New sales order',
+          builder: (context) => choices(),
+        );
+        await tester.pump();
+        await tester.pump();
+      }
+
+      testWidgets('a drop-down changed, nothing typed, asks', (tester) async {
+        await open(tester);
+        await tester.tap(find.byKey(const ValueKey('terms')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text('Credit').last);
+        await tester.pumpAndSettle();
+
+        tabs.close(tabs.documents.single.id);
+        await tester.pumpAndSettle();
+        expect(find.text('Close without saving?'), findsOneWidget);
+        await tester.tap(find.byKey(const ValueKey('document-discard')));
+        await tester.pumpAndSettle();
+        expect(tabs.documents, isEmpty);
+      });
+
+      testWidgets('a switch flipped, nothing typed, asks', (tester) async {
+        await open(tester);
+        await tester.tap(find.byKey(const ValueKey('gift')));
+        await tester.pumpAndSettle();
+
+        tabs.close(tabs.documents.single.id);
+        await tester.pumpAndSettle();
+        expect(find.text('Close without saving?'), findsOneWidget);
+      });
+
+      testWidgets('touched but unchanged closes without asking',
+          (tester) async {
+        await open(tester);
+        await tester.tap(find.byKey(const ValueKey('gift')));
+        await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('gift')));
+        await tester.pumpAndSettle();
+
+        tabs.close(tabs.documents.single.id);
+        await tester.pumpAndSettle();
+        expect(find.text('Close without saving?'), findsNothing);
+        expect(tabs.documents, isEmpty);
+      });
+    });
   });
 }
+
+String _terms = 'cash';
+bool _gift = false;
