@@ -102,6 +102,8 @@ class _ConfigApi extends ApiClient {
   final List<NumberingRule> rules;
   final List<DocumentTypeRecord> types;
   final List<String> statusCalls = [];
+  final List<String> yearCalls = [];
+  String? closeRefusal;
   String? previewedId;
   final List<Json> created = [];
   final List<MapEntry<String, Json>> updated = [];
@@ -120,6 +122,20 @@ class _ConfigApi extends ApiClient {
   Future<AccountingPeriod> setPeriodStatus(String id, String status) async {
     statusCalls.add('$id:$status');
     return _period(status: status);
+  }
+
+  @override
+  Future<FinancialYear> closeFinancialYear(String id) async {
+    yearCalls.add('close:$id');
+    final String? refusal = closeRefusal;
+    if (refusal != null) throw ApiException(refusal, statusCode: 422);
+    return _year(id: id, isLocked: true);
+  }
+
+  @override
+  Future<FinancialYear> reopenFinancialYear(String id, String reason) async {
+    yearCalls.add('reopen:$id:$reason');
+    return _year(id: id);
   }
 
   @override
@@ -241,6 +257,59 @@ void main() {
 
       expect(find.text('LOCKED'), findsOneWidget);
       expect(find.widgetWithText(TextButton, 'Close'), findsNothing);
+    });
+
+    testWidgets('Close year asks, calls the endpoint and shows a refusal', (
+      tester,
+    ) async {
+      final _ConfigApi api = _ConfigApi(
+        years: [_year()],
+        periods: [_period(id: 'p-1')],
+      )..closeRefusal = 'Period 1 is still open.';
+      await _pumpYears(tester, api);
+
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Close year'));
+      await tester.pumpAndSettle();
+      expect(
+        find.textContaining('Nothing can be posted into FY2026'),
+        findsOneWidget,
+      );
+      await tester.tap(find.widgetWithText(FilledButton, 'Close year'));
+      await tester.pumpAndSettle();
+
+      expect(api.yearCalls, ['close:fy-1']);
+      expect(find.text('Period 1 is still open.'), findsOneWidget);
+    });
+
+    testWidgets('Reopen year sends the typed reason', (tester) async {
+      final _ConfigApi api = _ConfigApi(
+        years: [_year(isLocked: true)],
+        periods: [_period(id: 'p-1', status: 'CLOSED')],
+      );
+      await _pumpYears(
+        tester,
+        api,
+        perms: const ['FINANCIAL_YEAR_VIEW', 'FINANCIAL_YEAR_REOPEN'],
+      );
+      expect(find.widgetWithText(OutlinedButton, 'Close year'), findsNothing);
+
+      await tester.tap(find.widgetWithText(OutlinedButton, 'Reopen year'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(TextField), 'Audit adjustment');
+      await tester.tap(find.widgetWithText(FilledButton, 'Reopen year'));
+      await tester.pumpAndSettle();
+
+      expect(api.yearCalls, ['reopen:fy-1:Audit adjustment']);
+    });
+
+    testWidgets('year buttons are hidden without the codes', (tester) async {
+      await _pumpYears(
+        tester,
+        _ConfigApi(years: [_year()], periods: [_period()]),
+        perms: const ['FINANCIAL_YEAR_VIEW'],
+      );
+      expect(find.text('Close year'), findsNothing);
+      expect(find.text('Reopen year'), findsNothing);
     });
 
     testWidgets('without the financial-year permission it is read-only',
