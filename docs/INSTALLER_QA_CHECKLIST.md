@@ -17,7 +17,7 @@ changes, and the Result and Notes columns as you test.
 **You need**
 
 - A laptop you can wipe: 64-bit Windows 10 or 11, at least 4 GB of memory,
-  3 GB free disk, no PostgreSQL on port 5433, and an administrator account.
+  3 GB free disk and an administrator account. (A PostgreSQL already on port 5433 is fine: Setup takes the next free port.)
   No internet is needed.
 - A second PC on the same network for section C. A second Windows user on the
   laptop is not a substitute, because the app-only role is a separate install.
@@ -63,7 +63,9 @@ sections A and B here, and before section D.
 | A12 | Open `C:\ProgramData\Agency Platform` | Folders `pgdata`, `logs`, `backups`, `storage`; `first-login.txt` opens only as administrator and holds the same sign-in | Not run | |
 | A13 | Open `logs` | Subfolders `install`, `server`, `service`, `database`, `client`; `install` holds one file for this run | Not run | |
 | A14 | Open **Services** (type *services* in Start) | *Agency Platform Database* and *Agency Platform Server* both *Running*, startup *Automatic* | Not run | |
-| A15 | Windows Defender Firewall > Advanced settings > Inbound Rules | A rule *AgencyPlatformServer-TCP-8000*, enabled, for private networks | Not run | |
+| A15 | Windows Defender Firewall > Advanced settings > Inbound Rules | A rule *AgencyPlatformServer-TCP* (display name ending "(TCP 8000)", or the chosen port), enabled, for private networks | Not run | |
+| A15a | Before installing, run `python -m http.server 8000` (or any program) so port 8000 is taken; install, and on the **Ports** page keep 8000 and press Next | A message names the program using port 8000 and asks for another; type 8080, Next is accepted; after the install the app's API URL reads `http://127.0.0.1:8080` | Not run | |
+| A15b | `C:\ProgramData\Agency Platform\ports.json` | Names the database port (5433 unless it was taken) and the server port | Not run | |
 
 ## B. First use on the laptop
 

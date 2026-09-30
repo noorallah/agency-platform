@@ -19,7 +19,8 @@
                if any dump fails, and the .iss stops the upgrade.
 
     Server     After the files are in place. On a fresh machine: initdb into
-               <DataRoot>\pgdata with a generated superuser password, port 5433,
+               <DataRoot>\pgdata with a generated superuser password, on the
+               first free port of 5433-5440,
                register AgencyPlatformDB, configure, create the
                AgencyPlatformServer service, open the firewall if asked, wait
                for /health. On an upgrade: none of initdb, no new password --
@@ -28,6 +29,11 @@
 
     Client     Point the desktop client at a server: writes server_url into
                {app}\config\branding.json.
+
+    CheckPort  Whether -ApiPort is free for the server (D-SETUP-9). Exit 0
+               when it is, or when this install already holds it; exit 3 and
+               name the program holding it otherwise. The .iss runs it when
+               the Ports page is left.
 
     Uninstall  Stop and remove both services and the firewall rule; with
                -DeleteData, also the database, backups and logs.
@@ -54,7 +60,7 @@
 [CmdletBinding()]
 param(
   [Parameter(Mandatory = $true)]
-  [ValidateSet('Backup', 'DailyBackup', 'Server', 'Client', 'Uninstall')]
+  [ValidateSet('Backup', 'DailyBackup', 'Server', 'Client', 'Uninstall', 'CheckPort')]
   [string]$Action,
   [Parameter(Mandatory = $true)][string]$InstallDir,
   [string]$DataRoot = (Join-Path $env:ProgramData 'Agency Platform'),
@@ -62,6 +68,8 @@ param(
   [string]$PreviousVersion = 'unknown',
   [switch]$AllowLan,
   [string]$ServerUrl,
+  # The server's port. 0 keeps the one an earlier install used, else 8000.
+  [int]$ApiPort = 0,
   [switch]$DeleteData,
   # How many daily backups -DailyBackup keeps; older ones are deleted.
   [int]$KeepDaily = 7
@@ -73,9 +81,14 @@ $DbService = 'AgencyPlatformDB'
 $DbDisplayName = 'Agency Platform Database'
 $ServerService = 'AgencyPlatformServer'
 $ServerDisplayName = 'Agency Platform Server'
-$DbPort = 5433
-$ApiPort = 8000
-$FirewallRule = 'AgencyPlatformServer-TCP-8000'
+# The private database takes the first free port of these on a fresh
+# install and keeps it: an upgrade reads it back from its own postgresql.conf.
+$DbPortRange = 5433..5440
+$DbPort = $DbPortRange[0]
+$DefaultApiPort = 8000
+$FirewallRule = 'AgencyPlatformServer-TCP'
+# The name the rule had while the port was fixed; removed on upgrade.
+$LegacyFirewallRule = 'AgencyPlatformServer-TCP-8000'
 $BackupTask = 'Agency Platform daily backup'
 $AdminAccount = 'platform-admin@agency.local'
 
@@ -99,6 +112,8 @@ $PgData = Join-Path $DataRoot 'pgdata'
 $Logs = Join-Path $DataRoot 'logs'
 $SuperuserFile = Join-Path $DataRoot 'setup-superuser.tmp'
 $FirstLogin = Join-Path $DataRoot 'first-login.txt'
+# Which ports this install chose, so an upgrade and a repair keep them.
+$PortsFile = Join-Path $DataRoot 'ports.json'
 $ServiceDir = Join-Path $InstallDir 'service'
 $WinSw = Join-Path $ServiceDir "$ServerService.exe"
 $WinSwXml = Join-Path $ServiceDir "$ServerService.xml"
@@ -417,6 +432,120 @@ function Register-DatabaseService {
     'actions=', 'restart/10000/restart/30000/restart/60000') | Out-Null
 }
 
+# -- Ports (D-SETUP-9) --------------------------------------------------------
+
+function Get-PortOwner {
+  <# The process listening on a TCP port, or $null when nothing is. #>
+  param([int]$Port)
+  $listener = Get-NetTCPConnection -LocalPort $Port -State Listen -ErrorAction SilentlyContinue |
+    Select-Object -First 1
+  if (-not $listener) { return $null }
+  return Get-Process -Id $listener.OwningProcess -ErrorAction SilentlyContinue
+}
+
+function Test-PortFree {
+  <# Whether nothing listens on the port, on any address. #>
+  param([int]$Port)
+  $socket = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Any, $Port)
+  try {
+    $socket.Start()
+    return $true
+  } catch {
+    return $false
+  } finally {
+    try { $socket.Stop() } catch { }
+  }
+}
+
+function Get-PortOwnerText {
+  <# "program.exe (process 1234)", for a message naming what holds a port. #>
+  param([int]$Port)
+  $owner = Get-PortOwner $Port
+  if (-not $owner) { return 'another program' }
+  return "$($owner.ProcessName).exe (process $($owner.Id))"
+}
+
+function Test-OursOnPort {
+  <# Whether the process on the port is this install's server or database. #>
+  param([int]$Port)
+  $owner = Get-PortOwner $Port
+  if (-not $owner) { return $false }
+  try { $path = $owner.Path } catch { $path = $null }
+  if (-not $path) { return $false }
+  return $path.StartsWith($InstallDir, [System.StringComparison]::OrdinalIgnoreCase)
+}
+
+function Read-Ports {
+  <# What an earlier install chose, or an empty object. #>
+  if (-not (Test-Path -LiteralPath $PortsFile)) { return [pscustomobject]@{} }
+  try {
+    return Get-Content -LiteralPath $PortsFile -Raw | ConvertFrom-Json
+  } catch {
+    return [pscustomobject]@{}
+  }
+}
+
+function Save-Ports {
+  param([int]$Database, [int]$Server)
+  $json = [pscustomobject]@{ database = $Database; server = $Server } | ConvertTo-Json
+  [System.IO.File]::WriteAllText($PortsFile, $json, (New-Object System.Text.UTF8Encoding($false)))
+}
+
+function Get-ClusterPort {
+  <# The port the private database was set up on, read from its own config. #>
+  $conf = Join-Path $PgData 'postgresql.conf'
+  if (-not (Test-Path -LiteralPath $conf)) { return $null }
+  $port = $null
+  foreach ($line in Get-Content -LiteralPath $conf) {
+    if ($line -match '^\s*port\s*=\s*(\d+)') { $port = [int]$Matches[1] }
+  }
+  return $port
+}
+
+function Select-DbPort {
+  <# The first port of the range nothing is listening on. #>
+  foreach ($port in $DbPortRange) {
+    if (Test-PortFree $port) { return $port }
+    Write-Log "  port $port is in use by $(Get-PortOwnerText $port); trying the next"
+  }
+  Stop-Setup ("Every port from {0} to {1} is in use, so the database has nowhere to listen." -f
+    $DbPortRange[0], $DbPortRange[-1]) 'Stop one of the programs using them and run Setup again.'
+}
+
+function Resolve-ApiPort {
+  <# -ApiPort when given, else what an earlier install used, else 8000. #>
+  if ($ApiPort -gt 0) { return $ApiPort }
+  $remembered = (Read-Ports).server
+  if ($remembered) { return [int]$remembered }
+  if (Test-Path -LiteralPath $WinSwXml) {
+    $xml = Get-Content -LiteralPath $WinSwXml -Raw
+    if ($xml -match '--port\s+(\d+)') { return [int]$Matches[1] }
+  }
+  return $DefaultApiPort
+}
+
+function Assert-ApiPortFree {
+  <# Refuse a server port another program holds, naming it. #>
+  param([int]$Port)
+  if ($Port -lt 1024 -or $Port -gt 65535) {
+    Stop-Setup "Port $Port cannot be used for the server." 'Choose a port from 1024 to 65535.'
+  }
+  if ((Test-PortFree $Port) -or (Test-OursOnPort $Port)) { return }
+  Stop-Setup "Port $Port, which the server listens on, is in use by $(Get-PortOwnerText $Port)." `
+    'Run Setup again and choose another port on the Ports page, or stop that program.'
+}
+
+function Invoke-CheckPort {
+  $port = if ($ApiPort -gt 0) { $ApiPort } else { $DefaultApiPort }
+  if ($port -lt 1024 -or $port -gt 65535) {
+    Write-Host "Port $port cannot be used: choose one from 1024 to 65535."
+    exit 3
+  }
+  if ((Test-PortFree $port) -or (Test-OursOnPort $port)) { exit 0 }
+  Write-Host "Port $port is in use by $(Get-PortOwnerText $port)."
+  exit 3
+}
+
 # -- The server service -------------------------------------------------------
 
 function Write-ServiceDefinition {
@@ -477,8 +606,11 @@ function Register-ServerService {
 }
 
 function Set-Firewall {
-  $existing = Get-NetFirewallRule -Name $FirewallRule -ErrorAction SilentlyContinue
-  if ($existing) { Remove-NetFirewallRule -Name $FirewallRule -ErrorAction SilentlyContinue }
+  foreach ($name in @($FirewallRule, $LegacyFirewallRule)) {
+    if (Get-NetFirewallRule -Name $name -ErrorAction SilentlyContinue) {
+      Remove-NetFirewallRule -Name $name -ErrorAction SilentlyContinue
+    }
+  }
   if (-not $AllowLan) { return }
   New-NetFirewallRule -Name $FirewallRule -DisplayName "$ServerDisplayName (TCP $ApiPort)" `
     -Description 'Lets other PCs on this private network reach the Agency Platform Server.' `
@@ -671,6 +803,11 @@ function Invoke-Server {
   $ready = Test-Path -LiteralPath $ReadyMarker
   $superuserPassword = $null
   $privateDatabase = $true
+  $script:ApiPort = Resolve-ApiPort
+  if ($hasCluster) {
+    $clusterPort = Get-ClusterPort
+    if ($clusterPort) { $script:DbPort = $clusterPort }
+  }
 
   if ($hasCluster -and (Test-Path -LiteralPath $SuperuserFile)) {
     # A previous run created the cluster and stopped before configuring it.
@@ -684,10 +821,14 @@ function Invoke-Server {
     # again after a failure can finish the job. Deleted at the end.
     [System.IO.File]::WriteAllText($SuperuserFile, $superuserPassword, (New-Object System.Text.UTF8Encoding($false)))
     Protect-AdminOnly $SuperuserFile
+    $script:DbPort = Select-DbPort
+    Write-Log "  the database will listen on port $DbPort"
     Initialize-Cluster -SuperuserPassword $superuserPassword
   } elseif (-not $hasCluster -and $envExists) {
     $envValues = Read-EnvFile
-    if ($envValues['AGENCY_DATABASE_PORT'] -eq "$DbPort") {
+    # Setup's own database, by where .env points -- any port of the range.
+    if ($envValues['AGENCY_DATABASE_HOST'] -eq 'localhost' -and
+        $DbPortRange -contains [int]("0" + $envValues['AGENCY_DATABASE_PORT'])) {
       Stop-Setup "config\.env points at the private database, but $PgData holds none." 'Restore the pgdata folder from a backup, or uninstall with "delete all data" and install again.'
     }
     # An install from before the private database: its data is in a
@@ -702,6 +843,11 @@ function Invoke-Server {
 
   if ($privateDatabase) {
     Register-DatabaseService
+    $dbService = Get-ServiceOrNull $DbService
+    if ((-not $dbService -or $dbService.Status -ne 'Running') -and -not (Test-PortFree $DbPort) -and
+        -not (Test-OursOnPort $DbPort)) {
+      Stop-Setup "Port $DbPort, which the Agency Platform database listens on, is in use by $(Get-PortOwnerText $DbPort)." 'Stop that program and run Setup again.'
+    }
     Start-ServiceAndWait $DbService
     Wait-Database
   }
@@ -760,6 +906,7 @@ function Invoke-Server {
   $bindHost = if ($AllowLan) { '0.0.0.0' } else { '127.0.0.1' }
   Write-Log "Service: $ServerService on ${bindHost}:$ApiPort as $ServiceAccount"
   Stop-ServiceAndWait $ServerService
+  Assert-ApiPortFree $ApiPort
   Write-ServiceDefinition -BindHost $bindHost -DependsOnDatabase $privateDatabase
   Register-ServerService -DependsOnDatabase $privateDatabase
   Set-Firewall
@@ -774,6 +921,7 @@ function Invoke-Server {
   [System.IO.File]::WriteAllText($ReadyMarker, "Database set up by Setup.`r`n")
   Register-DailyBackup
   Remove-Item -LiteralPath $SuperuserFile -Force -ErrorAction SilentlyContinue
+  Save-Ports -Database $DbPort -Server $ApiPort
   Set-DesktopServerUrl -Url "http://127.0.0.1:$ApiPort"
 
   if ($adminPassword) {
@@ -807,7 +955,9 @@ function Invoke-Uninstall {
     if (Test-Path -LiteralPath $pgCtl) { Invoke-Native -File $pgCtl -Arguments @('unregister', '-N', $DbService) | Out-Null }
     if (Get-ServiceOrNull $DbService) { Invoke-Native -File 'sc.exe' -Arguments @('delete', $DbService) | Out-Null }
   }
-  Remove-NetFirewallRule -Name $FirewallRule -ErrorAction SilentlyContinue
+  foreach ($name in @($FirewallRule, $LegacyFirewallRule)) {
+    Remove-NetFirewallRule -Name $name -ErrorAction SilentlyContinue
+  }
   Unregister-ScheduledTask -TaskName $BackupTask -Confirm:$false -ErrorAction SilentlyContinue
   if ($DeleteData) {
     Write-Log "Deleting all data under $DataRoot"
@@ -836,5 +986,6 @@ switch ($Action) {
     Set-DesktopServerUrl -Url $ServerUrl
   }
   'Uninstall' { Invoke-Uninstall }
+  'CheckPort' { Invoke-CheckPort }
 }
 exit 0
