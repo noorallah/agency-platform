@@ -343,6 +343,19 @@ module's arithmetic moved underneath it, which is the thing to check
 whenever a taxable base changes -- grep the fields rather than trusting that
 a helper still means what its name says.
 
+## A new financial year opens income and expense at zero
+
+**The stored balances run on across years; the reports that show an opening
+take the year's start off.** `ledger_balances` carries every account's closing
+into the next period whatever its type, and no closing entry is posted at year
+end -- the balance sheet depends on that, since it computes the firm's earnings
+from the income and expense closings. A trial balance, an account ledger and an
+account summary answer "this year", so `GeneralLedgerService._brought_forward`
+takes off what an income or expense account had run up before the financial
+year began, and the trial balance adds one equity row, **Profit and loss
+brought forward**, so it still balances (D-FIN-22, 2026-09-30). A report that
+shows an opening balance for an income or expense account must go through it.
+
 ## A credit note that states its lines reverses tax
 
 **A credit note that states its lines reverses tax; the bare receivable
