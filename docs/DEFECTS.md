@@ -80,7 +80,7 @@ between an invoice's two-decimal total and its receivable row in any store.
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
-| D-FIN-22 | Medium | A second year's trial balance opens every income and expense account at last year's closing balance. No closing entry is posted, and `JournalEngine._opening_balance` carries every account the same way, so April's Sales opens at the whole of last year's sales and there is no profit-brought-forward line. The P&L (movements within the year) and the balance sheet (earnings computed from every P&L account) are right. Only the trial balance, and the ledger of an income or expense account, read as a CA would not expect. Found 2026-09-28 reviewing Money; `docs/BACKLOG.md` §71 row 1. | Code |
+| D-FIN-22 | Medium | A second year's trial balance opens every income and expense account at last year's closing balance. No closing entry is posted, and `JournalEngine._opening_balance` carries every account the same way, so April's Sales opens at the whole of last year's sales and there is no profit-brought-forward line. The P&L (movements within the year) and the balance sheet (earnings computed from every P&L account) are right. Only the trial balance, and the ledger of an income or expense account, read as a CA would not expect. Found 2026-09-28 reviewing Money; `docs/BACKLOG.md` §74 row 1. | Code |
 | D-FIN-23 | Medium | The old credit note, `POST /customers/{id}/receivables/transactions` with `CREDIT_NOTE`, still reduces a customer's balance with **no output tax reversed** (Dr 4100 / Cr 1100 for the whole amount). `/credit-notes` was built to replace it (`app/credit_note`, module docstring), and no desktop screen calls the old route, but the API still accepts it from anyone holding `RECEIPT_CREATE`. Retire it, or refuse CREDIT_NOTE and point at `/credit-notes` as D-FIN-4 does for the other types. Found 2026-09-28 reviewing Money; `docs/DATA_TRAIL_BY_OPERATION.md` §12. | Code |
 
 ### Compliance -- found writing the Compliance data trail, 2026-09-19
@@ -104,7 +104,7 @@ from the documents, not from GSTR-1.
 
 | Id | Severity | Summary | Evidence |
 | --- | --- | --- | --- |
-| D-CMP-22 | Medium | An invoice line does not keep its HSN/SAC code. GSTR-1's HSN summary (`GstrService._fold_hsn`), the e-invoice payload (`einvoice/services/payload.py`) and the invoice reprint (`invoice_print_service.py`) all read `products.hsn_sac` as it is **today**, so correcting a product's code changes the HSN table of months already filed and reprints old bills with a code they were not issued with. Tax amounts are unaffected (the line keeps its components and rates). Found 2026-09-28 reviewing Money; `docs/BACKLOG.md` §71.1 row 8. | Code |
+| D-CMP-22 | Medium | An invoice line does not keep its HSN/SAC code. GSTR-1's HSN summary (`GstrService._fold_hsn`), the e-invoice payload (`einvoice/services/payload.py`) and the invoice reprint (`invoice_print_service.py`) all read `products.hsn_sac` as it is **today**, so correcting a product's code changes the HSN table of months already filed and reprints old bills with a code they were not issued with. Tax amounts are unaffected (the line keeps its components and rates). Found 2026-09-28 reviewing Money; `docs/BACKLOG.md` §74.1 row 8. | Code |
 
 ### Configuration -- found writing the Configuration data trail, 2026-09-19
 

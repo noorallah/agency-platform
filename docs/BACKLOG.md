@@ -5097,7 +5097,7 @@ sandbox; an append-only audit trail in every store.
 **Suggested order:** 1 (the books a CA reads first; small) -> 2 (every firm
 has short receipts in the first week) -> 3, 4 (small) -> 7 -> 5 -> 6.
 
-### 71.1 What the finance master prompt adds (rows 8-16)
+### 74.1 What the finance master prompt adds (rows 8-16)
 
 Owner, 2026-09-28: a full "Money / Finance & Tax module" master prompt (81
 sections) reviewed against the code the same day. Most of it is built or
@@ -5122,7 +5122,7 @@ payable, receivable, returns and certificates §42.4 / §53 / §53.1; GSTR-2B
 §42.5; GST payable, set-off, challan, TCS deposit and 27EQ §63; approval by
 amount §68 row 4 and §55 S12; expenses #814; supplier debit note §55 G8;
 customer debit note §67; supplier opening balances §36; day, cash and bank
-book §55 M9; cash flow, supplier statement §71 rows 5, 4; finance dashboard
+book §55 M9; cash flow, supplier statement §74 rows 5, 4; finance dashboard
 §49; live IRP through a GSP, with duplicate-IRN handling, §55 M2;
 multi-currency §55 N2.
 
@@ -5142,9 +5142,9 @@ multi-currency §55 N2.
 change) -> 1 -> 2 -> 9 -> 12 -> 13 -> 3, 4 -> 10, 11 -> 14 -> 15, 16 -> 7 ->
 5 -> 6.
 
-## 72. Masters and configuration against a full ERP checklist
+## 75. Masters and configuration against a full ERP checklist
 
-Owner, 2026-09-28: after Money (§71), review the masters -- customers,
+Owner, 2026-09-28: after Money (§74), review the masters -- customers,
 suppliers, products, branches and warehouses -- and the configuration they
 lean on: price lists, units, tax, business profiles, numbering. Checked against
 the code the same day.
@@ -5166,8 +5166,8 @@ unique codes among live rows (D-MST-11); import from files (§46).
 §65 row 4; PAN / TAN / GSTIN format checks §53; licences §54; supplier payment
 terms and MSME §68 rows 1-2; supplier catalogue, MOQ, blocked supplier §69;
 branch GSTINs §70; batch-wise MRP §55 G5; ship-to per order §67; supplier
-opening balances §36; firm bank details §71.1 row 13; HSN kept on the line
-§71.1 row 8; extra fields on documents §52.
+opening balances §36; firm bank details §74.1 row 13; HSN kept on the line
+§74.1 row 8; extra fields on documents §52.
 
 **To consider** -- each to validate with the go-live firms (§55):
 
@@ -5176,12 +5176,12 @@ opening balances §36; firm bank details §71.1 row 13; HSN kept on the line
 | 1 | **Principal and brand** | `products.brand` is free text; nothing ties a product to the company whose agency the firm holds, or that company to its supplier record | A **principal** master (the company: HUL, Nestle) linked to its supplier, and a **brand** master under it; products name a brand. Principal-wise sales, stock and claims (§42.7), targets and reports all key on it |
 | 2 | **Customer's GST registration type** | Customers carry only a GSTIN and INDIVIDUAL / BUSINESS; suppliers have `gst_registration`. The e-invoice builder says "SEZ and deemed exports need a marker no customer carries yet" (`einvoice/services/payload.py`) | Regular, Composition, Unregistered, SEZ (with or without payment), Deemed export, Overseas on the customer, driving the GSTR-1 table (B2B, SEZWP / SEZWOP, DE, EXP), the e-invoice supply type, and a warning when an SEZ bill charges tax the LUT says it should not |
 | 3 | **One GSTIN or PAN on several customer accounts** | `UQ_customers_firm_gst_number_active` and `..._pan_number_active` refuse a second customer with the same GSTIN or PAN | Decide: outlets of one business, or one proprietor with two shops, are routinely kept as separate accounts on separate routes. Either allow the same GSTIN / PAN with a warning (as Tally does), or model outlets as delivery addresses of one customer (§67). Validate with the go-live firms before changing the keys D-MST-11 made |
-| 4 | **Customer and supplier as one party** | Two unrelated records | Link a customer to a supplier record; one combined statement, and the set-off of §71 row 2 |
+| 4 | **Customer and supplier as one party** | Two unrelated records | Link a customer to a supplier record; one combined statement, and the set-off of §74 row 2 |
 | 5 | **Discontinued, and not for sale** | Product status is ACTIVE or INACTIVE only | DISCONTINUED: refused on purchase orders, still sold until stock runs out, then flagged. Not-for-sale (samples, consumables, packing material): stock kept, never on a sales document |
 | 6 | **Shelf life** | Expiry is typed per batch | Shelf life (days) on the product fills expiry from the manufacturing date at receipt; a customer's **minimum remaining life** (modern trade refuses stock under a set share of its life) is warned at order and refused at dispatch |
 | 7 | **Price revision with an effective date** | `selling_price` and `purchase_price` are overwritten on edit, with no history and no future date | Schedule "new rates from the 1st" (from a principal's circular, often by file); the old rate holds until then, and the product keeps its rate history. Combines with §64 row 1 price levels |
 | 8 | **Duplicate check and merge** | Codes are unique; nothing warns of a second "Sri Balaji Stores" with the same phone; §36 notes there is no merge tool | Warn on create when name, phone or GSTIN resembles a live record; a **merge** that moves documents, balances and route membership to the survivor and records it, refused across a locked year |
-| 9 | **Customer attachments and bank account** | Suppliers have both; customers neither | Attachments (licence copies, KYC, agreements) and a bank account (for refunds by NEFT, masked per §71.1 row 13) on the customer |
+| 9 | **Customer attachments and bank account** | Suppliers have both; customers neither | Attachments (licence copies, KYC, agreements) and a bank account (for refunds by NEFT, masked per §74.1 row 13) on the customer |
 | 10 | **Codes from a series** | Customer, supplier and product codes are typed (`code` is required and pattern-checked) | Optional automatic codes from the numbering framework (CUS-0001, per firm or per category), as §34 does for stock movements; typing stays allowed. To verify what the phase 2 forms do |
 | 11 | **New outlet approval** | A new customer is ACTIVE at once | Optionally, a customer added by a salesman (in the field, §39) starts PENDING: orders taken, but no credit sale or invoice until the office approves it. Goes with §39 and §56 bulk approval |
 
