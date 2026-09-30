@@ -3493,3 +3493,102 @@ def test_the_journal_editor_is_offered_only_accounts_it_can_save() -> None:
     }
     assert "1100" in every
     assert offered == every - {"1100"}
+
+
+def test_a_new_year_opens_income_at_zero_and_brings_the_profit_forward() -> None:
+    """D-FIN-22: last year's sales are not this year's opening.
+
+    A second year's trial balance opened Sales at the whole of last year's
+    sales, with no profit-brought-forward line. An income or expense account
+    starts each financial year at zero; what earlier years earned is one line
+    under equity, and the trial balance still balances. The balance sheet,
+    which reads the same stored balances, is unchanged.
+    """
+    factory = _session_factory()
+    session = factory()
+    firm = _firm(session)
+    actor_id = uuid4()
+    book = _Book(session, firm.id, actor_id)
+    service = FinanceService(session)
+    engine = JournalEntryEngine(session)
+
+    def post(period_id: UUID, on: date, reference: str, amount: str) -> None:
+        """Post one cash sale."""
+        entry = engine.create_entry(
+            firm_id=firm.id,
+            journal_type_id=book.journal_type.id,
+            voucher_type_id=book.voucher_type.id,
+            accounting_period_id=period_id,
+            journal_date=on,
+            reference_number=reference,
+            description=reference,
+            lines=_sale_lines(book, amount),
+            actor_id=actor_id,
+        )
+        engine.post_entry(entry.id, firm_id=firm.id, actor_id=actor_id)
+        session.commit()
+
+    post(book.period.id, date(2026, 4, 10), "JV-LAST-YEAR", "100.00")
+    next_year = service.create_financial_year(
+        FinancialYearCreate(
+            code="FY2028",
+            name="2027-2028",
+            starts_on=date(2027, 4, 1),
+            ends_on=date(2028, 3, 31),
+        ),
+        firm_id=firm.id,
+        actor_id=actor_id,
+    )
+    april, may = (
+        service.create_accounting_period(
+            AccountingPeriodCreate(
+                financial_year_id=next_year.id,
+                period_number=number,
+                code=f"P{number}",
+                name=name,
+                starts_on=starts,
+                ends_on=ends,
+            ),
+            firm_id=firm.id,
+            actor_id=actor_id,
+        )
+        for number, name, starts, ends in (
+            (1, "April 2027", date(2027, 4, 1), date(2027, 4, 30)),
+            (2, "May 2027", date(2027, 5, 1), date(2027, 5, 31)),
+        )
+    )
+    session.commit()
+    post(april.id, date(2027, 4, 10), "JV-THIS-YEAR", "40.00")
+    reports = GeneralLedgerService(session)
+
+    trial = reports.trial_balance(firm_id=firm.id, accounting_period_id=april.id)
+    by_code = {line.account_code: line for line in trial.lines}
+    assert (by_code["4000"].opening_balance, by_code["4000"].closing_balance) == (
+        Decimal("0.00"),
+        Decimal("40.00"),
+    )
+    assert by_code["1000"].opening_balance == Decimal("100.00")
+    forward = by_code["P&L-BF"]
+    assert forward.ledger_account_id is None
+    assert (forward.opening_credit, forward.closing_credit) == (
+        Decimal("100.00"),
+        Decimal("100.00"),
+    )
+    assert trial.total_opening_debit == trial.total_opening_credit
+    assert trial.is_balanced
+
+    # A quiet month carries this year's sales, not last year's.
+    quiet = reports.trial_balance(firm_id=firm.id, accounting_period_id=may.id)
+    quiet_codes = {line.account_code: line for line in quiet.lines}
+    assert quiet_codes["4000"].opening_balance == Decimal("40.00")
+    assert quiet_codes["P&L-BF"].closing_credit == Decimal("100.00")
+    assert quiet.is_balanced
+
+    ledger = reports.general_ledger(
+        firm_id=firm.id, ledger_account_id=book.sales.id, accounting_period_id=april.id
+    )
+    assert ledger.opening_balance == Decimal("0.00")
+
+    sheet = reports.balance_sheet(firm_id=firm.id, accounting_period_id=april.id)
+    assert sheet.retained_earnings_brought_forward == Decimal("100.00")
+    assert sheet.is_balanced

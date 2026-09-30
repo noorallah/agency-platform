@@ -529,7 +529,9 @@ class GLPostingResponse(FinanceSchema):
 class TrialBalanceLine(FinanceSchema):
     """Return one account row of a trial balance."""
 
-    ledger_account_id: UUID
+    #: None on the one row that is not an account: the profit and loss
+    #: brought forward from earlier years, under equity (D-FIN-22).
+    ledger_account_id: UUID | None
     account_code: str
     account_name: str
     account_type: AccountTypeEnum
