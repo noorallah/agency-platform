@@ -19,7 +19,7 @@ from typing import Any
 from uuid import UUID, uuid4
 
 from sqlalchemy import Select, and_, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.common.audit.services import record_audit
 from app.common.report_names import customers_matching, vendors_matching
@@ -102,12 +102,19 @@ SETTLEABLE_INVOICE_STATES = (
 )
 
 
+def _among(
+    column: InstrumentedAttribute[Any], ids: Sequence[UUID] | None
+) -> tuple[Any, ...]:
+    """Narrow to ``ids``, or to nothing more than the firm when ids is None."""
+    return () if ids is None else (column.in_(ids),)
+
+
 @over_chunks("invoice_ids")
 def credited_against(
     session: Session,
     *,
     firm_id: UUID,
-    invoice_ids: Sequence[UUID],
+    invoice_ids: Sequence[UUID] | None,
     as_of: date | None = None,
 ) -> dict[UUID, Decimal]:
     """Sum what returns and credit notes have taken off each sales invoice.
@@ -125,7 +132,9 @@ def credited_against(
     Args:
         session: The firm's session.
         firm_id: The owning firm.
-        invoice_ids: The sales invoices to ask about.
+        invoice_ids: The sales invoices to ask about; None asks about every
+            invoice of the firm in one grouped read, which is what a
+            firm-wide report wants rather than its ids sent in chunks.
         as_of: Count only what was dated on or before this day; None counts
             everything.
 
@@ -133,7 +142,7 @@ def credited_against(
         The credited amount per invoice, for those with any.
 
     """
-    if not invoice_ids:
+    if invoice_ids is not None and not invoice_ids:
         return {}
     # Imported here: both modules import settlement-adjacent models.
     from app.credit_note.models import CreditNote, CreditNoteStatus
@@ -149,7 +158,7 @@ def credited_against(
         .where(
             SalesReturnLine.firm_id == firm_id,
             SalesReturnLine.source_document_type == "SALES_INVOICE",
-            SalesReturnLine.source_document_id.in_(invoice_ids),
+            *_among(SalesReturnLine.source_document_id, invoice_ids),
             SalesReturnLine.is_deleted.is_(False),
             # Completing is what posts Cr receivable; a draft or approved
             # return has not moved anything yet, a cancelled one is gone.
@@ -166,7 +175,7 @@ def credited_against(
         )
         .where(
             CreditNote.firm_id == firm_id,
-            CreditNote.sales_invoice_id.in_(invoice_ids),
+            *_among(CreditNote.sales_invoice_id, invoice_ids),
             # Approval is what posts; a draft has not, a cancelled one is gone.
             CreditNote.status == CreditNoteStatus.APPROVED.value,
             CreditNote.is_deleted.is_(False),
@@ -186,7 +195,7 @@ def settled_against(
     session: Session,
     *,
     firm_id: UUID,
-    invoice_ids: Sequence[UUID],
+    invoice_ids: Sequence[UUID] | None,
     as_of: date | None = None,
 ) -> dict[UUID, Decimal]:
     """Sum everything that has come off each sales invoice.
@@ -202,7 +211,8 @@ def settled_against(
     Args:
         session: The firm's session.
         firm_id: The owning firm.
-        invoice_ids: The sales invoices to ask about.
+        invoice_ids: The sales invoices to ask about; None asks about every
+            invoice of the firm, as ``credited_against`` does.
         as_of: Count only what had happened by the end of this day -- a
             receipt dated after it had not arrived yet, and one reversed after
             it still stood. None counts what stands now.
@@ -211,7 +221,7 @@ def settled_against(
         The settled amount per invoice, for those with any.
 
     """
-    if not invoice_ids:
+    if invoice_ids is not None and not invoice_ids:
         return {}
     if as_of is None:
         standing = Settlement.status == SettlementStatus.POSTED.value
@@ -233,7 +243,7 @@ def settled_against(
         .join(Settlement, Settlement.id == SettlementAllocation.settlement_id)
         .where(
             SettlementAllocation.firm_id == firm_id,
-            SettlementAllocation.sales_invoice_id.in_(invoice_ids),
+            *_among(SettlementAllocation.sales_invoice_id, invoice_ids),
             SettlementAllocation.is_deleted.is_(False),
             Settlement.is_deleted.is_(False),
             standing,
@@ -248,7 +258,7 @@ def settled_against(
         )
         .where(
             LoyaltyEntry.firm_id == firm_id,
-            LoyaltyEntry.sales_invoice_id.in_(invoice_ids),
+            *_among(LoyaltyEntry.sales_invoice_id, invoice_ids),
             LoyaltyEntry.kind == LoyaltyEntryKind.REDEEMED.value,
             LoyaltyEntry.is_deleted.is_(False),
             *(() if as_of is None else (LoyaltyEntry.earned_on <= as_of,)),
@@ -341,8 +351,19 @@ class SettlementService(TransactionalDocumentService):
             .group_by(allocation_column)
             .subquery()
         )
+        # The columns the list shows, never the whole document: a firm-wide
+        # read of full rows was a third of Customer Outstanding's 16 s on a
+        # firm with 109,566 invoices (backlog 56 C, step 4).
         rows = self._session.execute(
-            select(invoice, func.coalesce(allocated.c.total, 0))
+            select(
+                invoice.id,
+                invoice.invoice_number,
+                invoice.invoice_date,
+                invoice.grand_total,
+                invoice.due_date,
+                party_column.label("party_id"),
+                func.coalesce(allocated.c.total, 0),
+            )
             .outerjoin(allocated, allocated.c.invoice_id == invoice.id)
             .where(
                 invoice.firm_id == firm_id,
@@ -357,10 +378,11 @@ class SettlementService(TransactionalDocumentService):
         # one derivation the ageing reads as well (D-FIN-10).
         settled: dict[UUID, Decimal] = {}
         if is_receipt and rows:
+            # Firm-wide, one grouped read per source beats the ids in chunks.
             settled = settled_against(
                 self._session,
                 firm_id=firm_id,
-                invoice_ids=[row.id for row, _ in rows],
+                invoice_ids=None if party_id is None else [row.id for row in rows],
             )
         # Goods sent back against a bill's own lines come off that bill (D-BUY-6,
         # decided by the owner on 2026-09-18). A completed return posts Dr
@@ -373,17 +395,18 @@ class SettlementService(TransactionalDocumentService):
         credited: dict[UUID, Decimal] = {}
         if not is_receipt and rows:
             returned = self._returned_against(
-                firm_id=firm_id, invoice_ids=[row.id for row, _ in rows]
+                firm_id=firm_id, invoice_ids=[row.id for row in rows]
             )
             # And supplier credit from a return raised off the goods receipt,
             # once somebody has set it against this bill (D-FIN-19).
             credited = credit_applied_against(
                 self._session,
                 firm_id=firm_id,
-                invoice_ids=[row.id for row, _ in rows],
+                invoice_ids=[row.id for row in rows],
             )
         records: list[OutstandingInvoiceRecord] = []
-        for row, allocated_amount in rows:
+        for row in rows:
+            allocated_amount = row[-1]
             already = (
                 settled.get(row.id, ZERO)
                 if is_receipt
@@ -403,7 +426,7 @@ class SettlementService(TransactionalDocumentService):
                     invoice_total=total,
                     allocated_amount=already,
                     outstanding_amount=outstanding,
-                    party_id=row.customer_id if is_receipt else row.vendor_id,
+                    party_id=row.party_id,
                     due_date=row.due_date,
                 )
             )
