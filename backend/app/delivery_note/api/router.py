@@ -163,7 +163,7 @@ def list_delivery_notes(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=[service.note_response(item) for item in rows],
+        data=service.note_responses(rows),
         pagination=params.metadata(total),
     )
 
@@ -519,4 +519,4 @@ async def import_delivery_notes(
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )
-    return ApiResponse(data=[service.note_response(item) for item in rows])
+    return ApiResponse(data=service.note_responses(rows))

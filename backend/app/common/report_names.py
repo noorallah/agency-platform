@@ -33,6 +33,7 @@ from app.vendors.models import Vendor
 
 __all__ = [
     "branch_names",
+    "customer_labels",
     "customer_names",
     "product_names",
     "salesman_names",
@@ -88,6 +89,27 @@ def customer_names(session: Session, ids: Iterable[UUID | None]) -> dict[UUID, s
         select(Customer.id, Customer.display_name).where(Customer.id.in_(wanted)),
         wanted,
     )
+
+
+def customer_labels(session: Session, ids: Iterable[UUID | None]) -> dict[UUID, str]:
+    """Name each customer as a document shows it, in one read.
+
+    ``display_name``, falling back to the legal ``name`` where it is blank --
+    the label a document's ``customer_name`` has always carried. Columns only,
+    so a page of documents does not drag every customer's addresses and
+    contacts in behind it the way ``session.get(Customer)`` does.
+    """
+    wanted = _wanted(ids)
+    if not wanted:
+        return {}
+    return {
+        row[0]: row[1] or row[2]
+        for row in session.execute(
+            select(Customer.id, Customer.display_name, Customer.name).where(
+                Customer.id.in_(wanted)
+            )
+        ).all()
+    }
 
 
 def vendors_matching(token: str) -> Select[tuple[UUID]]:

@@ -21,10 +21,12 @@ from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader
 from app.common.report_names import (
     branch_names,
+    customer_labels,
     customer_names,
     customers_matching,
     product_names,
 )
+from app.core.database.batch import children_by_parent
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.chunks import chunks
@@ -1332,82 +1334,107 @@ class SalesInvoiceService(TransactionalDocumentService):
 
     def invoice_response(self, row: SalesInvoice) -> SalesInvoiceResponse:
         """Render one sales invoice row as its API contract."""
-        sources = list(
-            self._session.scalars(
-                select(SalesInvoiceSource).where(
-                    SalesInvoiceSource.sales_invoice_id == row.id,
-                    SalesInvoiceSource.is_deleted.is_(False),
-                )
-            ).all()
+        return self.invoice_responses([row])[0]
+
+    def invoice_responses(
+        self, rows: Sequence[SalesInvoice]
+    ) -> list[SalesInvoiceResponse]:
+        """Render a page of invoices, reading each child table once.
+
+        One query per child table for the whole page, grouped by invoice in
+        Python, rather than about ten per invoice (backlog 56 C, step 3). The
+        single-invoice builder is this with a list of one, so a list row and
+        the invoice opened from it cannot differ.
+        """
+        if not rows:
+            return []
+        ids = [row.id for row in rows]
+        sources = children_by_parent(
+            self._session,
+            SalesInvoiceSource,
+            SalesInvoiceSource.sales_invoice_id,
+            ids,
         )
-        lines = list(
-            self._session.scalars(
-                select(SalesInvoiceLine)
-                .where(
-                    SalesInvoiceLine.sales_invoice_id == row.id,
-                    SalesInvoiceLine.is_deleted.is_(False),
-                )
-                .order_by(SalesInvoiceLine.line_number.asc())
-            ).all()
+        lines = children_by_parent(
+            self._session,
+            SalesInvoiceLine,
+            SalesInvoiceLine.sales_invoice_id,
+            ids,
+            SalesInvoiceLine.line_number.asc(),
         )
-        # Read for the whole invoice rather than per line: a bill with thirty
-        # lines would otherwise be thirty queries, the shape `values_for_many`
-        # exists to avoid.
-        taxes: dict[UUID, list[SalesInvoiceLineTax]] = defaultdict(list)
-        if lines:
-            for component in self._session.scalars(
-                select(SalesInvoiceLineTax)
-                .where(
-                    SalesInvoiceLineTax.sales_invoice_line_id.in_(
-                        [item.id for item in lines]
-                    ),
-                    SalesInvoiceLineTax.is_deleted.is_(False),
-                )
-                .order_by(SalesInvoiceLineTax.sequence.asc())
-            ):
-                taxes[component.sales_invoice_line_id].append(component)
-        attachments = list(
-            self._session.scalars(
-                select(SalesInvoiceAttachment).where(
-                    SalesInvoiceAttachment.sales_invoice_id == row.id,
-                    SalesInvoiceAttachment.is_deleted.is_(False),
-                )
-            ).all()
+        every_line = [item for group in lines.values() for item in group]
+        taxes = children_by_parent(
+            self._session,
+            SalesInvoiceLineTax,
+            SalesInvoiceLineTax.sales_invoice_line_id,
+            [item.id for item in every_line],
+            SalesInvoiceLineTax.sequence.asc(),
         )
-        notes = list(
-            self._session.scalars(
-                select(SalesInvoiceNote).where(
-                    SalesInvoiceNote.sales_invoice_id == row.id,
-                    SalesInvoiceNote.is_deleted.is_(False),
-                )
-            ).all()
+        attachments = children_by_parent(
+            self._session,
+            SalesInvoiceAttachment,
+            SalesInvoiceAttachment.sales_invoice_id,
+            ids,
         )
-        accounting_events = list(
-            self._session.scalars(
-                select(SalesInvoiceAccountingEvent).where(
-                    SalesInvoiceAccountingEvent.sales_invoice_id == row.id,
-                    SalesInvoiceAccountingEvent.is_deleted.is_(False),
-                )
-            ).all()
+        notes = children_by_parent(
+            self._session,
+            SalesInvoiceNote,
+            SalesInvoiceNote.sales_invoice_id,
+            ids,
         )
-        warning = self._duplicate_warning(
-            firm_id=row.firm_id,
-            customer_id=row.customer_id,
-            customer_invoice_number=row.customer_invoice_number,
-            current_id=row.id,
+        accounting_events = children_by_parent(
+            self._session,
+            SalesInvoiceAccountingEvent,
+            SalesInvoiceAccountingEvent.sales_invoice_id,
+            ids,
         )
-        picked = self._own_note_picks(row, lines)
-        # One query for every product on the document rather than one per
-        # line. `description` is nullable and the seeded documents leave it
-        # null, so a client with only `product_id` to work with can label a
-        # line nothing better than "Line 1" -- which is what the credit-note
-        # and sales-return pickers were reduced to.
-        products = self._products_named(lines)
+        warnings = self._duplicate_warnings(rows)
+        # One query for every product on the page rather than one per line.
+        # `description` is nullable and the seeded documents leave it null, so
+        # a client with only `product_id` to work with can label a line nothing
+        # better than "Line 1" -- which is what the credit-note and
+        # sales-return pickers were reduced to.
+        products = self._products_named(every_line)
+        picked = self._own_note_picks_for(rows, lines, products)
+        names = customer_labels(self._session, (row.customer_id for row in rows))
+        return [
+            self._invoice_response(
+                row,
+                lines=lines[row.id],
+                taxes=taxes,
+                products=products,
+                picked=picked,
+                sources=sources[row.id],
+                attachments=attachments[row.id],
+                notes=notes[row.id],
+                accounting_events=accounting_events[row.id],
+                warning=warnings.get(row.id),
+                customer_name=names.get(row.customer_id, ""),
+            )
+            for row in rows
+        ]
+
+    def _invoice_response(
+        self,
+        row: SalesInvoice,
+        *,
+        lines: list[SalesInvoiceLine],
+        taxes: dict[UUID, list[SalesInvoiceLineTax]],
+        products: dict[UUID, Product],
+        picked: dict[UUID, list[PickedSerial]],
+        sources: list[SalesInvoiceSource],
+        attachments: list[SalesInvoiceAttachment],
+        notes: list[SalesInvoiceNote],
+        accounting_events: list[SalesInvoiceAccountingEvent],
+        warning: str | None,
+        customer_name: str,
+    ) -> SalesInvoiceResponse:
+        """Build one invoice's response from what the page already read."""
         return SalesInvoiceResponse(
             id=row.id,
             firm_id=row.firm_id,
             customer_id=row.customer_id,
-            customer_name=self._customer_name(row.customer_id),
+            customer_name=customer_name,
             salesman_id=row.salesman_id,
             territory_id=row.territory_id,
             route_id=row.route_id,
@@ -1449,7 +1476,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             lines=[
                 self._line_response(
                     item,
-                    taxes[item.id],
+                    taxes.get(item.id, []),
                     products.get(item.product_id),
                     serials=picked.get(item.source_document_line_id),
                 )
@@ -3362,6 +3389,38 @@ class SalesInvoiceService(TransactionalDocumentService):
         if warning is not None:
             raise ConflictError(warning)
 
+    def _duplicate_warnings(self, rows: Sequence[SalesInvoice]) -> dict[UUID, str]:
+        """Answer `_duplicate_warning` for a page of invoices in one query."""
+        numbered = {
+            row.id: (row.firm_id, row.customer_id, row.customer_invoice_number.strip())
+            for row in rows
+            if row.customer_invoice_number and row.customer_invoice_number.strip()
+        }
+        if not numbered:
+            return {}
+        # A page is at most MAX_PAGE_SIZE rows, so the numbers fit one read.
+        holders: dict[tuple[UUID, UUID, str], set[UUID]] = defaultdict(set)
+        for found_id, firm_id, customer_id, number in self._session.execute(
+            select(
+                SalesInvoice.id,
+                SalesInvoice.firm_id,
+                SalesInvoice.customer_id,
+                SalesInvoice.customer_invoice_number,
+            ).where(
+                SalesInvoice.firm_id.in_({key[0] for key in numbered.values()}),
+                SalesInvoice.customer_invoice_number.in_(
+                    {key[2] for key in numbered.values()}
+                ),
+                SalesInvoice.is_deleted.is_(False),
+            )
+        ):
+            holders[(firm_id, customer_id, number)].add(found_id)
+        return {
+            row_id: "A sales invoice with this customer invoice number already exists."
+            for row_id, key in numbered.items()
+            if holders.get(key, set()) - {row_id}
+        }
+
     def _duplicate_warning(
         self,
         *,
@@ -3522,29 +3581,45 @@ class SalesInvoiceService(TransactionalDocumentService):
             ).all()
         }
 
-    def _own_note_picks(
-        self, row: SalesInvoice, lines: list[SalesInvoiceLine]
+    def _own_note_picks_for(
+        self,
+        rows: Sequence[SalesInvoice],
+        lines: dict[UUID, list[SalesInvoiceLine]],
+        products: dict[UUID, Product],
     ) -> dict[UUID, list[PickedSerial]]:
         """Return the units each serial-tracked line's own note ships.
 
         Keyed by note line id, and only for a draft whose lines bill a note
         the bill raised for itself -- the one case where the bill, not a
-        note somebody typed, names the units (D-SELL-33).
+        note somebody typed, names the units (D-SELL-33). Read for the whole
+        page: one query for the notes the drafts raised, one for the picks.
         """
-        if row.status != SalesInvoiceStatus.DRAFT.value:
+        drafts = [
+            row.id for row in rows if row.status == SalesInvoiceStatus.DRAFT.value
+        ]
+        if not drafts:
             return {}
-        own = self._notes_raised_by(row)
+        own: dict[UUID, set[UUID]] = defaultdict(set)
+        for chunk in chunks(drafts):
+            for note_id, invoice_id in self._session.execute(
+                select(DeliveryNote.id, DeliveryNote.raised_by_sales_invoice_id).where(
+                    DeliveryNote.raised_by_sales_invoice_id.in_(chunk),
+                    DeliveryNote.is_deleted.is_(False),
+                )
+            ):
+                own[invoice_id].add(note_id)
         if not own:
             return {}
-        trail = SerialTrailService(self._session)
         line_ids = [
             item.source_document_line_id
-            for item in lines
-            if item.source_document_id in own and trail.is_serialised(item.product_id)
+            for invoice_id, notes in own.items()
+            for item in lines.get(invoice_id, [])
+            if item.source_document_id in notes
+            and bool(getattr(products.get(item.product_id), "track_serial", False))
         ]
         if not line_ids:
             return {}
-        picked = trail.picked_serials(line_ids)
+        picked = SerialTrailService(self._session).picked_serials(line_ids)
         return {line_id: picked.get(line_id, []) for line_id in line_ids}
 
     def _line_response(

@@ -19,12 +19,14 @@ from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader, platform_reader
 from app.common.report_names import (
     branch_names,
+    customer_labels,
     customer_names,
     customers_matching,
     salesman_names,
     territory_names,
     warehouse_names,
 )
+from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
@@ -1146,31 +1148,69 @@ class SalesOrderService(TransactionalDocumentService):
 
     def order_response(self, row: SalesOrder) -> SalesOrderResponse:
         """Render one sales order row as its API contract."""
-        lines = list(
-            self._session.scalars(
-                select(SalesOrderLine)
-                .where(SalesOrderLine.sales_order_id == row.id)
-                .order_by(SalesOrderLine.line_number.asc())
-            ).all()
+        return self.order_responses([row])[0]
+
+    def order_responses(self, rows: Sequence[SalesOrder]) -> list[SalesOrderResponse]:
+        """Render a page of orders, reading each child table once.
+
+        One query per child table for the whole page, grouped by order in
+        Python, rather than four per order (backlog 56 C, step 3). The
+        single-order builder is this with a list of one.
+        """
+        if not rows:
+            return []
+        ids = [row.id for row in rows]
+        # Children are read with their soft-deleted rows, as they always were.
+        lines = children_by_parent(
+            self._session,
+            SalesOrderLine,
+            SalesOrderLine.sales_order_id,
+            ids,
+            SalesOrderLine.line_number.asc(),
+            live_only=False,
         )
-        attachments = list(
-            self._session.scalars(
-                select(SalesOrderAttachment).where(
-                    SalesOrderAttachment.sales_order_id == row.id
-                )
-            ).all()
+        attachments = children_by_parent(
+            self._session,
+            SalesOrderAttachment,
+            SalesOrderAttachment.sales_order_id,
+            ids,
+            live_only=False,
         )
-        notes = list(
-            self._session.scalars(
-                select(SalesOrderNote).where(SalesOrderNote.sales_order_id == row.id)
-            ).all()
+        notes = children_by_parent(
+            self._session,
+            SalesOrderNote,
+            SalesOrderNote.sales_order_id,
+            ids,
+            live_only=False,
         )
+        names = customer_labels(self._session, (row.customer_id for row in rows))
+        return [
+            self._order_response(
+                row,
+                lines=lines[row.id],
+                attachments=attachments[row.id],
+                notes=notes[row.id],
+                customer_name=names.get(row.customer_id, ""),
+            )
+            for row in rows
+        ]
+
+    def _order_response(
+        self,
+        row: SalesOrder,
+        *,
+        lines: list[SalesOrderLine],
+        attachments: list[SalesOrderAttachment],
+        notes: list[SalesOrderNote],
+        customer_name: str,
+    ) -> SalesOrderResponse:
+        """Build one order's response from what the page already read."""
         return SalesOrderResponse(
             id=row.id,
             version=row.version,
             firm_id=row.firm_id,
             customer_id=row.customer_id,
-            customer_name=self._customer_name(row.customer_id),
+            customer_name=customer_name,
             salesman_id=row.salesman_id,
             territory_id=row.territory_id,
             route_id=row.route_id,

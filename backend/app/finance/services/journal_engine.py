@@ -13,7 +13,7 @@ from uuid import UUID
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.common.audit.services import record_audit
 from app.core.exceptions import ConflictError, ResourceNotFoundError, ValidationError
@@ -683,9 +683,13 @@ class JournalEntryEngine:
                 JournalEntry.id.asc(),
             )
         )
+        # Every row's lines in one more read for the page, rather than one
+        # lazy load per entry when the response reads them (backlog 56 C,
+        # step 3). Same lines, same `line_number` order as the relationship.
         rows = list(
             self._session.scalars(
                 select(JournalEntry)
+                .options(selectinload(JournalEntry.lines))
                 .where(*conditions)
                 .order_by(*order)
                 .offset((page - 1) * page_size)

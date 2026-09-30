@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import json
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
 from typing import Any
@@ -23,6 +24,7 @@ from app.common.report_names import (
     vendors_matching,
     warehouse_names,
 )
+from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
@@ -796,32 +798,71 @@ class GoodsReceiptService(TransactionalDocumentService):
 
     def receipt_response(self, row: GoodsReceipt) -> GoodsReceiptResponse:
         """Return response."""
-        lines = list(
-            self._session.scalars(
-                select(GoodsReceiptLine)
-                .where(
-                    GoodsReceiptLine.goods_receipt_id == row.id,
-                    GoodsReceiptLine.is_deleted.is_(False),
-                )
-                .order_by(GoodsReceiptLine.line_number.asc())
-            ).all()
+        return self.receipt_responses([row])[0]
+
+    def receipt_responses(
+        self, rows: Sequence[GoodsReceipt]
+    ) -> list[GoodsReceiptResponse]:
+        """Render a page of receipts, reading each child table once.
+
+        One query per child table for the whole page, grouped by receipt in
+        Python, rather than five per receipt (backlog 56 C, step 3). The
+        single-receipt builder is this with a list of one.
+        """
+        if not rows:
+            return []
+        ids = [row.id for row in rows]
+        lines = children_by_parent(
+            self._session,
+            GoodsReceiptLine,
+            GoodsReceiptLine.goods_receipt_id,
+            ids,
+            GoodsReceiptLine.line_number.asc(),
         )
-        attachments = list(
-            self._session.scalars(
-                select(GoodsReceiptAttachment).where(
-                    GoodsReceiptAttachment.goods_receipt_id == row.id,
-                    GoodsReceiptAttachment.is_deleted.is_(False),
-                )
-            ).all()
+        attachments = children_by_parent(
+            self._session,
+            GoodsReceiptAttachment,
+            GoodsReceiptAttachment.goods_receipt_id,
+            ids,
         )
-        notes = list(
-            self._session.scalars(
-                select(GoodsReceiptNote).where(
-                    GoodsReceiptNote.goods_receipt_id == row.id,
-                    GoodsReceiptNote.is_deleted.is_(False),
-                )
-            ).all()
+        notes = children_by_parent(
+            self._session,
+            GoodsReceiptNote,
+            GoodsReceiptNote.goods_receipt_id,
+            ids,
         )
+        warnings = self._duplicate_warnings(rows)
+        vendors = {
+            found[0]: (found[1], found[2])
+            for found in self._session.execute(
+                select(Vendor.id, Vendor.display_name, Vendor.code).where(
+                    Vendor.id.in_({row.vendor_id for row in rows})
+                )
+            )
+        }
+        return [
+            self._receipt_response(
+                row,
+                lines=lines[row.id],
+                attachments=attachments[row.id],
+                notes=notes[row.id],
+                warning=warnings.get(row.id),
+                vendor=vendors.get(row.vendor_id),
+            )
+            for row in rows
+        ]
+
+    def _receipt_response(
+        self,
+        row: GoodsReceipt,
+        *,
+        lines: list[GoodsReceiptLine],
+        attachments: list[GoodsReceiptAttachment],
+        notes: list[GoodsReceiptNote],
+        warning: str | None,
+        vendor: tuple[str, str] | None,
+    ) -> GoodsReceiptResponse:
+        """Build one receipt's response from what the page already read."""
         payload = GoodsReceiptResponse.model_validate(row).model_dump(mode="python")
         payload["lines"] = [
             GoodsReceiptLineResponse.model_validate(item).model_dump(mode="python")
@@ -837,10 +878,9 @@ class GoodsReceiptService(TransactionalDocumentService):
             GoodsReceiptNoteResponse.model_validate(item).model_dump(mode="python")
             for item in notes
         ]
-        payload["duplicate_warning"] = self._duplicate_warning(row)
-        vendor = self._session.get(Vendor, row.vendor_id)
-        payload["vendor_name"] = vendor.display_name if vendor else ""
-        payload["vendor_code"] = vendor.code if vendor else ""
+        payload["duplicate_warning"] = warning
+        payload["vendor_name"] = vendor[0] if vendor else ""
+        payload["vendor_code"] = vendor[1] if vendor else ""
         return GoodsReceiptResponse.model_validate(payload)
 
     def receipt_history(
@@ -1694,6 +1734,35 @@ class GoodsReceiptService(TransactionalDocumentService):
         return {
             row[0]: self._q(row[1] or 0)
             for row in self._session.execute(statement).all()
+        }
+
+    def _duplicate_warnings(self, rows: Sequence[GoodsReceipt]) -> dict[UUID, str]:
+        """Answer `_duplicate_warning` for a page of receipts in one query."""
+        holders: dict[tuple[object, ...], set[UUID]] = defaultdict(set)
+        for found in self._session.execute(
+            select(
+                GoodsReceipt.id,
+                GoodsReceipt.firm_id,
+                GoodsReceipt.purchase_order_id,
+                GoodsReceipt.receipt_date,
+            ).where(
+                GoodsReceipt.firm_id.in_({row.firm_id for row in rows}),
+                GoodsReceipt.receipt_date.in_({row.receipt_date for row in rows}),
+                GoodsReceipt.status == GoodsReceiptStatus.COMPLETED.value,
+                GoodsReceipt.is_deleted.is_(False),
+            )
+        ):
+            holders[tuple(found[1:])].add(found[0])
+        return {
+            row.id: (
+                "A completed receipt already exists for the same purchase order "
+                "and date."
+            )
+            for row in rows
+            if holders.get(
+                (row.firm_id, row.purchase_order_id, row.receipt_date), set()
+            )
+            - {row.id}
         }
 
     def _duplicate_warning(self, row: GoodsReceipt) -> str | None:

@@ -41,9 +41,9 @@ Ranked by expected impact.
    ships every line. The same shape in the order, note, purchase, receipt,
    return and quotation lists, settlements, the inventory list (about eleven
    look-ups a row) and the inventory export (one full row build per *column*).
-   **Step 3:** a slim list row without lines, names batched per page (the
-   pattern `customer_names`, `product_names` and
-   `ProductService.stock_for_many` already use).
+   **Fixed (step 3)** -- not by slimming the row, since the desktop may read
+   any field of a list row, but by building the same full rows for the whole
+   page at once: see the step table.
 4. **Missing indexes** for the default sorts and hot look-ups. **Fixed (step 1)**
    -- see migration `20260930_0173`.
 5. **Unpaged reports, and paged ones computed over the whole window in
@@ -63,7 +63,7 @@ Already right: trial balance, P&L and balance sheet read the maintained
 | --- | --- | --- |
 | 1 | Stop loading movement histories; indexes for the hot look-ups and sorts | Done |
 | 2 | Chunk every large id list; summaries and outstanding in SQL | Next |
-| 3 | Slim list rows and batched names for every document list | |
+| 3 | Build each list page in bulk, same response | Done: every document list, settlements, the inventory list/movements/ledger and the journal list read each child table and each name once per page (`children_by_parent` in `app/core/database/batch.py`, a `*_responses(rows)` per module that the single-row builder calls with `[row]`); the inventory export builds each row once, not once per column. At 12 rows a sales-invoice page went from 148 statements to 13, a purchase-invoice page from 170 to 10, and no page grows with its length -- `tests/unit/test_list_pages_are_batched.py` pins that and that every row equals the document built alone. Left: opening-stock batches (lines and names per line, rarely listed) |
 | 4 | SQL grouping for the report families; set-based back-dated carry | |
 | 5 | Measure: a bulk seeder at the target volume and a timing script over every list and report route, run on the minimum hardware | |
 

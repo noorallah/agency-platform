@@ -163,7 +163,7 @@ def list_sales_invoices(
         descending=descending,
     )
     return PaginatedResponse(
-        data=[service.invoice_response(row) for row in rows],
+        data=service.invoice_responses(rows),
         pagination=pagination.metadata(total),
     )
 
@@ -453,7 +453,7 @@ def import_sales_invoices(
     service = SalesInvoiceService(db)
     rows = service.import_invoices(data, firm_id=scope.firm_id, actor_id=scope.actor_id)
     db.commit()
-    return ApiResponse(data=[service.invoice_response(row) for row in rows])
+    return ApiResponse(data=service.invoice_responses(rows))
 
 
 @router.get(

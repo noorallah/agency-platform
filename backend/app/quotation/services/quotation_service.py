@@ -14,6 +14,7 @@ from __future__ import annotations
 import csv
 import io
 from collections import defaultdict
+from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
 from uuid import UUID
@@ -24,6 +25,7 @@ from sqlalchemy.orm import Session
 from app.business.gating import assert_feature_fields
 from app.common.audit.services import record_audit
 from app.common.report_names import customer_names, customers_matching
+from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
@@ -1505,29 +1507,74 @@ class QuotationService(TransactionalDocumentService):
 
     def quotation_response(self, row: SalesQuotation) -> QuotationResponse:
         """Build the full response for one quotation."""
-        attachments = list(
-            self._session.scalars(
-                select(SalesQuotationAttachment).where(
-                    SalesQuotationAttachment.sales_quotation_id == row.id,
-                    SalesQuotationAttachment.is_deleted.is_(False),
-                )
-            ).all()
+        return self.quotation_responses([row])[0]
+
+    def quotation_responses(
+        self, rows: Sequence[SalesQuotation]
+    ) -> list[QuotationResponse]:
+        """Build the responses for a page of quotations.
+
+        One query per child table for the whole page, grouped by quotation
+        in Python, rather than four per quotation (backlog 56 C, step 3). The
+        single-quotation builder is this with a list of one.
+        """
+        if not rows:
+            return []
+        ids = [row.id for row in rows]
+        lines = children_by_parent(
+            self._session,
+            SalesQuotationLine,
+            SalesQuotationLine.sales_quotation_id,
+            ids,
+            SalesQuotationLine.line_number.asc(),
         )
-        notes = list(
-            self._session.scalars(
-                select(SalesQuotationNote).where(
-                    SalesQuotationNote.sales_quotation_id == row.id,
-                    SalesQuotationNote.is_deleted.is_(False),
-                )
-            ).all()
+        attachments = children_by_parent(
+            self._session,
+            SalesQuotationAttachment,
+            SalesQuotationAttachment.sales_quotation_id,
+            ids,
         )
-        customer = self._session.get(Customer, row.customer_id)
+        notes = children_by_parent(
+            self._session,
+            SalesQuotationNote,
+            SalesQuotationNote.sales_quotation_id,
+            ids,
+        )
+        customers = {
+            found[0]: (found[1], found[2])
+            for found in self._session.execute(
+                select(Customer.id, Customer.display_name, Customer.code).where(
+                    Customer.id.in_({row.customer_id for row in rows})
+                )
+            )
+        }
+        return [
+            self._quotation_response(
+                row,
+                lines=lines[row.id],
+                attachments=attachments[row.id],
+                notes=notes[row.id],
+                customer=customers.get(row.customer_id),
+            )
+            for row in rows
+        ]
+
+    def _quotation_response(
+        self,
+        row: SalesQuotation,
+        *,
+        lines: list[SalesQuotationLine],
+        attachments: list[SalesQuotationAttachment],
+        notes: list[SalesQuotationNote],
+        customer: tuple[str, str] | None,
+    ) -> QuotationResponse:
+        """Build one quotation's response from what the page already read."""
         return QuotationResponse(
             id=row.id,
             firm_id=row.firm_id,
             customer_id=row.customer_id,
-            customer_name=customer.display_name if customer else "",
-            customer_code=customer.code if customer else "",
+            customer_name=customer[0] if customer else "",
+            customer_code=customer[1] if customer else "",
             salesman_id=row.salesman_id,
             territory_id=row.territory_id,
             branch_id=row.branch_id,
@@ -1571,7 +1618,7 @@ class QuotationService(TransactionalDocumentService):
             can_convert=self.can_convert(row),
             lines=[
                 QuotationLineResponse.model_validate(line, from_attributes=True)
-                for line in self._lines_of(row.id)
+                for line in lines
             ],
             attachments=[
                 QuotationAttachmentResponse.model_validate(item, from_attributes=True)

@@ -15,7 +15,7 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.batch_serial.models import BatchRecord, SerialNumber
-from app.batch_serial.schemas import SerialStatus
+from app.batch_serial.schemas import PickedSerial, SerialStatus
 from app.batch_serial.services.serial_trail_service import (
     DELIVERY_NOTE,
     LineRef,
@@ -28,10 +28,12 @@ from app.common.audit.services import record_audit
 from app.common.firm_metadata import FirmMetadataReader, platform_reader
 from app.common.report_names import (
     branch_names,
+    customer_labels,
     customer_names,
     customers_matching,
     warehouse_names,
 )
+from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.dates import utc_now
@@ -824,36 +826,82 @@ class DeliveryNoteService(TransactionalDocumentService):
 
     def note_response(self, row: DeliveryNote) -> DeliveryNoteResponse:
         """Render one delivery note row as its API contract."""
-        lines = list(
-            self._session.scalars(
-                select(DeliveryNoteLine)
-                .where(DeliveryNoteLine.delivery_note_id == row.id)
-                .order_by(DeliveryNoteLine.line_number.asc())
-            ).all()
+        return self.note_responses([row])[0]
+
+    def note_responses(
+        self, rows: Sequence[DeliveryNote]
+    ) -> list[DeliveryNoteResponse]:
+        """Render a page of delivery notes, reading each child table once.
+
+        One query per child table for the whole page, grouped by note in
+        Python, rather than seven per note (backlog 56 C, step 3). The
+        single-note builder is this with a list of one.
+        """
+        if not rows:
+            return []
+        ids = [row.id for row in rows]
+        # Children are read with their soft-deleted rows, as they always were.
+        lines = children_by_parent(
+            self._session,
+            DeliveryNoteLine,
+            DeliveryNoteLine.delivery_note_id,
+            ids,
+            DeliveryNoteLine.line_number.asc(),
+            live_only=False,
         )
-        attachments = list(
-            self._session.scalars(
-                select(DeliveryNoteAttachment).where(
-                    DeliveryNoteAttachment.delivery_note_id == row.id
-                )
-            ).all()
+        attachments = children_by_parent(
+            self._session,
+            DeliveryNoteAttachment,
+            DeliveryNoteAttachment.delivery_note_id,
+            ids,
+            live_only=False,
         )
-        notes = list(
-            self._session.scalars(
-                select(DeliveryNoteNote).where(
-                    DeliveryNoteNote.delivery_note_id == row.id
-                )
-            ).all()
+        notes = children_by_parent(
+            self._session,
+            DeliveryNoteNote,
+            DeliveryNoteNote.delivery_note_id,
+            ids,
+            live_only=False,
         )
-        products = self._products_named(lines)
-        serials = self._trail.picked_serials(line.id for line in lines)
+        every_line = [item for group in lines.values() for item in group]
+        products = self._products_named(every_line)
+        serials = self._trail.picked_serials(line.id for line in every_line)
+        names = customer_labels(self._session, (row.customer_id for row in rows))
+        warnings = self._duplicate_warnings(rows)
+        return [
+            self._note_response_from(
+                row,
+                lines=lines[row.id],
+                attachments=attachments[row.id],
+                notes=notes[row.id],
+                products=products,
+                serials=serials,
+                customer_name=names.get(row.customer_id, ""),
+                warning=warnings.get(row.id),
+            )
+            for row in rows
+        ]
+
+    def _note_response_from(
+        self,
+        row: DeliveryNote,
+        *,
+        lines: list[DeliveryNoteLine],
+        attachments: list[DeliveryNoteAttachment],
+        notes: list[DeliveryNoteNote],
+        products: dict[UUID, Product],
+        serials: dict[UUID, list[PickedSerial]],
+        customer_name: str,
+        warning: str | None,
+    ) -> DeliveryNoteResponse:
+        """Build one note's response from what the page already read."""
         return DeliveryNoteResponse(
             id=row.id,
             version=row.version,
             firm_id=row.firm_id,
             sales_order_id=row.sales_order_id,
             customer_id=row.customer_id,
-            customer_name=self._customer_name(row.customer_id),
+            customer_name=customer_name,
             branch_id=row.branch_id,
             warehouse_id=row.warehouse_id,
             business_profile_id=row.business_profile_id,
@@ -898,7 +946,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             ],
             attachments=[self._attachment_response(item) for item in attachments],
             notes=[self._note_response(item) for item in notes],
-            duplicate_warning=self._duplicate_warning(row),
+            duplicate_warning=warning,
         )
 
     def timeline(
@@ -2658,6 +2706,42 @@ class DeliveryNoteService(TransactionalDocumentService):
                 counts.keys(), key=lambda item: labels.get(item, str(item))
             )
         ]
+
+    def _duplicate_warnings(self, rows: Sequence[DeliveryNote]) -> dict[UUID, str]:
+        """Answer `_duplicate_warning` for a page of notes in one query.
+
+        The same test -- another live, uncancelled note of the firm for the
+        same order, date and vehicle, a missing order or vehicle matching a
+        missing one -- read once for every date on the page.
+        """
+        holders: dict[tuple[object, ...], set[UUID]] = defaultdict(set)
+        for found in self._session.execute(
+            select(
+                DeliveryNote.id,
+                DeliveryNote.firm_id,
+                DeliveryNote.sales_order_id,
+                DeliveryNote.delivery_date,
+                DeliveryNote.vehicle,
+            ).where(
+                DeliveryNote.firm_id.in_({row.firm_id for row in rows}),
+                DeliveryNote.delivery_date.in_({row.delivery_date for row in rows}),
+                DeliveryNote.is_deleted.is_(False),
+                DeliveryNote.status != DeliveryNoteStatus.CANCELLED.value,
+            )
+        ):
+            holders[tuple(found[1:])].add(found[0])
+        return {
+            row.id: (
+                "Potential duplicate dispatch detected for this "
+                "sales order/date/vehicle."
+            )
+            for row in rows
+            if holders.get(
+                (row.firm_id, row.sales_order_id, row.delivery_date, row.vehicle),
+                set(),
+            )
+            - {row.id}
+        }
 
     def _duplicate_warning(self, row: DeliveryNote) -> str | None:
         duplicate = self._session.scalar(

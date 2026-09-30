@@ -178,7 +178,7 @@ def list_sales_orders(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=[service.order_response(item) for item in rows],
+        data=service.order_responses(rows),
         pagination=params.metadata(total),
     )
 
@@ -577,4 +577,4 @@ async def import_sales_orders(
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )
-    return ApiResponse(data=[service.order_response(item) for item in rows])
+    return ApiResponse(data=service.order_responses(rows))

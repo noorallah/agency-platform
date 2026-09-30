@@ -144,7 +144,7 @@ def list_inventory(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=[service.inventory_response(row) for row in rows],
+        data=service.inventory_responses(rows),
         pagination=params.metadata(total),
     )
 
@@ -286,7 +286,7 @@ def list_transactions(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=[service.transaction_response(row) for row in rows],
+        data=service.transaction_responses(rows),
         pagination=params.metadata(total),
     )
 
@@ -342,7 +342,7 @@ def list_ledger(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=[service.ledger_response(row) for row in rows],
+        data=service.ledger_responses(rows),
         pagination=params.metadata(total),
     )
 

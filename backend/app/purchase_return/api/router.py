@@ -157,7 +157,7 @@ def list_purchase_returns(
         descending=sort_direction == "desc",
     )
     return PaginatedResponse(
-        data=[service.return_response(item) for item in rows],
+        data=service.return_responses(rows),
         pagination=params.metadata(total),
     )
 
@@ -487,4 +487,4 @@ async def import_purchase_returns(
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
     )
-    return ApiResponse(data=[service.return_response(item) for item in rows])
+    return ApiResponse(data=service.return_responses(rows))

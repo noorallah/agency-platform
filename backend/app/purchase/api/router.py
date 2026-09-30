@@ -179,7 +179,7 @@ def list_purchase_orders(
     )
     service = PurchaseService(db)
     return PaginatedResponse(
-        data=[service.order_response(item) for item in rows],
+        data=service.order_responses(rows),
         pagination=params.metadata(total),
     )
 
@@ -249,7 +249,7 @@ async def import_purchase_orders(
             firm_scope=scope.firm_id,
             actor_id=scope.actor_id,
         )
-        return ApiResponse(data=[service.order_response(item) for item in rows])
+        return ApiResponse(data=service.order_responses(rows))
     if file is None:
         raise ValidationError("file is required for CSV/XLSX import.")
     content = await file.read()
@@ -262,7 +262,7 @@ async def import_purchase_orders(
             content, firm_scope=scope.firm_id, actor_id=scope.actor_id
         )
     )
-    return ApiResponse(data=[service.order_response(item) for item in rows])
+    return ApiResponse(data=service.order_responses(rows))
 
 
 @router.get("/export")
