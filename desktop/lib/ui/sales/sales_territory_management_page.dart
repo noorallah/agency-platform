@@ -182,28 +182,21 @@ class _SalesTerritoryManagementPageState
         items: _items,
         initialParentId: parentId,
         routeTypes: routeTypes,
+        onSave: (Json values) async {
+          if (current == null) {
+            await widget.api.createTerritory(values);
+          } else {
+            await widget.api.updateTerritory(
+              current.id,
+              values,
+              expectedVersion: preconditionFor(current.version),
+            );
+          }
+        },
       ),
     );
     if (!mounted || result == null) return;
-    try {
-      if (current == null) {
-        await widget.api.createTerritory(result);
-      } else {
-        await widget.api.updateTerritory(
-          current.id,
-          result,
-          expectedVersion: preconditionFor(current.version),
-        );
-      }
-      await _loadAll();
-    } on ApiException catch (exception) {
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        saveFailureMessage(exception, 'territory', changesKept: false),
-        kind: AppNotificationKind.error,
-      );
-    }
+    await _loadAll();
   }
 
   Future<void> _delete(SalesTerritory territory) async {
@@ -274,6 +267,24 @@ class _SalesTerritoryManagementPageState
         emptyMessage: 'This firm has no customers yet. Add one under '
             'Masters before putting anybody on a round.',
         selectedIds: {for (final row in current) row.customerId},
+        onSave: (List<String> chosen) async {
+          // Carry each customer's existing place in the round through. The
+          // picker adds and removes; it has no notion of order, and rebuilding
+          // the list from bare ids would flatten a sequence somebody had set.
+          final Map<String, TerritoryCustomerAssignmentRecord> existing = {
+            for (final row in current) row.customerId: row,
+          };
+          await widget.api.setTerritoryCustomers(territory.id, [
+            for (final String id in chosen)
+              existing[id] ??
+                  TerritoryCustomerAssignmentRecord(
+                    customerId: id,
+                    isPrimary: true,
+                    visitSequence: null,
+                    isPotential: false,
+                  ),
+          ]);
+        },
         options: [
           for (final Customer customer in customers)
             AssignableOption(
@@ -287,38 +298,13 @@ class _SalesTerritoryManagementPageState
       ),
     );
     if (chosen == null || !mounted) return;
-    try {
-      // Carry each customer's existing place in the round through. The picker
-      // adds and removes; it has no notion of order, and rebuilding the list
-      // from bare ids would flatten a sequence somebody had set.
-      final Map<String, TerritoryCustomerAssignmentRecord> existing = {
-        for (final row in current) row.customerId: row,
-      };
-      await widget.api.setTerritoryCustomers(territory.id, [
-        for (final String id in chosen)
-          existing[id] ??
-              TerritoryCustomerAssignmentRecord(
-                customerId: id,
-                isPrimary: true,
-                visitSequence: null,
-                isPotential: false,
-              ),
-      ]);
-      await _loadAll();
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        '${chosen.length} customer(s) on ${territory.name}.',
-        kind: AppNotificationKind.success,
-      );
-    } on ApiException catch (exception) {
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        exception.message,
-        kind: AppNotificationKind.error,
-      );
-    }
+    await _loadAll();
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      '${chosen.length} customer(s) on ${territory.name}.',
+      kind: AppNotificationKind.success,
+    );
   }
 
   Future<void> _setCallOrder(SalesTerritory territory) async {
@@ -345,26 +331,18 @@ class _SalesTerritoryManagementPageState
               ? '${customer.code} — ${customer.name}'
               : '${customer.code} — ${customer.displayName}';
         },
+        onSave: (List<TerritoryCustomerAssignmentRecord> order) =>
+            widget.api.setTerritoryCustomers(territory.id, order),
       ),
     );
     if (ordered == null || !mounted) return;
-    try {
-      await widget.api.setTerritoryCustomers(territory.id, ordered);
-      await _loadAll();
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        'Call order saved for ${territory.name}.',
-        kind: AppNotificationKind.success,
-      );
-    } on ApiException catch (exception) {
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        exception.message,
-        kind: AppNotificationKind.error,
-      );
-    }
+    await _loadAll();
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      'Call order saved for ${territory.name}.',
+      kind: AppNotificationKind.success,
+    );
   }
 
   Future<void> _assignSalesmen(SalesTerritory territory) async {
@@ -388,6 +366,18 @@ class _SalesTerritoryManagementPageState
         selectedIds: {
           for (final Json entry in current) stringValue(entry['user_id']),
         }..removeWhere((id) => id.isEmpty),
+        onSave: (List<String> chosen) => widget.api.setTerritorySalesmen(
+          territory.id,
+          [
+            for (final String userId in chosen)
+              <String, dynamic>{
+                'user_id': userId,
+                'is_primary': existing[userId]?['is_primary'] == true,
+                'include_children':
+                    existing[userId]?['include_children'] == true,
+              },
+          ],
+        ),
         options: [
           for (final FirmMember user in users)
             AssignableOption(
@@ -399,33 +389,13 @@ class _SalesTerritoryManagementPageState
       ),
     );
     if (chosen == null || !mounted) return;
-    try {
-      await widget.api.setTerritorySalesmen(
-        territory.id,
-        [
-          for (final String userId in chosen)
-            <String, dynamic>{
-              'user_id': userId,
-              'is_primary': existing[userId]?['is_primary'] == true,
-              'include_children': existing[userId]?['include_children'] == true,
-            },
-        ],
-      );
-      await _loadAll();
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        '${chosen.length} salesperson(s) on ${territory.name}.',
-        kind: AppNotificationKind.success,
-      );
-    } on ApiException catch (exception) {
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        exception.message,
-        kind: AppNotificationKind.error,
-      );
-    }
+    await _loadAll();
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      '${chosen.length} salesperson(s) on ${territory.name}.',
+      kind: AppNotificationKind.success,
+    );
   }
 
   /// Run one operation over every ticked territory.
@@ -438,6 +408,7 @@ class _SalesTerritoryManagementPageState
     final List<SalesTerritory> targets =
         _items.where((item) => _bulkIds.contains(item.id)).toList();
     if (targets.isEmpty || !_canBulk) return;
+    int affected = 0;
     final BulkTerritoryChoice? choice = await showDialog<BulkTerritoryChoice>(
       context: context,
       builder: (context) => BulkTerritoryActionsDialog(
@@ -450,26 +421,49 @@ class _SalesTerritoryManagementPageState
             if (!_bulkIds.contains(item.id))
               BulkParentOption(id: item.id, label: '${item.code} - ${item.name}'),
         ],
+        // Status and move are saved inside the dialog, so a refusal stays on
+        // it with the choice kept; the assignment choices save in the picker.
+        onApply: (BulkTerritoryChoice picked) async {
+          affected = await _applyBulk(picked, targets, null);
+        },
       ),
     );
     if (choice == null || !mounted) return;
 
     // The two assignment actions need a second dialog to say *who*, and both
     // replace rather than extend, so they are confirmed before anything runs.
-    List<String>? chosenIds;
-    if (choice.action == BulkTerritoryAction.customers) {
-      chosenIds = await _pickCustomersForBulk(targets.length);
-    } else if (choice.action == BulkTerritoryAction.salesmen) {
-      chosenIds = await _pickSalesmenForBulk(targets.length);
-    }
-    if (!mounted) return;
     if (choice.action == BulkTerritoryAction.customers ||
         choice.action == BulkTerritoryAction.salesmen) {
-      if (chosenIds == null) return;
+      final List<String>? chosenIds =
+          choice.action == BulkTerritoryAction.customers
+              ? await _pickCustomersForBulk(targets.length, (ids) async {
+                  affected = await _applyBulk(choice, targets, ids);
+                })
+              : await _pickSalesmenForBulk(targets.length, (ids) async {
+                  affected = await _applyBulk(choice, targets, ids);
+                });
+      if (chosenIds == null || !mounted) return;
     }
 
+    setState(() => _bulkIds = <String>{});
+    await _loadAll();
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      '$affected territor${affected == 1 ? 'y' : 'ies'} updated.',
+      kind: AppNotificationKind.success,
+    );
+  }
+
+  /// One bulk request, applied by the server in one transaction. A refusal
+  /// reaches the dialog that asked, and says nothing was applied.
+  Future<int> _applyBulk(
+    BulkTerritoryChoice choice,
+    List<SalesTerritory> targets,
+    List<String>? chosenIds,
+  ) async {
     try {
-      final int affected = switch (choice.action) {
+      return switch (choice.action) {
         BulkTerritoryAction.status => await widget.api.bulkTerritoryStatus({
             'territory_ids': [for (final item in targets) item.id],
             'status': choice.status,
@@ -499,25 +493,20 @@ class _SalesTerritoryManagementPageState
               },
           ]),
       };
-      setState(() => _bulkIds = <String>{});
-      await _loadAll();
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        '$affected territor${affected == 1 ? 'y' : 'ies'} updated.',
-        kind: AppNotificationKind.success,
-      );
     } on ApiException catch (exception) {
-      if (!mounted) return;
-      NotificationService.show(
-        context,
+      throw ApiException(
         '${exception.message} Nothing was changed.',
-        kind: AppNotificationKind.error,
+        statusCode: exception.statusCode,
+        details: exception.details,
+        code: exception.code,
       );
     }
   }
 
-  Future<List<String>?> _pickCustomersForBulk(int count) async {
+  Future<List<String>?> _pickCustomersForBulk(
+    int count,
+    Future<void> Function(List<String> ids) onSave,
+  ) async {
     final List<Customer> customers = await _allPages<Customer>(
       (page) => widget.api.customers(page: page, pageSize: maxApiPageSize),
     );
@@ -532,6 +521,7 @@ class _SalesTerritoryManagementPageState
         // the list applies to all of them, so seeding it from one would put
         // that territory's customers onto the other nineteen by default.
         selectedIds: const <String>{},
+        onSave: onSave,
         options: [
           for (final Customer customer in customers)
             AssignableOption(
@@ -546,7 +536,10 @@ class _SalesTerritoryManagementPageState
     );
   }
 
-  Future<List<String>?> _pickSalesmenForBulk(int count) async {
+  Future<List<String>?> _pickSalesmenForBulk(
+    int count,
+    Future<void> Function(List<String> ids) onSave,
+  ) async {
     final List<FirmMember> users =
         await widget.api.firmMembers();
     if (!mounted) return null;
@@ -557,6 +550,7 @@ class _SalesTerritoryManagementPageState
         searchHint: 'Search people by name or email',
         emptyMessage: 'No users to assign. Add one under Administration.',
         selectedIds: const <String>{},
+        onSave: onSave,
         options: [
           for (final FirmMember user in users)
             AssignableOption(
@@ -630,70 +624,24 @@ class _SalesTerritoryManagementPageState
   }
 
   Future<void> _copyHierarchy(SalesTerritory territory) async {
-    final TextEditingController code = TextEditingController(
-      text: '${territory.code}_COPY',
-    );
-    final TextEditingController name = TextEditingController(
-      text: '${territory.name} Copy',
-    );
     final bool? submitted = await showDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Copy hierarchy'),
-        content: SizedBox(
-          width: 420,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: code,
-                decoration: const InputDecoration(labelText: 'New root code'),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: name,
-                decoration: const InputDecoration(labelText: 'New root name'),
-              ),
-            ],
-          ),
+      builder: (context) => _CopyHierarchyDialog(
+        territory: territory,
+        onSave: (String code, String name) => widget.api.copyTerritory(
+          territory.id,
+          {
+            'new_root_code': code,
+            'new_root_name': name,
+            'target_parent_id':
+                territory.parentId.isEmpty ? null : territory.parentId,
+            'include_assignments': true,
+          },
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Copy'),
-          ),
-        ],
       ),
     );
-    if (submitted != true || !mounted) {
-      code.dispose();
-      name.dispose();
-      return;
-    }
-    try {
-      await widget.api.copyTerritory(territory.id, {
-        'new_root_code': code.text.trim(),
-        'new_root_name': name.text.trim(),
-        'target_parent_id':
-            territory.parentId.isEmpty ? null : territory.parentId,
-        'include_assignments': true,
-      });
-      await _loadAll();
-    } on ApiException catch (exception) {
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        exception.message,
-        kind: AppNotificationKind.error,
-      );
-    } finally {
-      code.dispose();
-      name.dispose();
-    }
+    if (submitted != true || !mounted) return;
+    await _loadAll();
   }
 
   @override
@@ -1174,6 +1122,7 @@ class _TerritoryEditorDialog extends StatefulWidget {
     required this.hierarchy,
     required this.items,
     required this.routeTypes,
+    required this.onSave,
     this.initialParentId,
   });
 
@@ -1189,11 +1138,15 @@ class _TerritoryEditorDialog extends StatefulWidget {
   /// leaves these blank — the API takes no route profile then.
   final List<TerritoryRouteTypeRecord> routeTypes;
 
+  /// Saves the territory; throws [ApiException] on a refusal.
+  final Future<void> Function(Json values) onSave;
+
   @override
   State<_TerritoryEditorDialog> createState() => _TerritoryEditorDialogState();
 }
 
-class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
+class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog>
+    with SaveInDialog<_TerritoryEditorDialog> {
   final _form = GlobalKey<FormState>();
   late final TextEditingController _code =
       TextEditingController(text: widget.territory?.code ?? '');
@@ -1559,6 +1512,7 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  saveErrorBanner(),
                   TextFormField(
                     controller: _code,
                     decoration: const InputDecoration(labelText: 'Code'),
@@ -1657,15 +1611,16 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
         ),
         actions: [
           TextButton(
-            onPressed: () => Navigator.pop(context),
+            onPressed: cancelHandler,
             child: const Text('Cancel'),
           ),
           FilledButton(
-            onPressed: () {
+            onPressed: saving
+                ? null
+                : () {
               if (!(_form.currentState?.validate() ?? false)) return;
-              Navigator.pop<Json>(
-                context,
-                {
+              saveAndClose<Json>(() async {
+                final Json values = {
                   'code': _code.text.trim().toUpperCase(),
                   'name': _name.text.trim(),
                   'hierarchy_level_id': _levelId,
@@ -1679,8 +1634,10 @@ class _TerritoryEditorDialogState extends State<_TerritoryEditorDialog> {
                   // an omission as "leave the round alone", so saying
                   // nothing would keep a profile the user just switched off.
                   'route_profile': _isRoute ? _routeProfilePayload() : null,
-                },
-              );
+                };
+                await widget.onSave(values);
+                return values;
+              });
             },
             child: const Text('Save'),
           ),
@@ -1738,5 +1695,66 @@ class _DateField extends StatelessWidget {
           ),
           child: Text(value.isEmpty ? 'Any date' : value),
         ),
+      );
+}
+
+/// Name the copy of a territory and its descendants; saves before it closes.
+class _CopyHierarchyDialog extends StatefulWidget {
+  const _CopyHierarchyDialog({required this.territory, required this.onSave});
+
+  final SalesTerritory territory;
+  final Future<void> Function(String code, String name) onSave;
+
+  @override
+  State<_CopyHierarchyDialog> createState() => _CopyHierarchyDialogState();
+}
+
+class _CopyHierarchyDialogState extends State<_CopyHierarchyDialog>
+    with SaveInDialog<_CopyHierarchyDialog> {
+  late final TextEditingController _code =
+      TextEditingController(text: '${widget.territory.code}_COPY');
+  late final TextEditingController _name =
+      TextEditingController(text: '${widget.territory.name} Copy');
+
+  @override
+  void dispose() {
+    _code.dispose();
+    _name.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Copy hierarchy'),
+        content: SizedBox(
+          width: 420,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              saveErrorBanner(),
+              TextField(
+                controller: _code,
+                decoration: const InputDecoration(labelText: 'New root code'),
+              ),
+              const SizedBox(height: 8),
+              TextField(
+                controller: _name,
+                decoration: const InputDecoration(labelText: 'New root name'),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: cancelHandler, child: const Text('Cancel')),
+          FilledButton(
+            onPressed: saving
+                ? null
+                : () => saveAndClose<bool>(() async {
+                      await widget.onSave(_code.text.trim(), _name.text.trim());
+                      return true;
+                    }),
+            child: const Text('Copy'),
+          ),
+        ],
       );
 }

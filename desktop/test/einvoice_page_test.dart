@@ -41,6 +41,9 @@ class _EInvoiceApi extends ApiClient {
   final List<String> requested = <String>[];
   Json? sentBody;
 
+  /// When set, the first e-way bill POST is refused with it (D-DLG-1).
+  String? refuseEwayBill;
+
   @override
   Future<Json> request(
     String method,
@@ -53,7 +56,14 @@ class _EInvoiceApi extends ApiClient {
   }) async {
     requested.add('$method $path');
     if (path.contains('/eway-bill')) {
-      if (method == 'POST') sentBody = body;
+      if (method == 'POST') {
+        final String? refusal = refuseEwayBill;
+        if (refusal != null) {
+          refuseEwayBill = null;
+          throw ApiException(refusal, statusCode: 422);
+        }
+        sentBody = body;
+      }
       return <String, dynamic>{'data': bill};
     }
     if (path.contains('/einvoice/registrations')) {
@@ -261,6 +271,38 @@ void main() {
 
     expect(api.sentBody!['distance_km'], '450');
     expect(api.sentBody!['transport_mode'], 'ROAD');
+    expect(api.sentBody!['vehicle_number'], 'MH12AB1234');
+  });
+
+  testWidgets('a refused e-way bill keeps the dialog open with what was typed',
+      (tester) async {
+    // D-DLG-1: the dialog closed on Raise and the page made the call, so the
+    // authority's refusal arrived as a toast and the vehicle number was lost.
+    final _EInvoiceApi api =
+        _EInvoiceApi(registrations: <Json>[_sandboxRegistration()])
+          ..refuseEwayBill = 'The vehicle number is not valid.';
+    await _pump(tester, api);
+
+    await tester.tap(find.text('Raise e-way bill'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Distance (km)'), '450');
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Vehicle number'), 'BAD 1');
+    await tester.tap(find.widgetWithText(FilledButton, 'Raise'));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(EWayBillDialog), findsOneWidget);
+    expect(find.text('The vehicle number is not valid.'), findsOneWidget);
+    expect(find.text('450'), findsOneWidget);
+    expect(find.text('BAD 1'), findsOneWidget);
+    expect(api.sentBody, isNull);
+
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Vehicle number'), 'MH12AB1234');
+    await tester.tap(find.widgetWithText(FilledButton, 'Raise'));
+    await tester.pumpAndSettle();
+    expect(find.byType(EWayBillDialog), findsNothing);
     expect(api.sentBody!['vehicle_number'], 'MH12AB1234');
   });
 

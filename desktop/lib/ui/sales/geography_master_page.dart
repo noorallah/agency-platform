@@ -134,36 +134,33 @@ class _GeographyMasterPageState extends State<GeographyMasterPage> {
     if (!_canWrite) return;
     final GeoPlaceRecord? saved = await showDialog<GeoPlaceRecord>(
       context: context,
-      builder: (context) => _GeoEditorDialog(level: _level, current: current),
+      builder: (context) => _GeoEditorDialog(
+        level: _level,
+        current: current,
+        onSave: (GeoPlaceRecord place) async {
+          if (current == null) {
+            await widget.api
+                .createGeoPlace(_level, place.toJson(parentId: _parentId));
+          } else {
+            await widget.api.updateGeoPlace(
+              _level,
+              current.id,
+              place.toJson(parentId: _parentId),
+              expectedVersion: preconditionFor(current.version),
+            );
+          }
+          return place;
+        },
+      ),
     );
     if (saved == null || !mounted) return;
-    try {
-      if (current == null) {
-        await widget.api
-            .createGeoPlace(_level, saved.toJson(parentId: _parentId));
-      } else {
-        await widget.api.updateGeoPlace(
-          _level,
-          current.id,
-          saved.toJson(parentId: _parentId),
-          expectedVersion: preconditionFor(current.version),
-        );
-      }
-      await _load();
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        '${_level.label} saved.',
-        kind: AppNotificationKind.success,
-      );
-    } on ApiException catch (exception) {
-      if (!mounted) return;
-      NotificationService.show(
-        context,
-        saveFailureMessage(exception, 'place', changesKept: false),
-        kind: AppNotificationKind.error,
-      );
-    }
+    await _load();
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      '${_level.label} saved.',
+      kind: AppNotificationKind.success,
+    );
   }
 
   Future<void> _delete(GeoPlaceRecord row) async {
@@ -387,16 +384,24 @@ class _GeographyMasterPageState extends State<GeographyMasterPage> {
 
 /// Create or rename one place.
 class _GeoEditorDialog extends StatefulWidget {
-  const _GeoEditorDialog({required this.level, this.current});
+  const _GeoEditorDialog({
+    required this.level,
+    required this.onSave,
+    this.current,
+  });
 
   final GeoLevel level;
   final GeoPlaceRecord? current;
+
+  /// Saves the place; throws [ApiException] on a refusal.
+  final Future<GeoPlaceRecord> Function(GeoPlaceRecord place) onSave;
 
   @override
   State<_GeoEditorDialog> createState() => _GeoEditorDialogState();
 }
 
-class _GeoEditorDialogState extends State<_GeoEditorDialog> {
+class _GeoEditorDialogState extends State<_GeoEditorDialog>
+    with SaveInDialog<_GeoEditorDialog> {
   final GlobalKey<FormState> _form = GlobalKey<FormState>();
   late final TextEditingController _code =
       TextEditingController(text: widget.current?.code ?? '');
@@ -438,6 +443,7 @@ class _GeoEditorDialogState extends State<_GeoEditorDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                saveErrorBanner(),
                 if (level == GeoLevel.postalCode)
                   TextFormField(
                     controller: _code,
@@ -515,30 +521,33 @@ class _GeoEditorDialogState extends State<_GeoEditorDialog> {
       ),
       actions: [
         TextButton(
-          onPressed: () => Navigator.pop(context),
+          onPressed: cancelHandler,
           child: const Text('Cancel'),
         ),
         FilledButton(
-          onPressed: () {
-            if (!(_form.currentState?.validate() ?? false)) return;
-            final String name = level == GeoLevel.postalCode
-                ? _code.text.trim()
-                : _name.text.trim();
-            Navigator.pop(
-              context,
-              GeoPlaceRecord(
-                level: level,
-                id: widget.current?.id ?? '',
-                code: _code.text.trim().toUpperCase(),
-                name: name,
-                parentId: widget.current?.parentId ?? '',
-                isActive: _isActive,
-                iso2: _iso2.text.trim().toUpperCase(),
-                iso3: _iso3.text.trim().toUpperCase(),
-                phoneCode: _phone.text.trim(),
-              ),
-            );
-          },
+          onPressed: saving
+              ? null
+              : () {
+                  if (!(_form.currentState?.validate() ?? false)) return;
+                  final String name = level == GeoLevel.postalCode
+                      ? _code.text.trim()
+                      : _name.text.trim();
+                  saveAndClose(
+                    () => widget.onSave(
+                      GeoPlaceRecord(
+                        level: level,
+                        id: widget.current?.id ?? '',
+                        code: _code.text.trim().toUpperCase(),
+                        name: name,
+                        parentId: widget.current?.parentId ?? '',
+                        isActive: _isActive,
+                        iso2: _iso2.text.trim().toUpperCase(),
+                        iso3: _iso3.text.trim().toUpperCase(),
+                        phoneCode: _phone.text.trim(),
+                      ),
+                    ),
+                  );
+                },
           child: const Text('Save'),
         ),
       ],

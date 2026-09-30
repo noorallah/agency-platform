@@ -83,6 +83,18 @@ class _BranchApi extends ApiClient {
 
   Json? saved;
 
+  /// When set, the first branch or warehouse update is refused with it
+  /// (D-DLG-1).
+  String? refuseUpdate;
+
+  void _maybeRefuse() {
+    final String? refusal = refuseUpdate;
+    if (refusal != null) {
+      refuseUpdate = null;
+      throw ApiException(refusal, statusCode: 409);
+    }
+  }
+
   @override
   Future<PagedResult<BranchRecord>> branches({
     int page = 1,
@@ -141,6 +153,7 @@ class _BranchApi extends ApiClient {
     Json data, {
     int? expectedVersion,
   }) async {
+    _maybeRefuse();
     saved = data;
     return BranchRecord.fromJson(_branchJson());
   }
@@ -151,6 +164,7 @@ class _BranchApi extends ApiClient {
     Json data, {
     int? expectedVersion,
   }) async {
+    _maybeRefuse();
     saved = data;
     return WarehouseRecord.fromJson(_warehouseJson());
   }
@@ -317,5 +331,47 @@ void main() {
     expect(find.text('Warehouse code must be at least 2 characters'),
         findsOneWidget);
     expect(api.saved, isNull);
+  });
+
+  testWidgets('a refused branch save keeps the dialog open with its edits',
+      (tester) async {
+    // D-DLG-1: the dialog used to close on Save and the page made the call.
+    final _BranchApi api = _BranchApi()
+      ..refuseUpdate = 'Only one branch can be the default.';
+    await _open(tester, api, BranchWarehouseSection.branches, 'HO');
+
+    await tester.enterText(
+      find.widgetWithText(TextField, 'Address line 1'),
+      '12 New Street',
+    );
+    await _save(tester);
+
+    expect(find.text('Edit Branch'), findsOneWidget);
+    expect(find.text('Only one branch can be the default.'), findsOneWidget);
+    expect(find.text('12 New Street'), findsOneWidget);
+    expect(api.saved, isNull);
+
+    await _save(tester);
+    expect(find.text('Edit Branch'), findsNothing);
+    expect(api.saved!['address_line1'], '12 New Street');
+  });
+
+  testWidgets('a refused warehouse save keeps the dialog open too',
+      (tester) async {
+    final _BranchApi api = _BranchApi()
+      ..refuseUpdate = 'Warehouse code WH2 already exists.';
+    await _open(tester, api, BranchWarehouseSection.warehouses, 'WH1');
+
+    await tester.enterText(
+        find.widgetWithText(TextField, 'Warehouse Code'), 'WH2');
+    await _save(tester);
+
+    expect(find.text('Edit Warehouse'), findsOneWidget);
+    expect(find.text('Warehouse code WH2 already exists.'), findsOneWidget);
+    expect(find.text('WH2'), findsOneWidget);
+
+    await _save(tester);
+    expect(find.text('Edit Warehouse'), findsNothing);
+    expect(api.saved!['code'], 'WH2');
   });
 }

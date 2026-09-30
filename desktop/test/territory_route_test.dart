@@ -105,6 +105,9 @@ class _TerritoryApi extends ApiClient {
 
   Json? created;
   Json? updated;
+
+  /// When set, the first create is refused with it (D-DLG-1).
+  String? refuseCreate;
   /// What the screen sent as `If-Match`.
   int? sentVersion;
 
@@ -174,6 +177,11 @@ class _TerritoryApi extends ApiClient {
 
   @override
   Future<SalesTerritory> createTerritory(Json data) async {
+    final String? refusal = refuseCreate;
+    if (refusal != null) {
+      refuseCreate = null;
+      throw ApiException(refusal, statusCode: 409);
+    }
     created = data;
     return SalesTerritory.fromJson(territory);
   }
@@ -725,5 +733,38 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(api.lastQuery?.cityId, 'city-1');
+  });
+
+  testWidgets('a refused save keeps the territory editor open and filled',
+      (tester) async {
+    // D-DLG-1: the editor used to close on Save and the page made the call,
+    // so a refusal was a toast and the typing was gone.
+    final _TerritoryApi api = _TerritoryApi(
+      territory: _territoryJson(id: 't-1', code: 'RT01', name: 'North Beat'),
+    )..refuseCreate = 'Territory code ZN01 is already in use.';
+    await _pump(tester, api);
+    await _openNew(tester);
+
+    await tester.enterText(
+        _inDialog(find.widgetWithText(TextField, 'Code')), 'ZN01');
+    await tester.enterText(
+        _inDialog(find.widgetWithText(TextField, 'Name')), 'Zone');
+    await _pickFromDropdown(
+      tester,
+      _inDialog(find.byType(DropdownButtonFormField<String>)).first,
+      'Route',
+    );
+    await tester.tap(_inDialog(find.widgetWithText(FilledButton, 'Save')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(find.text('Territory code ZN01 is already in use.'), findsOneWidget);
+    expect(find.text('Zone'), findsOneWidget);
+    expect(api.created, isNull);
+
+    await tester.tap(_inDialog(find.widgetWithText(FilledButton, 'Save')));
+    await tester.pumpAndSettle();
+    expect(find.byType(AlertDialog), findsNothing);
+    expect(api.created!['name'], 'Zone');
   });
 }

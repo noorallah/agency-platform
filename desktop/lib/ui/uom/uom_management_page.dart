@@ -519,35 +519,27 @@ class _UomManagementPageState extends State<UomManagementPage> {
         _FieldSpec('dimension', 'Dimension', existing?.dimension ?? 'COUNT'),
         _FieldSpec('status', 'Status', existing?.status ?? 'ACTIVE'),
       ],
+      save: (Json payload) async {
+        if (existing == null) {
+          await widget.api.createUom(payload);
+        } else {
+          await widget.api.updateUom(
+            existing.id,
+            payload,
+            expectedVersion: preconditionFor(existing.version),
+          );
+        }
+      },
     );
     if (payload == null) return;
-    try {
-      if (existing == null) {
-        await widget.api.createUom(payload);
-      } else {
-        await widget.api.updateUom(
-          existing.id,
-          payload,
-          expectedVersion: preconditionFor(existing.version),
-        );
-      }
-      if (mounted) {
-        NotificationService.show(
-          context,
-          'UOM saved.',
-          kind: AppNotificationKind.success,
-        );
-      }
-      await _load();
-    } on ApiException catch (e) {
-      if (mounted) {
-        NotificationService.show(
-          context,
-          saveFailureMessage(e, 'UOM', changesKept: false),
-          kind: AppNotificationKind.error,
-        );
-      }
+    if (mounted) {
+      NotificationService.show(
+        context,
+        'UOM saved.',
+        kind: AppNotificationKind.success,
+      );
     }
+    await _load();
   }
 
   Future<void> _openGroupDialog({UomGroupRecord? existing}) async {
@@ -559,35 +551,27 @@ class _UomManagementPageState extends State<UomManagementPage> {
         _FieldSpec('description', 'Description', existing?.description ?? ''),
         _FieldSpec('status', 'Status', existing?.status ?? 'ACTIVE'),
       ],
+      save: (Json payload) async {
+        if (existing == null) {
+          await widget.api.createUomGroup(payload);
+        } else {
+          await widget.api.updateUomGroup(
+            existing.id,
+            payload,
+            expectedVersion: preconditionFor(existing.version),
+          );
+        }
+      },
     );
     if (payload == null) return;
-    try {
-      if (existing == null) {
-        await widget.api.createUomGroup(payload);
-      } else {
-        await widget.api.updateUomGroup(
-          existing.id,
-          payload,
-          expectedVersion: preconditionFor(existing.version),
-        );
-      }
-      if (mounted) {
-        NotificationService.show(
-          context,
-          'UOM group saved.',
-          kind: AppNotificationKind.success,
-        );
-      }
-      await _load();
-    } on ApiException catch (e) {
-      if (mounted) {
-        NotificationService.show(
-          context,
-          saveFailureMessage(e, 'UOM group', changesKept: false),
-          kind: AppNotificationKind.error,
-        );
-      }
+    if (mounted) {
+      NotificationService.show(
+        context,
+        'UOM group saved.',
+        kind: AppNotificationKind.success,
+      );
     }
+    await _load();
   }
 
   Future<void> _openPackagingDialog({PackagingTypeRecord? existing}) async {
@@ -599,35 +583,27 @@ class _UomManagementPageState extends State<UomManagementPage> {
         _FieldSpec('description', 'Description', existing?.description ?? ''),
         _FieldSpec('status', 'Status', existing?.status ?? 'ACTIVE'),
       ],
+      save: (Json payload) async {
+        if (existing == null) {
+          await widget.api.createPackagingType(payload);
+        } else {
+          await widget.api.updatePackagingType(
+            existing.id,
+            payload,
+            expectedVersion: preconditionFor(existing.version),
+          );
+        }
+      },
     );
     if (payload == null) return;
-    try {
-      if (existing == null) {
-        await widget.api.createPackagingType(payload);
-      } else {
-        await widget.api.updatePackagingType(
-          existing.id,
-          payload,
-          expectedVersion: preconditionFor(existing.version),
-        );
-      }
-      if (mounted) {
-        NotificationService.show(
-          context,
-          'Packaging type saved.',
-          kind: AppNotificationKind.success,
-        );
-      }
-      await _load();
-    } on ApiException catch (e) {
-      if (mounted) {
-        NotificationService.show(
-          context,
-          saveFailureMessage(e, 'packaging type', changesKept: false),
-          kind: AppNotificationKind.error,
-        );
-      }
+    if (mounted) {
+      NotificationService.show(
+        context,
+        'Packaging type saved.',
+        kind: AppNotificationKind.success,
+      );
     }
+    await _load();
   }
 
   String _uomCode(String id) {
@@ -662,36 +638,28 @@ class _UomManagementPageState extends State<UomManagementPage> {
         units: _uoms,
         products: _products,
         existing: existing,
+        onSave: (Json values) async {
+          if (existing == null) {
+            await widget.api.createConversionRule(values);
+          } else {
+            await widget.api.updateConversionRule(
+              existing.id,
+              values,
+              expectedVersion: preconditionFor(existing.version),
+            );
+          }
+        },
       ),
     );
     if (payload == null) return;
-    try {
-      if (existing == null) {
-        await widget.api.createConversionRule(payload);
-      } else {
-        await widget.api.updateConversionRule(
-          existing.id,
-          payload,
-          expectedVersion: preconditionFor(existing.version),
-        );
-      }
-      if (mounted) {
-        NotificationService.show(
-          context,
-          'Conversion rule saved.',
-          kind: AppNotificationKind.success,
-        );
-      }
-      await _load();
-    } on ApiException catch (e) {
-      if (mounted) {
-        NotificationService.show(
-          context,
-          saveFailureMessage(e, 'conversion rule', changesKept: false),
-          kind: AppNotificationKind.error,
-        );
-      }
+    if (mounted) {
+      NotificationService.show(
+        context,
+        'Conversion rule saved.',
+        kind: AppNotificationKind.success,
+      );
     }
+    await _load();
   }
 
   Future<void> _openTemplateDialog({IndustryTemplateRecord? existing}) async {
@@ -707,31 +675,23 @@ class _UomManagementPageState extends State<UomManagementPage> {
         _FieldSpec('status', 'Status', existing?.status ?? 'ACTIVE'),
       ],
       extra: {'template_payload': const <String, dynamic>{}},
+      save: (Json payload) async {
+        if (existing == null) {
+          await widget.api.createIndustryTemplate(payload);
+        } else {
+          await widget.api.updateIndustryTemplate(existing.id, payload);
+        }
+      },
     );
     if (payload == null) return;
-    try {
-      if (existing == null) {
-        await widget.api.createIndustryTemplate(payload);
-      } else {
-        await widget.api.updateIndustryTemplate(existing.id, payload);
-      }
-      if (mounted) {
-        NotificationService.show(
-          context,
-          'Industry template saved.',
-          kind: AppNotificationKind.success,
-        );
-      }
-      await _load();
-    } on ApiException catch (e) {
-      if (mounted) {
-        NotificationService.show(
-          context,
-          e.message,
-          kind: AppNotificationKind.error,
-        );
-      }
+    if (mounted) {
+      NotificationService.show(
+        context,
+        'Industry template saved.',
+        kind: AppNotificationKind.success,
+      );
     }
+    await _load();
   }
 
   Future<void> _deleteUom(UomRecord row) async {
@@ -871,60 +831,55 @@ class _UomManagementPageState extends State<UomManagementPage> {
   Future<Json?> _simpleDialog({
     required String title,
     required List<_FieldSpec> fields,
+    required Future<void> Function(Json payload) save,
     Json extra = const {},
-  }) async {
-    final List<TextEditingController> controllers = [
-      for (final _FieldSpec field in fields)
-        TextEditingController(text: field.initialValue),
-    ];
-    final Json? result = await showDialog<Json>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: Text(title),
-        content: SizedBox(
-          width: 520,
-          child: SingleChildScrollView(
-            child: Column(
-              children: [
-                for (int i = 0; i < fields.length; i++)
-                  Padding(
-                    padding: const EdgeInsets.only(bottom: 10),
-                    child: TextField(
-                      controller: controllers[i],
-                      decoration: InputDecoration(labelText: fields[i].label),
-                    ),
-                  ),
-              ],
-            ),
-          ),
+  }) =>
+      showDialog<Json>(
+        context: context,
+        builder: (context) => _SimpleFieldsDialog(
+          title: title,
+          fields: fields,
+          extra: extra,
+          onSave: save,
         ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Cancel'),
-          ),
-          FilledButton(
-            onPressed: () {
-              final Json payload = {...extra};
-              for (int i = 0; i < fields.length; i++) {
-                final String raw = controllers[i].text.trim();
-                if (raw.isEmpty) continue;
-                payload[fields[i].key] = _coerce(raw);
-              }
-              Navigator.pop(context, payload);
-            },
-            child: const Text('Save'),
-          ),
-        ],
-      ),
-    );
-    for (final TextEditingController c in controllers) {
+      );
+}
+
+/// A titled list of text fields that saves before it closes: a refusal shows
+/// inside the dialog with everything typed kept (D-DLG-1).
+class _SimpleFieldsDialog extends StatefulWidget {
+  const _SimpleFieldsDialog({
+    required this.title,
+    required this.fields,
+    required this.extra,
+    required this.onSave,
+  });
+
+  final String title;
+  final List<_FieldSpec> fields;
+  final Json extra;
+  final Future<void> Function(Json payload) onSave;
+
+  @override
+  State<_SimpleFieldsDialog> createState() => _SimpleFieldsDialogState();
+}
+
+class _SimpleFieldsDialogState extends State<_SimpleFieldsDialog>
+    with SaveInDialog<_SimpleFieldsDialog> {
+  late final List<TextEditingController> _controllers = [
+    for (final _FieldSpec field in widget.fields)
+      TextEditingController(text: field.initialValue),
+  ];
+
+  @override
+  void dispose() {
+    for (final TextEditingController c in _controllers) {
       c.dispose();
     }
-    return result;
+    super.dispose();
   }
 
-  dynamic _coerce(String value) {
+  static dynamic _coerce(String value) {
     if (value == 'true' || value == 'false') return value == 'true';
     final int? asInt = int.tryParse(value);
     if (asInt != null) return asInt;
@@ -932,6 +887,47 @@ class _UomManagementPageState extends State<UomManagementPage> {
     if (asDouble != null) return asDouble;
     return value;
   }
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: Text(widget.title),
+        content: SizedBox(
+          width: 520,
+          child: SingleChildScrollView(
+            child: Column(
+              children: [
+                saveErrorBanner(),
+                for (int i = 0; i < widget.fields.length; i++)
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 10),
+                    child: TextField(
+                      controller: _controllers[i],
+                      decoration:
+                          InputDecoration(labelText: widget.fields[i].label),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(onPressed: cancelHandler, child: const Text('Cancel')),
+          FilledButton(
+            onPressed: saving
+                ? null
+                : () {
+                    final Json payload = {...widget.extra};
+                    for (int i = 0; i < widget.fields.length; i++) {
+                      final String raw = _controllers[i].text.trim();
+                      if (raw.isEmpty) continue;
+                      payload[widget.fields[i].key] = _coerce(raw);
+                    }
+                    submit<Json>(payload, widget.onSave);
+                  },
+            child: const Text('Save'),
+          ),
+        ],
+      );
 }
 
 class _FieldSpec {
@@ -950,9 +946,13 @@ class ConversionRuleDialog extends StatefulWidget {
     super.key,
     required this.units,
     required this.products,
+    this.onSave,
     this.existing,
   });
 
+  /// Saves the rule; throws [ApiException] on a refusal, which the dialog
+  /// shows without closing. Null closes with the payload at once.
+  final Future<void> Function(Json payload)? onSave;
   final List<UomRecord> units;
   final List<Product> products;
   final ConversionRuleRecord? existing;
@@ -961,7 +961,8 @@ class ConversionRuleDialog extends StatefulWidget {
   State<ConversionRuleDialog> createState() => _ConversionRuleDialogState();
 }
 
-class _ConversionRuleDialogState extends State<ConversionRuleDialog> {
+class _ConversionRuleDialogState extends State<ConversionRuleDialog>
+    with SaveInDialog<ConversionRuleDialog> {
   final GlobalKey<FormState> _form = GlobalKey<FormState>();
   late String? _productId = _orNull(widget.existing?.productId);
   late String? _fromUomId = _orNull(widget.existing?.fromUomId);
@@ -1040,7 +1041,7 @@ class _ConversionRuleDialogState extends State<ConversionRuleDialog> {
       // field the person may not have touched.
       if (creating && _productId != null) 'product_id': _productId,
     };
-    Navigator.pop(context, payload);
+    submit<Json>(payload, widget.onSave);
   }
 
   @override
@@ -1056,6 +1057,7 @@ class _ConversionRuleDialogState extends State<ConversionRuleDialog> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
+                saveErrorBanner(),
                 DropdownButtonFormField<String?>(
                   initialValue: _productId,
                   isExpanded: true,
@@ -1136,11 +1138,11 @@ class _ConversionRuleDialogState extends State<ConversionRuleDialog> {
         ),
       ),
       actions: [
-        TextButton(
-          onPressed: () => Navigator.pop(context),
-          child: const Text('Cancel'),
+        TextButton(onPressed: cancelHandler, child: const Text('Cancel')),
+        FilledButton(
+          onPressed: saving ? null : _save,
+          child: const Text('Save'),
         ),
-        FilledButton(onPressed: _save, child: const Text('Save')),
       ],
     );
   }

@@ -11,7 +11,12 @@ class _Phase2RaiseProforma extends StatefulWidget {
     required this.orders,
     required this.productNames,
     required this.today,
+    required this.onSave,
   });
+
+  /// Raises the proforma; throws [ApiException] on a refusal, which the screen
+  /// shows without closing.
+  final Future<ProformaRecord> Function(Json values) onSave;
 
   final List<Json> orders;
 
@@ -23,7 +28,8 @@ class _Phase2RaiseProforma extends StatefulWidget {
   State<_Phase2RaiseProforma> createState() => _Phase2RaiseProformaState();
 }
 
-class _Phase2RaiseProformaState extends State<_Phase2RaiseProforma> {
+class _Phase2RaiseProformaState extends State<_Phase2RaiseProforma>
+    with SaveInDialog<_Phase2RaiseProforma> {
   static const List<DocumentColumn> _columns = [
     DocumentColumn('#', 28),
     DocumentColumn('Product', 0),
@@ -70,7 +76,7 @@ class _Phase2RaiseProformaState extends State<_Phase2RaiseProforma> {
       _number(line['discount_amount']) -
       _number(line['bill_discount_amount']);
 
-  void _raise() => Navigator.of(context).pop(<String, dynamic>{
+  void _raise() => saveAndClose<ProformaRecord>(() => widget.onSave(<String, dynamic>{
         'sales_order_id': stringValue(_order['id']),
         'proforma_date': _iso(widget.today),
         // Blank means no deadline, which is a real choice.
@@ -79,7 +85,7 @@ class _Phase2RaiseProformaState extends State<_Phase2RaiseProforma> {
           'payment_terms': _paymentTerms.text.trim(),
         if (_deliveryTerms.text.trim().isNotEmpty)
           'delivery_terms': _deliveryTerms.text.trim(),
-      });
+      }));
 
   @override
   Widget build(BuildContext context) {
@@ -110,7 +116,7 @@ class _Phase2RaiseProformaState extends State<_Phase2RaiseProforma> {
                   ),
                   FilledButton(
                     key: const ValueKey('proforma-raise'),
-                    onPressed: _raise,
+                    onPressed: saving ? null : _raise,
                     child: const Text('Raise proforma'),
                   ),
                 ],
@@ -124,6 +130,11 @@ class _Phase2RaiseProformaState extends State<_Phase2RaiseProforma> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.stretch,
                           children: [
+                            if (saveError != null)
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                                child: saveErrorBanner(),
+                              ),
                             _header(context),
                             Expanded(
                               child: DocumentLineTable(
