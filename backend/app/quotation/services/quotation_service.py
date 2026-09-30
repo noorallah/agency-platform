@@ -225,40 +225,58 @@ class QuotationService(TransactionalDocumentService):
         return row
 
     def summary(self, *, firm_scope: UUID) -> QuotationSummary:
-        """Summarise quotations for the visible firm scope."""
-        rows = list(
-            self._session.scalars(
-                select(SalesQuotation).where(
+        """Summarise quotations for the visible firm scope.
+
+        Counted and summed in SQL, one row per status, rather than loading every
+        quotation the firm ever raised (backlog 56 C).
+        """
+        by_status: dict[str, tuple[int, Decimal]] = {
+            status: (int(count), Decimal(str(total)))
+            for status, count, total in self._session.execute(
+                select(
+                    SalesQuotation.status,
+                    func.count(),
+                    func.coalesce(func.sum(SalesQuotation.grand_total), 0),
+                )
+                .where(
                     SalesQuotation.firm_id == firm_scope,
                     SalesQuotation.is_deleted.is_(False),
                 )
+                .group_by(SalesQuotation.status)
             ).all()
+        }
+
+        # Expiry is a date, not a status, so it is counted rather than
+        # filtered: a sent quotation that lapsed on Friday is both.
+        expired = int(
+            self._session.scalar(
+                select(func.count()).where(
+                    SalesQuotation.firm_id == firm_scope,
+                    SalesQuotation.is_deleted.is_(False),
+                    SalesQuotation.valid_until < utc_now().date(),
+                    SalesQuotation.status.not_in(_SETTLED),
+                )
+            )
+            or 0
         )
-        today = utc_now().date()
 
         def count(status: QuotationStatus) -> int:
-            return sum(1 for row in rows if row.status == status.value)
+            """Return how many quotations are in one status."""
+            return by_status.get(status.value, (0, ZERO))[0]
 
-        converted = [
-            row for row in rows if row.status == QuotationStatus.CONVERTED.value
-        ]
         return QuotationSummary(
-            total_quotations=len(rows),
+            total_quotations=sum(number for number, _ in by_status.values()),
             draft_quotations=count(QuotationStatus.DRAFT),
             sent_quotations=count(QuotationStatus.SENT),
             accepted_quotations=count(QuotationStatus.ACCEPTED),
             declined_quotations=count(QuotationStatus.DECLINED),
-            converted_quotations=len(converted),
-            # Expiry is a date, not a status, so it is counted rather than
-            # filtered: a sent quotation that lapsed on Friday is both.
-            expired_quotations=sum(
-                1
-                for row in rows
-                if row.valid_until < today and row.status not in _SETTLED
+            converted_quotations=count(QuotationStatus.CONVERTED),
+            expired_quotations=expired,
+            total_quoted_value=self._q(
+                sum((value for _, value in by_status.values()), ZERO)
             ),
-            total_quoted_value=self._q(sum((row.grand_total for row in rows), ZERO)),
             total_converted_value=self._q(
-                sum((row.grand_total for row in converted), ZERO)
+                by_status.get(QuotationStatus.CONVERTED.value, (0, ZERO))[1]
             ),
         )
 

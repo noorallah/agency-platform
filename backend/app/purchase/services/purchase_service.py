@@ -213,52 +213,62 @@ class PurchaseService(TransactionalDocumentService):
         return rows, int(self._session.scalar(count) or 0)
 
     def summary(self, *, firm_scope: UUID) -> PurchaseSummary:
-        """Summarize ."""
-        rows = list(
-            self._session.scalars(
-                select(PurchaseOrder).where(
+        """Summarize purchase orders for the visible firm scope.
+
+        Counted and summed in SQL, one row per status, rather than loading every
+        order the firm ever raised (backlog 56 C).
+        """
+        by_status: dict[str, tuple[int, Decimal]] = {
+            status: (int(count), Decimal(str(total)))
+            for status, count, total in self._session.execute(
+                select(
+                    PurchaseOrder.status,
+                    func.count(),
+                    func.coalesce(func.sum(PurchaseOrder.grand_total), 0),
+                )
+                .where(
                     PurchaseOrder.firm_id == firm_scope,
                     PurchaseOrder.is_deleted.is_(False),
                 )
+                .group_by(PurchaseOrder.status)
             ).all()
+        }
+
+        def count(status: PurchaseOrderStatus) -> int:
+            """Return how many documents are in one status."""
+            return by_status.get(status.value, (0, ZERO))[0]
+
+        not_overdue = (
+            PurchaseOrderStatus.CANCELLED.value,
+            PurchaseOrderStatus.CLOSED.value,
+            PurchaseOrderStatus.RECEIVED.value,
         )
-        overdue = sum(
-            1
-            for row in rows
-            if row.expected_delivery_date is not None
-            and row.expected_delivery_date < utc_now().date()
-            and row.status
-            not in {
-                PurchaseOrderStatus.CANCELLED.value,
-                PurchaseOrderStatus.CLOSED.value,
-                PurchaseOrderStatus.RECEIVED.value,
-            }
+        overdue = int(
+            self._session.scalar(
+                select(func.count()).where(
+                    PurchaseOrder.firm_id == firm_scope,
+                    PurchaseOrder.is_deleted.is_(False),
+                    PurchaseOrder.expected_delivery_date.is_not(None),
+                    PurchaseOrder.expected_delivery_date < utc_now().date(),
+                    PurchaseOrder.status.not_in(not_overdue),
+                )
+            )
+            or 0
         )
-        total_value = sum((row.grand_total for row in rows), Decimal("0"))
+        open_statuses = (
+            PurchaseOrderStatus.SUBMITTED,
+            PurchaseOrderStatus.APPROVED,
+            PurchaseOrderStatus.ORDERED,
+            PurchaseOrderStatus.PARTIALLY_ORDERED,
+            PurchaseOrderStatus.PARTIALLY_RECEIVED,
+        )
         return PurchaseSummary(
-            total=len(rows),
-            draft=sum(
-                1 for row in rows if row.status == PurchaseOrderStatus.DRAFT.value
-            ),
-            open=sum(
-                1
-                for row in rows
-                if row.status
-                in {
-                    PurchaseOrderStatus.SUBMITTED.value,
-                    PurchaseOrderStatus.APPROVED.value,
-                    PurchaseOrderStatus.ORDERED.value,
-                    PurchaseOrderStatus.PARTIALLY_ORDERED.value,
-                    PurchaseOrderStatus.PARTIALLY_RECEIVED.value,
-                }
-            ),
-            cancelled=sum(
-                1 for row in rows if row.status == PurchaseOrderStatus.CANCELLED.value
-            ),
-            closed=sum(
-                1 for row in rows if row.status == PurchaseOrderStatus.CLOSED.value
-            ),
-            total_value=self._q(total_value),
+            total=sum(number for number, _ in by_status.values()),
+            draft=count(PurchaseOrderStatus.DRAFT),
+            open=sum(count(status) for status in open_statuses),
+            cancelled=count(PurchaseOrderStatus.CANCELLED),
+            closed=count(PurchaseOrderStatus.CLOSED),
+            total_value=self._q(sum((value for _, value in by_status.values()), ZERO)),
             overdue_delivery=overdue,
         )
 

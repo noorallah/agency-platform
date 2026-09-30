@@ -49,6 +49,7 @@ from sqlalchemy.orm import Session
 
 from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ValidationError
+from app.core.utils.chunks import chunks, over_chunks
 from app.core.utils.money import ZERO, quantize_ledger, quantize_money
 from app.credit_note.models import CreditNote, CreditNoteLine, CreditNoteStatus
 from app.customers.models import Customer, CustomerReceivableTransaction
@@ -707,6 +708,7 @@ class GstReturnService:
         """Say whether a bill was cancelled after its month's return was due."""
         return on is not None and on > gstr1_due_date(invoice.invoice_date)
 
+    @over_chunks("invoice_ids")
     def _cancellation_dates(self, invoice_ids: list[UUID]) -> dict[UUID, date]:
         """Return the day each cancelled invoice was cancelled.
 
@@ -857,23 +859,23 @@ class GstReturnService:
         """Return each invoice with its lines, priced into GST buckets."""
         if not invoices:
             return []
-        lines = list(
-            self._session.scalars(
+        # Read in chunks: a quarter's lines are about as many as one
+        # statement may name (backlog 56 C).
+        lines = [
+            line
+            for part in chunks([invoice.id for invoice in invoices])
+            for line in self._session.scalars(
                 select(SalesInvoiceLine).where(
-                    SalesInvoiceLine.sales_invoice_id.in_(
-                        [invoice.id for invoice in invoices]
-                    ),
+                    SalesInvoiceLine.sales_invoice_id.in_(part),
                     SalesInvoiceLine.is_deleted.is_(False),
                 )
             ).all()
-        )
+        ]
         taxes: dict[UUID, list[SalesInvoiceLineTax]] = defaultdict(list)
-        if lines:
+        for part in chunks([line.id for line in lines]):
             for component in self._session.scalars(
                 select(SalesInvoiceLineTax).where(
-                    SalesInvoiceLineTax.sales_invoice_line_id.in_(
-                        [line.id for line in lines]
-                    ),
+                    SalesInvoiceLineTax.sales_invoice_line_id.in_(part),
                     SalesInvoiceLineTax.is_deleted.is_(False),
                 )
             ).all():
@@ -1252,6 +1254,7 @@ class GstReturnService:
             )
         return answer
 
+    @over_chunks("invoice_ids")
     def _invoice_numbers(self, invoice_ids: list[UUID]) -> dict[UUID, str]:
         """Return the numbers of these invoices."""
         if not invoice_ids:
@@ -1265,6 +1268,7 @@ class GstReturnService:
             ).all()
         }
 
+    @over_chunks("invoice_ids")
     def _b2cl_invoices(self, invoice_ids: list[UUID]) -> set[UUID]:
         """Return which of these invoices were declared in B2CL.
 
@@ -1546,6 +1550,7 @@ class GstReturnService:
         """
         return "" if charged.igst > ZERO else seller_state
 
+    @over_chunks("invoice_ids")
     def _interstate_invoices(self, invoice_ids: list[UUID]) -> set[UUID]:
         """Return which of these invoices crossed a state border.
 
@@ -1591,6 +1596,7 @@ class GstReturnService:
                 crossed.add(invoice_id)
         return crossed
 
+    @over_chunks("ids")
     def _products(self, ids: list[UUID]) -> dict[UUID, Product]:
         """Return the products named by a set of lines."""
         if not ids:
@@ -1602,6 +1608,7 @@ class GstReturnService:
             ).all()
         }
 
+    @over_chunks("ids")
     def _customers(self, ids: list[UUID]) -> dict[UUID, Customer]:
         """Return the customers named by a set of documents."""
         if not ids:

@@ -307,34 +307,45 @@ class SalesReturnService(TransactionalDocumentService):
         return rows, int(self._session.scalar(count) or 0)
 
     def summary(self, *, firm_scope: UUID) -> SalesReturnSummary:
-        """Return aggregate sales return values for the visible firm scope."""
-        rows = list(
-            self._session.scalars(
-                select(SalesReturn).where(
+        """Return aggregate sales return values for the visible firm scope.
+
+        Counted and summed in SQL, one row per status, rather than loading every
+        return the firm ever raised (backlog 56 C).
+        """
+        by_status: dict[str, tuple[int, Decimal, Decimal]] = {
+            status: (int(count), Decimal(str(value)), Decimal(str(restock)))
+            for status, count, value, restock in self._session.execute(
+                select(
+                    SalesReturn.status,
+                    func.count(),
+                    func.coalesce(func.sum(SalesReturn.grand_total), 0),
+                    func.coalesce(func.sum(SalesReturn.total_restock_quantity), 0),
+                )
+                .where(
                     SalesReturn.firm_id == firm_scope,
                     SalesReturn.is_deleted.is_(False),
                 )
+                .group_by(SalesReturn.status)
             ).all()
-        )
-        live = [row for row in rows if row.status not in _SPENT_STATUSES]
+        }
+
+        def count(status: SalesReturnStatus) -> int:
+            """Return how many returns are in one status."""
+            return by_status.get(status.value, (0, ZERO, ZERO))[0]
+
+        live = [
+            entry
+            for status, entry in by_status.items()
+            if status not in _SPENT_STATUSES
+        ]
         return SalesReturnSummary(
-            total_returns=len(rows),
-            draft_returns=sum(
-                1 for row in rows if row.status == SalesReturnStatus.DRAFT.value
-            ),
-            approved_returns=sum(
-                1 for row in rows if row.status == SalesReturnStatus.APPROVED.value
-            ),
-            completed_returns=sum(
-                1 for row in rows if row.status == SalesReturnStatus.COMPLETED.value
-            ),
-            cancelled_returns=sum(
-                1 for row in rows if row.status == SalesReturnStatus.CANCELLED.value
-            ),
-            total_return_value=self._q(sum((row.grand_total for row in live), ZERO)),
-            total_restock_quantity=self._q(
-                sum((row.total_restock_quantity for row in live), ZERO)
-            ),
+            total_returns=sum(entry[0] for entry in by_status.values()),
+            draft_returns=count(SalesReturnStatus.DRAFT),
+            approved_returns=count(SalesReturnStatus.APPROVED),
+            completed_returns=count(SalesReturnStatus.COMPLETED),
+            cancelled_returns=count(SalesReturnStatus.CANCELLED),
+            total_return_value=self._q(sum((entry[1] for entry in live), ZERO)),
+            total_restock_quantity=self._q(sum((entry[2] for entry in live), ZERO)),
         )
 
     def get_return(self, return_id: UUID, *, firm_scope: UUID) -> SalesReturn:

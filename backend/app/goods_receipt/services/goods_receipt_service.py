@@ -203,49 +203,60 @@ class GoodsReceiptService(TransactionalDocumentService):
         return list(rows), int(self._session.scalar(count) or 0)
 
     def summary(self, *, firm_scope: UUID) -> GoodsReceiptSummary:
-        """Summarize ."""
-        receipts = list(
-            self._session.scalars(
-                select(GoodsReceipt).where(
+        """Summarize goods receipts for the visible firm scope.
+
+        Counted and summed in SQL, one row per status, rather than loading every
+        receipt the firm ever raised (backlog 56 C).
+        """
+        by_status: dict[str, tuple[int, Decimal]] = {
+            status: (int(count), Decimal(str(total)))
+            for status, count, total in self._session.execute(
+                select(
+                    GoodsReceipt.status,
+                    func.count(),
+                    func.coalesce(func.sum(GoodsReceipt.grand_total), 0),
+                )
+                .where(
                     GoodsReceipt.firm_id == firm_scope,
                     GoodsReceipt.is_deleted.is_(False),
                 )
+                .group_by(GoodsReceipt.status)
             ).all()
+        }
+
+        def count(status: GoodsReceiptStatus) -> int:
+            """Return how many documents are in one status."""
+            return by_status.get(status.value, (0, ZERO))[0]
+
+        live = (
+            GoodsReceipt.firm_id == firm_scope,
+            GoodsReceipt.is_deleted.is_(False),
         )
-        pending_po_count = len(
-            {
-                row.purchase_order_id
-                for row in receipts
-                if row.status == GoodsReceiptStatus.DRAFT.value
-            }
+        pending_po_count = int(
+            self._session.scalar(
+                select(func.count(func.distinct(GoodsReceipt.purchase_order_id))).where(
+                    *live, GoodsReceipt.status == GoodsReceiptStatus.DRAFT.value
+                )
+            )
+            or 0
         )
-        partial_po_count = len(
-            {
-                row.purchase_order_id
-                for row in receipts
-                if row.total_current_receipt_quantity > 0
-                and row.status != GoodsReceiptStatus.CANCELLED.value
-            }
+        partial_po_count = int(
+            self._session.scalar(
+                select(func.count(func.distinct(GoodsReceipt.purchase_order_id))).where(
+                    *live,
+                    GoodsReceipt.total_current_receipt_quantity > 0,
+                    GoodsReceipt.status != GoodsReceiptStatus.CANCELLED.value,
+                )
+            )
+            or 0
         )
         return GoodsReceiptSummary(
-            total=len(receipts),
-            draft=sum(
-                1 for row in receipts if row.status == GoodsReceiptStatus.DRAFT.value
-            ),
-            completed=sum(
-                1
-                for row in receipts
-                if row.status == GoodsReceiptStatus.COMPLETED.value
-            ),
-            cancelled=sum(
-                1
-                for row in receipts
-                if row.status == GoodsReceiptStatus.CANCELLED.value
-            ),
-            closed=sum(
-                1 for row in receipts if row.status == GoodsReceiptStatus.CLOSED.value
-            ),
-            total_value=self._q(sum((row.grand_total for row in receipts), ZERO)),
+            total=sum(number for number, _ in by_status.values()),
+            draft=count(GoodsReceiptStatus.DRAFT),
+            completed=count(GoodsReceiptStatus.COMPLETED),
+            cancelled=count(GoodsReceiptStatus.CANCELLED),
+            closed=count(GoodsReceiptStatus.CLOSED),
+            total_value=self._q(sum((value for _, value in by_status.values()), ZERO)),
             pending_purchase_orders=pending_po_count,
             partial_purchase_orders=partial_po_count,
         )

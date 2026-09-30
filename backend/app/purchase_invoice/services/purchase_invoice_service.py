@@ -241,36 +241,42 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         return rows, int(self._session.scalar(count) or 0)
 
     def summary(self, *, firm_scope: UUID) -> PurchaseInvoiceSummary:
-        """Return aggregate purchase invoice values for the visible firm scope."""
-        rows = list(
-            self._session.scalars(
-                select(PurchaseInvoice).where(
+        """Return aggregate purchase invoice values for the visible firm scope.
+
+        Counted and summed in SQL, one row per status, rather than loading every
+        document the firm ever raised (backlog 56 C).
+        """
+        by_status: dict[str, tuple[int, Decimal]] = {
+            status: (int(count), Decimal(str(total)))
+            for status, count, total in self._session.execute(
+                select(
+                    PurchaseInvoice.status,
+                    func.count(),
+                    func.coalesce(func.sum(PurchaseInvoice.grand_total), 0),
+                )
+                .where(
                     PurchaseInvoice.firm_id == firm_scope,
                     PurchaseInvoice.is_deleted.is_(False),
                 )
+                .group_by(PurchaseInvoice.status)
             ).all()
-        )
+        }
+
+        def count(status: PurchaseInvoiceStatus) -> int:
+            """Return how many documents are in one status."""
+            return by_status.get(status.value, (0, ZERO))[0]
+
         # The tile and the overdue report must agree, so the tile counts the
         # report's rows: bills past due that still owe something (D-RPT-2).
         overdue = len(self.overdue_report(firm_scope=firm_scope))
         return PurchaseInvoiceSummary(
-            total=len(rows),
-            draft=sum(
-                1 for row in rows if row.status == PurchaseInvoiceStatus.DRAFT.value
-            ),
-            approved=sum(
-                1 for row in rows if row.status == PurchaseInvoiceStatus.APPROVED.value
-            ),
-            cancelled=sum(
-                1 for row in rows if row.status == PurchaseInvoiceStatus.CANCELLED.value
-            ),
-            closed=sum(
-                1 for row in rows if row.status == PurchaseInvoiceStatus.CLOSED.value
-            ),
-            total_value=self._q(sum((row.grand_total for row in rows), ZERO)),
-            pending_invoices=sum(
-                1 for row in rows if row.status == PurchaseInvoiceStatus.DRAFT.value
-            ),
+            total=sum(number for number, _ in by_status.values()),
+            draft=count(PurchaseInvoiceStatus.DRAFT),
+            approved=count(PurchaseInvoiceStatus.APPROVED),
+            cancelled=count(PurchaseInvoiceStatus.CANCELLED),
+            closed=count(PurchaseInvoiceStatus.CLOSED),
+            total_value=self._q(sum((value for _, value in by_status.values()), ZERO)),
+            pending_invoices=count(PurchaseInvoiceStatus.DRAFT),
             overdue_invoices=overdue,
         )
 

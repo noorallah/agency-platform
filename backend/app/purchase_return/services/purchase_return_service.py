@@ -222,33 +222,39 @@ class PurchaseReturnService(TransactionalDocumentService):
         return rows, int(self._session.scalar(count) or 0)
 
     def summary(self, *, firm_scope: UUID) -> PurchaseReturnSummary:
-        """Return aggregate purchase return values for the visible firm scope."""
-        rows = list(
-            self._session.scalars(
-                select(PurchaseReturn).where(
+        """Return aggregate purchase return values for the visible firm scope.
+
+        Counted and summed in SQL, one row per status, rather than loading every
+        document the firm ever raised (backlog 56 C).
+        """
+        by_status: dict[str, tuple[int, Decimal]] = {
+            status: (int(count), Decimal(str(total)))
+            for status, count, total in self._session.execute(
+                select(
+                    PurchaseReturn.status,
+                    func.count(),
+                    func.coalesce(func.sum(PurchaseReturn.grand_total), 0),
+                )
+                .where(
                     PurchaseReturn.firm_id == firm_scope,
                     PurchaseReturn.is_deleted.is_(False),
                 )
+                .group_by(PurchaseReturn.status)
             ).all()
-        )
+        }
+
+        def count(status: PurchaseReturnStatus) -> int:
+            """Return how many documents are in one status."""
+            return by_status.get(status.value, (0, ZERO))[0]
+
         return PurchaseReturnSummary(
-            total=len(rows),
-            draft=sum(
-                1 for row in rows if row.status == PurchaseReturnStatus.DRAFT.value
-            ),
-            approved=sum(
-                1 for row in rows if row.status == PurchaseReturnStatus.APPROVED.value
-            ),
-            completed=sum(
-                1 for row in rows if row.status == PurchaseReturnStatus.COMPLETED.value
-            ),
-            cancelled=sum(
-                1 for row in rows if row.status == PurchaseReturnStatus.CANCELLED.value
-            ),
-            closed=sum(
-                1 for row in rows if row.status == PurchaseReturnStatus.CLOSED.value
-            ),
-            total_value=self._q(sum((row.grand_total for row in rows), ZERO)),
+            total=sum(number for number, _ in by_status.values()),
+            draft=count(PurchaseReturnStatus.DRAFT),
+            approved=count(PurchaseReturnStatus.APPROVED),
+            completed=count(PurchaseReturnStatus.COMPLETED),
+            cancelled=count(PurchaseReturnStatus.CANCELLED),
+            closed=count(PurchaseReturnStatus.CLOSED),
+            total_value=self._q(sum((value for _, value in by_status.values()), ZERO)),
         )
 
     def create_return(

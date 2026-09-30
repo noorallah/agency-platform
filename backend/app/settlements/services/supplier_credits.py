@@ -28,6 +28,7 @@ from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.utils.chunks import over_chunks
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO, quantize_money
 from app.finance.services.journal_engine import quantize_money as quantize_ledger
@@ -160,6 +161,7 @@ def supplier_credits(
     return credits
 
 
+@over_chunks("invoice_ids")
 def credit_applied_against(
     session: Session, *, firm_id: UUID, invoice_ids: Sequence[UUID]
 ) -> dict[UUID, Decimal]:

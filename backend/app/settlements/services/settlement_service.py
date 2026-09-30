@@ -25,6 +25,7 @@ from app.common.audit.services import record_audit
 from app.common.report_names import customers_matching, vendors_matching
 from app.core.constants.core import MAX_PAGE_SIZE
 from app.core.exceptions import ResourceNotFoundError, ValidationError
+from app.core.utils.chunks import over_chunks
 from app.core.utils.dates import utc_now
 from app.core.utils.money import ZERO
 from app.customers.models import Customer, CustomerReceivableTransaction
@@ -87,6 +88,7 @@ SETTLEABLE_INVOICE_STATES = (
 )
 
 
+@over_chunks("invoice_ids")
 def credited_against(
     session: Session,
     *,
@@ -165,6 +167,7 @@ def credited_against(
     return credited
 
 
+@over_chunks("invoice_ids")
 def settled_against(
     session: Session,
     *,
@@ -446,6 +449,7 @@ class SettlementService(TransactionalDocumentService):
             ).all()
         )
 
+    @over_chunks("invoice_ids")
     def _returned_against(
         self, *, firm_id: UUID, invoice_ids: list[UUID]
     ) -> dict[UUID, Decimal]:
