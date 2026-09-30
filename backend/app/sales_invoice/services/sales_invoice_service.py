@@ -1753,9 +1753,10 @@ class SalesInvoiceService(TransactionalDocumentService):
                 SalesInvoiceLine.source_document_line_id.in_(in_window),
             )
             .group_by(SalesInvoiceLine.source_document_line_id)
+            # Latest bill date first; the group key breaks a tie, so a page
+            # never repeats or skips a line.
             .order_by(
                 func.max(SalesInvoice.invoice_date).desc(),
-                func.max(SalesInvoice.created_at).desc(),
                 SalesInvoiceLine.source_document_line_id,
             )
         )
