@@ -197,7 +197,7 @@ Every FAIL:
 
 | Route | Status | What |
 | --- | --- | --- |
-| `/delivery-notes/summary` | 503 after 7.5 s | `DeliveryNoteService.partially_delivered_orders` sends every order id in one `IN (...)` -- 109,566 ids against psycopg's 65,535-parameter limit. The Delivery Notes page summary; step 2 missed it. |
+| `/delivery-notes/summary` | 503 after 7.5 s | `DeliveryNoteService.partially_delivered_orders` sends every order id in one `IN (...)` -- 109,566 ids against psycopg's 65,535-parameter limit. The Delivery Notes page summary; step 2 missed it. **Fixed in the same PR**: the order lines and `delivered_by_order_line` are read in chunks (`test_chunked_id_lists.py`). |
 | `/business-framework/attribute-definitions` | 403 | FIRM_ADMIN does not hold the code; not a volume finding |
 | `/business-framework/category-attribute-rules` | 403 | as above |
 | `/business-framework/features` | 403 | as above |

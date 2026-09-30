@@ -51,11 +51,16 @@ def over_chunks(
         def run(*args: object, **kwargs: object) -> ResultT:
             """Call once, or once per chunk and merge."""
             bound = shape.bind(*args, **kwargs)
-            ids = bound.arguments.get(argument)
-            if ids is None or len(ids) <= CHUNK_SIZE:
+            raw = bound.arguments.get(argument)
+            if raw is None:
                 return function(*args, **kwargs)
+            # Read once, here: a generator must reach every chunk.
+            ids: list[UUID] = list(raw)
+            bound.arguments[argument] = ids
+            if len(ids) <= CHUNK_SIZE:
+                return function(*bound.args, **bound.kwargs)
             answers: list[ResultT] = []
-            for chunk in chunks(list(ids)):
+            for chunk in chunks(ids):
                 bound.arguments[argument] = chunk
                 answers.append(function(*bound.args, **bound.kwargs))
             return _merged(answers)

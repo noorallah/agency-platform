@@ -8,6 +8,7 @@ from sqlalchemy import ColumnElement, and_, func, select
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ValidationError
+from app.core.utils.chunks import over_chunks
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 
 #: The states a note can be in once its goods have left. A note is completed
@@ -33,6 +34,7 @@ def goods_have_left_clause() -> ColumnElement[bool]:
     )
 
 
+@over_chunks("sales_order_ids")
 def delivered_by_order_line(
     session: Session, *, firm_id: UUID, sales_order_ids: Iterable[UUID]
 ) -> dict[UUID, Decimal]:
