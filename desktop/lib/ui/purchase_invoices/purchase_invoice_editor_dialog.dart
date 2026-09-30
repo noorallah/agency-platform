@@ -201,6 +201,11 @@ class PurchaseInvoiceEditorDialog extends StatefulWidget {
 class _PurchaseInvoiceEditorDialogState
     extends State<PurchaseInvoiceEditorDialog> {
   GoodsReceiptRecord? _receipt;
+
+  /// Further receipts of the same supplier and branch billed on this one
+  /// paper (D-BUY-18). [_receipt] stays the primary one; every line of every
+  /// receipt is in [_lines].
+  List<GoodsReceiptRecord> _extraReceipts = const [];
   PurchaseOrder? _order;
   String? _vendorId;
   final List<PurchaseDirectLine> _directLines = [PurchaseDirectLine()];
@@ -289,6 +294,9 @@ class _PurchaseInvoiceEditorDialogState
   Future<void> _selectReceipt(GoodsReceiptRecord receipt) async {
     setState(() {
       _receipt = receipt;
+      // A different primary receipt is a different bill: the receipts added
+      // beside the last one do not follow it.
+      _extraReceipts = const [];
       _loadingLines = true;
       _error = null;
     });
@@ -305,6 +313,75 @@ class _PurchaseInvoiceEditorDialogState
           ),
       ];
       _loadingLines = false;
+    });
+  }
+
+  /// Receipts the bill could also take: completed, of the same supplier and
+  /// branch as the first, and not already on it. The server refuses a bill
+  /// whose sources differ in either, so they are not offered.
+  List<GoodsReceiptRecord> get _alsoBillable {
+    final GoodsReceiptRecord? first = _receipt;
+    if (first == null) return const [];
+    return [
+      for (final GoodsReceiptRecord item in widget.receipts)
+        if (item.id != first.id &&
+            item.vendorId == first.vendorId &&
+            item.branchId == first.branchId &&
+            !_extraReceipts.any((row) => row.id == item.id))
+          item,
+    ];
+  }
+
+  /// The receipt number a line belongs to, for telling apart the lines of
+  /// several receipts.
+  String _grnOf(String receiptId) {
+    if (_receipt?.id == receiptId) return _receipt!.grnNumber;
+    for (final GoodsReceiptRecord item in _extraReceipts) {
+      if (item.id == receiptId) return item.grnNumber;
+    }
+    return '';
+  }
+
+  /// Put another receipt's lines on the bill, at what each still has to be
+  /// billed for.
+  Future<void> _addReceipt(GoodsReceiptRecord receipt) async {
+    if (_receipt == null || _extraReceipts.any((r) => r.id == receipt.id)) {
+      return;
+    }
+    setState(() {
+      _loadingLines = true;
+      _error = null;
+    });
+    final Map<String, double> invoiced = await _invoicedByLine();
+    if (!mounted) return;
+    setState(() {
+      _extraReceipts = [..._extraReceipts, receipt];
+      _lines = [
+        ..._lines,
+        for (int index = 0; index < receipt.lines.length; index++)
+          _draftLine(
+            receipt,
+            receipt.lines[index],
+            _lines.length + index + 1,
+            invoiced[receipt.lines[index].id] ?? 0,
+          ),
+      ];
+      _loadingLines = false;
+    });
+  }
+
+  /// Take an added receipt's lines back off the bill.
+  void _removeReceipt(String receiptId) {
+    setState(() {
+      _extraReceipts = [
+        for (final GoodsReceiptRecord item in _extraReceipts)
+          if (item.id != receiptId) item,
+      ];
+      _lines = [
+        for (final PurchaseInvoiceDraftLine line in _lines)
+          if (line.sourceDocumentId != receiptId) line,
+      ];
+      if (_current >= _lines.length) _current = 0;
     });
   }
 
@@ -551,10 +628,14 @@ class _PurchaseInvoiceEditorDialogState
       // server records as the source; only a typed receipt is named here.
       if (_mode == PurchaseBillMode.receipt)
         'source_documents': [
-          {
-            'source_document_type': 'GOODS_RECEIPT',
-            'source_document_id': _receipt!.id,
-          }
+          for (final GoodsReceiptRecord item in [
+            _receipt!,
+            ..._extraReceipts,
+          ])
+            {
+              'source_document_type': 'GOODS_RECEIPT',
+              'source_document_id': item.id,
+            }
         ],
       'lines': [
         if (_direct)

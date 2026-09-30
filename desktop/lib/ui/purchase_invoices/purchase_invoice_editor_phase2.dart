@@ -376,75 +376,150 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
     }
   }
 
-  Widget _billHeader(BuildContext context) => DocumentHeader(children: [
-        _sourceField(context),
-        DocumentField(
-          label: "Supplier's invoice number",
-          width: 190,
-          child: TextFormField(
-            key: ValueKey<String>(
-              'purchase-invoice-supplier-number-$_supplierNumberEpoch',
+  /// More receipts of the same supplier and branch on the same bill
+  /// (D-BUY-18): chips for those added, a menu for the ones that could be.
+  Widget? _alsoBillField(BuildContext context) {
+    if (_mode != PurchaseBillMode.receipt || _receipt == null) return null;
+    final List<GoodsReceiptRecord> candidates = _alsoBillable;
+    if (candidates.isEmpty && _extraReceipts.isEmpty) return null;
+    return DocumentField(
+      label: 'Also bill (same supplier and branch)',
+      width: 400,
+      child: Wrap(
+        spacing: 6,
+        runSpacing: 4,
+        crossAxisAlignment: WrapCrossAlignment.center,
+        children: [
+          for (final GoodsReceiptRecord item in _extraReceipts)
+            InputChip(
+              key: ValueKey<String>('purchase-invoice-extra-${item.id}'),
+              label: Text(item.grnNumber),
+              visualDensity: VisualDensity.compact,
+              onDeleted: _saving
+                  ? null
+                  : () {
+                      _removeReceipt(item.id);
+                      _schedulePreview();
+                    },
             ),
-            initialValue: _supplierInvoiceNumber,
-            readOnly: _saving,
-            decoration: documentBoxDecoration(context, hint: 'as printed'),
-            onChanged: (value) {
-              _setState(() => _supplierInvoiceNumber = value);
-              _schedulePreview();
-            },
-          ),
-        ),
-        DocumentField(
-          label: "Supplier's invoice date",
-          width: 150,
-          child: _dateBox(
-            context,
-            key: const ValueKey('purchase-invoice-supplier-date'),
-            value: _supplierInvoiceDate,
-            onPicked: (day) => _setState(() => _supplierInvoiceDate = day),
-          ),
-        ),
-        DocumentField(
-          label: 'Entered on',
-          auto: true,
-          width: 140,
-          child: _dateBox(
-            context,
-            key: const ValueKey('purchase-invoice-date'),
-            value: _invoiceDate,
-            onPicked: (day) {
-              _setState(() => _invoiceDate = day);
-              _schedulePreview();
-            },
-          ),
-        ),
-        DocumentField(
-          label: 'Tax',
-          auto: true,
-          width: 150,
-          child: InputDecorator(
-            decoration: documentBoxDecoration(context),
-            child: Text(
-              _preview == null
-                  ? '—'
-                  : _preview!.interstate
-                      ? 'IGST · other state'
-                      : 'CGST + SGST',
-              overflow: TextOverflow.ellipsis,
+          if (candidates.isNotEmpty)
+            PopupMenuButton<String>(
+              key: const ValueKey('purchase-invoice-also-bill'),
+              tooltip: 'Add another goods receipt to this bill',
+              enabled: !_saving,
+              onSelected: (value) async {
+                for (final GoodsReceiptRecord item in candidates) {
+                  if (item.id == value) {
+                    await _addReceipt(item);
+                    _schedulePreview();
+                  }
+                }
+              },
+              itemBuilder: (context) => [
+                for (final GoodsReceiptRecord item in candidates)
+                  PopupMenuItem<String>(
+                    key: ValueKey<String>('purchase-invoice-add-${item.id}'),
+                    value: item.id,
+                    child:
+                        Text('${item.grnNumber}  ${_dayOf(item.receiptDate)}'),
+                  ),
+              ],
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(Icons.add, size: 16),
+                    const SizedBox(width: 4),
+                    Text(
+                      'Add a receipt',
+                      style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                            fontSize: 13,
+                            color: Theme.of(context).colorScheme.primary,
+                          ),
+                    ),
+                  ],
+                ),
+              ),
             ),
+        ],
+      ),
+    );
+  }
+
+  Widget _billHeader(BuildContext context) {
+    final Widget? also = _alsoBillField(context);
+    return DocumentHeader(children: [
+      _sourceField(context),
+      if (also != null) also,
+      DocumentField(
+        label: "Supplier's invoice number",
+        width: 190,
+        child: TextFormField(
+          key: ValueKey<String>(
+            'purchase-invoice-supplier-number-$_supplierNumberEpoch',
+          ),
+          initialValue: _supplierInvoiceNumber,
+          readOnly: _saving,
+          decoration: documentBoxDecoration(context, hint: 'as printed'),
+          onChanged: (value) {
+            _setState(() => _supplierInvoiceNumber = value);
+            _schedulePreview();
+          },
+        ),
+      ),
+      DocumentField(
+        label: "Supplier's invoice date",
+        width: 150,
+        child: _dateBox(
+          context,
+          key: const ValueKey('purchase-invoice-supplier-date'),
+          value: _supplierInvoiceDate,
+          onPicked: (day) => _setState(() => _supplierInvoiceDate = day),
+        ),
+      ),
+      DocumentField(
+        label: 'Entered on',
+        auto: true,
+        width: 140,
+        child: _dateBox(
+          context,
+          key: const ValueKey('purchase-invoice-date'),
+          value: _invoiceDate,
+          onPicked: (day) {
+            _setState(() => _invoiceDate = day);
+            _schedulePreview();
+          },
+        ),
+      ),
+      DocumentField(
+        label: 'Tax',
+        auto: true,
+        width: 150,
+        child: InputDecorator(
+          decoration: documentBoxDecoration(context),
+          child: Text(
+            _preview == null
+                ? '—'
+                : _preview!.interstate
+                    ? 'IGST · other state'
+                    : 'CGST + SGST',
+            overflow: TextOverflow.ellipsis,
           ),
         ),
-        DocumentField(
-          label: 'Remarks',
-          width: 240,
-          child: TextFormField(
-            initialValue: _remarks,
-            readOnly: _saving,
-            decoration: documentBoxDecoration(context),
-            onChanged: (value) => _remarks = value,
-          ),
+      ),
+      DocumentField(
+        label: 'Remarks',
+        width: 240,
+        child: TextFormField(
+          initialValue: _remarks,
+          readOnly: _saving,
+          decoration: documentBoxDecoration(context),
+          onChanged: (value) => _remarks = value,
         ),
-      ]);
+      ),
+    ]);
+  }
 
   Widget _billLines(BuildContext context) {
     if (!_hasSource) {
@@ -545,7 +620,7 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
       TextFormField(
         key: ValueKey<String>(
           'purchase-invoice-$name-${_receipt?.id ?? _order?.id ?? 'direct'}'
-          '-$index$epoch',
+          '-$index$epoch${_extraReceipts.map((r) => r.id).join()}',
         ),
         initialValue: value.trim().isEmpty ? value : documentQuantity(value),
         readOnly: _saving,
@@ -614,12 +689,24 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
         Text('${line.lineNumber}', style: text),
         Padding(
           padding: const EdgeInsets.only(right: 8),
-          child: Text(
-            product == null
-                ? (line.description.isEmpty ? line.productId : line.description)
-                : '${product.name}  ${product.code}',
-            overflow: TextOverflow.ellipsis,
-            style: text,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                product == null
+                    ? (line.description.isEmpty
+                        ? line.productId
+                        : line.description)
+                    : '${product.name}  ${product.code}',
+                overflow: TextOverflow.ellipsis,
+                style: text,
+              ),
+              // With several receipts on the bill, two "line 1"s are told
+              // apart by the receipt each comes from.
+              if (_extraReceipts.isNotEmpty)
+                _quietLine(context, 'receipt ${_grnOf(line.sourceDocumentId)}'),
+            ],
           ),
         ),
         Text(product?.hsnSac ?? '', style: text),
@@ -969,7 +1056,8 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
         width: 258,
         child: TextFormField(
           key: ValueKey<String>(
-            'purchase-invoice-remarks-${_receipt?.id ?? _order?.id}-$index',
+            'purchase-invoice-remarks-${_receipt?.id ?? _order?.id}-$index'
+            '${_extraReceipts.map((r) => r.id).join()}',
           ),
           initialValue: line.remarks,
           readOnly: _saving,
