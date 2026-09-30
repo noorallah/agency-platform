@@ -45,6 +45,9 @@ class Firm(BaseEntity):
     code: Mapped[str] = mapped_column(String(50), nullable=False)
     gst_number: Mapped[str | None] = mapped_column(String(32))
     pan_number: Mapped[str | None] = mapped_column(String(32))
+    #: Tax Deduction Account Number, held by one that deducts TDS (backlog
+    #: 53.1). Recorded and format-checked; nothing posts from it yet.
+    tan_number: Mapped[str | None] = mapped_column(String(10))
     address_line1: Mapped[str | None] = mapped_column(String(250))
     address_line2: Mapped[str | None] = mapped_column(String(250))
     city: Mapped[str | None] = mapped_column(String(100))

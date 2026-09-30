@@ -260,6 +260,24 @@ CHART: tuple[SeedAccount, ...] = (
         ControlAccountPurpose.TCS_PAYABLE,
     ),
     SeedAccount(
+        # Its own liability, beside TCS rather than inside it: TDS is filed on
+        # 26Q/24Q against its own challans (backlog 53.1).
+        "2700",
+        "TDS Payable",
+        AccountTypeEnum.LIABILITY,
+        "CL",
+        ControlAccountPurpose.TDS_PAYABLE,
+    ),
+    SeedAccount(
+        # What customers deducted from their payments: claimed against the
+        # firm's income tax once it appears in Form 26AS.
+        "1400",
+        "TDS Receivable",
+        AccountTypeEnum.ASSET,
+        "CA",
+        ControlAccountPurpose.TDS_RECEIVABLE,
+    ),
+    SeedAccount(
         "5700",
         "Loyalty Expense",
         AccountTypeEnum.EXPENSE,

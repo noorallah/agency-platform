@@ -3418,6 +3418,10 @@ ResourceDefinition<Firm> firmDefinition(
         FieldSpec(key: 'gst_number', label: 'GST number'),
         FieldSpec(key: 'pan_number', label: 'PAN number'),
         FieldSpec(
+          key: 'tan_number',
+          label: 'TAN (if the firm deducts TDS)',
+        ),
+        FieldSpec(
           key: 'address_line1',
           label: 'Address line 1',
           section: 'Address',
@@ -3560,6 +3564,7 @@ ResourceDefinition<Firm> firmDefinition(
               'name': firm.name,
               'gst_number': firm.gstNumber,
               'pan_number': firm.panNumber,
+              'tan_number': firm.tanNumber,
               'address_line1': firm.addressLine1,
               'address_line2': firm.addressLine2,
               'city': firm.city,

@@ -234,6 +234,7 @@ class Firm {
     required this.name,
     required this.gstNumber,
     required this.panNumber,
+    this.tanNumber = '',
     required this.addressLine1,
     required this.addressLine2,
     required this.city,
@@ -258,6 +259,9 @@ class Firm {
   });
 
   final String id, code, name, gstNumber, panNumber;
+
+  /// Tax Deduction Account Number, for a firm that deducts TDS (53.1).
+  final String tanNumber;
   final String addressLine1, addressLine2, city, state, postalCode, country;
   final String contactName, contactEmail, contactPhone;
   final String currencyCode, financialYearStart;
@@ -280,6 +284,7 @@ class Firm {
         name: stringValue(json['name']),
         gstNumber: stringValue(json['gst_number']),
         panNumber: stringValue(json['pan_number']),
+        tanNumber: stringValue(json['tan_number']),
         addressLine1: stringValue(json['address_line1']),
         addressLine2: stringValue(json['address_line2']),
         city: stringValue(json['city']),
@@ -308,6 +313,7 @@ class Firm {
         'name': name,
         'gst_number': gstNumber,
         'pan_number': panNumber,
+        'tan_number': tanNumber,
         'address_line1': addressLine1,
         'address_line2': addressLine2,
         'city': city,

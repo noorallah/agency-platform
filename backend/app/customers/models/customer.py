@@ -125,6 +125,9 @@ class Customer(BaseEntity):
     display_name: Mapped[str] = mapped_column(String(200), nullable=False)
     gst_number: Mapped[str | None] = mapped_column(String(32))
     pan_number: Mapped[str | None] = mapped_column(String(32))
+    #: Tax Deduction Account Number, held by one that deducts TDS (backlog
+    #: 53.1). Recorded and format-checked; nothing posts from it yet.
+    tan_number: Mapped[str | None] = mapped_column(String(10))
     email: Mapped[str | None] = mapped_column(String(320))
     phone: Mapped[str | None] = mapped_column(String(20))
     alternate_phone: Mapped[str | None] = mapped_column(String(20))

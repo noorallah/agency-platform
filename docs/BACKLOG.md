@@ -3955,7 +3955,10 @@ into code, as TCS already does.
 
 ### 53.1 Firms that already hold a TAN -- owner, 2026-09-27 -- HIGH PRIORITY
 
-**Priority (owner, 2026-09-27): high.**
+**Priority (owner, 2026-09-27): high.** **Items 1 and 2 built 2026-09-30**
+(migration `20260930_0166`); the interim steps are in
+`docs/LEDGER_POSTING_RULES.md`, "Tax deducted at source has accounts". Items 3
+and 4 remain for 1.1.
 
 | When | What | Size |
 | --- | --- | --- |

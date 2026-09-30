@@ -126,6 +126,28 @@ shortfall it leaves is collected on the next receipt. Both fall out of
 stand and dated on or before the receipt, exactly as the consideration is
 summed from the receipts.
 
+## Tax deducted at source has accounts, and no posting yet
+
+Built 2026-09-30 (`docs/BACKLOG.md` 53.1, items 1 and 2): a firm records its
+TAN (Firms grid, beside PAN) and a customer's TAN (customer form); both are
+format-checked -- four letters, five digits, a letter -- and nothing posts
+from them yet. Every firm's chart has **TDS Payable** (`2700`, current
+liabilities, purpose `TDS_PAYABLE`) and **TDS Receivable** (`1400`, current
+assets, purpose `TDS_RECEIVABLE`); `20260930_0166` gave them to firms whose
+books were already open, only where missing. Each is its own account, not
+TCS's: TDS is a different return (26Q/24Q) on a different challan.
+
+**Until *TDS deducted* is on payments and receipts (1.1), a firm records it by
+hand:**
+
+- **TDS it deducts from a supplier** (194Q, rent, fees, transport): record
+  the payment for the **net** amount paid, then a journal -- debit the
+  supplier, credit *TDS Payable* -- for the deduction, so the supplier is
+  settled in full. When the challan is paid: debit *TDS Payable*, credit Bank.
+- **TDS a customer deducted from what it paid**: record the receipt for the
+  net amount received, then a journal -- debit *TDS Receivable*, credit the
+  customer -- so the invoice is settled in full.
+
 ## Input tax is claimed head by head
 
 **A bill's input tax posts one leg per GST head, and a return reverses the

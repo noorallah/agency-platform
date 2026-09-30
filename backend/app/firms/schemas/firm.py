@@ -7,7 +7,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.core.tenancy.models import DeploymentMode
-from app.core.validation import validate_email, validate_phone
+from app.core.validation import normalize_tan, validate_email, validate_phone
 
 
 class FirmSchema(BaseModel):
@@ -23,6 +23,7 @@ class FirmCreate(FirmSchema):
     code: str = Field(min_length=2, max_length=50, pattern=r"^[A-Z0-9_-]+$")
     gst_number: str | None = Field(default=None, max_length=32)
     pan_number: str | None = Field(default=None, max_length=32)
+    tan_number: str | None = Field(default=None, max_length=10)
     address_line1: str | None = Field(default=None, max_length=250)
     address_line2: str | None = Field(default=None, max_length=250)
     city: str | None = Field(default=None, max_length=100)
@@ -52,6 +53,12 @@ class FirmCreate(FirmSchema):
     def normalize_code(cls, value: str) -> str:
         """Normalize identifiers consistently before persistence."""
         return value.strip().upper()
+
+    @field_validator("tan_number", mode="before")
+    @classmethod
+    def _tan(cls, value: str | None) -> str | None:
+        """Check a TAN's format; a blank one is no TAN."""
+        return normalize_tan(value)
 
     @field_validator("deployment_mode", mode="before")
     @classmethod
@@ -232,6 +239,7 @@ class FirmResponse(FirmSchema):
     code: str
     gst_number: str | None
     pan_number: str | None
+    tan_number: str | None = None
     address_line1: str | None
     address_line2: str | None
     city: str | None
