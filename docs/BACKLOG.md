@@ -4319,6 +4319,20 @@ Backend work is only item 7. Tests: the phase 2 invoice editor's widget test;
 backend tests that preview and then save one bill of two notes from two orders
 and get the same totals, and that its PDF names both notes.
 
+**Built 2026-09-30 (D-SELL-39, D-BUY-18; desktop only, phase 2 screens).** The
+invoice editor and the supplier bill editor keep their first picker as the
+primary document and add an **Also bill** control beside it: it lists the other
+billable delivery notes (goods receipts) of the same customer (supplier) and
+branch, and hides when there are none. Adding one puts its lines on the bill at
+what is left, each row naming the note or receipt it came from; the chip's x
+takes them off again. The preview and the save send every line with its own
+source, numbered 1..n. A sales draft of several notes reopens with all of them;
+the buying screen only creates. Choosing a different primary document clears
+the added ones. It is a menu rather than the tick list of item 2, so the
+"choose the customer first" step and the salesman/territory/route refusal on
+screen (item 4) are not built -- the server still refuses those. Item 7 (the
+printed bill naming every note) is still to build.
+
 ## 59. Promotions: a "best offer only" mode
 
 Noticed on 2026-09-28, explaining promotions to the owner
