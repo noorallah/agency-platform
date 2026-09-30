@@ -3011,7 +3011,15 @@ Not a bug -- the data is all reachable, the screens are simply unbounded.
 
 ## 38. The same stage switches for purchasing
 
-Raised 2026-09-16.
+Raised 2026-09-16. **Built 2026-09-30** -- backend (migrations `0163`, `0164`,
+`PurchaseChainService`) and the phase 2 desktop (Purchases > Purchase Settings >
+Buying stages; the bill editor names an order or products when receipts are
+off). `docs/PURCHASE_FRAMEWORK.md`, "Stage switches", is the reference. The
+decisions below were taken by industry standard and are recorded there:
+approval of an order the bill raised is **not** a separate step (the person
+typing the bill is the approver there is); receipts on with orders off is
+refused; the bill's approval completes its own draft receipt first, so *Goods
+Received Not Invoiced* nets to zero.
 
 **The observation.** Selling already bends to a small firm and buying does not.
 `SalesWorkflowSettings` (`app/sales_order/models/sales_order.py`) gives a firm

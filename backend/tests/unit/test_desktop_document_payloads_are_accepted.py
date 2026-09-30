@@ -106,6 +106,19 @@ def test_a_purchase_invoice_line_carries_only_line_fields() -> None:
     assert not unknown, unknown
 
 
+def test_a_bill_of_products_line_carries_only_line_fields() -> None:
+    """A line typed directly (backlog §38) sends only PurchaseInvoiceLineWrite keys.
+
+    It names a product rather than a receipt line -- the server raises the
+    order and the receipt -- so its keys are a different set from the
+    receipt-line body above, and need their own check.
+    """
+    sent = _keys_between(_INVOICE, "product_id", "};")
+    assert {"product_id", "current_invoice_quantity", "expiry_date"} <= sent
+    unknown = sent - set(PurchaseInvoiceLineWrite.model_fields)
+    assert not unknown, unknown
+
+
 def test_a_purchase_invoice_carries_only_document_fields() -> None:
     """The bill's keys are fields of PurchaseInvoiceCreate or its source rows."""
     sent = _keys_between(_INVOICE, "supplier_invoice_date", "'lines': [")

@@ -22,6 +22,7 @@ import '../core/theme/theme_manager.dart';
 import '../models/branch_warehouse.dart';
 import '../models/entities.dart';
 import '../models/inventory.dart';
+import '../models/purchase.dart';
 import '../models/uom_packaging.dart';
 import '../models/product.dart';
 import '../models/report.dart' show ReportPage;
@@ -239,6 +240,8 @@ class _DesktopShellState extends State<DesktopShell> {
   /// Which sales stages this firm types. The whole chain until told otherwise,
   /// which is both the platform default and the safe answer on a failed read.
   SalesWorkflowSettings _salesStages = SalesWorkflowSettings.wholeChain;
+  PurchaseWorkflowSettings _purchaseStages =
+      PurchaseWorkflowSettings.wholeChain;
   int _lastFirmContextVersion = 0;
 
   /// How often the status bar asks whether the server is still there.
@@ -295,6 +298,7 @@ class _DesktopShellState extends State<DesktopShell> {
     // switched those stages off. `_salesStages` defaults to the whole chain,
     // so the wrong answer was the permissive one.
     _refreshSalesStages();
+    _refreshPurchaseStages();
     unawaited(_probeHealth());
     _healthTimer = Timer.periodic(_healthInterval, (_) => _probeHealth());
   }
@@ -466,6 +470,20 @@ class _DesktopShellState extends State<DesktopShell> {
     }
   }
 
+  /// Learn which stages of buying this firm types. Fails open to the whole
+  /// chain for the same reason as [_refreshSalesStages].
+  Future<void> _refreshPurchaseStages() async {
+    try {
+      final PurchaseWorkflowSettings settings =
+          await widget.session.api.purchaseWorkflowSettings();
+      if (!mounted) return;
+      setState(() => _purchaseStages = settings);
+    } on ApiException {
+      if (!mounted) return;
+      setState(() => _purchaseStages = PurchaseWorkflowSettings.wholeChain);
+    }
+  }
+
   Future<void> _refreshBusinessModules() async {
     try {
       final List<String> moduleCodes =
@@ -486,6 +504,7 @@ class _DesktopShellState extends State<DesktopShell> {
     _lastFirmContextVersion = version;
     _refreshBusinessModules();
     _refreshSalesStages();
+    _refreshPurchaseStages();
   }
 
   void _select(AppModule section) {
@@ -515,6 +534,7 @@ class _DesktopShellState extends State<DesktopShell> {
         permissions: widget.permissions,
         activeBusinessModules: _activeBusinessModuleCodes,
         salesStages: _salesStages,
+        purchaseStages: _purchaseStages,
         hasActiveFirm: widget.session.currentFirm != null,
       );
 
