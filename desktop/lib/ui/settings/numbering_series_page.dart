@@ -143,7 +143,7 @@ class _NumberingSeriesPageState extends State<NumberingSeriesPage> {
           builder: (BuildContext dialogContext) => AlertDialog(
             title: const Text('Retire this numbering series?'),
             content: Text(
-              'Documents already numbered by "\${rule.name}" keep the numbers '
+              'Documents already numbered by "${rule.name}" keep the numbers '
               'they have. New documents of this kind will need another '
               'series, or the firm will not be able to raise one.',
             ),

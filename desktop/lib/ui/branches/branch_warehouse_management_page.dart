@@ -825,6 +825,17 @@ class _BranchWarehouseManagementPageState
     }
   }
 
+  Future<bool> _confirmDelete(String what) async {
+    final bool confirmed = await showWorkspaceConfirmDialog(
+      context,
+      title: 'Delete $what?',
+      message: 'This $what will be soft deleted.',
+      confirmLabel: 'Delete',
+      type: ConfirmationType.delete,
+    );
+    return confirmed && mounted;
+  }
+
   Future<void> _deleteSelected() async {
     switch (widget.section) {
       case BranchWarehouseSection.branches:
@@ -837,18 +848,21 @@ class _BranchWarehouseManagementPageState
         break;
       case BranchWarehouseSection.storageAreas:
         if (_selectedStorageNode != null) {
+          if (!await _confirmDelete('storage area')) return;
           await widget.api.deleteStorageNode(_selectedStorageNode!.id);
           await _load();
         }
         break;
       case BranchWarehouseSection.branchTypes:
         if (_selectedType != null) {
+          if (!await _confirmDelete('branch type')) return;
           await widget.api.deleteBranchType(_selectedType!.id);
           await _load();
         }
         break;
       case BranchWarehouseSection.warehouseTypes:
         if (_selectedType != null) {
+          if (!await _confirmDelete('warehouse type')) return;
           await widget.api.deleteWarehouseType(_selectedType!.id);
           await _load();
         }

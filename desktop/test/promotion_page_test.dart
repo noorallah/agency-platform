@@ -80,10 +80,14 @@ class _PromotionApi extends ApiClient {
   Json? savedBody;
   int? sentVersion;
   String? updatedId;
+  final List<String> deleted = <String>[];
 
   /// What the condition picker searches when it asks for products.
   List<Product> catalogue = const <Product>[];
   final List<String> productSearches = <String>[];
+
+  @override
+  Future<void> deletePromotion(String id) async => deleted.add(id);
 
   @override
   Future<PagedResult<Product>> products({
@@ -534,5 +538,28 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('selection-view')));
     await tester.pumpAndSettle();
     expect(find.byType(AlertDialog), findsOneWidget);
+  });
+
+  testWidgets('retiring a promotion asks first (D-DLG-2)', (tester) async {
+    final _PromotionApi api =
+        _PromotionApi(rows: <PromotionRecord>[_promotion()]);
+    await _pumpPage(tester, api, phase2: true);
+    await tester.tap(find.text('TEN').first);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('selection-delete')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(api.deleted, isEmpty);
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+    expect(api.deleted, isEmpty);
+
+    await tester.tap(find.byKey(const ValueKey('selection-delete')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Retire'));
+    await tester.pumpAndSettle();
+    expect(api.deleted, ['promo-1']);
   });
 }

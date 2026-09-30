@@ -93,6 +93,7 @@ class _PricingApi extends ApiClient {
   Json? savedBody;
   int? sentVersion;
   String? updatedId;
+  final List<String> deleted = <String>[];
   ApiException? refuseSaveWith;
 
   @override
@@ -130,6 +131,9 @@ class _PricingApi extends ApiClient {
         items: [_product('prd-1', 'P001', 'Rice 25kg')],
         total: 1,
       );
+
+  @override
+  Future<void> deletePriceList(String id) async => deleted.add(id);
 
   @override
   Future<PriceListRecord> createPriceList(Json body) async {
@@ -396,5 +400,40 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('selection-view')));
     await tester.pumpAndSettle();
     expect(find.text('Rates'), findsOneWidget);
+  });
+
+  testWidgets('deleting a price list asks first (D-DLG-2)', (tester) async {
+    tester.view.physicalSize = const Size(1700, 1200);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final _PricingApi api = _PricingApi(rows: [_list()]);
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => Phase2Scope(child: child!),
+      home: Scaffold(
+        body: PriceListPage(
+          api: api,
+          permissions: _permissions(),
+          hasActiveFirm: true,
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Everyone').first);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('selection-delete')));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AlertDialog), findsOneWidget);
+    expect(api.deleted, isEmpty, reason: 'nothing is withdrawn before yes');
+    await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
+    await tester.pumpAndSettle();
+    expect(api.deleted, isEmpty);
+
+    await tester.tap(find.byKey(const ValueKey('selection-delete')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(FilledButton, 'Withdraw'));
+    await tester.pumpAndSettle();
+    expect(api.deleted, ['pl-1']);
   });
 }

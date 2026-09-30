@@ -4,6 +4,7 @@ import '../../core/api/api_client.dart';
 import '../../core/api/api_refusal.dart';
 import '../../models/entities.dart';
 import 'change_password_dialog.dart';
+import '../workspace/password_field.dart';
 
 /// A platform administrator sets somebody else's password.
 ///
@@ -114,9 +115,8 @@ class _ResetPasswordDialogState extends State<ResetPasswordDialog> {
                           ?.copyWith(color: theme.colorScheme.error),
                     ),
                   ),
-                TextFormField(
+                PasswordField(
                   controller: _next,
-                  obscureText: true,
                   autofocus: true,
                   decoration: const InputDecoration(
                     labelText: 'New password',
@@ -127,9 +127,8 @@ class _ResetPasswordDialogState extends State<ResetPasswordDialog> {
                   validator: ChangePasswordPolicy.check,
                 ),
                 const SizedBox(height: 12),
-                TextFormField(
+                PasswordField(
                   controller: _confirm,
-                  obscureText: true,
                   decoration:
                       const InputDecoration(labelText: 'Confirm new password'),
                   validator: (value) =>

@@ -1158,6 +1158,7 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
   final _remarks = TextEditingController();
   String _status = 'AVAILABLE';
   bool _saving = false;
+  String? _error;
 
   @override
   void initState() {
@@ -1184,7 +1185,10 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
 
   Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
-    setState(() => _saving = true);
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
     try {
       final Json data = {
         'batch_number': _batchNumber.text.trim(),
@@ -1209,13 +1213,7 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
       Navigator.pop(context, true);
     } on ApiException catch (exception) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            saveFailureMessage(exception, 'batch', changesKept: false),
-          ),
-        ),
-      );
+      setState(() => _error = saveFailureMessage(exception, 'batch', changesKept: false));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -1232,6 +1230,15 @@ class _BatchFormDialogState extends State<_BatchFormDialog> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (_error != null) ...[
+                    Text(
+                      _error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   TextFormField(
                     controller: _batchNumber,
                     decoration:
@@ -1335,6 +1342,7 @@ class _LotFormDialogState extends State<_LotFormDialog> {
   String _lotType = 'PRODUCTION';
   String _status = 'ACTIVE';
   bool _saving = false;
+  String? _error;
 
   @override
   void initState() {
@@ -1362,7 +1370,10 @@ class _LotFormDialogState extends State<_LotFormDialog> {
 
   Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
-    setState(() => _saving = true);
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
     try {
       final Json data = {
         'lot_number': _lotNumber.text.trim(),
@@ -1387,13 +1398,7 @@ class _LotFormDialogState extends State<_LotFormDialog> {
       Navigator.pop(context, true);
     } on ApiException catch (exception) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            saveFailureMessage(exception, 'lot', changesKept: false),
-          ),
-        ),
-      );
+      setState(() => _error = saveFailureMessage(exception, 'lot', changesKept: false));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -1410,6 +1415,15 @@ class _LotFormDialogState extends State<_LotFormDialog> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (_error != null) ...[
+                    Text(
+                      _error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   TextFormField(
                     controller: _lotNumber,
                     decoration:
@@ -1498,6 +1512,7 @@ class _SerialFormDialogState extends State<_SerialFormDialog> {
   final _remarks = TextEditingController();
   String _status = 'AVAILABLE';
   bool _saving = false;
+  String? _error;
 
   @override
   void initState() {
@@ -1528,7 +1543,10 @@ class _SerialFormDialogState extends State<_SerialFormDialog> {
 
   Future<void> _save() async {
     if (!(_formKey.currentState?.validate() ?? false)) return;
-    setState(() => _saving = true);
+    setState(() {
+      _saving = true;
+      _error = null;
+    });
     try {
       final Json data = {
         'serial_number': _serialNumber.text.trim(),
@@ -1558,13 +1576,7 @@ class _SerialFormDialogState extends State<_SerialFormDialog> {
       Navigator.pop(context, true);
     } on ApiException catch (exception) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            saveFailureMessage(exception, 'serial number', changesKept: false),
-          ),
-        ),
-      );
+      setState(() => _error = saveFailureMessage(exception, 'serial number', changesKept: false));
     } finally {
       if (mounted) setState(() => _saving = false);
     }
@@ -1582,6 +1594,15 @@ class _SerialFormDialogState extends State<_SerialFormDialog> {
               child: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
+                  if (_error != null) ...[
+                    Text(
+                      _error!,
+                      style: TextStyle(
+                        color: Theme.of(context).colorScheme.error,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                  ],
                   TextFormField(
                     controller: _serialNumber,
                     decoration:
