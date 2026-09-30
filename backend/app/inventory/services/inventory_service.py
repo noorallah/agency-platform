@@ -983,6 +983,26 @@ class InventoryService:
         source_format: str = "MANUAL",
     ) -> OpeningStockBatch:
         """Create a draft opening-stock batch."""
+        batch = self.stage_opening_stock_batch(
+            data, firm_id=firm_id, actor_id=actor_id, source_format=source_format
+        )
+        self._commit()
+        self._session.refresh(batch)
+        return batch
+
+    def stage_opening_stock_batch(
+        self,
+        data: OpeningStockBatchCreate,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+        source_format: str = "MANUAL",
+    ) -> OpeningStockBatch:
+        """Build and flush a draft opening-stock batch without committing.
+
+        The file import stages one batch per warehouse and commits the file
+        once, so a problem in the last warehouse leaves the first unwritten.
+        """
         self._validate_branch_warehouse_scope(
             firm_id=firm_id, branch_id=data.branch_id, warehouse_id=data.warehouse_id
         )
@@ -1019,8 +1039,6 @@ class InventoryService:
                 "line_count": len(batch.lines),
             },
         )
-        self._commit()
-        self._session.refresh(batch)
         return batch
 
     def update_opening_stock_batch(
@@ -1134,6 +1152,17 @@ class InventoryService:
     ) -> OpeningStockBatch:
         """Post an opening-stock batch into the ledger."""
         batch = self.get_opening_stock_batch(batch_id, firm_scope=firm_scope)
+        self.stage_post_opening_stock_batch(
+            batch, firm_scope=firm_scope, actor_id=actor_id
+        )
+        self._commit()
+        self._session.refresh(batch)
+        return batch
+
+    def stage_post_opening_stock_batch(
+        self, batch: OpeningStockBatch, *, firm_scope: UUID, actor_id: UUID
+    ) -> OpeningStockBatch:
+        """Post a batch's movements and journal, flushed but not committed."""
         if batch.status == "POSTED":
             raise ConflictError("Opening stock batch has already been posted.")
         if not batch.lines:
@@ -1233,8 +1262,7 @@ class InventoryService:
                 "line_count": len(batch.lines),
             },
         )
-        self._commit()
-        self._session.refresh(batch)
+        self._session.flush()
         return batch
 
     def import_opening_stock_json(
