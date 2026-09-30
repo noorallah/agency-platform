@@ -13,6 +13,7 @@ from decimal import Decimal
 from io import BytesIO
 from uuid import UUID, uuid4
 
+import pytest
 from openpyxl import load_workbook
 from sqlalchemy import create_engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
@@ -22,6 +23,7 @@ from app.batch_serial.models import BatchRecord
 from app.branches.models import Branch, Warehouse
 from app.common.file_import import ImportReport
 from app.core.database.base import Base
+from app.core.exceptions import ValidationError
 from app.finance.models import GLPosting, JournalEntry, LedgerAccount
 from app.finance.services.opening_setup import seed_finance_setup
 from app.firms.models import Firm
@@ -190,7 +192,7 @@ def test_a_check_reports_every_problem_by_row_and_column_and_writes_nothing() ->
         "SYRUP,EAST,5,10,B7,",  # 9 expiry missing
         "SYRUP,EAST,5,10,B8,31st Dec",  # 10 expiry unparseable
         "RICE,Main Godown,4,50,,",  # 11 duplicate of row 2, by name
-        "RICE,OLD,4,50,,",  # 12 warehouse already opened
+        "RICE,OLD,4,50,,",  # 12 item already opened in that warehouse
         "PHONE,MAIN,1,1000,,",  # 13 serial-numbered
         "OIL,,1,1,,",  # 14 warehouse blank with three of them
     )
@@ -208,7 +210,7 @@ def test_a_check_reports_every_problem_by_row_and_column_and_writes_nothing() ->
         (9, "Expiry"),
         (10, "Expiry"),
         (11, "ProductCode"),
-        (12, "Warehouse"),
+        (12, "ProductCode"),
         (13, "ProductCode"),
         (14, "Warehouse"),
     }, [issue.describe() for issue in report.issues]
@@ -331,7 +333,13 @@ def test_one_bad_row_writes_nothing_at_all() -> None:
 
 
 def test_the_only_warehouse_is_taken_when_the_column_is_blank() -> None:
-    """A one-warehouse firm need not name it; a second import is refused by name."""
+    """A one-warehouse firm need not name it; the same item again is refused.
+
+    One rule with the form (decided 2026-10-01, as ERPs do it): an item's
+    opening stock is posted once, so importing the same file twice is refused
+    by name, while the items forgotten the first time import into a second
+    document for the warehouse.
+    """
     factory = _factory()
     session = factory()
     firm = _firm(session, warehouses=("MAIN",))
@@ -340,9 +348,46 @@ def test_the_only_warehouse_is_taken_when_the_column_is_blank() -> None:
 
     assert report.imported, [issue.describe() for issue in report.issues]
     assert _batches(factory) == ["OS-IMPORT-20260801-MAIN"]
-    again = _run(session, firm.id, _csv("ProductCode,Quantity", "OIL,5"), apply=True)
+    again = _run(session, firm.id, _csv("ProductCode,Quantity", "RICE,5"), apply=True)
     assert not again.imported
     assert "already has posted opening stock" in again.issues[0].message
+    assert "OS-IMPORT-20260801-MAIN" in again.issues[0].message
+    forgotten = _run(
+        session, firm.id, _csv("ProductCode,Quantity", "OIL,5"), apply=True
+    )
+    assert forgotten.imported, [issue.describe() for issue in forgotten.issues]
+    assert sorted(_batches(factory)) == [
+        "OS-IMPORT-20260801-MAIN",
+        "OS-IMPORT-20260801-MAIN-2",
+    ]
+
+
+def test_the_form_refuses_an_item_whose_opening_stock_is_posted() -> None:
+    """The form's post applies the import's rule: the same item twice is refused."""
+    factory = _factory()
+    session = factory()
+    firm = _firm(session, warehouses=("OLD",))
+    _open_warehouse(session, firm, "OLD")
+    warehouse = session.scalars(select(Warehouse).where(Warehouse.code == "OLD")).one()
+    rice = session.scalars(select(Product).where(Product.code == "RICE")).one()
+    service = InventoryService(session)
+    actor = uuid4()
+    batch = service.create_opening_stock_batch(
+        OpeningStockBatchCreate(
+            branch_id=warehouse.branch_id,
+            warehouse_id=warehouse.id,
+            reference_number="OS-AGAIN",
+            posting_date=_ON,
+            lines=[{"product_id": rice.id, "quantity": "2"}],
+        ),
+        firm_id=firm.id,
+        actor_id=actor,
+    )
+
+    with pytest.raises(
+        ValidationError, match=r"already has posted opening stock .*OS-BY-HAND"
+    ):
+        service.post_opening_stock_batch(batch.id, firm_scope=firm.id, actor_id=actor)
 
 
 def test_dates_are_read_the_ways_a_spreadsheet_writes_them() -> None:

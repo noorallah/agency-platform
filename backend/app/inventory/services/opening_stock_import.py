@@ -12,8 +12,11 @@ opening stock:
   on the posting date chosen on the screen, and every one is **created and
   posted** in one transaction -- the same ``stage_*`` methods the form's
   create and post run, committed once.
-* **Opening stock is posted once per warehouse.** A warehouse that already has
-  posted opening stock is refused by name; a correction is a stock adjustment.
+* **An item's opening stock is posted once.** A row for a product, warehouse
+  and batch that already has posted opening stock is refused, naming the
+  document; a correction is a stock adjustment. Other items for the same
+  warehouse -- the ones forgotten the first time -- are imported, exactly as
+  the form allows. The form's post applies the same rule.
 * **Tracking is the product's, not the file's.** A batch-tracked product needs
   a batch and a plain one may not have one; an expiry-tracked product needs an
   expiry unless its batch is already dated; serial-numbered stock is refused,
@@ -46,7 +49,10 @@ from app.common.file_import import (
 from app.core.exceptions import ApplicationError
 from app.inventory.models import OpeningStockBatch
 from app.inventory.schemas import OpeningStockBatchCreate, OpeningStockLineCreate
-from app.inventory.services.inventory_service import InventoryService
+from app.inventory.services.inventory_service import (
+    InventoryService,
+    opening_stock_key,
+)
 from app.products.models import Product
 from app.uom.models import Uom
 
@@ -188,7 +194,7 @@ class _Reference:
     products: dict[str, Product]
     warehouses: list[Warehouse]
     units: dict[str, Uom]
-    opened: dict[UUID, str]
+    opened: dict[tuple[UUID, UUID, str], str]
     batches: dict[tuple[UUID, str], date | None]
 
 
@@ -221,18 +227,7 @@ def _read_references(session: Session, firm_id: UUID) -> _Reference:
         units[unit.name.strip().lower()] = unit
     for unit in stored_units:
         units[unit.code.strip().lower()] = unit
-    opened = {
-        warehouse_id: reference
-        for warehouse_id, reference in session.execute(
-            select(OpeningStockBatch.warehouse_id, OpeningStockBatch.reference_number)
-            .where(
-                OpeningStockBatch.firm_id == firm_id,
-                OpeningStockBatch.status == "POSTED",
-                OpeningStockBatch.is_deleted.is_(False),
-            )
-            .order_by(OpeningStockBatch.posting_date)
-        ).all()
-    }
+    opened = InventoryService(session).posted_opening_stock(firm_id)
     batches = {
         (product_id, number): expiry
         for product_id, number, expiry in session.execute(
@@ -370,14 +365,6 @@ class OpeningStockFileImporter:
             )
             product = None
         warehouse = self._warehouse(reader, reference)
-        if warehouse is not None and warehouse.id in reference.opened:
-            reader.fail(
-                "Warehouse",
-                f"{warehouse.code} already has posted opening stock "
-                f"({reference.opened[warehouse.id]}). Opening stock is posted "
-                "once; correct it with a stock adjustment.",
-            )
-            warehouse = None
         quantity = reader.number("Quantity")
         if quantity is None and not reader.text("Quantity"):
             reader.fail("Quantity", "is required.")
@@ -405,6 +392,18 @@ class OpeningStockFileImporter:
                 )
             except ApplicationError as error:
                 reader.fail("Unit" if unit_id else "Quantity", error.message)
+        earlier = (
+            reference.opened.get(opening_stock_key(product.id, warehouse.id, batch))
+            if product is not None and warehouse is not None
+            else None
+        )
+        if earlier is not None and warehouse is not None:
+            reader.fail(
+                "Batch" if batch else "ProductCode",
+                f"{code} already has posted opening stock in {warehouse.code} "
+                f"({earlier}). Opening stock is posted once per item; correct it "
+                "with a stock adjustment.",
+            )
         if product is not None and warehouse is not None and not issues:
             key = (product.id, warehouse.id, batch)
             if key in seen:
@@ -659,8 +658,9 @@ def template_workbook(session: Session, firm_id: UUID) -> bytes:
         "for a batch-tracked product). Rows are grouped into one opening stock "
         "document per warehouse, all on the posting date chosen on screen, and "
         "every document is posted as it is imported.",
-        "A warehouse that already has posted opening stock is refused; correct "
-        "its stock with a stock adjustment instead.",
+        "An item that already has posted opening stock in a warehouse (the "
+        "same product and batch) is refused; correct its stock with a stock "
+        "adjustment instead. Other items for that warehouse are imported.",
         "Stock with no UnitCost is recorded at zero value: it adds nothing to "
         "the stock valuation or the ledger.",
         "Serial-numbered products are not imported from a file; enter their "

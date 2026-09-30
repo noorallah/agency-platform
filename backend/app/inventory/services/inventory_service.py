@@ -238,6 +238,13 @@ def _pairs(
     return found
 
 
+def opening_stock_key(
+    product_id: UUID, warehouse_id: UUID, batch_number: str | None
+) -> tuple[UUID, UUID, str]:
+    """Name one item's opening stock: product, warehouse and batch."""
+    return product_id, warehouse_id, (batch_number or "").strip().upper()
+
+
 class InventoryService:
     """Coordinate inventory projections, immutable movements, and opening stock."""
 
@@ -1159,6 +1166,41 @@ class InventoryService:
         self._session.refresh(batch)
         return batch
 
+    def posted_opening_stock(
+        self, firm_scope: UUID, *, excluding: UUID | None = None
+    ) -> dict[tuple[UUID, UUID, str], str]:
+        """Return every item with posted opening stock, and the document's number.
+
+        Keyed by ``opening_stock_key``: product, warehouse and batch.
+        """
+        statement = (
+            select(
+                OpeningStockLine.product_id,
+                OpeningStockBatch.warehouse_id,
+                OpeningStockLine.batch_number,
+                OpeningStockBatch.reference_number,
+            )
+            .join(
+                OpeningStockBatch,
+                OpeningStockBatch.id == OpeningStockLine.opening_stock_batch_id,
+            )
+            .where(
+                OpeningStockBatch.firm_id == firm_scope,
+                OpeningStockBatch.status == "POSTED",
+                OpeningStockBatch.is_deleted.is_(False),
+                OpeningStockLine.is_deleted.is_(False),
+            )
+            .order_by(OpeningStockBatch.posting_date.desc())
+        )
+        if excluding is not None:
+            statement = statement.where(OpeningStockBatch.id != excluding)
+        return {
+            opening_stock_key(product_id, warehouse_id, batch_number): reference
+            for product_id, warehouse_id, batch_number, reference in (
+                self._session.execute(statement).all()
+            )
+        }
+
     def stage_post_opening_stock_batch(
         self, batch: OpeningStockBatch, *, firm_scope: UUID, actor_id: UUID
     ) -> OpeningStockBatch:
@@ -1167,6 +1209,26 @@ class InventoryService:
             raise ConflictError("Opening stock batch has already been posted.")
         if not batch.lines:
             raise ValidationError("Opening stock batch must contain at least one line.")
+        # One rule for the form and the file import: an item's opening stock
+        # in one warehouse (and batch) is posted once. A second document for
+        # a warehouse is fine -- the items forgotten the first time -- but the
+        # same item again is the same stock counted twice; a correction is a
+        # stock adjustment.
+        posted = self.posted_opening_stock(firm_scope, excluding=batch.id)
+        for line in batch.lines:
+            if line.is_deleted:
+                continue
+            earlier = posted.get(
+                opening_stock_key(
+                    line.product_id, batch.warehouse_id, line.batch_number
+                )
+            )
+            if earlier is not None:
+                raise ValidationError(
+                    f"Line {line.line_number} already has posted opening stock in "
+                    f"this warehouse ({earlier}). Opening stock is posted once per "
+                    "item; correct it with a stock adjustment."
+                )
         movement_ids: list[UUID] = []
         for line in batch.lines:
             (

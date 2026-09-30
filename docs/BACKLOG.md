@@ -2975,9 +2975,11 @@ good enough that onboarding is a day's work rather than a project.
   a plain one, a missing or unreadable expiry, the same product, warehouse
   and batch twice (naming the first row), a unit with no conversion, a
   serial-numbered product (an opening-stock line carries no serials; entered
-  on screen), and a warehouse that **already has posted opening stock** -- a
-  rule the import adds; the form still allows a second document, and a
-  correction belongs in an adjustment. The importer is
+  on screen), and an item (product, warehouse, batch) that **already has
+  posted opening stock**, naming that document. One rule with the form
+  (decided 2026-10-01, as ERPs do it): the form's post refuses the same item
+  too, while a second document for a warehouse -- the items forgotten the
+  first time -- is allowed either way. A correction belongs in an adjustment. The importer is
   `app/inventory/services/opening_stock_import.py`; the desktop Opening
   Stock screen has **Import from file** (the shared wizard with a posting
   date). The old `POST /inventory/opening-stock/import` (one warehouse,
