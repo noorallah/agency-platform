@@ -19,6 +19,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 from io import BytesIO
+from xml.sax.saxutils import escape
 
 from reportlab.lib import colors
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT
@@ -135,6 +136,9 @@ class PartyBlock:
     pan: str | None = None
     state: str | None = None
     contact: str | None = None
+    #: ``(licence type, number)`` valid on the document's date -- the drug
+    #: licence and FSSAI numbers a pharma or food invoice must carry (54).
+    licences: tuple[tuple[str, str], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -400,6 +404,8 @@ class InvoicePdfRenderer:
             identifiers.append(f"<b>State</b> {party.state}")
         if party.contact:
             identifiers.append(party.contact)
+        for kind, number in party.licences:
+            identifiers.append(f"<b>{escape(kind)}</b> {escape(number)}")
         for line in identifiers:
             blocks.append(Paragraph(line, self._small))
         return blocks

@@ -243,6 +243,13 @@ PERMISSION_GROUPS = {
         "SALES_TARGET_VIEW",
         "SALES_TARGET_MANAGE",
     ),
+    "trade_licences": (
+        # Drug, FSSAI, insecticide, fertiliser and seed licences of the firm,
+        # its customers and its vendors (backlog 54). Not `LICENSE_*`, which
+        # is the product's own licence to run.
+        "TRADE_LICENCE_VIEW",
+        "TRADE_LICENCE_MANAGE",
+    ),
     "promotions": (
         "PROMOTION_VIEW",
         # `SALES_MANAGER` is granted `PROMOTION_VIEW` alone, below: a promotion
@@ -427,6 +434,7 @@ _operational_permissions = _codes(
     "pricing",
     "promotions",
     "sales_targets",
+    "trade_licences",
     "commission",
     "credit_note",
     "proforma",
@@ -509,6 +517,10 @@ _SEEDED_ROLE_PERMISSION_CODES = {
             # Reads the number their team is measured on. Setting it is the
             # firm's decision, not the role the target constrains.
             "SALES_TARGET_VIEW",
+            # A customer's licence is customer master data, which this role
+            # owns; whether a sale without one is refused is the firm's.
+            "TRADE_LICENCE_VIEW",
+            "TRADE_LICENCE_MANAGE",
             # A sales manager reads what their team earned; setting the rate
             # they are paid on is not theirs, the way the credit policy that
             # limits their own sales is not theirs to switch off.
@@ -543,11 +555,18 @@ _SEEDED_ROLE_PERMISSION_CODES = {
             "SALES_ORDER_CREATE",
             "SALES_INVOICE_CREATE",
             "SALES_VIEW",
+            # Sees why a line needing a licence is flagged on a customer.
+            "TRADE_LICENCE_VIEW",
         }
     ),
-    "PURCHASE_MANAGER": _codes("purchase") - frozenset({"PURCHASE_MANAGE_SETTINGS"}),
-    "PURCHASE_EXECUTIVE": _codes("purchase")
-    - frozenset({"PURCHASE_APPROVE", "PURCHASE_MANAGE_SETTINGS"}),
+    # A vendor's licence is vendor master data, which the purchase manager
+    # owns; the executive reads it to know a supplier may supply the goods.
+    "PURCHASE_MANAGER": (_codes("purchase") - frozenset({"PURCHASE_MANAGE_SETTINGS"}))
+    | _codes("trade_licences"),
+    "PURCHASE_EXECUTIVE": (
+        _codes("purchase") - frozenset({"PURCHASE_APPROVE", "PURCHASE_MANAGE_SETTINGS"})
+    )
+    | frozenset({"TRADE_LICENCE_VIEW"}),
     "INVENTORY_MANAGER": _codes("inventory", "batch_serial"),
     "CASHIER": frozenset(
         # A cashier who can record money and not look at what they recorded

@@ -59,6 +59,7 @@ from app.search.api import router as global_search_router
 from app.settlements.api import payments_router, receipts_router, refunds_router
 from app.tax.api import router as tax_framework_router
 from app.tcs.api import router as tcs_router
+from app.trade_licences.api import router as trade_licences_router
 from app.uom.api import router as uom_framework_router
 from app.vendors.api import router as vendors_router
 
@@ -135,6 +136,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(pricing_router)
     application.include_router(promotions_router)
     application.include_router(sales_targets_router)
+    application.include_router(trade_licences_router)
     application.include_router(products_router)
     application.include_router(proforma_router)
     application.include_router(loyalty_router)
