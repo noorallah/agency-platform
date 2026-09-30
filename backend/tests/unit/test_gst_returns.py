@@ -641,6 +641,28 @@ def test_a_period_that_runs_backwards_is_refused() -> None:
         )
 
 
+def test_a_return_covers_a_month_or_a_quarter_and_no_more() -> None:
+    """GSTR-1 and 3B are filed by the month, or the quarter under QRMP.
+
+    A year of GSTR-1 read 280,000 lines and took 64 s on the volume firm
+    (backlog 56 C, step 4); an annual figure is GSTR-9, a different return.
+    """
+    books = _Books(_session_factory()())
+    service = GstReturnService(books.session)
+
+    quarter = service.gstr3b(
+        firm_scope=books.firm.id, from_date=date(2026, 4, 1), to_date=date(2026, 6, 30)
+    )
+    assert quarter is not None
+    for build in (service.gstr1, service.gstr3b):
+        with pytest.raises(ValidationError, match="at most 3 calendar months"):
+            build(
+                firm_scope=books.firm.id,
+                from_date=date(2026, 4, 1),
+                to_date=date(2026, 7, 1),
+            )
+
+
 def test_one_firm_s_return_never_reads_another_firm_s_sales() -> None:
     """Firm isolation, which the review checklist asks of every module."""
     books = _Books(_session_factory()())

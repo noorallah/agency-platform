@@ -39,13 +39,15 @@ way out, so the running totals behind it keep the scale they were priced at.
 """
 
 from collections import defaultdict
+from collections.abc import Sequence
 from dataclasses import dataclass, field
 from datetime import date
 from decimal import Decimal
+from typing import Any, Protocol
 from uuid import UUID
 
-from sqlalchemy import func, select, true
-from sqlalchemy.orm import Session
+from sqlalchemy import ColumnElement, Row, Select, func, select, true
+from sqlalchemy.orm import Session, lazyload
 
 from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ValidationError
@@ -168,6 +170,87 @@ def gstr1_due_date(invoice_date: date) -> date:
     return date(invoice_date.year, invoice_date.month + 1, 11)
 
 
+#: The longest period one return may be asked for, in calendar months. GSTR-1
+#: and 3B are filed monthly, or quarterly under QRMP; a year is GSTR-9, a
+#: different return. A year of GSTR-1 on the volume firm read 280,000 lines
+#: and took 64 s (backlog 56 C, step 4).
+MAX_RETURN_MONTHS = 3
+
+
+def _check_period(from_date: date, to_date: date) -> None:
+    """Refuse a period that runs backwards or spans more than a quarter."""
+    if to_date < from_date:
+        raise ValidationError("to_date cannot be before from_date.")
+    months = (to_date.year - from_date.year) * 12 + to_date.month - from_date.month
+    if months >= MAX_RETURN_MONTHS:
+        raise ValidationError(
+            f"A return covers at most {MAX_RETURN_MONTHS} calendar months -- a "
+            "month, or a quarter under QRMP. Ask for each period separately."
+        )
+
+
+class _PricedLine(Protocol):
+    """The fields of an invoice line the return prices it from."""
+
+    @property
+    def tax_profile_id(self) -> UUID | None:
+        """The tax profile the line named, if any."""
+
+    @property
+    def gross_amount(self) -> Decimal:
+        """Quantity times price."""
+
+    @property
+    def discount_amount(self) -> Decimal:
+        """The line's own discount."""
+
+    @property
+    def bill_discount_amount(self) -> Decimal:
+        """Its share of the bill's discount."""
+
+    @property
+    def charges_amount(self) -> Decimal:
+        """The line's own charges."""
+
+    @property
+    def freight_amount(self) -> Decimal:
+        """Its share of the freight."""
+
+
+class _PricedTax(Protocol):
+    """The fields of a line's tax component the return reads."""
+
+    @property
+    def component_code(self) -> str:
+        """CGST, SGST, IGST or CESS."""
+
+    @property
+    def percentage(self) -> Decimal:
+        """The rate charged."""
+
+    @property
+    def amount(self) -> Decimal:
+        """The tax charged."""
+
+
+#: What `_priced` reads of each line: the columns, never the whole row, since
+#: a year of lines as ORM objects was a large part of the 64 s GSTR-1 took on
+#: the volume firm (backlog 56 C, step 4).
+_LINE_COLUMNS = (
+    SalesInvoiceLine.id,
+    SalesInvoiceLine.sales_invoice_id,
+    SalesInvoiceLine.line_number,
+    SalesInvoiceLine.product_id,
+    SalesInvoiceLine.current_invoice_quantity,
+    SalesInvoiceLine.tax_profile_id,
+    SalesInvoiceLine.gross_amount,
+    SalesInvoiceLine.discount_amount,
+    SalesInvoiceLine.bill_discount_amount,
+    SalesInvoiceLine.charges_amount,
+    SalesInvoiceLine.freight_amount,
+)
+
+
 @dataclass(slots=True)
 class _RateRow:
     """One rate's worth of a document or a summary."""
@@ -284,13 +367,13 @@ class GstReturnService:
             The sections, each already summed the way the return wants them.
 
         Raises:
-            ValidationError: If the period runs backwards, or the firm has no
+            ValidationError: If the period runs backwards or spans more than a
+                quarter (``_check_period``), or the firm has no
                 GSTIN -- a return is filed *by* a GSTIN, so there is nothing to
                 file without one.
 
         """
-        if to_date < from_date:
-            raise ValidationError("to_date cannot be before from_date.")
+        _check_period(from_date, to_date)
         firm = self._firms.get(firm_scope)
         seller_gstin = (firm.gst_number or "").strip().upper()
         if not seller_gstin:
@@ -467,12 +550,12 @@ class GstReturnService:
             Section 3.1(a), and what was taken off it.
 
         Raises:
-            ValidationError: If the period runs backwards, or the firm has no
+            ValidationError: If the period runs backwards or spans more than a
+                quarter (``_check_period``), or the firm has no
                 GSTIN to file under.
 
         """
-        if to_date < from_date:
-            raise ValidationError("to_date cannot be before from_date.")
+        _check_period(from_date, to_date)
         firm = self._firms.get(firm_scope)
         seller_gstin = (firm.gst_number or "").strip().upper()
         if not seller_gstin:
@@ -692,16 +775,17 @@ class GstReturnService:
         cancellation belongs to the month it happened in (D-CMP-11). One
         cancelled before the due date is dropped, as it always was.
         """
+        declared = (
+            SalesInvoice.firm_id == firm_scope,
+            SalesInvoice.is_deleted.is_(False),
+            SalesInvoice.status.in_((*_LIVE_INVOICE_STATUSES, "CANCELLED")),
+            SalesInvoice.invoice_date >= from_date,
+            SalesInvoice.invoice_date <= to_date,
+        )
         in_period = list(
             self._session.scalars(
                 select(SalesInvoice)
-                .where(
-                    SalesInvoice.firm_id == firm_scope,
-                    SalesInvoice.is_deleted.is_(False),
-                    SalesInvoice.status.in_((*_LIVE_INVOICE_STATUSES, "CANCELLED")),
-                    SalesInvoice.invoice_date >= from_date,
-                    SalesInvoice.invoice_date <= to_date,
-                )
+                .where(*declared)
                 .order_by(SalesInvoice.invoice_date.asc())
             ).all()
         )
@@ -714,7 +798,8 @@ class GstReturnService:
                 for row in in_period
                 if row.status != "CANCELLED"
                 or self._cancelled_after_filing(row, cancelled_on.get(row.id))
-            ]
+            ],
+            among=select(SalesInvoice.id).where(*declared),
         )
 
     @staticmethod
@@ -863,40 +948,74 @@ class GstReturnService:
             }
         )
 
-    def _priced(self, invoices: list[SalesInvoice]) -> list[
+    def _priced(
+        self,
+        invoices: list[SalesInvoice],
+        *,
+        among: Select[tuple[UUID]] | None = None,
+    ) -> list[
         tuple[
             SalesInvoice,
             Customer,
             list[tuple[Decimal, GstBuckets, _Billed | None, Decimal, str]],
         ]
     ]:
-        """Return each invoice with its lines, priced into GST buckets."""
+        """Return each invoice with its lines, priced into GST buckets.
+
+        ``among`` is the query that chose ``invoices``, when one did: the
+        lines and their taxes are then read through it rather than by sending
+        every id back in chunks, which was most of a year's 64 s on a firm
+        with 110,000 invoices (backlog 56 C, step 4). It may name more
+        invoices than ``invoices`` holds; their lines are read and ignored.
+        """
         if not invoices:
             return []
-        # Read in chunks: a quarter's lines are about as many as one
-        # statement may name (backlog 56 C).
-        lines = [
-            line
-            for part in chunks([invoice.id for invoice in invoices])
-            for line in self._session.scalars(
-                select(SalesInvoiceLine).where(
-                    SalesInvoiceLine.sales_invoice_id.in_(part),
-                    SalesInvoiceLine.is_deleted.is_(False),
+        live_lines = SalesInvoiceLine.is_deleted.is_(False)
+        if among is not None:
+            lines = list(
+                self._session.execute(
+                    select(*_LINE_COLUMNS).where(
+                        SalesInvoiceLine.sales_invoice_id.in_(among), live_lines
+                    )
+                ).all()
+            )
+            tax_parts: list[ColumnElement[bool]] = [
+                SalesInvoiceLineTax.sales_invoice_line_id.in_(
+                    select(SalesInvoiceLine.id).where(
+                        SalesInvoiceLine.sales_invoice_id.in_(among), live_lines
+                    )
                 )
-            ).all()
-        ]
-        taxes: dict[UUID, list[SalesInvoiceLineTax]] = defaultdict(list)
-        for part in chunks([line.id for line in lines]):
-            for component in self._session.scalars(
-                select(SalesInvoiceLineTax).where(
-                    SalesInvoiceLineTax.sales_invoice_line_id.in_(part),
-                    SalesInvoiceLineTax.is_deleted.is_(False),
-                )
+            ]
+        else:
+            # Read in chunks: a quarter's lines are about as many as one
+            # statement may name (backlog 56 C).
+            lines = [
+                line
+                for part in chunks([invoice.id for invoice in invoices])
+                for line in self._session.execute(
+                    select(*_LINE_COLUMNS).where(
+                        SalesInvoiceLine.sales_invoice_id.in_(part), live_lines
+                    )
+                ).all()
+            ]
+            tax_parts = [
+                SalesInvoiceLineTax.sales_invoice_line_id.in_(part)
+                for part in chunks([line.id for line in lines])
+            ]
+        taxes: dict[UUID, list[_PricedTax]] = defaultdict(list)
+        for part in tax_parts:
+            for component in self._session.execute(
+                select(
+                    SalesInvoiceLineTax.sales_invoice_line_id,
+                    SalesInvoiceLineTax.component_code,
+                    SalesInvoiceLineTax.percentage,
+                    SalesInvoiceLineTax.amount,
+                ).where(part, SalesInvoiceLineTax.is_deleted.is_(False))
             ).all():
                 taxes[component.sales_invoice_line_id].append(component)
-        products = self._products([line.product_id for line in lines])
-        customers = self._customers([invoice.customer_id for invoice in invoices])
-        by_invoice: dict[UUID, list[SalesInvoiceLine]] = defaultdict(list)
+        products = self._products(list({line.product_id for line in lines}))
+        customers = self._customers(list({invoice.customer_id for invoice in invoices}))
+        by_invoice: dict[UUID, list[Row[Any]]] = defaultdict(list)
         for line in lines:
             by_invoice[line.sales_invoice_id].append(line)
 
@@ -1335,7 +1454,7 @@ class GstReturnService:
         }
 
     @staticmethod
-    def _kind(line: SalesInvoiceLine, components: list[SalesInvoiceLineTax]) -> str:
+    def _kind(line: _PricedLine, components: Sequence[_PricedTax]) -> str:
         """Say whether a line was a taxable supply, and if not, which kind.
 
         A component charging a rate is taxable. Components that are all at 0%
@@ -1561,7 +1680,7 @@ class GstReturnService:
     # ---- helpers -------------------------------------------------------
 
     @staticmethod
-    def _taxable(line: SalesInvoiceLine) -> Decimal:
+    def _taxable(line: _PricedLine) -> Decimal:
         """Return what a line was charged before tax.
 
         Gross less both discounts **plus its share of the freight**, which is
@@ -1673,6 +1792,9 @@ class GstReturnService:
             row.id: row
             for row in self._session.scalars(
                 select(Product).where(Product.id.in_(ids))
+                # Its eager collections are never read here, and loading them
+                # cost as much again as the rows (backlog 56 C, step 4).
+                .options(lazyload("*"))
             ).all()
         }
 
@@ -1685,8 +1807,16 @@ class GstReturnService:
             row.id: row
             for row in self._session.scalars(
                 select(Customer).where(Customer.id.in_(ids))
+                # Its eager collections are never read here, and loading them
+                # cost as much again as the rows (backlog 56 C, step 4).
+                .options(lazyload("*"))
             ).all()
         }
 
 
-__all__ = ["B2CL_THRESHOLD", "GstReturnService", "b2cl_threshold"]
+__all__ = [
+    "B2CL_THRESHOLD",
+    "MAX_RETURN_MONTHS",
+    "GstReturnService",
+    "b2cl_threshold",
+]
