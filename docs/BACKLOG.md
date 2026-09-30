@@ -4855,3 +4855,180 @@ return restock versus damaged / scrap quantities. What it adds:
 **Suggested order:** 5, 6 (small; accountant and bank) -> 3 -> 1 -> 2 (needed
 before any firm with branches in two states) -> 7 -> 4 -> 8 -> 9, 10;
 then 11 -> 13 -> 12 -> 14 -> 18 -> 15 -> 16, 17.
+
+## 71. Sign-in screen for phase 2, with the agency's own logo and name
+
+Owner, 2026-09-28: a wireframe for the sign-in screen, and **the logo and
+agency name must be configurable** -- keep it in the backlog. The wireframe is
+view 8 of `dist\windows\Design\UI phase 2 wireframes.html`, in **three
+layouts** (A, B, C) that follow Home's frame and colours; switch "not yet set"
+/ "configured" to see both branding states. **Layout: owner to choose.**
+
+**Today:** the phase 1 sign-in screen reads `config\branding.json` beside the
+executable -- `app_name`, `company_name`, `logo_path`, two colours. That file
+is per PC and edited by hand, so ten PCs mean ten edits, Setup overwrites it
+on every upgrade, and nobody can change it from inside the app. The logo path
+must point at a file that exists on that PC.
+
+**The ask:**
+
+| # | Item | Detail |
+| --- | --- | --- |
+| 1 | **Branding held by the server** | Agency name, tagline, logo (PNG/JPG, stored by the backend, size-capped) and accent colour, in one platform-level record -- one agency per installation, above the firms, because sign-in happens before a firm is chosen |
+| 2 | **Read before sign-in** | A public, unauthenticated `GET` for the branding and the logo image (nothing secret in it), cached on the PC so the screen still shows the logo when the server is down, with the "server does not answer" strip beside it |
+| 3 | **Edited in the app** | **Settings > Platform > Branding**, platform administrators only: upload/replace/remove the logo with a preview, name, tagline, accent colour; audited like any other platform change |
+| 4 | **Used everywhere the name shows** | Sign-in panel, the menu bar's logo spot, the window title, About, and the footer's copyright; the product name stays as "Powered by Agency Platform" |
+| 5 | **`branding.json` becomes the fallback** | Kept for the server address and the version; its name/logo apply only until the server's record is set, so an install that set them by hand keeps them |
+| 6 | **Phase 2 sign-in screen** | In the layout the owner picks (**A** brand panel left, form right; **B** Home's frame -- the dark bar carries logo and name and becomes the menu bar after sign-in -- with one card in the middle; **C** as B plus tiles of the people who signed in on this PC, so a counter clerk types only a password). In each: username or email, password with show/hide, remember username, keep me signed in, Sign in on Enter, Forgot password), server status and version at the foot, Application Settings behind the gear; below 820 px the brand panel folds into a small logo above the form; a wrong password is one line that does not say which half was wrong |
+
+Per-firm logos on printed documents are a separate thing (the firm's own
+letterhead) and are not changed by this.
+
+**After sign-in, when it is given, and our own name (owner, same day).** The
+owner asked that the logo and name carry into the main app, that we decide
+when they are provided, and that the maker's name be visible somewhere, as
+market tools do. Wireframe: view 9 "Logo and names" (tabs: installer,
+first-run setup, main app, Settings > Branding, Help > About).
+
+How the market does it (checked 2026-09-28): **Odoo** takes the login page
+logo from the company record (Settings > Companies), editable any time, with
+"Powered by Odoo" under the form; **Zoho Books** uploads the organisation logo
+under Settings > Organization Profile, used in the app and on PDFs and emails;
+**Business Central** always shows the company name top left (click = Role
+Centre), a company badge top right, and the logo from Company Information on
+printed documents; **TallyPrime** asks the company name when the company is
+created -- not at install -- and prints a logo only if configured. None asks
+for the customer's name in the installer, and every one keeps its own name on
+the product (title, About, login footer) while leaving it off the customer's
+documents.
+
+**Decided by that convention** -- three names, three owners:
+
+| Name | Who sets it, when | Where it shows |
+| --- | --- | --- |
+| **The agency** (the customer) | Its first administrator, in a **first-run setup** after the first sign-in (step 1 of: agency, first firm, users, done; name required, logo and tagline optional, skippable with a "Finish setting up" card on Home); changed any time in Settings > Platform > Branding | Sign-in; **left of the menu bar on every screen** (logo + name, click = Home, name hides below 820 px); window and taskbar title "Firm - Agency"; About's "Licensed to" |
+| **The firm** | As today, when the firm is created | Firm switcher, Home greeting, the firm's letterhead on printed documents -- unchanged |
+| **Our company** (the maker) | Fixed at build time (`AppPublisher` in `packaging/AgencyPlatform.iss`, `CompanyName` in `Runner.rc`, the product constants); **never editable by a customer** | Installer and Windows Apps list as publisher; exe properties; sign-in footer "Powered by Agency Platform"; the status line's right end "Agency Platform 1.0.2 - <maker>"; Help > About (version, build, maker, support email, phone, website, copyright, "Copy details for support"). **Not** on the customer's printed invoices |
+
+**The installer asks nothing about branding** -- a name typed there would sit
+on one PC, and the server record is what every PC reads.
+
+**Owner owes:** the company's legal name, support email, phone and website
+(the wireframe shows "Your Company Pvt Ltd"), and the product `.ico` (§47).
+
+## 72. Configuration apart from the daily menu, shown by permission
+
+Owner, 2026-09-29: separate configuration from the menu items people use
+every day -- configuration is rarely used, and mostly by administrators --
+with wireframes, and **only shown to those whose permissions allow it**.
+Wireframe: view 10 "Menu and Setup" of `dist\windows\Design\UI phase 2
+wireframes.html` (switch Option A / B and the role: administrator, sales
+manager, accountant, billing clerk); screenshots in `dist\windows\Design\Menu
+and Setup screenshots\`.
+
+**Today** (`desktop/lib/phase2/menu_layout.dart`): configuration groups sit
+inside the daily drop-downs, drawn apart under a CONFIGURATION heading
+(Sell: Pricing, Territories & routes; Accounts: Structure; Masters: the lookup
+lists, units, packing, locations). Admin is an area on the bar. The gear
+opens Settings (Firm, Buying, Stock, Tax, Business profile). Every item is
+already offered only when `ModuleVisibility` allows it.
+
+**How the market does it** (checked 2026-09-29): **Odoo** ends each app's
+menu with a Configuration menu, and its Settings menu can be limited to
+managers by group; **Zoho Books** puts every setting behind the gear on one
+Settings page (organisation, users and roles, taxes, preferences,
+customisation...); **Business Central** lists setup pages by area on one
+Manual Setup page, with an administrator role centre.
+
+**Two options:**
+
+| | Option | What changes |
+| --- | --- | --- |
+| A | **Configure row per area** (Odoo) | Each drop-down lists daily work; a Configure row at its foot holds that area's setup screens, drawn only for roles that may open them; Admin stays on the bar |
+| B | **Setup behind the gear** (Zoho, Business Central) -- *recommended* | Drop-downs hold only daily work; **Admin leaves the bar** (seven areas: Home, Sell, Buy, Stock, Accounts, Masters, Reports); the gear opens **Setup**: one page, topics on the left, cards on the right, a search across every topic the person may open |
+
+**Split proposed** (every screen of today's menu placed; none dropped):
+
+- **Daily menu:** Sell (the seven documents; Receipts, Refunds, Customer
+  Statements; Commission, Targets; Beat Plans, Call Lists, Coverage); Buy
+  (four documents, Payments, Purchase Dashboard); Stock (all of it); Accounts
+  (Journal Entries, Ledgers, the three statements, GST Returns, E-Invoice,
+  TCS); Masters (Customers, Vendors, Products); Reports.
+- **Setup:** *For everyone* -- This PC and me (appearance, server address,
+  landing page, password). *The firm* -- Firm (Firm Settings, Financial
+  Years, Numbering Series, Branches, Warehouses, Storage Areas, Branch and
+  Warehouse Types); Selling (Price Lists, Promotions, Loyalty, Customer
+  Groups, Territories, Route Types, Route Builder); Buying (Purchase
+  Settings, Vendor Categories, Vendor Types); Items and stock (Product
+  Categories, Units, UOM Groups, Packaging Types and Levels, Conversion
+  Rules, Inventory Settings); Accounts and tax (Chart of Accounts, Control
+  Accounts, Cost and Profit Centres, Tax Configuration, Tax Rules, Rule
+  Simulator, Execution Log, Tax Settings); Places. *Administration* -- People
+  and access (Users, Roles, Permissions, User Templates, User-Firm
+  Assignments); Business profile (six screens); Firms and system (Platform
+  Dashboard, Firms, Business Profiles, Branding §71, Audit Logs, Diagnostics,
+  Licensing).
+
+**Permissions (both options):** a screen is drawn only if `ModuleVisibility`
+lets the person open it -- the same rule as today, and the server still
+refuses the request whatever the menu shows; a topic with nothing left
+disappears; the gear always shows *This PC and me*, so a billing clerk sees
+only that; an area with no daily item left leaves the bar; Ctrl+K finds any
+setup screen the person may open. `menu_layout_test.dart` keeps guarding
+that every catalogue screen has exactly one place.
+
+**Owner to decide:** A or B; whether Chart of Accounts (looked up often by
+accountants) stays under Accounts in the daily menu as well as Setup's
+list; whether Price Lists and Promotions (changed weekly by some sales
+managers) stay in Sell.
+
+## 73. One standard for dialogs, and the review of every dialog against it
+
+Owner, 2026-09-29: review, for the new UI, every form that opens on a click,
+like Change password; and a user sets his own preferences -- theme, and the
+firm he starts in when he has several.
+
+**The standard** (drawn in view 11 "Dialogs" of `dist\windows\Design\UI
+phase 2 wireframes.html`; screenshots in `dist\windows\Design\Dialogs
+screenshots\`): documents and master records open as full-page tabs (4.8); a
+**dialog** is a short task (a few fields, one decision); a **confirm** is a
+yes/no. Every dialog: a title that names the action; the main button named
+by its verb, on the right, Cancel beside it, a destructive one in red naming
+what it destroys; first box focused, **Enter** does the main action, **Esc**
+cancels; mistakes under the box, a server refusal inside the dialog, which
+**stays open and keeps what was typed**; the button shows it is saving and
+cannot be pressed twice; widths small 420 / medium 580 / large 820, the body
+scrolls, the buttons never do; closing with unsaved edits asks first. This is
+Windows' and Business Central's convention, and what `CrudWorkspaceDialog`,
+`askForReason` and `AppDialogs.confirm` already do.
+
+**The review** (`docs/UI_PHASE_2_DIALOG_REVIEW.md`): about 150 dialogs read
+in code; about 69 with a finding; defects `D-DLG-1`..`D-DLG-10` in
+`docs/DEFECTS.md`. Fix order, one PR each, each with a test that fails when
+reverted:
+
+1. **Keep the save inside the dialog** (D-DLG-1, D-DLG-4): the dialog calls
+   the server, stays open while it runs and closes only on success --
+   copying `CrudWorkspaceDialog`. The largest item; do it by area.
+2. **Confirm every delete** (D-DLG-2) and **make `AppDialogs.confirm` the one
+   confirm**, replacing about 100 hand-built yes/no dialogs as each file is
+   touched.
+3. **Small, one-line fixes:** D-DLG-5, D-DLG-6, D-DLG-7, D-DLG-10.
+4. **One `PasswordField`** with show/hide, used by all seven (D-DLG-9).
+5. **Unsaved-changes guard** in `WorkspaceDialog` (opt-in), and phase 2's
+   document guard noticing drop-downs, switches and dates (D-DLG-8).
+6. **Enter submits** a short `WorkspaceDialog` task, as Ctrl+S does today.
+7. **Rebuild the five tax masters' dialog** as proper forms (D-DLG-4, after 1).
+8. Product import staged and committed once, reporting the failed row
+   (D-DLG-3), as the backend's other imports are.
+
+**My preferences in one place.** Already built: each user's theme is saved
+on the server; the firm opened at sign-in is the **primary firm**, set from
+the user menu (offered only to somebody with more than one firm, listing only
+the firms they are a member of, the server refusing any other); failing that
+the last firm, then the first; a platform administrator starts in none. What
+is missing is one place: a **My preferences** dialog (view 11) -- start-in
+firm, first screen, theme, text size, date format, rows per page -- opened
+from the user menu and from Setup's *This PC and me* (§72), with "switching
+firm on the bar is for this session; Start in firm is for next time" said on
+it.
