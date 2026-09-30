@@ -24,6 +24,7 @@ from app.finance.models import (
     CostCenter,
     FinancialYear,
     JournalEntry,
+    JournalStatus,
     JournalType,
     LedgerAccount,
     PeriodStatus,
@@ -38,6 +39,7 @@ from app.finance.schemas import (
     CostCenterCreate,
     CostCenterUpdate,
     FinancialYearCreate,
+    FinancialYearReopen,
     FinancialYearUpdate,
     JournalTypeCreate,
     LedgerAccountCreate,
@@ -168,7 +170,8 @@ class FinanceService:
             # protects nothing. The refusal covers `is_locked: false` too.
             raise ValidationError(
                 f"Financial year {year.code} is locked. A locked year cannot "
-                "be modified or unlocked."
+                "be modified or unlocked here; reopen it, giving a reason, "
+                "if it must be changed."
             )
         before = self._year_snapshot(year)
         starts_on = data.starts_on or year.starts_on
@@ -224,6 +227,111 @@ class FinanceService:
             firm_id=firm_id,
             before_data=before,
             after_data=self._year_snapshot(year),
+        )
+        self._session.flush()
+        return year
+
+    def close_financial_year(
+        self, year_id: UUID, *, firm_id: UUID, actor_id: UUID
+    ) -> FinancialYear:
+        """Close a year: check it is finished, then lock it (year-end close).
+
+        Section 4.3 of `docs/BULK_APPROVAL_MIGRATION_AND_YEAR_DATA.md`. The
+        close refuses, naming what is left, while any period of the year is
+        still open or a draft journal is dated inside it -- the checks the
+        accountant would otherwise make by hand. Then the year is locked:
+        nothing can be posted into it, and its periods cannot be reopened.
+
+        **No closing entry is posted** (decided 2026-10-01, as Tally does it):
+        the balance sheet already derives retained earnings from the income
+        and expense accounts, and one continuous database carries every
+        balance into the next year on its own. An ERPNext-style closing entry
+        would need every P&L and trial balance to leave it out again.
+        """
+        year = self.get_financial_year(year_id, firm_id=firm_id)
+        if year.is_locked:
+            raise ValidationError(f"Financial year {year.code} is already closed.")
+        still_open = self._session.scalars(
+            self._active(select(AccountingPeriod), AccountingPeriod, firm_id)
+            .where(
+                AccountingPeriod.financial_year_id == year.id,
+                AccountingPeriod.status == PeriodStatus.OPEN.value,
+            )
+            .order_by(AccountingPeriod.starts_on.asc())
+        ).all()
+        if still_open:
+            raise ValidationError(
+                f"Financial year {year.code} cannot be closed while "
+                f"{len(still_open)} of its periods "
+                f"{'is' if len(still_open) == 1 else 'are'} open: "
+                f"{', '.join(period.code for period in still_open[:12])}"
+                f"{' and more' if len(still_open) > 12 else ''}. Close them first."
+            )
+        drafts = self._session.scalars(
+            select(JournalEntry.reference_number)
+            .where(
+                JournalEntry.firm_id == firm_id,
+                JournalEntry.is_deleted.is_(False),
+                JournalEntry.status == JournalStatus.DRAFT.value,
+                JournalEntry.journal_date >= year.starts_on,
+                JournalEntry.journal_date <= year.ends_on,
+            )
+            .order_by(JournalEntry.journal_date.asc(), JournalEntry.id.asc())
+            .limit(13)
+        ).all()
+        if drafts:
+            raise ValidationError(
+                f"Financial year {year.code} cannot be closed while draft "
+                f"journals are dated in it: {', '.join(drafts[:12])}"
+                f"{' and more' if len(drafts) > 12 else ''}. Post or delete them "
+                "first."
+            )
+        before = self._year_snapshot(year)
+        year.is_locked = True
+        year.updated_by = actor_id
+        record_audit(
+            self._session,
+            action="finance.financial_year.closed",
+            entity_type="financial_year",
+            entity_id=year.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            before_data=before,
+            after_data=self._year_snapshot(year),
+        )
+        self._session.flush()
+        return year
+
+    def reopen_financial_year(
+        self,
+        year_id: UUID,
+        data: FinancialYearReopen,
+        *,
+        firm_id: UUID,
+        actor_id: UUID,
+    ) -> FinancialYear:
+        """Reopen a closed year, with the reason kept in the trail.
+
+        A permission of its own (`FINANCIAL_YEAR_REOPEN`), not the one that
+        closes: whoever finalises a filed year should not be the only one who
+        can undo it. Its periods stay closed; an entry into the year still
+        needs one of them reopened, deliberately, after this.
+        """
+        year = self.get_financial_year(year_id, firm_id=firm_id)
+        if not year.is_locked:
+            raise ValidationError(f"Financial year {year.code} is not closed.")
+        before = self._year_snapshot(year)
+        year.is_locked = False
+        year.updated_by = actor_id
+        record_audit(
+            self._session,
+            action="finance.financial_year.reopened",
+            entity_type="financial_year",
+            entity_id=year.id,
+            actor_id=actor_id,
+            firm_id=firm_id,
+            before_data=before,
+            after_data={**self._year_snapshot(year), "reason": data.reason},
         )
         self._session.flush()
         return year

@@ -28,6 +28,7 @@ from app.finance.schemas import (
     CostCenterResponse,
     CostCenterUpdate,
     FinancialYearCreate,
+    FinancialYearReopen,
     FinancialYearResponse,
     FinancialYearUpdate,
     GeneralLedgerReport,
@@ -92,6 +93,9 @@ YearManageScope = Annotated[
 PeriodCloseScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("FINANCIAL_YEAR_CLOSE")
 ]
+YearReopenScope = Annotated[
+    ResolvedFirmScope, firm_permission_scope("FINANCIAL_YEAR_REOPEN")
+]
 JournalViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("JOURNAL_VIEW")]
 JournalCreateScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("JOURNAL_CREATE")
@@ -155,6 +159,41 @@ def update_financial_year(
 ) -> ApiResponse[FinancialYearResponse]:
     """Apply a partial update to one financial year."""
     row = FinanceService(db).update_financial_year(
+        year_id, payload, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    db.commit()
+    return ApiResponse(data=FinancialYearResponse.model_validate(row))
+
+
+@router.post(
+    "/financial-years/{year_id}/close",
+    response_model=ApiResponse[FinancialYearResponse],
+)
+def close_financial_year(
+    year_id: UUID,
+    scope: PeriodCloseScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[FinancialYearResponse]:
+    """Close a year: refused while a period is open or a draft is dated in it."""
+    row = FinanceService(db).close_financial_year(
+        year_id, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    db.commit()
+    return ApiResponse(data=FinancialYearResponse.model_validate(row))
+
+
+@router.post(
+    "/financial-years/{year_id}/reopen",
+    response_model=ApiResponse[FinancialYearResponse],
+)
+def reopen_financial_year(
+    year_id: UUID,
+    payload: FinancialYearReopen,
+    scope: YearReopenScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[FinancialYearResponse]:
+    """Reopen a closed year, giving the reason the trail keeps."""
+    row = FinanceService(db).reopen_financial_year(
         year_id, payload, firm_id=scope.firm_id, actor_id=scope.actor_id
     )
     db.commit()

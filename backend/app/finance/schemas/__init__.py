@@ -6,7 +6,7 @@ from enum import StrEnum
 from typing import Self
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 MONEY = Decimal("0.01")
 
@@ -426,6 +426,20 @@ class JournalEntryUpdate(FinanceSchema):
         return self
 
 
+class FinancialYearReopen(FinanceSchema):
+    """Reopen a closed year, saying why -- the reason is kept in the trail."""
+
+    reason: str = Field(min_length=1, max_length=500)
+
+    @field_validator("reason")
+    @classmethod
+    def _reason_is_said(cls, value: str) -> str:
+        """Refuse a reason of blanks: it records nothing."""
+        if not value.strip():
+            raise ValueError("A reason is required.")
+        return value.strip()
+
+
 class JournalEntryReject(FinanceSchema):
     """Reject a hand-written draft at review, saying why."""
 
@@ -767,6 +781,7 @@ __all__ = [
     "CostCenterUpdate",
     "FinancialYearCreate",
     "FinancialYearResponse",
+    "FinancialYearReopen",
     "FinancialYearUpdate",
     "GLPostingResponse",
     "GeneralLedgerLine",
