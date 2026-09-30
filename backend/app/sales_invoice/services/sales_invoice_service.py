@@ -341,7 +341,14 @@ class SalesInvoiceService(TransactionalDocumentService):
 
         # The tile and the overdue report must agree, so the tile counts the
         # report's rows: invoices past due that still owe something (D-RPT-3).
-        overdue = len(self.overdue_report(firm_scope=firm_scope))
+        # Counted off the owing bills themselves: building the report's rows
+        # to count them read every one of them back (backlog 56 C, step 4).
+        today = utc_now().date()
+        overdue = sum(
+            1
+            for record in self._owing(firm_scope=firm_scope)
+            if record.due_date is not None and record.due_date < today
+        )
         return SalesInvoiceSummary(
             total=sum(number for number, _ in by_status.values()),
             draft=count(SalesInvoiceStatus.DRAFT),
@@ -1560,13 +1567,18 @@ class SalesInvoiceService(TransactionalDocumentService):
             for record in self._owing(firm_scope=firm_scope)
             if record.due_date is not None and record.due_date < today
         ]
-        invoices: dict[UUID, SalesInvoice] = {}
+        # The two things the row needs of the invoice, never the whole row.
+        invoices: dict[UUID, tuple[str | None, Decimal]] = {}
         if owing:
             invoices = {
-                row.id: row
+                invoice_id: (number, total)
                 for part in chunks([item.invoice_id for item in owing])
-                for row in self._session.scalars(
-                    select(SalesInvoice).where(SalesInvoice.id.in_(part))
+                for invoice_id, number, total in self._session.execute(
+                    select(
+                        SalesInvoice.id,
+                        SalesInvoice.customer_invoice_number,
+                        SalesInvoice.grand_total,
+                    ).where(SalesInvoice.id.in_(part))
                 ).all()
             }
         names = self._customer_names(
@@ -1584,17 +1596,13 @@ class SalesInvoiceService(TransactionalDocumentService):
                 SalesInvoiceOverdueRecord(
                     invoice_id=record.invoice_id,
                     invoice_number=record.invoice_number,
-                    customer_invoice_number=(
-                        None if row is None else row.customer_invoice_number
-                    ),
+                    customer_invoice_number=None if row is None else row[0],
                     customer_id=record.party_id,
                     customer_name=names.get(record.party_id, str(record.party_id)),
                     invoice_date=record.invoice_date,
                     due_date=record.due_date,
                     days_overdue=(today - record.due_date).days,
-                    grand_total=(
-                        record.invoice_total if row is None else row.grand_total
-                    ),
+                    grand_total=record.invoice_total if row is None else row[1],
                     settled_amount=record.allocated_amount,
                     outstanding_amount=record.outstanding_amount,
                 )
@@ -1607,9 +1615,10 @@ class SalesInvoiceService(TransactionalDocumentService):
         if not customer_ids:
             return {}
         return {
-            customer.id: customer.display_name
-            for customer in self._session.scalars(
-                select(Customer).where(Customer.id.in_(list(customer_ids)))
+            customer_id: name
+            for part in chunks(list(customer_ids))
+            for customer_id, name in self._session.execute(
+                select(Customer.id, Customer.display_name).where(Customer.id.in_(part))
             ).all()
         }
 
