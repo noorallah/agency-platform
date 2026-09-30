@@ -4,14 +4,12 @@
 
 import csv
 import io
-from collections.abc import Callable, Iterable
-from decimal import Decimal, InvalidOperation
-from functools import partial
+from collections.abc import Iterable
+from decimal import Decimal
 from io import BytesIO
-from typing import Any, cast
+from typing import Any, Literal, cast
 from uuid import UUID
 
-from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import String, case, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
@@ -69,6 +67,11 @@ from app.products.schemas import (
     ProductUpdate,
 )
 from app.products.schemas.product import ProductCategoryResponse
+from app.products.services.product_import import (
+    ExistingRows,
+    ImportReport,
+    ProductFileImporter,
+)
 from app.tax.models import TaxProfile
 from app.trade_licences.models import TradeLicenceType
 from app.uom.models import Uom
@@ -404,6 +407,31 @@ class ProductService:
         product = self.get_product(
             product_id, firm_scope=firm_scope, include_deleted=True
         )
+        self.stage_update_product(
+            product,
+            data,
+            firm_scope=firm_scope,
+            actor_id=actor_id,
+            may_write_cost_price=may_write_cost_price,
+        )
+        self._commit()
+        self._session.refresh(product)
+        return product
+
+    def stage_update_product(
+        self,
+        product: Product,
+        data: ProductUpdate,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        may_write_cost_price: bool = True,
+    ) -> Product:
+        """Apply, guard and audit one update without committing it.
+
+        Split out so a file import can update rows by code and commit the
+        whole file once, exactly as ``stage_product`` does for a create.
+        """
         values = self._product_values(data, partial=True)
         if not may_write_cost_price:
             values.pop("purchase_price", None)
@@ -462,8 +490,6 @@ class ProductService:
             before_data=before,
             after_data={"code": product.code, "status": product.status},
         )
-        self._commit()
-        self._session.refresh(product)
         return product
 
     def delete_product(
@@ -1153,102 +1179,71 @@ class ProductService:
     def import_products_csv(
         self, csv_content: str, *, firm_scope: UUID, actor_id: UUID
     ) -> list[Product]:
-        reader = csv.DictReader(io.StringIO(csv_content))
-        records = [
-            self._import_record(number, row.get)
-            for number, row in enumerate(reader, start=2)
-        ]
-        return self.import_products_json(
-            [record for record in records if record is not None],
-            firm_scope=firm_scope,
-            actor_id=actor_id,
+        """Import a CSV file whole, refusing it by its first problem."""
+        return self._import_file(
+            csv_content.encode("utf-8"), "csv", firm_scope=firm_scope, actor_id=actor_id
         )
 
     def import_products_xlsx(
         self, workbook_bytes: bytes, *, firm_scope: UUID, actor_id: UUID
     ) -> list[Product]:
-        try:
-            from openpyxl import load_workbook
-        except ImportError as error:
-            raise ValidationError(
-                "XLSX import dependency is unavailable. Install openpyxl."
-            ) from error
-        workbook = load_workbook(filename=BytesIO(workbook_bytes), read_only=True)
-        sheet = workbook.active
-        rows = list(sheet.iter_rows(values_only=True))
-        if not rows:
-            return []
-        header = [str(value or "").strip() for value in rows[0]]
-        index = {name: position for position, name in enumerate(header)}
-
-        def cell(values: tuple[object, ...], name: str) -> object:
-            """Read a named column, or nothing when the sheet has no such one.
-
-            Looked up with ``index.get(name, -1)`` before, which read a missing
-            column as the **last** one.
-            """
-            position = index.get(name)
-            if position is None or position >= len(values):
-                return None
-            return values[position]
-
-        records = [
-            self._import_record(number, partial(cell, values))
-            for number, values in enumerate(rows[1:], start=2)
-        ]
-        return self.import_products_json(
-            [record for record in records if record is not None],
-            firm_scope=firm_scope,
-            actor_id=actor_id,
+        """Import an XLSX workbook whole, refusing it by its first problem."""
+        return self._import_file(
+            workbook_bytes, "xlsx", firm_scope=firm_scope, actor_id=actor_id
         )
 
-    @staticmethod
-    def _import_record(
-        row_number: int, read: Callable[[str], object]
-    ) -> ProductCreate | None:
-        """Build one product from a spreadsheet row, or skip a row with no code.
+    def check_product_file(
+        self,
+        content: bytes,
+        file_format: Literal["csv", "xlsx"],
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+        existing: ExistingRows,
+        apply: bool,
+    ) -> ImportReport:
+        """Check a product file, and with ``apply`` import it if it is clean."""
+        return ProductFileImporter(self._session, self).run(
+            content,
+            file_format=file_format,
+            firm_id=firm_scope,
+            actor_id=actor_id,
+            existing=existing,
+            apply=apply,
+        )
 
-        The two readers each spelled this out and called ``Decimal(...)`` and
-        the schema bare, so a bad number or an unknown status surfaced as a
-        server error naming nothing. It is refused here by row number -- the
-        header is row 1, as a spreadsheet shows it.
+    def _import_file(
+        self,
+        content: bytes,
+        file_format: Literal["csv", "xlsx"],
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> list[Product]:
+        """Import a file, creating only, as the original ``/import`` did.
+
+        Both readers once stopped at the first bad row; they now go through
+        the file importer, which checks them all, and the refusal still leads
+        with the first so a caller reading one message reads the right one.
         """
-
-        def text(name: str) -> str:
-            """Read a column as trimmed text."""
-            value = read(name)
-            return "" if value is None else str(value).strip()
-
-        code = text("Code").upper()
-        if not code:
-            return None
-        price = text("SellingPrice")
-        try:
-            selling_price = Decimal(price) if price else None
-        except InvalidOperation as error:
+        report = self.check_product_file(
+            content,
+            file_format,
+            firm_scope=firm_scope,
+            actor_id=actor_id,
+            existing="refuse",
+            apply=True,
+        )
+        if report.issues:
+            first = report.issues[0].describe()
+            more = len(report.issues) - 1
+            plural = "s" if more > 1 else ""
+            tail = f" (and {more} more problem{plural})" if more else ""
             raise ValidationError(
-                f"Row {row_number} ({code}): SellingPrice: '{price}' is not a "
-                "number. Nothing was imported."
-            ) from error
-        try:
-            return ProductCreate.model_validate(
-                {
-                    "code": code,
-                    "name": text("Name"),
-                    "product_type": (text("Type") or "STOCK_ITEM").upper(),
-                    "brand": text("Brand") or None,
-                    "hsn_sac": text("HSN").upper() or None,
-                    "selling_price": selling_price,
-                    "status": (text("Status") or "ACTIVE").upper(),
-                }
+                f"{first}{tail} Nothing was imported.",
+                details={"issues": [issue.describe() for issue in report.issues]},
             )
-        except PydanticValidationError as error:
-            first = error.errors()[0]
-            column = ".".join(str(part) for part in first["loc"]) or "row"
-            raise ValidationError(
-                f"Row {row_number} ({code}): {column}: {first['msg']}. "
-                "Nothing was imported."
-            ) from error
+        return report.products
 
     def _apply_filters(
         self,

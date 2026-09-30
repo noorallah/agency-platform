@@ -3601,7 +3601,23 @@ folder on the next run; the folder ACL is admin-only.
    `pg_restore --clean --if-exists -d <database> <file>` per store, start it).
 4. Move D-QA-4 to Fixed in `docs/DEFECTS.md`.
 
-## 46. Import products, customers and vendors from a file, with templates
+## 46. Import products, customers and vendors from a file, with templates -- products built 2026-09-30
+
+**Products: built 2026-09-30.** `GET /api/v1/products/import-template`
+(XLSX with Products, Notes and Lists sheets -- the Lists sheet carries the
+firm's own categories, units and tax groups -- or CSV) and
+`POST /api/v1/products/import-file` (`apply=false` checks, `apply=true`
+commits the whole file or nothing, `existing=update` updates by code with a
+blank cell leaving its field alone; needs `PRODUCT_UPDATE` as well as
+`PRODUCT_IMPORT`). Every problem comes back with its row and column in one
+pass. The importer is `app/products/services/product_import.py`; each row
+goes through `stage_product` / `stage_update_product`, so the guards and the
+audit writes are the form's. The desktop Products **Import** opens a file
+wizard: template download, choose file, check, save the problems as CSV,
+import. The old CSV/XLSX branch of `POST /products/import` goes through the
+same importer, so a row with a name and no code is now reported rather than
+skipped. **Customers and vendors remain** (5d, 5e), the same shape.
+
 
 Owner's note, 2026-09-25: a firm moving from other software (Tally, Excel,
 another ERP) needs to bring its masters in from a file, and a template to

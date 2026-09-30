@@ -16,6 +16,7 @@ import '../../models/diagnostics.dart';
 import '../../models/document_framework.dart';
 import '../../models/print_template.dart';
 import '../../models/product.dart';
+import '../../models/product_import.dart';
 import '../../models/quotation.dart';
 import '../../models/pricing.dart';
 import '../../models/commission.dart';
@@ -2613,6 +2614,37 @@ class ApiClient {
           if (format.isNotEmpty) 'format': format,
         },
       );
+
+  /// The blank product import file, as bytes: xlsx (with notes and lists) or csv.
+  Future<List<int>> productImportTemplate({String format = 'xlsx'}) =>
+      downloadBytes(
+        '/api/v1/products/import-template',
+        query: {'format': format},
+      );
+
+  /// Check (`apply: false`, writes nothing) or import a product file.
+  Future<ProductImportReport> checkProductImportFile({
+    required String fileName,
+    required List<int> bytes,
+    required bool updateExisting,
+    required bool apply,
+  }) async {
+    final Json response = await multipartRequest(
+      'POST',
+      '/api/v1/products/import-file',
+      fields: {
+        'existing': updateExisting ? 'update' : 'refuse',
+        'apply': apply ? 'true' : 'false',
+      },
+      fileField: 'file',
+      fileName: fileName,
+      fileBytes: bytes,
+      fileContentType: fileName.toLowerCase().endsWith('.xlsx')
+          ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+          : 'text/csv',
+    );
+    return ProductImportReport.fromJson(_unwrapMap(response));
+  }
 
   Future<TerritoryHierarchyRecord> territoryHierarchy() async =>
       TerritoryHierarchyRecord.fromJson(_unwrapMap(

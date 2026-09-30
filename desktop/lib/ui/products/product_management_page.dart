@@ -1,5 +1,4 @@
 import 'dart:async';
-import 'dart:convert';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -12,6 +11,8 @@ import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/product.dart';
+import '../../models/product_import.dart';
+import 'product_import_dialog.dart';
 import '../../models/trade_licence.dart';
 import '../../models/uom_packaging.dart';
 import '../workspace/desktop_framework.dart';
@@ -1068,19 +1069,24 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
   }
 
   Future<void> _runImportWizard() async {
-    await showDialog<void>(
+    final ProductImportReport? report = await showDialog<ProductImportReport>(
       context: context,
       barrierDismissible: false,
-      builder: (context) => _ProductImportWizard(
-        onImport: (records) async {
-          for (final Json record in records) {
-            await widget.api.createProduct(record);
-          }
-        },
+      builder: (context) => ProductImportDialog(
+        api: widget.api,
+        permissions: widget.permissions,
       ),
     );
-    if (!mounted) return;
+    if (!mounted || report == null) return;
     await _controller.load();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(
+          'Imported ${report.toCreate} new, updated ${report.toUpdate} products',
+        ),
+      ),
+    );
   }
 
   Future<void> _export(String format) async {
@@ -3340,187 +3346,6 @@ class _ColumnChooserDialogState extends State<_ColumnChooserDialog> {
           ),
         ],
       );
-}
-
-class _ProductImportWizard extends StatefulWidget {
-  const _ProductImportWizard({required this.onImport});
-
-  final Future<void> Function(List<Json> records) onImport;
-
-  @override
-  State<_ProductImportWizard> createState() => _ProductImportWizardState();
-}
-
-class _ProductImportWizardState extends State<_ProductImportWizard> {
-  int _step = 0;
-  final TextEditingController _payload = TextEditingController();
-  List<Json> _preview = const [];
-  List<String> _errors = const [];
-  bool _loading = false;
-  int _imported = 0;
-
-  @override
-  void dispose() {
-    _payload.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => AlertDialog(
-        title: const Text('Product import wizard'),
-        content: SizedBox(
-          width: 800,
-          height: 520,
-          child: Stepper(
-            currentStep: _step,
-            controlsBuilder: (context, details) => const SizedBox.shrink(),
-            steps: [
-              Step(
-                title: const Text('Step 1 - Choose file'),
-                isActive: _step == 0,
-                content: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    const Text(
-                      'Paste JSON records (array) generated from CSV/Excel export.',
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _payload,
-                      maxLines: 10,
-                      decoration: const InputDecoration(
-                        border: OutlineInputBorder(),
-                        hintText:
-                            '[{"code":"PROD-1","name":"Item","product_type":"STOCK_ITEM","status":"ACTIVE","attributes":[],"media":[]}]',
-                      ),
-                    ),
-                  ],
-                ),
-              ),
-              Step(
-                title: const Text('Step 2 - Preview'),
-                isActive: _step == 1,
-                content: SizedBox(
-                  height: 170,
-                  child: ListView(
-                    children: _preview
-                        .take(25)
-                        .map((item) => ListTile(
-                              dense: true,
-                              title: Text(stringValue(item['code'])),
-                              subtitle: Text(stringValue(item['name'])),
-                            ))
-                        .toList(),
-                  ),
-                ),
-              ),
-              Step(
-                title: const Text('Step 3 - Validation'),
-                isActive: _step == 2,
-                content: _errors.isEmpty
-                    ? const Text('No validation issues.')
-                    : Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children:
-                            _errors.map((entry) => Text('• $entry')).toList(),
-                      ),
-              ),
-              Step(
-                title: const Text('Step 4 - Import'),
-                isActive: _step == 3,
-                content: _loading
-                    ? const CircularProgressIndicator()
-                    : const Text('Ready to import records.'),
-              ),
-              Step(
-                title: const Text('Step 5 - Summary'),
-                isActive: _step == 4,
-                content: Text('Imported records: $_imported'),
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: _loading ? null : () => Navigator.of(context).pop(),
-            child: const Text('Close'),
-          ),
-          if (_step > 0 && _step < 4)
-            OutlinedButton(
-              onPressed: _loading ? null : () => setState(() => _step--),
-              child: const Text('Back'),
-            ),
-          FilledButton(
-            onPressed: _loading ? null : _next,
-            child: Text(_step == 4 ? 'Done' : 'Next'),
-          ),
-        ],
-      );
-
-  Future<void> _next() async {
-    if (_step == 0) {
-      try {
-        final dynamic decoded = jsonDecode(_payload.text);
-        if (decoded is! List) {
-          throw const FormatException('Payload must be an array.');
-        }
-        _preview = decoded
-            .whereType<Map>()
-            .map((entry) => Map<String, dynamic>.from(entry))
-            .toList();
-        if (_preview.isEmpty) {
-          throw const FormatException('No records provided.');
-        }
-        setState(() => _step = 1);
-      } on FormatException catch (error) {
-        setState(() => _errors = [error.message]);
-      }
-      return;
-    }
-    if (_step == 1) {
-      final List<String> issues = [];
-      final Set<String> seen = {};
-      for (int index = 0; index < _preview.length; index++) {
-        final Json row = _preview[index];
-        final String code = stringValue(row['code']);
-        final String name = stringValue(row['name']);
-        if (code.isEmpty || name.isEmpty) {
-          issues.add('Row ${index + 1}: code and name are required.');
-        }
-        if (seen.contains(code)) {
-          issues.add('Row ${index + 1}: duplicate code "$code".');
-        }
-        seen.add(code);
-      }
-      setState(() {
-        _errors = issues;
-        _step = 2;
-      });
-      return;
-    }
-    if (_step == 2) {
-      if (_errors.isNotEmpty) return;
-      setState(() => _step = 3);
-      return;
-    }
-    if (_step == 3) {
-      setState(() => _loading = true);
-      try {
-        await widget.onImport(_preview);
-        if (!mounted) return;
-        setState(() {
-          _imported = _preview.length;
-          _step = 4;
-        });
-      } finally {
-        if (mounted) {
-          setState(() => _loading = false);
-        }
-      }
-      return;
-    }
-    Navigator.of(context).pop();
-  }
 }
 
 enum _ExportScope { selected, filtered, all }
