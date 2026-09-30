@@ -175,11 +175,19 @@ Set<String> _genericallyReachable(Map<String, String> paths) {
       resources.add(match.group(1)!);
     }
   }
+  // Only the collection and one record in it -- `resource/$id` -- which is
+  // what list, create, update and delete reach. A path that goes on past the
+  // id (`customers/$id/receivables/summary`) is a sub-resource no generic
+  // page calls, and counting it made an `optionsResource: 'customers'`
+  // dropdown look like the caller of three receivable methods nothing uses.
+  final RegExp oneRecord = RegExp(r'^/\$\{?\w+\}?$');
   return <String>{
     for (final MapEntry<String, String> entry in paths.entries)
       for (final String resource in resources)
         if (entry.value == '/api/v1/$resource' ||
-            entry.value.startsWith('/api/v1/$resource/\$'))
+            (entry.value.startsWith('/api/v1/$resource/') &&
+                oneRecord.hasMatch(
+                    entry.value.substring('/api/v1/$resource'.length))))
           entry.key,
   };
 }
