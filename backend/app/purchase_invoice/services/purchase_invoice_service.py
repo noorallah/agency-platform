@@ -1160,9 +1160,9 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 PurchaseInvoiceLine.source_document_line_id.in_(in_window),
             )
             .group_by(PurchaseInvoiceLine.source_document_line_id)
+            # Latest bill date first; the group key breaks a tie.
             .order_by(
                 func.max(PurchaseInvoice.invoice_date).desc(),
-                func.max(PurchaseInvoice.created_at).desc(),
                 PurchaseInvoiceLine.source_document_line_id,
             )
         )
