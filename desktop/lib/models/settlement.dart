@@ -148,9 +148,10 @@ class OutstandingInvoice {
   final String allocatedAmount;
   final String outstandingAmount;
 
-  /// A bill the supplier was owed before the firm started here, rather than
-  /// a purchase invoice. It is paid the same way here, but it is not a
-  /// purchase invoice and this screen must never try to open it as one.
+  /// A bill the party owed, or was owed, before the firm started here --
+  /// a customer's or a supplier's opening bill -- rather than a sales or
+  /// purchase invoice. It is settled the same way here, but it is not an
+  /// invoice and this screen must never try to open it as one.
   final bool isOpeningBill;
 
   double get outstanding => double.tryParse(outstandingAmount) ?? 0;

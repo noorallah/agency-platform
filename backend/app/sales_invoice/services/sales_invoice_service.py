@@ -1526,23 +1526,32 @@ class SalesInvoiceService(TransactionalDocumentService):
                     select(SalesInvoice).where(SalesInvoice.id.in_(part))
                 ).all()
             }
-        names = self._customer_names({row.customer_id for row in invoices.values()})
+        names = self._customer_names(
+            {record.party_id for record in owing if record.party_id is not None}
+        )
         records: list[SalesInvoiceOverdueRecord] = []
         for record in owing:
-            row = invoices[record.invoice_id]
-            if record.due_date is None:  # pragma: no cover - filtered above
+            if record.due_date is None or record.party_id is None:  # pragma: no cover
                 continue
+            # A customer's opening bill is owed and can be overdue like any
+            # other, but it is not a sales invoice, so the record carries what
+            # the row would have said.
+            row = invoices.get(record.invoice_id)
             records.append(
                 SalesInvoiceOverdueRecord(
-                    invoice_id=row.id,
-                    invoice_number=row.invoice_number,
-                    customer_invoice_number=row.customer_invoice_number,
-                    customer_id=row.customer_id,
-                    customer_name=names.get(row.customer_id, str(row.customer_id)),
-                    invoice_date=row.invoice_date,
+                    invoice_id=record.invoice_id,
+                    invoice_number=record.invoice_number,
+                    customer_invoice_number=(
+                        None if row is None else row.customer_invoice_number
+                    ),
+                    customer_id=record.party_id,
+                    customer_name=names.get(record.party_id, str(record.party_id)),
+                    invoice_date=record.invoice_date,
                     due_date=record.due_date,
                     days_overdue=(today - record.due_date).days,
-                    grand_total=row.grand_total,
+                    grand_total=(
+                        record.invoice_total if row is None else row.grand_total
+                    ),
                     settled_amount=record.allocated_amount,
                     outstanding_amount=record.outstanding_amount,
                 )

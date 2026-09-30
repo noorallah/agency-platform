@@ -85,6 +85,7 @@ def _to_response(service: SettlementService, row: Settlement) -> SettlementRespo
             allocation.sales_invoice_id
             or allocation.purchase_invoice_id
             or allocation.vendor_opening_bill_id
+            or allocation.customer_opening_bill_id
         )
         if invoice_id is None:  # pragma: no cover - one side is always set
             continue

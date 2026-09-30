@@ -30,6 +30,12 @@ class CustomerReceivableTransactionType(StrEnum):
     """Supported receivable transaction categories."""
 
     OPENING_BALANCE = "OPENING_BALANCE"
+    #: One bill the customer owed at cutover (`CustomerOpeningBill`). Its own
+    #: type rather than OPENING_BALANCE because that one is the master's single
+    #: figure and is rewritten whole when the figure is revised -- the rows
+    #: of that type are deleted and their journals mirrored -- which must never
+    #: touch a bill. System-managed like OPENING_BALANCE.
+    OPENING_BILL = "OPENING_BILL"
     INVOICE = "INVOICE"
     RECEIPT = "RECEIPT"
     ADVANCE_RECEIPT = "ADVANCE_RECEIPT"

@@ -9,6 +9,10 @@ from app.customers.models.customer import (
     CustomerGroup,
     CustomerReceivableTransaction,
 )
+from app.customers.models.opening_bill import (
+    CustomerOpeningBill,
+    CustomerOpeningBillStatus,
+)
 
 __all__ = [
     "CreditControlSettings",
@@ -17,5 +21,7 @@ __all__ = [
     "CustomerAddress",
     "CustomerAttributeValue",
     "CustomerContact",
+    "CustomerOpeningBill",
+    "CustomerOpeningBillStatus",
     "CustomerReceivableTransaction",
 ]

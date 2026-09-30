@@ -8,6 +8,7 @@ import '../../core/dialogs/app_dialogs.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/customer.dart';
+import '../../models/customer_opening_bill.dart';
 import '../../models/entities.dart';
 import '../../models/geography.dart';
 import '../../models/product.dart';
@@ -15,6 +16,7 @@ import '../../models/sales_territory.dart';
 import '../../models/trade_licence.dart';
 import '../workspace/custom_fields_section.dart';
 import '../workspace/desktop_framework.dart';
+import '../workspace/reason_prompt.dart';
 import '../workspace/trade_licence_quick_add.dart';
 import 'credit_settings_dialog.dart';
 import 'customer_group_dialog.dart';
@@ -287,6 +289,19 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
                       ? customer.name
                       : customer.displayName,
                 ),
+        // Opening bills (backlog 36): what the customer owed on the firm's
+        // first day here, bill by bill. Only for a record that exists.
+        loadOpeningBills: customer != null &&
+                widget.permissions.hasPermission('CUSTOMER_VIEW')
+            ? () => widget.api.customerOpeningBills(customer.id)
+            : null,
+        onCreateOpeningBill: customer == null
+            ? null
+            : (payload) =>
+                widget.api.createCustomerOpeningBill(customer.id, payload),
+        onCancelOpeningBill: widget.api.cancelCustomerOpeningBill,
+        canManageOpeningBills:
+            widget.permissions.hasPermission('CUSTOMER_UPDATE'),
       );
     final Customer? saved = phase2
         ? await showDocument<Customer>(
@@ -801,6 +816,10 @@ class CustomerWorkspaceDialog extends StatefulWidget {
     this.loadLicences,
     this.canManageLicences = false,
     this.onAddLicence,
+    this.loadOpeningBills,
+    this.onCreateOpeningBill,
+    this.onCancelOpeningBill,
+    this.canManageOpeningBills = false,
   });
 
   final CustomerDialogMode mode;
@@ -850,6 +869,22 @@ class CustomerWorkspaceDialog extends StatefulWidget {
   /// was saved, so the tab knows to re-read the list.
   final Future<bool> Function()? onAddLicence;
 
+  /// What this customer owed on the firm's first day here, bill by bill.
+  /// Null hides the Opening bills section entirely -- while the customer is
+  /// still being created, or for a user without `CUSTOMER_VIEW`.
+  final Future<List<CustomerOpeningBill>> Function()? loadOpeningBills;
+
+  /// Records one opening bill for this customer, and posts it.
+  final Future<CustomerOpeningBill> Function(Json payload)? onCreateOpeningBill;
+
+  /// Takes back one opening bill, with the reason given.
+  final Future<CustomerOpeningBill> Function(String billId, String reason)?
+      onCancelOpeningBill;
+
+  /// Whether the user holds `CUSTOMER_UPDATE`, so "Add opening bill" and
+  /// "Cancel" show.
+  final bool canManageOpeningBills;
+
   @override
   State<CustomerWorkspaceDialog> createState() =>
       _CustomerWorkspaceDialogState();
@@ -863,6 +898,10 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
   /// Null until the licences have been read; empty means read and none.
   List<TradeLicenceRecord>? _licences;
   bool _licencesRequested = false;
+
+  /// Null until the opening bills have been read; empty means read and none.
+  List<CustomerOpeningBill>? _openingBills;
+  bool _openingBillsRequested = false;
 
   final List<GlobalKey<FormState>> _forms =
       List.generate(4, (_) => GlobalKey<FormState>());
@@ -924,6 +963,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
       'Custom fields',
       'Rounds',
       'Licences',
+      'Opening bills',
     ])
       section: GlobalKey(),
   };
@@ -1495,6 +1535,158 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     if (!saved) return;
     _licencesRequested = false;
     if (mounted) setState(() {});
+  }
+
+  /// What this customer owed on the firm's first day here (customer opening
+  /// bills) -- entered once at cutover, so receipts can be set against the
+  /// old bills and the ageing is right. Read-only besides "Add opening bill"
+  /// and, per row, "Cancel".
+  Widget _openingBillsTab() {
+    if (widget.loadOpeningBills == null) {
+      return const SizedBox.shrink();
+    }
+    if (!_openingBillsRequested) {
+      _openingBillsRequested = true;
+      unawaited(_reloadOpeningBills());
+    }
+    final List<CustomerOpeningBill>? rows = _openingBills;
+    final bool canAdd =
+        widget.canManageOpeningBills && widget.onCreateOpeningBill != null;
+    final Widget addButton = Padding(
+      padding: const EdgeInsets.symmetric(vertical: 8),
+      child: Row(children: [
+        Expanded(
+          child: Text(rows == null || rows.isEmpty
+              ? 'No opening bills yet'
+              : '${rows.length} opening bill(s)'),
+        ),
+        if (canAdd)
+          OutlinedButton.icon(
+            onPressed: _addOpeningBill,
+            icon: const Icon(Icons.add),
+            label: const Text('Add opening bill'),
+          ),
+      ]),
+    );
+    if (rows == null) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        addButton,
+        const Divider(height: 1),
+        const Center(child: CircularProgressIndicator()),
+      ]);
+    }
+    if (rows.isEmpty) {
+      return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+        addButton,
+        const Divider(height: 1),
+        const StandardEmptyState(
+          type: EmptyStateType.noRecords,
+          message: 'What this customer owed on the firm\'s first day here, '
+              'bill by bill. Nothing recorded yet. Use this or the opening '
+              'balance under Money, not both.',
+        ),
+      ]);
+    }
+    final bool canCancel =
+        widget.canManageOpeningBills && widget.onCancelOpeningBill != null;
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      addButton,
+      const Divider(height: 1),
+      SingleChildScrollView(
+        scrollDirection: Axis.horizontal,
+        child: DataTable(
+          columns: const [
+            DataColumn(label: Text('Bill no.')),
+            DataColumn(label: Text('Old bill ref')),
+            DataColumn(label: Text('Bill date')),
+            DataColumn(label: Text('Due')),
+            DataColumn(label: Text('Amount'), numeric: true),
+            DataColumn(label: Text('Received'), numeric: true),
+            DataColumn(label: Text('Owed'), numeric: true),
+            DataColumn(label: Text('Status')),
+            DataColumn(label: Text('')),
+          ],
+          rows: [
+            for (final CustomerOpeningBill bill in rows)
+              DataRow(cells: [
+                DataCell(Text(bill.billNumber)),
+                DataCell(Text(bill.referenceNumber)),
+                DataCell(Text(bill.billDate)),
+                DataCell(Text(bill.dueDate)),
+                DataCell(Text(bill.amount)),
+                DataCell(Text(bill.receivedAmount)),
+                DataCell(Text(bill.outstandingAmount)),
+                DataCell(StatusBadge.fromStatus(bill.status)),
+                DataCell(
+                  canCancel && bill.canCancel
+                      ? TextButton(
+                          key: ValueKey<String>(
+                              'customer-opening-bill-cancel-${bill.id}'),
+                          onPressed: () => unawaited(_cancelOpeningBill(bill)),
+                          child: const Text('Cancel'),
+                        )
+                      : const SizedBox.shrink(),
+                ),
+              ]),
+          ],
+        ),
+      ),
+    ]);
+  }
+
+  Future<void> _reloadOpeningBills() async {
+    try {
+      final List<CustomerOpeningBill> rows = await widget.loadOpeningBills!();
+      if (mounted) setState(() => _openingBills = rows);
+    } on Object {
+      // A list that cannot be read costs this section, not the form.
+      if (mounted) {
+        setState(() => _openingBills = const <CustomerOpeningBill>[]);
+      }
+    }
+  }
+
+  Future<void> _addOpeningBill() async {
+    final Future<CustomerOpeningBill> Function(Json payload)? create =
+        widget.onCreateOpeningBill;
+    if (create == null) return;
+    final Json? payload = await showDialog<Json>(
+      context: context,
+      builder: (context) => const _AddCustomerOpeningBillDialog(),
+    );
+    if (payload == null || !mounted) return;
+    try {
+      await create(payload);
+      _openingBillsRequested = false;
+      if (mounted) setState(() {});
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      NotificationService.show(context, exception.message,
+          kind: AppNotificationKind.error);
+    }
+  }
+
+  Future<void> _cancelOpeningBill(CustomerOpeningBill bill) async {
+    final Future<CustomerOpeningBill> Function(String, String)? cancel =
+        widget.onCancelOpeningBill;
+    if (cancel == null) return;
+    final String? reason = await askForReason(
+      context,
+      title: 'Cancel ${bill.billNumber}',
+      explanation: 'This takes back what the bill added to the customer\'s '
+          'balance. Refused once any receipt has been applied to it.',
+      confirmLabel: 'Cancel bill',
+    );
+    if (reason == null || !mounted) return;
+    try {
+      await cancel(bill.id, reason);
+      _openingBillsRequested = false;
+      if (mounted) setState(() {});
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      NotificationService.show(context, exception.message,
+          kind: AppNotificationKind.error);
+    }
   }
 
   Widget _auditTab() {
@@ -2101,3 +2293,181 @@ String _dateOnly(String value) =>
 
 String _money(String value) =>
     double.tryParse(value)?.toStringAsFixed(2) ?? value;
+
+/// One bill a customer owed at cutover, typed in.
+///
+/// Returns a payload holding only the keys the write schema declares --
+/// `reference_number`, `bill_date`, `due_date`, `posting_date`, `amount`,
+/// `narration` -- and only the optional ones that were actually filled in,
+/// because the server forbids extra fields and treats an absent key as
+/// "leave it to the default" rather than null: no due date means the bill
+/// date plus the customer's terms, no posting date means today.
+class _AddCustomerOpeningBillDialog extends StatefulWidget {
+  const _AddCustomerOpeningBillDialog();
+
+  @override
+  State<_AddCustomerOpeningBillDialog> createState() =>
+      _AddCustomerOpeningBillDialogState();
+}
+
+class _AddCustomerOpeningBillDialogState
+    extends State<_AddCustomerOpeningBillDialog> {
+  final TextEditingController _reference = TextEditingController();
+  final TextEditingController _amount = TextEditingController();
+  final TextEditingController _narration = TextEditingController();
+  DateTime _billDate = DateTime.now();
+  DateTime? _dueDate;
+  DateTime? _postingDate;
+  String? _error;
+
+  @override
+  void dispose() {
+    _reference.dispose();
+    _amount.dispose();
+    _narration.dispose();
+    super.dispose();
+  }
+
+  String _iso(DateTime date) => date.toIso8601String().substring(0, 10);
+
+  Future<void> _pickDate({
+    required DateTime initial,
+    required ValueChanged<DateTime> onPicked,
+  }) async {
+    final DateTime? picked = await showDatePicker(
+      context: context,
+      initialDate: initial,
+      firstDate: DateTime(2000),
+      lastDate: DateTime(2100),
+    );
+    if (picked != null) onPicked(picked);
+  }
+
+  void _submit() {
+    final double amount = double.tryParse(_amount.text.trim()) ?? 0;
+    if (amount <= 0) {
+      setState(() => _error = 'Enter how much was still owed on this bill.');
+      return;
+    }
+    Navigator.of(context).pop(<String, dynamic>{
+      'bill_date': _iso(_billDate),
+      if (_reference.text.trim().isNotEmpty)
+        'reference_number': _reference.text.trim(),
+      if (_dueDate != null) 'due_date': _iso(_dueDate!),
+      if (_postingDate != null) 'posting_date': _iso(_postingDate!),
+      'amount': _amount.text.trim(),
+      if (_narration.text.trim().isNotEmpty)
+        'narration': _narration.text.trim(),
+    });
+  }
+
+  Widget _dateBox({
+    required String label,
+    required DateTime? value,
+    required VoidCallback onTap,
+    VoidCallback? onClear,
+    String? helperText,
+  }) =>
+      InkWell(
+        onTap: onTap,
+        child: InputDecorator(
+          decoration: InputDecoration(
+            labelText: label,
+            helperText: helperText,
+            helperMaxLines: 2,
+            suffixIcon: onClear != null && value != null
+                ? IconButton(
+                    tooltip: 'Clear',
+                    icon: const Icon(Icons.close),
+                    onPressed: onClear,
+                  )
+                : const Icon(Icons.calendar_today, size: 18),
+          ),
+          child: Text(value == null ? '' : _iso(value)),
+        ),
+      );
+
+  @override
+  Widget build(BuildContext context) => AlertDialog(
+        title: const Text('Add opening bill'),
+        content: SizedBox(
+          width: 420,
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                if (_error != null) ...[
+                  Text(
+                    _error!,
+                    style: TextStyle(
+                        color: Theme.of(context).colorScheme.error),
+                  ),
+                  const SizedBox(height: 8),
+                ],
+                TextField(
+                  controller: _reference,
+                  decoration: const InputDecoration(
+                    labelText: 'Old bill number',
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _dateBox(
+                  label: 'Bill date',
+                  value: _billDate,
+                  onTap: () => _pickDate(
+                    initial: _billDate,
+                    onPicked: (picked) => setState(() => _billDate = picked),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                _dateBox(
+                  label: 'Due date',
+                  value: _dueDate,
+                  onTap: () => _pickDate(
+                    initial: _dueDate ?? _billDate,
+                    onPicked: (picked) => setState(() => _dueDate = picked),
+                  ),
+                  onClear: () => setState(() => _dueDate = null),
+                  helperText: 'blank = bill date plus the customer\'s terms',
+                ),
+                const SizedBox(height: 12),
+                _dateBox(
+                  label: 'Posting date',
+                  value: _postingDate,
+                  onTap: () => _pickDate(
+                    initial: _postingDate ?? DateTime.now(),
+                    onPicked: (picked) =>
+                        setState(() => _postingDate = picked),
+                  ),
+                  onClear: () => setState(() => _postingDate = null),
+                  helperText: 'blank = today; the day your books here start',
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _amount,
+                  decoration: const InputDecoration(labelText: 'Amount owed'),
+                  keyboardType: TextInputType.number,
+                ),
+                const SizedBox(height: 12),
+                TextField(
+                  controller: _narration,
+                  decoration: const InputDecoration(labelText: 'Narration'),
+                  maxLines: 3,
+                ),
+              ],
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: _submit,
+            child: const Text('Save'),
+          ),
+        ],
+      );
+}

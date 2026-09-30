@@ -263,6 +263,13 @@ class CustomerStatementService:
                     days_overdue=max((today - due).days, 0),
                 )
             )
+        self._add_opening_bills(
+            overdue,
+            firm_scope=firm_scope,
+            customer_id=customer_id,
+            as_of=as_of,
+            today=today,
+        )
         if not overdue:
             return []
 
@@ -328,6 +335,63 @@ class CustomerStatementService:
                 )
             )
         return sorted(answer, key=lambda row: row.total_outstanding, reverse=True)
+
+    def _add_opening_bills(
+        self,
+        overdue: dict[UUID, list[OverdueInvoice]],
+        *,
+        firm_scope: UUID,
+        customer_id: UUID | None,
+        as_of: date | None,
+        today: date,
+    ) -> None:
+        """Age what customers owed at cutover beside their invoices.
+
+        A customer's opening bill (`CustomerOpeningBill`) is a bill the old
+        books raised: it is owed from its own due date, not from the cutover
+        day it was posted on, and what came off it is the receipts allocated
+        to it -- the same derivation Record Receipt offers. Without it an
+        opening bill raised the customer's balance and appeared in no bucket,
+        and the whole of it read as "unapplied credits" in reverse.
+        """
+        # Imported here: the opening-bill service reaches the settlement
+        # models, which import the customer models.
+        from app.customers.services.opening_bill_service import (
+            opening_bill_label,
+            opening_bill_receipts,
+            opening_bills_owed_on,
+            standing_opening_bills,
+        )
+
+        bills = (
+            standing_opening_bills(
+                self._session, firm_id=firm_scope, customer_id=customer_id
+            )
+            if as_of is None
+            else opening_bills_owed_on(
+                self._session, firm_id=firm_scope, customer_id=customer_id, as_of=as_of
+            )
+        )
+        received = opening_bill_receipts(
+            self._session,
+            firm_id=firm_scope,
+            bill_ids=[row.id for row in bills],
+            as_of=as_of,
+        )
+        for row in bills:
+            balance = quantize_ledger(row.amount) - received.get(row.id, ZERO)
+            if balance <= ZERO:
+                continue
+            due = row.due_date or row.bill_date
+            overdue[row.customer_id].append(
+                OverdueInvoice(
+                    invoice_number=opening_bill_label(row),
+                    invoice_date=row.bill_date,
+                    due_date=due,
+                    outstanding=balance,
+                    days_overdue=max((today - due).days, 0),
+                )
+            )
 
     @staticmethod
     def _bucketed(invoices: list[OverdueInvoice]) -> list[AgeingBucket]:

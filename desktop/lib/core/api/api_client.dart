@@ -12,6 +12,7 @@ import '../../models/settlement_direction.dart';
 import '../../models/batch_serial.dart';
 import '../../models/branch_warehouse.dart';
 import '../../models/customer.dart';
+import '../../models/customer_opening_bill.dart';
 import '../../models/diagnostics.dart';
 import '../../models/document_framework.dart';
 import '../../models/print_template.dart';
@@ -1099,6 +1100,42 @@ class ApiClient {
   Future<Customer> restoreCustomer(String id) async =>
       Customer.fromJson(_unwrapMap(
         await request('POST', '/api/v1/customers/$id/restore'),
+      ));
+
+  /// What this customer owed the firm on its first day here, bill by bill.
+  Future<List<CustomerOpeningBill>> customerOpeningBills(
+    String customerId,
+  ) async =>
+      _unwrapList(
+        await request('GET', '/api/v1/customers/$customerId/opening-bills'),
+        CustomerOpeningBill.fromJson,
+      );
+
+  /// Record one bill the customer owed at cutover, and post it.
+  Future<CustomerOpeningBill> createCustomerOpeningBill(
+    String customerId,
+    Json data,
+  ) async =>
+      CustomerOpeningBill.fromJson(_unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/customers/$customerId/opening-bills',
+          body: data,
+        ),
+      ));
+
+  /// Take back an opening bill entered in error; refused once anything has
+  /// been received against it.
+  Future<CustomerOpeningBill> cancelCustomerOpeningBill(
+    String billId,
+    String reason,
+  ) async =>
+      CustomerOpeningBill.fromJson(_unwrapMap(
+        await request(
+          'POST',
+          '/api/v1/customers/opening-bills/$billId/cancel',
+          body: {'reason': reason},
+        ),
       ));
 
   Future<String> exportCustomers({String search = ''}) => downloadText(

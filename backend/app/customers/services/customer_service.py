@@ -5,7 +5,7 @@ from decimal import Decimal
 from typing import ClassVar
 from uuid import UUID
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -30,6 +30,8 @@ from app.customers.models import (
     CustomerAttributeValue,
     CustomerContact,
     CustomerGroup,
+    CustomerOpeningBill,
+    CustomerOpeningBillStatus,
     CustomerReceivableTransaction,
 )
 from app.customers.repositories import CustomerRepository
@@ -237,6 +239,8 @@ class CustomerService:
         opening_balance = Decimal(
             str(values.get("opening_balance", customer.opening_balance))
         )
+        if opening_balance != 0 and customer.opening_balance != opening_balance:
+            self._assert_no_opening_bills(customer)
         if (
             customer.opening_balance != opening_balance
             and self._repository.has_receivable_transactions(customer.id)
@@ -486,7 +490,10 @@ class CustomerService:
         advance_delta = Decimal("0")
         tx_type = payload.transaction_type
 
-        if tx_type == CustomerReceivableTransactionType.OPENING_BALANCE:
+        if tx_type in {
+            CustomerReceivableTransactionType.OPENING_BALANCE,
+            CustomerReceivableTransactionType.OPENING_BILL,
+        }:
             raise ValidationError("Opening balance transactions are system-managed.")
         if tx_type == CustomerReceivableTransactionType.REVERSAL:
             raise ValidationError(
@@ -913,6 +920,30 @@ class CustomerService:
         advance = -opening_balance if opening_balance < 0 else zero
         return outstanding, advance
 
+    def _assert_no_opening_bills(self, customer: Customer) -> None:
+        """Refuse a single-figure opening balance beside bill-wise ones.
+
+        A customer's day-one position is entered one way or the other -- one
+        figure on the master, or bill by bill (`CustomerOpeningBill`) -- the
+        convention Tally calls a bill-wise breakup. Both at once would count
+        the same debt twice, in the balance and in the ledger.
+        """
+        live = self._session.scalar(
+            select(func.count(CustomerOpeningBill.id)).where(
+                CustomerOpeningBill.customer_id == customer.id,
+                CustomerOpeningBill.status == CustomerOpeningBillStatus.POSTED.value,
+                CustomerOpeningBill.is_deleted.is_(False),
+            )
+        )
+        if live:
+            raise ValidationError(
+                f"{customer.code} has {live} opening bill"
+                f"{'' if live == 1 else 's'}. Enter the opening balance either "
+                "as one figure on the customer or bill by bill, not both -- "
+                "cancel the opening bills first, or leave the opening balance "
+                "at 0."
+            )
+
     def _assert_account_is_square(self, customer: Customer) -> None:
         """Refuse to delete a customer whose account is not settled (D-FIN-1).
 
@@ -1147,6 +1178,43 @@ class CustomerService:
             remarks="Opening balance seeded from customer financial profile.",
             actor_id=actor_id,
             journal_entry_id=None if entry is None else entry.id,
+        )
+
+    def record_opening_bill(
+        self,
+        customer: Customer,
+        *,
+        amount: Decimal,
+        posting_date: date,
+        bill_id: UUID,
+        bill_number: str,
+        label: str,
+        journal_entry_id: UUID,
+        actor_id: UUID,
+    ) -> CustomerReceivableTransaction:
+        """Raise the customer's balance by one opening bill, without committing.
+
+        The same shape as an invoice: it adds to what the customer owes and
+        leaves any advance alone, since applying an advance to a bill is a
+        decision somebody takes on Record Receipt, not a side effect. Written
+        as `OPENING_BILL` on the posting date and linked to the bill's journal,
+        so the statement shows it the day the books start.
+        """
+        customer.current_outstanding = customer.current_outstanding + amount
+        customer.updated_by = actor_id
+        return self._record_receivable_transaction(
+            customer=customer,
+            tx_type=CustomerReceivableTransactionType.OPENING_BILL.value,
+            amount=amount,
+            outstanding_delta=amount,
+            advance_delta=Decimal("0"),
+            transaction_date=posting_date,
+            reference_type="customer_opening_bill",
+            reference_id=bill_id,
+            reference_number=bill_number,
+            remarks=f"Opening bill {label}.",
+            actor_id=actor_id,
+            journal_entry_id=journal_entry_id,
         )
 
     def reverse_receivable_transaction(

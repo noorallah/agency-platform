@@ -159,6 +159,50 @@ reference.
   opening bill (refused by name), and there is no file wizard on the desktop
   (backlog 46).
 
+## A customer's opening balance is one figure or bills, never both
+
+Built 2026-09-30 (`docs/BACKLOG.md` §36): the receivable mirror of the
+supplier's opening bills above. A customer's day-one debt can be entered two
+ways, and **only one of them per customer** -- the convention Tally calls the
+bill-wise breakup of an opening balance:
+
+- **One figure** on the master (`customers.opening_balance`), posted by
+  `post_opening_balance`: Dr Receivables / Cr Opening Balance Equity (swapped
+  for a customer in credit), with an `OPENING_BALANCE` receivable row. Quick,
+  but every receipt against it is money on account with nothing to clear, and
+  the ageing cannot say how old it is.
+- **Bill by bill** (`customer_opening_bills`, `OBC-00001` -- a prefix the
+  supplier series `OB-` cannot produce, since both are journal references and
+  those are unique per firm): the old bill number, the bill date, a due date
+  (given, or the bill date plus the customer's payment terms, **stored** so
+  changing the terms later does not re-age it), and what was still owed at
+  cutover. Each posts **Dr Accounts Receivable / Cr Opening Balance Equity**
+  on the **posting date** through `DocumentPostingService.post_customer_opening_bill`
+  (source `customer_opening_bills`), and writes an **`OPENING_BILL`**
+  receivable row dated the same day, linked to that journal, raising
+  `current_outstanding` exactly as an invoice does -- so the statement, credit
+  control and the delete guard see it.
+
+Both at once would count the same debt twice, so `CustomerOpeningBillService`
+refuses a bill while the master's opening balance is non-zero ("set the
+customer's opening balance to 0 first"), and `CustomerService.update` refuses a
+non-zero opening balance while live bills stand. The receivable row has its own
+type rather than `OPENING_BALANCE` because rows of that type are deleted and
+their journals mirrored whenever the master's figure is revised; a bill must
+never go with them.
+
+- **Received like an invoice.** `ReceiptService.outstanding_invoices` lists it
+  beside the sales invoices (`is_opening_bill: true`), outstanding derived
+  from `settlement_allocations.customer_opening_bill_id`; allocation at
+  receipt, applying an advance later and reversing a receipt all treat it as
+  an invoice. The ageing reads it from its due date, through the same
+  derivation, honouring `as_of`; the overdue report lists it.
+- **Cancelled, never edited.** `POST /customers/opening-bills/{id}/cancel`
+  posts the mirror (`OBC-00001-REV`) and reverses the `OPENING_BILL` row by
+  its own delta on the mirror's date; refused while any receipt is applied.
+- **Not a sale.** No row in `sales_invoices`, so GST returns, the sales
+  register, e-invoicing, TCS turnover and collection commission never read it.
+
 ## Tax deducted at source has accounts, and no posting yet
 
 Built 2026-09-30 (`docs/BACKLOG.md` 53.1, items 1 and 2): a firm records its

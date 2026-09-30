@@ -2924,6 +2924,26 @@ good enough that onboarding is a day's work rather than a project.
   `POST /vendors/opening-bills/import` takes a batch by supplier code, all or
   nothing, for the file wizard of §46. Still open: supplier credit from a
   return cannot be set against an opening bill yet.
+- **Customers had only a single-figure opening balance.** Every receipt
+  against it was money on account with nothing to clear, and the ageing could
+  not say how old any of it was. **Built 2026-09-30 as customer opening bills**
+  (`customer_opening_bills`, migration `20260930_0172`; rules in
+  `docs/LEDGER_POSTING_RULES.md`, "A customer's opening balance is one figure
+  or bills, never both"). The mirror of the supplier's: one row per unpaid
+  bill, `OBC-00001`, posted Dr Receivables / Cr Opening Balance Equity on the
+  cutover date, with an `OPENING_BILL` receivable transaction so the
+  customer's balance, statement, credit control and delete guard see it;
+  offered by Record Receipt ("Opening"), aged from its due date (given, or the
+  bill date plus the customer's terms), listed by the outstanding and overdue
+  reports; cancel mirrors the journal and the balance and is refused while a
+  receipt is applied. **One figure or bill-wise, never both** (Tally's
+  bill-wise breakup): a bill is refused while the master's opening balance is
+  non-zero, and a non-zero opening balance while live bills stand. Entered on
+  the phase 2 customer form's *Opening bills* section;
+  `POST /customers/opening-bills/import` takes a batch by customer code, all
+  or nothing. Not a sales invoice, so GST returns, sales registers,
+  e-invoicing and TCS turnover never see it, and neither does
+  collection-based commission (it joins sales invoices).
 - **No opening trial balance loader.** `LedgerBalance.opening_balance` is
   derived and carried forward, never written as an input, and `app/finance` has
   no import route. Cash, bank, fixed assets, loans, retained earnings and tax

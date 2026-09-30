@@ -183,6 +183,16 @@ class SettlementAllocation(BaseEntity):
             "firm_id",
             "vendor_opening_bill_id",
         ),
+        UniqueConstraint(
+            "settlement_id",
+            "customer_opening_bill_id",
+            name="UQ_settlement_allocations_customer_opening_bill",
+        ),
+        Index(
+            "IX_settlement_allocations_customer_opening_bill",
+            "firm_id",
+            "customer_opening_bill_id",
+        ),
     )
 
     firm_id: Mapped[UUID] = mapped_column(
@@ -205,6 +215,11 @@ class SettlementAllocation(BaseEntity):
     #: see `VendorOpeningBill` for why it cannot be one.
     vendor_opening_bill_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("vendor_opening_bills.id", ondelete="RESTRICT")
+    )
+    #: A receipt against what a customer owed before the firm started here --
+    #: the receivable twin of the column above; see `CustomerOpeningBill`.
+    customer_opening_bill_id: Mapped[UUID | None] = mapped_column(
+        UUIDType(), ForeignKey("customer_opening_bills.id", ondelete="RESTRICT")
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     #: The day the money met the bill. For an allocation made with the
