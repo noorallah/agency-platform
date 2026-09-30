@@ -196,6 +196,7 @@ var
   RolePage: TInputOptionWizardPage;
   LanCheck: TNewCheckBox;
   ServerPage: TInputQueryWizardPage;
+  PortPage: TInputQueryWizardPage;
   InstalledVersion: String;
   InstallLogPath: String;
   ServerReady: Boolean;
@@ -469,6 +470,16 @@ begin
   ServerPage.Add('Server address:', False);
   ServerPage.Values[0] := GetPreviousData('ServerUrl', 'http://');
 
+  { D-SETUP-9: the server's port, checked free when Next is pressed. The
+    database picks its own from 5433-5440 without asking. }
+  PortPage := CreateInputQueryPage(ServerPage.ID,
+    'Ports',
+    'Which port does the server listen on?',
+    'The app on this PC, and on every other PC, reaches the server on this ' +
+    'port. Keep 8000 unless another program already uses it; Setup checks.');
+  PortPage.Add('Server port:', False);
+  PortPage.Values[0] := GetPreviousData('ApiPort', '8000');
+
   { The finished page's sign-in block: hidden until there is one to show. }
   CredentialsLabel := TNewStaticText.Create(WizardForm);
   CredentialsLabel.Parent := WizardForm.FinishedPage;
@@ -506,7 +517,10 @@ begin
     { An upgrade keeps the role it was installed with. }
     Result := IsUpgrade and (GetPreviousData('MachineRole', '') <> '')
   else if PageID = ServerPage.ID then
-    Result := IsServer or (IsUpgrade and (GetPreviousData('ServerUrl', '') <> ''));
+    Result := IsServer or (IsUpgrade and (GetPreviousData('ServerUrl', '') <> ''))
+  else if PageID = PortPage.ID then
+    { An upgrade keeps the port it was installed with. }
+    Result := IsClient or (IsUpgrade and (GetPreviousData('ApiPort', '') <> ''));
 end;
 
 procedure RegisterPreviousData(PreviousDataKey: Integer);
@@ -514,8 +528,10 @@ begin
   if IsClient then begin
     SetPreviousData(PreviousDataKey, 'MachineRole', 'client');
     SetPreviousData(PreviousDataKey, 'ServerUrl', Trim(ServerPage.Values[0]));
-  end else
+  end else begin
     SetPreviousData(PreviousDataKey, 'MachineRole', 'server');
+    SetPreviousData(PreviousDataKey, 'ApiPort', Trim(PortPage.Values[0]));
+  end;
   if LanCheck.Checked and IsServer then
     SetPreviousData(PreviousDataKey, 'AllowLan', '1')
   else
@@ -547,11 +563,59 @@ begin
   end;
 end;
 
+{ Whether the server port is free, by server_setup.ps1 -Action CheckPort,
+  which names the program holding it when it is not. }
+function PortIsFree(Port: String): Boolean;
+var
+  Params, Said: String;
+  Output: TExecOutput;
+  ResultCode, I: Integer;
+begin
+  ExtractTemporaryFile('server_setup.ps1');
+  Params := '-NoProfile -NonInteractive -ExecutionPolicy Bypass -File "' +
+    ExpandConstant('{tmp}\server_setup.ps1') + '" -Action CheckPort -ApiPort ' + Port +
+    ' -InstallDir "' + ExpandConstant('{app}') + '"';
+  if not ExecAndCaptureOutput('powershell.exe', Params, ExpandConstant('{tmp}'),
+      SW_HIDE, ewWaitUntilTerminated, ResultCode, Output) then begin
+    { A check that cannot run must not block the install; the Server step
+      checks again and stops with the reason. }
+    InstallLog('Could not check port ' + Port + ': ' + SysErrorMessage(ResultCode));
+    Result := True;
+    Exit;
+  end;
+  Result := ResultCode = 0;
+  if Result then Exit;
+  Said := '';
+  for I := 0 to GetArrayLength(Output.StdOut) - 1 do
+    Said := Said + Trim(Output.StdOut[I]) + ' ';
+  InstallLog('Port check: ' + Said);
+  MsgBox(Trim(Said) + NL + NL + 'Choose another port, for example 8080 or 8800.',
+    mbError, MB_OK);
+end;
+
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
-  Url: String;
+  Url, Port: String;
+  Number: Integer;
 begin
   Result := True;
+  if CurPageID = PortPage.ID then begin
+    Port := Trim(PortPage.Values[0]);
+    Number := StrToIntDef(Port, 0);
+    if (Number < 1024) or (Number > 65535) then begin
+      MsgBox('Type a port number from 1024 to 65535, for example 8000.', mbError, MB_OK);
+      Result := False;
+      Exit;
+    end;
+    PortPage.Values[0] := IntToStr(Number);
+    WizardForm.NextButton.Enabled := False;
+    try
+      Result := PortIsFree(IntToStr(Number));
+    finally
+      WizardForm.NextButton.Enabled := True;
+    end;
+    Exit;
+  end;
   if CurPageID <> ServerPage.ID then Exit;
   Url := NormalizeServerUrl(ServerPage.Values[0]);
   if (Url = '') or (Url = 'http:') or (Url = 'https:') then begin
@@ -571,8 +635,8 @@ begin
   end;
   InstallLog('Server ' + Url + ' did not answer /health.');
   Result := MsgBox('Nothing answered at ' + Url + '/health.' + NL + NL +
-    'Check the address, that the server PC is on and that its firewall allows ' +
-    'port 8000.' + NL + NL + 'Use this address anyway? It can be changed later ' +
+    'Check the address (with the port the server was given, 8000 unless it was ' +
+    'changed), that the server PC is on and that its firewall allows it.' + NL + NL + 'Use this address anyway? It can be changed later ' +
     'in the app''s Application Settings.', mbConfirmation, MB_YESNO or MB_DEFBUTTON2) = IDYES;
 end;
 
@@ -690,6 +754,10 @@ begin
     'Setting up the database and the server. This can take a few minutes...';
   Arguments := '-Action Server';
   if LanCheck.Checked then Arguments := Arguments + ' -AllowLan';
+  { Blank on an upgrade that skipped the page: the script keeps the port the
+    earlier install used. }
+  if Trim(PortPage.Values[0]) <> '' then
+    Arguments := Arguments + ' -ApiPort ' + Trim(PortPage.Values[0]);
   ServerReady := RunSetupScript(ExpandConstant('{app}\packaging\server_setup.ps1'), Arguments);
   if ServerReady then Exit;
   SuppressibleMsgBox(
