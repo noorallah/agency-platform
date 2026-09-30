@@ -65,8 +65,153 @@ Already right: trial balance, P&L and balance sheet read the maintained
 | 2 | Chunk every large id list; summaries and outstanding in SQL | Done (#856) |
 | 3 | Build each list page in bulk, same response | Done: every document list, settlements, the inventory list/movements/ledger and the journal list read each child table and each name once per page (`children_by_parent` in `app/core/database/batch.py`, a `*_responses(rows)` per module that the single-row builder calls with `[row]`); the inventory export builds each row once, not once per column. At 12 rows a sales-invoice page went from 148 statements to 13, a purchase-invoice page from 170 to 10, and no page grows with its length -- `tests/unit/test_list_pages_are_batched.py` pins that and that every row equals the document built alone. Left: opening-stock batches (lines and names per line, rarely listed) |
 | 4 | SQL grouping for the report families; set-based back-dated carry | |
-| 5 | Measure: a bulk seeder at the target volume and a timing script over every list and report route, run on the minimum hardware | |
+| 5 | Measure: a bulk seeder at the target volume and a timing script over every list and report route, run on the minimum hardware | Tools done; first run below (dev machine, not yet the minimum hardware) |
 
 `scripts/generate_transaction_history.py` makes about 60 invoices per firm and
 has no volume setting, so it cannot show any of this; step 5 is a separate
 seeder that inserts rows directly.
+
+## Step 5: measuring
+
+Two scripts, both run from `backend/`.
+
+### `scripts/seed_volume_firm.py` -- the volume firm
+
+Builds **PERF01**, "Performance test firm", in its own dedicated schema
+(`perf01`, SCHEMA mode), so it never shares a store with another firm and can
+be dropped whole. The set-up goes through the real services -- the firm and
+its provisioning, a `perf01.admin@agency.local` FIRM_ADMIN (password
+`PerfAdmin@12345` unless `--password` or `PERF01_PASSWORD` says otherwise),
+the WHOLESALE profile, the GST template, the books for every year traded, a
+head-office branch with three warehouses, and each document module's own
+numbering series. Only the trading is inserted directly, through `COPY`, in
+batches of 5,000 rows with one transaction per batch.
+
+```powershell
+uv run python scripts/seed_volume_firm.py                # scale 1.0
+uv run python scripts/seed_volume_firm.py --scale 0.1    # a quick run
+uv run python scripts/seed_volume_firm.py --reset        # drop perf01 and rebuild
+```
+
+At `--scale 1.0`: 5,000 products (one in ten batch and expiry tracked), 2,000
+customers, 300 suppliers, and 730 days of trading ending yesterday at about
+150 invoices a day. Every sale is a sales order, a delivery note and an
+invoice, with the RESERVE / UNRESERVE / DISPATCH movements, CGST and SGST line
+taxes, the receivable transaction, and the goods-issue and invoice journals.
+Each supplier is ordered from once a week for whatever of theirs is below the
+reorder level: order, goods receipt and bill, with their movements and
+journals. About 80% of invoices and bills are settled in full, with the
+allocation and the journal; about 3% of invoices get a sales return and 2% a
+credit note.
+
+What it keeps consistent: every journal balances, and `ledger_balances` is the
+sum of the journals period by period, with openings carried as the journal
+engine carries them; every `inventories` row is the sum of its movements, and
+the inventory account equals `product_valuations` (a product costs the same at
+every receipt, so the average never moves); every customer's balance is the
+sum of their receivable transactions, and the receivable account equals the
+customers' outstanding. Every series counter is moved past the last number
+used. What it simplifies: no salesman, territory or route on any document;
+one batch per tracked product; returns and credit notes only on invoices that
+are never paid; no purchase returns; purchase orders are mostly one line (the
+weekly reorder rarely finds more than one of a supplier's products low at
+once); one lifecycle-event pair and one audit row per document. It ends with
+`ANALYZE` on every table it wrote. `tests/unit/test_seed_volume_firm.py` runs
+the same row builders at a tiny scale against SQLite and checks the balances.
+
+To remove PERF01 for good: delete it on the Firms screen, then
+`DROP SCHEMA perf01 CASCADE`.
+
+### `scripts/time_routes.py` -- the timings
+
+Signs in through `/api/v1/auth/login` as the desktop does, picks the firm from
+`/api/v1/me/firms`, and times every firm-owned GET in the application's own
+OpenAPI document: no path parameter (plus the per-customer and per-supplier
+reports in `PER_PARTY_REPORTS`), no file exports unless `--include-exports`,
+nothing under the platform paths. A list is called with default paging; a
+report is called for the last complete month and the last complete financial
+year where it takes a date range. Three calls each, median kept, over one
+kept-alive connection. OK / SLOW against 1 s for a list and 3 s for a report;
+FAIL with the status and message on an error; SKIP with the reason where a
+required parameter cannot be filled from the firm's own data.
+
+```powershell
+$env:PYTHONPATH = (Get-Location).Path   # in a worktree: its app, not the venv's
+uv run uvicorn app.main:app --port 8010
+uv run python scripts/time_routes.py --base-url http://127.0.0.1:8010 --csv timings.csv
+uv run python scripts/time_routes.py --only sales-invoices   # one family
+```
+
+### First run, 2026-10-01
+
+Dev machine: Intel Core i9-13900H, 16 GB (2.6 GB free during the run),
+Windows 11, PostgreSQL 17 in a local container; backend from this branch on
+port 8010, one uvicorn worker. **Not** the minimum hardware in
+`docs/INSTALL_GUIDE.md` -- expect it to be slower there.
+
+Seed at `--scale 1.0`: **16.9 minutes**, 11.26 million rows -- 109,566 sales
+invoices (and as many orders and notes), 549,057 invoice lines, 1,098,114
+line taxes, 1,689,388 movements (and as many stock-ledger rows), 369,201
+journals with 894,246 lines, 100,506 settlements, 20,434 purchase orders,
+receipts and bills, 3,282 sales returns, 2,128 credit notes.
+
+Timings: **258 timings of 216 routes -- 225 OK, 23 SLOW (5 lists, 18
+reports), 7 FAIL, 3 SKIP.** Every document list opens in under a second: the
+sales invoice list (109,566 rows) in 724 ms, movements (1.69 million) in 745
+ms, journals in 114 ms, the audit log (496,127) in 149 ms.
+
+The 25 slowest that answered:
+
+| Route | Kind | Window | Median ms | Rows | Status |
+| --- | --- | --- | ---: | ---: | --- |
+| `/sales-invoices/reports/reconciliation` | report | - | 95,531 | 549,057 | SLOW |
+| `/gst-returns/gstr1` | report | year | 63,527 | - | SLOW |
+| `/inventory/opening-stock` | list | - | 53,519 | 3 | SLOW |
+| `/gst-returns/gstr3b` | report | year | 49,414 | - | SLOW |
+| `/sales-invoices/reports/summary` | report | - | 46,298 | - | SLOW |
+| `/sales-invoices/reports/overdue` | report | - | 16,129 | 20,972 | SLOW |
+| `/sales-invoices/reports/customer-outstanding` | report | - | 15,690 | 2,000 | SLOW |
+| `/commission/report` | report | year | 12,573 | 1 | SLOW |
+| `/tcs/reports/charged-versus-due` | report | - | 8,273 | 1,999 | SLOW |
+| `/customers/ageing` | report | - | 7,232 | 2,000 | SLOW |
+| `/gst-returns/gstr1` | report | month | 6,514 | - | SLOW |
+| `/gst-returns/gstr3b` | report | month | 5,435 | - | SLOW |
+| `/purchase-invoices/reports/reconciliation` | report | - | 5,016 | 23,935 | SLOW |
+| `/delivery-notes/reports/by-warehouse` | report | year | 4,345 | 3 | SLOW |
+| `/delivery-notes/reports/by-salesman` | report | year | 4,223 | 1 | SLOW |
+| `/delivery-notes/reports/by-route` | report | year | 4,153 | 1 | SLOW |
+| `/purchase-invoices/reports/overdue` | report | - | 3,708 | 3,858 | SLOW |
+| `/search` | list | - | 3,532 | - | SLOW |
+| `/purchases/reports/by-product` | report | year | 3,459 | 4,997 | SLOW |
+| `/sales-orders/reports/by-customer` | report | year | 3,355 | 2,000 | SLOW |
+| `/purchase-invoices/summary` | list | - | 3,094 | - | SLOW |
+| `/sales-orders/reports/by-territory` | report | year | 2,503 | 1 | OK |
+| `/sales-orders/reports/by-salesman` | report | year | 2,295 | 1 | OK |
+| `/purchase-invoices/reports/outstanding` | report | - | 2,243 | 300 | OK |
+| `/commission/report` | report | month | 2,150 | 1 | OK |
+
+The two SLOW lists outside the table: `/sales-invoices/billable` (1,784 ms)
+and `/finance/control-accounts` (1,081 ms, 29 rows).
+
+Every FAIL:
+
+| Route | Status | What |
+| --- | --- | --- |
+| `/delivery-notes/summary` | 503 after 7.5 s | `DeliveryNoteService.partially_delivered_orders` sends every order id in one `IN (...)` -- 109,566 ids against psycopg's 65,535-parameter limit. The Delivery Notes page summary; step 2 missed it. |
+| `/business-framework/attribute-definitions` | 403 | FIRM_ADMIN does not hold the code; not a volume finding |
+| `/business-framework/category-attribute-rules` | 403 | as above |
+| `/business-framework/features` | 403 | as above |
+| `/business-framework/firm-profile-assignments` | 403 | as above |
+| `/business-framework/modules` | 403 | as above |
+| `/business-framework/profiles` | 403 | as above |
+
+Skipped, for want of a parameter the firm's data cannot supply:
+`/sales-returns/returnable-serials`, `/tcs/preview`,
+`/uom-framework/barcode-lookup`.
+
+What this says for steps 3 and 4: the document lists already meet the target
+at this volume. The misses are the report families that read every invoice or
+line of the window into Python (reconciliation, GSTR-1 and 3B, the invoice
+summary, overdue and customer outstanding, ageing, the by-X families over a
+year), the opening-stock list (three batches, fifteen thousand lines), global
+search, and two page summaries.
