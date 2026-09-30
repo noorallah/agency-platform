@@ -19,7 +19,9 @@ import 'dart:convert';
 
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
+import 'package:agency_desktop/models/customer.dart';
 import 'package:agency_desktop/models/entities.dart';
+import 'package:agency_desktop/models/firm_member.dart';
 import 'package:agency_desktop/models/pricing.dart';
 import 'package:agency_desktop/models/product.dart';
 import 'package:agency_desktop/ui/pricing/promotion_dialog.dart';
@@ -106,6 +108,32 @@ class _PromotionApi extends ApiClient {
         .toList();
     return PagedResult<Product>(items: hits, total: hits.length);
   }
+
+  @override
+  Future<PagedResult<CustomerGroup>> customerGroups({
+    int page = 1,
+    int pageSize = 100,
+    String search = '',
+  }) async {
+    final List<CustomerGroup> all = <CustomerGroup>[
+      CustomerGroup.fromJson(const <String, dynamic>{
+        'id': 'g-whole',
+        'code': 'WHOLE',
+        'name': 'Wholesale',
+      }),
+      CustomerGroup.fromJson(const <String, dynamic>{
+        'id': 'g-retail',
+        'code': 'RETAIL',
+        'name': 'Retail',
+      }),
+    ];
+    return PagedResult<CustomerGroup>(items: all, total: all.length);
+  }
+
+  @override
+  Future<List<FirmMember>> firmMembers() async => const <FirmMember>[
+        FirmMember(userId: 'u-asha', fullName: 'Asha Rao'),
+      ];
 
   @override
   Future<PagedResult<PromotionRecord>> promotions({
@@ -561,5 +589,296 @@ void main() {
     await tester.tap(find.widgetWithText(FilledButton, 'Retire'));
     await tester.pumpAndSettle();
     expect(api.deleted, ['promo-1']);
+  // D-SELL-42: the screen offered only part of what the server supports.
+  group('the promotion screen offers everything the server accepts', () {
+    Future<void> pickFrom(
+      WidgetTester tester,
+      String label,
+      String item, {
+      int at = 0,
+    }) async {
+      final Finder box =
+          find.widgetWithText(DropdownButtonFormField<String>, label);
+      await tester.ensureVisible(box.at(at));
+      await tester.tap(box.at(at));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text(item).last);
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> addCondition(WidgetTester tester) async {
+      await tester.ensureVisible(find.text('Add condition'));
+      await tester.tap(find.text('Add condition'));
+      await tester.pumpAndSettle();
+    }
+
+    Future<void> nameIt(WidgetTester tester) async {
+      await tester.enterText(find.widgetWithText(TextFormField, 'Code'), 'NEW');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Name'), 'New offer');
+    }
+
+    Future<void> save(WidgetTester tester) async {
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('free delivery takes no figure and is sent as such',
+        (tester) async {
+      final _PromotionApi api = _PromotionApi();
+      await _pumpDialog(tester, api);
+      await nameIt(tester);
+      await pickFrom(tester, 'Benefit', 'Free delivery');
+      expect(find.text('A benefit needs a figure.'), findsNothing);
+      await save(tester);
+
+      final Map<dynamic, dynamic> action =
+          (api.savedBody!['actions'] as List).single as Map;
+      expect(action, <String, dynamic>{
+        'sequence': 1,
+        'action_type': 'FREE_SHIPPING',
+      });
+    });
+
+    testWidgets('a free product names the product and how many',
+        (tester) async {
+      final _PromotionApi api = _PromotionApi()
+        ..catalogue = <Product>[
+          Product.fromJson(const <String, dynamic>{
+            'id': 'p-pen',
+            'code': 'PEN',
+            'name': 'Pen',
+          }),
+        ];
+      await _pumpDialog(tester, api);
+      await nameIt(tester);
+      await pickFrom(tester, 'Benefit', 'A free product (buy X, get another)');
+
+      // Refused until a product is chosen.
+      await save(tester);
+      expect(api.savedBody, isNull);
+      expect(find.text('Pick the product to give away.'), findsOneWidget);
+
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Product given away'), 'pen');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('PEN — Pen'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.widgetWithText(TextFormField, 'Buy'), '10');
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Get free'), '2');
+      await save(tester);
+
+      final Map<dynamic, dynamic> action =
+          (api.savedBody!['actions'] as List).single as Map;
+      expect(action['action_type'], 'FREE_PRODUCT');
+      expect(action['free_product_id'], 'p-pen');
+      expect(action['buy_quantity'], '10');
+      expect(action['free_quantity'], '2');
+      expect(action.containsKey('percent'), isFalse);
+    });
+
+    testWidgets('the new fields and tests are all on offer', (tester) async {
+      await _pumpDialog(tester, _PromotionApi());
+      await addCondition(tester);
+      await tester
+          .tap(find.widgetWithText(DropdownButtonFormField<String>, 'When'));
+      await tester.pumpAndSettle();
+      for (final String label in <String>[
+        'Customer group',
+        'Branch',
+        'Salesman',
+        'Document type',
+        'Document date',
+      ]) {
+        expect(find.text(label), findsWidgets, reason: label);
+      }
+      await tester.tap(find.text('Customer group').last);
+      await tester.pumpAndSettle();
+      await tester
+          .tap(find.widgetWithText(DropdownButtonFormField<String>, 'Test'));
+      await tester.pumpAndSettle();
+      for (final String label in <String>[
+        'is one of',
+        'is none of',
+        'is set',
+        'is not set',
+      ]) {
+        expect(find.text(label), findsWidgets, reason: label);
+      }
+      expect(find.text('is between'), findsNothing,
+          reason: 'BETWEEN reads numbers only');
+    });
+
+    testWidgets('one of several groups sends a list', (tester) async {
+      final _PromotionApi api = _PromotionApi();
+      await _pumpDialog(tester, api);
+      await nameIt(tester);
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Percent'), '5');
+      await addCondition(tester);
+      await pickFrom(tester, 'When', 'Customer group');
+      await pickFrom(tester, 'Test', 'is one of');
+
+      // Nothing chosen yet: said before it is sent.
+      await save(tester);
+      expect(api.savedBody, isNull);
+      expect(find.textContaining('Add at least one value'), findsOneWidget);
+
+      for (final String pick in <String>[
+        'WHOLE — Wholesale',
+        'RETAIL — Retail',
+      ]) {
+        await tester.tap(find.widgetWithText(TextFormField, 'Add one'));
+        await tester.pumpAndSettle();
+        await tester.tap(find.text(pick).last);
+        await tester.pumpAndSettle();
+      }
+      expect(find.byType(InputChip), findsNWidgets(2));
+      await save(tester);
+
+      final Map<dynamic, dynamic> condition =
+          (api.savedBody!['conditions'] as List).single as Map;
+      expect(condition['field_key'], 'customer_group_id');
+      expect(condition['operator'], 'IN');
+      expect(condition['value_json'], <String>['g-whole', 'g-retail']);
+      expect(condition.containsKey('value_text'), isFalse);
+    });
+
+    testWidgets('between two numbers sends both bounds', (tester) async {
+      final _PromotionApi api = _PromotionApi();
+      await _pumpDialog(tester, api);
+      await nameIt(tester);
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Percent'), '5');
+      await addCondition(tester);
+      await pickFrom(tester, 'When', 'Quantity on the line');
+      await pickFrom(tester, 'Test', 'is between');
+      await tester.enterText(find.widgetWithText(TextFormField, 'Min'), '10');
+      await tester.enterText(find.widgetWithText(TextFormField, 'Max'), '50');
+      await save(tester);
+
+      final Map<dynamic, dynamic> condition =
+          (api.savedBody!['conditions'] as List).single as Map;
+      expect(condition['operator'], 'BETWEEN');
+      expect(condition['value_json'], <num>[10, 50]);
+    });
+
+    testWidgets('is set sends no value at all', (tester) async {
+      final _PromotionApi api = _PromotionApi();
+      await _pumpDialog(tester, api);
+      await nameIt(tester);
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Percent'), '5');
+      await addCondition(tester);
+      await pickFrom(tester, 'When', 'Salesman');
+      await pickFrom(tester, 'Test', 'is set');
+      expect(find.text('Nothing to enter.'), findsOneWidget);
+      await save(tester);
+
+      expect((api.savedBody!['conditions'] as List).single, <String, dynamic>{
+        'sequence': 1,
+        'field_key': 'salesman_id',
+        'operator': 'EXISTS',
+      });
+    });
+
+    testWidgets('a document type and a date are chosen, not typed as ids',
+        (tester) async {
+      final _PromotionApi api = _PromotionApi();
+      await _pumpDialog(tester, api);
+      await nameIt(tester);
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Percent'), '5');
+      await addCondition(tester);
+      await pickFrom(tester, 'When', 'Document type');
+      await pickFrom(tester, 'Document', 'Quotation');
+      await addCondition(tester);
+      await pickFrom(tester, 'When', 'Document date', at: 1);
+      await pickFrom(tester, 'Test', 'is at least', at: 1);
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Date'), '2026-10-01');
+      await save(tester);
+
+      final List<dynamic> conditions = api.savedBody!['conditions'] as List;
+      expect((conditions[0] as Map)['value_text'], 'SALES_QUOTATION');
+      expect((conditions[1] as Map)['value_date'], '2026-10-01');
+      expect((conditions[1] as Map).containsKey('value_text'), isFalse);
+    });
+
+    testWidgets('a saved list reads back with names and stays overflow-free',
+        (tester) async {
+      tester.view.physicalSize = const Size(1366, 768);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final _PromotionApi api = _PromotionApi();
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showDialog<bool>(
+                context: context,
+                builder: (_) => PromotionDialog(
+                  api: api,
+                  existing: _promotion(
+                    conditions: const <PromotionConditionRecord>[
+                      PromotionConditionRecord(
+                        fieldKey: 'customer_group_id',
+                        operator: 'IN',
+                        valueList: <String>['g-whole', 'g-retail'],
+                      ),
+                      PromotionConditionRecord(
+                        fieldKey: 'line_quantity',
+                        operator: 'BETWEEN',
+                        valueList: <String>['10', '50'],
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ));
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      expect(find.widgetWithText(InputChip, 'WHOLE — Wholesale'),
+          findsOneWidget);
+      expect(
+          find.widgetWithText(InputChip, 'RETAIL — Retail'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+
+      await tester.tap(find.widgetWithText(FilledButton, 'Save'));
+      await tester.pumpAndSettle();
+      final List<dynamic> conditions = api.savedBody!['conditions'] as List;
+      expect((conditions[0] as Map)['value_json'],
+          <String>['g-whole', 'g-retail']);
+      expect((conditions[1] as Map)['value_json'], <num>[10, 50]);
+    });
+  });
+
+  testWidgets('a condition reads as a sentence for the new tests',
+      (tester) async {
+    expect(
+      describePromotionCondition(const PromotionConditionRecord(
+          fieldKey: 'line_quantity',
+          operator: 'BETWEEN',
+          valueList: <String>['10.0000', '50'])),
+      'Quantity on the line is between 10 and 50',
+    );
+    expect(
+      describePromotionCondition(const PromotionConditionRecord(
+          fieldKey: 'salesman_id', operator: 'EXISTS')),
+      'Salesman is set',
+    );
+    expect(
+      describePromotionCondition(const PromotionConditionRecord(
+          fieldKey: 'transaction_type',
+          operator: 'EQUALS',
+          valueText: 'SALES_QUOTATION')),
+      'Document type is Quotation',
+    );
   });
 }

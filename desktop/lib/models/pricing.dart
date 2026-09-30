@@ -219,6 +219,8 @@ class PromotionConditionRecord {
     this.sequence = 1,
     this.valueText = '',
     this.valueNumber = '',
+    this.valueDate = '',
+    this.valueList = const <String>[],
     this.valueLabel = '',
   });
 
@@ -228,6 +230,13 @@ class PromotionConditionRecord {
   final String operator;
   final String valueText;
   final String valueNumber;
+
+  /// `YYYY-MM-DD`, for a condition on the transaction date.
+  final String valueDate;
+
+  /// The values of an `IN` / `NOT_IN` (any number) or a `BETWEEN` (exactly
+  /// two, low then high): the server's `value_json`.
+  final List<String> valueList;
 
   /// What the id in [valueText] names ("MILK — Milk"), as the server resolved
   /// it; empty for a field that is not an id or an id that did not resolve.
@@ -241,17 +250,54 @@ class PromotionConditionRecord {
         operator: stringValue(json['operator']),
         valueText: stringValue(json['value_text']),
         valueNumber: stringValue(json['value_number']),
+        valueDate: stringValue(json['value_date']),
+        valueList: json['value_json'] is List
+            ? (json['value_json'] as List)
+                .map((item) => stringValue(item))
+                .toList()
+            : const <String>[],
         valueLabel: stringValue(json['value_label']),
       );
 
-  Json toJson() => <String, dynamic>{
-        'sequence': sequence,
-        'field_key': fieldKey,
-        'operator': operator,
-        if (valueText.trim().isNotEmpty) 'value_text': valueText.trim(),
-        if (valueNumber.trim().isNotEmpty) 'value_number': valueNumber.trim(),
-      };
+  /// Sends exactly the value the operator reads and nothing else: a list for
+  /// `IN`/`NOT_IN`/`BETWEEN` (`value_json`), none for `EXISTS`/`NOT_EXISTS`,
+  /// otherwise the one typed value that is filled in. The server refuses an
+  /// `IN` with no list and a `BETWEEN` without two bounds.
+  Json toJson() {
+    final Json body = <String, dynamic>{
+      'sequence': sequence,
+      'field_key': fieldKey,
+      'operator': operator,
+    };
+    if (promotionUnaryOperators.contains(operator)) return body;
+    if (promotionListOperators.contains(operator) || operator == 'BETWEEN') {
+      body['value_json'] = <Object>[
+        for (final String item in valueList)
+          operator == 'BETWEEN' ? (num.tryParse(item.trim()) ?? item) : item,
+      ];
+      return body;
+    }
+    if (valueText.trim().isNotEmpty) body['value_text'] = valueText.trim();
+    if (valueNumber.trim().isNotEmpty) {
+      body['value_number'] = valueNumber.trim();
+    }
+    if (valueDate.trim().isNotEmpty) body['value_date'] = valueDate.trim();
+    return body;
+  }
 }
+
+/// Operators that compare against a list of values.
+const Set<String> promotionListOperators = <String>{'IN', 'NOT_IN'};
+
+/// Operators that take no value at all.
+const Set<String> promotionUnaryOperators = <String>{'EXISTS', 'NOT_EXISTS'};
+
+/// The two documents that ask for promotions, and so the only values a
+/// `transaction_type` condition can ever match.
+const Map<String, String> promotionTransactionTypeLabels = <String, String>{
+  'SALES_ORDER': 'Sales order',
+  'SALES_QUOTATION': 'Quotation',
+};
 
 /// What each condition field is called on a screen.
 const Map<String, String> promotionFieldLabels = <String, String>{
@@ -261,6 +307,11 @@ const Map<String, String> promotionFieldLabels = <String, String>{
   'customer_id': 'Customer',
   'territory_id': 'Territory',
   'route_id': 'Route',
+  'customer_group_id': 'Customer group',
+  'branch_id': 'Branch',
+  'salesman_id': 'Salesman',
+  'transaction_type': 'Document type',
+  'transaction_date': 'Document date',
   'line_quantity': 'Quantity on the line',
   'line_gross': 'Line value',
   'document_gross': 'Order value',
@@ -270,6 +321,11 @@ const Map<String, String> promotionFieldLabels = <String, String>{
 const Map<String, String> promotionOperatorLabels = <String, String>{
   'EQUALS': 'is',
   'NOT_EQUALS': 'is not',
+  'IN': 'is one of',
+  'NOT_IN': 'is none of',
+  'BETWEEN': 'is between',
+  'EXISTS': 'is set',
+  'NOT_EXISTS': 'is not set',
   'GREATER_OR_EQUAL': 'is at least',
   'GREATER_THAN': 'is more than',
   'LESS_OR_EQUAL': 'is at most',
@@ -285,11 +341,24 @@ String describePromotionCondition(PromotionConditionRecord condition) {
       promotionFieldLabels[condition.fieldKey] ?? condition.fieldKey;
   final String test =
       promotionOperatorLabels[condition.operator] ?? condition.operator;
+  if (promotionUnaryOperators.contains(condition.operator)) {
+    return '$field $test';
+  }
+  if (condition.operator == 'BETWEEN' && condition.valueList.length == 2) {
+    return '$field $test ${_plainNumber(condition.valueList[0])} and '
+        '${_plainNumber(condition.valueList[1])}';
+  }
+  if (promotionListOperators.contains(condition.operator)) {
+    return '$field $test ${condition.valueList.join(', ')}';
+  }
   final String value = condition.valueLabel.isNotEmpty
       ? condition.valueLabel
       : condition.valueText.isNotEmpty
-          ? condition.valueText
-          : _plainNumber(condition.valueNumber);
+          ? (promotionTransactionTypeLabels[condition.valueText] ??
+              condition.valueText)
+          : condition.valueDate.isNotEmpty
+              ? condition.valueDate
+              : _plainNumber(condition.valueNumber);
   return '$field $test $value';
 }
 
@@ -313,6 +382,7 @@ class PromotionActionRecord {
     this.amount = '',
     this.buyQuantity = '',
     this.freeQuantity = '',
+    this.freeProductId = '',
   });
 
   final String id;
@@ -322,6 +392,9 @@ class PromotionActionRecord {
   final String amount;
   final String buyQuantity;
   final String freeQuantity;
+
+  /// For `FREE_PRODUCT`: the product given away.
+  final String freeProductId;
 
   factory PromotionActionRecord.fromJson(Json json) {
     final Map<String, dynamic> params = json['parameters'] is Map
@@ -342,6 +415,7 @@ class PromotionActionRecord {
       amount: read('amount'),
       buyQuantity: read('buy_quantity'),
       freeQuantity: read('free_quantity'),
+      freeProductId: read('free_product_id'),
     );
   }
 
@@ -353,6 +427,8 @@ class PromotionActionRecord {
         if (buyQuantity.trim().isNotEmpty) 'buy_quantity': buyQuantity.trim(),
         if (freeQuantity.trim().isNotEmpty)
           'free_quantity': freeQuantity.trim(),
+        if (freeProductId.trim().isNotEmpty)
+          'free_product_id': freeProductId.trim(),
       };
 }
 

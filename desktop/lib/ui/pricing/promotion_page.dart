@@ -528,6 +528,11 @@ class _PromotionPageState extends State<PromotionPage> {
         'BILL_DISCOUNT_AMOUNT' => '${action.amount} off the bill',
         'FREE_QUANTITY' =>
           'buy ${action.buyQuantity}, get ${action.freeQuantity} free',
+        'FREE_PRODUCT' => action.buyQuantity.isEmpty
+            ? '${action.freeQuantity} of another product free'
+            : 'buy ${action.buyQuantity}, get ${action.freeQuantity} of '
+                'another product free',
+        'FREE_SHIPPING' => 'free delivery',
         _ => action.actionType,
       };
 

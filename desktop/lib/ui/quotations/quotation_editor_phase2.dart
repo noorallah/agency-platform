@@ -302,6 +302,17 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
               documentBoxDecoration(context, hint: 'their enquiry number'),
         ),
       ),
+      DocumentField(
+        label: 'Coupon',
+        width: 130,
+        child: TextFormField(
+          key: const ValueKey('quotation-coupon'),
+          controller: _coupon,
+          decoration: documentBoxDecoration(context),
+          textCapitalization: TextCapitalization.characters,
+          onChanged: (_) => _schedulePreview(),
+        ),
+      ),
     ]);
   }
 
@@ -586,6 +597,8 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
                 ? 'typed on this offer'
                 : 'from ${discountSourceWords(priced.discountSource)}',
       ),
+      // D-SELL-41: silence takes the offer's free goods, a typed zero refuses.
+      const DocumentSideNote('Free: blank takes the offer; 0 refuses it.'),
       if ((double.tryParse(line.free.text.trim()) ?? 0) > 0)
         DocumentSidePair(
             'Free goods', '${line.free.text.trim()} ${product?.unit ?? ''}'),
