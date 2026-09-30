@@ -41,7 +41,6 @@ from app.common.file_import import (
 )
 from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ApplicationError
-from app.core.validation import validate_email, validate_phone
 from app.customers.models import Customer, CustomerGroup
 from app.customers.schemas import CustomerCreate, CustomerUpdate
 from app.customers.schemas.customer import (
@@ -280,20 +279,6 @@ _FIELD_HEADINGS.update(
 _DR_CR = re.compile(r"^(?P<figure>.*?)\s*(?P<side>dr|cr)\.?$", re.IGNORECASE)
 
 
-def indian_phone(value: str) -> str:
-    """Write a bare Indian number as E.164; anything else is left as typed."""
-    digits = re.sub(r"[\s().-]", "", value)
-    if digits.startswith("+"):
-        return digits
-    if len(digits) == 10 and digits.isdigit():
-        return "+91" + digits
-    if len(digits) == 11 and digits.startswith("0") and digits.isdigit():
-        return "+91" + digits[1:]
-    if len(digits) == 12 and digits.startswith("91") and digits.isdigit():
-        return "+" + digits
-    return digits
-
-
 class CustomerFileImporter(FileImporter[Customer]):
     """Check a customer file row by row, and import it whole or not at all."""
 
@@ -413,14 +398,14 @@ class CustomerFileImporter(FileImporter[Customer]):
         for heading, target in _TEXT_FIELDS.items():
             if reader.text(heading):
                 values[target] = reader.text(heading)
-        email = self._email(reader, "Email")
+        email = reader.email("Email")
         if email:
             values["email"] = email
         for heading, target in (
             ("Phone", "phone"),
             ("AlternatePhone", "alternate_phone"),
         ):
-            phone = self._phone(reader, heading)
+            phone = reader.phone(heading)
             if phone:
                 values[target] = phone
         for heading, target in (
@@ -450,34 +435,6 @@ class CustomerFileImporter(FileImporter[Customer]):
         if contacts is not None:
             values["contacts"] = contacts
         return values
-
-    @staticmethod
-    def _email(reader: RowReader, heading: str) -> str | None:
-        """Read and check an email cell, naming its column when it is wrong."""
-        raw = reader.text(heading)
-        if not raw:
-            return None
-        try:
-            return validate_email(raw)
-        except ApplicationError as error:
-            reader.fail(heading, error.message)
-            return None
-
-    @staticmethod
-    def _phone(reader: RowReader, heading: str) -> str | None:
-        """Read and check a phone cell, naming its column when it is wrong."""
-        raw = reader.text(heading)
-        if not raw:
-            return None
-        try:
-            return validate_phone(indian_phone(raw))
-        except ApplicationError:
-            reader.fail(
-                heading,
-                f"'{raw}' is not a phone number. Give 10 digits, or the full "
-                "number with its country code (+44 20 7946 0000).",
-            )
-            return None
 
     @staticmethod
     def _opening_balance(reader: RowReader) -> Decimal | None:
@@ -564,10 +521,10 @@ class CustomerFileImporter(FileImporter[Customer]):
         designation = reader.text("ContactDesignation")
         if designation:
             given["designation"] = designation
-        mobile = self._phone(reader, "ContactMobile")
+        mobile = reader.phone("ContactMobile")
         if mobile:
             given["mobile"] = mobile
-        email = self._email(reader, "ContactEmail")
+        email = reader.email("ContactEmail")
         if email:
             given["email"] = email
         if not given and not any(reader.text(heading) for heading in _CONTACT_FIELDS):
