@@ -259,7 +259,7 @@ class OpeningTrialBalanceService:
                 JournalEntry.status == JournalStatus.POSTED.value,
                 JournalEntry.is_deleted.is_(False),
             )
-            .order_by(JournalEntry.created_at.desc())
+            .order_by(JournalEntry.created_at.desc(), JournalEntry.id.desc())
             .limit(1)
         )
 
