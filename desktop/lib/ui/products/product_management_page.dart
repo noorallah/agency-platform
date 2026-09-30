@@ -11,7 +11,7 @@ import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../models/product.dart';
-import '../../models/product_import.dart';
+import '../../models/file_import.dart';
 import 'product_import_dialog.dart';
 import '../../models/trade_licence.dart';
 import '../../models/uom_packaging.dart';
@@ -1069,7 +1069,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
   }
 
   Future<void> _runImportWizard() async {
-    final ProductImportReport? report = await showDialog<ProductImportReport>(
+    final FileImportReport? report = await showDialog<FileImportReport>(
       context: context,
       barrierDismissible: false,
       builder: (context) => ProductImportDialog(

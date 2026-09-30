@@ -10,6 +10,7 @@ import '../../core/security/permission_service.dart';
 import '../../models/customer.dart';
 import '../../models/customer_opening_bill.dart';
 import '../../models/entities.dart';
+import '../../models/file_import.dart';
 import '../../models/geography.dart';
 import '../../models/product.dart';
 import '../../models/sales_territory.dart';
@@ -154,6 +155,7 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
   bool get _canDelete => widget.permissions.hasPermission('CUSTOMER_DELETE');
   bool get _canRestore => widget.permissions.hasPermission('CUSTOMER_RESTORE');
   bool get _canExport => widget.permissions.hasPermission('CUSTOMER_EXPORT');
+  bool get _canImport => widget.permissions.hasPermission('CUSTOMER_IMPORT');
 
   /// The segments this firm sells to, and what each is normally given.
   ///
@@ -194,8 +196,7 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
           await widget.api.documentSummary('customers');
       final dynamic data = response['data'];
       if (!mounted) return;
-      setState(() => _summary =
-          data is Map<String, dynamic> ? data : response);
+      setState(() => _summary = data is Map<String, dynamic> ? data : response);
     } on ApiException {
       // The counters are a convenience; the list stands without them.
     }
@@ -250,59 +251,60 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
     // Phase 2 opens the record as a full-page tab; phase 1 keeps its dialog.
     final bool phase2 = Phase2Scope.of(context);
     Widget form(BuildContext context) => CustomerWorkspaceDialog(
-        mode: mode,
-        customer: customer,
-        onSave: (payload) => _controller.save(customer, payload),
-        // Passed as loaders rather than the client itself, matching `onSave`:
-        // the dialog stays a form and does not grow an API dependency.
-        loadPlaces: widget.api.geoPlaces,
-        loadRoutes: customer == null
-            ? null
-            : () => widget.api.customerRoutes(customer.id),
-        loadAttributes: () =>
-            widget.api.applicableAttributeDefinitions('CUSTOMER'),
-        // The firm's segments, so the customer can be put in one. Passed as
-        // a loader like the others; the dialog stays a form.
-        loadGroups: () =>
-            widget.api.customerGroups(pageSize: 100).then((page) => page.items),
-        // The server refuses a moved limit without it; the form says so first.
-        mayChangeCreditLimit:
-            widget.permissions.hasPermission('CUSTOMER_MANAGE_SETTINGS'),
-        mayChangeStandingDiscount:
-            widget.permissions.hasPermission('CUSTOMER_MANAGE_SETTINGS'),
-        // Licences (backlog 54): only for a record that already exists, and
-        // only for somebody who may see them at all.
-        loadLicences: customer != null &&
-                widget.permissions.hasPermission('TRADE_LICENCE_VIEW')
-            ? () => widget.api.tradeLicences(customerId: customer.id)
-            : null,
-        canManageLicences:
-            widget.permissions.hasPermission('TRADE_LICENCE_MANAGE'),
-        onAddLicence: customer == null
-            ? null
-            : () => addTradeLicenceFor(
-                  context,
-                  api: widget.api,
-                  holderType: 'CUSTOMER',
-                  customerId: customer.id,
-                  holderLabel: customer.displayName.isEmpty
-                      ? customer.name
-                      : customer.displayName,
-                ),
-        // Opening bills (backlog 36): what the customer owed on the firm's
-        // first day here, bill by bill. Only for a record that exists.
-        loadOpeningBills: customer != null &&
-                widget.permissions.hasPermission('CUSTOMER_VIEW')
-            ? () => widget.api.customerOpeningBills(customer.id)
-            : null,
-        onCreateOpeningBill: customer == null
-            ? null
-            : (payload) =>
-                widget.api.createCustomerOpeningBill(customer.id, payload),
-        onCancelOpeningBill: widget.api.cancelCustomerOpeningBill,
-        canManageOpeningBills:
-            widget.permissions.hasPermission('CUSTOMER_UPDATE'),
-      );
+          mode: mode,
+          customer: customer,
+          onSave: (payload) => _controller.save(customer, payload),
+          // Passed as loaders rather than the client itself, matching `onSave`:
+          // the dialog stays a form and does not grow an API dependency.
+          loadPlaces: widget.api.geoPlaces,
+          loadRoutes: customer == null
+              ? null
+              : () => widget.api.customerRoutes(customer.id),
+          loadAttributes: () =>
+              widget.api.applicableAttributeDefinitions('CUSTOMER'),
+          // The firm's segments, so the customer can be put in one. Passed as
+          // a loader like the others; the dialog stays a form.
+          loadGroups: () => widget.api
+              .customerGroups(pageSize: 100)
+              .then((page) => page.items),
+          // The server refuses a moved limit without it; the form says so first.
+          mayChangeCreditLimit:
+              widget.permissions.hasPermission('CUSTOMER_MANAGE_SETTINGS'),
+          mayChangeStandingDiscount:
+              widget.permissions.hasPermission('CUSTOMER_MANAGE_SETTINGS'),
+          // Licences (backlog 54): only for a record that already exists, and
+          // only for somebody who may see them at all.
+          loadLicences: customer != null &&
+                  widget.permissions.hasPermission('TRADE_LICENCE_VIEW')
+              ? () => widget.api.tradeLicences(customerId: customer.id)
+              : null,
+          canManageLicences:
+              widget.permissions.hasPermission('TRADE_LICENCE_MANAGE'),
+          onAddLicence: customer == null
+              ? null
+              : () => addTradeLicenceFor(
+                    context,
+                    api: widget.api,
+                    holderType: 'CUSTOMER',
+                    customerId: customer.id,
+                    holderLabel: customer.displayName.isEmpty
+                        ? customer.name
+                        : customer.displayName,
+                  ),
+          // Opening bills (backlog 36): what the customer owed on the firm's
+          // first day here, bill by bill. Only for a record that exists.
+          loadOpeningBills: customer != null &&
+                  widget.permissions.hasPermission('CUSTOMER_VIEW')
+              ? () => widget.api.customerOpeningBills(customer.id)
+              : null,
+          onCreateOpeningBill: customer == null
+              ? null
+              : (payload) =>
+                  widget.api.createCustomerOpeningBill(customer.id, payload),
+          onCancelOpeningBill: widget.api.cancelCustomerOpeningBill,
+          canManageOpeningBills:
+              widget.permissions.hasPermission('CUSTOMER_UPDATE'),
+        );
     final Customer? saved = phase2
         ? await showDocument<Customer>(
             context,
@@ -386,6 +388,29 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
         );
       }
     }
+  }
+
+  Future<void> _runImport() async {
+    final FileImportReport? report = await showDialog<FileImportReport>(
+      context: context,
+      barrierDismissible: false,
+      builder: (context) => MasterImportDialog(
+        noun: 'customers',
+        fileStem: 'customer',
+        downloadTemplate: (format) =>
+            widget.api.customerImportTemplate(format: format),
+        checkFile: widget.api.checkCustomerImportFile,
+        canUpdate: _canEdit,
+      ),
+    );
+    if (!mounted || report == null) return;
+    await _controller.load();
+    if (!mounted) return;
+    NotificationService.show(
+      context,
+      'Imported ${report.toCreate} new, updated ${report.toUpdate} customers.',
+      kind: AppNotificationKind.success,
+    );
   }
 
   Future<void> _export() async {
@@ -502,6 +527,7 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
         ToolbarAction.edit,
         ToolbarAction.delete,
         ToolbarAction.refresh,
+        ToolbarAction.import,
         ToolbarAction.export,
         ToolbarAction.settings,
       ],
@@ -523,6 +549,7 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
         ToolbarAction.newItem => _canCreate,
         ToolbarAction.edit => _canEdit,
         ToolbarAction.delete => _canDelete,
+        ToolbarAction.import => _canImport,
         ToolbarAction.export => _canExport,
         _ => true,
       },
@@ -534,6 +561,7 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
             ToolbarAction.edit => selected != null && !selected.isDeleted,
             ToolbarAction.delete => selected != null && !selected.isDeleted,
             ToolbarAction.refresh => true,
+            ToolbarAction.import => _canImport,
             ToolbarAction.export => _controller.items.isNotEmpty,
             // Reading the policy needs only CUSTOMER_VIEW: someone the policy
             // warns should be able to see the rule behind the warning.
@@ -564,6 +592,8 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
             _openCreditSettings();
             break;
           case ToolbarAction.import:
+            _runImport();
+            break;
           case ToolbarAction.print:
             break;
         }
@@ -940,12 +970,13 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
   late String _customerGroupId = widget.customer?.customerGroupId ?? '';
   List<CustomerGroup> _groups = const [];
   bool _groupsRequested = false;
-  late final CustomFieldsController? _customFields = widget.loadAttributes == null
-      ? null
-      : CustomFieldsController(
-          load: widget.loadAttributes!,
-          stored: widget.customer?.attributes ?? const [],
-        );
+  late final CustomFieldsController? _customFields =
+      widget.loadAttributes == null
+          ? null
+          : CustomFieldsController(
+              load: widget.loadAttributes!,
+              stored: widget.customer?.attributes ?? const [],
+            );
   int _tab = 0;
   bool _saving = false;
   bool _dirty = false;
@@ -1139,8 +1170,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         'alternate_phone': _nullable('alternate_phone'),
         'website': _nullable('website'),
         // Empty means "no group", sent as null so it clears any prior one.
-        'customer_group_id':
-            _customerGroupId.isEmpty ? null : _customerGroupId,
+        'customer_group_id': _customerGroupId.isEmpty ? null : _customerGroupId,
         'credit_limit': _fields['credit_limit']!.text.trim(),
         'default_discount_percent':
             _fields['default_discount_percent']!.text.trim().isEmpty
@@ -1412,7 +1442,8 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
       return _tabPage([
         const WorkspaceEmptyState(
           title: 'On no round yet',
-          message: 'Put this customer on a route from Sales \u2192 Route Builder, '
+          message:
+              'Put this customer on a route from Sales \u2192 Route Builder, '
               'or from the territory itself.',
           icon: Icons.alt_route,
         ),
@@ -1480,7 +1511,8 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
             ),
     );
     if (rows == null) {
-      return _tabPage([header, const Center(child: CircularProgressIndicator())]);
+      return _tabPage(
+          [header, const Center(child: CircularProgressIndicator())]);
     }
     if (rows.isEmpty) {
       return _tabPage([
@@ -1908,20 +1940,21 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
 
   Widget _tabPage(List<Widget> children) => _flat
       // Phase 2 lays the sections out in one scroll, so each is a column.
-      ? Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: children)
+      ? Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch, children: children)
       : SingleChildScrollView(
-        padding: const EdgeInsets.all(24),
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 1100),
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: children,
+          padding: const EdgeInsets.all(24),
+          child: Align(
+            alignment: Alignment.topCenter,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 1100),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: children,
+              ),
             ),
           ),
-        ),
-      );
+        );
 
   Widget _responsiveFields(List<Widget> children) => LayoutBuilder(
         builder: (context, constraints) {
@@ -2400,8 +2433,8 @@ class _AddCustomerOpeningBillDialogState
                 if (_error != null) ...[
                   Text(
                     _error!,
-                    style: TextStyle(
-                        color: Theme.of(context).colorScheme.error),
+                    style:
+                        TextStyle(color: Theme.of(context).colorScheme.error),
                   ),
                   const SizedBox(height: 8),
                 ],
@@ -2437,8 +2470,7 @@ class _AddCustomerOpeningBillDialogState
                   value: _postingDate,
                   onTap: () => _pickDate(
                     initial: _postingDate ?? DateTime.now(),
-                    onPicked: (picked) =>
-                        setState(() => _postingDate = picked),
+                    onPicked: (picked) => setState(() => _postingDate = picked),
                   ),
                   onClear: () => setState(() => _postingDate = null),
                   helperText: 'blank = today; the day your books here start',
