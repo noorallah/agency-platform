@@ -56,10 +56,10 @@ const Map<String, String> openingBalanceHints = {
   'products': 'Masters → Products → Import.',
   'customers': 'Masters → Customers → Import.',
   'suppliers': 'Masters → Vendors → Import.',
-  'customer_opening_bills':
-      'Masters → Customers → open the customer → Opening bills.',
-  'supplier_opening_bills':
-      'Masters → Vendors → open the supplier → Opening bills.',
+  'customer_opening_bills': 'Masters → Customers → … → Import opening bills, '
+      'or one at a time on the customer.',
+  'supplier_opening_bills': 'Masters → Vendors → … → Import opening bills, '
+      'or one at a time on the supplier.',
   'opening_trial_balance': 'Accounts → Opening Balances.',
   'opening_stock': 'Stock → Opening Stock → Import from file.',
 };

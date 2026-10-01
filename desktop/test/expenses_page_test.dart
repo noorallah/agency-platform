@@ -246,6 +246,66 @@ void main() {
     expect(saved?.expenseNumber, 'EXP-2026-2027-000001');
   });
 
+  testWidgets('rent with TDS sends the deduction, section and PAN',
+      (tester) async {
+    final _ExpenseApi api = _ExpenseApi();
+    tester.view.physicalSize = const Size(1400, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    await tester.pumpWidget(
+      MaterialApp(
+        builder: (context, child) => Phase2Scope(child: child!),
+        home: Scaffold(
+          body: Builder(
+            builder: (context) => TextButton(
+              onPressed: () => showDialog<Expense>(
+                context: context,
+                builder: (_) => RecordExpenseDialog(
+                  api: api,
+                  today: DateTime(2026, 9, 1),
+                ),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('expense-account')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('6000 Rent').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('expense-paid-from')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('1010 Bank').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+        find.byKey(const ValueKey('expense-amount')), '30000');
+    await tester.enterText(
+        find.byKey(const ValueKey('expense-payee')), 'Sharma Estates');
+    await tester.enterText(
+        find.byKey(const ValueKey('expense-tds-amount')), '3000');
+    await tester.enterText(
+        find.byKey(const ValueKey('expense-payee-pan')), 'ABCDE1234F');
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+        find.byKey(const ValueKey('expense-tds-section')));
+    await tester.tap(find.byKey(const ValueKey('expense-tds-section')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('194I - Rent').last);
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Paid out: 27000.00'), findsOneWidget);
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(api.recorded?['tds_amount'], '3000');
+    expect(api.recorded?['tds_section'], '194I');
+    expect(api.recorded?['payee_pan'], 'ABCDE1234F');
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('a refusal is shown in the server\'s words', (tester) async {
     final _ExpenseApi api = _ExpenseApi()
       ..refusal = 'No open accounting period covers 2026-09-01.';

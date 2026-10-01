@@ -1146,6 +1146,7 @@ class DocumentPostingService:
         is_receipt: bool,
         money_account_id: UUID,
         actor_id: UUID,
+        tds_amount: Decimal = ZERO,
     ) -> JournalEntry:
         """Post money arriving from a customer or going out to a vendor.
 
@@ -1163,10 +1164,14 @@ class DocumentPostingService:
             settlement_id: The source document.
             settlement_number: The document number, used as the reference.
             settlement_date: The date the money moved.
-            amount: How much moved.
+            amount: How much settles the party, tax deducted included.
             is_receipt: True for money in, False for money out.
             money_account_id: The cash or bank account it moved through.
             actor_id: The user recording it.
+            tds_amount: Tax deducted at source out of ``amount`` (53.1). The
+                money leg is the rest; the deduction posts to TDS Receivable
+                on a receipt and TDS Payable on a payment, so the party leg
+                still clears the whole ``amount``.
 
         Returns:
             The posted journal entry.
@@ -1175,10 +1180,21 @@ class DocumentPostingService:
             ValidationError: If accounts or an open period are missing.
 
         """
-        purposes = RECEIPT_PURPOSES if is_receipt else PAYMENT_PURPOSES
+        purposes: tuple[ControlAccountPurpose, ...] = (
+            RECEIPT_PURPOSES if is_receipt else PAYMENT_PURPOSES
+        )
+        tds_purpose = (
+            ControlAccountPurpose.TDS_RECEIVABLE
+            if is_receipt
+            else ControlAccountPurpose.TDS_PAYABLE
+        )
+        deducted = quantize_ledger(quantize_money(tds_amount))
+        if deducted > ZERO:
+            purposes = (*purposes, tds_purpose)
         accounts = self._require_mapping(firm_id, purposes)
         context = self.context_for(firm_id, settlement_date)
         total = quantize_ledger(quantize_money(amount))
+        moved = total - deducted
         party_purpose = (
             ControlAccountPurpose.ACCOUNTS_RECEIVABLE
             if is_receipt
@@ -1187,9 +1203,21 @@ class DocumentPostingService:
         kind = "Receipt" if is_receipt else "Payment"
         money_leg = JournalLineData(
             ledger_account_id=money_account_id,
-            debit_amount=total if is_receipt else ZERO,
-            credit_amount=ZERO if is_receipt else total,
+            debit_amount=moved if is_receipt else ZERO,
+            credit_amount=ZERO if is_receipt else moved,
             description=f"{kind} {settlement_number}",
+        )
+        tds_legs = (
+            [
+                JournalLineData(
+                    ledger_account_id=accounts[tds_purpose],
+                    debit_amount=deducted if is_receipt else ZERO,
+                    credit_amount=ZERO if is_receipt else deducted,
+                    description=f"TDS on {kind.lower()} {settlement_number}",
+                )
+            ]
+            if deducted > ZERO
+            else []
         )
         party_leg = JournalLineData(
             ledger_account_id=accounts[party_purpose],
@@ -1205,7 +1233,7 @@ class DocumentPostingService:
             journal_date=settlement_date,
             reference_number=settlement_number,
             description=f"{kind} {settlement_number}",
-            lines=[money_leg, party_leg],
+            lines=[money_leg, *tds_legs, party_leg],
             source_module="settlements",
             source_id=settlement_id,
             actor_id=actor_id,
@@ -1355,6 +1383,7 @@ class DocumentPostingService:
         paid_from_account_id: UUID,
         description: str,
         actor_id: UUID,
+        tds_amount: Decimal = ZERO,
     ) -> JournalEntry:
         """Book money spent on running the firm: Dr the expense, Cr the money.
 
@@ -1373,6 +1402,9 @@ class DocumentPostingService:
             paid_from_account_id: The cash or bank account credited.
             description: What the lines and the entry say it was for.
             actor_id: The user recording the expense.
+            tds_amount: Tax deducted at source out of ``amount`` (53.1): the
+                expense is the whole amount, the money leg the rest, and the
+                deduction is credited to TDS Payable until the challan is paid.
 
         Returns:
             The posted journal entry.
@@ -1383,6 +1415,7 @@ class DocumentPostingService:
         """
         context = self.context_for(firm_id, expense_date)
         total = quantize_ledger(quantize_money(amount))
+        deducted = quantize_ledger(quantize_money(tds_amount))
         lines = [
             JournalLineData(
                 ledger_account_id=expense_account_id,
@@ -1393,10 +1426,22 @@ class DocumentPostingService:
             JournalLineData(
                 ledger_account_id=paid_from_account_id,
                 debit_amount=ZERO,
-                credit_amount=total,
+                credit_amount=total - deducted,
                 description=description,
             ),
         ]
+        if deducted > ZERO:
+            tds_account = self._require_mapping(
+                firm_id, (ControlAccountPurpose.TDS_PAYABLE,)
+            )[ControlAccountPurpose.TDS_PAYABLE]
+            lines.append(
+                JournalLineData(
+                    ledger_account_id=tds_account,
+                    debit_amount=ZERO,
+                    credit_amount=deducted,
+                    description=f"TDS on {description}"[:500],
+                )
+            )
         entry = self._journals.create_entry(
             firm_id=firm_id,
             journal_type_id=context.journal_type_id,

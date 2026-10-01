@@ -285,22 +285,25 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
               ),
             ),
             if (report.needsPeriod) ...[
-              SizedBox(
-                width: 130,
-                child: TextField(
-                  key: const ValueKey<String>('report-from'),
-                  controller: _from,
-                  decoration: const InputDecoration(labelText: 'From'),
-                  onSubmitted: (_) => unawaited(_load()),
+              if (!report.asOnDate) ...[
+                SizedBox(
+                  width: 130,
+                  child: TextField(
+                    key: const ValueKey<String>('report-from'),
+                    controller: _from,
+                    decoration: const InputDecoration(labelText: 'From'),
+                    onSubmitted: (_) => unawaited(_load()),
+                  ),
                 ),
-              ),
-              const SizedBox(width: AppSpacing.sm),
+                const SizedBox(width: AppSpacing.sm),
+              ],
               SizedBox(
                 width: 130,
                 child: TextField(
                   key: const ValueKey<String>('report-to'),
                   controller: _to,
-                  decoration: const InputDecoration(labelText: 'To'),
+                  decoration: InputDecoration(
+                      labelText: report.asOnDate ? 'As on' : 'To'),
                   onSubmitted: (_) => unawaited(_load()),
                 ),
               ),
