@@ -36,6 +36,7 @@ DEFAULT_SETTINGS = SalesWorkflowSettings(
     default_branch_id=None,
     default_warehouse_id=None,
     promotion_mode="COMBINE",
+    max_line_discount_percent=None,
 )
 
 
@@ -75,6 +76,7 @@ class SalesWorkflowService:
             default_branch_id=policy.default_branch_id,
             default_warehouse_id=policy.default_warehouse_id,
             promotion_mode=policy.promotion_mode or "COMBINE",
+            max_line_discount_percent=policy.max_line_discount_percent,
             is_configured=stored is not None,
         )
 
@@ -123,6 +125,8 @@ class SalesWorkflowService:
             row.promotion_mode = data.promotion_mode
         elif not row.promotion_mode:
             row.promotion_mode = "COMBINE"
+        if "max_line_discount_percent" in sent:
+            row.max_line_discount_percent = data.max_line_discount_percent
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -147,6 +151,7 @@ class SalesWorkflowService:
             default_branch_id=row.default_branch_id,
             default_warehouse_id=row.default_warehouse_id,
             promotion_mode=row.promotion_mode,
+            max_line_discount_percent=row.max_line_discount_percent,
             is_configured=True,
         )
 
@@ -207,6 +212,11 @@ class SalesWorkflowService:
         """Describe the configuration for the audit trail."""
         return {
             "promotion_mode": row.promotion_mode,
+            "max_line_discount_percent": (
+                str(row.max_line_discount_percent)
+                if row.max_line_discount_percent is not None
+                else None
+            ),
             "quotation_stage": row.quotation_stage,
             "sales_order_stage": row.sales_order_stage,
             "delivery_note_stage": row.delivery_note_stage,

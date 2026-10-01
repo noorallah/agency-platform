@@ -1,15 +1,28 @@
 import 'dart:async';
+import 'dart:io';
 
+import 'package:file_selector/file_selector.dart';
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
 import '../../core/design/design_tokens.dart';
+import '../../core/notifications/notification_service.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
+import '../../models/finance.dart';
 import '../../models/report.dart';
+import '../finance/journal_entry_view_dialog.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/module_catalog.dart';
 import 'report_catalog.dart';
+
+/// How a downloaded report file is written to disk. Tests inject one,
+/// because a widget test cannot open a native save dialog. Answers the path
+/// written, or null when the person cancelled.
+typedef SaveReportFile = Future<String?> Function(
+  String suggestedName,
+  List<int> bytes,
+);
 
 /// The reports the server has always been able to produce.
 ///
@@ -24,12 +37,16 @@ class ReportsWorkspace extends StatefulWidget {
     required this.permissions,
     required this.hasActiveFirm,
     required this.tabId,
+    this.saveFile,
   });
 
   final ApiClient api;
   final PermissionService permissions;
   final bool hasActiveFirm;
   final String tabId;
+
+  /// Where a downloaded file goes; null asks with the native save dialog.
+  final SaveReportFile? saveFile;
 
   @override
   State<ReportsWorkspace> createState() => _ReportsWorkspaceState();
@@ -59,13 +76,29 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
   final TextEditingController _from = TextEditingController();
   final TextEditingController _to = TextEditingController();
 
+  // The return quarter a quarterly report is asked for (53.1), opening on the
+  // last quarter that has ended -- the one a return is due for.
+  final TextEditingController _financialYear = TextEditingController();
+  int _quarter = 1;
+
+  // How many days a report that takes them is asked about (55 S7), and which
+  // report the box was last filled for -- each opens on its own figure.
+  final TextEditingController _days = TextEditingController();
+  String? _daysFor;
+
   @override
   void dispose() {
     _horizontal.dispose();
     _from.dispose();
     _to.dispose();
+    _financialYear.dispose();
+    _days.dispose();
     super.dispose();
   }
+
+  /// A dated or quarterly report is paged; a snapshot is not.
+  static bool _paged(ReportDefinition report) =>
+      report.needsPeriod || report.quarterly;
 
   static String _iso(DateTime value) =>
       value.toIso8601String().split('T').first;
@@ -91,6 +124,9 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
     final DateTime now = DateTime.now();
     _from.text = _iso(DateTime(now.year, now.month, 1));
     _to.text = _iso(DateTime(now.year, now.month + 1, 0));
+    final (String year, int quarter) = lastEndedReturnQuarter(now);
+    _financialYear.text = year;
+    _quarter = quarter;
     if (_reports.isNotEmpty) {
       _selected = _reports.first;
       unawaited(_load());
@@ -142,6 +178,11 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
     final ReportDefinition? report = _selected;
     if (report == null || !widget.hasActiveFirm || !_canRead(report)) return;
     final int load = ++_loads;
+    final int? days = report.days;
+    if (days != null && _daysFor != report.id) {
+      _days.text = '$days';
+      _daysFor = report.id;
+    }
     setState(() {
       _loading = true;
       _error = null;
@@ -149,14 +190,22 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
     try {
       final ReportPage result = await widget.api.reportRows(
         report.path,
-        query: report.needsPeriod
+        query: report.quarterly
             ? {
-                'from_date': _from.text.trim(),
-                'to_date': _to.text.trim(),
+                'financial_year': _financialYear.text.trim(),
+                'quarter': 'Q$_quarter',
                 'page': '$page',
                 'page_size': '$_pageSize',
               }
-            : null,
+            : report.needsPeriod
+                ? {
+                    'from_date': _from.text.trim(),
+                    'to_date': _to.text.trim(),
+                    if (days != null) 'days': _days.text.trim(),
+                    'page': '$page',
+                    'page_size': '$_pageSize',
+                  }
+                : null,
         rowsKey: report.rowsKey,
       );
       if (!mounted || load != _loads) return;
@@ -174,6 +223,75 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
     } finally {
       if (mounted && load == _loads) setState(() => _loading = false);
     }
+  }
+
+  /// Open what a row stands for (55 M9): the journal behind a day book
+  /// voucher or a cash book posting. An opening or closing row names no
+  /// journal and opens nothing.
+  Future<void> _drill(ReportDefinition report, Json row) async {
+    switch (report.drill) {
+      case ReportDrill.journal:
+        final dynamic id = row['journal_entry_id'];
+        if (id is! String || id.isEmpty) return;
+        try {
+          final JournalEntry entry = await widget.api.journalEntry(id);
+          if (!mounted) return;
+          await JournalEntryViewDialog.show(context,
+              api: widget.api, entry: entry);
+        } on ApiException catch (exception) {
+          if (!mounted) return;
+          setState(() => _error = exception.message);
+        }
+      case null:
+        return;
+    }
+  }
+
+  bool _downloading = false;
+
+  /// Download the report's file and save it where the person says.
+  Future<void> _download(ReportDefinition report) async {
+    final ReportFile? file = report.file;
+    if (file == null || _downloading) return;
+    setState(() => _downloading = true);
+    try {
+      final String year = _financialYear.text.trim();
+      final (String name, List<int> bytes) = switch (file) {
+        ReportFile.tds26q => (
+            '26Q-$year-Q$_quarter.xlsx',
+            await widget.api.tds26qFile(
+              financialYear: year,
+              quarter: 'Q$_quarter',
+            ),
+          ),
+      };
+      final String? path = await (widget.saveFile ?? _saveToDisk)(name, bytes);
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        path == null ? exportCancelledMessage : exportSavedMessage(path),
+        kind: path == null
+            ? AppNotificationKind.information
+            : AppNotificationKind.success,
+      );
+    } on ApiException catch (exception) {
+      if (!mounted) return;
+      setState(() => _error = exception.message);
+    } finally {
+      if (mounted) setState(() => _downloading = false);
+    }
+  }
+
+  static Future<String?> _saveToDisk(String name, List<int> bytes) async {
+    final FileSaveLocation? location = await getSaveLocation(
+      suggestedName: name,
+      acceptedTypeGroups: const [
+        XTypeGroup(label: 'Excel workbook', extensions: ['xlsx']),
+      ],
+    );
+    if (location == null) return null;
+    await File(location.path).writeAsBytes(bytes, flush: true);
+    return location.path;
   }
 
   @override
@@ -309,7 +427,7 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
               ),
               const SizedBox(width: AppSpacing.md),
             ],
-            if (report.needsPeriod) ..._pager(context) else
+            if (_paged(report)) ..._pager(context) else
               Text('${_rows.length} row(s)',
                   style: Theme.of(context).textTheme.bodySmall),
             const SizedBox(width: AppSpacing.md),
@@ -426,7 +544,7 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
       return cellValue(row, column.key);
     }
 
-    final int rowsPerPage = report.needsPeriod
+    final int rowsPerPage = _paged(report)
         ? _pageSize
         : (_rows.isEmpty ? 1 : _rows.length);
     return Column(
@@ -446,9 +564,50 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
                 size: 16, color: scheme.onSurfaceVariant),
           ),
           if (report.needsPeriod) ...[
-            dateBox('From', const ValueKey<String>('report-from'), _from),
-            dateBox('To', const ValueKey<String>('report-to'), _to),
+            // As on one day (D-GOLIVE-3): a From would ask a question the
+            // report cannot answer, as the phase 1 screen already knew.
+            if (!report.asOnDate)
+              dateBox('From', const ValueKey<String>('report-from'), _from),
+            dateBox(report.asOnDate ? 'As on' : 'To',
+                const ValueKey<String>('report-to'), _to),
           ],
+          if (report.days != null)
+            dateBox('Days', const ValueKey<String>('report-days'), _days),
+          // One return quarter (53.1): the year it falls in, and which.
+          if (report.quarterly) ...[
+            dateBox('Year', const ValueKey<String>('report-financial-year'),
+                _financialYear),
+            SizedBox(
+              height: 32,
+              child: DropdownButton<int>(
+                key: const ValueKey<String>('report-quarter'),
+                value: _quarter,
+                isDense: true,
+                underline: const SizedBox.shrink(),
+                style: theme.textTheme.bodyMedium?.copyWith(fontSize: 13),
+                items: const [
+                  DropdownMenuItem(value: 1, child: Text('Q1 Apr-Jun')),
+                  DropdownMenuItem(value: 2, child: Text('Q2 Jul-Sep')),
+                  DropdownMenuItem(value: 3, child: Text('Q3 Oct-Dec')),
+                  DropdownMenuItem(value: 4, child: Text('Q4 Jan-Mar')),
+                ],
+                onChanged: (value) {
+                  if (value == null) return;
+                  setState(() => _quarter = value);
+                  unawaited(_load());
+                },
+              ),
+            ),
+          ],
+          if (report.file != null)
+            TextButton.icon(
+              key: const ValueKey<String>('report-download'),
+              onPressed: _loading || _downloading
+                  ? null
+                  : () => unawaited(_download(report)),
+              icon: const Icon(Icons.download_outlined, size: 16),
+              label: const Text('Download'),
+            ),
           Phase2Refresh(
             onPressed: _loading ? null : () => unawaited(_load()),
             child: const SizedBox.shrink(),
@@ -477,8 +636,8 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
               : EnterpriseDataGrid<Json>(
                   key: ValueKey<String>('report-grid-${report.id}'),
                   items: _rows,
-                  total: report.needsPeriod ? _total : _rows.length,
-                  pageOffset: report.needsPeriod ? (_page - 1) * _pageSize : 0,
+                  total: _paged(report) ? _total : _rows.length,
+                  pageOffset: _paged(report) ? (_page - 1) * _pageSize : 0,
                   rowsPerPage: rowsPerPage,
                   columns: [
                     for (final ReportColumn column in columns)
@@ -494,6 +653,9 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
                       shown(row, column),
                   ],
                   onSelect: (_) {},
+                  onOpen: report.drill == null
+                      ? null
+                      : (row) => unawaited(_drill(report, row)),
                   onPageChanged: (offset) => unawaited(
                     _load(page: offset ~/ _pageSize + 1),
                   ),
@@ -502,4 +664,15 @@ class _ReportsWorkspaceState extends State<ReportsWorkspace> {
       ],
     );
   }
+}
+
+/// The last return quarter that has ended on [today]: the financial year as
+/// `2026-27` and the quarter 1 to 4, April to June being 1. A TDS return is
+/// filed after its quarter ends, so that is the one a screen opens on.
+(String, int) lastEndedReturnQuarter(DateTime today) {
+  final int startYear = today.month >= 4 ? today.year : today.year - 1;
+  final int current = (today.month - 4) % 12 ~/ 3 + 1;
+  final int year = current == 1 ? startYear - 1 : startYear;
+  final int quarter = current == 1 ? 4 : current - 1;
+  return ('$year-${((year + 1) % 100).toString().padLeft(2, '0')}', quarter);
 }

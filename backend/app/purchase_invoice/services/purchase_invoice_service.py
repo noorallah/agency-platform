@@ -76,6 +76,7 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceLineResponse,
     PurchaseInvoiceLineTaxResponse,
     PurchaseInvoiceListFilters,
+    PurchaseInvoiceMsmeDueRecord,
     PurchaseInvoiceNoteResponse,
     PurchaseInvoiceNoteWrite,
     PurchaseInvoiceOverdueRecord,
@@ -88,6 +89,11 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceStatus,
     PurchaseInvoiceSummary,
     PurchaseInvoiceVendorOutstandingRecord,
+)
+from app.purchase_invoice.services.msme import (
+    default_due_date,
+    msme_pay_by,
+    msme_warning,
 )
 from app.sales.services.document_preview import purchase_line_companions
 from app.settlements.schemas import OutstandingInvoiceRecord
@@ -366,6 +372,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         business_profile_id = data.business_profile_id
         if vendor_id != header["vendor_id"]:
             raise ValidationError("Invoice vendor must match all source documents.")
+        self._refuse_blocked(vendor_id)
         if branch_id != header["branch_id"]:
             raise ValidationError("Invoice branch must match all source documents.")
         self._validate_supplier_invoice_number(
@@ -397,7 +404,16 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             ),
             exchange_rate=data.exchange_rate,
             payment_terms=data.payment_terms,
-            due_date=data.due_date,
+            due_date=default_due_date(
+                self._session.get(Vendor, vendor_id),
+                typed=data.due_date,
+                invoice_date=data.invoice_date,
+            ),
+            msme_pay_by=msme_pay_by(
+                self._session.get(Vendor, vendor_id),
+                invoice_date=data.invoice_date,
+                supplier_invoice_date=data.supplier_invoice_date,
+            ),
             reference_number=data.reference_number,
             remarks=data.remarks,
             status=PurchaseInvoiceStatus.DRAFT.value,
@@ -508,6 +524,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             data, firm_scope, own_receipts=own_receipts
         )
         row.vendor_id = data.vendor_id or header["vendor_id"]
+        self._refuse_blocked(row.vendor_id)
         row.branch_id = data.branch_id or header["branch_id"]
         row.business_profile_id = data.business_profile_id
         row.invoice_date = data.invoice_date
@@ -518,7 +535,15 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         )
         row.exchange_rate = data.exchange_rate
         row.payment_terms = data.payment_terms
-        row.due_date = data.due_date
+        vendor = self._session.get(Vendor, row.vendor_id)
+        row.due_date = default_due_date(
+            vendor, typed=data.due_date, invoice_date=data.invoice_date
+        )
+        row.msme_pay_by = msme_pay_by(
+            vendor,
+            invoice_date=data.invoice_date,
+            supplier_invoice_date=data.supplier_invoice_date,
+        )
         row.reference_number = data.reference_number
         row.remarks = data.remarks
         row.additional_charges = self._q(data.additional_charges)
@@ -622,6 +647,14 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             actor_id=actor_id,
             tax_by_component=self._tax_by_component(row.id),
         )
+        # Warned, not refused: the bill is owed whatever its terms say, and
+        # paying it in time is what the warning is for (backlog 68 row 2).
+        supplier = self._session.get(Vendor, row.vendor_id)
+        msme_remark = msme_warning(
+            pay_by=row.msme_pay_by,
+            due_date=row.due_date,
+            vendor_name=supplier.display_name if supplier else "The supplier",
+        )
         self._record_event(
             firm_id=firm_scope,
             document_type=self._document_type(firm_scope),
@@ -630,6 +663,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             from_state=before,
             to_state=row.status,
             actor_id=actor_id,
+            remarks=msme_remark,
         )
         record_audit(
             self._session,
@@ -959,6 +993,20 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             firm_id=firm_scope, party_id=None
         )
 
+    def _refuse_blocked(self, vendor_id: UUID | None) -> None:
+        """Refuse a new or edited bill from a blocked supplier (backlog 69 row 4).
+
+        Approving, paying and returning what was already billed stay open: a
+        block stops new business, it does not cancel what was owed.
+        """
+        vendor = None if vendor_id is None else self._session.get(Vendor, vendor_id)
+        if vendor is not None and vendor.status == "BLOCKED":
+            why = f": {vendor.blocked_reason}" if vendor.blocked_reason else ""
+            raise ValidationError(
+                f"{vendor.display_name} is blocked{why}; no new bill can be "
+                "entered from them."
+            )
+
     def _vendor_names(self, vendor_ids: set[UUID]) -> dict[UUID, str]:
         """Read the display names of the vendors named, in one query."""
         if not vendor_ids:
@@ -970,6 +1018,72 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 select(Vendor.id, Vendor.display_name).where(Vendor.id.in_(part))
             ).all()
         }
+
+    def msme_dues_report(
+        self, *, firm_scope: UUID, as_of: date | None = None
+    ) -> list[PurchaseInvoiceMsmeDueRecord]:
+        """List unpaid bills to micro and small suppliers, soonest first.
+
+        Read off what Record Payment says is owed, so a bill paid in full
+        leaves the list the day it is paid; only bills stamped with a legal
+        date (``msme_pay_by``) are listed (backlog 68 row 2).
+        """
+        today = as_of or utc_now().date()
+        owing = {
+            record.invoice_id: record
+            for record in self._owing(firm_scope=firm_scope)
+            if not record.is_opening_bill
+        }
+        if not owing:
+            return []
+        rows = [
+            row
+            for part in chunks(list(owing))
+            for row in self._session.execute(
+                select(
+                    PurchaseInvoice.id,
+                    PurchaseInvoice.invoice_number,
+                    PurchaseInvoice.supplier_invoice_number,
+                    PurchaseInvoice.vendor_id,
+                    PurchaseInvoice.invoice_date,
+                    PurchaseInvoice.due_date,
+                    PurchaseInvoice.msme_pay_by,
+                    Vendor.display_name,
+                    Vendor.udyam_number,
+                    Vendor.msme_category,
+                )
+                .join(Vendor, Vendor.id == PurchaseInvoice.vendor_id)
+                .where(
+                    PurchaseInvoice.id.in_(part),
+                    PurchaseInvoice.msme_pay_by.is_not(None),
+                )
+            ).all()
+        ]
+        records: list[PurchaseInvoiceMsmeDueRecord] = []
+        for row in rows:
+            days_left = (row.msme_pay_by - today).days
+            records.append(
+                PurchaseInvoiceMsmeDueRecord(
+                    invoice_id=row.id,
+                    invoice_number=row.invoice_number,
+                    supplier_invoice_number=row.supplier_invoice_number,
+                    vendor_id=row.vendor_id,
+                    vendor_name=row.display_name,
+                    udyam_number=row.udyam_number,
+                    msme_category=row.msme_category,
+                    invoice_date=row.invoice_date,
+                    due_date=row.due_date,
+                    pay_by=row.msme_pay_by,
+                    days_left=days_left,
+                    state=(
+                        "OVERDUE"
+                        if days_left < 0
+                        else "DUE_SOON" if days_left <= 7 else "OPEN"
+                    ),
+                    outstanding_amount=owing[row.id].outstanding_amount,
+                )
+            )
+        return sorted(records, key=lambda item: (item.pay_by, item.invoice_number))
 
     def overdue_report(self, *, firm_scope: UUID) -> list[PurchaseInvoiceOverdueRecord]:
         """List the bills past their due date that still owe something.
@@ -2332,6 +2446,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         refusal names what is in the way, as the sales invoice's does.
         """
         # Imported here: both modules import the invoice model.
+        from app.debit_note.models import DebitNote, DebitNoteStatus
         from app.purchase_return.models import PurchaseReturn, PurchaseReturnSource
         from app.settlements.models import Settlement, SettlementAllocation
 
@@ -2352,6 +2467,16 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         ).all()
         if payments:
             blockers.append("payment " + ", ".join(sorted(payments)))
+        # A write-back or set-off naming the bill (backlog 74 row 2).
+        from app.party_adjustments.services.allocations import (
+            adjustment_numbers_against,
+        )
+
+        adjustments = adjustment_numbers_against(
+            self._session, column="purchase_invoice_id", bill_id=row.id
+        )
+        if adjustments:
+            blockers.append("party adjustment " + ", ".join(adjustments))
         returns = self._session.scalars(
             select(PurchaseReturn.return_number)
             .join(
@@ -2368,6 +2493,17 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         ).all()
         if returns:
             blockers.append("purchase return " + ", ".join(sorted(returns)))
+        # A debit note claims against this bill's lines at the rate it charged;
+        # cancelling the bill under it would leave the claim naming nothing.
+        notes = self._session.scalars(
+            select(DebitNote.debit_note_number).where(
+                DebitNote.purchase_invoice_id == row.id,
+                DebitNote.status != DebitNoteStatus.CANCELLED.value,
+                DebitNote.is_deleted.is_(False),
+            )
+        ).all()
+        if notes:
+            blockers.append("debit note " + ", ".join(sorted(notes)))
         if blockers:
             raise ValidationError(
                 f"{row.invoice_number} cannot be cancelled while it has "

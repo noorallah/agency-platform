@@ -90,6 +90,61 @@ const List<ReportDefinition> reportCatalog = [
     permission: 'SALES_VIEW',
     area: ReportArea.operational,
   ),
+  // What was given away (67 row 8), on billed sales: typed against what a
+  // price list or a customer's standing rate applied, and what offers gave.
+  ReportDefinition(
+    id: 'discount-by-customer',
+    label: 'Discount given by customer',
+    description: 'Discount on bills in the dates, per customer: what was '
+        'typed, what an arrangement or an offer applied, and the bill '
+        'discount.',
+    path: '/api/v1/sales-invoices/reports/discount-by-customer',
+    needsPeriod: true,
+    permission: 'SALES_VIEW',
+    area: ReportArea.operational,
+    columns: _discountColumns,
+  ),
+  ReportDefinition(
+    id: 'discount-by-salesman',
+    label: 'Discount given by salesman',
+    description: 'Discount on bills in the dates, per salesman: what was '
+        'typed, what an arrangement or an offer applied, and the bill '
+        'discount.',
+    path: '/api/v1/sales-invoices/reports/discount-by-salesman',
+    needsPeriod: true,
+    permission: 'SALES_VIEW',
+    area: ReportArea.operational,
+    columns: _discountColumns,
+  ),
+  ReportDefinition(
+    id: 'discount-by-product',
+    label: 'Discount given by product',
+    description: 'Discount on bills in the dates, per product: what was '
+        'typed, what an arrangement or an offer applied, and the bill '
+        'discount.',
+    path: '/api/v1/sales-invoices/reports/discount-by-product',
+    needsPeriod: true,
+    permission: 'SALES_VIEW',
+    area: ReportArea.operational,
+    columns: _discountColumns,
+  ),
+  ReportDefinition(
+    id: 'discount-by-promotion',
+    label: 'Discount given by offer',
+    description: 'What each offer was claimed for in the dates: claims, '
+        'customers and the benefit given, costliest first.',
+    path: '/api/v1/sales-invoices/reports/discount-by-promotion',
+    needsPeriod: true,
+    permission: 'SALES_VIEW',
+    area: ReportArea.operational,
+    columns: [
+      ReportColumn(key: 'code', label: 'Code'),
+      ReportColumn(key: 'name', label: 'Offer'),
+      ReportColumn(key: 'claims', label: 'Claims', numeric: true),
+      ReportColumn(key: 'customers', label: 'Customers', numeric: true),
+      ReportColumn(key: 'benefit_amount', label: 'Given', numeric: true),
+    ],
+  ),
   // The Targets screen's Achievement view, listed here too so it is found
   // beside the other by-salesman reports (BL-31.15). Its route checks only
   // SALES_TARGET_VIEW, not REPORT_VIEW.
@@ -524,6 +579,36 @@ const List<ReportDefinition> reportCatalog = [
     area: ReportArea.financial,
   ),
   ReportDefinition(
+    id: 'debit-note-register',
+    label: 'Debit note register',
+    description: 'Every debit note raised, with the supplier bill it claims on.',
+    path: '/api/v1/debit-notes/reports/register',
+    needsPeriod: true,
+    permission: 'DEBIT_NOTE_VIEW',
+    area: ReportArea.financial,
+  ),
+  ReportDefinition(
+    id: 'party-adjustment-register',
+    label: 'Party adjustment register',
+    description:
+        'Every write-off, write-back and set-off, with its reason and status.',
+    path: '/api/v1/party-adjustments/reports/register',
+    needsPeriod: true,
+    permission: 'PARTY_ADJUSTMENT_VIEW',
+    area: ReportArea.financial,
+  ),
+  ReportDefinition(
+    id: 'contra-register',
+    label: 'Contra register',
+    description:
+        'Every deposit, withdrawal and transfer between the firm\'s own '
+        'cash and bank accounts.',
+    path: '/api/v1/contra-vouchers/reports/register',
+    needsPeriod: true,
+    permission: 'JOURNAL_VIEW',
+    area: ReportArea.financial,
+  ),
+  ReportDefinition(
     id: 'credit-note-by-customer',
     label: 'Credits by customer',
     description: 'What each customer has been credited, cancelled notes out.',
@@ -648,12 +733,58 @@ const List<ReportDefinition> reportCatalog = [
     ],
   ),
   ReportDefinition(
+    id: 'purchase-invoice-msme-dues',
+    label: 'MSME payments due',
+    description: 'Unpaid bills to micro and small suppliers against the '
+        'date the law sets: 45 days with a written agreement, 15 without. '
+        'One unpaid past it is an expense disallowed this year (s.43B(h)).',
+    path: '/api/v1/purchase-invoices/reports/msme-dues',
+    permission: 'PURCHASE_VIEW',
+    area: ReportArea.financial,
+    columns: [
+      ReportColumn(key: 'vendor_name', label: 'Supplier'),
+      ReportColumn(key: 'msme_category', label: 'MSME'),
+      ReportColumn(key: 'udyam_number', label: 'Udyam'),
+      ReportColumn(key: 'invoice_number', label: 'Invoice number'),
+      ReportColumn(
+          key: 'supplier_invoice_number', label: 'Supplier invoice number'),
+      ReportColumn(key: 'invoice_date', label: 'Invoice date'),
+      ReportColumn(key: 'pay_by', label: 'Pay by'),
+      ReportColumn(key: 'days_left', label: 'Days left', numeric: true),
+      ReportColumn(key: 'state', label: 'State'),
+      ReportColumn(
+          key: 'outstanding_amount', label: 'Still owed', numeric: true),
+    ],
+  ),
+  ReportDefinition(
     id: 'purchase-invoice-outstanding',
     label: 'Vendor outstanding',
     description: 'What is still owed to each supplier.',
     path: '/api/v1/purchase-invoices/reports/outstanding',
     permission: 'PURCHASE_VIEW',
     area: ReportArea.financial,
+  ),
+  // The customer ageing's mirror (55 S7): what each supplier is owed, by
+  // days past due, over what Record Payment says each bill still owes.
+  ReportDefinition(
+    id: 'vendor-ageing',
+    label: 'Vendor ageing',
+    description: 'What each supplier is owed today, by how many days past '
+        'its due date: 0-29, 30-59, 60-89 and 90 or more.',
+    path: '/api/v1/purchase-invoices/reports/vendor-ageing',
+    permission: 'PURCHASE_VIEW',
+    area: ReportArea.financial,
+    columns: [
+      ReportColumn(key: 'vendor_code', label: 'Code'),
+      ReportColumn(key: 'vendor_name', label: 'Supplier'),
+      ReportColumn(key: 'bills', label: 'Bills', numeric: true),
+      ReportColumn(key: 'total_outstanding', label: 'Owed', numeric: true),
+      ReportColumn(key: 'days_0_29', label: '0-29 days', numeric: true),
+      ReportColumn(key: 'days_30_59', label: '30-59', numeric: true),
+      ReportColumn(key: 'days_60_89', label: '60-89', numeric: true),
+      ReportColumn(key: 'days_90_plus', label: '90+', numeric: true),
+      ReportColumn(key: 'oldest_days', label: 'Oldest (days)', numeric: true),
+    ],
   ),
   ReportDefinition(
     id: 'purchase-return-by-vendor',
@@ -701,6 +832,114 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'quantity', label: 'Quantity', numeric: true),
       ReportColumn(key: 'rate', label: 'Rate', numeric: true),
       ReportColumn(key: 'value', label: 'Value', numeric: true),
+    ],
+  ),
+  // How old the stock on hand is (55 S7): FIFO's answer -- what is left is
+  // what came in last -- in buckets of days, valued at the average cost.
+  ReportDefinition(
+    id: 'stock-ageing',
+    label: 'Stock ageing',
+    description: 'Stock on hand as on the day, split by how long ago it was '
+        'received -- what came in last taken to be what is left -- with '
+        'its value at average cost.',
+    path: '/api/v1/inventory/reports/stock-ageing',
+    permission: 'INVENTORY_VIEW',
+    area: ReportArea.operational,
+    needsPeriod: true,
+    asOnDate: true,
+    columns: [
+      ReportColumn(key: 'product_code', label: 'Code'),
+      ReportColumn(key: 'product_name', label: 'Item'),
+      ReportColumn(key: 'category', label: 'Category'),
+      ReportColumn(key: 'unit', label: 'Unit'),
+      ReportColumn(key: 'quantity', label: 'On hand', numeric: true),
+      ReportColumn(key: 'value', label: 'Value', numeric: true),
+      ReportColumn(key: 'days_0_30', label: '0-30 days', numeric: true),
+      ReportColumn(key: 'days_31_60', label: '31-60', numeric: true),
+      ReportColumn(key: 'days_61_90', label: '61-90', numeric: true),
+      ReportColumn(key: 'days_91_180', label: '91-180', numeric: true),
+      ReportColumn(key: 'days_over_180', label: 'Over 180', numeric: true),
+      ReportColumn(key: 'last_receipt_date', label: 'Last received'),
+    ],
+  ),
+  // Stock that is not selling (55 S7): the Days box says over how long.
+  ReportDefinition(
+    id: 'slow-moving',
+    label: 'Slow-moving stock',
+    description: 'Stock on hand that the last so many days of sales would '
+        'not clear in as many days again, or that did not sell at all -- '
+        'slowest first.',
+    path: '/api/v1/inventory/reports/slow-moving',
+    permission: 'INVENTORY_VIEW',
+    area: ReportArea.operational,
+    needsPeriod: true,
+    asOnDate: true,
+    days: 90,
+    columns: _slowStockColumns,
+  ),
+  ReportDefinition(
+    id: 'dead-stock',
+    label: 'Dead stock',
+    description: 'Stock on hand that no customer took in the last so many '
+        'days: what it is worth, and when it last sold.',
+    path: '/api/v1/inventory/reports/dead-stock',
+    permission: 'INVENTORY_VIEW',
+    area: ReportArea.operational,
+    needsPeriod: true,
+    asOnDate: true,
+    days: 180,
+    columns: _slowStockColumns,
+  ),
+  // The drawing-power statement a bank asks a distributor for every month
+  // (backlog 70 row 6): opening, in, out and closing, each with its value.
+  ReportDefinition(
+    id: 'stock-statement',
+    label: 'Stock statement for the bank',
+    description: 'Opening stock, receipts, issues and closing stock with '
+        'their values over the period -- the monthly statement a bank asks '
+        'for against a cash-credit limit.',
+    path: '/api/v1/inventory/reports/stock-statement',
+    permission: 'INVENTORY_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    columns: [
+      ReportColumn(key: 'product_code', label: 'Code'),
+      ReportColumn(key: 'product_name', label: 'Item'),
+      ReportColumn(key: 'category', label: 'Category'),
+      ReportColumn(key: 'unit', label: 'Unit'),
+      ReportColumn(key: 'opening_quantity', label: 'Opening', numeric: true),
+      ReportColumn(key: 'opening_value', label: 'Opening value', numeric: true),
+      ReportColumn(key: 'inward_quantity', label: 'In', numeric: true),
+      ReportColumn(key: 'inward_value', label: 'In value', numeric: true),
+      ReportColumn(key: 'outward_quantity', label: 'Out', numeric: true),
+      ReportColumn(key: 'outward_value', label: 'Out value', numeric: true),
+      ReportColumn(key: 'closing_quantity', label: 'Closing', numeric: true),
+      ReportColumn(key: 'closing_value', label: 'Closing value', numeric: true),
+    ],
+  ),
+  // Stock at or below its reorder level (42.9), with what is on order and a
+  // suggested quantity. Purchase Orders > "..." > Below reorder level raises
+  // the draft orders from the same rows.
+  ReportDefinition(
+    id: 'purchase-below-reorder',
+    label: 'Below reorder level',
+    description: 'Products at or below their reorder level in each warehouse: '
+        'available, on order, the supplier last billed and what to order.',
+    path: '/api/v1/purchases/reports/below-reorder',
+    permission: 'PURCHASE_VIEW',
+    area: ReportArea.operational,
+    columns: [
+      ReportColumn(key: 'warehouse_code', label: 'Warehouse'),
+      ReportColumn(key: 'product_code', label: 'Code'),
+      ReportColumn(key: 'product_name', label: 'Product'),
+      ReportColumn(key: 'available_quantity', label: 'Available', numeric: true),
+      ReportColumn(key: 'reorder_level', label: 'Reorder at', numeric: true),
+      ReportColumn(key: 'maximum_level', label: 'Maximum', numeric: true),
+      ReportColumn(key: 'on_order_quantity', label: 'On order', numeric: true),
+      ReportColumn(
+          key: 'suggested_quantity', label: 'Suggested', numeric: true),
+      ReportColumn(key: 'supplier_name', label: 'Supplier'),
+      ReportColumn(key: 'unit_price', label: 'Rate', numeric: true),
     ],
   ),
   // Where a supplier billed a rate other than the goods were received at
@@ -751,6 +990,102 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'position', label: 'Position'),
     ],
   ),
+  // Collections (67 row 9): money received from customers, a receipt on its
+  // date and a reversal on the reversal's, netted.
+  ReportDefinition(
+    id: 'collections-by-day',
+    label: 'Collections by day',
+    description: 'Money received from customers each day in the dates, '
+        'with reversals taken off on the day they were made.',
+    path: '/api/v1/receipts/reports/collections-by-day',
+    needsPeriod: true,
+    permission: 'RECEIPT_VIEW',
+    area: ReportArea.financial,
+    columns: [
+      ReportColumn(key: 'label', label: 'Day'),
+      ..._collectionFigures,
+    ],
+  ),
+  ReportDefinition(
+    id: 'collections-by-salesman',
+    label: 'Collections by salesman',
+    description: 'Money received in the dates, credited to the salesman of '
+        'the bill it cleared; what cleared no bill is On account.',
+    path: '/api/v1/receipts/reports/collections-by-salesman',
+    needsPeriod: true,
+    permission: 'RECEIPT_VIEW',
+    area: ReportArea.financial,
+    columns: [
+      ReportColumn(key: 'label', label: 'Salesman'),
+      ..._collectionFigures,
+    ],
+  ),
+  ReportDefinition(
+    id: 'collections-by-mode',
+    label: 'Collections by mode',
+    description: 'Money received in the dates by cash and through the bank, '
+        'reversals netted.',
+    path: '/api/v1/receipts/reports/collections-by-mode',
+    needsPeriod: true,
+    permission: 'RECEIPT_VIEW',
+    area: ReportArea.financial,
+    columns: [
+      ReportColumn(key: 'label', label: 'Mode'),
+      ..._collectionFigures,
+    ],
+  ),
+  // Tally's Day Book (55 M9): every journal in the books over the dates, in
+  // date order. Double-click a row for the journal's lines.
+  ReportDefinition(
+    id: 'day-book',
+    label: 'Day book',
+    description: 'Every voucher in the books over the dates, in date order: '
+        'what raised it, its narration and its totals. Double-click a row '
+        'to see the journal.',
+    path: '/api/v1/finance/reports/day-book',
+    permission: 'JOURNAL_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    drill: ReportDrill.journal,
+    columns: [
+      ReportColumn(key: 'journal_date', label: 'Date'),
+      ReportColumn(key: 'voucher', label: 'Voucher'),
+      ReportColumn(key: 'voucher_type', label: 'Type'),
+      ReportColumn(key: 'source', label: 'Raised by'),
+      ReportColumn(key: 'narration', label: 'Narration'),
+      ReportColumn(key: 'debit', label: 'Debit', numeric: true),
+      ReportColumn(key: 'credit', label: 'Credit', numeric: true),
+      ReportColumn(key: 'status', label: 'Status'),
+    ],
+  ),
+  // The cash and bank books (55 M9): opening, each posting with the balance
+  // after it -- in date order -- and closing.
+  ReportDefinition(
+    id: 'cash-book',
+    label: 'Cash book',
+    description: 'Every movement of cash over the dates with the balance '
+        'after it, from the opening balance to the closing. Double-click a '
+        'row to see the journal.',
+    path: '/api/v1/finance/reports/cash-book',
+    permission: 'LEDGER_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    drill: ReportDrill.journal,
+    columns: _moneyBookColumns,
+  ),
+  ReportDefinition(
+    id: 'bank-book',
+    label: 'Bank book',
+    description: 'Every movement through the bank over the dates with the '
+        'balance after it, from the opening balance to the closing. '
+        'Double-click a row to see the journal.',
+    path: '/api/v1/finance/reports/bank-book',
+    permission: 'LEDGER_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    drill: ReportDrill.journal,
+    columns: _moneyBookColumns,
+  ),
   // What the quarterly TDS return (26Q) is filed from (53.1): every
   // deduction the firm made on payments and expenses, by deductee and PAN.
   ReportDefinition(
@@ -774,6 +1109,33 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'tds_amount', label: 'TDS', numeric: true),
       ReportColumn(key: 'net_amount', label: 'Paid', numeric: true),
       ReportColumn(key: 'status', label: 'Status'),
+    ],
+  ),
+  // The quarterly TDS return (53.1): one quarter's deductions as Annexure I
+  // of Form 26Q lists them, and the workbook to prepare the return from.
+  ReportDefinition(
+    id: 'tds-26q',
+    label: 'TDS return (26Q)',
+    description: 'One quarter of tax deducted at source on payments other '
+        'than salary, laid out as Form 26Q lists deductees. Download gives '
+        'the workbook to prepare the return from.',
+    path: '/api/v1/finance/reports/tds-26q',
+    permission: 'ACCOUNT_VIEW',
+    area: ReportArea.financial,
+    quarterly: true,
+    file: ReportFile.tds26q,
+    columns: [
+      ReportColumn(key: 'serial', label: 'Sr', numeric: true),
+      ReportColumn(key: 'section', label: 'Section'),
+      ReportColumn(key: 'deductee_code', label: 'Code'),
+      ReportColumn(key: 'pan', label: 'PAN'),
+      ReportColumn(key: 'party_name', label: 'Deductee'),
+      ReportColumn(key: 'payment_date', label: 'Paid on'),
+      ReportColumn(key: 'amount_paid', label: 'Amount', numeric: true),
+      ReportColumn(key: 'tds_amount', label: 'TDS', numeric: true),
+      ReportColumn(key: 'rate_percent', label: 'Rate %', numeric: true),
+      ReportColumn(key: 'higher_rate_reason', label: 'Reason'),
+      ReportColumn(key: 'document_number', label: 'Document'),
     ],
   ),
   // What customers deducted from what they paid, by their TAN, to tick the
@@ -801,6 +1163,58 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'status', label: 'Status'),
     ],
   ),
+];
+
+/// The cash book's and the bank book's columns: Tally's layout, with the
+/// account beside the particulars because a bank book can span accounts.
+const List<ReportColumn> _moneyBookColumns = [
+  ReportColumn(key: 'date', label: 'Date'),
+  ReportColumn(key: 'voucher', label: 'Voucher'),
+  ReportColumn(key: 'particulars', label: 'Particulars'),
+  ReportColumn(key: 'source', label: 'Raised by'),
+  ReportColumn(key: 'account', label: 'Account'),
+  ReportColumn(key: 'narration', label: 'Narration'),
+  ReportColumn(key: 'receipt', label: 'Receipt', numeric: true),
+  ReportColumn(key: 'payment', label: 'Payment', numeric: true),
+  ReportColumn(key: 'balance', label: 'Balance', numeric: true),
+];
+
+/// The slow-moving and dead stock reports' columns (55 S7).
+const List<ReportColumn> _slowStockColumns = [
+  ReportColumn(key: 'product_code', label: 'Code'),
+  ReportColumn(key: 'product_name', label: 'Item'),
+  ReportColumn(key: 'category', label: 'Category'),
+  ReportColumn(key: 'unit', label: 'Unit'),
+  ReportColumn(key: 'quantity', label: 'On hand', numeric: true),
+  ReportColumn(key: 'value', label: 'Value', numeric: true),
+  ReportColumn(key: 'issued_quantity', label: 'Sold in the days', numeric: true),
+  ReportColumn(key: 'days_of_cover', label: 'Days of cover', numeric: true),
+  ReportColumn(key: 'last_issue_date', label: 'Last sold'),
+  ReportColumn(key: 'days_since_issue', label: 'Days since', numeric: true),
+  ReportColumn(key: 'last_receipt_date', label: 'Last received'),
+];
+
+/// The discount reports' columns (67 row 8): typed beside arranged.
+const List<ReportColumn> _discountColumns = [
+  ReportColumn(key: 'code', label: 'Code'),
+  ReportColumn(key: 'name', label: 'Name'),
+  ReportColumn(key: 'lines', label: 'Lines', numeric: true),
+  ReportColumn(key: 'gross_amount', label: 'Gross', numeric: true),
+  ReportColumn(key: 'typed_discount', label: 'Typed', numeric: true),
+  ReportColumn(key: 'arranged_discount', label: 'Arranged', numeric: true),
+  ReportColumn(key: 'promotion_discount', label: 'Offers', numeric: true),
+  ReportColumn(key: 'bill_discount', label: 'Bill discount', numeric: true),
+  ReportColumn(key: 'total_discount', label: 'Total', numeric: true),
+  ReportColumn(key: 'discount_percent', label: '% of gross', numeric: true),
+];
+
+/// The collection reports' figures (67 row 9), after what each row is for.
+const List<ReportColumn> _collectionFigures = [
+  ReportColumn(key: 'receipts', label: 'Receipts', numeric: true),
+  ReportColumn(key: 'collected', label: 'Received', numeric: true),
+  ReportColumn(key: 'reversals', label: 'Reversals', numeric: true),
+  ReportColumn(key: 'reversed', label: 'Reversed', numeric: true),
+  ReportColumn(key: 'net_collected', label: 'Net', numeric: true),
 ];
 
 /// The reports belonging to one tab, narrowed to what `canRead` allows.

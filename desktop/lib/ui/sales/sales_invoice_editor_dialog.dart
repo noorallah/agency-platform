@@ -17,6 +17,7 @@ import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/printed_document.dart';
+import 'ship_to_field.dart';
 
 part 'sales_invoice_editor_phase2.dart';
 
@@ -154,6 +155,39 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
   List<Customer> _customers = const [];
   List<Product> _products = const [];
   String? _customerId;
+
+  /// Where the bill says the goods went (backlog 67 row 3). Null is "as
+  /// delivered": the server takes it from the notes billed, else from the
+  /// order a counter bill raises, else the customer's default.
+  String? _shipToId;
+
+  /// The addresses of the customers a bill of documents is for, read on
+  /// their own because that mode loads no customer list.
+  final Map<String, List<CustomerAddress>> _addressesOf =
+      <String, List<CustomerAddress>>{};
+
+  /// The addresses the Ship to box offers, for the bill's customer.
+  List<CustomerAddress> get _shipToAddresses {
+    final String? id = _direct ? _customerId : _document?.customerId;
+    if (id == null) return const <CustomerAddress>[];
+    for (final Customer item in _customers) {
+      if (item.id == id) return item.addresses;
+    }
+    return _addressesOf[id] ?? const <CustomerAddress>[];
+  }
+
+  /// Read one customer's addresses for the picker. A courtesy: without them
+  /// the box is left out and the server decides, as it always did.
+  Future<void> _loadAddresses(String customerId) async {
+    if (customerId.isEmpty || _addressesOf.containsKey(customerId)) return;
+    try {
+      final Customer customer = await widget.api.customer(customerId);
+      if (!mounted) return;
+      setState(() => _addressesOf[customerId] = customer.addresses);
+    } on Object {
+      // No picker; the server inherits the address.
+    }
+  }
   final List<_DirectLine> _directLines = <_DirectLine>[_DirectLine()];
 
   /// The serials picked for a document line, keyed by its source line id.
@@ -278,6 +312,8 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
         _rebuildDocument(invoice, group.key, group.value),
     ];
     _document = rebuilt.first;
+    _shipToId = _blankToNull('${invoice['shipping_address_id'] ?? ''}');
+    unawaited(_loadAddresses(rebuilt.first.customerId));
     _extraDocuments
       ..clear()
       ..addAll(rebuilt.skip(1));
@@ -404,7 +440,13 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       }
     }
     _document = document;
+    // A different note may be for a different customer, so the chosen
+    // address goes back to "as delivered".
+    _shipToId = null;
+    unawaited(_loadAddresses(document.customerId));
   }
+
+  String? _blankToNull(String value) => value.isEmpty ? null : value;
 
   /// Every document on the bill: the primary one, then those added.
   List<BillableDocument> get _documents => [
@@ -525,6 +567,8 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
       'customer_id': document.customerId,
       if (document.branchId.isNotEmpty) 'branch_id': document.branchId,
       'invoice_date': _iso(widget.today),
+      // Null is "as delivered"; the key is sent in phase 2, which has the box.
+      if (_phase2) 'shipping_address_id': _shipToId,
       if (_reference.text.trim().isNotEmpty)
         'reference_number': _reference.text.trim(),
       // Omitted when blank: absent is what tells the server there is no
@@ -573,6 +617,7 @@ class _SalesInvoiceEditorDialogState extends State<SalesInvoiceEditorDialog> {
     return <String, dynamic>{
       'customer_id': customerId,
       'invoice_date': _iso(widget.today),
+      if (_phase2) 'shipping_address_id': _shipToId,
       if (_reference.text.trim().isNotEmpty)
         'reference_number': _reference.text.trim(),
       // Omitted when blank: an empty string is a code that matches nothing,

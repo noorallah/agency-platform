@@ -270,6 +270,11 @@ class Vendor {
     required this.gstRegistration,
     required this.gstin,
     required this.pan,
+    this.blockedReason = '',
+    this.paymentTermsDays = 0,
+    this.udyamNumber = '',
+    this.msmeCategory = '',
+    this.msmeWrittenAgreement = false,
     required this.licenseNumber,
     required this.registrationNumber,
     required this.website,
@@ -306,6 +311,18 @@ class Vendor {
   final String status;
   final String businessProfileId;
   final bool gstRegistration;
+
+  /// Why the supplier is BLOCKED (backlog 69 row 4); empty otherwise.
+  final String blockedReason;
+
+  /// Days of credit; a bill's due date defaults from it (backlog 68 row 1).
+  final int paymentTermsDays;
+
+  /// Udyam registration and MSME category (MICRO, SMALL, MEDIUM or empty),
+  /// and whether a written agreement allows up to 45 days (backlog 68 row 2).
+  final String udyamNumber;
+  final String msmeCategory;
+  final bool msmeWrittenAgreement;
   final String gstin;
   final String pan;
   final String licenseNumber;
@@ -343,6 +360,11 @@ class Vendor {
         gstRegistration: boolValue(json['gst_registration']),
         gstin: stringValue(json['gstin']),
         pan: stringValue(json['pan']),
+        blockedReason: stringValue(json['blocked_reason']),
+        paymentTermsDays: (json['payment_terms_days'] as num?)?.toInt() ?? 0,
+        udyamNumber: stringValue(json['udyam_number']),
+        msmeCategory: stringValue(json['msme_category']),
+        msmeWrittenAgreement: boolValue(json['msme_written_agreement']),
         licenseNumber: stringValue(json['license_number']),
         registrationNumber: stringValue(json['registration_number']),
         website: stringValue(json['website']),

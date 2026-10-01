@@ -178,6 +178,40 @@ void main() {
     });
   });
 
+  group('Settings > Messaging (backlog 51)', () {
+    List<String> firmGroup(List<String> codes, {bool firm = true}) {
+      final MenuAreaSpec? shown = MenuLayout.visible(
+        MenuLayout.settings,
+        ModuleVisibility(
+          permissions: _holding(codes),
+          activeBusinessModules: null,
+          salesStages: SalesWorkflowSettings.wholeChain,
+          hasActiveFirm: firm,
+        ),
+      );
+      return [
+        for (final MenuGroupSpec group in shown?.groups ?? const [])
+          if (group.label == 'Firm')
+            for (final MenuItemSpec item in group.items) item.path,
+      ];
+    }
+
+    test('is a setting that needs a firm and SETTINGS_VIEW', () {
+      final MenuItemSpec item = MenuLayout.settings.groups
+          .expand((group) => group.items)
+          .singleWhere((item) => item.path == MenuLayout.messagingRoute);
+      expect(item.label, 'Messaging');
+      expect(item.isSetting, isTrue);
+      expect(item.permission, 'SETTINGS_VIEW');
+      expect(firmGroup(['SETTINGS_VIEW']),
+          contains(MenuLayout.messagingRoute));
+      expect(firmGroup(['SETTINGS_VIEW'], firm: false),
+          isNot(contains(MenuLayout.messagingRoute)));
+      expect(firmGroup(['SALES_VIEW']),
+          isNot(contains(MenuLayout.messagingRoute)));
+    });
+  });
+
   group('Settings > Selling (backlog 57)', () {
     MenuGroupSpec selling() => MenuLayout.settings.groups
         .singleWhere((group) => group.label == 'Selling');

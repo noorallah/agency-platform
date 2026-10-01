@@ -404,6 +404,11 @@ abstract final class ModuleCatalog {
           requiredPermissions: ['CUSTOMER_VIEW'],
         ),
         ModuleTabDefinition(
+          id: 'supplier-statements',
+          label: 'Supplier Statements',
+          requiredPermissions: ['VENDOR_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'loyalty',
           label: 'Loyalty',
           requiredPermissions: ['LOYALTY_VIEW'],
@@ -745,6 +750,11 @@ abstract final class ModuleCatalog {
         // see `PurchaseOrderView`. `purchaseTabAliases` keeps their ids
         // resolvable so a stored workspace still opens where it left off.
         ModuleTabDefinition(
+          id: 'debit-notes',
+          label: 'Debit Notes',
+          requiredPermissions: ['DEBIT_NOTE_VIEW'],
+        ),
+        ModuleTabDefinition(
           id: 'purchase-analytics',
           label: 'Analytics',
           requiredPermissions: ['PURCHASE_VIEW'],
@@ -931,6 +941,7 @@ abstract final class ModuleCatalog {
         'RECEIPT_VIEW',
         'PAYMENT_VIEW',
         'EXPENSE_VIEW',
+        'PARTY_ADJUSTMENT_VIEW',
       ],
       requiresAnyPermission: true,
       tabs: [
@@ -996,6 +1007,19 @@ abstract final class ModuleCatalog {
           label: 'Refunds',
           requiredPermissions: ['ACCOUNT_VIEW'],
         ),
+        // Clears a balance with no money: a write-off, a write-back or a
+        // set-off of what a firm owes against what it is owed.
+        ModuleTabDefinition(
+          id: 'party-adjustments',
+          label: 'Party Adjustments',
+          requiredPermissions: ['PARTY_ADJUSTMENT_VIEW'],
+        ),
+        // Money moved between the firm's own cash and bank accounts.
+        ModuleTabDefinition(
+          id: 'contra-vouchers',
+          label: 'Contra Vouchers',
+          requiredPermissions: ['JOURNAL_VIEW'],
+        ),
         ModuleTabDefinition(
           id: 'ledgers',
           label: 'Ledgers',
@@ -1033,6 +1057,9 @@ abstract final class ModuleCatalog {
         'SALES_VIEW',
         'PURCHASE_VIEW',
         'CREDIT_NOTE_VIEW',
+        'DEBIT_NOTE_VIEW',
+        'PARTY_ADJUSTMENT_VIEW',
+        'JOURNAL_VIEW',
         'PROFORMA_VIEW',
         'LOYALTY_VIEW',
         'PROMOTION_VIEW',
@@ -1452,6 +1479,12 @@ abstract final class ModuleCatalog {
           path: 'customer-statements',
           icon: Icons.receipt_long_outlined,
         ),
+      if (visibleTabIds.contains('supplier-statements'))
+        const WorkspaceNavigationNode(
+          label: 'Supplier Statements',
+          path: 'supplier-statements',
+          icon: Icons.receipt_long_outlined,
+        ),
       if (visibleTabIds.contains('loyalty'))
         const WorkspaceNavigationNode(
           label: 'Loyalty',
@@ -1620,6 +1653,12 @@ abstract final class ModuleCatalog {
           label: 'Purchase Orders',
           path: 'purchase-orders',
           icon: Icons.receipt_long_outlined,
+        ),
+      if (visibleTabIds.contains('debit-notes'))
+        const WorkspaceNavigationNode(
+          label: 'Debit Notes',
+          path: 'debit-notes',
+          icon: Icons.request_page_outlined,
         ),
       if (visibleTabIds.contains('purchase-analytics'))
         const WorkspaceNavigationNode(

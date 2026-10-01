@@ -25,9 +25,11 @@ from app.business.models import framework  # noqa: F401
 from app.commission.models import commission  # noqa: F401
 from app.commission.models import payout as _commission_payout  # noqa: F401
 from app.common.audit.models import audit_log  # noqa: F401
+from app.contra.models import contra_voucher  # noqa: F401
 from app.credit_note.models import credit_note as _credit_note  # noqa: F401
 from app.customers.models import customer  # noqa: F401
 from app.customers.models import opening_bill as _customer_opening_bill  # noqa: F401
+from app.debit_note.models import debit_note as _debit_note  # noqa: F401
 from app.delivery_note.models import delivery_note  # noqa: F401
 from app.diagnostics.models import error_report  # noqa: F401
 from app.document_framework.models import document_framework  # noqa: F401
@@ -43,6 +45,8 @@ from app.inventory.models import (
     physical_count,  # noqa: F401
 )
 from app.loyalty.models import loyalty  # noqa: F401
+from app.messaging.models import messaging as _messaging  # noqa: F401
+from app.party_adjustments.models import party_adjustment  # noqa: F401
 from app.pricing.models import price_list  # noqa: F401
 from app.products.models import product  # noqa: F401
 from app.proforma.models import proforma  # noqa: F401

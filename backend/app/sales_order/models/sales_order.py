@@ -66,6 +66,18 @@ class SalesOrder(BaseEntity):
     order_date: Mapped[date] = mapped_column(Date, nullable=False)
     delivery_date: Mapped[date | None] = mapped_column(Date)
     customer_reference: Mapped[str | None] = mapped_column(String(80))
+    #: The terms the sale was agreed on (backlog 67 row 4): the words, and the
+    #: days of credit -- the customer's own unless the order says otherwise.
+    #: The invoice inherits them rather than re-reading the customer, so a
+    #: deal struck at 15 days stays 15 days when the bill is raised.
+    payment_terms: Mapped[str | None] = mapped_column(String(200))
+    payment_terms_days: Mapped[int | None] = mapped_column(Integer)
+    #: Where the goods go: one of the customer's own addresses (backlog 67
+    #: row 3). A bare id, validated by ``app/customers/services/ship_to.py``
+    #: when it is set, so a document still prints the address it named after
+    #: the address is deleted. NULL only for a customer with no shipping
+    #: address, which ships to the billing address as before.
+    shipping_address_id: Mapped[UUID | None] = mapped_column(UUIDType())
     reference_number: Mapped[str | None] = mapped_column(String(80))
     currency_code: Mapped[str | None] = mapped_column(String(10))
     exchange_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
@@ -370,6 +382,11 @@ class SalesWorkflowSettings(BaseEntity):
     #: offers always have; BEST_OFFER gives only the single offer worth most.
     promotion_mode: Mapped[str] = mapped_column(
         String(20), nullable=False, default="COMBINE", server_default="COMBINE"
+    )
+    #: In Combine mode, the most the offers together may take off one line,
+    #: as a percentage of its gross (backlog 59 item 3). Null is no cap.
+    max_line_discount_percent: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 2), nullable=True
     )
     default_branch_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("branches.id", ondelete="RESTRICT")

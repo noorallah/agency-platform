@@ -8,11 +8,13 @@ import '../../core/business/business_features.dart';
 import '../../core/design/design_tokens.dart';
 import '../../models/batch_serial.dart';
 import '../../models/branch_warehouse.dart';
+import '../../models/customer.dart';
 import '../../models/entities.dart';
 import '../../models/inventory.dart';
 import '../../models/product.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
+import '../sales/ship_to_field.dart';
 import '../workspace/desktop_framework.dart';
 
 part 'delivery_note_editor_phase2.dart';
@@ -221,6 +223,23 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
   String _vehicle = '';
   String _driver = '';
   String _remarks = '';
+
+  /// How the goods travel (backlog 67 row 5), phase 2.
+  String _transporterName = '';
+  String _transporterGstin = '';
+  String? _transportMode;
+  String _lrNumber = '';
+  String _lrDate = '';
+  String _distanceKm = '';
+
+  /// A GSTIN as the server reads it, after upper-casing.
+  static final RegExp _gstin =
+      RegExp(r'^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$');
+
+  /// Where this note's goods go (backlog 67 row 3): the customer's addresses
+  /// as read for the chosen order, preselected with the order's own.
+  List<CustomerAddress> _addresses = const [];
+  String? _shippingAddressId;
   bool _saving = false;
   bool _loadingLines = false;
   String? _error;
@@ -246,7 +265,10 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
       _order = order;
       _loadingLines = true;
       _error = null;
+      _addresses = const [];
+      _shippingAddressId = null;
     });
+    unawaited(_loadAddresses(order));
     final List<Json> orderLines = [
       for (final dynamic line in (order['lines'] as List<dynamic>? ?? const []))
         if (line is Map) Map<String, dynamic>.from(line),
@@ -271,6 +293,30 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
       _stockByProduct = stock;
       _loadingLines = false;
     });
+  }
+
+  /// Read the order's customer for the addresses the note can ship to.
+  ///
+  /// A courtesy, like the stock preview: losing it leaves the picker out and
+  /// the note shipping to the order's address, which is what the server
+  /// does for a note that names none.
+  Future<void> _loadAddresses(Json order) async {
+    final String customerId = stringValue(order['customer_id']);
+    if (customerId.isEmpty) return;
+    try {
+      final Customer customer = await widget.api.customer(customerId);
+      if (!mounted || stringValue(_order?['id']) != stringValue(order['id'])) {
+        return;
+      }
+      setState(() {
+        _addresses = customer.addresses;
+        final String own = stringValue(order['shipping_address_id']);
+        _shippingAddressId =
+            own.isNotEmpty ? own : defaultShipToId(customer.addresses);
+      });
+    } on Object {
+      // No picker; the server inherits the order's address.
+    }
   }
 
   /// Sum what earlier notes already took off each order line.
@@ -332,6 +378,9 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
     }
     return byProduct;
   }
+
+  String? _blankToNull(String value) =>
+      value.trim().isEmpty ? null : value.trim();
 
   bool _isSerialised(String productId) {
     for (final Product product in widget.products) {
@@ -409,6 +458,19 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
 
   String? _validation() {
     if (_order == null) return 'Choose the sales order being delivered.';
+    final String gstin = _transporterGstin.trim().toUpperCase();
+    if (Phase2Scope.of(context)) {
+      if (gstin.isNotEmpty && !_gstin.hasMatch(gstin)) {
+        return 'The transporter GSTIN is not a valid 15-character GSTIN.';
+      }
+      final String distance = _distanceKm.trim();
+      if (distance.isNotEmpty) {
+        final int? km = int.tryParse(distance);
+        if (km == null || km < 0 || km > 4000) {
+          return 'Distance is a whole number of kilometres, 0 to 4000.';
+        }
+      }
+    }
     final List<DeliveryDraftLine> sending = _sendableLines();
     if (sending.isEmpty) {
       return 'Enter a delivery quantity on at least one line. A line with '
@@ -438,6 +500,7 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
       setState(() => _error = problem);
       return;
     }
+    final bool phase2 = Phase2Scope.of(context);
     setState(() {
       _saving = true;
       _error = null;
@@ -447,6 +510,20 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
       final Json payload = {
         'sales_order_id': stringValue(_order!['id']),
         'delivery_date': _deliveryDate,
+        // Phase 2 only, and only once the customer's addresses are in hand:
+        // null is what lets the server inherit the order's.
+        if (phase2 && _addresses.isNotEmpty)
+          'shipping_address_id': _shippingAddressId,
+        // All six sent in phase 2, null when blank: absent would keep what
+        // an update finds, and a blank box means none.
+        if (phase2) ...<String, dynamic>{
+          'transporter_name': _blankToNull(_transporterName),
+          'transporter_gstin': _blankToNull(_transporterGstin)?.toUpperCase(),
+          'transport_mode': _transportMode,
+          'lr_number': _blankToNull(_lrNumber),
+          'lr_date': _lrDate.isEmpty ? null : _lrDate,
+          'distance_km': int.tryParse(_distanceKm.trim()),
+        },
         if (_vehicle.trim().isNotEmpty) 'vehicle': _vehicle.trim(),
         if (_driver.trim().isNotEmpty) 'driver': _driver.trim(),
         if (_remarks.trim().isNotEmpty) 'remarks': _remarks.trim(),

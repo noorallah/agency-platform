@@ -245,6 +245,15 @@ trigger each schema owns its own copy of.
 | `loyalty_entries` | firm store ¹ | One movement of a customer's credit. | `customers`, `sales_invoices`, `journal_entries` |
 | `loyalty_settings` | firm store ¹ | One firm's scheme. |  |
 
+### `app/messaging`
+
+| Table | Store | Holds | Points at |
+| --- | --- | --- | --- |
+| `messaging_channel_configs` | firm store ¹ | One firm's account with one provider, for one channel; secrets sealed under `AGENCY_MESSAGING_KEY`. |  |
+| `messaging_event_configs` | firm store ¹ | Whether one event goes out on one channel, and with which template; ordered by `priority` as the fallback chain. |  |
+| `messaging_outbox` | firm store ¹ | One message: asked for, queued, sent, failed or skipped. |  |
+| `messaging_settings` | firm store ¹ | One firm's master switch and reminder schedule. |  |
+
 ### `app/pricing`
 
 | Table | Store | Holds | Points at |

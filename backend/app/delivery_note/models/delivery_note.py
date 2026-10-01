@@ -70,8 +70,26 @@ class DeliveryNote(BaseEntity):
     delivery_note_number: Mapped[str] = mapped_column(String(60), nullable=False)
     delivery_date: Mapped[date] = mapped_column(Date, nullable=False)
     sales_order_reference: Mapped[str] = mapped_column(String(80), nullable=False)
+    #: Where the goods go: one of the customer's own addresses (backlog 67
+    #: row 3). A bare id, validated by ``app/customers/services/ship_to.py``
+    #: when it is set, so a document still prints the address it named after
+    #: the address is deleted. NULL only for a customer with no shipping
+    #: address, which ships to the billing address as before.
+    shipping_address_id: Mapped[UUID | None] = mapped_column(UUIDType())
     vehicle: Mapped[str | None] = mapped_column(String(120))
     driver: Mapped[str | None] = mapped_column(String(120))
+    #: How the goods travel (backlog 67 row 5): what Part B of an e-way bill
+    #: asks for, printed on the challan and read by the e-way bill when the
+    #: person raising it leaves a field blank. The transporter's GSTIN (or
+    #: TRANSIN, the same shape) is format-checked; the mode is ROAD, RAIL,
+    #: AIR or SHIP; the LR is the lorry receipt or docket the transporter
+    #: issues; the distance is in whole kilometres, as the portal takes it.
+    transporter_name: Mapped[str | None] = mapped_column(String(200))
+    transporter_gstin: Mapped[str | None] = mapped_column(String(15))
+    transport_mode: Mapped[str | None] = mapped_column(String(10))
+    lr_number: Mapped[str | None] = mapped_column(String(60))
+    lr_date: Mapped[date | None] = mapped_column(Date)
+    distance_km: Mapped[int | None] = mapped_column(Integer)
     remarks: Mapped[str | None] = mapped_column(Text)
     # Retired (D-SELL-31): a note may never ship more than the order line,
     # and no request can say otherwise. The columns stay so no migration is
@@ -161,6 +179,21 @@ class DeliveryNote(BaseEntity):
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancel_reason: Mapped[str | None] = mapped_column(Text)
     close_reason: Mapped[str | None] = mapped_column(Text)
+    #: Proof of delivery (backlog 67 row 6). A **flag beside the status, not
+    #: a status**: a note is "delivered" when `delivered_at` is set, and only
+    #: a recorded proof sets it. DISPATCHED and COMPLETED both mean "the
+    #: goods left" to everything downstream -- billing, returns, the order's
+    #: progress -- and a new status between them would have to be taught to
+    #: every one of those readers for no change in what they decide.
+    #: `delivered_at` is when the customer received the goods, as the proof
+    #: says; `delivery_recorded_at` / `_by` are when and by whom it was keyed.
+    delivered_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    delivery_received_by: Mapped[str | None] = mapped_column(String(120))
+    delivery_remarks: Mapped[str | None] = mapped_column(Text)
+    delivery_recorded_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True)
+    )
+    delivery_recorded_by: Mapped[UUID | None] = mapped_column(UUIDType())
 
 
 class DeliveryNoteLine(BaseEntity):

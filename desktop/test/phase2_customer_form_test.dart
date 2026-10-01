@@ -4,6 +4,7 @@
 
 import 'package:agency_desktop/models/customer.dart';
 import 'package:agency_desktop/models/entities.dart';
+import 'package:agency_desktop/models/firm_member.dart';
 import 'package:agency_desktop/ui/customers/customer_management_page.dart';
 import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
     show Phase2Scope;
@@ -70,5 +71,74 @@ void main() {
     await tester.pumpAndSettle();
     expect(sent?['display_name'], 'Anand Agencies (Main)');
     expect(sent?['code'], 'CUS-001');
+  });
+
+  testWidgets('the account manager is picked from the firm and kept if gone',
+      (tester) async {
+    // Backlog 67 row 2: a stored manager who has left stays selectable and
+    // is sent back unchanged; a member picked replaces them.
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    final List<Json> sent = <Json>[];
+    await tester.pumpWidget(MaterialApp(
+      builder: (context, child) => Phase2Scope(child: child!),
+      home: Scaffold(
+        body: CustomerWorkspaceDialog(
+          mode: CustomerDialogMode.edit,
+          customer: Customer.fromJson(
+            <String, dynamic>{..._customerJson(), 'salesman_id': 'u-gone'},
+          ),
+          onSave: (payload) async {
+            sent.add(payload);
+            return Customer.fromJson(_customerJson());
+          },
+          loadPlaces: (level, {parentId = ''}) async => const [],
+          loadMembers: () async => const [
+            FirmMember(userId: 'u-asha', fullName: 'Asha Rao'),
+            FirmMember(userId: 'u-ravi', fullName: 'Ravi K'),
+          ],
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Account manager'), findsOneWidget);
+    expect(find.text('Current manager (no longer a member)'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('customer-account-manager')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Asha Rao').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('customer-save')));
+    await tester.pumpAndSettle();
+    expect(sent.last['salesman_id'], 'u-asha');
+  });
+
+  testWidgets('without the member list the manager is neither shown nor lost',
+      (tester) async {
+    tester.view.physicalSize = const Size(1600, 900);
+    tester.view.devicePixelRatio = 1;
+    addTearDown(tester.view.reset);
+    Json? sent;
+    await tester.pumpWidget(MaterialApp(
+      home: Scaffold(
+        body: CustomerWorkspaceDialog(
+          mode: CustomerDialogMode.edit,
+          customer: Customer.fromJson(
+            <String, dynamic>{..._customerJson(), 'salesman_id': 'u-asha'},
+          ),
+          onSave: (payload) async {
+            sent = payload;
+            return Customer.fromJson(_customerJson());
+          },
+          loadPlaces: (level, {parentId = ''}) async => const [],
+        ),
+      ),
+    ));
+    await tester.pumpAndSettle();
+    expect(find.text('Account manager'), findsNothing);
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect(sent?['salesman_id'], 'u-asha');
   });
 }

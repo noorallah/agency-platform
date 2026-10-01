@@ -26,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ValidationError
+from app.customers.models import Customer
 from app.sales.models import (
     SalesTerritoryNode,
     TerritoryCustomerAssignment,
@@ -70,6 +71,17 @@ def resolve_sales_scope(
     first row the database happens to return -- the whole reason these fields
     exist is to make the reports true, and a guess makes them confidently
     wrong.
+
+    A blank salesman is filled in this order (backlog 67 row 2): the
+    customer's own **account manager** (`customers.salesman_id`), when they
+    are still an active member and -- if the document has a territory --
+    cover it; otherwise the territory's salesperson as before. The account
+    manager comes first because it is the more specific statement: somebody
+    named for this one customer, against somebody covering an area. One who
+    does not cover the resolved territory is skipped rather than used, since
+    the same name typed on the document would be refused by
+    `_validated_salesman`. What the caller sent, and what a document
+    inherits from its source, still wins over both.
     """
     resolved_territory = (
         _validated_territory(session, firm_id, customer_id, territory_id)
@@ -79,7 +91,8 @@ def resolve_sales_scope(
     resolved_salesman = (
         _validated_salesman(session, firm_id, resolved_territory, salesman_id)
         if salesman_id is not None
-        else _derived_salesman(session, firm_id, resolved_territory)
+        else _account_manager(session, firm_id, customer_id, resolved_territory)
+        or _derived_salesman(session, firm_id, resolved_territory)
     )
     return ResolvedSalesScope(
         territory_id=resolved_territory,
@@ -287,6 +300,32 @@ def _validated_salesman(
             "The selected salesperson is not assigned to this territory."
         )
     return salesman_id
+
+
+def _account_manager(
+    session: Session, firm_id: UUID, customer_id: UUID, territory_id: UUID | None
+) -> UUID | None:
+    """Return the customer's account manager, if a document may carry them.
+
+    Only an active member of the firm (a person who has left stays on the
+    customer's record but is skipped here, as `_derived_salesman` skips a
+    stale assignment), and only one who covers the document's territory
+    when it has one.
+    """
+    manager = session.scalar(
+        select(Customer.salesman_id).where(
+            Customer.id == customer_id,
+            Customer.firm_id == firm_id,
+            Customer.is_deleted.is_(False),
+        )
+    )
+    if manager is None:
+        return None
+    if FirmMetadataReader(session).active_member_count(firm_id, [manager]) != 1:
+        return None
+    if territory_id is not None and not _covers(session, territory_id, manager):
+        return None
+    return manager
 
 
 def _derived_salesman(

@@ -5,6 +5,7 @@ from typing import Annotated, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 
 from app.common.scope import (
@@ -16,7 +17,7 @@ from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
-from app.core.pagination.reports import ReportWindow
+from app.core.pagination.reports import ReportWindow, mapped_like
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.document_framework.schemas.bulk_actions import (
     BulkActionResult,
@@ -37,6 +38,7 @@ from app.finance.schemas import (
     CostCenterCreate,
     CostCenterResponse,
     CostCenterUpdate,
+    DayBookRecord,
     FinancialYearCreate,
     FinancialYearReopen,
     FinancialYearResponse,
@@ -53,6 +55,7 @@ from app.finance.schemas import (
     LedgerAccountCreate,
     LedgerAccountResponse,
     LedgerAccountUpdate,
+    MoneyBookRecord,
     OpeningTrialBalanceReplace,
     OpeningTrialBalanceResponse,
     ProfitCenterCreate,
@@ -60,6 +63,7 @@ from app.finance.schemas import (
     ProfitCenterUpdate,
     ProfitLossRangeReport,
     ProfitLossReport,
+    Tds26qDeducteeRecord,
     TdsRegisterRecord,
     TrialBalanceReport,
     VoucherTypeCreate,
@@ -71,6 +75,7 @@ from app.finance.services import (
     JournalEntryEngine,
     JournalLineData,
 )
+from app.finance.services.books_register import BooksRegisterService
 from app.finance.services.control_accounts import (
     ControlAccountPurpose,
     ControlAccountService,
@@ -82,6 +87,12 @@ from app.finance.services.opening_balances import (
     OpeningTrialBalanceService,
 )
 from app.finance.services.tds_register import TdsRegisterService
+from app.finance.services.tds_return import (
+    TdsReturnService,
+    deductees_csv,
+    return_quarter,
+    return_workbook,
+)
 
 router = APIRouter(
     prefix="/api/v1/finance",
@@ -957,10 +968,17 @@ def trial_balance(
     accounting_period_id: UUID,
     scope: TrialBalanceScope,
     db: Session = Depends(get_db),
+    to_period_id: UUID | None = None,
 ) -> ApiResponse[TrialBalanceReport]:
-    """Return the trial balance for one accounting period."""
+    """Return the trial balance for one accounting period, or a run of them.
+
+    With ``to_period_id``, every month from ``accounting_period_id`` to it, in
+    one financial year (backlog 50 item 5).
+    """
     report = GeneralLedgerService(db).trial_balance(
-        firm_id=scope.firm_id, accounting_period_id=accounting_period_id
+        firm_id=scope.firm_id,
+        accounting_period_id=accounting_period_id,
+        to_period_id=to_period_id,
     )
     return ApiResponse(data=report)
 
@@ -974,12 +992,18 @@ def general_ledger(
     accounting_period_id: UUID,
     scope: LedgerViewScope,
     db: Session = Depends(get_db),
+    to_period_id: UUID | None = None,
 ) -> ApiResponse[GeneralLedgerReport]:
-    """Return the movement statement for one ledger account."""
+    """Return the movement statement for one ledger account.
+
+    With ``to_period_id``, over every month from ``accounting_period_id`` to
+    it, in one financial year (backlog 50 item 5).
+    """
     report = GeneralLedgerService(db).general_ledger(
         firm_id=scope.firm_id,
         ledger_account_id=ledger_account_id,
         accounting_period_id=accounting_period_id,
+        to_period_id=to_period_id,
     )
     return ApiResponse(data=report)
 
@@ -1096,4 +1120,144 @@ def tds_deducted_by_customers_register(
     rows = TdsRegisterService(db).deducted_by_customers(scope.firm_id, window)
     return window.respond(
         [TdsRegisterRecord.model_validate(row, from_attributes=True) for row in rows]
+    )
+
+
+#: The day book lists journals, so it opens to whoever may read them; the cash
+#: and bank books are ledgers. Either opens to REPORT_VIEW as well (D-RPT-4).
+DayBookScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("JOURNAL_VIEW", "REPORT_VIEW")
+]
+MoneyBookScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("LEDGER_VIEW", "REPORT_VIEW")
+]
+
+
+@router.get("/reports/day-book", response_model=PaginatedResponse[DayBookRecord])
+def day_book(
+    scope: DayBookScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[DayBookRecord]:
+    """Every journal in the books over the dates, in date order (55 M9).
+
+    One row per voucher with its totals; each names its journal, so the
+    screen opens it, and the document that raised it.
+    """
+    window = ReportWindow(from_date, to_date, page, page_size)
+    rows = BooksRegisterService(db).day_book(scope.firm_id, window)
+    return window.respond(
+        mapped_like(
+            rows,
+            (DayBookRecord.model_validate(row, from_attributes=True) for row in rows),
+        )
+    )
+
+
+def _money_book(
+    purpose: ControlAccountPurpose,
+    firm_id: UUID,
+    window: ReportWindow,
+    db: Session,
+) -> PaginatedResponse[MoneyBookRecord]:
+    """Answer the cash or the bank book for one window."""
+    rows = BooksRegisterService(db).money_book(firm_id, purpose, window)
+    return window.respond(
+        mapped_like(
+            rows,
+            (MoneyBookRecord.model_validate(row, from_attributes=True) for row in rows),
+        )
+    )
+
+
+@router.get("/reports/cash-book", response_model=PaginatedResponse[MoneyBookRecord])
+def cash_book(
+    scope: MoneyBookScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[MoneyBookRecord]:
+    """Read the cash book: opening, each posting with its balance, closing (M9)."""
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return _money_book(ControlAccountPurpose.CASH, scope.firm_id, window, db)
+
+
+@router.get("/reports/bank-book", response_model=PaginatedResponse[MoneyBookRecord])
+def bank_book(
+    scope: MoneyBookScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[MoneyBookRecord]:
+    """Read the bank book: opening, each posting with its balance, closing (M9)."""
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return _money_book(ControlAccountPurpose.BANK, scope.firm_id, window, db)
+
+
+@router.get(
+    "/reports/tds-26q",
+    response_model=PaginatedResponse[Tds26qDeducteeRecord],
+)
+def tds_26q_deductees(
+    scope: TdsReportScope,
+    financial_year: Annotated[str, Query(max_length=9)],
+    quarter: Annotated[str, Query(max_length=2)],
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[Tds26qDeducteeRecord]:
+    """List one quarter's Form 26Q deductees, as the return does (53.1).
+
+    Named by financial year (``2026-27``) and quarter (``Q1``), so it is
+    always exactly one return quarter; anything else is refused by name.
+    ``GET /tds-returns/26q`` is the same quarter as a file to file from.
+    """
+    period = return_quarter(financial_year, quarter)
+    rows = TdsReturnService(db).build(scope.firm_id, period).deductees
+    window = ReportWindow(period.start, period.end, page, page_size)
+    return window.respond(
+        [Tds26qDeducteeRecord.model_validate(row, from_attributes=True) for row in rows]
+    )
+
+
+@router.get("/tds-returns/26q")
+def tds_26q_file(
+    scope: TdsReportScope,
+    financial_year: Annotated[str, Query(max_length=9)],
+    quarter: Annotated[str, Query(max_length=2)],
+    format: Literal["xlsx", "csv"] = "xlsx",
+    db: Session = Depends(get_db),
+) -> StreamingResponse:
+    """Download one quarter's Form 26Q to prepare the return from (53.1).
+
+    A workbook -- deductor, deductees, challans due, and what the return
+    leaves out -- or with ``format=csv`` the deductee rows alone. Not the
+    FVU text file: that needs challan details the books do not record yet;
+    ``app/finance/services/tds_return.py`` says why.
+    """
+    period = return_quarter(financial_year, quarter)
+    tds_return = TdsReturnService(db).build(scope.firm_id, period)
+    if format == "csv":
+        return StreamingResponse(
+            iter([deductees_csv(tds_return)]),
+            media_type="text/csv; charset=utf-8",
+            headers={
+                "Content-Disposition": (
+                    f'attachment; filename="{period.file_stem}-deductees.csv"'
+                )
+            },
+        )
+    return StreamingResponse(
+        iter([return_workbook(tds_return)]),
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{period.file_stem}.xlsx"'
+        },
     )

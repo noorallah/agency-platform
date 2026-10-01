@@ -27,6 +27,7 @@ from app.core.exceptions import (
 )
 from app.core.utils.dates import as_utc, utc_now
 from app.customers.models import Customer
+from app.delivery_note.models import DeliveryNote
 from app.einvoice.models import (
     EInvoiceRegistration,
     EWayBill,
@@ -37,7 +38,7 @@ from app.einvoice.models import (
 )
 from app.einvoice.services.payload import EInvoicePayloadBuilder
 from app.einvoice.services.portal import PortalResult, portal_for
-from app.sales_invoice.models import SalesInvoice
+from app.sales_invoice.models import SalesInvoice, SalesInvoiceSource
 
 #: How long the authority allows a registration to be withdrawn. Judged in UTC
 #: like every other clock here -- reading the server's local time would make
@@ -311,8 +312,8 @@ class EInvoiceService:
         self,
         invoice_id: UUID,
         *,
-        distance_km: Decimal,
-        transport_mode: str,
+        distance_km: Decimal | None,
+        transport_mode: str | None,
         transporter_id: str | None,
         transporter_name: str | None,
         vehicle_number: str | None,
@@ -328,7 +329,9 @@ class EInvoiceService:
         Args:
             invoice_id: The registered invoice.
             distance_km: How far the goods travel, which decides the validity.
-            transport_mode: ROAD, RAIL, AIR or SHIP.
+                None takes the delivery note's.
+            transport_mode: ROAD, RAIL, AIR or SHIP; None takes the note's,
+                else ROAD.
             transporter_id: The transporter's GSTIN or enrolment number.
             transporter_name: Their name, for the bill.
             vehicle_number: Required for road, meaningless otherwise.
@@ -361,6 +364,21 @@ class EInvoiceService:
                 f"{invoice.invoice_number} already has e-way bill "
                 f"{existing.eway_bill_number}."
             )
+        # What the person leaves blank comes from the note that carried the
+        # goods (backlog 67 row 5): the transport was recorded there once.
+        carried = self._carrying_note(invoice.id)
+        if carried is not None:
+            if distance_km is None and carried.distance_km:
+                distance_km = Decimal(carried.distance_km)
+            transport_mode = transport_mode or carried.transport_mode
+            transporter_id = transporter_id or carried.transporter_gstin
+            transporter_name = transporter_name or carried.transporter_name
+            vehicle_number = vehicle_number or carried.vehicle
+        if distance_km is None:
+            raise ValidationError(
+                "State the distance the goods travel: the e-way bill's validity "
+                "is decided by it, and the delivery note records none."
+            )
         mode = (transport_mode or TransportMode.ROAD.value).strip().upper()
         if mode not in {item.value for item in TransportMode}:
             raise ValidationError("Transport mode must be ROAD, RAIL, AIR or SHIP.")
@@ -376,6 +394,12 @@ class EInvoiceService:
             "TransName": (transporter_name or "").strip() or None,
             "VehNo": (vehicle_number or "").strip().upper() or None,
         }
+        if carried is not None and carried.lr_number:
+            # The transporter's document, which Part B carries beside the
+            # vehicle for rail, air and ship, and for road where one exists.
+            payload["TransDocNo"] = carried.lr_number
+            if carried.lr_date is not None:
+                payload["TransDocDt"] = carried.lr_date.strftime("%d/%m/%Y")
         row = existing or EWayBill(
             firm_id=firm_scope,
             sales_invoice_id=invoice.id,
@@ -466,6 +490,30 @@ class EInvoiceService:
         return row
 
     # ---- helpers -------------------------------------------------------
+
+    def _carrying_note(self, invoice_id: UUID) -> DeliveryNote | None:
+        """Return the delivery note whose transport an e-way bill reads.
+
+        The latest of the bill's delivery notes: a consignment of several
+        dispatches travels on the last one's vehicle.
+        """
+        return self._session.scalar(
+            select(DeliveryNote)
+            .join(
+                SalesInvoiceSource,
+                SalesInvoiceSource.source_document_id == DeliveryNote.id,
+            )
+            .where(
+                SalesInvoiceSource.sales_invoice_id == invoice_id,
+                SalesInvoiceSource.source_document_type == "DELIVERY_NOTE",
+                SalesInvoiceSource.is_deleted.is_(False),
+            )
+            .order_by(
+                DeliveryNote.delivery_date.desc(),
+                DeliveryNote.delivery_note_number.desc(),
+            )
+            .limit(1)
+        )
 
     def _invoice(self, invoice_id: UUID, *, firm_scope: UUID) -> SalesInvoice:
         """Return the invoice, if this firm has it."""

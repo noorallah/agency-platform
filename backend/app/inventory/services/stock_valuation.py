@@ -21,7 +21,7 @@ difference is the first thing to look into before the year end.
 """
 
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
@@ -170,6 +170,14 @@ class StockValuationService:
                 rows.append(_closing("DIFFERENCE", "Difference", total - books))
         return rows
 
+    def rates(self, firm_id: UUID, on: date) -> dict[UUID, Decimal]:
+        """Return each product's moving-average cost as on ``on``.
+
+        The rate the valuation values stock at, for the reports that value
+        stock beside it (backlog 55 S7).
+        """
+        return self._rates(firm_id, on)
+
     def _rates(self, firm_id: UUID, on: date) -> dict[UUID, Decimal]:
         """Each product's moving-average cost after its last costed movement."""
         ranked = (
@@ -243,3 +251,194 @@ def _closing(kind: str, label: str, value: Decimal) -> StockValuationRow:
         rate=None,
         value=quantize_ledger(value),
     )
+
+
+@dataclass(frozen=True)
+class StockStatementRow:
+    """One item's stock over a period, or the total (``row_type`` TOTAL)."""
+
+    row_type: str
+    product_code: str
+    product_name: str
+    category: str
+    unit: str
+    opening_quantity: Decimal
+    opening_value: Decimal
+    inward_quantity: Decimal
+    inward_value: Decimal
+    outward_quantity: Decimal
+    outward_value: Decimal
+    closing_quantity: Decimal
+    closing_value: Decimal
+
+
+#: Movements between the firm's own warehouses: in and out of one store, so a
+#: firm-wide statement leaves them out -- nothing came in or went out.
+_INTERNAL = ("TRANSFER_IN", "TRANSFER_OUT")
+
+
+class StockStatementService:
+    """The monthly stock statement a bank asks for (backlog 70 row 6).
+
+    A distributor with a cash-credit limit files one every month: opening
+    stock, what came in, what went out, closing stock, each quantity with its
+    value -- the drawing-power statement. Opening and closing are the stock
+    valuation as on the day before the period and on its last day, so this
+    agrees with *Stock valuation* by construction; what came in is valued at
+    what it cost (`total_cost` of the inward movements); what went out is the
+    balancing figure, opening + in - closing, which is how the moving average
+    values issues and keeps the four columns adding up exactly.
+    """
+
+    def __init__(self, session: Session) -> None:
+        """Bind to the caller's session."""
+        self._session = session
+
+    def statement(
+        self,
+        firm_id: UUID,
+        *,
+        from_date: date,
+        to_date: date,
+        warehouse_id: UUID | None = None,
+    ) -> list[StockStatementRow]:
+        """Return each item's opening, in, out and closing, then the total."""
+        valuation = StockValuationService(self._session)
+        opening = {
+            row.product_code: row
+            for row in valuation.valuation(
+                firm_id,
+                on=from_date - timedelta(days=1),
+                warehouse_id=warehouse_id,
+                include_zero=True,
+            )
+            if row.row_type == "ITEM"
+        }
+        closing = {
+            row.product_code: row
+            for row in valuation.valuation(
+                firm_id, on=to_date, warehouse_id=warehouse_id, include_zero=True
+            )
+            if row.row_type == "ITEM"
+        }
+        moved = self._inward(firm_id, from_date, to_date, warehouse_id)
+        codes = sorted(
+            set(opening) | set(closing) | set(moved),
+            key=lambda code: (
+                (
+                    (closing.get(code) or opening.get(code)).category  # type: ignore[union-attr]
+                    if (closing.get(code) or opening.get(code))
+                    else ""
+                ),
+                code,
+            ),
+        )
+        rows: list[StockStatementRow] = []
+        totals = [ZERO] * 8
+        for code in codes:
+            first = opening.get(code)
+            last = closing.get(code)
+            inward_quantity, inward_value, outward_quantity, names = moved.get(
+                code, (ZERO, ZERO, ZERO, None)
+            )
+            source = last or first
+            if source is None and names is None:
+                continue
+            opening_quantity = first.quantity or ZERO if first else ZERO
+            opening_value = first.value if first else ZERO
+            closing_quantity = last.quantity or ZERO if last else ZERO
+            closing_value = last.value if last else ZERO
+            outward_value = quantize_ledger(
+                opening_value + inward_value - closing_value
+            )
+            if not any(
+                (opening_quantity, inward_quantity, outward_quantity, closing_quantity)
+            ):
+                continue
+            values = [
+                opening_quantity,
+                opening_value,
+                inward_quantity,
+                inward_value,
+                outward_quantity,
+                outward_value,
+                closing_quantity,
+                closing_value,
+            ]
+            totals = [
+                total + value for total, value in zip(totals, values, strict=True)
+            ]
+            rows.append(
+                StockStatementRow(
+                    "ITEM",
+                    code,
+                    source.product_name if source else (names or ("", "", ""))[0],
+                    source.category if source else (names or ("", "", ""))[1],
+                    source.unit if source else (names or ("", "", ""))[2],
+                    *values,
+                )
+            )
+        rows.append(StockStatementRow("TOTAL", "", "Total", "", "", *totals))
+        return rows
+
+    def _inward(
+        self,
+        firm_id: UUID,
+        from_date: date,
+        to_date: date,
+        warehouse_id: UUID | None,
+    ) -> dict[str, tuple[Decimal, Decimal, Decimal, tuple[str, str, str] | None]]:
+        """Return each item's quantity in (with its cost) and out in the period."""
+        owned = func.coalesce(
+            InventoryTransaction.owned_quantity_delta,
+            InventoryTransaction.current_quantity_delta
+            + InventoryTransaction.quarantine_quantity_delta,
+        )
+        filters = [
+            InventoryTransaction.firm_id == firm_id,
+            InventoryTransaction.is_deleted.is_(False),
+            InventoryTransaction.transaction_date >= from_date,
+            InventoryTransaction.transaction_date <= to_date,
+        ]
+        if warehouse_id is not None:
+            filters.append(InventoryTransaction.warehouse_id == warehouse_id)
+        else:
+            filters.append(InventoryTransaction.transaction_type.not_in(_INTERNAL))
+        cost = (
+            select(
+                StockLedgerEntry.transaction_id,
+                func.sum(func.coalesce(StockLedgerEntry.total_cost, 0)).label("cost"),
+            )
+            .group_by(StockLedgerEntry.transaction_id)
+            .subquery()
+        )
+        result: dict[
+            str, tuple[Decimal, Decimal, Decimal, tuple[str, str, str] | None]
+        ] = {}
+        for code, name, quantity, value in self._session.execute(
+            select(
+                Product.code,
+                Product.name,
+                owned,
+                func.coalesce(cost.c.cost, 0),
+            )
+            .join(Product, Product.id == InventoryTransaction.product_id)
+            .outerjoin(cost, cost.c.transaction_id == InventoryTransaction.id)
+            .where(*filters)
+        ).all():
+            moved = Decimal(str(quantity or 0))
+            inward, inward_value, outward, _ = result.get(
+                code, (ZERO, ZERO, ZERO, None)
+            )
+            if moved > ZERO:
+                inward += moved
+                inward_value += abs(Decimal(str(value or 0)))
+            elif moved < ZERO:
+                outward += -moved
+            result[code] = (
+                inward,
+                quantize_ledger(inward_value),
+                outward,
+                (name, "", ""),
+            )
+        return result

@@ -394,6 +394,11 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
   Set<String> _selectedIds = {};
   Timer? _searchTimer;
 
+  /// What the server said needs attention about the record just saved -- a
+  /// field made mandatory while records lack it, a profile some store did not
+  /// take (backlog 16, 17). Read off `data.warning`, shown once after the save.
+  String? _saveWarning;
+
   /// 20 is what `ApiClient._list` asks for when nobody says otherwise, so a
   /// definition without [ResourceDefinition.loadPage] must show that and not a
   /// number of its own choosing.
@@ -644,6 +649,15 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
       '${widget.definition.title} saved.',
       kind: AppNotificationKind.success,
     );
+    final String? warning = _saveWarning;
+    _saveWarning = null;
+    if (warning != null) {
+      NotificationService.show(
+        context,
+        warning,
+        kind: AppNotificationKind.warning,
+      );
+    }
     // A resource can leave a record incomplete in a way the form cannot fix --
     // a firm's business profile lives in that firm's own store and cannot be
     // set from this platform-level page. Say so at the moment the gap is
@@ -673,6 +687,7 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
       item == null,
     );
     if (refusal != null) throw ApiException(refusal);
+    _saveWarning = null;
     late final String savedId;
     if (item == null) {
       savedId = await createCheckpoint.persist(() async {
@@ -680,6 +695,7 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
           widget.definition.resource,
           widget.definition.payload(values, true),
         );
+        _saveWarning = _warningIn(response);
         final dynamic data = response['data'] ?? response;
         final String createdId =
             data is Map<String, dynamic> ? stringValue(data['id']) : '';
@@ -703,12 +719,13 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
         await widget.definition.saveAssignments!(savedId, values);
       }
       if (widget.definition.updateEntity) {
-        await widget.api.update(
+        final Json updated = await widget.api.update(
           widget.definition.resource,
           savedId,
           widget.definition.payload(values, false),
           partial: widget.definition.partialUpdate,
         );
+        _saveWarning = _warningIn(updated);
       }
       return;
     }
@@ -718,6 +735,13 @@ class _ResourceManagementPageState<T> extends State<ResourceManagementPage<T>> {
     if (widget.definition.saveAssignments != null) {
       await widget.definition.saveAssignments!(savedId, values);
     }
+  }
+
+  static String? _warningIn(Json response) {
+    final dynamic data = response['data'];
+    if (data is! Map) return null;
+    final String warning = stringValue(data['warning']);
+    return warning.isEmpty ? null : warning;
   }
 
   Future<void> _delete(T item) async {

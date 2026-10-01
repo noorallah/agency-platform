@@ -94,11 +94,23 @@ def opening_bill_receipts(
         )
         .group_by(SettlementAllocation.customer_opening_bill_id)
     ).all()
-    return {
+    received = {
         bill_id: quantize_ledger(Decimal(str(total)))
         for bill_id, total in rows
         if bill_id is not None
     }
+    # And what a write-off or set-off took off the bill (backlog 74 row 2).
+    from app.party_adjustments.services.allocations import adjusted_against
+
+    for bill_id, amount in adjusted_against(
+        session,
+        firm_id=firm_id,
+        column="customer_opening_bill_id",
+        bill_ids=list(bill_ids),
+        as_of=as_of,
+    ).items():
+        received[bill_id] = received.get(bill_id, ZERO) + amount
+    return received
 
 
 def standing_opening_bills(

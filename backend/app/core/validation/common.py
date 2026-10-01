@@ -111,6 +111,135 @@ def normalize_pan(value: str | None) -> str | None:
     return normalized
 
 
+_GSTIN_PATTERN = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$")
+
+
+def normalize_gstin(value: str | None) -> str | None:
+    """Return a GSTIN in capitals, None for a blank, refusing a wrong shape.
+
+    Two digits of state, the holder's ten-character PAN, an entity number,
+    ``Z`` and a check character. The check character itself is not verified
+    here: the shape is what a typing slip breaks, and the portal is the
+    authority on whether the number is real. A transporter's enrolment
+    number (TRANSIN) has the same shape.
+    """
+    if value is None:
+        return None
+    normalized = "".join(value.split()).upper()
+    if not normalized:
+        return None
+    if not _GSTIN_PATTERN.fullmatch(normalized):
+        raise ValueError(
+            "A GSTIN is 15 characters: two digits of state, the ten-character "
+            "PAN, a digit or letter, Z and a check character, e.g. "
+            "29ABCDE1234F1Z5."
+        )
+    return normalized
+
+
+def _identifier(value: str | None) -> str | None:
+    """Return an identifier in capitals without spaces, or None for a blank."""
+    if value is None:
+        return None
+    normalized = value.strip().upper()
+    return normalized or None
+
+
+def pan_in_gstin(gstin: str | None) -> str | None:
+    """Return the PAN a GSTIN is built on, or None when it carries none.
+
+    A GSTIN is two digits of state, the holder's ten-character PAN, then three
+    more characters, so characters 3 to 12 are the PAN. Some registrations
+    are not built on a PAN (a UIN, a non-resident's), so a slice that is not
+    in the PAN format says nothing about the PAN and is not compared.
+    """
+    normalized = _identifier(gstin)
+    if normalized is None or len(normalized) != 15:
+        return None
+    candidate = normalized[2:12]
+    return candidate if _PAN_PATTERN.fullmatch(candidate) else None
+
+
+def settle_pan(
+    *,
+    pan: str | None,
+    gstin: str | None,
+    stored_pan: str | None = None,
+    stored_gstin: str | None = None,
+    creating: bool,
+    pan_field: str,
+    gstin_field: str,
+) -> str | None:
+    """Check a party's PAN against its GSTIN; return the PAN to store.
+
+    Backlog 53 item 2, for every record that carries both (customer, vendor,
+    the firm itself). ``pan`` and ``gstin`` are what the record will hold
+    after the write; ``stored_*`` what it holds now.
+
+    * A PAN is checked for its format only when it is being **set** -- on a
+      create, or when the write moves it. A PAN typed before the check
+      existed must not block somebody correcting a phone number; it is
+      refused the next time somebody edits the PAN itself.
+    * When either moves and the GSTIN is built on a PAN, a blank PAN is
+      **filled** from it, and a PAN that disagrees is refused naming both.
+
+    Raises:
+        ValidationError: Naming the field (``details["field"]``) when the PAN
+            is malformed or does not match the GSTIN.
+
+    """
+    pan = _identifier(pan)
+    gstin = _identifier(gstin)
+    pan_moved = creating or pan != _identifier(stored_pan)
+    gstin_moved = creating or gstin != _identifier(stored_gstin)
+    if pan and pan_moved and not _PAN_PATTERN.fullmatch(pan):
+        raise ValidationError(
+            f"PAN {pan} is not a PAN: a PAN is five letters, four digits and a "
+            "letter, e.g. ABCDE1234F.",
+            details={"field": pan_field},
+        )
+    if not (pan_moved or gstin_moved):
+        return pan
+    in_gstin = pan_in_gstin(gstin)
+    if in_gstin is None:
+        return pan
+    if pan is None:
+        return in_gstin
+    if pan != in_gstin:
+        raise ValidationError(
+            f"PAN {pan} does not match GSTIN {gstin}: characters 3 to 12 of a "
+            f"GSTIN are the holder's PAN, here {in_gstin}. Correct whichever "
+            "of the two is wrong.",
+            details={"field": pan_field, "fields": [pan_field, gstin_field]},
+        )
+    return pan
+
+
+def check_tan_if_set(
+    tan: str | None, *, stored_tan: str | None = None, creating: bool, field: str
+) -> str | None:
+    """Return a TAN in capitals, refusing a malformed one only when it is set.
+
+    The rule ``settle_pan`` follows for a PAN, for a record whose TAN was
+    stored before any check existed (a vendor's): checked on a create or
+    when the write moves it, and left alone otherwise.
+
+    Raises:
+        ValidationError: Naming ``field`` when a TAN being set is malformed.
+
+    """
+    normalized = _identifier(tan)
+    if normalized is None or (not creating and normalized == _identifier(stored_tan)):
+        return normalized
+    if not _TAN_PATTERN.fullmatch(normalized):
+        raise ValidationError(
+            f"TAN {normalized} is not a TAN: a TAN is four letters, five digits "
+            "and a letter, e.g. DELA12345B.",
+            details={"field": field},
+        )
+    return normalized
+
+
 def validate_password_policy(
     value: str,
     *,

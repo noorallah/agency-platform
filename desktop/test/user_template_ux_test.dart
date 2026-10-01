@@ -950,6 +950,8 @@ void main() {
           // Edits what one person does firm by firm, so it acts on the
           // selected row like the other two.
           'Roles by firm': true,
+          // Where the selected person usually works (backlog 44).
+          'Branch and warehouse': true,
         },
         reason: 'exactly one action stands without a selection',
       );

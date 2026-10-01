@@ -122,6 +122,23 @@ class Settlement(BaseEntity):
     )
     #: The section it is filed under (``app.finance.tds.TDS_SECTIONS``).
     tds_section: Mapped[str | None] = mapped_column(String(10))
+    #: The rest of ``amount`` that settled the bills without moving as money
+    #: (backlog 74 row 2), each posted to its own account: a receipt a few
+    #: rupees short or a payment rounded off (``ROUNDING``), what a customer's
+    #: bank took on the way (``BANK_CHARGES``, receipts only), and a discount
+    #: allowed on a receipt or received on a payment. The cash or bank leg is
+    #: ``amount - tds_amount`` less these three; the party is settled for the
+    #: whole ``amount``, exactly as with TDS. None of them touches tax -- a
+    #: reduction in the value of a supply is a credit or debit note.
+    rounding_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0.00"), server_default="0"
+    )
+    bank_charges_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0.00"), server_default="0"
+    )
+    discount_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0.00"), server_default="0"
+    )
     method: Mapped[str] = mapped_column(String(20), nullable=False)
     #: The cash or bank account the money actually moved through, resolved from
     #: the firm's control accounts at the time and then stored. Re-deriving it

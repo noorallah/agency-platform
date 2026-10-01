@@ -227,6 +227,10 @@ RESET_ORDER: tuple[str, ...] = (
     "sales_quotations",
     "credit_note_lines",
     "credit_notes",
+    # A debit note names the supplier bill, its lines and its journal, all
+    # RESTRICT, so it goes before the bills below (backlog 65 row 6).
+    "debit_note_lines",
+    "debit_notes",
     # Proformas hang off the sales orders below. They post nothing, so there
     # is no journal to worry about -- only the order they state.
     "proforma_invoice_lines",
@@ -254,9 +258,16 @@ RESET_ORDER: tuple[str, ...] = (
     # the receipts and payments module and this list did not know about them.
     "settlement_allocations",
     "settlements",
+    # Party adjustments name the bills they clear, the parties and their
+    # journals, all RESTRICT (backlog 74 row 2).
+    "party_adjustment_allocations",
+    "party_adjustments",
     # Expenses name the journals they posted, RESTRICT, so they go before the
     # journals below -- the next table to arrive with a feature (2026-09-27).
     "expenses",
+    # Contra vouchers name their journals and accounts, RESTRICT (backlog 74
+    # row 3).
+    "contra_vouchers",
     # A supplier's opening bills are numbered from a series the reset puts
     # back to one, and their allocations above point at them; their journals
     # go with the journal entries below.

@@ -17,6 +17,8 @@ from app.delivery_note.schemas.delivery_note import (
     DeliveryNoteStatus,
     DeliveryNoteSummary,
     DeliveryNoteUpdate,
+    DeliveryProofAttachmentWrite,
+    DeliveryProofWrite,
 )
 
 __all__ = [
@@ -36,4 +38,6 @@ __all__ = [
     "DeliveryNoteStatus",
     "DeliveryNoteSummary",
     "DeliveryNoteUpdate",
+    "DeliveryProofAttachmentWrite",
+    "DeliveryProofWrite",
 ]

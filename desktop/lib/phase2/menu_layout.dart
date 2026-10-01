@@ -135,6 +135,9 @@ abstract final class MenuLayout {
   static const String loyaltySchemeRoute = 'settings/loyalty-scheme';
   static const String tcsSettingsRoute = 'settings/tcs';
 
+  /// Messaging (backlog 51): the firm's switch, accounts, events and log.
+  static const String messagingRoute = 'settings/messaging';
+
   /// The person's own usual branch and warehouse (backlog 44): a dialog, and
   /// open to every member of a firm.
   static const String workDefaultsRoute = 'settings/my-branch-warehouse';
@@ -212,9 +215,12 @@ abstract final class MenuLayout {
         MenuItemSpec(AppModule.goodsReceipts, 'receipts', 'Goods Receipts'),
         MenuItemSpec.module(AppModule.purchaseInvoices, 'Purchase Invoices'),
         MenuItemSpec.module(AppModule.purchaseReturns, 'Purchase Returns'),
+        MenuItemSpec(AppModule.purchases, 'debit-notes', 'Debit Notes'),
       ]),
       MenuGroupSpec('Money', [
         MenuItemSpec(AppModule.accounting, 'payments', 'Payments'),
+        MenuItemSpec(
+            AppModule.masters, 'supplier-statements', 'Supplier Statements'),
       ]),
       MenuGroupSpec('Insight', [
         MenuItemSpec(
@@ -258,6 +264,10 @@ abstract final class MenuLayout {
         MenuItemSpec(
             AppModule.accounting, 'opening-balances', 'Opening Balances'),
         MenuItemSpec(AppModule.accounting, 'ledgers', 'Ledgers'),
+        MenuItemSpec(
+            AppModule.accounting, 'party-adjustments', 'Party Adjustments'),
+        MenuItemSpec(
+            AppModule.accounting, 'contra-vouchers', 'Contra Vouchers'),
       ]),
       MenuGroupSpec('Statements', [
         MenuItemSpec(AppModule.accounting, 'trial-balance', 'Trial Balance'),
@@ -386,6 +396,8 @@ abstract final class MenuLayout {
       MenuItemSpec(
           AppModule.administration, 'numbering-series', 'Numbering Series'),
       MenuItemSpec.setting(workDefaultsRoute, 'My Branch and Warehouse'),
+      MenuItemSpec.setting(messagingRoute, 'Messaging',
+          permission: 'SETTINGS_VIEW'),
     ]),
     MenuGroupSpec('Selling', [
       MenuItemSpec.setting(salesStagesRoute, 'Sales Stages',

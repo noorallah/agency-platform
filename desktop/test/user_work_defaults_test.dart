@@ -44,6 +44,7 @@ class _Api extends ApiClient {
   final String? branchId;
   final String? warehouseId;
   final List<Json> writes = <Json>[];
+  final List<String> paths = <String>[];
 
   @override
   Future<Json> request(
@@ -55,7 +56,8 @@ class _Api extends ApiClient {
     bool retrying = false,
     int? expectedVersion,
   }) async {
-    if (path.endsWith('/my-work-defaults')) {
+    if (path.endsWith('/my-work-defaults') || path.contains('/work-defaults/')) {
+      paths.add('$method $path');
       if (method == 'PUT') {
         writes.add(Map<String, dynamic>.from(body!));
         return {'success': true, 'data': {...body, 'ignored': <String>[]}};
@@ -201,6 +203,38 @@ void main() {
         {'branch_id': null, 'warehouse_id': null},
       ]);
       expect(UserWorkDefaults.branchId, isNull);
+    });
+
+    testWidgets("an administrator sets another member's, not their own",
+        (tester) async {
+      // Backlog 44: the users grid opens the same form for somebody else.
+      final _Api api = _Api(branchId: 'b1', warehouseId: 'w1');
+      UserWorkDefaults.set(const WorkDefaults(branchId: 'b1', warehouseId: 'w1'));
+      addTearDown(UserWorkDefaults.clear);
+      await tester.binding.setSurfaceSize(const Size(1366, 768));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: WorkDefaultsDialog(
+              api: api, userId: 'u-9', personName: 'Ravi K'),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(find.text('Branch and warehouse · Ravi K'), findsOneWidget);
+      await choose(tester, 'work-defaults-branch', 'South');
+      await choose(tester, 'work-defaults-warehouse-b2', 'South store');
+      await tester.tap(find.byKey(const ValueKey<String>('work-defaults-save')));
+      await tester.pumpAndSettle();
+      expect(api.paths, [
+        'GET /api/v1/branches/work-defaults/u-9',
+        'PUT /api/v1/branches/work-defaults/u-9',
+      ]);
+      expect(api.writes, [
+        {'branch_id': 'b2', 'warehouse_id': 'w2'},
+      ]);
+      // The signed-in person's own defaults are not theirs to replace.
+      expect(UserWorkDefaults.branchId, 'b1');
+      expect(UserWorkDefaults.warehouseId, 'w1');
     });
 
     testWidgets('shows an ignored message', (tester) async {

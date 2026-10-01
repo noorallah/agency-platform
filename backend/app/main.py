@@ -16,6 +16,7 @@ from app.business.api import router as business_framework_router
 from app.commission.api import router as commission_router
 from app.common.audit.api import router as audit_logs_router
 from app.common.directory.api import router as firm_members_router
+from app.contra.api.router import router as contra_router
 from app.core.config.settings import Settings
 from app.core.database.engine import DatabaseManager
 from app.core.exceptions.handlers import register_exception_handlers
@@ -32,6 +33,7 @@ from app.core.tenancy import (
 )
 from app.credit_note.api.router import router as credit_notes_router
 from app.customers.api import router as customers_router
+from app.debit_note.api.router import router as debit_notes_router
 from app.delivery_note.api import router as delivery_notes_router
 from app.diagnostics.api import router as diagnostics_router
 from app.document_framework.api import router as document_framework_router
@@ -44,6 +46,10 @@ from app.gst_returns.api.router import router as gst_returns_router
 from app.identity.api import router as identity_router
 from app.inventory.api import router as inventory_router
 from app.loyalty.api import router as loyalty_router
+from app.messaging.api import router as messaging_router
+from app.messaging.services.outbox_worker import MessagingWorker
+from app.messaging.services.runtime import live_firm_ids, store_opener
+from app.party_adjustments.api.router import router as party_adjustments_router
 from app.pricing.api import router as pricing_router
 from app.products.api import router as products_router
 from app.proforma.api import router as proforma_router
@@ -94,9 +100,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         maintenance = LogMaintenance(settings) if settings.log_file_enabled else None
         if maintenance is not None:
             maintenance.start()
+        # Sends what firms queued, retries, and scans for reminders. Started
+        # here rather than at import, so a test client that never enters the
+        # lifespan never starts a thread.
+        messaging = (
+            _messaging_worker(application, settings)
+            if settings.messaging_worker_enabled
+            else None
+        )
+        if messaging is not None:
+            messaging.start()
         try:
             yield
         finally:
+            if messaging is not None:
+                messaging.stop()
             if maintenance is not None:
                 maintenance.stop()
             application.state.database_provider.dispose()
@@ -148,6 +166,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(sales_invoices_router)
     application.include_router(sales_returns_router)
     application.include_router(credit_notes_router)
+    application.include_router(debit_notes_router)
+    application.include_router(party_adjustments_router)
+    application.include_router(contra_router)
     application.include_router(einvoice_router)
     application.include_router(gst_returns_router)
     application.include_router(sales_orders_router)
@@ -174,9 +195,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     application.include_router(audit_logs_router)
     application.include_router(firm_members_router)
     application.include_router(diagnostics_router)
+    application.include_router(messaging_router)
     application.include_router(backups_router)
     register_exception_handlers(application)
     return application
+
+
+def _messaging_worker(application: FastAPI, settings: Settings) -> MessagingWorker:
+    """Build the outbox worker from the tenancy services this app holds."""
+    return MessagingWorker(
+        live_firm_ids(application.state.database),
+        store_opener(
+            application.state.tenant_resolver, application.state.database_provider
+        ),
+        interval_seconds=settings.messaging_worker_interval_seconds,
+    )
 
 
 def create_application() -> FastAPI:

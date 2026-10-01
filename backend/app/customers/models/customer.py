@@ -1,6 +1,6 @@
 """Firm-scoped customer, receivable, address, and contact persistence models."""
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import ClassVar
 from uuid import UUID
@@ -22,7 +22,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.business.models import AttributeEntityType, AttributeValueBase
 from app.core.database.entity import BaseEntity
-from app.core.database.types import UUIDType
+from app.core.database.types import UTCDateTime, UUIDType
 
 
 class CustomerGroup(BaseEntity):
@@ -128,6 +128,18 @@ class Customer(BaseEntity):
     #: Tax Deduction Account Number, held by one that deducts TDS (backlog
     #: 53.1). Recorded and format-checked; nothing posts from it yet.
     tan_number: Mapped[str | None] = mapped_column(String(10))
+    #: REGULAR, COMPOSITION, UNREGISTERED, SEZ_WITH_PAYMENT,
+    #: SEZ_WITHOUT_PAYMENT, DEEMED_EXPORT or OVERSEAS (backlog 75 row 2,
+    #: `app/customers/gst_registration.py`). NULL is read off the GSTIN, so
+    #: every customer saved before it is billed exactly as it was.
+    gst_registration_type: Mapped[str | None] = mapped_column(String(30))
+    #: The account manager: the firm member who looks after this customer
+    #: (backlog 67 row 2). A platform user id with no foreign key -- `users`
+    #: lives only in the platform store -- checked through
+    #: `FirmMetadataReader` when it is set. A sales document raised for the
+    #: customer with no salesman of its own takes this one ahead of the
+    #: territory's (`app/sales/services/scope_resolution.py`).
+    salesman_id: Mapped[UUID | None] = mapped_column(UUIDType())
     email: Mapped[str | None] = mapped_column(String(320))
     phone: Mapped[str | None] = mapped_column(String(20))
     alternate_phone: Mapped[str | None] = mapped_column(String(20))
@@ -157,6 +169,20 @@ class Customer(BaseEntity):
     unapplied_advance_balance: Mapped[Decimal] = mapped_column(
         Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: Messaging (backlog 51): skip PAYMENT_DUE_SOON and PAYMENT_OVERDUE for
+    #: this customer. Documents still go; only reminders stop.
+    no_reminders: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    #: EMAIL, WHATSAPP or SMS: tried first when an event offers it.
+    preferred_channel: Mapped[str | None] = mapped_column(String(20))
+    #: The customer agreed to be messaged on WhatsApp; nothing goes there
+    #: without it. ``whatsapp_opt_in_at`` is when it was recorded, set by the
+    #: server when the box is ticked and cleared when it is unticked.
+    whatsapp_opt_in: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    whatsapp_opt_in_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
     addresses: Mapped[list["CustomerAddress"]] = relationship(
         back_populates="customer",

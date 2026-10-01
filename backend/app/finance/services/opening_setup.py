@@ -69,20 +69,24 @@ GROUPS: tuple[tuple[str, str, AccountTypeEnum], ...] = (
     ("EQ", "Equity", AccountTypeEnum.EQUITY),
 )
 
-#: The day-to-day costs a firm pays and records on the Expenses screen. No
-#: control purpose: nothing posts to them by itself; a person chooses one.
-#: Migration 20260927_0162 gives existing firms the same accounts.
+#: The day-to-day costs a firm pays and records on the Expenses screen. A
+#: person chooses one, so most carry no control purpose. Bank Charges is the
+#: exception since backlog 74 row 2: a receipt that a customer's bank cut
+#: short books the difference there by itself (``BANK_CHARGES``), and a
+#: firm's own bank fee is still recorded against it by hand. Migration
+#: 20260927_0162 gives existing firms the same accounts; 20261001_0191 maps
+#: the purpose.
 INDIRECT_EXPENSE_ACCOUNTS: tuple[SeedAccount, ...] = tuple(
-    SeedAccount(code, name, AccountTypeEnum.EXPENSE, "IEXP")
-    for code, name in (
-        ("6000", "Rent"),
-        ("6100", "Salaries and Wages"),
-        ("6200", "Electricity"),
-        ("6300", "Telephone and Internet"),
-        ("6400", "Travel and Conveyance"),
-        ("6500", "Office and General Expenses"),
-        ("6600", "Repairs and Maintenance"),
-        ("6700", "Bank Charges"),
+    SeedAccount(code, name, AccountTypeEnum.EXPENSE, "IEXP", purpose)
+    for code, name, purpose in (
+        ("6000", "Rent", None),
+        ("6100", "Salaries and Wages", None),
+        ("6200", "Electricity", None),
+        ("6300", "Telephone and Internet", None),
+        ("6400", "Travel and Conveyance", None),
+        ("6500", "Office and General Expenses", None),
+        ("6600", "Repairs and Maintenance", None),
+        ("6700", "Bank Charges", ControlAccountPurpose.BANK_CHARGES),
     )
 )
 
@@ -290,6 +294,24 @@ CHART: tuple[SeedAccount, ...] = (
         AccountTypeEnum.LIABILITY,
         "CL",
         ControlAccountPurpose.LOYALTY_PAYABLE,
+    ),
+    SeedAccount(
+        # A customer's debt given up on (backlog 74 row 2): a running cost of
+        # the business, beside the other indirect expenses.
+        "6800",
+        "Bad Debts",
+        AccountTypeEnum.EXPENSE,
+        "IEXP",
+        ControlAccountPurpose.BAD_DEBTS,
+    ),
+    SeedAccount(
+        # What the firm owed a supplier and will not pay: other income, not
+        # sales and not a purchase return.
+        "4300",
+        "Balances Written Back",
+        AccountTypeEnum.INCOME,
+        "REV",
+        ControlAccountPurpose.BALANCES_WRITTEN_BACK,
     ),
     *INDIRECT_EXPENSE_ACCOUNTS,
 )

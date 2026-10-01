@@ -175,6 +175,9 @@ class _HomeSource implements HomeSource {
   Future<int> itemsBelowReorder() async => 0;
 
   @override
+  Future<double> receiptsOn(DateTime day) async => 0;
+
+  @override
   Future<int> batchesExpiringIn30Days() async => 0;
 
   @override

@@ -95,6 +95,11 @@ WarehouseRestoreScope = Annotated[
 StorageManageScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("STORAGE_AREA_MANAGE")
 ]
+#: An administrator's view and edit of somebody else's usual branch and
+#: warehouse (backlog 44): the codes the users grid already asks for to read
+#: and to edit a person, held to this firm's members.
+MemberViewScope = Annotated[ResolvedFirmScope, firm_permission_scope("USER_VIEW")]
+MemberUpdateScope = Annotated[ResolvedFirmScope, firm_permission_scope("USER_UPDATE")]
 BranchWarehouseImportScope = Annotated[
     ResolvedFirmScope, firm_permission_scope("BRANCH_WAREHOUSE_IMPORT")
 ]
@@ -502,6 +507,56 @@ def set_my_work_defaults(
     value = UserWorkDefaultService(db).set(
         scope.firm_id,
         scope.actor_id,
+        branch_id=data.branch_id,
+        warehouse_id=data.warehouse_id,
+        actor_id=scope.actor_id,
+    )
+    db.commit()
+    return ApiResponse(data=_work_defaults(value))
+
+
+@router.get(
+    "/branches/work-defaults/{user_id}",
+    response_model=ApiResponse[WorkDefaultsResponse],
+)
+def member_work_defaults(
+    user_id: UUID,
+    scope: MemberViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[WorkDefaultsResponse]:
+    """Return another member's usual branch and warehouse (backlog 44).
+
+    Declared above `/branches/{branch_id}`. A person outside the firm is
+    answered as not found.
+    """
+    service = UserWorkDefaultService(db)
+    service.assert_member(scope.firm_id, user_id)
+    return ApiResponse(data=_work_defaults(service.current(scope.firm_id, user_id)))
+
+
+@router.put(
+    "/branches/work-defaults/{user_id}",
+    response_model=ApiResponse[WorkDefaultsResponse],
+)
+def set_member_work_defaults(
+    user_id: UUID,
+    data: WorkDefaultsWrite,
+    scope: MemberUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[WorkDefaultsResponse]:
+    """Set (or clear) another member's usual branch and warehouse (backlog 44).
+
+    The administrator's path beside the person's own: held to `USER_UPDATE`,
+    the code that edits a person on the users grid, and to this firm's active
+    members. The same validation as setting one's own -- a live branch and
+    warehouse of this firm, the warehouse the branch's -- and the audit row
+    names the administrator as the actor and the person in its data.
+    """
+    service = UserWorkDefaultService(db)
+    service.assert_member(scope.firm_id, user_id)
+    value = service.set(
+        scope.firm_id,
+        user_id,
         branch_id=data.branch_id,
         warehouse_id=data.warehouse_id,
         actor_id=scope.actor_id,

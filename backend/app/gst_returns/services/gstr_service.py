@@ -54,7 +54,13 @@ from app.core.exceptions import ValidationError
 from app.core.utils.chunks import chunks, over_chunks
 from app.core.utils.money import ZERO, quantize_ledger, quantize_money
 from app.credit_note.models import CreditNote, CreditNoteLine, CreditNoteStatus
+from app.customers.gst_registration import (
+    GSTR1_INVOICE_TYPES,
+    ZERO_RATED_TYPES,
+    effective_type,
+)
 from app.customers.models import Customer, CustomerReceivableTransaction
+from app.debit_note.models import DebitNote, DebitNoteStatus
 from app.products.models import Product
 from app.sales_invoice.models import (
     SalesInvoice,
@@ -72,6 +78,9 @@ from app.tax.services.gst_buckets import (
     settle_to_ledger,
     split_components,
 )
+
+#: The place of supply a return gives a supply outside India.
+FOREIGN_PLACE = "96"
 
 
 def _bucket(component_code: str, amount: Decimal) -> GstBuckets:
@@ -385,6 +394,7 @@ class GstReturnService:
 
         b2b: dict[str, dict[str, object]] = {}
         b2cl: list[dict[str, object]] = []
+        exports: list[dict[str, object]] = []
         b2cs: dict[tuple[str, str], _RateRow] = {}
         hsn: dict[tuple[str, str], dict[str, object]] = {}
         unplaced: list[str] = []
@@ -427,16 +437,37 @@ class GstReturnService:
             if not place:
                 unplaced.append(invoice.invoice_number)
 
+            gst_type = getattr(
+                invoice, "buyer_gst_registration_type", None
+            ) or effective_type(
+                getattr(customer, "gst_registration_type", None), buyer_gstin
+            )
+            if place == FOREIGN_PLACE or gst_type == "OVERSEAS":
+                # An export is Table 6A, by whether IGST was paid on it or it
+                # went under a bond or LUT -- never B2CL or B2CS (backlog 75).
+                exports.append(
+                    {
+                        "export_type": "WPAY" if charged.igst > ZERO else "WOPAY",
+                        **self._document(invoice, FOREIGN_PLACE, rates),
+                    }
+                )
+                continue
             if buyer_gstin:
                 # Registered buyer: declared invoice by invoice, whatever the
-                # value, because the buyer claims credit against it.
+                # value, because the buyer claims credit against it. SEZ and
+                # deemed-export supplies are B2B too, marked by invoice type.
                 b2b.setdefault(
                     buyer_gstin,
                     {"gstin": buyer_gstin, "name": customer.name, "invoices": []},
                 )
                 invoices = b2b[buyer_gstin]["invoices"]
                 assert isinstance(invoices, list)
-                invoices.append(self._document(invoice, place, rates))
+                invoices.append(
+                    {
+                        **self._document(invoice, place, rates),
+                        "invoice_type": GSTR1_INVOICE_TYPES.get(gst_type, "R"),
+                    }
+                )
                 continue
             interstate = place != seller_state
             if interstate and Decimal(str(invoice.grand_total)) > b2cl_threshold(
@@ -489,6 +520,7 @@ class GstReturnService:
             "to_date": to_date.isoformat(),
             "b2b": list(b2b.values()),
             "b2cl": b2cl,
+            "exp": exports,
             "b2cs": [
                 {
                     "place_of_supply": place,
@@ -566,15 +598,23 @@ class GstReturnService:
 
         taxable = ZERO
         buckets = GstBuckets()
+        zero_rated = ZERO
+        zero_rated_buckets = GstBuckets()
         nil_or_exempt = non_gst = ZERO
-        for _invoice, _customer, lines in self._invoices(
+        for invoice, customer, lines in self._invoices(
             firm_scope=firm_scope, from_date=from_date, to_date=to_date
         ):
+            # Exports and supplies to an SEZ are zero-rated, 3.1(b), whether
+            # IGST was paid on them or they went under an LUT (backlog 75).
+            to_zero = self._is_zero_rated(invoice, customer)
             for line_taxable, line_buckets, _product, _quantity, kind in lines:
                 # 3.1(a) is taxable supplies; nil-rated and exempt ones are
                 # 3.1(c) and non-GST ones 3.1(e) (D-CMP-10).
                 if kind == NON_GST:
                     non_gst += line_taxable
+                elif to_zero:
+                    zero_rated += line_taxable
+                    zero_rated_buckets = zero_rated_buckets.plus(line_buckets)
                 elif kind != TAXABLE:
                     nil_or_exempt += line_taxable
                 else:
@@ -627,6 +667,11 @@ class GstReturnService:
                 "state_tax": _filed(buckets.sgst - credit_sgst),
                 "cess": _filed(buckets.cess - credit_cess),
             },
+            "zero_rated_supplies": {
+                "taxable_value": _filed(zero_rated),
+                "integrated_tax": _filed(zero_rated_buckets.igst),
+                "cess": _filed(zero_rated_buckets.cess),
+            },
             "nil_rated_and_exempt_supplies": {
                 "taxable_value": _filed(nil_or_exempt),
             },
@@ -641,6 +686,20 @@ class GstReturnService:
             ),
         }
 
+    @staticmethod
+    def _is_zero_rated(invoice: object, customer: object) -> bool:
+        """Return whether a bill is an export or a supply to an SEZ."""
+        gst_type = getattr(invoice, "buyer_gst_registration_type", None) or (
+            effective_type(
+                getattr(customer, "gst_registration_type", None),
+                getattr(customer, "gst_number", None),
+            )
+        )
+        if gst_type in ZERO_RATED_TYPES:
+            return True
+        place = str(getattr(invoice, "place_of_supply", None) or "")
+        return place.endswith(f"({FOREIGN_PLACE})") or place == FOREIGN_PLACE
+
     def _input_tax_credit(
         self, *, firm_scope: UUID, from_date: date, to_date: date
     ) -> dict[str, object]:
@@ -651,13 +710,17 @@ class GstReturnService:
         (`purchase_invoice_line_taxes`, D-CMP-20 part 1), bucketed by head the
         way the outward side is. 4B(2), "other reversals", is the tax on the
         period's completed purchase returns, split by head in the proportions
-        of the bill each return line came off; a return raised off a receipt or
+        of the bill each return line came off -- and the tax on the period's
+        approved debit notes, split the same way; a return raised off a receipt or
         an order names no bill, and its tax is counted under
         ``unplaced_reversals`` rather than put under a head it may not belong
         to. Bills written before the rows existed contribute nothing here and
         are counted under ``bills_without_components``: said, not silently
         zero.
         """
+        from app.debit_note.services.debit_note_service import (
+            debit_note_tax_by_component,
+        )
         from app.purchase_invoice.models import (
             PurchaseInvoice,
             PurchaseInvoiceLine,
@@ -731,6 +794,28 @@ class GstReturnService:
                 reversed_ = reversed_.plus(_bucket(code, amount))
                 placed += amount
             rest = quantize_money(Decimal(str(purchase_return.tax_total)) - placed)
+            if rest > ZERO:
+                unplaced += rest
+                unplaced_count += 1
+        # A debit note to a supplier reverses the credit its bill claimed
+        # exactly as a return off the bill does, head by head, in the period
+        # it was approved for (backlog 65 row 6). Counted with the returns
+        # rather than in a table of its own: 3B has one reversal row.
+        for note in self._session.scalars(
+            select(DebitNote).where(
+                DebitNote.firm_id == firm_scope,
+                DebitNote.is_deleted.is_(False),
+                DebitNote.status == DebitNoteStatus.APPROVED.value,
+                DebitNote.debit_note_date >= from_date,
+                DebitNote.debit_note_date <= to_date,
+            )
+        ).all():
+            split = debit_note_tax_by_component(self._session, note.id)
+            placed = ZERO
+            for code, amount in split.items():
+                reversed_ = reversed_.plus(_bucket(code, amount))
+                placed += amount
+            rest = quantize_money(Decimal(str(note.tax_amount)) - placed)
             if rest > ZERO:
                 unplaced += rest
                 unplaced_count += 1

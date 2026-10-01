@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.common.firm_metadata import FirmMetadataReader
 from app.core.exceptions import ValidationError
 from app.core.utils.money import ZERO, quantize_ledger, quantize_money
+from app.customers.gst_registration import effective_type
 from app.customers.models import Customer
 from app.products.models import Product
 from app.sales_invoice.models import (
@@ -94,16 +95,23 @@ def _state_code(gstin: str | None) -> str | None:
     return gstin[:2]
 
 
-def _supply_type(*, export: bool, igst: Decimal) -> str:
+def _supply_type(*, export: bool, igst: Decimal, gst_type: str = "REGULAR") -> str:
     """Return the portal's supply type for the document.
 
     An export is EXPWP where IGST was paid on it and EXPWOP where it went
-    under a bond or LUT, which is what the tax the bill charged says. SEZ and
-    deemed exports need a marker no customer carries yet, so everything else
-    is B2B.
+    under a bond or LUT, which is what the tax the bill charged says. A buyer
+    in an SEZ is SEZWP or SEZWOP by its registration type, and a deemed export
+    DEXP (``customers.gst_registration_type``, backlog 75 row 2); everything
+    else is B2B.
     """
-    if export:
+    if export or gst_type == "OVERSEAS":
         return "EXPWP" if igst > ZERO else "EXPWOP"
+    if gst_type == "SEZ_WITH_PAYMENT":
+        return "SEZWP"
+    if gst_type == "SEZ_WITHOUT_PAYMENT":
+        return "SEZWOP"
+    if gst_type == "DEEMED_EXPORT":
+        return "DEXP"
     return "B2B"
 
 
@@ -304,7 +312,15 @@ class EInvoicePayloadBuilder:
             "Version": "1.1",
             "TranDtls": {
                 "TaxSch": "GST",
-                "SupTyp": _supply_type(export=export, igst=totals[_IGST]),
+                "SupTyp": _supply_type(
+                    export=export,
+                    igst=totals[_IGST],
+                    gst_type=invoice.buyer_gst_registration_type
+                    or effective_type(
+                        getattr(customer, "gst_registration_type", None),
+                        getattr(customer, "gst_number", None),
+                    ),
+                ),
                 "RegRev": "N",
                 "IgstOnIntra": "N",
             },

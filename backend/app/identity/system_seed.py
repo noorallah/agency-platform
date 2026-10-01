@@ -196,6 +196,25 @@ PERMISSION_GROUPS = {
         # `COMMISSION_PAY` is separate from `COMMISSION_MANAGE`.
         "CREDIT_NOTE_APPROVE",
     ),
+    "debit_note": (
+        "DEBIT_NOTE_VIEW",
+        "DEBIT_NOTE_MANAGE",
+        # Approving reduces what the firm owes a supplier **and reverses input
+        # tax it has claimed**. The purchasing twin of `CREDIT_NOTE_APPROVE`,
+        # held back from the role that drafts one for the same reason.
+        "DEBIT_NOTE_APPROVE",
+    ),
+    "party_adjustment": (
+        "PARTY_ADJUSTMENT_VIEW",
+        # Drafting a write-off, write-back or set-off, and approving one at
+        # or below the firm's threshold (backlog 74 row 2).
+        "PARTY_ADJUSTMENT_MANAGE",
+        # Approving or cancelling one above the threshold, as somebody other
+        # than its maker, and setting the threshold itself. A rupee written
+        # off is profit given away; the role that clears balances must not
+        # be the one that decides how much it may clear alone.
+        "PARTY_ADJUSTMENT_APPROVE",
+    ),
     "batch_serial": (
         "BATCH_VIEW",
         "BATCH_CREATE",
@@ -338,6 +357,14 @@ PERMISSION_GROUPS = {
         "FINANCIAL_YEAR_REOPEN",
         "FINANCIAL_YEAR_VIEW",
     ),
+    "messaging": (
+        # Send or resend a document to a customer by email, WhatsApp or SMS
+        # (backlog 51, decision 5). Not a `*_VIEW`: printing shows what the
+        # screen shows, sending acts for the firm towards somebody outside it.
+        # The firm's messaging *settings* are `SETTINGS_UPDATE`, like its
+        # numbering series and print templates.
+        "DOCUMENT_SEND",
+    ),
     "system_administration": (
         "AUDIT_LOG_VIEW",
         "DIAGNOSTICS_VIEW",
@@ -460,6 +487,8 @@ _operational_permissions = _codes(
     "trade_licences",
     "commission",
     "credit_note",
+    "debit_note",
+    "party_adjustment",
     "proforma",
     "einvoice",
     "loyalty",
@@ -468,6 +497,7 @@ _operational_permissions = _codes(
     "expenses",
     "report",
     "financial_year",
+    "messaging",
 )
 _all_read_permissions = frozenset(
     code for code in SYSTEM_PERMISSION_CODES if code.endswith("_VIEW")
@@ -517,6 +547,14 @@ _SEEDED_ROLE_PERMISSION_CODES = {
             # Credit policy governs receivables, so it belongs to the role that
             # owns them rather than to the role it constrains.
             "CUSTOMER_MANAGE_SETTINGS",
+            # Chasing what is owed: resending a bill or a reminder.
+            "DOCUMENT_SEND",
+            # Clears small balances -- a few rupees short, a set-off -- and
+            # drafts larger write-offs for somebody else to approve. Approving
+            # above the threshold is held back: the role that books a
+            # write-off is not the one that agrees to it (backlog 74 row 2).
+            "PARTY_ADJUSTMENT_VIEW",
+            "PARTY_ADJUSTMENT_MANAGE",
         }
     ),
     "SALES_MANAGER": (
@@ -575,6 +613,8 @@ _SEEDED_ROLE_PERMISSION_CODES = {
             # running a sales desk; deciding what a point is worth is not.
             "LOYALTY_VIEW",
             "LOYALTY_MANAGE",
+            # Sending a customer their bill is sales-desk work.
+            "DOCUMENT_SEND",
         }
     ),
     "SALES_EXECUTIVE": frozenset(
@@ -592,7 +632,17 @@ _SEEDED_ROLE_PERMISSION_CODES = {
     # A vendor's licence is vendor master data, which the purchase manager
     # owns; the executive reads it to know a supplier may supply the goods.
     "PURCHASE_MANAGER": (_codes("purchase") - frozenset({"PURCHASE_MANAGE_SETTINGS"}))
-    | frozenset({"TRADE_LICENCE_VIEW", "TRADE_LICENCE_MANAGE"}),
+    | frozenset(
+        {
+            "TRADE_LICENCE_VIEW",
+            "TRADE_LICENCE_MANAGE",
+            # A purchase manager may draft a debit note; approving one reverses
+            # claimed input tax and is not theirs -- the split the sales
+            # manager has on credit notes.
+            "DEBIT_NOTE_VIEW",
+            "DEBIT_NOTE_MANAGE",
+        }
+    ),
     "PURCHASE_EXECUTIVE": (
         _codes("purchase") - frozenset({"PURCHASE_APPROVE", "PURCHASE_MANAGE_SETTINGS"})
     )
@@ -604,7 +654,10 @@ _SEEDED_ROLE_PERMISSION_CODES = {
         # payments module that first enforced them.
         {"PAYMENT_CREATE", "PAYMENT_VIEW", "RECEIPT_CREATE", "RECEIPT_VIEW"}
     ),
-    "BILLING_EXECUTIVE": frozenset({"SALES_INVOICE_CREATE", "SALES_VIEW"}),
+    # Whoever raises the bill can send it to the customer (backlog 51).
+    "BILLING_EXECUTIVE": frozenset(
+        {"SALES_INVOICE_CREATE", "SALES_VIEW", "DOCUMENT_SEND"}
+    ),
     "CUSTOMER_SUPPORT": frozenset({"CUSTOMER_VIEW", "CUSTOMER_UPDATE", "PRODUCT_VIEW"}),
     "VIEWER": _all_read_permissions
     - frozenset(

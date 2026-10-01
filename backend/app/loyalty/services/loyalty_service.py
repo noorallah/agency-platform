@@ -1124,11 +1124,22 @@ class LoyaltyService:
         credited = credited_against(
             self._session, firm_id=firm_scope, invoice_ids=[invoice.id]
         ).get(invoice.id, ZERO)
+        # A write-off or set-off takes the bill down too (backlog 74 row 2):
+        # points cannot be spent on a debt the firm has already given up.
+        from app.party_adjustments.services.allocations import adjusted_against
+
+        adjusted = adjusted_against(
+            self._session,
+            firm_id=firm_scope,
+            column="sales_invoice_id",
+            bill_ids=[invoice.id],
+        ).get(invoice.id, ZERO)
         owed = (
             quantize_ledger(invoice.grand_total)
             - quantize_ledger(Decimal(str(paid or 0)))
             - quantize_ledger(Decimal(str(spent or 0)))
             - credited
+            - adjusted
         )
         return owed if owed > ZERO else ZERO
 

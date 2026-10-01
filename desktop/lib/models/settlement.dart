@@ -58,6 +58,10 @@ class Settlement {
     this.salesOrderNumber = '',
     this.tdsAmount = '0',
     this.tdsSection = '',
+    this.roundingAmount = '0',
+    this.bankChargesAmount = '0',
+    this.discountAmount = '0',
+    this.reportedCashAmount = '',
   });
 
   final String id;
@@ -97,10 +101,34 @@ class Settlement {
   final String tdsAmount;
   final String tdsSection;
 
-  double get tdsValue => double.tryParse(tdsAmount) ?? 0;
+  /// What else came off [amount] before the money moved: a rounding or short
+  /// payment, bank charges (receipts only) and a discount allowed or
+  /// received. Like TDS they settle the party without being cash.
+  final String roundingAmount;
+  final String bankChargesAmount;
+  final String discountAmount;
 
-  String get cashAmount =>
-      ((double.tryParse(amount) ?? 0) - tdsValue).toStringAsFixed(2);
+  /// The money moved as the server states it; blank on an older answer.
+  final String reportedCashAmount;
+
+  double get tdsValue => double.tryParse(tdsAmount) ?? 0;
+  double get roundingValue => double.tryParse(roundingAmount) ?? 0;
+  double get bankChargesValue => double.tryParse(bankChargesAmount) ?? 0;
+  double get discountValue => double.tryParse(discountAmount) ?? 0;
+
+  /// Whether anything but TDS came off the amount.
+  bool get hasDeductions =>
+      roundingValue > 0 || bankChargesValue > 0 || discountValue > 0;
+
+  /// The money that actually moved: the amount less everything deducted.
+  String get cashAmount => reportedCashAmount.isNotEmpty
+      ? (double.tryParse(reportedCashAmount) ?? 0).toStringAsFixed(2)
+      : ((double.tryParse(amount) ?? 0) -
+              tdsValue -
+              roundingValue -
+              bankChargesValue -
+              discountValue)
+          .toStringAsFixed(2);
 
   /// Taken back. The original stays and a mirror journal cancels it, so a
   /// reversed settlement is still a record of money that arrived and was then
@@ -127,6 +155,16 @@ class Settlement {
           ? '0'
           : stringValue(d['tds_amount']),
       tdsSection: stringValue(d['tds_section']),
+      roundingAmount: stringValue(d['rounding_amount']).isEmpty
+          ? '0'
+          : stringValue(d['rounding_amount']),
+      bankChargesAmount: stringValue(d['bank_charges_amount']).isEmpty
+          ? '0'
+          : stringValue(d['bank_charges_amount']),
+      discountAmount: stringValue(d['discount_amount']).isEmpty
+          ? '0'
+          : stringValue(d['discount_amount']),
+      reportedCashAmount: stringValue(d['cash_amount']),
       amount: stringValue(d['amount']),
       allocatedAmount: stringValue(d['allocated_amount']),
       unallocatedAmount: stringValue(d['unallocated_amount']),

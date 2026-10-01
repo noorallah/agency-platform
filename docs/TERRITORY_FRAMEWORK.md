@@ -70,6 +70,17 @@ things:
 The territory still applies in that second case. The shop is on it either way;
 the window describes the round.
 
+**Which salesman a document carries** (backlog 67 row 2, 2026-10-01). In
+order: the salesman the document names, or inherits from its source (an
+invoice keeps its order's); then the customer's **account manager**
+(`customers.salesman_id`), if still an active member of the firm and -- when
+the document resolved a territory -- covering it; then the territory's
+salesperson as before. The account manager comes first because it is named
+for this one customer, where coverage is named for an area. One who does not
+cover the document's territory is skipped rather than used, because the same
+name typed on the document would be refused. A manager who has left stays on
+the customer's record and is skipped, the way a stale round assignment is.
+
 ## Customers on a round
 
 `TerritoryCustomerAssignment` is the shop ⇄ node row. Three rules, each keyed in

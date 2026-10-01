@@ -7,11 +7,11 @@ import io
 from collections import defaultdict
 from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 from uuid import UUID
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import ColumnElement, and_, func, or_, select
 from sqlalchemy.orm import InstrumentedAttribute, Session
 
 from app.batch_serial.models import BatchRecord, SerialNumber
@@ -37,7 +37,7 @@ from app.core.database.batch import children_by_parent
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.pagination import WHOLE_HISTORY, ReportWindow, mapped_like
 from app.core.utils.chunks import chunks
-from app.core.utils.dates import utc_now
+from app.core.utils.dates import as_utc, utc_now
 from app.core.utils.pricing import (
     LineDiscount,
     apportion,
@@ -46,6 +46,7 @@ from app.core.utils.pricing import (
 )
 from app.core.utils.report_labels import UNASSIGNED
 from app.customers.models import Customer
+from app.customers.services.ship_to import resolve_ship_to
 from app.delivery_note.models import (
     DeliveryNote,
     DeliveryNoteAttachment,
@@ -74,6 +75,7 @@ from app.delivery_note.schemas import (
     DeliveryNoteResponse,
     DeliveryNoteStatus,
     DeliveryNoteSummary,
+    DeliveryProofWrite,
 )
 from app.document_framework.models import (
     DocumentLifecycleEvent,
@@ -91,6 +93,7 @@ from app.finance.services.document_posting import DocumentPostingService
 from app.identity.models import User
 from app.inventory.models import InventoryRecord, StockLedgerEntry
 from app.inventory.services import InventoryService, LineConversion
+from app.messaging.services import MessagingDocument, stage_document_event
 from app.products.models import Product
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales_order.models import SalesOrder, SalesOrderLine
@@ -130,6 +133,21 @@ class _HeldAt:
     branch_id: UUID
     warehouse_id: UUID
     storage_node_id: UUID | None
+
+
+#: The kind a proof-of-delivery photo or signature is filed under among the
+#: note's attachments (backlog 67 row 6).
+PROOF_OF_DELIVERY = "PROOF_OF_DELIVERY"
+
+#: The note's transport details (backlog 67 row 5), written and kept together.
+TRANSPORT_FIELDS: tuple[str, ...] = (
+    "transporter_name",
+    "transporter_gstin",
+    "transport_mode",
+    "lr_number",
+    "lr_date",
+    "distance_km",
+)
 
 
 class DeliveryNoteService(TransactionalDocumentService):
@@ -220,6 +238,10 @@ class DeliveryNoteService(TransactionalDocumentService):
                 DeliveryNote.delivery_date <= filters.delivery_to
             )
             count = count.where(DeliveryNote.delivery_date <= filters.delivery_to)
+        if filters.awaiting_delivery_proof:
+            awaiting = self._awaiting_proof()
+            statement = statement.where(awaiting)
+            count = count.where(awaiting)
         if search:
             token = f"%{search.strip()}%"
             condition = or_(
@@ -227,6 +249,8 @@ class DeliveryNoteService(TransactionalDocumentService):
                 DeliveryNote.sales_order_reference.ilike(token),
                 DeliveryNote.vehicle.ilike(token),
                 DeliveryNote.driver.ilike(token),
+                DeliveryNote.transporter_name.ilike(token),
+                DeliveryNote.lr_number.ilike(token),
                 DeliveryNote.remarks.ilike(token),
                 DeliveryNote.customer_id.in_(customers_matching(token)),
             )
@@ -274,7 +298,20 @@ class DeliveryNoteService(TransactionalDocumentService):
             return by_status.get(status.value, (0, ZERO))[0]
 
         progress = self.partially_delivered_orders(firm_scope=firm_scope)
+        awaiting = int(
+            self._session.scalar(
+                select(func.count())
+                .select_from(DeliveryNote)
+                .where(
+                    DeliveryNote.firm_id == firm_scope,
+                    DeliveryNote.is_deleted.is_(False),
+                    self._awaiting_proof(),
+                )
+            )
+            or 0
+        )
         return DeliveryNoteSummary(
+            awaiting_delivery_proof=awaiting,
             total=sum(number for number, _ in by_status.values()),
             draft=count(DeliveryNoteStatus.DRAFT),
             approved=count(DeliveryNoteStatus.APPROVED),
@@ -359,8 +396,10 @@ class DeliveryNoteService(TransactionalDocumentService):
             delivery_note_number=note_number,
             delivery_date=data.delivery_date,
             sales_order_reference=order.order_number,
+            shipping_address_id=self._ship_to(order, data.shipping_address_id),
             vehicle=data.vehicle,
             driver=data.driver,
+            **{name: getattr(data, name) for name in TRANSPORT_FIELDS},
             remarks=data.remarks,
             status=DeliveryNoteStatus.DRAFT.value,
             additional_charges=self._q(data.additional_charges),
@@ -457,6 +496,12 @@ class DeliveryNoteService(TransactionalDocumentService):
             )
             if order.id != row.sales_order_id or asked != self._to_ship(row.id):
                 self._refuse_if_held(order)
+        # Absent keeps the note's own ship-to, unless it now ships another
+        # order, whose ship-to it takes.
+        if "shipping_address_id" in data.model_fields_set:
+            row.shipping_address_id = self._ship_to(order, data.shipping_address_id)
+        elif order.id != row.sales_order_id:
+            row.shipping_address_id = self._ship_to(order, None)
         self._delete_children(note_id)
         row.sales_order_id = order.id
         row.customer_id = order.customer_id
@@ -470,6 +515,11 @@ class DeliveryNoteService(TransactionalDocumentService):
         row.sales_order_reference = order.order_number
         row.vehicle = data.vehicle
         row.driver = data.driver
+        # Absent keeps what the note says: an editor that never showed the
+        # transport details must not clear them (backlog 67 row 5).
+        for name in TRANSPORT_FIELDS:
+            if name in data.model_fields_set:
+                setattr(row, name, getattr(data, name))
         row.remarks = data.remarks
         row.additional_charges = self._q(data.additional_charges)
         row.round_off = self._q(data.round_off)
@@ -643,6 +693,20 @@ class DeliveryNoteService(TransactionalDocumentService):
             actor_id=actor_id,
             firm_id=firm_scope,
         )
+        stage_document_event(
+            self._session,
+            "DELIVERY_DISPATCHED",
+            MessagingDocument(
+                document_type="DELIVERY_NOTE",
+                document_id=row.id,
+                document_number=row.delivery_note_number,
+                document_date=row.delivery_date,
+                customer_id=row.customer_id,
+                amount=row.grand_total,
+            ),
+            firm_id=firm_scope,
+            actor_id=actor_id,
+        )
         self._resync_order_status(
             self._sales_order(row.sales_order_id, firm_id=firm_scope),
             firm_id=firm_scope,
@@ -697,6 +761,117 @@ class DeliveryNoteService(TransactionalDocumentService):
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+        )
+        self._session.commit()
+        return row
+
+    @staticmethod
+    def _awaiting_proof() -> ColumnElement[bool]:
+        """Match notes whose goods have left with no proof of delivery yet."""
+        return and_(
+            DeliveryNote.status.in_(
+                (
+                    DeliveryNoteStatus.DISPATCHED.value,
+                    DeliveryNoteStatus.COMPLETED.value,
+                )
+            ),
+            DeliveryNote.delivered_at.is_(None),
+        )
+
+    def record_delivery_proof(
+        self,
+        note_id: UUID,
+        data: DeliveryProofWrite,
+        *,
+        firm_scope: UUID,
+        actor_id: UUID,
+    ) -> DeliveryNote:
+        """Record that the customer received a note's goods (backlog 67 row 6).
+
+        A note is **delivered** only with a proof: when, who received the
+        goods, remarks, and optionally a photo or signature. It is a flag
+        beside the status -- see the model -- so recording it changes nothing
+        any other module reads, except that a DISPATCHED note is completed:
+        the proof is the confirmation of receipt that completing always meant.
+        A proof may be recorded again to correct it; the trail keeps both.
+        """
+        assert_feature_fields(
+            self._session,
+            firm_scope,
+            feature="ATTACHMENTS",
+            values={"attachment": data.attachment},
+        )
+        row = self.get_note(note_id, firm_scope=firm_scope)
+        if row.status not in {
+            DeliveryNoteStatus.DISPATCHED.value,
+            DeliveryNoteStatus.COMPLETED.value,
+        }:
+            raise ValidationError(
+                "Proof of delivery is recorded for a note whose goods have "
+                "left: dispatch it first."
+            )
+        delivered_at = as_utc(data.delivered_at)
+        now = utc_now()
+        if delivered_at > now + timedelta(minutes=5):
+            raise ValidationError("The goods cannot have been received in the future.")
+        if delivered_at.date() < row.delivery_date:
+            raise ValidationError(
+                "The goods cannot have been received before the note's own date."
+            )
+        before = row.status
+        corrected = row.delivered_at is not None
+        row.delivered_at = delivered_at
+        row.delivery_received_by = data.received_by
+        row.delivery_remarks = data.remarks
+        row.delivery_recorded_at = now
+        row.delivery_recorded_by = actor_id
+        if row.status == DeliveryNoteStatus.DISPATCHED.value:
+            row.status = DeliveryNoteStatus.COMPLETED.value
+            row.completed_at = now
+        row.updated_by = actor_id
+        if data.attachment is not None:
+            self._session.add(
+                DeliveryNoteAttachment(
+                    delivery_note_id=row.id,
+                    firm_id=firm_scope,
+                    file_name=data.attachment.file_name,
+                    mime_type=data.attachment.mime_type,
+                    file_path=data.attachment.file_path,
+                    attachment_kind=PROOF_OF_DELIVERY,
+                    created_by=actor_id,
+                    updated_by=actor_id,
+                )
+            )
+        self._record_event(
+            firm_id=firm_scope,
+            document_type=self._document_type(firm_scope),
+            document=row,
+            action="DELIVERED",
+            from_state=before,
+            to_state=row.status,
+            actor_id=actor_id,
+            remarks=data.remarks,
+            details={
+                "delivered_at": delivered_at.isoformat(),
+                "received_by": data.received_by,
+            },
+        )
+        record_audit(
+            self._session,
+            action=(
+                "delivery_note.delivery_corrected"
+                if corrected
+                else "delivery_note.delivered"
+            ),
+            entity_type="delivery_note",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            after_data={
+                "delivered_at": delivered_at.isoformat(),
+                "received_by": data.received_by,
+                "status": row.status,
+            },
         )
         self._session.commit()
         return row
@@ -807,6 +982,18 @@ class DeliveryNoteService(TransactionalDocumentService):
         self._session.commit()
         return row
 
+    def _ship_to(self, order: SalesOrder, address_id: UUID | None) -> UUID | None:
+        """Return where a note ships: the address named, else the order's.
+
+        A note continues its order, so it inherits the order's ship-to
+        (backlog 67 row 3) rather than re-reading the customer's default.
+        """
+        if address_id is None and order.shipping_address_id is not None:
+            return order.shipping_address_id
+        return resolve_ship_to(
+            self._session, customer_id=order.customer_id, address_id=address_id
+        )
+
     def get_note(self, note_id: UUID, *, firm_scope: UUID) -> DeliveryNote:
         """Return one delivery note."""
         row = self._session.scalar(
@@ -912,8 +1099,15 @@ class DeliveryNoteService(TransactionalDocumentService):
             delivery_note_number=row.delivery_note_number,
             delivery_date=row.delivery_date,
             sales_order_reference=row.sales_order_reference,
+            shipping_address_id=row.shipping_address_id,
             vehicle=row.vehicle,
             driver=row.driver,
+            transporter_name=row.transporter_name,
+            transporter_gstin=row.transporter_gstin,
+            transport_mode=row.transport_mode,
+            lr_number=row.lr_number,
+            lr_date=row.lr_date,
+            distance_km=row.distance_km,
             remarks=row.remarks,
             status=DeliveryNoteStatus(row.status),
             total_ordered_quantity=row.total_ordered_quantity,
@@ -936,6 +1130,11 @@ class DeliveryNoteService(TransactionalDocumentService):
             closed_at=row.closed_at,
             cancel_reason=row.cancel_reason,
             close_reason=row.close_reason,
+            is_delivered=row.delivered_at is not None,
+            delivered_at=row.delivered_at,
+            delivery_received_by=row.delivery_received_by,
+            delivery_remarks=row.delivery_remarks,
+            delivery_recorded_at=row.delivery_recorded_at,
             is_deleted=row.is_deleted,
             created_at=row.created_at,
             updated_at=row.updated_at,
@@ -1512,6 +1711,7 @@ class DeliveryNoteService(TransactionalDocumentService):
             tax = self._tax_amount(
                 document_id=row.id,
                 line_number=item.line_number,
+                shipping_address_id=row.shipping_address_id,
                 delivery_date=row.delivery_date,
                 firm_id=row.firm_id,
                 actor_id=actor_id,
@@ -2133,6 +2333,7 @@ class DeliveryNoteService(TransactionalDocumentService):
         invoice_value: Decimal,
         document_id: UUID | None = None,
         line_number: int | None = None,
+        shipping_address_id: UUID | None = None,
     ) -> Decimal:
         if invoice_value <= ZERO:
             return ZERO
@@ -2164,6 +2365,7 @@ class DeliveryNoteService(TransactionalDocumentService):
                 firm_id=firm_id,
                 branch_id=branch_id,
                 customer_id=customer_id,
+                shipping_address_id=shipping_address_id,
             ),
             transaction_date=delivery_date,
             business_profile_id=business_profile_id,

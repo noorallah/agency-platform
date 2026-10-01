@@ -38,6 +38,9 @@ class _LedgerStatementPageState extends State<LedgerStatementPage> {
   List<AccountingPeriod> _periods = const [];
   LedgerAccount? _account;
   AccountingPeriod? _period;
+
+  /// The last month of a run (backlog 50 item 5); null is [_period] alone.
+  AccountingPeriod? _toPeriod;
   GeneralLedgerReport _report = GeneralLedgerReport.empty;
   bool _loading = false;
   String? _error;
@@ -102,6 +105,7 @@ class _LedgerStatementPageState extends State<LedgerStatementPage> {
       final GeneralLedgerReport report = await widget.api.generalLedger(
         ledgerAccountId: account.id,
         accountingPeriodId: period.id,
+        toPeriodId: _toPeriod?.id,
       );
       if (!mounted) return;
       setState(() => _report = report);
@@ -144,7 +148,15 @@ class _LedgerStatementPageState extends State<LedgerStatementPage> {
               periods: _periods,
               value: _period,
               onChanged: (period) {
-                setState(() => _period = period);
+                setState(() {
+                  _period = period;
+                  _toPeriod = null;
+                });
+                unawaited(_loadReport());
+              },
+              toValue: _toPeriod,
+              onToChanged: (period) {
+                setState(() => _toPeriod = period);
                 unawaited(_loadReport());
               },
               onRefresh: _loading ? null : () => unawaited(_loadReport()),

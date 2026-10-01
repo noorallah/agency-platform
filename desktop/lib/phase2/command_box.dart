@@ -27,6 +27,7 @@ const Map<String, List<String>> _synonyms = {
   'masters/products': ['item', 'sku', 'stock item'],
   'inventory/inventory': ['stock', 'stock enquiry'],
   'masters/customer-statements': ['statement', 'outstanding'],
+  'masters/supplier-statements': ['statement', 'payable', 'creditor'],
   'sales/gst-returns': ['gstr', 'gstr-1', 'gstr-3b', 'gst'],
   'administration/uoms': ['unit', 'uom'],
   'masters/financial-years': ['financial year', 'fy', 'books'],
@@ -42,6 +43,13 @@ const Map<String, List<String>> _synonyms = {
   MenuLayout.loyaltySchemeRoute: ['loyalty', 'reward points'],
   MenuLayout.workDefaultsRoute: ['usual branch', 'default warehouse', 'my defaults'],
   MenuLayout.tcsSettingsRoute: ['tcs', 'tax collected at source', '206c'],
+  MenuLayout.messagingRoute: [
+    'messaging',
+    'whatsapp',
+    'sms',
+    'email',
+    'reminders',
+  ],
 };
 
 /// A screen the command box can offer, with what it is matched on.

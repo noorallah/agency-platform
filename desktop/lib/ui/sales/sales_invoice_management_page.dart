@@ -24,6 +24,7 @@ import '../workspace/printed_document.dart';
 import 'credit_notice.dart';
 import 'price_floor_check_dialog.dart';
 import 'sales_workflow_settings_dialog.dart';
+import '../settings/send_message_dialog.dart';
 
 /// A named view over the one sales invoice list.
 ///
@@ -621,6 +622,19 @@ class _SalesInvoiceManagementPageState
     }
   }
 
+  /// Sends an approved invoice to its customer by email, WhatsApp or SMS
+  /// (backlog 51). The dialog queues it and shows the server's refusal.
+  Future<void> _sendInvoice(Map<String, dynamic> invoice) async {
+    await showDialog<bool>(
+      context: context,
+      builder: (_) => SendMessageDialog(
+        api: widget.api,
+        invoiceId: invoice['id'] as String,
+        invoiceNumber: '${invoice['invoice_number'] ?? 'invoice'}',
+      ),
+    );
+  }
+
   /// How this firm prints its bills: copies, letterhead, terms, paper.
   Future<void> _openPrintSettings() async {
     await showDialog<bool>(
@@ -790,6 +804,19 @@ class _SalesInvoiceManagementPageState
               ? null
               : () => unawaited(_printInvoice(selected)),
         ),
+        // Only an approved bill goes to a customer: a draft is not yet a
+        // bill, and a cancelled one is not owed.
+        if (widget.permissions.hasPermission('DOCUMENT_SEND'))
+          ToolbarCommand(
+            id: 'send',
+            label: 'Send',
+            icon: Icons.send_outlined,
+            onPressed: selected == null ||
+                    _loading ||
+                    const <String>{'DRAFT', 'CANCELLED'}.contains(status)
+                ? null
+                : () => unawaited(_sendInvoice(selected)),
+          ),
         _command(DocumentToolbarAction.approve, '/approve'),
         ToolbarCommand(
           id: 'use-points',

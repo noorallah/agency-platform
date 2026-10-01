@@ -115,8 +115,14 @@ class EWayBillRequest(BaseModel):
 
     model_config = ConfigDict(extra="forbid")
 
-    distance_km: Decimal = Field(gt=0, max_digits=9, decimal_places=2)
-    transport_mode: str = Field(default="ROAD", max_length=20)
+    #: Every field may be left blank, and a blank is filled from the delivery
+    #: note the invoice billed -- its distance, mode, transporter, vehicle and
+    #: LR (backlog 67 row 5). What is still missing after that is refused by
+    #: name: a distance always, a vehicle for road.
+    distance_km: Decimal | None = Field(
+        default=None, gt=0, max_digits=9, decimal_places=2
+    )
+    transport_mode: str | None = Field(default=None, max_length=20)
     transporter_id: str | None = Field(default=None, max_length=40)
     transporter_name: str | None = Field(default=None, max_length=200)
     #: Required for road, which the service enforces: goods on a lorry with no

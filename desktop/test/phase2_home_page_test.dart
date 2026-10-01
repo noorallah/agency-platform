@@ -77,6 +77,9 @@ class _Source implements HomeSource {
   Future<int> itemsBelowReorder() => _answer('reorder', 14);
 
   @override
+  Future<double> receiptsOn(DateTime day) => _answer('receipts', 42500.0);
+
+  @override
   Future<int> batchesExpiringIn30Days() => _answer('expiring', 2);
 
   @override
@@ -93,6 +96,7 @@ class _Source implements HomeSource {
 
 const Set<String> _owner = {
   'salesInvoices/sales-invoices',
+  'accounting/receipts',
   'salesOrders',
   'deliveryNotes/delivery-notes',
   'goodsReceipts/receipts',
@@ -175,6 +179,9 @@ void main() {
     expect(_kpi(tester, 'receivable'), '7.20 L');
     expect(find.text('Receivable, 3 overdue'), findsOneWidget);
     expect(_kpi(tester, 'below-reorder'), '14');
+    // The fourth key figure: money received today (backlog 49 item 4).
+    expect(find.text('Receipts today'), findsOneWidget);
+    expect(_kpi(tester, 'receipts-today'), isNotEmpty);
   });
 
   testWidgets('sales over 14 days: one bar a day, the busiest the tallest',
@@ -228,6 +235,8 @@ void main() {
     expect(find.text('Batches expiring in 30 days'), findsOneWidget);
     expect(find.byKey(const ValueKey('home-kpi-sales-today')), findsNothing);
     expect(find.byKey(const ValueKey('home-kpi-receivable')), findsNothing);
+    expect(
+        find.byKey(const ValueKey('home-kpi-receipts-today')), findsNothing);
     expect(find.text('SALES, LAST 14 DAYS'), findsNothing);
     expect(find.text('Orders to approve'), findsNothing);
     // What a role may not see is never even asked for.

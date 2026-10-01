@@ -12,6 +12,7 @@ from sqlalchemy.exc import SQLAlchemyError
 from sqlalchemy.orm import Session
 
 from app.business.models import (
+    AttributeDefinition,
     AttributeEntityType,
     BusinessProfile,
     CategoryAttributeRule,
@@ -33,6 +34,7 @@ from app.business.schemas import (
     BusinessProfileCreate,
     BusinessProfileResponse,
     BusinessProfileUpdate,
+    BusinessProfileWriteResponse,
     CategoryAttributeRuleCreate,
     CategoryAttributeRuleResponse,
     CategoryAttributeRuleUpdate,
@@ -40,8 +42,17 @@ from app.business.schemas import (
     FirmBusinessProfileResponse,
     FirmProfileAssignmentRow,
     IdentifierList,
+    ProfileStoreOutcome,
 )
 from app.business.services import AttributeService, BusinessProfileFrameworkService
+from app.business.services.profile_replication import (
+    other_profile_stores,
+    replicate,
+    replicate_profile,
+)
+from app.business.services.profile_replication import (
+    summary as replication_summary,
+)
 from app.core.concurrency import ExpectedVersion, set_etag
 from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import (
@@ -107,16 +118,43 @@ def list_profiles(
 
 @router.post(
     "/profiles",
-    response_model=ApiResponse[BusinessProfileResponse],
+    response_model=ApiResponse[BusinessProfileWriteResponse],
     status_code=status.HTTP_201_CREATED,
 )
 def create_profile(
     data: BusinessProfileCreate,
     principal: PlatformPrincipal,
+    request: Request,
     db: Session = Depends(get_db),
-) -> ApiResponse[BusinessProfileResponse]:
-    row = _service(db).create_profile(data, _actor_id(principal))
-    return ApiResponse(data=BusinessProfileResponse.model_validate(row))
+    platform_db: Session = Depends(get_platform_db),
+) -> ApiResponse[BusinessProfileWriteResponse]:
+    """Create a profile here, then in every other store under the same id.
+
+    Backlog 17: each store keeps its own catalogue, so a profile that reached
+    only the caller's store could be offered and then refused for a firm
+    elsewhere. The response says what happened in each other store.
+    """
+    actor_id = _actor_id(principal)
+    row = _service(db).create_profile(data, actor_id)
+    return _replicated(row, request, platform_db, actor_id)
+
+
+def _replicated(
+    row: BusinessProfile, request: Request, platform_db: Session, actor_id: UUID
+) -> ApiResponse[BusinessProfileWriteResponse]:
+    """Carry a saved profile to every other store and report each (backlog 17)."""
+    outcomes = replicate_profile(
+        row, other_profile_stores(request, platform_db), actor_id
+    )
+    body = BusinessProfileResponse.model_validate(row).model_dump()
+    message = replication_summary(outcomes)
+    failed = any(item.status == "FAILED" for item in outcomes)
+    return ApiResponse(
+        data=BusinessProfileWriteResponse(
+            **body, stores=outcomes, warning=message if failed else None
+        ),
+        message=message,
+    )
 
 
 @router.get(
@@ -135,31 +173,52 @@ def get_profile(
 
 
 @router.put(
-    "/profiles/{profile_id}", response_model=ApiResponse[BusinessProfileResponse]
+    "/profiles/{profile_id}",
+    response_model=ApiResponse[BusinessProfileWriteResponse],
 )
 def update_profile(
     profile_id: UUID,
     data: BusinessProfileUpdate,
     principal: PlatformPrincipal,
     response: Response,
+    request: Request,
     db: Session = Depends(get_db),
+    platform_db: Session = Depends(get_platform_db),
     expected_version: ExpectedVersion = None,
-) -> ApiResponse[BusinessProfileResponse]:
-    row = _service(db).update_profile(
-        profile_id, data, _actor_id(principal), expected_version
-    )
+) -> ApiResponse[BusinessProfileWriteResponse]:
+    """Change a profile here, then in every other store (backlog 17)."""
+    actor_id = _actor_id(principal)
+    row = _service(db).update_profile(profile_id, data, actor_id, expected_version)
     set_etag(response, row)
-    return ApiResponse(data=BusinessProfileResponse.model_validate(row))
+    return _replicated(row, request, platform_db, actor_id)
 
 
-@router.delete("/profiles/{profile_id}", status_code=status.HTTP_204_NO_CONTENT)
+@router.delete(
+    "/profiles/{profile_id}", response_model=ApiResponse[list[ProfileStoreOutcome]]
+)
 def delete_profile(
     profile_id: UUID,
     principal: PlatformPrincipal,
+    request: Request,
     db: Session = Depends(get_db),
-) -> Response:
-    _service(db).delete_profile(profile_id, _actor_id(principal))
-    return Response(status_code=status.HTTP_204_NO_CONTENT)
+    platform_db: Session = Depends(get_platform_db),
+) -> ApiResponse[list[ProfileStoreOutcome]]:
+    """Delete a profile here, then in every other store (backlog 17).
+
+    A store where a firm is assigned the profile refuses, as this store would,
+    and is reported by name rather than skipped.
+    """
+    actor_id = _actor_id(principal)
+    _service(db).delete_profile(profile_id, actor_id)
+    row = db.get(BusinessProfile, profile_id)
+    outcomes = (
+        []
+        if row is None
+        else replicate_profile(
+            row, other_profile_stores(request, platform_db), actor_id
+        )
+    )
+    return ApiResponse(data=outcomes, message=replication_summary(outcomes))
 
 
 @router.get("/features", response_model=PaginatedResponse[BusinessFeatureResponse])
@@ -352,8 +411,21 @@ def create_attribute_definition(
     principal: PlatformPrincipal,
     db: Session = Depends(get_db),
 ) -> ApiResponse[AttributeDefinitionResponse]:
-    row = _service(db).create_attribute(data, _actor_id(principal))
-    return ApiResponse(data=AttributeDefinitionResponse.model_validate(row))
+    service = _service(db)
+    row = service.create_attribute(data, _actor_id(principal))
+    return _attribute_response(
+        row, service.mandatory_warning(row) if row.mandatory else None
+    )
+
+
+def _attribute_response(
+    row: AttributeDefinition, warning: str | None
+) -> ApiResponse[AttributeDefinitionResponse]:
+    """Answer an attribute save, with any mandatory warning (backlog 16)."""
+    body = AttributeDefinitionResponse.model_validate(row)
+    return ApiResponse(
+        data=body.model_copy(update={"warning": warning}), message=warning
+    )
 
 
 @router.put(
@@ -368,11 +440,14 @@ def update_attribute_definition(
     db: Session = Depends(get_db),
     expected_version: ExpectedVersion = None,
 ) -> ApiResponse[AttributeDefinitionResponse]:
-    row = _service(db).update_attribute(
+    service = _service(db)
+    was_mandatory = service.get_attribute(attribute_id).mandatory
+    row = service.update_attribute(
         attribute_id, data, _actor_id(principal), expected_version
     )
     set_etag(response, row)
-    return ApiResponse(data=AttributeDefinitionResponse.model_validate(row))
+    newly = row.mandatory and not was_mandatory
+    return _attribute_response(row, service.mandatory_warning(row) if newly else None)
 
 
 @router.delete(
@@ -445,7 +520,13 @@ def create_category_rule(
 ) -> ApiResponse[CategoryAttributeRuleResponse]:
     service = _service(db)
     row = service.create_category_rule(data, _actor_id(principal))
-    return ApiResponse(data=_rule_response(row, service))
+    warning = (
+        service.mandatory_warning(service.get_attribute(row.attribute_definition_id))
+        if row.is_mandatory
+        else None
+    )
+    body = _rule_response(row, service).model_copy(update={"warning": warning})
+    return ApiResponse(data=body, message=warning)
 
 
 @router.put(
@@ -461,11 +542,18 @@ def update_category_rule(
     expected_version: ExpectedVersion = None,
 ) -> ApiResponse[CategoryAttributeRuleResponse]:
     service = _service(db)
+    was_mandatory = service.get_category_rule(rule_id).is_mandatory
     row = service.update_category_rule(
         rule_id, data, _actor_id(principal), expected_version
     )
     set_etag(response, row)
-    return ApiResponse(data=_rule_response(row, service))
+    warning = (
+        service.mandatory_warning(service.get_attribute(row.attribute_definition_id))
+        if row.is_mandatory and not was_mandatory
+        else None
+    )
+    body = _rule_response(row, service).model_copy(update={"warning": warning})
+    return ApiResponse(data=body, message=warning)
 
 
 @router.delete(
@@ -499,30 +587,52 @@ def get_profile_configuration(
 
 @router.put(
     "/profiles/{profile_id}/features",
-    response_model=ApiResponse[None],
+    response_model=ApiResponse[list[ProfileStoreOutcome]],
 )
 def set_profile_features(
     profile_id: UUID,
     data: IdentifierList,
     principal: PlatformPrincipal,
+    request: Request,
     db: Session = Depends(get_db),
-) -> ApiResponse[None]:
-    _service(db).set_profile_features(profile_id, data.ids, _actor_id(principal))
-    return ApiResponse(data=None)
+    platform_db: Session = Depends(get_platform_db),
+) -> ApiResponse[list[ProfileStoreOutcome]]:
+    """Set the profile's features here, then in every other store (backlog 17)."""
+    actor_id = _actor_id(principal)
+    _service(db).set_profile_features(profile_id, data.ids, actor_id)
+
+    def apply(service: BusinessProfileFrameworkService) -> str:
+        """Set the same features in one other store."""
+        service.set_profile_features(profile_id, data.ids, actor_id)
+        return "updated"
+
+    outcomes = replicate(other_profile_stores(request, platform_db), apply)
+    return ApiResponse(data=outcomes, message=replication_summary(outcomes))
 
 
 @router.put(
     "/profiles/{profile_id}/modules",
-    response_model=ApiResponse[None],
+    response_model=ApiResponse[list[ProfileStoreOutcome]],
 )
 def set_profile_modules(
     profile_id: UUID,
     data: IdentifierList,
     principal: PlatformPrincipal,
+    request: Request,
     db: Session = Depends(get_db),
-) -> ApiResponse[None]:
-    _service(db).set_profile_modules(profile_id, data.ids, _actor_id(principal))
-    return ApiResponse(data=None)
+    platform_db: Session = Depends(get_platform_db),
+) -> ApiResponse[list[ProfileStoreOutcome]]:
+    """Set the profile's modules here, then in every other store (backlog 17)."""
+    actor_id = _actor_id(principal)
+    _service(db).set_profile_modules(profile_id, data.ids, actor_id)
+
+    def apply(service: BusinessProfileFrameworkService) -> str:
+        """Set the same modules in one other store."""
+        service.set_profile_modules(profile_id, data.ids, actor_id)
+        return "updated"
+
+    outcomes = replicate(other_profile_stores(request, platform_db), apply)
+    return ApiResponse(data=outcomes, message=replication_summary(outcomes))
 
 
 @router.put(

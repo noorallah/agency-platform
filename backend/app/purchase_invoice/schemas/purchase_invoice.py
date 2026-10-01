@@ -3,6 +3,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -441,6 +442,29 @@ class PurchaseInvoiceOverdueRecord(PurchaseInvoiceSchema):
     days_overdue: int
     grand_total: Decimal
     allocated_amount: Decimal
+    outstanding_amount: Decimal
+
+
+class PurchaseInvoiceMsmeDueRecord(PurchaseInvoiceSchema):
+    """One unpaid bill to a micro or small supplier, against its legal date.
+
+    Backlog 68 row 2. ``state`` is OVERDUE past ``pay_by``, DUE_SOON within
+    seven days of it, otherwise OPEN; an overdue one is an expense the firm
+    cannot claim this year (Income Tax s.43B(h)) until it is paid.
+    """
+
+    invoice_id: UUID
+    invoice_number: str
+    supplier_invoice_number: str | None
+    vendor_id: UUID
+    vendor_name: str
+    udyam_number: str | None
+    msme_category: str | None
+    invoice_date: date
+    due_date: date | None
+    pay_by: date
+    days_left: int
+    state: Literal["OVERDUE", "DUE_SOON", "OPEN"]
     outstanding_amount: Decimal
 
 

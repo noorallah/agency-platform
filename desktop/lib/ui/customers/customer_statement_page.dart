@@ -5,6 +5,8 @@
 // everything that happened to it in date order, what it stands at now. An
 // **ageing** is a position — which bills are still unpaid, and for how long.
 
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/api/api_client.dart';
@@ -12,6 +14,7 @@ import '../../core/design/design_tokens.dart';
 import '../../core/security/permission_service.dart';
 import '../../models/entities.dart';
 import '../../phase2/indian_format.dart';
+import '../workspace/balance_confirmation.dart';
 import '../workspace/desktop_framework.dart';
 
 /// Which of the two questions is on screen.
@@ -24,11 +27,15 @@ class CustomerStatementPage extends StatefulWidget {
     required this.api,
     required this.permissions,
     required this.hasActiveFirm,
+    this.letters = const BalanceConfirmationActions(),
   });
 
   final ApiClient api;
   final PermissionService permissions;
   final bool hasActiveFirm;
+
+  /// How letters are shown and saved; tests replace it.
+  final BalanceConfirmationActions letters;
 
   @override
   State<CustomerStatementPage> createState() => _CustomerStatementPageState();
@@ -126,6 +133,26 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
     }
   }
 
+  /// The day the letters are drawn for: the statement's end date.
+  String get _asOf =>
+      DateTime.tryParse(_to.text.trim()) == null ? _isoToday() : _to.text.trim();
+
+  Future<void> _confirmation() async {
+    final String? id = _selectedCustomerId;
+    if (id == null) return;
+    await widget.letters.letter(
+      context,
+      fetch: () => widget.api.customerBalanceConfirmation(id, asOf: _asOf),
+      documentName: 'Balance confirmation $id',
+    );
+  }
+
+  Future<void> _everyone() => widget.letters.everyone(
+        context,
+        fetch: () => widget.api.customerBalanceConfirmations(asOf: _asOf),
+        suggestedName: 'customer-balance-confirmations-$_asOf.zip',
+      );
+
   /// Read again whichever view is on show.
   void _refresh() {
     if (_view == _View.ageing) {
@@ -172,6 +199,29 @@ class _CustomerStatementPageState extends State<CustomerStatementPage> {
                     });
                     if (_view == _View.statement) _refresh();
                   },
+                ),
+              ],
+              commands: [
+                ToolbarCommand(
+                  id: 'balance-confirmation',
+                  label: 'Balance confirmation',
+                  icon: Icons.mark_email_read_outlined,
+                  menuOnly: true,
+                  tooltip: 'A letter asking the customer to confirm the '
+                      'balance on the period’s end date',
+                  onPressed: _selectedCustomerId == null
+                      ? null
+                      : () => unawaited(_confirmation()),
+                ),
+                // Not about the customer on show.
+                ToolbarCommand(
+                  id: 'letters-everyone',
+                  label: 'Letters for everyone with a balance',
+                  icon: Icons.folder_zip_outlined,
+                  menuOnly: true,
+                  tooltip: 'One letter per customer with a balance, as of '
+                      'the period’s end date, saved as a zip',
+                  onPressed: () => unawaited(_everyone()),
                 ),
               ],
             )

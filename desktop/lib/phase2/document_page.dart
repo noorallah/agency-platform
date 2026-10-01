@@ -583,6 +583,17 @@ List<Widget> documentTaxLines({
 String documentDate(DateTime day) => '${day.day.toString().padLeft(2, '0')}-'
     '${day.month.toString().padLeft(2, '0')}-${day.year}';
 
+/// Which bill a line's last rate came from, and the discount it carried:
+/// `SI-12 on 09-03-2026 · 5% off` (backlog 55 G6). Said, never filled in --
+/// a discount box prefilled from history would become an override.
+String documentLastBilled(String number, String day, String discountPercent) {
+  final DateTime? parsed = DateTime.tryParse(day);
+  final String rate = documentQuantity(discountPercent);
+  final bool discounted = (double.tryParse(rate) ?? 0) > 0;
+  return '$number on ${parsed == null ? day : documentDate(parsed)}'
+      '${discounted ? ' · $rate% off' : ''}';
+}
+
 /// A figure as money in Indian digits, or as it came when it is not one.
 String documentMoney(String value) {
   final double? number = double.tryParse(value.trim());

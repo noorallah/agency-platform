@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import FirmMetadataReader
 from app.common.master_references import (
     MasterReferences,
     assert_master_references,
@@ -24,6 +25,8 @@ from app.core.exceptions import (
     ValidationError,
 )
 from app.core.utils.dates import utc_now
+from app.core.validation import settle_pan
+from app.customers.gst_registration import assert_consistent
 from app.customers.models import (
     Customer,
     CustomerAddress,
@@ -140,11 +143,21 @@ class CustomerService:
         self, data: CustomerCreate, *, firm_id: UUID, actor_id: UUID
     ) -> Customer:
         """Stage one customer and audit event without committing."""
+        pan = self._settled_pan(
+            firm_id,
+            pan=data.pan_number,
+            gstin=data.gst_number,
+            current=None,
+        )
+        if pan != data.pan_number:
+            data = data.model_copy(update={"pan_number": pan})
         self._assert_unique(firm_id, data)
         values = self._customer_values(data)
+        values["whatsapp_opt_in_at"] = utc_now() if data.whatsapp_opt_in else None
         assert_master_references(
             self._session, values, _CUSTOMER_REFERENCES, firm_id=firm_id
         )
+        self._assert_account_manager(firm_id, data.salesman_id, current=None)
         (
             values["current_outstanding"],
             values["unapplied_advance_balance"],
@@ -155,6 +168,7 @@ class CustomerService:
             created_by=actor_id,
             updated_by=actor_id,
         )
+        assert_consistent(customer.gst_registration_type, customer.gst_number)
         customer.addresses = [
             self._new_address(address, actor_id) for address in data.addresses
         ]
@@ -249,6 +263,18 @@ class CustomerService:
         # draft. An explicit null still clears, which is what keeps a complete
         # client able to empty a field.
         values = self._customer_values(data, partial=True)
+        # Checked against what the row will hold, and only where the write
+        # moves the PAN or the GSTIN: a PAN stored before the check existed
+        # does not block an unrelated edit (backlog 53 item 2).
+        sent_pan = values.get("pan_number", customer.pan_number)
+        pan = self._settled_pan(
+            customer.firm_id,
+            pan=sent_pan if isinstance(sent_pan, str) else None,
+            gstin=_text(values.get("gst_number", customer.gst_number)),
+            current=customer,
+        )
+        if pan != customer.pan_number or "pan_number" in values:
+            values["pan_number"] = pan
         assert_master_references(
             self._session,
             values,
@@ -256,6 +282,13 @@ class CustomerService:
             firm_id=customer.firm_id,
             current=customer,
         )
+        if "salesman_id" in values:
+            sent = values["salesman_id"]
+            self._assert_account_manager(
+                customer.firm_id,
+                sent if isinstance(sent, UUID) else None,
+                current=customer.salesman_id,
+            )
         self._assert_may_change_credit_limit(
             customer, values, allowed=may_change_credit_limit
         )
@@ -287,8 +320,19 @@ class CustomerService:
             values["display_name"] = (
                 values.get("display_name") or values.get("name") or customer.name
             )
+        if (
+            "whatsapp_opt_in" in values
+            and bool(values["whatsapp_opt_in"]) != customer.whatsapp_opt_in
+        ):
+            # When the customer agreed is the record, so it is the server's
+            # clock rather than anything a client sends.
+            values["whatsapp_opt_in_at"] = (
+                utc_now() if values["whatsapp_opt_in"] else None
+            )
         for field, value in values.items():
             setattr(customer, field, value)
+        if "gst_registration_type" in values or "gst_number" in values:
+            assert_consistent(customer.gst_registration_type, customer.gst_number)
         if balance_changed:
             # Only reachable when the customer has no receivable activity --
             # the guard above refuses it otherwise -- so recomputing the
@@ -554,6 +598,20 @@ class CustomerService:
             excess = amount - applied
             outstanding_delta = -applied
             advance_delta = excess
+        elif tx_type in {
+            # A write-off or set-off clears a balance the customer owes and
+            # never makes an advance: the party adjustment service refuses
+            # one larger than the balance, and this refuses it again rather
+            # than turning given-up debt into money held for the customer.
+            CustomerReceivableTransactionType.WRITE_OFF,
+            CustomerReceivableTransactionType.SET_OFF,
+        }:
+            if amount > current:
+                raise ValidationError(
+                    f"The customer owes {current}, so {amount} cannot be "
+                    "written off or set off."
+                )
+            outstanding_delta = -amount
         elif tx_type == CustomerReceivableTransactionType.ADVANCE_RECEIPT:
             advance_delta = amount
         elif tx_type == CustomerReceivableTransactionType.ADVANCE_APPLY:
@@ -689,6 +747,68 @@ class CustomerService:
                 "Customer code, GST number, or PAN number already exists "
                 "in this firm."
             )
+
+    def _assert_account_manager(
+        self, firm_id: UUID, salesman_id: UUID | None, *, current: UUID | None
+    ) -> None:
+        """Refuse an account manager who is not an active member of the firm.
+
+        Asked only when the write *moves* it: a manager who has since left
+        stays on the record (and is skipped when documents are raised, see
+        `resolve_sales_scope`), so a full-form save that resends them does
+        not block an unrelated edit. Through `FirmMetadataReader`, because
+        `users` and `user_firms` live only in the platform store.
+        """
+        if salesman_id is None or salesman_id == current:
+            return
+        if (
+            FirmMetadataReader(self._session).active_member_count(
+                firm_id, [salesman_id]
+            )
+            != 1
+        ):
+            raise ValidationError(
+                "The account manager must be an active member of this firm."
+            )
+
+    def _settled_pan(
+        self,
+        firm_id: UUID,
+        *,
+        pan: str | None,
+        gstin: str | None,
+        current: Customer | None,
+    ) -> str | None:
+        """Check the PAN against the GSTIN; return the PAN to store.
+
+        A PAN is unique among a firm's live customers, while one company
+        registers a GSTIN in every state it trades from -- so two customers
+        can be the same company's branches. A PAN *filled* from the GSTIN is
+        therefore left blank when another customer already holds it, rather
+        than refusing the second branch for a PAN nobody typed. A PAN typed
+        into the box still meets the uniqueness check as before.
+        """
+        settled = settle_pan(
+            pan=pan,
+            gstin=gstin,
+            stored_pan=current.pan_number if current is not None else None,
+            stored_gstin=current.gst_number if current is not None else None,
+            creating=current is None,
+            pan_field="pan_number",
+            gstin_field="gst_number",
+        )
+        if pan is None and settled is not None:
+            holder = self._session.scalar(
+                select(Customer.id).where(
+                    Customer.firm_id == firm_id,
+                    Customer.is_deleted.is_(False),
+                    Customer.pan_number == settled,
+                    *([Customer.id != current.id] if current is not None else []),
+                )
+            )
+            if holder is not None:
+                return None
+        return settled
 
     def _commit_unique(self) -> None:
         try:
@@ -939,6 +1059,10 @@ class CustomerService:
             "address_count": sum(not item.is_deleted for item in customer.addresses),
             "contact_count": sum(not item.is_deleted for item in customer.contacts),
             "is_deleted": customer.is_deleted,
+            # Consent is a record somebody may be asked for (backlog 51).
+            "no_reminders": customer.no_reminders,
+            "preferred_channel": customer.preferred_channel,
+            "whatsapp_opt_in": customer.whatsapp_opt_in,
         }
 
     @staticmethod
@@ -1447,3 +1571,8 @@ class CustomerService:
             amount=amount,
             actor_id=actor_id,
         )
+
+
+def _text(value: object) -> str | None:
+    """Read an optional text value out of an untyped dump."""
+    return value if isinstance(value, str) else None

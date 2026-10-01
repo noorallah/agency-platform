@@ -63,11 +63,22 @@ class SalesInvoice(BaseEntity):
     invoice_number: Mapped[str] = mapped_column(String(60), nullable=False)
     invoice_date: Mapped[date] = mapped_column(Date, nullable=False)
     customer_invoice_number: Mapped[str | None] = mapped_column(String(120))
+    #: Where the goods go: one of the customer's own addresses (backlog 67
+    #: row 3). A bare id, validated by ``app/customers/services/ship_to.py``
+    #: when it is set, so a document still prints the address it named after
+    #: the address is deleted. NULL only for a customer with no shipping
+    #: address, which ships to the billing address as before.
+    shipping_address_id: Mapped[UUID | None] = mapped_column(UUIDType())
     #: The state the supply was made in, copied from the customer's billing
     #: address when the invoice is raised. It decides CGST + SGST against IGST,
     #: and it is stored rather than derived because a customer who moves must
     #: not silently change the tax treatment of an invoice already issued.
     place_of_supply: Mapped[str | None] = mapped_column(String(120))
+    #: The buyer's GST registration type when the bill was raised (backlog 75
+    #: row 2): REGULAR, SEZ_WITHOUT_PAYMENT and so on. Stamped with the place
+    #: of supply, because it decides the return table and the e-invoice supply
+    #: type; NULL on bills raised before it, which read the customer instead.
+    buyer_gst_registration_type: Mapped[str | None] = mapped_column(String(30))
     currency_code: Mapped[str | None] = mapped_column(String(10))
     exchange_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
     payment_terms: Mapped[str | None] = mapped_column(String(200))

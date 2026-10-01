@@ -27,11 +27,13 @@ import '../models/uom_packaging.dart';
 import '../models/product.dart';
 import '../models/report.dart' show ReportPage;
 import '../models/sales_invoice.dart';
+import '../models/settlement_direction.dart';
 import '../models/trade_licence.dart';
 import '../models/vendor.dart';
 import 'customers/customer_management_page.dart';
 import 'customers/credit_settings_dialog.dart';
 import 'customers/customer_statement_page.dart';
+import 'vendors/supplier_statement_page.dart';
 import 'customers/loyalty_settings_dialog.dart';
 import 'customers/loyalty_page.dart';
 import 'inventory/inventory_management_page.dart';
@@ -50,9 +52,11 @@ import 'sales/route_type_management_page.dart';
 import 'sales/sales_invoice_management_page.dart';
 import 'sales/discount_limits_dialog.dart';
 import 'sales/price_floor_settings_dialog.dart';
+import 'settings/messaging_settings_dialog.dart';
 import 'sales/sales_workflow_settings_dialog.dart';
 import 'commission/commission_page.dart';
 import 'commission/sales_target_page.dart';
+import 'purchases/debit_note_page.dart';
 import 'sales/credit_note_page.dart';
 import 'sales/einvoice_page.dart';
 import 'sales/gst_payment_page.dart';
@@ -434,6 +438,14 @@ class _DesktopShellState extends State<DesktopShell> {
         );
       case MenuLayout.tcsSettingsRoute:
         await showTcsSettings(context, api);
+      case MenuLayout.messagingRoute:
+        await showDialog<bool>(
+          context: context,
+          builder: (_) => MessagingSettingsDialog(
+            api: api,
+            permissions: widget.permissions,
+          ),
+        );
       case MenuLayout.workDefaultsRoute:
         await showDialog<Object>(
           context: context,
@@ -2473,6 +2485,11 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: hasActiveFirm,
         ),
+      'supplier-statements' => SupplierStatementPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: hasActiveFirm,
+        ),
       'loyalty' => LoyaltyPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -2573,6 +2590,7 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
       title: switch (tabId) {
         'customers' => 'Customer Management',
         'customer-statements' => 'Customer Statements',
+        'supplier-statements' => 'Supplier Statements',
         'loyalty' => 'Loyalty',
         'products' => 'Product Management',
         'product-categories' => 'Product Categories',
@@ -2596,6 +2614,8 @@ class _MastersWorkspaceState extends State<_MastersWorkspace> {
           'Manage firm-scoped customer masters, addresses, and contacts.',
         'customer-statements' =>
           'What each account did over a period, and what of it is overdue.',
+        'supplier-statements' =>
+          'What the firm owes each supplier, and what moved it, over a period.',
         'loyalty' =>
           'Credit a customer earns on what they buy, and spends on what they '
               'buy next. Spending it settles a bill; it does not discount one.',
@@ -2984,6 +3004,12 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
           onNavigateToSection: navigateTo,
           onOpenGlobalSearch: widget.onOpenGlobalSearch,
         ),
+      'debit-notes' => DebitNotePage(
+          api: widget.api,
+          preferences: widget.preferences,
+          permissions: widget.permissions,
+          hasActiveFirm: hasActiveFirm,
+        ),
       'purchase-analytics' => PurchaseManagementPage(
           api: widget.api,
           preferences: widget.preferences,
@@ -3012,6 +3038,7 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
       title: switch (tabId) {
         'purchase-dashboard' => 'Purchase Dashboard',
         'purchase-orders' => 'Purchase Orders',
+        'debit-notes' => 'Debit Notes',
         'purchase-analysis' => 'Purchase Analysis',
         'purchase-analytics' => 'Purchase Analytics',
         'purchase-settings' => 'Purchase Settings',
@@ -3022,6 +3049,11 @@ class _PurchaseWorkspaceState extends State<_PurchaseWorkspace> {
           'Enterprise purchase command center with KPI cards, recent orders, and vendor spend insights.',
         'purchase-orders' =>
           'Manage purchase orders with lifecycle actions, import/export, and responsive enterprise editing.',
+        'debit-notes' =>
+          'Money claimed from a supplier without goods going back — a price '
+              'difference found after the bill, a short supply. It takes the '
+              'input tax off at the rate the bill charged; a purchase return '
+              'is the one that moves stock.',
         'purchase-analysis' =>
           'Purchases by any one or two dimensions, net of returns. Click a '
               'figure to see the bills behind it.',
@@ -4066,6 +4098,30 @@ ResourceDefinition<PlatformUser> userDefinition(
               staffableFirmIds: staffableFirms,
             );
             return '';
+          },
+        ),
+        // Backlog 44: an administrator sets where somebody usually works in
+        // the firm the switcher shows. Their own default lives in that
+        // firm's store, so with no firm chosen there is nothing to set.
+        ResourceAction<PlatformUser>(
+          label: 'Branch and warehouse',
+          icon: Icons.warehouse_outlined,
+          isVisible: (_) =>
+              permissions.hasAllPermissions(['USER_VIEW', 'USER_UPDATE']) &&
+              (api.activeFirmId?.call() ?? '').isNotEmpty,
+          onInvoke: (user) async {
+            final Object? saved = await showDialog<Object?>(
+              context: context,
+              builder: (_) => WorkDefaultsDialog(
+                api: api,
+                userId: user!.id,
+                personName: user.fullName.isEmpty ? user.email : user.fullName,
+              ),
+            );
+            return saved == null
+                ? ''
+                : 'Saved where ${user!.fullName.isEmpty ? user.email : user.fullName} '
+                    'usually works.';
           },
         ),
       ],
@@ -6163,6 +6219,28 @@ class _ShellHomeSource implements HomeSource {
   @override
   Future<int> itemsBelowReorder() async =>
       (await api.inventorySummary()).lowStockCount;
+
+  @override
+  Future<double> receiptsOn(DateTime day) async {
+    final String date = _date(day);
+    double total = 0;
+    for (int page = 1; page <= 50; page++) {
+      final result = await api.settlements(
+        direction: SettlementDirection.receipt,
+        page: page,
+        pageSize: 100,
+        settlementFrom: date,
+        settlementTo: date,
+      );
+      for (final settlement in result.items) {
+        if (!settlement.isReversed) {
+          total += double.tryParse(settlement.amount) ?? 0;
+        }
+      }
+      if (result.items.isEmpty || page * 100 >= result.total) break;
+    }
+    return total;
+  }
 
   @override
   Future<int> batchesExpiringIn30Days() async =>

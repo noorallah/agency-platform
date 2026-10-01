@@ -346,6 +346,145 @@ void main() {
     });
   });
 
+  group('deductions beside the TDS (rounding, bank charges, discount)', () {
+    Future<void> open(
+      WidgetTester tester,
+      _SettlementApi api,
+      SettlementDirection direction,
+    ) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RecordSettlementDialog(
+              api: api,
+              direction: direction,
+              parties: const [
+                PartyOption(id: 'c-1', code: 'C1', name: 'Kumar Stores'),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _chooseParty(tester, 'Kumar Stores');
+      await tester.enterText(
+          find.widgetWithText(TextField, 'Amount'), '10000');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Oldest first'));
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a receipt sends the three deductions and says what moved',
+        (tester) async {
+      final _SettlementApi api = _SettlementApi(
+        rows: [_settlement()],
+        outstanding: [_invoice('a', 'SI-1', '20000.00')],
+      );
+      await open(tester, api, SettlementDirection.receipt);
+
+      await tester.enterText(
+          find.byKey(const ValueKey('settlement-rounding-amount')), '2.50');
+      await tester.enterText(
+          find.byKey(const ValueKey('settlement-bank-charges-amount')), '15');
+      await tester.enterText(
+          find.byKey(const ValueKey('settlement-discount-amount')), '100');
+      await tester.pumpAndSettle();
+      expect(find.text('Discount allowed'), findsOneWidget);
+      expect(find.textContaining('Money received in bank: 9882.50'),
+          findsOneWidget);
+      await tester.tap(find.text('Record receipt'));
+      await tester.pumpAndSettle();
+
+      expect(api.recorded?['amount'], '10000');
+      expect(api.recorded?['rounding_amount'], '2.50');
+      expect(api.recorded?['bank_charges_amount'], '15');
+      expect(api.recorded?['discount_amount'], '100');
+    });
+
+    testWidgets('nothing deducted sends none of them', (tester) async {
+      final _SettlementApi api = _SettlementApi(
+        rows: [_settlement()],
+        outstanding: [_invoice('a', 'SI-1', '20000.00')],
+      );
+      await open(tester, api, SettlementDirection.receipt);
+      await tester.tap(find.text('Record receipt'));
+      await tester.pumpAndSettle();
+
+      expect(api.recorded?.containsKey('rounding_amount'), isFalse);
+      expect(api.recorded?.containsKey('bank_charges_amount'), isFalse);
+      expect(api.recorded?.containsKey('discount_amount'), isFalse);
+    });
+
+    testWidgets('a payment has no bank charges and says discount received',
+        (tester) async {
+      final _SettlementApi api = _SettlementApi(
+        rows: [_settlement()],
+        outstanding: [_invoice('a', 'PI-1', '20000.00')],
+      );
+      await open(tester, api, SettlementDirection.payment);
+
+      expect(find.byKey(const ValueKey('settlement-bank-charges-amount')),
+          findsNothing);
+      expect(find.text('Discount received'), findsOneWidget);
+      await tester.enterText(
+          find.byKey(const ValueKey('settlement-discount-amount')), '50');
+      await tester.enterText(
+          find.byKey(const ValueKey('settlement-rounding-amount')), '1');
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Record payment'));
+      await tester.pumpAndSettle();
+
+      expect(api.recorded?['discount_amount'], '50');
+      expect(api.recorded?['rounding_amount'], '1');
+      expect(api.recorded?.containsKey('bank_charges_amount'), isFalse);
+    });
+
+    testWidgets('deductions beyond what is applied to bills are refused',
+        (tester) async {
+      final _SettlementApi api = _SettlementApi(
+        rows: [_settlement()],
+        outstanding: [_invoice('a', 'SI-1', '20000.00')],
+      );
+      await open(tester, api, SettlementDirection.receipt);
+      // Apply only 100 of the 10000, then deduct 150.
+      await tester.enterText(find.byType(TextField).last, '100');
+      await tester.enterText(
+          find.byKey(const ValueKey('settlement-discount-amount')), '150');
+      await tester.tap(find.text('Record receipt'));
+      await tester.pumpAndSettle();
+
+      expect(api.recorded, isNull);
+      expect(find.textContaining('cannot be more than'), findsOneWidget);
+    });
+
+    testWidgets('a refund offers no deductions', (tester) async {
+      final _SettlementApi api = _SettlementApi(rows: [_settlement()]);
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Scaffold(
+            body: RecordSettlementDialog(
+              api: api,
+              direction: SettlementDirection.refund,
+              parties: const [
+                PartyOption(id: 'c-1', code: 'C1', name: 'Kumar Stores'),
+              ],
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('settlement-rounding-amount')),
+          findsNothing);
+      expect(find.text('Deductions'), findsNothing);
+    });
+  });
+
   group('spreading money over invoices', () {
     test('oldest first, and it stops when the money runs out', () {
       // What a cashier does by hand with a stack of invoices and a cheque.

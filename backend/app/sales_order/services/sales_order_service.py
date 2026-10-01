@@ -42,6 +42,7 @@ from app.core.utils.report_labels import UNASSIGNED
 from app.customers.models import Customer, CustomerGroup
 from app.customers.schemas import CreditStatus
 from app.customers.services import CreditAssessment, CreditControlService
+from app.customers.services.ship_to import resolve_ship_to
 from app.customers.services.trading_status import (
     assert_customer_takes_new_documents,
 )
@@ -62,6 +63,7 @@ from app.document_framework.services.transactional_document_service import (
 from app.identity.models import User
 from app.inventory.models import InventoryRecord
 from app.inventory.services import InventoryService, LineConversion
+from app.messaging.services import MessagingDocument, stage_document_event
 from app.pricing.services.price_list_service import PriceListResolver
 from app.products.models import Product
 from app.products.services.trading_status import assert_product_takes_new_lines
@@ -356,6 +358,7 @@ class SalesOrderService(TransactionalDocumentService):
                     firm_id=firm_id,
                     branch_id=data.branch_id,
                     customer_id=data.customer_id,
+                    shipping_address_id=row.shipping_address_id,
                 )
                 == SALES_INTERSTATE
             )
@@ -450,6 +453,17 @@ class SalesOrderService(TransactionalDocumentService):
             order_date=data.order_date,
             delivery_date=data.delivery_date,
             customer_reference=data.customer_reference,
+            shipping_address_id=resolve_ship_to(
+                self._session,
+                customer_id=data.customer_id,
+                address_id=data.shipping_address_id,
+            ),
+            payment_terms=data.payment_terms,
+            payment_terms_days=(
+                data.payment_terms_days
+                if data.payment_terms_days is not None
+                else customer.payment_terms_days
+            ),
             reference_number=data.reference_number,
             currency_code=data.currency_code,
             exchange_rate=data.exchange_rate,
@@ -547,6 +561,30 @@ class SalesOrderService(TransactionalDocumentService):
             route_id=data.route_id,
             on_date=data.order_date,
         )
+        # Absent keeps the order's own ship-to -- unless the order moved to
+        # another customer, whose addresses the old one is not among.
+        if "shipping_address_id" in data.model_fields_set:
+            row.shipping_address_id = resolve_ship_to(
+                self._session,
+                customer_id=data.customer_id,
+                address_id=data.shipping_address_id,
+            )
+        elif data.customer_id != row.customer_id:
+            row.shipping_address_id = resolve_ship_to(
+                self._session, customer_id=data.customer_id, address_id=None
+            )
+        # The terms, likewise: absent keeps what the order says, None on the
+        # days takes the customer's, and a new customer brings their own.
+        if "payment_terms" in data.model_fields_set:
+            row.payment_terms = data.payment_terms
+        if "payment_terms_days" in data.model_fields_set:
+            row.payment_terms_days = (
+                data.payment_terms_days
+                if data.payment_terms_days is not None
+                else customer.payment_terms_days
+            )
+        elif data.customer_id != row.customer_id:
+            row.payment_terms_days = customer.payment_terms_days
         self._delete_children(order_id)
         row.customer_id = data.customer_id
         row.salesman_id = scope.salesman_id
@@ -766,6 +804,20 @@ class SalesOrderService(TransactionalDocumentService):
                 | (discount_details or {})
             )
             or None,
+        )
+        stage_document_event(
+            self._session,
+            "SALES_ORDER_APPROVED",
+            MessagingDocument(
+                document_type="SALES_ORDER",
+                document_id=row.id,
+                document_number=row.order_number,
+                document_date=row.order_date,
+                customer_id=row.customer_id,
+                amount=row.grand_total,
+            ),
+            firm_id=firm_scope,
+            actor_id=actor_id,
         )
         approved: dict[str, object] = {
             "order_number": row.order_number,
@@ -1275,6 +1327,9 @@ class SalesOrderService(TransactionalDocumentService):
             order_date=row.order_date,
             delivery_date=row.delivery_date,
             customer_reference=row.customer_reference,
+            shipping_address_id=row.shipping_address_id,
+            payment_terms=row.payment_terms,
+            payment_terms_days=row.payment_terms_days,
             reference_number=row.reference_number,
             currency_code=row.currency_code,
             exchange_rate=row.exchange_rate,
@@ -2160,6 +2215,7 @@ class SalesOrderService(TransactionalDocumentService):
                 actor_id=actor_id,
                 business_profile_id=row.business_profile_id,
                 customer_id=row.customer_id,
+                shipping_address_id=row.shipping_address_id,
                 branch_id=row.branch_id,
                 warehouse_id=item.warehouse_id or row.warehouse_id,
                 product_id=item.product_id,
@@ -2445,6 +2501,7 @@ class SalesOrderService(TransactionalDocumentService):
         invoice_value: Decimal,
         document_id: UUID | None = None,
         line_number: int | None = None,
+        shipping_address_id: UUID | None = None,
     ) -> Decimal:
         if invoice_value <= ZERO:
             return ZERO
@@ -2476,6 +2533,7 @@ class SalesOrderService(TransactionalDocumentService):
                 firm_id=firm_id,
                 branch_id=branch_id,
                 customer_id=customer_id,
+                shipping_address_id=shipping_address_id,
             ),
             transaction_date=order_date,
             business_profile_id=business_profile_id,

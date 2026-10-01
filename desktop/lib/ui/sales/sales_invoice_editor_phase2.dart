@@ -299,7 +299,10 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
                 ),
             ],
             onSelected: (value) {
-              _setState(() => _customerId = value);
+              _setState(() {
+                _customerId = value;
+                _shipToId = null;
+              });
               _schedulePreview();
             },
           ),
@@ -350,6 +353,21 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
           ),
         ),
       if (also != null) also,
+      // "(as delivered)" is null: the server takes the address from the notes
+      // billed. Shown when reopening a draft too, with the saved one chosen.
+      if (_shipToAddresses.isNotEmpty)
+        ShipToField(
+          key: const ValueKey('sales-invoice-ship-to'),
+          scope: (_direct ? _customerId : _document?.customerId) ?? '',
+          addresses: _shipToAddresses,
+          value: _shipToId,
+          enabled: !_saving,
+          blankLabel: _direct ? "(customer's default)" : '(as delivered)',
+          onChanged: (value) {
+            _setState(() => _shipToId = value);
+            _schedulePreview();
+          },
+        ),
       DocumentField(
         label: 'Invoice date',
         auto: true,
@@ -862,8 +880,8 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
         if (companion != null && companion.lastPrice.isNotEmpty) ...[
           DocumentSidePair(
               'Last to this customer', documentMoney(companion.lastPrice)),
-          DocumentSideNote(
-              '${companion.lastInvoiceNumber} on ${companion.lastInvoiceDate}'),
+          DocumentSideNote(documentLastBilled(companion.lastInvoiceNumber,
+              companion.lastInvoiceDate, companion.lastDiscountPercent)),
         ],
         DocumentSidePair(
           'Discount',
@@ -923,8 +941,8 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
         if (companion != null && companion.lastPrice.isNotEmpty) ...[
           DocumentSidePair(
               'Last to this customer', documentMoney(companion.lastPrice)),
-          DocumentSideNote(
-              '${companion.lastInvoiceNumber} on ${companion.lastInvoiceDate}'),
+          DocumentSideNote(documentLastBilled(companion.lastInvoiceNumber,
+              companion.lastInvoiceDate, companion.lastDiscountPercent)),
         ],
         DocumentSidePair(
           'Discount',

@@ -3,12 +3,14 @@
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.core.validation import normalize_tan, validate_email, validate_phone
+from app.customers.gst_registration import GstRegistrationType
 
 
 class CustomerType(StrEnum):
@@ -53,6 +55,14 @@ class CustomerReceivableTransactionType(StrEnum):
     #: because a statement saying "receipt" for points spent tells the reader
     #: money arrived when none did.
     LOYALTY = "LOYALTY"
+    #: A debt the firm has given up collecting -- a party adjustment's
+    #: write-off (backlog 74 row 2). It reduces what the customer owes as a
+    #: receipt does, without money, and its journal debits bad debts.
+    WRITE_OFF = "WRITE_OFF"
+    #: What the customer owes settled by what the firm owes the same business
+    #: as a supplier -- a party adjustment's set-off. Its journal debits the
+    #: payable rather than cash.
+    SET_OFF = "SET_OFF"
     #: Undoes an earlier transaction by its exact deltas. It is not a category
     #: of business event -- it is the record of one being taken back -- so it
     #: carries no rule of its own and cannot be posted directly.
@@ -161,6 +171,11 @@ class CustomerWrite(CustomerSchema):
     gst_number: str | None = Field(default=None, max_length=32)
     pan_number: str | None = Field(default=None, max_length=32)
     tan_number: str | None = Field(default=None, max_length=10)
+    #: How the buyer stands under GST; blank is read off the GSTIN.
+    gst_registration_type: GstRegistrationType | None = None
+    #: The account manager, a member of the firm; blank leaves documents to
+    #: the territory's salesperson (backlog 67 row 2).
+    salesman_id: UUID | None = None
     email: str | None = Field(default=None, max_length=320)
     phone: str | None = Field(default=None, max_length=20)
     alternate_phone: str | None = Field(default=None, max_length=20)
@@ -180,6 +195,12 @@ class CustomerWrite(CustomerSchema):
     currency_code: str = Field(min_length=3, max_length=3)
     status: CustomerStatus = CustomerStatus.ACTIVE
     notes: str | None = None
+    #: Messaging (backlog 51): no payment reminders to this customer.
+    no_reminders: bool = False
+    #: Tried first when an event offers it; blank follows the firm's order.
+    preferred_channel: Literal["EMAIL", "WHATSAPP", "SMS"] | None = None
+    #: The customer agreed to WhatsApp messages. The server records when.
+    whatsapp_opt_in: bool = False
     addresses: list[CustomerAddressInput] = Field(default_factory=list, max_length=50)
     contacts: list[CustomerContactInput] = Field(default_factory=list, max_length=50)
     #: The customer's custom fields, as the business profile defines them.
@@ -279,6 +300,8 @@ class CustomerResponse(CustomerSchema):
     gst_number: str | None
     pan_number: str | None
     tan_number: str | None = None
+    gst_registration_type: str | None = None
+    salesman_id: UUID | None = None
     email: str | None
     phone: str | None
     alternate_phone: str | None
@@ -292,6 +315,10 @@ class CustomerResponse(CustomerSchema):
     unapplied_advance_balance: Decimal
     status: CustomerStatus
     notes: str | None
+    no_reminders: bool = False
+    preferred_channel: str | None = None
+    whatsapp_opt_in: bool = False
+    whatsapp_opt_in_at: datetime | None = None
     created_by: UUID | None
     created_at: datetime
     updated_by: UUID | None

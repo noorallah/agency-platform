@@ -78,6 +78,13 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
   final TextEditingController _tds = TextEditingController();
   String? _tdsSection;
 
+  /// What else comes off the amount before the money moves: a rounding or
+  /// short payment, bank charges (receipts only) and a discount allowed or
+  /// received. Each settles the party without being cash, like the TDS.
+  final TextEditingController _rounding = TextEditingController();
+  final TextEditingController _bankCharges = TextEditingController();
+  final TextEditingController _discount = TextEditingController();
+
   /// The party picker's own text. It holds the chosen party's label once one
   /// is picked, and whatever is being typed before that.
   final TextEditingController _partySearch = TextEditingController();
@@ -125,6 +132,9 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
     _partySearch.removeListener(_onPartyQueryChanged);
     _amount.dispose();
     _tds.dispose();
+    _rounding.dispose();
+    _bankCharges.dispose();
+    _discount.dispose();
     _reference.dispose();
     _narration.dispose();
     for (final TextEditingController controller in _allocations.values) {
@@ -191,6 +201,46 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
 
   double get _amountEntered => double.tryParse(_amount.text.trim()) ?? 0;
 
+  double _value(TextEditingController box) =>
+      double.tryParse(box.text.trim()) ?? 0;
+
+  /// Rounding, bank charges and discount together. Bank charges count only
+  /// on a receipt, where the box is shown.
+  double get _deductionsTotal =>
+      _value(_rounding) +
+      (widget.direction == SettlementDirection.receipt
+          ? _value(_bankCharges)
+          : 0) +
+      _value(_discount);
+
+  /// Mirrors what the server refuses, so it is said before the save. The
+  /// firm's rounding limit is the server's to judge.
+  String? _deductionProblem(Map<String, String> allocations) {
+    for (final TextEditingController box in [
+      _rounding,
+      if (widget.direction == SettlementDirection.receipt) _bankCharges,
+      _discount,
+    ]) {
+      final String typed = box.text.trim();
+      if (typed.isNotEmpty && (double.tryParse(typed) ?? -1) < 0) {
+        return 'A deduction must be a number, 0 or more.';
+      }
+    }
+    final double deductions = _deductionsTotal;
+    if (deductions <= 0) return null;
+    final double allocated = allocations.values
+        .fold(0.0, (sum, value) => sum + (double.tryParse(value) ?? 0));
+    if (deductions - allocated > 0.005) {
+      return 'Deductions of ${deductions.toStringAsFixed(2)} cannot be more '
+          'than the ${allocated.toStringAsFixed(2)} applied to bills.';
+    }
+    if (_amountEntered - _value(_tds) - deductions <= 0) {
+      return 'The deductions and TDS leave no money moved; they must come to '
+          'less than the amount.';
+    }
+    return null;
+  }
+
   double get _allocatedTotal => _allocations.values.fold(
         0,
         (sum, controller) => sum + (double.tryParse(controller.text.trim()) ?? 0),
@@ -215,8 +265,12 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
             section: _tdsSection,
           )
         : null;
-    if (problem != null || tdsProblemText != null) {
-      setState(() => _error = problem ?? tdsProblemText);
+    final String? deductionProblem = widget.direction.allocates
+        ? _deductionProblem(allocations)
+        : null;
+    if (problem != null || tdsProblemText != null || deductionProblem != null) {
+      setState(
+          () => _error = problem ?? tdsProblemText ?? deductionProblem);
       return;
     }
     final double deducted = double.tryParse(_tds.text.trim()) ?? 0;
@@ -244,6 +298,15 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
             'tds_amount': _tds.text.trim(),
             'tds_section': _tdsSection,
           },
+          // Sent only when something was deducted. Bank charges are a
+          // receipt's alone: the server refuses them on a payment.
+          if (widget.direction.allocates && _value(_rounding) > 0)
+            'rounding_amount': _rounding.text.trim(),
+          if (widget.direction == SettlementDirection.receipt &&
+              _value(_bankCharges) > 0)
+            'bank_charges_amount': _bankCharges.text.trim(),
+          if (widget.direction.allocates && _value(_discount) > 0)
+            'discount_amount': _discount.text.trim(),
           'allocations': [
             for (final MapEntry<String, String> entry in allocations.entries)
               {'invoice_id': entry.key, 'amount': entry.value},
@@ -332,6 +395,8 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
               if (widget.direction.allocates) ...[
                 const SizedBox(height: AppSpacing.md),
                 _tdsRow(context, amount),
+                const SizedBox(height: AppSpacing.md),
+                _deductionsRow(context, amount),
               ],
               if (widget.direction == SettlementDirection.receipt) ...[
                 const SizedBox(height: AppSpacing.md),
@@ -469,12 +534,78 @@ class _RecordSettlementDialogState extends State<RecordSettlementDialog> {
           child: Text(
             deducted > 0 && amount > deducted
                 ? '${receipt ? 'Received in' : 'Paid from'} $account: '
-                    '${(amount - deducted).toStringAsFixed(2)}. The amount '
+                    '${(amount - deducted - _deductionsTotal).toStringAsFixed(2)}. The amount '
                     'above is what settles the $party.'
                 : 'Leave blank when nothing was deducted.',
             style: Theme.of(context).textTheme.bodySmall,
           ),
         ),
+      ),
+    ]);
+  }
+
+  /// A deduction box that sends nothing while blank.
+  Widget _deductionField({
+    required Key key,
+    required TextEditingController controller,
+    required String label,
+    String? helper,
+  }) =>
+      SizedBox(
+        width: 190,
+        child: TextField(
+          key: key,
+          controller: controller,
+          keyboardType: const TextInputType.numberWithOptions(decimal: true),
+          onChanged: (_) => setState(() {}),
+          decoration: InputDecoration(labelText: label, helperText: helper),
+        ),
+      );
+
+  /// Rounding, bank charges and discount, and the money that actually moves.
+  ///
+  /// Like the TDS they settle the party without being cash: the amount above
+  /// is the bill value, and the bank moves what is left of it. Bank charges
+  /// are the bank's cut of money it received, so a payment has no such box.
+  Widget _deductionsRow(BuildContext context, double amount) {
+    final bool receipt = widget.direction == SettlementDirection.receipt;
+    final double moved = amount - _value(_tds) - _deductionsTotal;
+    final String account = _method == 'CASH' ? 'cash' : 'bank';
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text('Deductions', style: Theme.of(context).textTheme.titleSmall),
+      const SizedBox(height: AppSpacing.sm),
+      Wrap(
+        spacing: AppSpacing.md,
+        runSpacing: AppSpacing.sm,
+        crossAxisAlignment: WrapCrossAlignment.start,
+        children: [
+          _deductionField(
+            key: const ValueKey('settlement-rounding-amount'),
+            controller: _rounding,
+            label: 'Rounding / short paid',
+          ),
+          if (receipt)
+            _deductionField(
+              key: const ValueKey('settlement-bank-charges-amount'),
+              controller: _bankCharges,
+              label: 'Bank charges',
+            ),
+          _deductionField(
+            key: const ValueKey('settlement-discount-amount'),
+            controller: _discount,
+            label: receipt ? 'Discount allowed' : 'Discount received',
+          ),
+        ],
+      ),
+      const SizedBox(height: AppSpacing.sm),
+      Text(
+        amount > 0 && _deductionsTotal > 0
+            ? '${receipt ? 'Money received' : 'Money paid'} in $account: '
+                '${moved.toStringAsFixed(2)}'
+            : 'Leave blank when nothing was deducted. The amount above is '
+                'what settles the ${receipt ? 'customer' : 'supplier'}.',
+        key: const ValueKey('settlement-money-moved'),
+        style: Theme.of(context).textTheme.bodySmall,
       ),
     ]);
   }

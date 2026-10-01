@@ -51,6 +51,7 @@ class _LedgerApi extends ApiClient {
   Future<GeneralLedgerReport> generalLedger({
     required String ledgerAccountId,
     required String accountingPeriodId,
+    String? toPeriodId,
   }) async {
     requestedAccounts.add(ledgerAccountId);
     return report ?? GeneralLedgerReport.empty;

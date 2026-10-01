@@ -93,6 +93,15 @@ a 1,000 line is worth 100, not 200. A mode is a firm setting, never a
 property of a promotion -- an offer that decided whether it combined would
 make the outcome depend on which offers happened to match.
 
+**Combine mode may cap one line** (backlog 59 item 3,
+`sales_workflow_settings.max_line_discount_percent`, migration
+`20261001_0193`; null is no cap). After the stack, a line whose offer discount
+exceeds the cap % of its gross gives back the excess **latest-applied offer
+first** -- compounding means it added the last slice -- and each trimmed
+offer's `benefit_amount` falls by what it gave back, so campaign costing stays
+true. The bill discount is not a line discount and is not counted. The trace
+carries one decision per capped line naming the offers trimmed.
+
 **A percentage may be capped** (backlog 60 item 1): `max_amount` on a
 `LINE_DISCOUNT_PERCENT` or `BILL_DISCOUNT_PERCENT` action -- "20% off, up to
 500" -- bounds what the offer takes off the **document**, not each line. On

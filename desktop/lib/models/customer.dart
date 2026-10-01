@@ -144,6 +144,8 @@ class Customer {
     required this.gstNumber,
     required this.panNumber,
     this.tanNumber = '',
+    this.gstRegistrationType = '',
+    this.salesmanId = '',
     required this.email,
     required this.phone,
     required this.alternatePhone,
@@ -165,6 +167,10 @@ class Customer {
     required this.addresses,
     required this.contacts,
     this.attributes = const [],
+    this.noReminders = false,
+    this.preferredChannel,
+    this.whatsappOptIn = false,
+    this.whatsappOptInAt = '',
   });
 
   final String id;
@@ -190,6 +196,14 @@ class Customer {
   /// The customer's TAN: it deducts TDS from what it pays, and the
   /// certificate it issues names it (backlog 53.1).
   final String tanNumber;
+
+  /// How the buyer stands under GST (backlog 75 row 2): REGULAR, SEZ_... and
+  /// so on; empty means the server reads it off the GSTIN.
+  final String gstRegistrationType;
+  /// The account manager: the firm member who looks after this customer,
+  /// and the salesman a new sales document for them defaults to (backlog
+  /// 67 row 2). Empty when nobody is named.
+  final String salesmanId;
   final String email;
   final String phone;
   final String alternatePhone;
@@ -217,6 +231,19 @@ class Customer {
   /// The stored custom-field values, one per definition the firm defines.
   final List<AttributeValueRecord> attributes;
 
+  /// Messaging (backlog 51): true when this customer is never sent a payment
+  /// reminder.
+  final bool noReminders;
+
+  /// EMAIL, WHATSAPP or SMS, or null for "whichever the event lists first".
+  final String? preferredChannel;
+
+  /// Whether the customer agreed to be sent WhatsApp messages.
+  final bool whatsappOptIn;
+
+  /// When they agreed (read-only, set by the server; never sent back).
+  final String whatsappOptInAt;
+
   String get city {
     final Iterable<CustomerAddress> defaults =
         addresses.where((address) => address.isDefaultBilling);
@@ -236,6 +263,8 @@ class Customer {
         gstNumber: stringValue(json['gst_number']),
         panNumber: stringValue(json['pan_number']),
         tanNumber: stringValue(json['tan_number']),
+        gstRegistrationType: stringValue(json['gst_registration_type']),
+        salesmanId: stringValue(json['salesman_id']),
         email: stringValue(json['email']),
         phone: stringValue(json['phone']),
         alternatePhone: stringValue(json['alternate_phone']),
@@ -273,6 +302,10 @@ class Customer {
             .toList(),
         contacts:
             _objects(json['contacts']).map(CustomerContact.fromJson).toList(),
+        noReminders: boolValue(json['no_reminders']),
+        preferredChannel: json['preferred_channel'] as String?,
+        whatsappOptIn: boolValue(json['whatsapp_opt_in']),
+        whatsappOptInAt: stringValue(json['whatsapp_opt_in_at']),
       );
 }
 

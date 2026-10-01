@@ -172,6 +172,14 @@ class PurchaseService(TransactionalDocumentService):
         if filters.buyer_id is not None:
             statement = statement.where(PurchaseOrder.buyer_id == filters.buyer_id)
             count = count.where(PurchaseOrder.buyer_id == filters.buyer_id)
+        if filters.sent is not None:
+            sent_clause = (
+                PurchaseOrder.sent_at.is_not(None)
+                if filters.sent
+                else PurchaseOrder.sent_at.is_(None)
+            )
+            statement = statement.where(sent_clause)
+            count = count.where(sent_clause)
         if filters.purchase_type is not None:
             statement = statement.where(
                 PurchaseOrder.purchase_type == filters.purchase_type.value
@@ -850,6 +858,66 @@ class PurchaseService(TransactionalDocumentService):
             after_data={"status": row.status},
         )
         self._session.flush()
+        return row
+
+    #: The states in which an order is a promise to the supplier and can be
+    #: sent: approved, and not yet finished or withdrawn.
+    _SENDABLE = frozenset(
+        {
+            PurchaseOrderStatus.APPROVED.value,
+            PurchaseOrderStatus.PARTIALLY_ORDERED.value,
+            PurchaseOrderStatus.ORDERED.value,
+            PurchaseOrderStatus.PARTIALLY_RECEIVED.value,
+        }
+    )
+
+    def mark_sent(
+        self, order_id: UUID, *, via: str, firm_scope: UUID, actor_id: UUID
+    ) -> PurchaseOrder:
+        """Record that an approved order reached the supplier, and how.
+
+        Backlog 69 row 6. Marking again records the latest sending -- a
+        resend by another route is the same promise -- and both are on the
+        timeline.
+        """
+        row = self.get_order(order_id, firm_scope=firm_scope)
+        if row.status not in self._SENDABLE:
+            raise ValidationError("Only an approved order can be sent to the supplier.")
+        before = {"sent_at": row.sent_at, "sent_via": row.sent_via}
+        row.sent_at = utc_now()
+        row.sent_via = via
+        row.sent_by = actor_id
+        row.updated_by = actor_id
+        document_type = self._ensure_document_setup(
+            firm_id=firm_scope, actor_id=actor_id
+        )[0]
+        self._record_document_event(
+            firm_id=firm_scope,
+            document_type=document_type,
+            order=row,
+            action="SENT",
+            from_state=row.status,
+            to_state=row.status,
+            actor_id=actor_id,
+            remarks=f"Sent to the supplier by {via.lower()}.",
+            details={"via": via},
+        )
+        record_audit(
+            self._session,
+            action="purchase.sent",
+            entity_type="purchase_order",
+            entity_id=row.id,
+            actor_id=actor_id,
+            firm_id=firm_scope,
+            before_data={
+                "sent_at": (
+                    None if before["sent_at"] is None else str(before["sent_at"])
+                ),
+                "sent_via": before["sent_via"],
+            },
+            after_data={"sent_at": str(row.sent_at), "sent_via": via},
+        )
+        self._session.commit()
         return row
 
     def cancel_order(
@@ -1702,6 +1770,13 @@ class PurchaseService(TransactionalDocumentService):
         )
         if vendor is None:
             raise ValidationError("Selected vendor is not available in this firm.")
+        if vendor.status == "BLOCKED":
+            why = f": {vendor.blocked_reason}" if vendor.blocked_reason else ""
+            raise ValidationError(
+                "Inactive or blocked vendors cannot be used in purchases. "
+                f"{vendor.display_name} is blocked{why}; no new order can be "
+                "raised to them."
+            )
         if vendor.status != "ACTIVE":
             raise ValidationError(
                 "Inactive or blocked vendors cannot be used in purchases."

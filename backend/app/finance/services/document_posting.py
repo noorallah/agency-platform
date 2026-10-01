@@ -137,6 +137,14 @@ CREDIT_NOTE_DOCUMENT_PURPOSES = (
     ControlAccountPurpose.OUTPUT_TAX,
 )
 
+#: A debit note to a supplier: the payable it reduces and the account the
+#: value comes back through. The input tax legs resolve their own purposes per
+#: GST head, as a purchase return's do.
+DEBIT_NOTE_DOCUMENT_PURPOSES = (
+    ControlAccountPurpose.ACCOUNTS_PAYABLE,
+    ControlAccountPurpose.PURCHASE_PRICE_VARIANCE,
+)
+
 PAYMENT_PURPOSES = (ControlAccountPurpose.ACCOUNTS_PAYABLE,)
 
 #: A loyalty scheme. Earning costs the firm money there and then, which is
@@ -1147,6 +1155,7 @@ class DocumentPostingService:
         money_account_id: UUID,
         actor_id: UUID,
         tds_amount: Decimal = ZERO,
+        deductions: dict[ControlAccountPurpose, Decimal] | None = None,
     ) -> JournalEntry:
         """Post money arriving from a customer or going out to a vendor.
 
@@ -1172,6 +1181,12 @@ class DocumentPostingService:
                 money leg is the rest; the deduction posts to TDS Receivable
                 on a receipt and TDS Payable on a payment, so the party leg
                 still clears the whole ``amount``.
+            deductions: The rest of ``amount`` that settled the bill without
+                moving as money (backlog 74 row 2) -- rounding, bank charges,
+                discount -- by the purpose each posts to. A receipt debits
+                each (a cost the firm accepted); a payment credits each (what
+                the supplier let go). The money leg shrinks by their total and
+                the party leg still clears the whole ``amount``.
 
         Returns:
             The posted journal entry.
@@ -1191,10 +1206,24 @@ class DocumentPostingService:
         deducted = quantize_ledger(quantize_money(tds_amount))
         if deducted > ZERO:
             purposes = (*purposes, tds_purpose)
+        # Each deduction rounded to the ledger on its own, then summed: the
+        # money leg is what is left of the rounded parts, so the entry
+        # balances to the paisa however the parts were typed.
+        settled_otherwise = {
+            purpose: quantize_ledger(quantize_money(value))
+            for purpose, value in (deductions or {}).items()
+            if quantize_ledger(quantize_money(value)) > ZERO
+        }
+        purposes = (*purposes, *settled_otherwise)
         accounts = self._require_mapping(firm_id, purposes)
         context = self.context_for(firm_id, settlement_date)
         total = quantize_ledger(quantize_money(amount))
-        moved = total - deducted
+        moved = total - deducted - sum(settled_otherwise.values(), ZERO)
+        if moved <= ZERO:
+            raise ValidationError(
+                "Deductions and TDS take up the whole amount, so no money "
+                "moved. A balance cleared without money is a party adjustment."
+            )
         party_purpose = (
             ControlAccountPurpose.ACCOUNTS_RECEIVABLE
             if is_receipt
@@ -1219,6 +1248,18 @@ class DocumentPostingService:
             if deducted > ZERO
             else []
         )
+        deduction_legs = [
+            JournalLineData(
+                ledger_account_id=accounts[purpose],
+                debit_amount=value if is_receipt else ZERO,
+                credit_amount=ZERO if is_receipt else value,
+                description=(
+                    f"{PURPOSE_LABELS[purpose]} on {kind.lower()} {settlement_number}"
+                ),
+            )
+            for purpose, value in settled_otherwise.items()
+        ]
+        tds_legs = [*tds_legs, *deduction_legs]
         party_leg = JournalLineData(
             ledger_account_id=accounts[party_purpose],
             debit_amount=ZERO if is_receipt else total,
@@ -1236,6 +1277,165 @@ class DocumentPostingService:
             lines=[money_leg, *tds_legs, party_leg],
             source_module="settlements",
             source_id=settlement_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_party_adjustment(
+        self,
+        *,
+        firm_id: UUID,
+        adjustment_id: UUID,
+        adjustment_number: str,
+        adjustment_date: date,
+        kind: str,
+        amount: Decimal,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Post a party balance moved without money and without tax (74 row 2).
+
+        Two legs, by kind:
+
+        * ``CUSTOMER_WRITE_OFF`` -- Dr bad debts, Cr receivable: the debt is
+          given up and becomes a cost.
+        * ``SUPPLIER_WRITE_BACK`` -- Dr payable, Cr balances written back: what
+          the firm will not pay becomes other income.
+        * ``SET_OFF`` -- Dr payable, Cr receivable: what the business owes the
+          firm as a customer is settled by what the firm owes it as a supplier.
+
+        No tax leg, ever. Reducing the value of a supply is a credit or debit
+        note, which reverses tax; this only says the balance will not be paid.
+
+        Args:
+            firm_id: The owning firm.
+            adjustment_id: The source document.
+            adjustment_number: Its number, used as the journal reference.
+            adjustment_date: The day the balance moved.
+            kind: One of the three kinds above.
+            amount: How much moves.
+            actor_id: The user approving it.
+
+        Returns:
+            The posted journal entry.
+
+        Raises:
+            ValidationError: If the kind is unknown, or accounts or an open
+                period are missing.
+
+        """
+        legs: dict[str, tuple[ControlAccountPurpose, ControlAccountPurpose]] = {
+            "CUSTOMER_WRITE_OFF": (
+                ControlAccountPurpose.BAD_DEBTS,
+                ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
+            ),
+            "SUPPLIER_WRITE_BACK": (
+                ControlAccountPurpose.ACCOUNTS_PAYABLE,
+                ControlAccountPurpose.BALANCES_WRITTEN_BACK,
+            ),
+            "SET_OFF": (
+                ControlAccountPurpose.ACCOUNTS_PAYABLE,
+                ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
+            ),
+        }
+        if kind not in legs:
+            raise ValidationError(f"{kind} is not a kind of party adjustment.")
+        debit_purpose, credit_purpose = legs[kind]
+        accounts = self._require_mapping(firm_id, (debit_purpose, credit_purpose))
+        context = self.context_for(firm_id, adjustment_date)
+        value = quantize_ledger(quantize_money(amount))
+        describe = f"Party adjustment {adjustment_number}"
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=adjustment_date,
+            reference_number=adjustment_number,
+            description=describe,
+            lines=[
+                JournalLineData(
+                    ledger_account_id=accounts[debit_purpose],
+                    debit_amount=value,
+                    credit_amount=ZERO,
+                    description=describe,
+                ),
+                JournalLineData(
+                    ledger_account_id=accounts[credit_purpose],
+                    debit_amount=ZERO,
+                    credit_amount=value,
+                    description=describe,
+                ),
+            ],
+            source_module="party_adjustments",
+            source_id=adjustment_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_contra_voucher(
+        self,
+        *,
+        firm_id: UUID,
+        voucher_id: UUID,
+        voucher_number: str,
+        voucher_date: date,
+        from_account_id: UUID,
+        to_account_id: UUID,
+        amount: Decimal,
+        description: str,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Post money moved between two of the firm's own accounts (74 row 3).
+
+        Dr the account the money arrived in, Cr the one it left. Two legs,
+        both cash or bank, so no party and no tax: the firm is no richer or
+        poorer, only its money is somewhere else. The caller has already
+        checked both are money accounts.
+
+        Args:
+            firm_id: The owning firm.
+            voucher_id: The source document.
+            voucher_number: Its number, used as the journal reference.
+            voucher_date: The day the money moved.
+            from_account_id: The cash or bank account credited.
+            to_account_id: The cash or bank account debited.
+            amount: How much moved.
+            description: The narration both legs carry.
+            actor_id: The user recording it.
+
+        Returns:
+            The posted journal entry.
+
+        Raises:
+            ValidationError: If no open period covers the date.
+
+        """
+        context = self.context_for(firm_id, voucher_date)
+        value = quantize_ledger(quantize_money(amount))
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=voucher_date,
+            reference_number=voucher_number,
+            description=description,
+            lines=[
+                JournalLineData(
+                    ledger_account_id=to_account_id,
+                    debit_amount=value,
+                    credit_amount=ZERO,
+                    description=description,
+                ),
+                JournalLineData(
+                    ledger_account_id=from_account_id,
+                    debit_amount=ZERO,
+                    credit_amount=value,
+                    description=description,
+                ),
+            ],
+            source_module="contra",
+            source_id=voucher_id,
             actor_id=actor_id,
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
@@ -1714,6 +1914,94 @@ class DocumentPostingService:
             lines=lines,
             source_module="credit_note",
             source_id=credit_note_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
+    def post_debit_note_document(
+        self,
+        *,
+        firm_id: UUID,
+        debit_note_id: UUID,
+        debit_note_number: str,
+        note_date: date,
+        taxable_amount: Decimal,
+        tax_amount: Decimal,
+        actor_id: UUID,
+        tax_by_component: dict[str, Decimal] | None = None,
+    ) -> JournalEntry | None:
+        """Post a debit note to a supplier: Dr payable, Cr variance and input tax.
+
+        The purchasing mirror of `post_credit_note_document`. The supplier owes
+        the firm the whole claim, so **accounts payable is debited** with
+        taxable plus tax. The taxable part is credited to purchase price
+        variance -- the account a purchase return already puts the gap between
+        a bill and what the goods cost through -- because no goods move: the
+        firm simply paid, or was billed, more than it should have been. The
+        input tax claimed on that part is reversed head by head, as the bill
+        claimed it (D-CMP-20), through the same legs a purchase return uses.
+
+        Args:
+            firm_id: The owning firm.
+            debit_note_id: The source document.
+            debit_note_number: Its number, used as the journal reference.
+            note_date: The date the claim is booked on.
+            taxable_amount: What is claimed before tax.
+            tax_amount: The input tax reversed with it.
+            actor_id: The user approving it.
+            tax_by_component: The tax per GST component, in the proportions
+                the bill charged; None reverses `INPUT_TAX` as a whole.
+
+        Returns:
+            The posted journal entry, or None where there is nothing to post.
+
+        Raises:
+            ValidationError: If accounts or an open period are missing.
+
+        """
+        # Each part rounded, then summed: what the payable is debited with is
+        # exactly what the two credit legs carry.
+        ledger_taxable = quantize_ledger(quantize_money(taxable_amount))
+        ledger_tax = quantize_ledger(quantize_money(tax_amount))
+        ledger_total = ledger_taxable + ledger_tax
+        if ledger_total == ZERO:
+            return None
+        accounts = self._require_mapping(firm_id, DEBIT_NOTE_DOCUMENT_PURPOSES)
+        context = self.context_for(firm_id, note_date)
+        lines = [
+            JournalLineData(
+                ledger_account_id=accounts[ControlAccountPurpose.ACCOUNTS_PAYABLE],
+                debit_amount=ledger_total,
+                description=f"Debit note {debit_note_number}",
+            ),
+            JournalLineData(
+                ledger_account_id=accounts[
+                    ControlAccountPurpose.PURCHASE_PRICE_VARIANCE
+                ],
+                credit_amount=ledger_taxable,
+                description=f"Claimed on debit note {debit_note_number}",
+            ),
+        ]
+        lines.extend(
+            self._input_tax_legs(
+                firm_id=firm_id,
+                ledger_tax=ledger_tax,
+                tax_by_component=tax_by_component,
+                describe=f"reversed on {debit_note_number}",
+                credit=True,
+            )
+        )
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=note_date,
+            reference_number=debit_note_number,
+            description=f"Debit note {debit_note_number}",
+            lines=lines,
+            source_module="debit_note",
+            source_id=debit_note_id,
             actor_id=actor_id,
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)

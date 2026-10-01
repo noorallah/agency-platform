@@ -35,6 +35,7 @@ import '../../models/document_preview.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import 'purchase_workflow_settings_dialog.dart';
+import 'reorder_dialog.dart';
 
 part 'purchase_order_editor_phase2.dart';
 
@@ -1404,6 +1405,34 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         ),
       );
 
+  /// Record how the selected approved order reached the supplier, so one
+  /// approved and never sent can be found (backlog 69 row 6).
+  Future<void> _markSent(PurchaseOrder order) async {
+    final String? via = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => SimpleDialog(
+        title: Text('How was ${order.poNumber} sent?'),
+        children: [
+          for (final MapEntry<String, String> entry in const {
+            'EMAIL': 'By email',
+            'WHATSAPP': 'On WhatsApp',
+            'PRINT': 'Printed and handed over',
+            'OTHER': 'Some other way',
+          }.entries)
+            SimpleDialogOption(
+              onPressed: () => Navigator.of(dialogContext).pop(entry.key),
+              child: Text(entry.value),
+            ),
+        ],
+      ),
+    );
+    if (via == null || !mounted) return;
+    await _runOrderAction(
+      () => widget.api.markPurchaseOrderSent(order.id, via),
+      done: '${order.poNumber} marked as sent.',
+    );
+  }
+
   /// Send the selected draft for approval.
   Future<void> _submitSelected(PurchaseOrder order) async {
     await _runOrderAction(
@@ -1537,6 +1566,23 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
         kind: AppNotificationKind.error,
       );
     }
+  }
+
+  /// Below reorder level (42.9): tick rows and raise draft orders for them.
+  Future<void> _openReorder() async {
+    final Object? raised = await showDialog<Object>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => ReorderDialog(api: widget.api),
+    );
+    if (!mounted || raised is! Map) return;
+    final String message = stringValue(raised['message']);
+    NotificationService.show(
+      context,
+      message.isEmpty ? 'Draft purchase orders raised.' : message,
+      kind: AppNotificationKind.success,
+    );
+    await _load();
   }
 
   /// Phase 2: recent and saved searches, and saved layouts, in one "Views"
@@ -1690,6 +1736,15 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
               : null,
         ),
         ToolbarCommand(
+          id: 'mark-sent',
+          label: 'Mark as sent',
+          icon: Icons.send_outlined,
+          menuOnly: true,
+          onPressed: selected != null && selected.isSendable && _canUpdate
+              ? () => unawaited(_markSent(selected))
+              : null,
+        ),
+        ToolbarCommand(
           id: 'print',
           label: 'Print',
           icon: Icons.print_outlined,
@@ -1744,6 +1799,15 @@ class _PurchaseManagementPageState extends State<PurchaseManagementPage> {
           onPressed: selected != null && selected.isDeleted && _canRestore
               ? _restoreSelected
               : null,
+        ),
+        // Backlog 42.9: not about the selected order -- every product below
+        // its reorder level, and the drafts that order it back up.
+        ToolbarCommand(
+          id: 'reorder',
+          label: 'Below reorder level…',
+          icon: Icons.inventory_outlined,
+          menuOnly: true,
+          onPressed: _canCreate ? () => unawaited(_openReorder()) : null,
         ),
         ToolbarCommand(
           id: 'print-settings',

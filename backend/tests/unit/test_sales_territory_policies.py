@@ -28,7 +28,11 @@ from app.core.exceptions import ConflictError, ValidationError
 from app.customers.models import Customer
 from app.firms.models import Firm
 from app.identity.models import User, UserFirm
-from app.sales.models import SalesHierarchyConfig, SalesTerritoryNode
+from app.sales.models import (
+    SalesHierarchyConfig,
+    SalesTerritoryNode,
+    TerritoryCustomerAssignment,
+)
 from app.sales.schemas import (
     TerritoryAssignCustomersRequest,
     TerritoryAssignSalesmenRequest,
@@ -551,3 +555,45 @@ def test_a_new_firms_hierarchy_is_written_by_the_read_that_invents_it() -> None:
         actor_id=actor,
     )
     assert created.hierarchy_level_id == read.levels[0].id
+
+
+def test_an_export_reads_back_with_its_shops() -> None:
+    """The export carries CustomerCodes, quoted, so a round trip keeps them.
+
+    It wrote ``Path`` and no shops, so exporting a firm's rounds and importing
+    the file elsewhere gave every round and none of its customers (BACKLOG
+    31.5). A name with a comma also broke the row, because nothing was quoted.
+    """
+    import csv
+    import io
+
+    session = _session_factory()()
+    actor = uuid4()
+    service = SalesTerritoryService(session)
+    source = _firm(session, "EXP1")
+    target = _firm(session, "EXP2")
+    for firm in (source, target):
+        _customer(session, firm.id, "SHOP-A")
+        _customer(session, firm.id, "SHOP-B")
+    top = service.get_hierarchy(firm_scope=source.id, actor_id=actor).levels[0]
+    service.get_hierarchy(firm_scope=target.id, actor_id=actor)
+    service.import_csv(
+        "Code,Name,Level,ParentCode,Status,CustomerCodes\n"
+        f'RT-1,"North, Old Town",{top.display_name},,ACTIVE,"SHOP-A,SHOP-B"\n',
+        firm_scope=source.id,
+        actor_id=actor,
+    )
+
+    exported = service.export_csv(firm_scope=source.id)
+    (row,) = list(csv.DictReader(io.StringIO(exported)))
+    assert row["Name"] == "North, Old Town"
+    assert sorted(row["CustomerCodes"].split(",")) == ["SHOP-A", "SHOP-B"]
+
+    (created,) = service.import_csv(exported, firm_scope=target.id, actor_id=actor)
+    shops = session.scalars(
+        select(TerritoryCustomerAssignment).where(
+            TerritoryCustomerAssignment.territory_id == created.id,
+            TerritoryCustomerAssignment.is_deleted.is_(False),
+        )
+    ).all()
+    assert len(shops) == 2

@@ -265,6 +265,252 @@ already have been paid.
 **Paying the challan** is still a journal: Dr TDS Payable, Cr Bank. **Claiming
 TDS Receivable** against the firm's own tax is the CA's year-end entry.
 
+**The 26Q export (2026-10-01)** -- Reports > Financial > *TDS return (26Q)*,
+`/finance/reports/tds-26q` for the grid and `/finance/tds-returns/26q` for
+the file, both on the TDS registers' permission (`ACCOUNT_VIEW` or
+`REPORT_VIEW`). A return is named by **financial year and quarter**
+(`2026-27`, `Q1`) and nothing else, so it is always exactly one quarter; a
+malformed year or quarter is refused by name. It is built in
+`app/finance/services/tds_return.py` from the *TDS deducted* register and
+stores nothing.
+
+**It is a workbook, not the FVU text file**, deliberately. The File
+Validation Utility's input hangs every deductee row off a challan row, and a
+challan row needs the BSR code, challan serial, date deposited and amount --
+none of which the books record while the challan is a journal. A text file
+with those blank fails the FVU at its first row; one with them guessed is
+worse. So `format=xlsx` (the default) has four sheets: **Deductor** (name,
+TAN, PAN, year, quarter, assessment year, totals, and what will stop the
+return -- no TAN, deductees without a PAN); **Deductees** (Annexure I in the
+Protean RPU deductee sheet's order: section, deductee code `01` company /
+`02` other read off the PAN's fourth letter, PAN, name, date, amount, TDS,
+rate, reason code; the challan serial left for the filer, who pastes the rows
+under the challan in the RPU); **Challans due** (tax by section and month of
+deduction, due the 7th of the next month, March's by 30 April); **Not in this
+return** (deductions on a reversed payment or cancelled expense, and salary,
+which is Form 24Q). `format=csv` is the deductee sheet alone. A deductee with
+no PAN is written `PANNOTAVBL` with reason `C` (deducted at the higher rate,
+206AA). When challans are recorded as documents, the FVU file becomes
+possible and this is where it belongs.
+
+## A balance is cleared without money by a deduction or a party adjustment, never by tax
+
+Backlog 74 row 2 (2026-10-01). A receipt three rupees short, a bank charge the
+customer's bank took, a discount for paying early, a debt that will never be
+paid, a supplier balance the firm will never pay, and a customer who is also a
+supplier: each moves a party's balance **without money moving and without
+tax**. Reducing the value of a supply is a credit note (`/credit-notes`) or a
+debit note (`/debit-notes`), which reverse the tax charged on it; nothing here
+touches output or input tax, GSTR-1 or GSTR-3B.
+
+**Deductions on a receipt or payment** (`settlements.rounding_amount`,
+`bank_charges_amount`, `discount_amount`, migration `20261001_0191`) follow
+the TDS model exactly: `amount` is what settles the party -- the bill's value
+-- and each deduction is part of it that did not move as money.
+
+- **Receipt:** Dr Bank `amount - tds - deductions`; Dr TDS Receivable `tds`;
+  Dr Rounding (`ROUNDING`, 4900) / Bank Charges (`BANK_CHARGES`, 6700) /
+  Discount Allowed (`DISCOUNT_ALLOWED`, 5300) each by its amount; Cr
+  Receivables `amount`.
+- **Payment:** Dr Payables `amount`; Cr Bank `amount - tds - deductions`; Cr
+  TDS Payable `tds`; Cr Rounding / Discount Received (`DISCOUNT_RECEIVED`,
+  4200) each by its amount.
+
+The customer's receivable row moves by the whole `amount`, as for TDS, so the
+statement and the ledger agree. Each deduction is rounded to the ledger on its
+own and the money leg is what is left, so the entry balances to the paisa.
+Reversing the settlement mirrors the whole journal -- every deduction leg with
+it -- and puts the customer's balance back by the stored deltas, as any
+reversal does. Decided by convention:
+
+- **Bank charges are a receipt's only.** On a payment the firm's own bank fee
+  settles nothing the supplier is owed; it is an expense, recorded against
+  Bank Charges on the Expenses screen.
+- **Rounding is capped** by the firm's rounding limit, **10.00** unless set
+  (`party_adjustment_settings.rounding_limit`, `PUT
+  /party-adjustments/settings`). More than that is a discount or a write-off
+  and should be named as one.
+- **Deductions must close bills**: together they cannot exceed what the
+  settlement allocates. A discount on money held on account would turn an
+  advance into a cost.
+- **Some money must move.** TDS and deductions that take the whole amount are
+  refused: a balance cleared with no money is a party adjustment.
+- A refund takes none.
+
+**A party adjustment** (`app/party_adjustments`, `/api/v1/party-adjustments`)
+is a document of three kinds, DRAFT -> APPROVED -> CANCELLED, numbered in its
+own `PA` series, with a required reason, a timeline and an audit row per step.
+A draft posts nothing and clears nothing. Approval posts:
+
+| Kind | Dr | Cr | Customer's account |
+| --- | --- | --- | --- |
+| Customer write-off | Bad Debts (`BAD_DEBTS`, 6800, indirect expense) | Receivables | `WRITE_OFF` row, outstanding down |
+| Supplier write-back | Payables | Balances Written Back (`BALANCES_WRITTEN_BACK`, 4300, other income) | -- |
+| Set-off | Payables | Receivables | `SET_OFF` row, outstanding down |
+
+It may name open bills on either side
+(`party_adjustment_allocations`) or move the balance on account. **What a bill
+owes reads the adjustment beside the money**: `adjusted_against`
+(`app/party_adjustments/services/allocations.py`) is added inside
+`settled_against` (sales bills -- Record Receipt, the ageing, the outstanding
+and overdue reports, the customer delete guard), inside
+`PaymentService.outstanding_invoices` (purchase bills -- Record Payment, the
+vendor reports), inside both opening-bill readers, and in the loyalty cap. It
+counts approved adjustments only and honours `as_of` the way receipts do: one
+dated on or before the day, and approved, or cancelled only after it. A bill
+named by a live adjustment cannot be cancelled. The customer statement reads
+the `WRITE_OFF` and `SET_OFF` receivable rows, so it reconciles with the
+ledger; the supplier statement reads the payables ledger, which the
+adjustment's journal reaches (see below).
+
+**Caps.** A write-off or set-off cannot exceed what the customer owes on
+account (`customers.current_outstanding` -- more would turn given-up debt into
+an advance), a write-back or set-off what the supplier's open bills add up to,
+an allocation what its bill still owes, and each side's allocations the
+amount. Checked when drafted and again at approval, with the customer's and
+supplier's rows locked, since a receipt may have cleared the bills since.
+
+**Approval** (decided by convention): at or below the firm's threshold --
+**1,000.00** unless set (`party_adjustment_settings.approval_threshold`) --
+anyone holding `PARTY_ADJUSTMENT_MANAGE` may approve, their own draft
+included. Above it the approver must hold `PARTY_ADJUSTMENT_APPROVE` **and**
+must not be the person who drafted it, and cancelling an approved one needs
+the same code. Setting the threshold needs `PARTY_ADJUSTMENT_APPROVE`: the
+role a limit constrains does not move it. `FIRM_ADMIN` and `FIRM_MANAGER` hold
+all three; `ACCOUNTANT` holds view and manage.
+
+**Set-off between two businesses.** The masters do not link a customer to a
+supplier, so the person setting off states they are one business; where both
+carry a PAN -- recorded, or read off characters 3-12 of the GSTIN -- and the
+two differ, the set-off is refused.
+
+**Cancelling** an approved adjustment mirrors its journal and undoes the
+customer's receivable row by its stored deltas (`receivable_transaction_id`),
+dated the mirror's day; the bills owe again because a cancelled adjustment is
+no longer counted.
+
+## Money moved between the firm's own accounts is a contra voucher
+
+Backlog 74 row 3. `app/contra`, `/api/v1/contra-vouchers`, table
+`contra_vouchers` (migration `20261001_0199`). Before it, cash paid into the
+bank was a hand journal with no number of its own and no word when the cash it
+moved was not there.
+
+| Kind (derived, never typed) | Dr | Cr |
+| --- | --- | --- |
+| Deposit -- cash to bank | the bank account | the cash account |
+| Withdrawal -- bank to cash | the cash account | the bank account |
+| Bank transfer | the receiving bank | the paying bank |
+| Cash transfer | the receiving cash account | the paying cash account |
+
+**It posts on save** (`DocumentPostingService.post_contra_voucher`, source
+`contra`), as a receipt or an expense does: the money has moved before anybody
+records it, so there is nothing to approve. Two legs, no party, no tax.
+Numbered in its own `CV` series through the document framework, with a
+timeline event and an audit row for posting and for cancelling. **A mistake is
+cancelled, never edited**: a reason is required, the journal is mirrored under
+`<number>-CAN` dated as every reversal is (the day it happens, never before the
+original), and the original stays.
+
+**Which accounts hold money** (decided by convention, 2026-10-01): the firm's
+`CASH` and `BANK` control accounts, and every other active ASSET account in
+the same account group as either that no other control purpose claims -- a
+second bank account, petty cash. In the seeded chart cash and bank share
+*Current Assets* with receivables, inventory and input tax; those are mapped to
+their own purposes and kept by their own documents, so they are never offered.
+An asset account a firm opens itself in that group (a deposit, an advance to
+staff) **is** offered; a firm that wants it kept out gives cash and bank a
+group of their own. **Cash or bank**: the CASH account is cash and the BANK
+account a bank; any other is cash when it sits in cash's group and not
+bank's, a bank in the reverse case, and -- where the two share a group, as
+seeded -- cash when its name says "cash" and a bank otherwise.
+
+**Below zero is a warning, never a refusal.** When the account the money
+leaves would stand below zero at the end of the voucher's own date -- summed
+from every posting dated on or before it, so a back-dated deposit is judged
+on the day it says -- the voucher still posts, and the response says so in
+`message` and `balance_warning`. The books are often a day behind (takings
+not yet keyed), and refusing would make the clerk enter things out of order
+to get past it. Cancelling checks the account the money goes back out of the
+same way.
+
+Read with `JOURNAL_VIEW`, recorded with `JOURNAL_POST` (it writes a posted
+journal), cancelled with `JOURNAL_REVERSE` -- the codes a hand journal needs,
+so no new permission and no grant migration. The register
+(`/reports/register`) reads with `JOURNAL_VIEW` or `REPORT_VIEW`; each voucher
+prints on the firm's letterhead (`/{id}/print`,
+`app/document_framework/services/letter_pdf.py`).
+
+## A supplier's statement is read off the payables ledger
+
+Backlog 74 row 4. `GET /api/v1/vendors/{vendor_id}/statement?from_date&to_date`
+(`app/vendors/services/statement_service.py`, `VENDOR_VIEW`, as the customer
+statement is `CUSTOMER_VIEW`). A customer has a sub-ledger,
+`customer_receivable_transactions`, and the customer statement reads it. A
+supplier has none -- what the firm owes is the bills still owing -- so the
+supplier statement reads **the payables lines of the general ledger** and
+traces each to its supplier through the document that posted it:
+`purchase_invoice` (bill, Cr), `vendor_opening_bills` (opening bill, Cr),
+`settlements` (payment, Dr), `purchase_return`, `debit_note` and
+`party_adjustments` (write-back or set-off), each Dr. A cancelled document's
+mirror carries the same source, so it appears on the day it was undone as a
+`*_REVERSAL` line. Hand journals are refused on payables (D-FIN-11), so nothing
+else moves the account.
+
+Two properties follow by construction, and `tests/unit/test_supplier_statement.py`
+holds it to both: **the closing balance is the payables ledger's balance for
+that supplier** (and agrees with what Record Payment shows the open bills
+owing, less any advance), and **the running balance is recomputed in date
+order** -- opening summed from every line dated before the period, then the
+lines by journal date -- never read off a stored snapshot, for the reason the
+customer statement's is. Positive is what the firm owes; negative is an
+advance or a credit the supplier owes back. It reads the account currently
+nominated for `ACCOUNTS_PAYABLE`; a firm that re-points the purpose after
+posting will see only what posted to the new account.
+
+## A balance confirmation letter states the statement's own balance
+
+Backlog 74 row 4. `GET /api/v1/customers/{id}/balance-confirmation?as_of` and
+`GET /api/v1/vendors/{id}/balance-confirmation?as_of` draw one party's letter
+as a PDF on the firm's letterhead (`app/common/balance_confirmation.py`,
+`letter_pdf.py`, the firm block from `print_support.firm_party` and the accent
+from the firm's invoice template). `GET /api/v1/customers/balance-confirmations`
+and `/api/v1/vendors/balance-confirmations` zip one letter per party with a
+balance that day -- one file each, because each goes to its own address -- and
+refuse, by name, a day on which nobody had one. `as_of` defaults to today in
+UTC.
+
+**The balance is the statement's arithmetic for the same day**, so the letter
+and the statement cannot disagree: a customer's is their receivable movements
+dated on or before the day, outstanding less what is held on account
+(`outstanding_delta - advance_delta`); a supplier's is the payables ledger's
+lines for them, as above. The letter says in words who owes whom -- "due from
+you to us" or "due from us to you", in rupees and in Indian words -- rather
+than printing a sign, asks the party to sign and return it or send their
+statement, and says that silence for 15 days is taken as confirmation (the
+usual audit wording, decided by convention).
+
+## PAN, TAN and GSTIN are checked when they are set
+
+Backlog 53 item 2, on customers, vendors (header and tax rows) and the firm.
+`settle_pan` and `check_tan_if_set` in `app/core/validation/common.py` are the
+one implementation:
+
+- **Format.** A PAN is `AAAAA9999A`, a TAN `AAAA99999A`, upper-cased; anything
+  else is refused naming the field (`details.field`, which a file import turns
+  into the column -- `service_issue` in `app/common/file_import.py`).
+- **PAN against GSTIN.** Characters 3 to 12 of a GSTIN are its holder's PAN.
+  When the GSTIN is built on one (a UIN is not, and is not compared), a blank
+  PAN is **filled** from it and a different PAN is **refused naming both**.
+- **Only what a write sets is checked** -- a create, a field the write moves,
+  a tax row it adds. A PAN or TAN stored before the check existed is left
+  alone by an edit that resends it unchanged, and checked the next time
+  somebody changes it, so old data never blocks a change of phone number.
+- **A customer's PAN is unique in the firm, and one company holds a GSTIN per
+  state**, so a PAN *filled* from the GSTIN is left blank when another live
+  customer already holds it, rather than refusing the second branch for a PAN
+  nobody typed. A typed PAN still meets the uniqueness check.
+
 ## A month's GST is settled in one journal
 
 Built 2026-10-01 (`docs/BACKLOG.md` §63, `app/gst_returns/services/gst_payment_service.py`). The month's liability per head is GSTR-3B 3.1(a) after credit notes, and its credit is table 4's net input credit plus what the month before carried. The set-off follows section 49(5) and rule 88A: IGST credit first and wholly, split across CGST and SGST in whichever way leaves the least cash; CGST credit never against SGST, nor SGST against CGST; cess only against cess.
@@ -475,4 +721,4 @@ declared tax.
 ## `app/finance` and automatic GL posting
 
 `app/finance/` was rewritten on 2026-08-09 and is live at `/api/v1/finance` (migration `20260809_0042`). It uses the seeded `accounting` / `financial_year` permission codes rather than a `FINANCE_*` namespace. The prior `accounting_event_consumer.py`, which guessed accounts by name, was removed — see git history if you want its posting rules.
-**Automatic GL posting is built, and this line said for months that it was not.** It claimed the feature needed "a per-firm control-account mapping design" -- which is exactly what `firm_control_accounts` is, and it carries 27 purposes per firm (`ACCOUNTS_RECEIVABLE`, `INVENTORY`, `OUTPUT_TAX`, `INPUT_TAX_IGST`, `PURCHASE_PRICE_VARIANCE`, `LOYALTY_PAYABLE`, `COMMISSION_PAYABLE`, `TCS_PAYABLE` and the rest). **Eleven modules post through `DocumentPostingService`**: `delivery_note`, `sales_invoice`, `sales_return`, `credit_note`, `goods_receipt`, `purchase_invoice`, `purchase_return`, `settlements`, `loyalty`, `tcs` and `commission`. WHOLE01 alone holds 337 journal entries, and `verify_sample_data.py` fails the run if any approved invoice has not posted. A stale line like this is worse than no line: it talks the next reader out of checking, and it survived precisely because nobody re-derived it. Correct one when you find it rather than working around it.
+**Automatic GL posting is built, and this line said for months that it was not.** It claimed the feature needed "a per-firm control-account mapping design" -- which is exactly what `firm_control_accounts` is, and it carries 32 purposes per firm as of 2026-10-01 -- count them with `len(ControlAccountPurpose)` rather than trusting this number (`ACCOUNTS_RECEIVABLE`, `INVENTORY`, `OUTPUT_TAX`, `INPUT_TAX_IGST`, `PURCHASE_PRICE_VARIANCE`, `LOYALTY_PAYABLE`, `COMMISSION_PAYABLE`, `TCS_PAYABLE` and the rest). **Eleven modules post through `DocumentPostingService`**: `delivery_note`, `sales_invoice`, `sales_return`, `credit_note`, `goods_receipt`, `purchase_invoice`, `purchase_return`, `settlements`, `loyalty`, `tcs` and `commission`. WHOLE01 alone holds 337 journal entries, and `verify_sample_data.py` fails the run if any approved invoice has not posted. A stale line like this is worse than no line: it talks the next reader out of checking, and it survived precisely because nobody re-derived it. Correct one when you find it rather than working around it.

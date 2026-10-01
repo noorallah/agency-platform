@@ -13,7 +13,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -27,6 +27,7 @@ from app.core.constants import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams, ReportWindow
+from app.core.pagination.reports import mapped_like
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.core.utils.dates import utc_now
 from app.document_framework.schemas import DocumentLifecycleEventResponse
@@ -52,6 +53,7 @@ from app.sales_invoice.schemas import (
     SalesInvoiceSummary,
 )
 from app.sales_invoice.services import SalesInvoiceService
+from app.sales_invoice.services.discount_report import DiscountReportService
 from app.sales_invoice.services.invoice_print_service import (
     SalesInvoicePrintService,
 )
@@ -757,6 +759,135 @@ def get_sales_invoice_reconciliation(
         SalesInvoiceService(db).reconciliation_report(
             firm_scope=scope.firm_id, window=window
         )
+    )
+
+
+class DiscountGivenRecord(BaseModel):
+    """One customer's, salesman's or product's discounts (backlog 67 row 8).
+
+    ``typed_discount`` is what somebody keyed; ``arranged_discount`` what a
+    price list or a standing customer or group rate applied; the bill's
+    share of a bill discount is ``bill_discount``.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    key_id: UUID | None
+    code: str
+    name: str
+    lines: int
+    gross_amount: Decimal
+    typed_discount: Decimal
+    arranged_discount: Decimal
+    promotion_discount: Decimal
+    bill_discount: Decimal
+    total_discount: Decimal
+    discount_percent: Decimal
+
+
+class PromotionDiscountRecord(BaseModel):
+    """One offer's claims over the dates, as it costed them (67 row 8)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    version_group_id: UUID
+    code: str
+    name: str
+    claims: int
+    customers: int
+    benefit_amount: Decimal
+
+
+def _discount_given(
+    dimension: str,
+    firm_id: UUID,
+    db: Session,
+    window: ReportWindow,
+) -> PaginatedResponse[DiscountGivenRecord]:
+    """Answer the discount given by one dimension, one page."""
+    rows = DiscountReportService(db).by(firm_id, dimension, window)
+    return window.respond(
+        mapped_like(
+            rows,
+            (
+                DiscountGivenRecord.model_validate(row, from_attributes=True)
+                for row in rows
+            ),
+        )
+    )
+
+
+@router.get(
+    "/reports/discount-by-customer",
+    response_model=PaginatedResponse[DiscountGivenRecord],
+)
+def get_discount_by_customer(
+    scope: SalesInvoiceReportScope,
+    db: Annotated[Session, Depends(get_db)],
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+) -> PaginatedResponse[DiscountGivenRecord]:
+    """Discount given on billed sales, per customer, typed against arranged."""
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return _discount_given("customer", scope.firm_id, db, window)
+
+
+@router.get(
+    "/reports/discount-by-salesman",
+    response_model=PaginatedResponse[DiscountGivenRecord],
+)
+def get_discount_by_salesman(
+    scope: SalesInvoiceReportScope,
+    db: Annotated[Session, Depends(get_db)],
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+) -> PaginatedResponse[DiscountGivenRecord]:
+    """Discount given on billed sales, per salesman, typed against arranged."""
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return _discount_given("salesman", scope.firm_id, db, window)
+
+
+@router.get(
+    "/reports/discount-by-product",
+    response_model=PaginatedResponse[DiscountGivenRecord],
+)
+def get_discount_by_product(
+    scope: SalesInvoiceReportScope,
+    db: Annotated[Session, Depends(get_db)],
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+) -> PaginatedResponse[DiscountGivenRecord]:
+    """Discount given on billed sales, per product, typed against arranged."""
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return _discount_given("product", scope.firm_id, db, window)
+
+
+@router.get(
+    "/reports/discount-by-promotion",
+    response_model=PaginatedResponse[PromotionDiscountRecord],
+)
+def get_discount_by_promotion(
+    scope: SalesInvoiceReportScope,
+    db: Annotated[Session, Depends(get_db)],
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+) -> PaginatedResponse[PromotionDiscountRecord]:
+    """Return what each offer was claimed for over the dates, costliest first."""
+    window = ReportWindow(from_date, to_date, page, page_size)
+    rows = DiscountReportService(db).by_promotion(scope.firm_id, window)
+    return window.respond(
+        [
+            PromotionDiscountRecord.model_validate(row, from_attributes=True)
+            for row in rows
+        ]
     )
 
 

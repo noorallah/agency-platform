@@ -20,6 +20,21 @@ enum ReportArea {
   financial,
 }
 
+/// A file a report can be downloaded as. Named rather than given as a path,
+/// because endpoint paths live in `api_client.dart`.
+enum ReportFile {
+  /// Form 26Q for the quarter: the workbook to prepare the TDS return from.
+  tds26q,
+}
+
+/// What opening a report's row shows (backlog 55 M9). Named rather than a
+/// callback, because a definition is data.
+enum ReportDrill {
+  /// The journal the row names in `journal_entry_id`, with its lines: the
+  /// day book's voucher, a cash or bank book's posting.
+  journal,
+}
+
 /// One report the server can produce.
 ///
 /// A definition rather than a screen. Every report endpoint answers with flat
@@ -40,7 +55,28 @@ class ReportDefinition {
     this.asOnDate = false,
     this.rowsKey,
     this.openToReportView = true,
+    this.quarterly = false,
+    this.file,
+    this.drill,
+    this.days,
   });
+
+  /// What double-clicking a row opens, when anything does.
+  final ReportDrill? drill;
+
+  /// A report asked about a number of days -- stock with no issue in that
+  /// many (55 S7). The workspace offers a Days box opening on this figure
+  /// and sends it as `days`; null for a report that takes none.
+  final int? days;
+
+  /// A report of one return quarter -- the quarterly TDS return (53.1). The
+  /// workspace then asks for a financial year and a quarter rather than a
+  /// From and To, since the return is filed for exactly one quarter and the
+  /// route refuses anything else.
+  final bool quarterly;
+
+  /// The file the report can also be downloaded as, when there is one.
+  final ReportFile? file;
 
   final String id;
   final String label;

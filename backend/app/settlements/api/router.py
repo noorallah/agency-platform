@@ -6,17 +6,24 @@ build, so a second copy would be a second place for the same rules to drift.
 
 from collections.abc import Sequence
 from datetime import date
+from decimal import Decimal
 from typing import Annotated
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Query, status
+from pydantic import BaseModel, ConfigDict
 from sqlalchemy.orm import Session
 
-from app.common.scope import ResolvedFirmScope, firm_permission_scope
+from app.common.scope import (
+    ResolvedFirmScope,
+    firm_any_permission_scope,
+    firm_permission_scope,
+)
 from app.core.constants.core import MAX_PAGE_SIZE
 from app.core.database.dependencies import get_db
 from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
+from app.core.pagination.reports import ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.settlements.models import Settlement
 from app.settlements.schemas import (
@@ -36,6 +43,7 @@ from app.settlements.services import (
     RefundService,
     SettlementService,
 )
+from app.settlements.services.collection_report import CollectionReportService
 from app.settlements.services.supplier_credits import (
     SupplierCredit,
     apply_supplier_credit,
@@ -137,7 +145,16 @@ def _to_responses(
                 amount=row.amount,
                 tds_amount=row.tds_amount,
                 tds_section=row.tds_section,
-                cash_amount=row.amount - row.tds_amount,
+                rounding_amount=row.rounding_amount,
+                bank_charges_amount=row.bank_charges_amount,
+                discount_amount=row.discount_amount,
+                cash_amount=(
+                    row.amount
+                    - row.tds_amount
+                    - row.rounding_amount
+                    - row.bank_charges_amount
+                    - row.discount_amount
+                ),
                 allocated_amount=row.allocated_amount,
                 unallocated_amount=row.unallocated_amount,
                 sales_order_id=row.sales_order_id,
@@ -273,6 +290,94 @@ def receipt_parties(
         page=page,
         page_size=page_size,
     )
+
+
+class CollectionRecord(BaseModel):
+    """One day's, salesman's or mode's collections (backlog 67 row 9).
+
+    ``collected`` is what receipts dated in the window settled; ``reversed``
+    what reversals dated in it took back; ``net_collected`` the difference.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    key: str
+    label: str
+    receipts: int
+    collected: Decimal
+    reversals: int
+    reversed: Decimal
+    net_collected: Decimal
+
+
+#: A report opens to whoever may read receipts or holds REPORT_VIEW (D-RPT-4).
+CollectionReportScope = Annotated[
+    ResolvedFirmScope, firm_any_permission_scope("RECEIPT_VIEW", "REPORT_VIEW")
+]
+
+
+def _collections(
+    grouping: str, firm_id: UUID, db: Session, window: ReportWindow
+) -> PaginatedResponse[CollectionRecord]:
+    """Answer the collections by one grouping, one page."""
+    rows = CollectionReportService(db).by(firm_id, grouping, window)
+    return window.respond(
+        [CollectionRecord.model_validate(row, from_attributes=True) for row in rows]
+    )
+
+
+@receipts_router.get(
+    "/reports/collections-by-day",
+    response_model=PaginatedResponse[CollectionRecord],
+)
+def collections_by_day(
+    scope: CollectionReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[CollectionRecord]:
+    """Money received from customers each day, reversals netted (67 row 9)."""
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return _collections("day", scope.firm_id, db, window)
+
+
+@receipts_router.get(
+    "/reports/collections-by-salesman",
+    response_model=PaginatedResponse[CollectionRecord],
+)
+def collections_by_salesman(
+    scope: CollectionReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[CollectionRecord]:
+    """Money received by the salesman of the bill it cleared (67 row 9).
+
+    What cleared no bill is *On account*.
+    """
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return _collections("salesman", scope.firm_id, db, window)
+
+
+@receipts_router.get(
+    "/reports/collections-by-mode",
+    response_model=PaginatedResponse[CollectionRecord],
+)
+def collections_by_mode(
+    scope: CollectionReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[CollectionRecord]:
+    """Money received by mode, cash or bank, reversals netted (67 row 9)."""
+    window = ReportWindow(from_date, to_date, page, page_size)
+    return _collections("method", scope.firm_id, db, window)
 
 
 @receipts_router.get("/{receipt_id}", response_model=ApiResponse[SettlementResponse])

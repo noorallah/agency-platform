@@ -221,6 +221,11 @@ class SalesInvoiceCreate(SalesInvoiceSchema):
     route_id: UUID | None = None
     invoice_date: date
     customer_invoice_number: str | None = Field(default=None, max_length=120)
+    #: Where the goods went (backlog 67 row 3). None inherits the ship-to of
+    #: the delivery notes billed -- or the order a counter bill raises -- and
+    #: falls back to the customer's default shipping address. On an update,
+    #: leaving it out keeps the bill's own.
+    shipping_address_id: UUID | None = None
     currency_code: str | None = Field(default=None, max_length=10)
     exchange_rate: Decimal | None = Field(
         default=None, gt=0, max_digits=18, decimal_places=6
@@ -449,6 +454,8 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     customer_invoice_number: str | None
     #: The state the supply was made in, fixed when the invoice was raised.
     place_of_supply: str | None = None
+    #: The ship-to address the bill names, inherited from what it bills.
+    shipping_address_id: UUID | None = None
     currency_code: str | None
     exchange_rate: Decimal | None
     payment_terms: str | None

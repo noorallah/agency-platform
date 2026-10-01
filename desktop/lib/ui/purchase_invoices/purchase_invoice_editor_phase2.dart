@@ -1032,8 +1032,8 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
           documentMoney(companion.lastPrice),
         ),
         DocumentSideNote(
-          '${companion.lastInvoiceNumber} on '
-          '${_dayOf(companion.lastInvoiceDate)}',
+          documentLastBilled(companion.lastInvoiceNumber,
+              companion.lastInvoiceDate, companion.lastDiscountPercent),
         ),
       ],
       ...documentTaxLines(
@@ -1113,8 +1113,8 @@ extension _Phase2PurchaseInvoiceEditor on _PurchaseInvoiceEditorDialogState {
             documentMoney(companion.lastPrice),
           ),
           DocumentSideNote(
-            '${companion.lastInvoiceNumber} on '
-            '${_dayOf(companion.lastInvoiceDate)}',
+            documentLastBilled(companion.lastInvoiceNumber,
+                companion.lastInvoiceDate, companion.lastDiscountPercent),
           ),
         ],
         ...documentTaxLines(

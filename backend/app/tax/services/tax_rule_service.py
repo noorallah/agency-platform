@@ -79,15 +79,20 @@ class TaxRuleService:
         finally:
             self._staged = False
 
-    def place_of_supply(self, customer_id: UUID | None) -> str | None:
+    def place_of_supply(
+        self, customer_id: UUID | None, *, shipping_address_id: UUID | None = None
+    ) -> str | None:
         """Return the place of supply an outward document prints.
 
         The same answer ``outward_transaction_type`` charges by, so the print
-        and the tax cannot name different states (D-CMP-15).
+        and the tax cannot name different states (D-CMP-15). The document's
+        ship-to places an unregistered buyer's supply (backlog 67 row 3).
         """
         if self._supply is None:
             self._supply = SupplyPlaceResolver(self._session)
-        return self._supply.place_of_supply(customer_id)
+        return self._supply.place_of_supply(
+            customer_id, shipping_address_id=shipping_address_id
+        )
 
     def outward_transaction_type(
         self,
@@ -96,6 +101,7 @@ class TaxRuleService:
         firm_id: UUID,
         branch_id: UUID | None,
         customer_id: UUID | None,
+        shipping_address_id: UUID | None = None,
     ) -> str:
         """Return the type an outward document's line is priced as.
 
@@ -111,6 +117,7 @@ class TaxRuleService:
             firm_id=firm_id,
             branch_id=branch_id,
             customer_id=customer_id,
+            shipping_address_id=shipping_address_id,
         )
 
     def inward_transaction_type(

@@ -762,6 +762,16 @@ class _PurchaseInvoiceManagementPageState
   Future<void> _openInvoice(_PurchaseInvoiceRecord record) async {
     await _selectInvoice(record);
     if (!mounted) return;
+    // Backlog 65 row 5: where this bill charges a rate other than its
+    // receipt's. Null when it could not be asked, so the panel never claims
+    // "no variance" for a read that failed.
+    List<Json>? variance;
+    try {
+      variance = await widget.api.purchaseInvoicePriceVariance(record.id);
+    } on ApiException {
+      variance = null;
+    }
+    if (!mounted) return;
     await showDialog<void>(
       context: context,
       builder: (_) => DocumentViewDialog(
@@ -788,8 +798,43 @@ class _PurchaseInvoiceManagementPageState
         ],
         totals: record.toTotals(),
         history: _history,
+        extra: variance == null ? null : _variancePanel(context, variance),
       ),
     );
+  }
+
+  /// The bill's price variance: each line charged at a rate other than its
+  /// receipt's, with both rates and what the difference comes to.
+  Widget _variancePanel(BuildContext context, List<Json> rows) {
+    final ThemeData theme = Theme.of(context);
+    return Column(
+      key: const ValueKey('purchase-invoice-price-variance'),
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: [
+        Text('Price variance', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 4),
+        if (rows.isEmpty)
+          Text(
+            'Every line is charged at its receipt’s rate.',
+            style: theme.textTheme.bodySmall,
+          )
+        else
+          for (final Json row in rows)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 2),
+              child: Text(_varianceLine(row),
+                  style: theme.textTheme.bodySmall),
+            ),
+      ],
+    );
+  }
+
+  static String _varianceLine(Json row) {
+    final String note = stringValue(row['note']);
+    final String head = 'Line ${row['line_number']} · ${row['product_name']}: '
+        'received at ${row['receipt_rate']}, billed at ${row['bill_rate']} '
+        '× ${row['quantity']}';
+    return note.isNotEmpty ? '$head — $note' : '$head = ${row['variance']}';
   }
 
   Future<void> _act(String suffix) async {

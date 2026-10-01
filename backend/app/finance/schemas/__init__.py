@@ -570,6 +570,8 @@ class TrialBalanceReport(FinanceSchema):
     """
 
     accounting_period_id: UUID
+    #: The last month of a run of months (backlog 50); None for one month.
+    to_period_id: UUID | None = None
     generated_at: datetime
     lines: list[TrialBalanceLine]
     total_opening_debit: Decimal
@@ -608,6 +610,8 @@ class GeneralLedgerReport(FinanceSchema):
     account_name: str
     account_type: AccountTypeEnum
     accounting_period_id: UUID
+    #: The last month of a run of months (backlog 50); None for one month.
+    to_period_id: UUID | None = None
     opening_balance: Decimal
     total_debit: Decimal
     total_credit: Decimal
@@ -842,8 +846,82 @@ class TdsRegisterRecord(BaseModel):
     status: str
 
 
+class Tds26qDeducteeRecord(BaseModel):
+    """One deduction as Annexure I of Form 26Q states it (backlog 53.1)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    serial: int
+    section: str
+    section_name: str
+    #: ``01`` a company, ``02`` anybody else; blank where there is no PAN.
+    deductee_code: str
+    #: ``PANNOTAVBL`` where the deductee gave none, as the return spells it.
+    pan: str
+    party_name: str
+    party_code: str | None
+    payment_date: date
+    amount_paid: Decimal
+    tds_amount: Decimal
+    rate_percent: Decimal
+    #: ``C`` where no PAN was given: deducted at the higher rate.
+    higher_rate_reason: str
+    document_type: str
+    document_number: str
+
+
+class DayBookRecord(BaseModel):
+    """One journal of the day book (backlog 55 M9)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    journal_entry_id: UUID
+    journal_date: date
+    #: The voucher: a posting journal is referenced by its document's number.
+    voucher: str
+    voucher_type: str
+    #: What raised it, in words: *Sales invoice*, *Settlements*, *Journal*.
+    source: str
+    source_module: str | None
+    source_id: UUID | None
+    narration: str | None
+    debit: Decimal
+    credit: Decimal
+    status: str
+
+
+class MoneyBookRecord(BaseModel):
+    """One line of the cash or bank book, or its opening or closing (M9).
+
+    ``row_type`` is OPENING, ENTRY or CLOSING. ``balance`` is the book's
+    balance after the line, computed in date order; ``receipt`` is money in
+    (a debit to the account), ``payment`` money out.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    row_type: str
+    date: date | None
+    voucher: str
+    source: str
+    #: The other side of the journal -- the account the money came from or
+    #: went to.
+    particulars: str
+    account: str
+    narration: str | None
+    receipt: Decimal | None
+    payment: Decimal | None
+    balance: Decimal
+    journal_entry_id: UUID | None
+    source_module: str | None
+    source_id: UUID | None
+
+
 __all__ = [
     "AccountGroupCreate",
+    "DayBookRecord",
+    "MoneyBookRecord",
+    "Tds26qDeducteeRecord",
     "ProfitLossRangeLine",
     "ProfitLossRangeMonth",
     "ProfitLossRangeReport",

@@ -8,6 +8,7 @@ from sqlalchemy import (
     Boolean,
     ForeignKey,
     Index,
+    Integer,
     String,
     Text,
     UniqueConstraint,
@@ -138,6 +139,23 @@ class Vendor(BaseEntity):
     )
     gstin: Mapped[str | None] = mapped_column(String(32))
     pan: Mapped[str | None] = mapped_column(String(32))
+    #: Why the supplier is BLOCKED (backlog 69 row 4); NULL otherwise.
+    blocked_reason: Mapped[str | None] = mapped_column(Text)
+    #: Days of credit the supplier gives; a bill's due date defaults from it
+    #: (backlog 68 row 1), as a customer's terms default a sales bill's.
+    payment_terms_days: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    #: The supplier's Udyam registration (UDYAM-XX-00-0000000) and category.
+    #: A MICRO or SMALL supplier must be paid within 45 days with a written
+    #: agreement, 15 without one, or the expense is disallowed at year end
+    #: (Income Tax s.43B(h), MSMED Act s.15; backlog 68 row 2). MEDIUM is
+    #: recorded but outside the rule.
+    udyam_number: Mapped[str | None] = mapped_column(String(30))
+    msme_category: Mapped[str | None] = mapped_column(String(10))
+    msme_written_agreement: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
     license_number: Mapped[str | None] = mapped_column(String(64))
     registration_number: Mapped[str | None] = mapped_column(String(64))
     website: Mapped[str | None] = mapped_column(String(500))

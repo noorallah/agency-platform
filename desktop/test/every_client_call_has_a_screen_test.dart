@@ -53,7 +53,6 @@ const Map<String, String> _accepted = <String, String>{
       'an ETag on the record',
   'lotRecord': 'as batchRecord',
   'serialRecord': 'as batchRecord',
-  'journalEntry': 'as batchRecord',
   'beatPlan': 'as batchRecord',
   'einvoiceRegistration': 'as batchRecord; the registrations list carries the '
       'reference, the mode and the failure reason already',

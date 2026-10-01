@@ -3,11 +3,16 @@
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.batch_serial.schemas import PickedSerial
+from app.core.validation.common import normalize_gstin
+
+#: How goods can travel, as an e-way bill names it.
+TransportModeValue = Literal["ROAD", "RAIL", "AIR", "SHIP"]
 
 
 class DeliveryNoteSchema(BaseModel):
@@ -95,8 +100,20 @@ class DeliveryNoteCreate(DeliveryNoteSchema):
 
     sales_order_id: UUID
     delivery_date: date
+    #: Where this dispatch goes (backlog 67 row 3). None inherits the order's
+    #: ship-to; a note may name another of the customer's addresses when a
+    #: part goes elsewhere. On an update, leaving it out keeps the note's own.
+    shipping_address_id: UUID | None = None
     vehicle: str | None = Field(default=None, max_length=120)
     driver: str | None = Field(default=None, max_length=120)
+    #: How the goods travel (backlog 67 row 5). On an update, leaving any of
+    #: these out keeps the note's own.
+    transporter_name: str | None = Field(default=None, max_length=200)
+    transporter_gstin: str | None = Field(default=None, max_length=20)
+    transport_mode: TransportModeValue | None = None
+    lr_number: str | None = Field(default=None, max_length=60)
+    lr_date: date | None = None
+    distance_km: int | None = Field(default=None, ge=0, le=4000)
     remarks: str | None = None
     additional_charges: Decimal = Field(
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
@@ -133,6 +150,51 @@ class DeliveryNoteCreate(DeliveryNoteSchema):
             return None
         token = value.strip().upper()
         return token or None
+
+    @field_validator("transporter_gstin", mode="before")
+    @classmethod
+    def _normalize_transporter_gstin(cls, value: str | None) -> str | None:
+        """Refuse a transporter GSTIN that is not the shape of one."""
+        return normalize_gstin(value)
+
+    @field_validator("transport_mode", mode="before")
+    @classmethod
+    def _normalize_mode(cls, value: str | None) -> str | None:
+        """Accept the mode in any case; a blank is no mode."""
+        if value is None:
+            return None
+        token = value.strip().upper()
+        return token or None
+
+
+class DeliveryProofAttachmentWrite(DeliveryNoteSchema):
+    """The photo or signed copy a proof of delivery carries."""
+
+    file_name: str = Field(min_length=1, max_length=260)
+    mime_type: str | None = Field(default=None, max_length=120)
+    file_path: str = Field(min_length=1, max_length=1024)
+
+
+class DeliveryProofWrite(DeliveryNoteSchema):
+    """Record that the customer received a dispatched note (backlog 67 row 6)."""
+
+    #: When the goods were received, as the proof says. A naive value is
+    #: read as UTC, like every timestamp here.
+    delivered_at: datetime
+    received_by: str = Field(min_length=1, max_length=120)
+    remarks: str | None = None
+    #: A photo of the signed challan or the signature itself, kept with the
+    #: note's attachments as ``PROOF_OF_DELIVERY``.
+    attachment: DeliveryProofAttachmentWrite | None = None
+
+    @field_validator("received_by")
+    @classmethod
+    def _named(cls, value: str) -> str:
+        """Refuse a name that is only spaces."""
+        token = value.strip()
+        if not token:
+            raise ValueError("Name who received the goods.")
+        return token
 
 
 class DeliveryNoteUpdate(DeliveryNoteCreate):
@@ -251,8 +313,17 @@ class DeliveryNoteResponse(DeliveryNoteSchema):
     delivery_note_number: str
     delivery_date: date
     sales_order_reference: str
+    #: The ship-to address the note names, inherited from the order.
+    shipping_address_id: UUID | None = None
     vehicle: str | None
     driver: str | None
+    #: How the goods travel (backlog 67 row 5).
+    transporter_name: str | None = None
+    transporter_gstin: str | None = None
+    transport_mode: str | None = None
+    lr_number: str | None = None
+    lr_date: date | None = None
+    distance_km: int | None = None
     remarks: str | None
     status: DeliveryNoteStatus
     total_ordered_quantity: Decimal
@@ -278,6 +349,12 @@ class DeliveryNoteResponse(DeliveryNoteSchema):
     closed_at: datetime | None
     cancel_reason: str | None
     close_reason: str | None
+    #: Proof of delivery (backlog 67 row 6): a flag beside the status.
+    is_delivered: bool = False
+    delivered_at: datetime | None = None
+    delivery_received_by: str | None = None
+    delivery_remarks: str | None = None
+    delivery_recorded_at: datetime | None = None
     is_deleted: bool
     created_at: datetime
     updated_at: datetime
@@ -297,6 +374,8 @@ class DeliveryNoteListFilters(DeliveryNoteSchema):
     status: DeliveryNoteStatus | None = None
     delivery_from: date | None = None
     delivery_to: date | None = None
+    #: Only notes whose goods have left with no proof of delivery yet.
+    awaiting_delivery_proof: bool = False
     include_deleted: bool = False
 
 
@@ -313,6 +392,8 @@ class DeliveryNoteSummary(DeliveryNoteSchema):
     total_value: Decimal
     pending_orders: int
     partial_orders: int
+    #: Dispatched or completed, with no proof of delivery (67 row 6).
+    awaiting_delivery_proof: int = 0
 
 
 class DeliveryNoteRegisterRecord(DeliveryNoteSchema):

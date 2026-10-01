@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/entities.dart';
+import 'package:agency_desktop/models/finance.dart';
 import 'package:agency_desktop/models/report.dart';
 import 'package:agency_desktop/ui/reports/report_catalog.dart';
 import 'package:agency_desktop/ui/reports/reports_workspace.dart';
@@ -51,6 +52,42 @@ class _ReportApi extends ApiClient {
     queries.add(query);
     rowsKeys.add(rowsKey);
     return ReportPage(rows: rows, total: total);
+  }
+
+  /// Every journal opened from a row (55 M9).
+  final List<String> journalsOpened = [];
+
+  @override
+  Future<JournalEntry> journalEntry(String id) async {
+    journalsOpened.add(id);
+    return JournalEntry.fromJson({
+      'id': id,
+      'reference_number': 'SI-7',
+      'journal_date': '2026-05-05',
+      'status': 'POSTED',
+      'lines': const [],
+    });
+  }
+
+  @override
+  Future<PagedResult<LedgerAccount>> ledgerAccounts({
+    String? accountGroupId,
+    bool? isActive,
+    bool openToHandJournals = false,
+  }) async =>
+      const PagedResult(items: [], total: 0);
+
+  /// Every Form 26Q file asked for, as `year Qn format`.
+  final List<String> files = [];
+
+  @override
+  Future<List<int>> tds26qFile({
+    required String financialYear,
+    required String quarter,
+    String format = 'xlsx',
+  }) async {
+    files.add('$financialYear $quarter $format');
+    return const [1, 2, 3];
   }
 }
 
@@ -231,6 +268,10 @@ void main() {
       await _pump(tester, api, tabId: 'financial');
       await tester.scrollUntilVisible(find.text('Stock valuation'), 200,
           scrollable: find.byType(Scrollable).first);
+      // The financial list keeps growing; bring the entry fully into view
+      // rather than tapping wherever the scroll happened to leave it.
+      await tester.ensureVisible(find.text('Stock valuation'));
+      await tester.pumpAndSettle();
       await tester.tap(find.text('Stock valuation'));
       await tester.pumpAndSettle();
 
@@ -507,5 +548,312 @@ void main() {
     expect(find.text('1,12,050.42'), findsOneWidget);
     expect(find.text('false'), findsNothing);
     expect(tester.takeException(), isNull);
+  });
+
+  group('the day book and the cash and bank books (55 M9)', () {
+    Future<void> pumpBook(
+        WidgetTester tester, _ReportApi api, String view) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Phase2Scope(
+            child: ListViewRequestScope(
+              request:
+                  ListViewRequest(path: 'reports/financial', view: view, serial: 1),
+              child: ReportsWorkspace(
+                api: api,
+                permissions:
+                    _permissionsFor(const ['JOURNAL_VIEW', 'LEDGER_VIEW']),
+                hasActiveFirm: true,
+                tabId: 'financial',
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+    }
+
+    test('each is listed under Financial, dated, and opens its journal', () {
+      for (final String id in ['day-book', 'cash-book', 'bank-book']) {
+        final ReportDefinition report =
+            reportCatalog.singleWhere((report) => report.id == id);
+        expect(report.area, ReportArea.financial, reason: id);
+        expect(report.needsPeriod, isTrue, reason: id);
+        expect(report.drill, ReportDrill.journal, reason: id);
+      }
+    });
+
+    testWidgets('double-clicking a day book voucher shows its journal',
+        (tester) async {
+      final _ReportApi api = _ReportApi(rows: [
+        {
+          'journal_entry_id': 'je-7',
+          'journal_date': '2026-05-05',
+          'voucher': 'SI-7',
+          'voucher_type': 'Sales',
+          'source': 'Sales invoice',
+          'narration': 'Sales invoice SI-7',
+          'debit': '118.00',
+          'credit': '118.00',
+          'status': 'POSTED',
+        },
+      ]);
+      await pumpBook(tester, api, 'day-book');
+      expect(api.requested.last, '/api/v1/finance/reports/day-book');
+      await tester.tap(find.text('SI-7'));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.text('SI-7'));
+      await tester.pumpAndSettle();
+      expect(api.journalsOpened, ['je-7']);
+      expect(find.byType(Dialog), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+
+    testWidgets('an opening balance row opens nothing', (tester) async {
+      final _ReportApi api = _ReportApi(rows: [
+        {
+          'row_type': 'OPENING',
+          'date': '2026-05-01',
+          'voucher': '',
+          'particulars': 'Opening balance',
+          'balance': '50.00',
+          'journal_entry_id': null,
+        },
+      ]);
+      await pumpBook(tester, api, 'cash-book');
+      expect(api.requested.last, '/api/v1/finance/reports/cash-book');
+      await tester.tap(find.text('Opening balance'));
+      await tester.pump(const Duration(milliseconds: 50));
+      await tester.tap(find.text('Opening balance'));
+      await tester.pumpAndSettle();
+      expect(api.journalsOpened, isEmpty);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('discount given and collections (67 rows 8 and 9)', () {
+    test('discounts are operational, collections financial, all dated', () {
+      const Map<String, ReportArea> expected = {
+        'discount-by-customer': ReportArea.operational,
+        'discount-by-salesman': ReportArea.operational,
+        'discount-by-product': ReportArea.operational,
+        'discount-by-promotion': ReportArea.operational,
+        'collections-by-day': ReportArea.financial,
+        'collections-by-salesman': ReportArea.financial,
+        'collections-by-mode': ReportArea.financial,
+      };
+      for (final MapEntry<String, ReportArea> entry in expected.entries) {
+        final ReportDefinition report =
+            reportCatalog.singleWhere((report) => report.id == entry.key);
+        expect(report.area, entry.value, reason: entry.key);
+        expect(report.needsPeriod, isTrue, reason: entry.key);
+        expect(report.columns, isNotEmpty, reason: entry.key);
+      }
+      final ReportDefinition byCustomer = reportCatalog
+          .singleWhere((report) => report.id == 'discount-by-customer');
+      expect(byCustomer.columns.map((column) => column.key),
+          containsAll(['typed_discount', 'arranged_discount']));
+    });
+
+    testWidgets('collections by salesman name their first column',
+        (tester) async {
+      final _ReportApi api = _ReportApi(rows: [
+        {
+          'key': 'On account',
+          'label': 'On account',
+          'receipts': 1,
+          'collected': '100.00',
+          'reversals': 0,
+          'reversed': '0.00',
+          'net_collected': '100.00',
+        },
+      ]);
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Phase2Scope(
+            child: ListViewRequestScope(
+              request: const ListViewRequest(
+                path: 'reports/financial',
+                view: 'collections-by-salesman',
+                serial: 1,
+              ),
+              child: ReportsWorkspace(
+                api: api,
+                permissions: _permissionsFor(const ['RECEIPT_VIEW']),
+                hasActiveFirm: true,
+                tabId: 'financial',
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(api.requested.last,
+          '/api/v1/receipts/reports/collections-by-salesman');
+      expect(find.text('Salesman'), findsWidgets);
+      expect(find.text('On account'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('stock ageing, slow and dead stock, vendor ageing (55 S7)', () {
+    test('each is catalogued with its columns', () {
+      for (final String id in [
+        'stock-ageing',
+        'slow-moving',
+        'dead-stock',
+        'vendor-ageing',
+      ]) {
+        final ReportDefinition report =
+            reportCatalog.singleWhere((report) => report.id == id);
+        expect(report.columns, isNotEmpty, reason: id);
+      }
+      expect(
+          reportCatalog.singleWhere((r) => r.id == 'slow-moving').days, 90);
+      expect(
+          reportCatalog.singleWhere((r) => r.id == 'dead-stock').days, 180);
+      expect(
+          reportCatalog.singleWhere((r) => r.id == 'vendor-ageing').needsPeriod,
+          isFalse,
+          reason: 'an ageing is as on today, not over a period');
+    });
+
+    testWidgets('dead stock asks for a day and a number of days',
+        (tester) async {
+      final _ReportApi api = _ReportApi(rows: [
+        {
+          'product_code': 'P-9',
+          'product_name': 'Old stock',
+          'quantity': '4',
+          'value': '40.00',
+        },
+      ]);
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Phase2Scope(
+            child: ListViewRequestScope(
+              request: const ListViewRequest(
+                path: 'reports/operational',
+                view: 'dead-stock',
+                serial: 1,
+              ),
+              child: ReportsWorkspace(
+                api: api,
+                permissions: _permissionsFor(const ['INVENTORY_VIEW']),
+                hasActiveFirm: true,
+                tabId: 'operational',
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(api.requested.last, '/api/v1/inventory/reports/dead-stock');
+      expect(api.queries.last!['days'], '180');
+      expect(find.byKey(const ValueKey<String>('report-from')), findsNothing);
+      expect(find.byKey(const ValueKey<String>('report-days')), findsOneWidget);
+
+      await tester.enterText(
+          find.byKey(const ValueKey<String>('report-days')), '60');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      expect(api.queries.last!['days'], '60');
+      expect(find.text('P-9'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  });
+
+  group('the quarterly TDS return (53.1)', () {
+    test('a screen opens on the last quarter that has ended', () {
+      expect(lastEndedReturnQuarter(DateTime(2026, 10, 1)), ('2026-27', 2));
+      expect(lastEndedReturnQuarter(DateTime(2026, 7, 15)), ('2026-27', 1));
+      // April to June is Q1, so in May the quarter that ended is last
+      // year's Q4.
+      expect(lastEndedReturnQuarter(DateTime(2026, 5, 2)), ('2025-26', 4));
+      expect(lastEndedReturnQuarter(DateTime(2027, 2, 28)), ('2026-27', 3));
+    });
+
+    testWidgets('26Q asks for a year and a quarter, and downloads the file',
+        (tester) async {
+      tester.view.physicalSize = const Size(1600, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final _ReportApi api = _ReportApi(rows: [
+        {
+          'serial': 1,
+          'section': '194Q',
+          'deductee_code': '01',
+          'pan': 'AAACP1234C',
+          'party_name': 'Principal Ltd',
+          'payment_date': '2026-05-10',
+          'amount_paid': '100000.00',
+          'tds_amount': '100.00',
+          'rate_percent': '0.1000',
+          'higher_rate_reason': '',
+          'document_number': 'PAY-1',
+        },
+      ]);
+      final List<String> saved = [];
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Phase2Scope(
+            child: ListViewRequestScope(
+              request: const ListViewRequest(
+                path: 'reports/financial',
+                view: 'tds-26q',
+                serial: 1,
+              ),
+              child: ReportsWorkspace(
+                api: api,
+                permissions: _permissionsFor(const ['ACCOUNT_VIEW']),
+                hasActiveFirm: true,
+                tabId: 'financial',
+                saveFile: (name, bytes) async {
+                  saved.add('$name ${bytes.length}');
+                  return 'C:/out/$name';
+                },
+              ),
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      expect(api.requested.last, '/api/v1/finance/reports/tds-26q');
+      final Map<String, String> query = api.queries.last!;
+      expect(query.keys, containsAll(['financial_year', 'quarter', 'page']));
+      expect(query.containsKey('from_date'), isFalse,
+          reason: 'a return is one quarter, never a span of dates');
+      expect(query['quarter'], matches(RegExp(r'^Q[1-4]$')));
+      expect(find.byKey(const ValueKey<String>('report-financial-year')),
+          findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('report-quarter')),
+          findsOneWidget);
+      expect(find.text('AAACP1234C'), findsOneWidget);
+
+      await tester.enterText(
+          find.byKey(const ValueKey<String>('report-financial-year')),
+          '2026-27');
+      await tester.tap(find.byKey(const ValueKey<String>('report-quarter')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Q1 Apr-Jun').last);
+      await tester.pumpAndSettle();
+      expect(api.queries.last!['quarter'], 'Q1');
+      expect(api.queries.last!['financial_year'], '2026-27');
+
+      await tester.tap(find.byKey(const ValueKey<String>('report-download')));
+      await tester.pumpAndSettle();
+      expect(api.files, ['2026-27 Q1 xlsx']);
+      expect(saved, ['26Q-2026-27-Q1.xlsx 3']);
+      expect(tester.takeException(), isNull);
+    });
   });
 }

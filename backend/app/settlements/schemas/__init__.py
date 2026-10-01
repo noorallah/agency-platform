@@ -77,6 +77,22 @@ class SettlementCreate(SettlementSchema):
     )
     #: The section the deduction is filed under, e.g. ``194Q``.
     tds_section: str | None = Field(default=None, max_length=10)
+    #: What settled the bills without moving as money (backlog 74 row 2),
+    #: each out of ``amount`` like TDS: a few rupees short or rounded off,
+    #: bank charges a customer's bank took (receipts only), and a discount
+    #: allowed on a receipt or received on a payment. Blank or 0 means none.
+    #: They must be allocated: together they cannot exceed what the
+    #: allocations clear, since a discount on money held on account settles
+    #: nothing.
+    rounding_amount: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=2
+    )
+    bank_charges_amount: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=2
+    )
+    discount_amount: Decimal | None = Field(
+        default=None, ge=0, max_digits=18, decimal_places=2
+    )
 
     @model_validator(mode="after")
     def _tds_can_be_filed(self) -> "SettlementCreate":
@@ -84,6 +100,26 @@ class SettlementCreate(SettlementSchema):
         if self.tds_section is not None:
             self.tds_section = self.tds_section.strip().upper() or None
         check_tds(self.amount, self.tds_amount, self.tds_section)
+        return self
+
+    @model_validator(mode="after")
+    def _some_money_moved(self) -> "SettlementCreate":
+        """Refuse deductions that, with TDS, leave no money moving.
+
+        A balance cleared with no money at all is a party adjustment -- a
+        write-off or a set-off -- with its own approval, not a receipt.
+        """
+        taken = (
+            (self.tds_amount or Decimal("0"))
+            + (self.rounding_amount or Decimal("0"))
+            + (self.bank_charges_amount or Decimal("0"))
+            + (self.discount_amount or Decimal("0"))
+        )
+        if taken >= self.amount:
+            raise ValueError(
+                "TDS and deductions must leave some money moving. A balance "
+                "cleared without money is a party adjustment."
+            )
         return self
 
     @model_validator(mode="after")
@@ -135,6 +171,10 @@ class SettlementResponse(SettlementSchema):
     #: through the cash or bank account.
     tds_amount: Decimal = Decimal("0")
     tds_section: str | None = None
+    #: What settled the bills without moving as money (backlog 74 row 2).
+    rounding_amount: Decimal = Decimal("0")
+    bank_charges_amount: Decimal = Decimal("0")
+    discount_amount: Decimal = Decimal("0")
     cash_amount: Decimal | None = None
     method: SettlementMethodEnum
     ledger_account_id: UUID

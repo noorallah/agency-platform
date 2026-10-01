@@ -144,3 +144,88 @@ backfilled, as on the purchase side.
 ## Credit limits warn, and block only if a firm asks
 
 **Credit limits warn, and block only if a firm asks.** `customers.credit_limit` constrained nothing until `20260810_0057`. `CreditControlService` compares it against exposure — `current_outstanding - unapplied_advance + the document being saved` — at sales order and sales invoice approval, the two points where credit is committed. Policy is per firm in `credit_control_settings` (`OFF` / `WARN` / `BLOCK`, with warn and block percentages); a firm with no row warns at 80% and never blocks, and a `credit_limit` of zero means unset rather than no credit, so shipping this stopped nobody trading. `GET /api/v1/customers/{id}/credit-status?amount=` answers the question before a document is saved rather than reporting the breach after, and `GET`/`PUT /api/v1/customers/credit-settings` carries the policy. Writing the policy needs `CUSTOMER_MANAGE_SETTINGS`, deliberately **not** granted to `SALES_MANAGER`: the role the limit constrains must not be able to switch it off. **Moving a customer's `credit_limit` needs the same code** (D-CFG-17): raising it, or setting it to zero, lifts a BLOCK as surely as switching the policy off, so `PUT /customers/{id}` refuses a changed limit by name without it and the desktop shows the field read-only; resending the stored figure is not a change, and a new customer's limit is anyone's to set because every customer otherwise starts with none. The desktop **warns and never blocks**: `warnOnCreditExposure` (`desktop/lib/ui/sales/credit_notice.dart`) runs on Approve for sales orders and sales invoices, before the action so the document is not counted twice, and stays silent when `would_block` is true because the server's refusal already carries the same sentence. A client that blocked on its own would enforce a rule the firm may not have chosen and could be bypassed by any other client. The policy itself is edited from the Settings action on the customers workspace (`credit_settings_dialog.dart`), which is readable with `CUSTOMER_VIEW` — someone the policy warns should see the rule behind the warning — and writable only with `CUSTOMER_MANAGE_SETTINGS`.
+
+## Where the goods go: the ship-to is chosen on the order and inherited
+
+Backlog 67 row 3, 2026-10-01. A customer keeps several addresses, and until
+then every order, note and bill printed the customer's one default shipping
+address whatever the buyer asked for. Now `shipping_address_id` sits on the
+order, the delivery note and the invoice:
+
+- **The order names it**, the customer's default shipping address preselected
+  (then any SHIPPING address). None means "the default", never "nowhere".
+- **The note inherits the order's**, and the bill inherits the ship-to of the
+  notes it bills when they agree. Either may name another of the customer's
+  addresses; notes that went to different places leave the bill to the
+  customer's default unless a person names one, since a bill prints one
+  ship-to. A counter bill hands its ship-to to the order and note the chain
+  raises for it, so all three agree.
+- **It must be the customer's own live address**
+  (`app/customers/services/ship_to.py`); on an update, leaving it out keeps the
+  document's own. The challan and the tax invoice print it.
+- **Place of supply.** Goods are supplied where their movement ends (IGST Act
+  s.10(1)(a)), so for an **unregistered** buyer the ship-to's state is the
+  place of supply and decides CGST + SGST against IGST. A **registered** buyer
+  keeps its GSTIN's state: shipping to an address the buyer names is
+  bill-to-ship-to, s.10(1)(b), supplied at the bill-to person's principal
+  place of business -- which is also the only state the buyer's input credit
+  can follow. SEZ and OVERSEAS buyers are unchanged. The invoice stamps
+  `place_of_supply` as before, now from the same answer
+  (`app/tax/services/place_of_supply.py`).
+
+## Payment terms are agreed on the order and the bill inherits them
+
+Backlog 67 row 4, 2026-10-01. `sales_orders.payment_terms` (the words) and
+`payment_terms_days` (the days of credit). A new order takes the customer's
+days unless it names its own -- 0 is an answer, payment on the bill -- and a
+converted quotation brings its words. On an update, leaving either out keeps
+the order's own.
+
+The invoice inherits rather than re-reading the customer, which is the same
+rule as prices and discounts: a deal struck at 7 days stays 7 days when the
+bill is raised, however the customer master has moved since. A bill that
+leaves `due_date` blank falls due on the orders' days (several orders: the
+earliest -- the stricter promise is the one made), and one that leaves
+`payment_terms` blank takes the first order's words. A typed date always
+wins. A counter bill is unchanged: the order the chain raises for it takes the
+customer's days, so it falls due exactly as it did before.
+
+## The delivery note records how the goods travel
+
+Backlog 67 row 5, 2026-10-01. Beside the vehicle and driver, a note carries
+`transporter_name`, `transporter_gstin` (format-checked by `normalize_gstin`
+in `app/core/validation/common.py`; a TRANSIN has the same shape),
+`transport_mode` (ROAD / RAIL / AIR / SHIP), `lr_number` / `lr_date` (the
+lorry receipt or docket) and `distance_km` -- what Part B of an e-way bill
+asks for. On an update, leaving any out keeps the note's own. They are not
+gated on VEHICLE_TRACKING the way vehicle and driver are: every firm that
+moves goods over the e-way bill threshold needs them.
+
+The challan prints them, and an e-way bill raised for an invoice takes
+whatever the person leaves blank -- distance, mode, transporter, vehicle --
+from the latest delivery note the invoice billed, and sends its LR as
+`TransDocNo` / `TransDocDt`. A distance is still required from one or the
+other.
+
+## A note is delivered only with a proof -- and delivered is a flag
+
+Backlog 67 row 6, 2026-10-01. `POST /api/v1/delivery-notes/{id}/proof-of-delivery`
+records when the goods were received (`delivered_at`), who received them,
+remarks and optionally a photo or signature (kept with the note's attachments
+as `PROOF_OF_DELIVERY`). It needs `SALES_UPDATE`: it records what the signed
+paper shows, and the clerk filing it is not the person who approves sales.
+
+**Delivered is a flag beside the status, not a status**, for the reason a
+hold is: DISPATCHED and COMPLETED both mean "the goods left" to billing,
+returns, the order's progress and every report, and a DELIVERED status
+between them would have to be taught to each of those readers without
+changing anything they decide. A note is delivered when `delivered_at` is
+set, and only a proof sets it. Recording a proof on a DISPATCHED note also
+completes it -- the confirmation of receipt that completing always meant; a
+note completed earlier without one is still "not yet delivered". The proof
+cannot predate the note or lie in the future, and may be recorded again to
+correct it (audited as `delivery_note.delivery_corrected`).
+
+The list's `awaiting_delivery_proof=true` filter, and the summary count of
+the same name, are the notes dispatched or completed with no proof yet. A
+list filter rather than a report, so it has no report-catalogue entry.

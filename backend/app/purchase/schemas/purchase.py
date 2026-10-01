@@ -3,6 +3,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -311,6 +312,9 @@ class PurchaseOrderResponse(PurchaseSchema):
     grand_total: Decimal
     close_reason: str | None
     cancel_reason: str | None
+    sent_at: datetime | None = None
+    sent_via: str | None = None
+    sent_by: UUID | None = None
     is_deleted: bool
     created_at: datetime
     updated_at: datetime
@@ -334,6 +338,15 @@ class PurchaseOrderListFilters(PurchaseSchema):
     created_from: date | None = None
     created_to: date | None = None
     include_deleted: bool = False
+    #: True lists orders sent to the supplier, False those approved and never
+    #: sent (backlog 69 row 6); None both.
+    sent: bool | None = None
+
+
+class PurchaseOrderSentRequest(PurchaseSchema):
+    """How an approved order reached the supplier (backlog 69 row 6)."""
+
+    via: Literal["EMAIL", "PRINT", "WHATSAPP", "OTHER"]
 
 
 class PurchaseSummary(PurchaseSchema):

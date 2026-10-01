@@ -616,8 +616,11 @@ class _EWayBillDialogState extends State<EWayBillDialog>
   }
 
   void _submit() {
-    final double? distance = double.tryParse(_distance.text.trim());
-    if (distance == null || distance <= 0) {
+    // Optional: blank takes the distance on the delivery note(s) billed, and
+    // the server says so if there is none. Typed, it has to be a distance.
+    final String typed = _distance.text.trim();
+    final double? distance = double.tryParse(typed);
+    if (typed.isNotEmpty && (distance == null || distance <= 0)) {
       setState(() => _error = 'Enter how far the goods travel, in kilometres.');
       return;
     }
@@ -629,7 +632,7 @@ class _EWayBillDialogState extends State<EWayBillDialog>
       return;
     }
     submit<Json>(<String, dynamic>{
-      'distance_km': _distance.text.trim(),
+      if (typed.isNotEmpty) 'distance_km': typed,
       'transport_mode': _mode,
       if (_transporterId.text.trim().isNotEmpty)
         'transporter_id': _transporterId.text.trim(),
@@ -662,7 +665,9 @@ class _EWayBillDialogState extends State<EWayBillDialog>
                 ],
                 decoration: const InputDecoration(
                   labelText: 'Distance (km)',
-                  helperText: 'The authority sets the validity from this.',
+                  helperText: "Blank takes the delivery note's. The "
+                      'authority sets the validity from this.',
+                  helperMaxLines: 2,
                 ),
               ),
               const SizedBox(height: AppSpacing.md),

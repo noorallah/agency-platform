@@ -2789,7 +2789,14 @@ class SalesTerritoryService:
                 return row.user_id
         return rows[0].user_id if len(rows) == 1 else None
 
-    def export_csv(self, *, firm_scope: UUID, search: str | None = None) -> str:
+    def _export_rows(self, *, firm_scope: UUID, search: str | None) -> list[list[str]]:
+        """Return the export as the importer reads it, one list per territory.
+
+        ``CustomerCodes`` is the round's shops in visit order, so an exported
+        file read back through ``import_csv`` keeps them; until 2026-10-01 the
+        export wrote ``Path`` alone and a round trip lost every shop (BACKLOG
+        31.5). Read once for the page of territories, never per row.
+        """
         rows, _ = self.list_territories(
             firm_scope=firm_scope,
             filters=TerritoryListFilters(include_deleted=False),
@@ -2799,7 +2806,6 @@ class SalesTerritoryService:
             sort_by="code",
             descending=False,
         )
-        output = ["Code,Name,Level,ParentCode,Status,Path"]
         id_to_code = {
             item.id: item.code
             for item in self._session.scalars(
@@ -2808,21 +2814,59 @@ class SalesTerritoryService:
                 )
             )
         }
-        for row in rows:
-            parent_code = id_to_code.get(row.parent_id, "") if row.parent_id else ""
-            output.append(
-                ",".join(
-                    [
-                        row.code,
-                        row.name,
-                        row.hierarchy_level_name,
-                        parent_code,
-                        row.status,
-                        row.path,
-                    ]
-                )
+        shops: dict[UUID, list[str]] = {}
+        for territory_id, code in self._session.execute(
+            select(TerritoryCustomerAssignment.territory_id, Customer.code)
+            .join(Customer, Customer.id == TerritoryCustomerAssignment.customer_id)
+            .join(
+                SalesTerritoryNode,
+                SalesTerritoryNode.id == TerritoryCustomerAssignment.territory_id,
             )
-        return "\n".join(output)
+            .where(
+                SalesTerritoryNode.firm_id == firm_scope,
+                TerritoryCustomerAssignment.is_deleted.is_(False),
+                Customer.is_deleted.is_(False),
+            )
+            .order_by(
+                TerritoryCustomerAssignment.territory_id,
+                TerritoryCustomerAssignment.visit_sequence,
+                Customer.code,
+            )
+        ):
+            shops.setdefault(territory_id, []).append(code)
+        return [
+            [
+                row.code,
+                row.name,
+                row.hierarchy_level_name or "",
+                id_to_code.get(row.parent_id, "") if row.parent_id else "",
+                row.status,
+                ",".join(shops.get(row.id, [])),
+                row.path,
+            ]
+            for row in rows
+        ]
+
+    _EXPORT_HEADINGS = [
+        "Code",
+        "Name",
+        "Level",
+        "ParentCode",
+        "Status",
+        "CustomerCodes",
+        "Path",
+    ]
+
+    def export_csv(self, *, firm_scope: UUID, search: str | None = None) -> str:
+        """Write every territory as the importer reads it, quoted properly."""
+        import csv
+        import io
+
+        buffer = io.StringIO()
+        writer = csv.writer(buffer, lineterminator="\n")
+        writer.writerow(self._EXPORT_HEADINGS)
+        writer.writerows(self._export_rows(firm_scope=firm_scope, search=search))
+        return buffer.getvalue().rstrip("\n")
 
     def export_customer_assignments_csv(self, *, firm_scope: UUID) -> str:
         output = ["TerritoryCode,TerritoryName,CustomerId,VisitSequence,Potential"]
@@ -2903,23 +2947,12 @@ class SalesTerritoryService:
             raise ValidationError(
                 "XLSX export dependency is unavailable. Install openpyxl."
             ) from error
-        rows, _ = self.list_territories(
-            firm_scope=firm_scope,
-            filters=TerritoryListFilters(include_deleted=False),
-            page=1,
-            page_size=5000,
-            search=search,
-            sort_by="code",
-            descending=False,
-        )
         workbook = Workbook()
         sheet = workbook.active
         sheet.title = "Territories"
-        sheet.append(["Code", "Name", "Level", "Status", "Path"])
-        for row in rows:
-            sheet.append(
-                [row.code, row.name, row.hierarchy_level_name, row.status, row.path]
-            )
+        sheet.append(self._EXPORT_HEADINGS)
+        for values in self._export_rows(firm_scope=firm_scope, search=search):
+            sheet.append(values)
         buffer = BytesIO()
         workbook.save(buffer)
         return buffer.getvalue()

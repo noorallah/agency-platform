@@ -28,7 +28,7 @@ it loadable in one context window. Nothing was cut; each group names its doc.
 | What posts to the ledger, and at what value | `docs/LEDGER_POSTING_RULES.md` |
 | The sales chain and what may be skipped | `docs/SALES_CHAIN_RULES.md` |
 | Commission rules, ladders and payouts | `docs/COMMISSION_FRAMEWORK.md` |
-| Messaging: email, WhatsApp, SMS -- off until the firm enables it (not built; BACKLOG §51) | `docs/MESSAGING_FRAMEWORK.md` |
+| Messaging: email, WhatsApp, SMS -- off until each firm switches it on with its own accounts (built 2026-10-01) | `docs/MESSAGING_FRAMEWORK.md`, `docs/MESSAGING_SETUP_GUIDE.md` |
 | Demo and sample data | `docs/DEMO_DATA.md` |
 | Custom fields / the attribute framework | `docs/CUSTOM_FIELDS_FRAMEWORK.md` |
 | Geography masters | `docs/GEOGRAPHY_MASTERS.md` |
@@ -125,7 +125,7 @@ binary both call. `scripts/` does not reach a customer — a released build is
 compiled and has no interpreter to hand a `.py` to — so **anything an installed
 copy has to do belongs in `app/` and is exposed as a subcommand of
 `app/cli.py`** (`serve`, `create-database`, `migrate-all`, `firm-count`,
-`purge-retention`, `backup`, `where`, `--version`). With no firm registered, `migrate-all`
+`purge-retention`, `messaging-run-once`, `backup`, `where`, `--version`). With no firm registered, `migrate-all`
 migrates and prunes the platform store alone; `firm_shared` is built with the
 first SHARED firm (`docs/TENANCY_AND_STORES.md`). `tests/unit/test_cli_entry_point.py` fails the build when
 a shipped `.ps1` reaches for `-m alembic`, `-m uvicorn` or a script by path

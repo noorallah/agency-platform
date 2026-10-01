@@ -114,7 +114,13 @@ def firm_party(firm_scope: UUID) -> PartyBlock:
         )
 
 
-def customer_party(session: Session, customer_id: UUID, kind: str) -> PartyBlock | None:
+def customer_party(
+    session: Session,
+    customer_id: UUID,
+    kind: str,
+    *,
+    address_id: UUID | None = None,
+) -> PartyBlock | None:
     """Describe a customer as one side of a document.
 
     Args:
@@ -122,6 +128,9 @@ def customer_party(session: Session, customer_id: UUID, kind: str) -> PartyBlock
         customer_id: Whose block to build.
         kind: `BILLING` or `SHIPPING` — the same customer reads differently
             depending on which address the document is speaking to.
+        address_id: The address the document itself names -- its ship-to
+            (backlog 67 row 3). Printed even when deleted since, because it
+            is where the goods went; None reads the customer's own by kind.
 
     Returns:
         The block, or None where the customer has been removed.
@@ -130,15 +139,26 @@ def customer_party(session: Session, customer_id: UUID, kind: str) -> PartyBlock
     customer = session.get(Customer, customer_id)
     if customer is None:
         return None
-    address = session.scalar(
-        select(CustomerAddress)
-        .where(
-            CustomerAddress.customer_id == customer_id,
-            CustomerAddress.address_type == kind,
-            CustomerAddress.is_deleted.is_(False),
+    address = (
+        session.scalar(
+            select(CustomerAddress).where(
+                CustomerAddress.id == address_id,
+                CustomerAddress.customer_id == customer_id,
+            )
         )
-        .limit(1)
+        if address_id is not None
+        else None
     )
+    if address is None:
+        address = session.scalar(
+            select(CustomerAddress)
+            .where(
+                CustomerAddress.customer_id == customer_id,
+                CustomerAddress.address_type == kind,
+                CustomerAddress.is_deleted.is_(False),
+            )
+            .limit(1)
+        )
     lines: list[str] = []
     state: str | None = None
     if address is not None:

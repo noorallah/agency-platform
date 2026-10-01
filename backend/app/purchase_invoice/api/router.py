@@ -42,6 +42,7 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceCreate,
     PurchaseInvoiceImportRequest,
     PurchaseInvoiceListFilters,
+    PurchaseInvoiceMsmeDueRecord,
     PurchaseInvoiceOverdueRecord,
     PurchaseInvoicePreview,
     PurchaseInvoiceReconciliationRecord,
@@ -56,6 +57,7 @@ from app.purchase_invoice.services.price_variance import PriceVarianceService
 from app.purchase_invoice.services.purchase_analysis import (
     PurchaseAnalysisService,
 )
+from app.purchase_invoice.services.vendor_ageing import VendorAgeingService
 from app.sales_invoice.api.router import SalesAnalysisResponse, analysis_response
 
 router = APIRouter(
@@ -525,6 +527,20 @@ def pending_purchase_invoices(
 
 
 @router.get(
+    "/reports/msme-dues",
+    response_model=ApiResponse[list[PurchaseInvoiceMsmeDueRecord]],
+)
+def msme_purchase_invoice_dues(
+    scope: PurchaseInvoiceReportScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PurchaseInvoiceMsmeDueRecord]]:
+    """List unpaid bills to micro and small suppliers against their legal date."""
+    return ApiResponse(
+        data=PurchaseInvoiceService(db).msme_dues_report(firm_scope=scope.firm_id)
+    )
+
+
+@router.get(
     "/reports/overdue",
     response_model=ApiResponse[list[PurchaseInvoiceOverdueRecord]],
 )
@@ -565,6 +581,7 @@ class PriceVarianceRecord(BaseModel):
 
     invoice_date: date
     invoice_number: str
+    line_number: int
     supplier_invoice_number: str
     supplier_name: str
     receipt_number: str
@@ -585,13 +602,20 @@ def purchase_price_variance(
     scope: PurchaseInvoiceReportScope,
     from_date: date | None = None,
     to_date: date | None = None,
+    purchase_invoice_id: UUID | None = None,
     page: Annotated[int, Query(ge=1)] = 1,
     page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[PriceVarianceRecord]:
-    """List bill lines charged at a rate other than the receipt's (65.5)."""
+    """List bill lines charged at a rate other than the receipt's (65.5).
+
+    ``purchase_invoice_id`` narrows it to one bill in any status: the bill's
+    own screen shows the same answer (65 row 5).
+    """
     window = ReportWindow(from_date, to_date, page, page_size)
-    rows = PriceVarianceService(db).report(scope.firm_id, window)
+    rows = PriceVarianceService(db).report(
+        scope.firm_id, window, purchase_invoice_id=purchase_invoice_id
+    )
     return window.respond([PriceVarianceRecord.model_validate(row) for row in rows])
 
 
@@ -606,6 +630,45 @@ def vendor_outstanding_placeholder(
     """Report the balance still owing per vendor."""
     return ApiResponse(
         data=PurchaseInvoiceService(db).outstanding_report(firm_scope=scope.firm_id)
+    )
+
+
+class VendorAgeingRecord(BaseModel):
+    """One supplier's unpaid bills by days past due (backlog 55 S7)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    vendor_id: UUID
+    vendor_code: str
+    vendor_name: str
+    as_of: date
+    bills: int
+    total_outstanding: Decimal
+    days_0_29: Decimal
+    days_30_59: Decimal
+    days_60_89: Decimal
+    days_90_plus: Decimal
+    oldest_days: int
+
+
+@router.get(
+    "/reports/vendor-ageing",
+    response_model=ApiResponse[list[VendorAgeingRecord]],
+)
+def vendor_ageing(
+    scope: PurchaseInvoiceReportScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[VendorAgeingRecord]]:
+    """Report what each supplier is owed, by days past due, today (55 S7).
+
+    The customer ageing's buckets, over what Record Payment says each bill
+    still owes.
+    """
+    return ApiResponse(
+        data=[
+            VendorAgeingRecord.model_validate(row, from_attributes=True)
+            for row in VendorAgeingService(db).ageing(scope.firm_id)
+        ]
     )
 
 

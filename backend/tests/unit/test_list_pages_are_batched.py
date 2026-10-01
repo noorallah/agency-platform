@@ -32,6 +32,9 @@ from sqlalchemy.orm import Session
 from app.branches.models import Branch, Warehouse, WarehouseStorageNode
 from app.business.models import BusinessProfile
 from app.common.scope import ResolvedFirmScope
+from app.contra.api.router import list_contra_vouchers
+from app.contra.models import ContraVoucher
+from app.contra.services import ContraVoucherService
 from app.core.enums import TokenType
 from app.core.pagination import PaginationParams
 from app.core.security.authorization import Principal
@@ -40,6 +43,9 @@ from app.credit_note.api.router import list_credit_notes
 from app.credit_note.models import CreditNote, CreditNoteLine
 from app.credit_note.services import CreditNoteService
 from app.customers.models import Customer
+from app.debit_note.api.router import list_debit_notes
+from app.debit_note.models import DebitNote, DebitNoteLine
+from app.debit_note.services import DebitNoteService
 from app.delivery_note.api.router import list_delivery_notes
 from app.delivery_note.models import (
     DeliveryNote,
@@ -72,6 +78,9 @@ from app.inventory.models import (
     StockLedgerEntry,
 )
 from app.inventory.services import InventoryService
+from app.party_adjustments.api.router import list_party_adjustments
+from app.party_adjustments.models import PartyAdjustment, PartyAdjustmentAllocation
+from app.party_adjustments.services import PartyAdjustmentService
 from app.products.models import Product
 from app.purchase.api.router import list_purchase_orders
 from app.purchase.models import (
@@ -609,6 +618,110 @@ def _seed_credit_notes(session: Session, world: _World, rows: int) -> None:
             )
 
 
+def _seed_debit_notes(session: Session, world: _World, rows: int) -> None:
+    """Debit notes against supplier bills, two lines each."""
+    for index in range(rows):
+        invoice = uuid.uuid4()
+        _add(
+            session,
+            PurchaseInvoice,
+            id=invoice,
+            firm_id=world.firm,
+            vendor_id=_pick(world.vendors, index),
+            status="APPROVED",
+        )
+        note = uuid.uuid4()
+        _add(
+            session,
+            DebitNote,
+            id=note,
+            firm_id=world.firm,
+            vendor_id=_pick(world.vendors, index),
+            purchase_invoice_id=invoice,
+            reason="PRICE_DIFFERENCE",
+            status="DRAFT",
+        )
+        for number in (2, 1):
+            _add(
+                session,
+                DebitNoteLine,
+                debit_note_id=note,
+                firm_id=world.firm,
+                **_line_kwargs(world, index, number),
+            )
+
+
+def _seed_party_adjustments(session: Session, world: _World, rows: int) -> None:
+    """Set-offs clearing one sales and one purchase bill each."""
+    for index in range(rows):
+        sale = uuid.uuid4()
+        bill = uuid.uuid4()
+        _add(
+            session,
+            SalesInvoice,
+            id=sale,
+            firm_id=world.firm,
+            customer_id=_pick(world.customers, index),
+            invoice_number=f"SI-{index}",
+            status="APPROVED",
+        )
+        _add(
+            session,
+            PurchaseInvoice,
+            id=bill,
+            firm_id=world.firm,
+            vendor_id=_pick(world.vendors, index),
+            invoice_number=f"PI-{index}",
+            status="APPROVED",
+        )
+        adjustment = uuid.uuid4()
+        _add(
+            session,
+            PartyAdjustment,
+            id=adjustment,
+            firm_id=world.firm,
+            adjustment_number=f"PA-{index:03d}",
+            kind="SET_OFF",
+            customer_id=_pick(world.customers, index),
+            vendor_id=_pick(world.vendors, index),
+            amount=Decimal("10.00"),
+            reason="Same business",
+            status="DRAFT",
+        )
+        for column, bill_id in (
+            ("sales_invoice_id", sale),
+            ("purchase_invoice_id", bill),
+        ):
+            _add(
+                session,
+                PartyAdjustmentAllocation,
+                firm_id=world.firm,
+                party_adjustment_id=adjustment,
+                amount=Decimal("10.00"),
+                **{column: bill_id},
+            )
+
+
+def _seed_contra_vouchers(session: Session, world: _World, rows: int) -> None:
+    """Deposits from the world's cash into one bank account."""
+    bank = uuid.uuid4()
+    _add(session, LedgerAccount, id=bank, firm_id=world.firm, code="1010", name="Bank")
+    for index in range(rows):
+        _add(
+            session,
+            ContraVoucher,
+            firm_id=world.firm,
+            voucher_number=f"CV-{index:03d}",
+            voucher_date=date(2026, 4, 1),
+            kind="DEPOSIT",
+            from_account_id=world.account,
+            to_account_id=bank,
+            amount=Decimal("10.00"),
+            status="POSTED",
+            journal_entry_id=uuid.uuid4(),
+        )
+
+
 def _seed_quotations(session: Session, world: _World, rows: int) -> None:
     """Quotations with two lines and a note each."""
     for index in range(rows):
@@ -886,6 +999,21 @@ CASES: dict[str, _Case] = {
         _seed_credit_notes,
         lambda s, w: list_credit_notes(scope=_scope(w.firm), db=s, page_size=50),
         lambda s, r: CreditNoteService(s).note_response(_get(s, CreditNote, r.id)),
+    ),
+    "debit notes": _Case(
+        _seed_debit_notes,
+        lambda s, w: list_debit_notes(scope=_scope(w.firm), db=s, page_size=50),
+        lambda s, r: DebitNoteService(s).note_response(_get(s, DebitNote, r.id)),
+    ),
+    "party adjustments": _Case(
+        _seed_party_adjustments,
+        lambda s, w: list_party_adjustments(scope=_scope(w.firm), db=s, page_size=50),
+        lambda s, r: PartyAdjustmentService(s).response(_get(s, PartyAdjustment, r.id)),
+    ),
+    "contra vouchers": _Case(
+        _seed_contra_vouchers,
+        lambda s, w: list_contra_vouchers(scope=_scope(w.firm), db=s, page_size=50),
+        lambda s, r: ContraVoucherService(s).response(_get(s, ContraVoucher, r.id)),
     ),
     "quotations": _Case(
         _seed_quotations,

@@ -100,6 +100,15 @@ class SalesOrderCreate(SalesOrderSchema):
     order_date: date
     delivery_date: date | None = None
     customer_reference: str | None = Field(default=None, max_length=80)
+    #: Where the goods go: one of the customer's own addresses (backlog 67
+    #: row 3). None takes the customer's default shipping address; on an
+    #: update, leaving it out keeps the order's own.
+    shipping_address_id: UUID | None = None
+    #: The agreed terms (backlog 67 row 4). The words as typed; the days of
+    #: credit, where None takes the customer's and 0 means payment on the
+    #: bill. On an update, leaving either out keeps the order's own.
+    payment_terms: str | None = Field(default=None, max_length=200)
+    payment_terms_days: int | None = Field(default=None, ge=0, le=3650)
     reference_number: str | None = Field(default=None, max_length=80)
     currency_code: str | None = Field(default=None, max_length=10)
     exchange_rate: Decimal | None = Field(
@@ -283,6 +292,11 @@ class SalesOrderResponse(SalesOrderSchema):
     order_date: date
     delivery_date: date | None
     customer_reference: str | None
+    #: The ship-to address the order names (backlog 67 row 3).
+    shipping_address_id: UUID | None = None
+    #: The terms the bill inherits (backlog 67 row 4).
+    payment_terms: str | None = None
+    payment_terms_days: int | None = None
     reference_number: str | None
     currency_code: str | None
     exchange_rate: Decimal | None
@@ -475,6 +489,8 @@ class SalesWorkflowSettingsResponse(SalesOrderSchema):
     default_warehouse_id: UUID | None
     #: COMBINE or BEST_OFFER (backlog 59).
     promotion_mode: str = "COMBINE"
+    #: Combine mode's cap on one line's offer discount, % of gross; null none.
+    max_line_discount_percent: Decimal | None = None
     is_configured: bool
 
 
@@ -498,6 +514,11 @@ class SalesWorkflowSettingsWrite(SalesOrderSchema):
     default_warehouse_id: UUID | None = None
     #: COMBINE or BEST_OFFER. Omitted is left as it is, like the defaults.
     promotion_mode: Literal["COMBINE", "BEST_OFFER"] | None = None
+    #: Combine mode's cap on one line's offer discount, as % of its gross
+    #: (backlog 59 item 3). Omitted is left as it is; an explicit null clears.
+    max_line_discount_percent: Decimal | None = Field(
+        default=None, ge=0, le=100, max_digits=5, decimal_places=2
+    )
 
 
 class SalesOrderPreview(SalesOrderSchema):

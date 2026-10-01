@@ -23,6 +23,7 @@ or nothing, match headings loosely, update by code on request -- live in
 
 import re
 from decimal import Decimal
+from typing import get_args
 from uuid import UUID
 
 from pydantic import ValidationError as PydanticValidationError
@@ -38,9 +39,11 @@ from app.common.file_import import (
     ImportRow,
     RowReader,
     schema_issues,
+    service_issue,
 )
-from app.common.firm_metadata import FirmMetadataReader
+from app.common.firm_metadata import FirmMember, FirmMetadataReader
 from app.core.exceptions import ApplicationError
+from app.customers.gst_registration import GstRegistrationType
 from app.customers.models import Customer, CustomerGroup
 from app.customers.schemas import CustomerCreate, CustomerUpdate
 from app.customers.schemas.customer import (
@@ -98,6 +101,15 @@ COLUMNS: tuple[Column, ...] = (
         False,
         "GST number; unique among the firm's customers.",
         "33AAAPL1234C1Z5",
+    ),
+    Column(
+        "GstType",
+        ("gstregistrationtype", "gsttreatment", "registrationtype"),
+        False,
+        "One of: "
+        + ", ".join(get_args(GstRegistrationType))
+        + ". Blank is read off the GSTIN: Regular with one, Unregistered without.",
+        "",
     ),
     Column(
         "PAN",
@@ -218,6 +230,14 @@ COLUMNS: tuple[Column, ...] = (
     ),
     Column("ContactEmail", ("contactemailid",), False, "Their email.", ""),
     Column("ContactDesignation", ("designation",), False, "Their role.", ""),
+    Column(
+        "AccountManager",
+        ("salesman", "salesperson", "accountmanager", "relationshipmanager"),
+        False,
+        "The firm member who looks after this customer, by email or full "
+        "name; documents raised for the customer default to them.",
+        "",
+    ),
     Column("Notes", ("remarks", "narration"), False, "Free text.", ""),
 )
 
@@ -229,6 +249,7 @@ _FIELD_HEADINGS: dict[str, str] = {
     "customer_type": "Type",
     "customer_group_id": "Segment",
     "gst_number": "GSTIN",
+    "gst_registration_type": "GstType",
     "pan_number": "PAN",
     "tan_number": "TAN",
     "email": "Email",
@@ -241,6 +262,7 @@ _FIELD_HEADINGS: dict[str, str] = {
     "currency_code": "Currency",
     "opening_balance": "OpeningBalance",
     "status": "Status",
+    "salesman_id": "AccountManager",
     "notes": "Notes",
     "addresses": "Address1",
     "contacts": "ContactName",
@@ -297,12 +319,40 @@ class CustomerFileImporter(FileImporter[Customer]):
         self._may_manage_settings = may_manage_settings
         self._groups: list[CustomerGroup] = []
         self._currency = "INR"
+        self._members: list[FirmMember] = []
 
     def _prepare(self, firm_id: UUID) -> None:
         self._groups = firm_segments(self._session, firm_id)
-        self._currency = (
-            FirmMetadataReader(self._session).get(firm_id).currency_code or "INR"
+        reader = FirmMetadataReader(self._session)
+        self._currency = reader.get(firm_id).currency_code or "INR"
+        self._members = reader.active_members(firm_id)
+
+    def _member(self, reader: RowReader) -> UUID | None:
+        """Find the row's account manager among the firm's active members.
+
+        By email first, which is unique, then by full name -- refused by name
+        when two members share it rather than picking one.
+        """
+        given = reader.text("AccountManager")
+        if not given:
+            return None
+        wanted = given.casefold()
+        by_email = [m for m in self._members if m.email.casefold() == wanted]
+        if by_email:
+            return by_email[0].user_id
+        by_name = [m for m in self._members if m.full_name.casefold() == wanted]
+        if len(by_name) == 1:
+            return by_name[0].user_id
+        reader.fail(
+            "AccountManager",
+            f"'{given}' is "
+            + (
+                "the name of more than one member; give their email."
+                if by_name
+                else "not an active member of the firm."
+            ),
         )
+        return None
 
     def _stored(self, firm_id: UUID) -> dict[str, Customer]:
         return {
@@ -362,7 +412,7 @@ class CustomerFileImporter(FileImporter[Customer]):
             # Every guard runs before the row is written, and the opening
             # balance posting refuses before it books anything, so the session
             # is still sound and the rest of the file can be checked.
-            report.issues.append(ImportIssue(row.number, code, None, error.message))
+            report.issues.append(service_issue(error, row, code, _FIELD_HEADINGS))
             return
         report.records.append(customer)
 
@@ -398,6 +448,9 @@ class CustomerFileImporter(FileImporter[Customer]):
         for heading, target in _TEXT_FIELDS.items():
             if reader.text(heading):
                 values[target] = reader.text(heading)
+        gst_type = reader.text("GstType").upper().replace(" ", "_")
+        if gst_type:
+            values["gst_registration_type"] = gst_type
         email = reader.email("Email")
         if email:
             values["email"] = email
@@ -421,6 +474,9 @@ class CustomerFileImporter(FileImporter[Customer]):
         opening = self._opening_balance(reader)
         if opening is not None:
             values["opening_balance"] = opening
+        manager = self._member(reader)
+        if manager is not None:
+            values["salesman_id"] = manager
         segment = reader.text("Segment")
         if segment:
             group = find_segment(self._groups, segment)

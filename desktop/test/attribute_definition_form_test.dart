@@ -34,6 +34,9 @@ class _FormApi extends ApiClient {
 
   final List<Json> writes = <Json>[];
 
+  /// What the server says needs attention after the save (backlog 16).
+  String? warning;
+
   @override
   Future<Json> request(
     String method,
@@ -46,7 +49,13 @@ class _FormApi extends ApiClient {
   }) async {
     if (method == 'POST') {
       writes.add(Map<String, dynamic>.from(body ?? const <String, dynamic>{}));
-      return {'data': body};
+      return {
+        'data': {
+          ...?body,
+          'id': 'attr-new',
+          if (warning != null) 'warning': warning,
+        },
+      };
     }
     if (path.contains('categories')) {
       return {
@@ -208,6 +217,26 @@ void main() {
         reason: 'an id here matches no category and never applies',
       );
       expect(api.writes.single['applicable_category'], isNot('cat-1'));
+    });
+
+    testWidgets('a warning the server returns with the save is shown',
+        (tester) async {
+      // Backlog 16: making a field mandatory says how many records lack it.
+      final _FormApi api = _FormApi()
+        ..warning = 'SHADE is now mandatory, and up to 3 product record(s) '
+            'have no value for it.';
+      await _openCreateForm(tester, api);
+
+      await tester.enterText(
+          find.widgetWithText(TextFormField, 'Attribute code'), 'SHADE');
+      final Finder save = find.text('Save & Close');
+      await tester.ensureVisible(save);
+      await tester.pumpAndSettle();
+      await tester.tap(save);
+      await tester.pumpAndSettle();
+
+      expect(api.writes, hasLength(1));
+      expect(find.textContaining('up to 3 product record(s)'), findsOneWidget);
     });
   });
 }

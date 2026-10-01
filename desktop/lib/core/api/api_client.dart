@@ -26,10 +26,14 @@ import '../../models/quotation.dart';
 import '../../models/pricing.dart';
 import '../../models/commission.dart';
 import '../../models/credit_note.dart';
+import '../../models/debit_note.dart';
+import '../../models/party_adjustment.dart';
+import '../../models/contra_voucher.dart';
 import '../../models/einvoice.dart';
 import '../../models/proforma.dart';
 import '../../models/tcs.dart';
 import '../../models/firm_member.dart';
+import '../../models/messaging.dart';
 import '../../models/price_floor.dart';
 import '../../models/sales_invoice.dart';
 import '../../models/sales_analysis.dart';
@@ -1088,6 +1092,11 @@ class ApiClient {
         additionalQuery: filters.toQuery(),
       );
 
+  /// One customer, with the addresses a document can ship to.
+  Future<Customer> customer(String id) async => Customer.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/customers/$id')),
+      );
+
   Future<Customer> createCustomer(Json data) async =>
       Customer.fromJson(_unwrapMap(
         await request('POST', '/api/v1/customers', body: data),
@@ -1288,6 +1297,142 @@ class ApiClient {
           ]
         : const <RoleDiscountLimit>[];
   }
+
+  // ── Messaging (backlog 51) ─────────────────────────────────────────────
+  // Whether anything is sent, through which accounts, for which events, and
+  // the log of what was. Reading needs SETTINGS_VIEW; changing it needs
+  // SETTINGS_UPDATE; sending and resending need DOCUMENT_SEND.
+
+  Future<MessagingSettings> messagingSettings() async =>
+      MessagingSettings.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/messaging/settings')),
+      );
+
+  Future<MessagingSettings> updateMessagingSettings(
+    MessagingSettings settings,
+  ) async =>
+      MessagingSettings.fromJson(
+        _unwrapMap(
+          await request(
+            'PUT',
+            '/api/v1/messaging/settings',
+            body: settings.toJson(),
+          ),
+        ),
+      );
+
+  /// The services a channel can use, with the fields each one's account form
+  /// is drawn from.
+  Future<List<MessagingProvider>> messagingProviders() async => _unwrapList(
+        await request('GET', '/api/v1/messaging/providers'),
+        MessagingProvider.fromJson,
+      );
+
+  Future<List<MessagingEvent>> messagingEvents() async => _unwrapList(
+        await request('GET', '/api/v1/messaging/events'),
+        MessagingEvent.fromJson,
+      );
+
+  Future<List<MessagingChannel>> messagingChannels() async => _unwrapList(
+        await request('GET', '/api/v1/messaging/channels'),
+        MessagingChannel.fromJson,
+      );
+
+  /// Saves the account for [channel]. A secret left blank keeps the saved one.
+  Future<ChannelOutcome> saveMessagingChannel(
+    String channel,
+    String provider,
+    Map<String, String> settings,
+  ) async =>
+      ChannelOutcome.fromEnvelope(
+        await request(
+          'PUT',
+          '/api/v1/messaging/channels/$channel',
+          body: <String, dynamic>{'provider': provider, 'settings': settings},
+        ),
+      );
+
+  /// The result's message says whether the test passed or why it failed.
+  Future<ChannelOutcome> testMessagingChannel(String channel) async =>
+      ChannelOutcome.fromEnvelope(
+        await request('POST', '/api/v1/messaging/channels/$channel/test'),
+      );
+
+  Future<ChannelOutcome> enableMessagingChannel(String channel) async =>
+      ChannelOutcome.fromEnvelope(
+        await request('POST', '/api/v1/messaging/channels/$channel/enable'),
+      );
+
+  Future<ChannelOutcome> disableMessagingChannel(String channel) async =>
+      ChannelOutcome.fromEnvelope(
+        await request('POST', '/api/v1/messaging/channels/$channel/disable'),
+      );
+
+  Future<List<EventConfig>> messagingEventConfigs() async => _unwrapList(
+        await request('GET', '/api/v1/messaging/event-configs'),
+        EventConfig.fromJson,
+      );
+
+  /// Replaces the event's channel list; its order is the fallback order and
+  /// an empty list switches the event off.
+  Future<EventConfig> updateMessagingEventConfig(
+    String eventCode,
+    List<EventChannelRule> channels,
+  ) async =>
+      EventConfig.fromJson(
+        _unwrapMap(
+          await request(
+            'PUT',
+            '/api/v1/messaging/event-configs/$eventCode',
+            body: <String, dynamic>{
+              'channels': [for (final rule in channels) rule.toJson()],
+            },
+          ),
+        ),
+      );
+
+  Future<PagedResult<MessageLogEntry>> messagingMessages({
+    int page = 1,
+    int pageSize = 20,
+    String search = '',
+    String status = '',
+    String channel = '',
+  }) =>
+      _list(
+        '/api/v1/messaging/messages',
+        MessageLogEntry.fromJson,
+        page,
+        search,
+        pageSize: pageSize,
+        additionalQuery: {
+          if (status.isNotEmpty) 'status': status,
+          if (channel.isNotEmpty) 'channel': channel,
+        },
+      );
+
+  Future<void> resendMessagingMessage(String messageId) => request(
+        'POST',
+        '/api/v1/messaging/messages/$messageId/resend',
+      );
+
+  /// Queues a sales invoice to go to its customer, or to [recipient].
+  Future<void> sendSalesInvoiceMessage(
+    String invoiceId,
+    String channel, {
+    String? recipient,
+    String? message,
+  }) =>
+      request(
+        'POST',
+        '/api/v1/messaging/send',
+        body: <String, dynamic>{
+          'document_type': 'SALES_INVOICE',
+          'document_id': invoiceId,
+          'channel': channel,
+          if (recipient != null && recipient.isNotEmpty) 'recipient': recipient,
+          if (message != null && message.isNotEmpty) 'message': message,
+        },
+      );
 
   /// What the approval would say about a sales order's prices, before it is
   /// asked to.
@@ -1581,6 +1726,31 @@ class ApiClient {
           await request(
             'PUT',
             '/api/v1/branches/my-work-defaults',
+            body: {'branch_id': branchId, 'warehouse_id': warehouseId},
+          ),
+        ),
+      );
+
+  /// Another member's usual branch and warehouse, for an administrator
+  /// (backlog 44): `USER_VIEW` to read, held to this firm's members.
+  Future<WorkDefaults> memberWorkDefaults(String userId) async =>
+      WorkDefaults.fromJson(
+        _unwrapMap(await request(
+            'GET', '/api/v1/branches/work-defaults/$userId')),
+      );
+
+  /// Set, or with both null clear, another member's defaults
+  /// (`USER_UPDATE`).
+  Future<WorkDefaults> setMemberWorkDefaults(
+    String userId, {
+    String? branchId,
+    String? warehouseId,
+  }) async =>
+      WorkDefaults.fromJson(
+        _unwrapMap(
+          await request(
+            'PUT',
+            '/api/v1/branches/work-defaults/$userId',
             body: {'branch_id': branchId, 'warehouse_id': warehouseId},
           ),
         ),
@@ -2629,6 +2799,22 @@ class ApiClient {
   ///
   /// `rowsKey` reads the rows out of an endpoint that answers with one object
   /// (the commission report); `query` carries a period where one is required.
+  /// One quarter's Form 26Q as a file to prepare the return from (53.1): a
+  /// workbook by default, or the deductee rows alone with `format: 'csv'`.
+  Future<List<int>> tds26qFile({
+    required String financialYear,
+    required String quarter,
+    String format = 'xlsx',
+  }) =>
+      downloadBytes(
+        '/api/v1/finance/tds-returns/26q',
+        query: {
+          'financial_year': financialYear,
+          'quarter': quarter,
+          'format': format,
+        },
+      );
+
   Future<ReportPage> reportRows(
     String path, {
     Map<String, String>? query,
@@ -3409,6 +3595,24 @@ class ApiClient {
   /// The API caps page_size at 100. Fetching a single page silently truncated
   /// any catalogue larger than that: with 163 permissions, 63 of them could not
   /// be granted to a role because the selector never showed them.
+  /// The name beside a code, and whether the option can be used at all.
+  ///
+  /// A business feature the codebase has not built yet (`is_implemented`
+  /// false) is listed so the roadmap shows, but the server refuses to enable
+  /// it; the only way to learn that was to be refused on save (backlog
+  /// 31.6), so the picker says it up front.
+  static String? _optionDetail(Json json) {
+    final String? name = json['code'] != null &&
+            json['name'] != null &&
+            stringValue(json['name']) != stringValue(json['code'])
+        ? stringValue(json['name'])
+        : null;
+    if (json['is_implemented'] == false) {
+      return name == null ? 'not built yet' : '$name (not built yet)';
+    }
+    return name;
+  }
+
   Future<List<AssignmentOption>> options(String resource) async {
     // The generic list below returns every row a firm holds, active or not --
     // fine for most catalogues, wrong for a licence type: a picker that
@@ -3438,11 +3642,7 @@ class ApiClient {
         (json) => AssignmentOption(
           id: stringValue(json['id']),
           label: stringValue(json['code'] ?? json['name'] ?? json['email']),
-          detail: json['code'] != null &&
-                  json['name'] != null &&
-                  stringValue(json['name']) != stringValue(json['code'])
-              ? stringValue(json['name'])
-              : null,
+          detail: _optionDetail(json),
           group:
               json['category'] == null ? null : stringValue(json['category']),
         ),
@@ -3642,6 +3842,41 @@ class ApiClient {
         await request('POST', '/api/v1/purchases/$id/approve'),
       ));
 
+  /// Stock at or below its reorder level, per warehouse and product, with
+  /// what is on order, the supplier last billed and a suggested quantity
+  /// (backlog 42.9). Rows carry no id, so pages are read until a short one.
+  Future<List<Json>> belowReorderLevel({String? warehouseId}) async {
+    final List<Json> rows = <Json>[];
+    for (int page = 1; page <= 50; page++) {
+      final Json response = await request(
+        'GET',
+        '/api/v1/purchases/reports/below-reorder',
+        query: <String, String>{
+          'page': '$page',
+          'page_size': '100',
+          if (warehouseId != null) 'warehouse_id': warehouseId,
+        },
+      );
+      final dynamic data = response['data'];
+      final List<Json> batch = <Json>[
+        for (final dynamic row in data is List ? data : const [])
+          if (row is Map) Map<String, dynamic>.from(row),
+      ];
+      rows.addAll(batch);
+      if (batch.length < 100) break;
+    }
+    return rows;
+  }
+
+  /// Raise draft purchase orders for the ticked reorder rows: one per
+  /// supplier per warehouse, all or none. Each item names `warehouse_id` and
+  /// `product_id`, and may override `quantity` and `supplier_id`.
+  Future<Json> raiseReorderDrafts(List<Json> items) async => await request(
+        'POST',
+        '/api/v1/purchases/reorder-drafts',
+        body: <String, dynamic>{'items': items},
+      );
+
   /// Approve several purchase orders in one call. Rows are acted on one by
   /// one, so some can be refused while others succeed.
   Future<BulkActionResult> bulkApprovePurchaseOrders(List<BulkRow> rows) =>
@@ -3692,6 +3927,31 @@ class ApiClient {
   ) =>
       _bulk('/api/v1/delivery-notes/bulk-cancel', rows, reason: reason);
 
+  /// Record that a dispatched note's goods arrived (backlog 67 row 6): when,
+  /// who signed for them, a remark and optionally the signed copy.
+  ///
+  /// Recording on a DISPATCHED note also completes it; the server refuses a
+  /// note in any other state. [deliveredAt] goes as UTC with its offset, and
+  /// the attachment as the file's name, type and path -- the server sets its
+  /// kind.
+  Future<Json> recordDeliveryProof(
+    String noteId, {
+    required DateTime deliveredAt,
+    required String receivedBy,
+    String? remarks,
+    Json? attachment,
+  }) =>
+      request(
+        'POST',
+        '/api/v1/delivery-notes/$noteId/proof-of-delivery',
+        body: <String, dynamic>{
+          'delivered_at': deliveredAt.toUtc().toIso8601String(),
+          'received_by': receivedBy,
+          'remarks': remarks,
+          'attachment': attachment,
+        },
+      );
+
   Future<BulkActionResult> bulkApproveCreditNotes(List<BulkRow> rows) =>
       _bulk('/api/v1/credit-notes/bulk-approve', rows);
 
@@ -3737,6 +3997,19 @@ class ApiClient {
           if (reason != null) 'reason': reason,
         },
       )));
+
+  /// Record that an approved order reached the supplier, and how: EMAIL,
+  /// PRINT, WHATSAPP or OTHER (backlog 69 row 6).
+  Future<PurchaseOrder> markPurchaseOrderSent(String id, String via) async =>
+      PurchaseOrder.fromJson(
+        _unwrapMap(
+          await request(
+            'POST',
+            '/api/v1/purchases/$id/mark-sent',
+            body: {'via': via},
+          ),
+        ),
+      );
 
   Future<PurchaseOrder> cancelPurchaseOrder(String id,
           {String reason = ''}) async =>
@@ -4843,6 +5116,56 @@ class ApiClient {
         : const <Json>[];
   }
 
+  // ---- supplier statement and balance confirmations ------------------
+
+  /// One supplier's account movement over a period. A positive balance is
+  /// what the firm owes them; a negative one is an advance with them.
+  Future<Json> supplierStatement(
+    String vendorId, {
+    required String fromDate,
+    required String toDate,
+  }) async =>
+      _unwrapMap(await request(
+        'GET',
+        '/api/v1/vendors/$vendorId/statement',
+        query: {'from_date': fromDate, 'to_date': toDate},
+      ));
+
+  /// The letter asking one customer to confirm their balance, as a PDF.
+  Future<List<int>> customerBalanceConfirmation(
+    String customerId, {
+    required String asOf,
+  }) =>
+      downloadBytes(
+        '/api/v1/customers/$customerId/balance-confirmation',
+        query: {'as_of': asOf},
+      );
+
+  /// The letter asking one supplier to confirm their balance, as a PDF.
+  Future<List<int>> supplierBalanceConfirmation(
+    String vendorId, {
+    required String asOf,
+  }) =>
+      downloadBytes(
+        '/api/v1/vendors/$vendorId/balance-confirmation',
+        query: {'as_of': asOf},
+      );
+
+  /// One letter per customer with a balance, zipped. The server refuses with
+  /// a message when nobody has one.
+  Future<List<int>> customerBalanceConfirmations({required String asOf}) =>
+      downloadBytes(
+        '/api/v1/customers/balance-confirmations',
+        query: {'as_of': asOf},
+      );
+
+  /// One letter per supplier with a balance, zipped.
+  Future<List<int>> supplierBalanceConfirmations({required String asOf}) =>
+      downloadBytes(
+        '/api/v1/vendors/balance-confirmations',
+        query: {'as_of': asOf},
+      );
+
   // ---- sales analysis -------------------------------------------------
 
   /// Billed sales pivoted by one or two dimensions, net of returns by default.
@@ -4921,6 +5244,25 @@ class ApiClient {
         ),
         AnalysisBill.fromJson,
       );
+
+  /// One bill's lines charged at a rate other than their receipt's (backlog
+  /// 65 row 5): the price variance report, narrowed to the bill, in any
+  /// status -- the bill's own screen and the report give one answer.
+  Future<List<Json>> purchaseInvoicePriceVariance(String invoiceId) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/purchase-invoices/reports/price-variance',
+      query: <String, String>{
+        'purchase_invoice_id': invoiceId,
+        'page': '1',
+        'page_size': '100',
+      },
+    );
+    final dynamic data = response['data'];
+    return data is List
+        ? data.whereType<Map>().map(Map<String, dynamic>.from).toList()
+        : const <Json>[];
+  }
 
   // ---- GST returns ----------------------------------------------------
 
@@ -5061,6 +5403,324 @@ class ApiClient {
         '/api/v1/credit-notes/$id/cancel',
         expectedVersion: expectedVersion,
       )));
+
+  // ---- debit notes ----------------------------------------------------
+
+  Future<PagedResult<DebitNoteRecord>> debitNotes({
+    int page = 1,
+    int pageSize = 50,
+    String? status,
+    String? search,
+    String? vendorId,
+    String? purchaseInvoiceId,
+    String? debitNoteFrom,
+    String? debitNoteTo,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/debit-notes',
+      query: {
+        'page': '$page',
+        'page_size': '$pageSize',
+        if (status != null && status.isNotEmpty) 'status': status,
+        if (search != null && search.isNotEmpty) 'search': search,
+        if (vendorId != null && vendorId.isNotEmpty) 'vendor_id': vendorId,
+        if (purchaseInvoiceId != null && purchaseInvoiceId.isNotEmpty)
+          'purchase_invoice_id': purchaseInvoiceId,
+        if (debitNoteFrom != null) 'debit_note_from': debitNoteFrom,
+        if (debitNoteTo != null) 'debit_note_to': debitNoteTo,
+      },
+    );
+    final dynamic data = response['data'];
+    return PagedResult<DebitNoteRecord>(
+      items: data is List
+          ? data
+              .whereType<Map>()
+              .map((item) =>
+                  DebitNoteRecord.fromJson(Map<String, dynamic>.from(item)))
+              .toList()
+          : const [],
+      total: _totalOf(response),
+    );
+  }
+
+  /// Price a debit note as raising it would, and save nothing.
+  Future<DebitNoteRecord> previewDebitNote(Json body) async =>
+      DebitNoteRecord.fromJson(
+        _unwrapMap(
+          await request('POST', '/api/v1/debit-notes/preview', body: body),
+        ),
+      );
+
+  Future<DebitNoteRecord> createDebitNote(Json body) async =>
+      DebitNoteRecord.fromJson(
+        _unwrapMap(await request('POST', '/api/v1/debit-notes', body: body)),
+      );
+
+  Future<DebitNoteRecord> debitNote(String id) async =>
+      DebitNoteRecord.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/debit-notes/$id')),
+      );
+
+  /// What each line of a bill can still be claimed on. [excludingNoteId] is
+  /// the note being edited, whose own claim must not count against it.
+  Future<List<DebitNoteClaimableLine>> debitNoteClaimableLines(
+    String purchaseInvoiceId, {
+    String? excludingNoteId,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/debit-notes/claimable-lines',
+      query: {
+        'purchase_invoice_id': purchaseInvoiceId,
+        if (excludingNoteId != null && excludingNoteId.isNotEmpty)
+          'excluding_note_id': excludingNoteId,
+      },
+    );
+    final dynamic data = response['data'];
+    return [
+      for (final dynamic row in data is List ? data : const [])
+        if (row is Map)
+          DebitNoteClaimableLine.fromJson(Map<String, dynamic>.from(row)),
+    ];
+  }
+
+  Future<DebitNoteRecord> updateDebitNote(
+    String id,
+    Json body, {
+    int? expectedVersion,
+  }) async =>
+      DebitNoteRecord.fromJson(_unwrapMap(await request(
+        'PUT',
+        '/api/v1/debit-notes/$id',
+        body: body,
+        expectedVersion: expectedVersion,
+      )));
+
+  Future<DebitNoteRecord> approveDebitNote(
+    String id, {
+    int? expectedVersion,
+  }) async =>
+      DebitNoteRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/debit-notes/$id/approve',
+        expectedVersion: expectedVersion,
+      )));
+
+  /// Cancel a note; the server refuses a cancel with no [reason].
+  Future<DebitNoteRecord> cancelDebitNote(
+    String id,
+    String reason, {
+    int? expectedVersion,
+  }) async =>
+      DebitNoteRecord.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/debit-notes/$id/cancel',
+        body: {'reason': reason},
+        expectedVersion: expectedVersion,
+      )));
+
+  // ---- party adjustments ----------------------------------------------
+
+  Future<PagedResult<PartyAdjustment>> partyAdjustments({
+    int page = 1,
+    int pageSize = 50,
+    String? kind,
+    String? status,
+    String? customerId,
+    String? vendorId,
+    String? search,
+    String? dateFrom,
+    String? dateTo,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/party-adjustments',
+      query: {
+        'page': '$page',
+        'page_size': '$pageSize',
+        if (kind != null && kind.isNotEmpty) 'kind': kind,
+        if (status != null && status.isNotEmpty) 'status': status,
+        if (customerId != null && customerId.isNotEmpty)
+          'customer_id': customerId,
+        if (vendorId != null && vendorId.isNotEmpty) 'vendor_id': vendorId,
+        if (search != null && search.isNotEmpty) 'search': search,
+        if (dateFrom != null) 'date_from': dateFrom,
+        if (dateTo != null) 'date_to': dateTo,
+      },
+    );
+    final dynamic data = response['data'];
+    return PagedResult<PartyAdjustment>(
+      items: data is List
+          ? data
+              .whereType<Map>()
+              .map((item) =>
+                  PartyAdjustment.fromJson(Map<String, dynamic>.from(item)))
+              .toList()
+          : const [],
+      total: _totalOf(response),
+    );
+  }
+
+  /// Draft one adjustment; nothing is posted until it is approved.
+  Future<PartyAdjustment> createPartyAdjustment(Json body) async =>
+      PartyAdjustment.fromJson(
+        _unwrapMap(
+            await request('POST', '/api/v1/party-adjustments', body: body)),
+      );
+
+  Future<PartyAdjustment> partyAdjustment(String id) async =>
+      PartyAdjustment.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/party-adjustments/$id')),
+      );
+
+  /// Change a draft. Send only the keys the server declares: the kind and the
+  /// status are not among them.
+  Future<PartyAdjustment> updatePartyAdjustment(
+    String id,
+    Json body, {
+    int? expectedVersion,
+  }) async =>
+      PartyAdjustment.fromJson(_unwrapMap(await request(
+        'PUT',
+        '/api/v1/party-adjustments/$id',
+        body: body,
+        expectedVersion: expectedVersion,
+      )));
+
+  Future<PartyAdjustment> approvePartyAdjustment(
+    String id, {
+    int? expectedVersion,
+  }) async =>
+      PartyAdjustment.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/party-adjustments/$id/approve',
+        expectedVersion: expectedVersion,
+      )));
+
+  /// Withdraw an adjustment; the server refuses a cancel with no [reason].
+  Future<PartyAdjustment> cancelPartyAdjustment(
+    String id,
+    String reason, {
+    int? expectedVersion,
+  }) async =>
+      PartyAdjustment.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/party-adjustments/$id/cancel',
+        body: {'reason': reason},
+        expectedVersion: expectedVersion,
+      )));
+
+  /// The bills an adjustment can clear for the party or parties named.
+  Future<PartyAdjustmentOpenBills> partyAdjustmentOpenBills({
+    String? customerId,
+    String? vendorId,
+  }) async =>
+      PartyAdjustmentOpenBills.fromJson(_unwrapMap(await request(
+        'GET',
+        '/api/v1/party-adjustments/open-bills',
+        query: {
+          if (customerId != null && customerId.isNotEmpty)
+            'customer_id': customerId,
+          if (vendorId != null && vendorId.isNotEmpty) 'vendor_id': vendorId,
+        },
+      )));
+
+  Future<PartyAdjustmentSettings> partyAdjustmentSettings() async =>
+      PartyAdjustmentSettings.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/party-adjustments/settings')),
+      );
+
+  Future<PartyAdjustmentSettings> savePartyAdjustmentSettings(
+    Json body,
+  ) async =>
+      PartyAdjustmentSettings.fromJson(_unwrapMap(
+        await request('PUT', '/api/v1/party-adjustments/settings', body: body),
+      ));
+
+  // ---- contra vouchers ------------------------------------------------
+
+  Future<PagedResult<ContraVoucher>> contraVouchers({
+    int page = 1,
+    int pageSize = 50,
+    String? kind,
+    String? status,
+    String? accountId,
+    String? search,
+    String? dateFrom,
+    String? dateTo,
+  }) async {
+    final Json response = await request(
+      'GET',
+      '/api/v1/contra-vouchers',
+      query: {
+        'page': '$page',
+        'page_size': '$pageSize',
+        if (kind != null && kind.isNotEmpty) 'kind': kind,
+        if (status != null && status.isNotEmpty) 'status': status,
+        if (accountId != null && accountId.isNotEmpty)
+          'account_id': accountId,
+        if (search != null && search.isNotEmpty) 'search': search,
+        if (dateFrom != null) 'date_from': dateFrom,
+        if (dateTo != null) 'date_to': dateTo,
+      },
+    );
+    final dynamic data = response['data'];
+    return PagedResult<ContraVoucher>(
+      items: data is List
+          ? data
+              .whereType<Map>()
+              .map((item) =>
+                  ContraVoucher.fromJson(Map<String, dynamic>.from(item)))
+              .toList()
+          : const [],
+      total: _totalOf(response),
+    );
+  }
+
+  /// The cash and bank accounts a voucher may move money between.
+  Future<List<MoneyAccount>> contraMoneyAccounts() async {
+    final Json response =
+        await request('GET', '/api/v1/contra-vouchers/money-accounts');
+    final dynamic data = response['data'];
+    return data is List
+        ? data
+            .whereType<Map>()
+            .map((item) =>
+                MoneyAccount.fromJson(Map<String, dynamic>.from(item)))
+            .toList()
+        : const <MoneyAccount>[];
+  }
+
+  /// Post one voucher. The save succeeds even when the From account goes
+  /// below zero; that shows as [ContraVoucher.balanceWarning].
+  Future<ContraVoucher> createContraVoucher(Json body) async =>
+      ContraVoucher.fromJson(
+        _unwrapMap(
+            await request('POST', '/api/v1/contra-vouchers', body: body)),
+      );
+
+  Future<ContraVoucher> contraVoucher(String id) async =>
+      ContraVoucher.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/contra-vouchers/$id')),
+      );
+
+  /// Reverse a voucher; the server refuses a cancel with no [reason].
+  Future<ContraVoucher> cancelContraVoucher(
+    String id,
+    String reason, {
+    int? expectedVersion,
+  }) async =>
+      ContraVoucher.fromJson(_unwrapMap(await request(
+        'POST',
+        '/api/v1/contra-vouchers/$id/cancel',
+        body: {'reason': reason},
+        expectedVersion: expectedVersion,
+      )));
+
+  /// The voucher as a PDF.
+  Future<List<int>> contraVoucherPdf(String id) =>
+      downloadBytes('/api/v1/contra-vouchers/$id/print');
 
   // ---- commission payouts ---------------------------------------------
 
@@ -5834,12 +6494,21 @@ class ApiClient {
   ///
   /// Whether it balances is the server's answer, carried through rather than
   /// recomputed: two places deciding that is two places that can disagree.
-  Future<TrialBalanceReport> trialBalance(String accountingPeriodId) async =>
+  ///
+  /// With [toPeriodId], every month from [accountingPeriodId] to it, in one
+  /// financial year (backlog 50 item 5).
+  Future<TrialBalanceReport> trialBalance(
+    String accountingPeriodId, {
+    String? toPeriodId,
+  }) async =>
       TrialBalanceReport.fromJson(
         await request(
           'GET',
           '/api/v1/finance/trial-balance',
-          query: {'accounting_period_id': accountingPeriodId},
+          query: {
+            'accounting_period_id': accountingPeriodId,
+            if (toPeriodId != null) 'to_period_id': toPeriodId,
+          },
         ),
       );
 
@@ -6152,15 +6821,22 @@ class ApiClient {
   /// The running balance comes down with the lines. It starts from the opening
   /// balance and moves in whichever direction the account type increases in,
   /// so adding the column up here would be a second opinion about the ledger.
+  ///
+  /// With [toPeriodId], over every month from [accountingPeriodId] to it, in
+  /// one financial year (backlog 50 item 5).
   Future<GeneralLedgerReport> generalLedger({
     required String ledgerAccountId,
     required String accountingPeriodId,
+    String? toPeriodId,
   }) async =>
       GeneralLedgerReport.fromJson(
         await request(
           'GET',
           '/api/v1/finance/general-ledger/$ledgerAccountId',
-          query: {'accounting_period_id': accountingPeriodId},
+          query: {
+            'accounting_period_id': accountingPeriodId,
+            if (toPeriodId != null) 'to_period_id': toPeriodId,
+          },
         ),
       );
 

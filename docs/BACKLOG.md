@@ -1283,6 +1283,8 @@ whoever hits it.
 
 ## 16. A firm cannot configure its own custom fields
 
+**Status, 2026-10-02:** the lifecycle guards are built -- a field's type cannot change and it cannot be deleted while it holds values; making it mandatory warns how many records lack it. The per-firm ownership part and the two decisions above are still open (`docs/OWNER_DECISIONS.md` B2).
+
 `FIRM_ADMIN` writes its own tax rules, UOM conversions and numbering series,
 and cannot add a single field to its own products. **27 of the 29 routes in
 `app/business/api/router.py` take the platform designation**; the two
@@ -1379,6 +1381,8 @@ with different meanings.
 up their own firm. Not started.
 
 ## 17. The duplicated catalogue — low priority, and mostly decided
+
+**Status, 2026-10-02: option 1 built.** A profile written at runtime -- create, update, delete, features, modules -- is written to every store, each reported WRITTEN or FAILED with the reason (`app/business/services/profile_replication.py`). Features and modules created at runtime are still not copied themselves.
 
 **Priority: low. Not mandatory.** Raised as a question about duplication on
 2026-09-07 and largely answered in the same conversation; recorded so nobody
@@ -1647,6 +1651,8 @@ No backend change: the API already accepted the field; only the door was
 missing.
 
 ## 31. Found in manual testing
+
+**Status, 2026-10-02:** the last two leftovers are fixed -- the territory export carries `CustomerCodes` (quoted) so a round trip keeps the shops (31.5), and the features picker marks what is not built yet (31.6).
 
 Items raised by the owner while driving `docs/MANUAL_UI_TEST_PLAN.md` by
 hand. Each records what was seen, what the plan expected, and the decision
@@ -3379,6 +3385,8 @@ below them. Raised and deferred by the owner on 2026-09-17 for review later.
 
 ## 42. What the market offers that this product does not
 
+**Status, 2026-10-02:** 42.9 built -- Reports > *Below reorder level* (available, on order, last-billed supplier, suggested quantity) and Purchase Orders > "..." > *Below reorder level...* raises one draft order per supplier and warehouse.
+
 Asked by the owner on 2026-09-18, after the product-overview deck: compare the
 system with the products on the market and list the useful features it is
 missing. **Nothing here is decided or scoped.** It is a list to choose from,
@@ -3621,6 +3629,8 @@ renewal instead; the installed version keeps working either way.
 and installers (the same place as the phase 2 licence service).
 
 ## 44. A user's own default branch and warehouse
+
+**Status, 2026-10-02:** an administrator sets another member's default branch and warehouse (`GET/PUT /api/v1/branches/work-defaults/{user_id}`, Users grid > *Branch and warehouse*).
 
 **Status, 2026-10-01: built.** Settings > Firm > **My Branch and Warehouse** (any firm member) sets where a person usually works; `GET/PUT /api/v1/branches/my-work-defaults`, kept in the firm's own store (`user_work_defaults`, migration `20261001_0177`), validated on save (live, the warehouse the branch's) and on use (one retired since is dropped with a notice). The desktop loads it on firm switch and sign-in, clears it on sign-out and before another firm's, and `preferredBranchId` / `preferredWarehouseId` take it ahead of the firm's default, so every document form that opens with a default follows. It only fills; it restricts nothing. Left: an administrator setting it on someone else's record.
 
@@ -3898,6 +3908,8 @@ so making those adapt changes every screen at once.
 
 ## 49. Home gadgets -- parked
 
+**Status, 2026-10-02:** item 4 built -- *Receipts today* on Home, from the receipts list's date filter.
+
 Owner, 2026-09-26: Home as built (#695-#705, the approved wireframe) is fine
 for now; different gadgets come later. What exists: key figures, sales over
 14 days, recent invoices, to do, favourites, Customise to hide any of them,
@@ -3920,6 +3932,8 @@ every part cut to the user's role (`desktop/lib/phase2/home_page.dart`).
    week, top customers, stock value, cash and bank balances, GST due.
 
 ## 50. Profit and loss for a financial year or chosen months
+
+**Status, 2026-10-02:** item 5 built -- the trial balance and the ledger statement take a run of months within one financial year (`to_period_id`), sharing the P&L range rule.
 
 **Status, 2026-10-01: items 1-4 built.** `GET /api/v1/finance/profit-loss/range?from_period_id=&to_period_id=&compare=previous_year` sums any run of months inside one financial year (a span across two is refused), returns each month's amount per account beside the total and the month-by-month net profit, and with `compare=previous_year` the previous year's same months by period number. The screen's *Show* picker adds **Months or year**: presets (This financial year, Year to date, This quarter, Last financial year, Custom), *Month by month* columns and *Compare with last year*. Checked on WHOLE01: every year's total equals the one-month report's year to date. Left: item 5, the same range on the trial balance and the ledger statement.
 
@@ -3950,6 +3964,8 @@ year-to-date column, and a quarter or any other span not at all.
 
 
 ## 51. Email, WhatsApp, SMS and payments -- basic version, planned 2026-09-27
+
+**Status, 2026-10-02: A1, A5 and B1-B3 built** to the owner's decisions of 2026-10-01: the firm switches messaging on itself (no platform gate), configures its own SMTP / Meta WhatsApp Cloud API / MSG91 account on its own Settings > Messaging page (encrypted, Test before enabling), and picks which events send by which channel; outbox with retry and fallback, reminders, customer opt-outs, every send on the timeline, `DOCUMENT_SEND`. See `docs/MESSAGING_FRAMEWORK.md` and `docs/MESSAGING_SETUP_GUIDE.md`. Proven against fake providers only. Open: A2-A4, B4, sending documents other than the invoice by hand.
 
 Owner, 2026-09-27: plan email, WhatsApp, SMS and a payment gateway now, as a
 basic version; build after review. This takes up **§14** (emailing a
@@ -4070,6 +4086,8 @@ format (GSTR-1 JSON, the e-invoice schema). Rates, thresholds, and which rate
 applies to what are configuration.
 
 ## 53. PAN and TAN: record both, check them, and use them
+
+**Status, 2026-10-02:** item 2 built -- PAN and TAN format checks on customers, vendors and the firm, PAN filled from and checked against the GSTIN (checked only when set). 53.1: the 26Q export is built as a workbook for the CA / RPU (Reports > Financial > *TDS return (26Q)*); the FVU text file waits on the challan screen. See `docs/OWNER_DECISIONS.md` A7-A8.
 
 Owner, 2026-09-27: customers in the market carry both a PAN and a TAN; the
 product should tell them apart and put each to work.
@@ -4337,6 +4355,8 @@ a product that needs none belongs in a category that needs none.
 
 ## 55. Market gaps with no backlog entry of their own -- validate before building
 
+**Status, 2026-10-02:** G6 (last rate while billing, with its discount and *Use the last price*) and G8 (debit note to a supplier, `app/debit_note`) built. M9 (day book, cash book, bank book, drilling to the journal) and S7 (stock ageing, slow-moving and dead stock, vendor ageing) built.
+
 Owner, 2026-09-27: every gap found against the market goes into the plan so
 none is missed; **whether each is really needed is validated when it comes
 up for implementation**, with the firms going live, not decided here. The
@@ -4508,6 +4528,8 @@ screen (item 4) are not built -- the server still refuses those. Item 7 (the
 printed bill naming every note) was built later the same day (status above).
 
 ## 59. Promotions: a "best offer only" mode
+
+**Status, 2026-10-02:** item 3 built -- an optional maximum combined offer discount per line in Combine mode (Settings > Selling > Sales Stages); the latest-applied offer gives back first and campaign costs are reduced to match.
 
 **Status, 2026-10-01: items 1 and 2 built.** Settings > Selling > Sales Stages carries **When several offers match**: *Combine offers* (the default; every firm keeps today's pricing) or *Best offer only* (`sales_workflow_settings.promotion_mode`, migration `20261001_0178`). In best-offer mode every matching offer is valued on its own -- discounts, bill discount, free units at the line's own rate, a free product at its selling price, waived delivery at its charge -- the most valuable is applied, a tie goes to the earlier *Applies at*, and each loser's decision says what it was worth against the winner. Left: item 3, a maximum combined discount per line in Combine mode (60 item 1's cap covers the per-offer case).
 
@@ -4784,6 +4806,8 @@ containers, M2 live e-invoice and e-way bill, M10 counter billing.
 
 ## 65. Purchases: what the review with the owner found
 
+**Status, 2026-10-02:** row 5's last part (the variance on the bill's own screen) and row 6 (debit note, §55 G8) built.
+
 Owner, 2026-09-28, the purchases half of the review that produced §57-§64.
 `docs/PURCHASE_FRAMEWORK.md` and `docs/PURCHASE_TO_PAYMENT_FLOW.md` describe
 what is built.
@@ -4872,6 +4896,8 @@ part-billed order; drill-down lists exactly the bills summed.
 
 ## 67. Sales against a full ERP checklist: what is built, and nine gaps
 
+**Status, 2026-10-02:** rows 2-6 built -- account manager on the customer; ship-to per order carried down the chain and printed; payment terms on the order inherited by the bill; transport details on the delivery note feeding the e-way bill; proof of delivery with a *Not yet delivered* filter. See `docs/SALES_CHAIN_RULES.md` and `docs/OWNER_DECISIONS.md` A20-A21. Rows 8-9 built too: discount given by customer, salesman, product and offer (typed / arranged / promotion / bill share), and collections by day, salesman and mode.
+
 Owner, 2026-09-28, supplied a 14-part checklist of a complete ERP sales module
 (customers, CRM, quotation, order, delivery, invoice, collection, return,
 credit note, debit note, pricing, tax, receivables, reports). Each part was
@@ -4917,6 +4943,8 @@ the bank (§42.2); one bill for several notes (§58).
 
 ## 68. Purchases against a full ERP checklist: what else to consider
 
+**Status, 2026-10-02:** rows 1-2 built -- supplier payment terms default a bill's due date; Udyam number and MSME category on the supplier, `msme_pay_by` (45 days with a written agreement, 15 without) stamped on each micro/small supplier's bill, warned at approval, and Reports > Financial > *MSME payments due*.
+
 Owner, 2026-09-28: purchasing is well built; compare it anyway with a full ERP
 purchase module (the same shape as the sales checklist in §67): suppliers,
 requisition, RFQ, order, receipt, inspection, bill and matching, payment,
@@ -4955,6 +4983,8 @@ bills; automatic posting (stock, GRNI, payable, price variance).
 first; tax) -> 7 -> 10 -> 4 -> 9 -> 3, 5, 6 -> the rest.
 
 ## 69. The full procurement specification: what it adds to §61, §65, §66, §68
+
+**Status, 2026-10-02:** row 4 (BLOCKED supplier with a reason: no new orders or bills, existing ones still received, paid and returned) and row 6 (a purchase order marked sent, with when and how; "approved but never sent" is a list filter) built.
 
 Owner, 2026-09-28, supplied a 53-section "complete Purchase module"
 specification (requisition -> RFQ -> supplier quotations -> comparison -> PO ->
@@ -5003,6 +5033,8 @@ Phase 3 is §68 rows 3-4 + rows 1, 11 here; Phase 4 is §68 rows 6, 10 + §55 G8
 11-13 + §42.12 + row 8 here; Phase 7 is §66.
 
 ## 70. Inventory against a full ERP checklist: what else to consider
+
+**Status, 2026-10-02:** row 5 was already built as Reports > *Stock valuation* (as on any date); row 6 built -- Reports > Financial > *Stock statement for the bank* (opening, in, out, closing, each with value).
 
 Owner, 2026-09-28: the same review as sales (§67) and purchases (§68, §69),
 for inventory -- **review only, nothing to build yet**. Checked against the
@@ -5244,6 +5276,8 @@ it.
 
 ## 74. Money against a full ERP checklist: what else to consider
 
+**Status, 2026-10-02:** row 2 built -- deductions (rounding, bank charges, discount allowed/received) on receipts and payments; a party adjustment document (customer write-off, supplier write-back, set-off) with approval above a per-firm threshold (`app/party_adjustments`). Defaults in `docs/OWNER_DECISIONS.md` A14-A16. Rows 3-4 built: a contra voucher (deposit, withdrawal, bank and cash transfers, own CV series, printable; `app/contra`), a supplier statement of account (Purchases > Money > Supplier Statements) and balance confirmation letters for any customer or supplier, one PDF or a zip for everyone with a balance (`docs/OWNER_DECISIONS.md` A22-A24).
+
 Owner, 2026-09-28: after sales (§67), purchases (§68) and inventory (§70),
 review the money side the same way -- books, years, receipts and payments,
 party balances, tax filings, statements. Checked against the code the same
@@ -5352,6 +5386,8 @@ change) -> 1 -> 2 -> 9 -> 12 -> 13 -> 3, 4 -> 10, 11 -> 14 -> 15, 16 -> 7 ->
 5 -> 6.
 
 ## 75. Masters and configuration against a full ERP checklist
+
+**Status, 2026-10-02:** row 2 built -- a customer's GST registration type (Regular, Composition, Unregistered, SEZ with/without payment, Deemed export, Overseas), stamped on each bill: SEZ is IGST wherever it is, GSTR-1 marks SEWP/SEWOP/DE and files exports in EXP, 3B reports zero-rated supplies in 3.1(b), the e-invoice supply type follows.
 
 Owner, 2026-09-28: after Money (§74), review the masters -- customers,
 suppliers, products, branches and warehouses -- and the configuration they

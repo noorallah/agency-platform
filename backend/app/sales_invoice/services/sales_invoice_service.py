@@ -39,6 +39,7 @@ from app.core.utils.pricing import (
     resolve_bill_discount,
     resolve_line_discount,
 )
+from app.customers.gst_registration import effective_type, sez_tax_warning
 from app.customers.models import Customer
 from app.customers.schemas import (
     CustomerReceivableTransactionCreate,
@@ -46,6 +47,7 @@ from app.customers.schemas import (
 )
 from app.customers.services import CreditControlService
 from app.customers.services.customer_service import CustomerService
+from app.customers.services.ship_to import resolve_ship_to, ship_to_is_valid
 from app.delivery_note.models import DeliveryNote, DeliveryNoteLine
 from app.delivery_note.rules import goods_have_left_clause, require_dispatched_note
 from app.delivery_note.schemas import DeliveryNoteStatus
@@ -67,6 +69,7 @@ from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.inventory.models import StockLedgerEntry
 from app.loyalty.services import LoyaltyService
+from app.messaging.services import MessagingDocument, stage_document_event
 from app.products.models import Product
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales.services.document_preview import line_companions
@@ -155,6 +158,17 @@ def _receivable_amount(value: Decimal) -> Decimal:
     and its sibling never saw it.
     """
     return quantize_ledger(value)
+
+
+def _buyer_gst_type(customer: Customer | None) -> str | None:
+    """Return the buyer's GST standing to stamp on a bill (backlog 75 row 2).
+
+    Stamped with the place of supply, and for the same reason: a customer
+    re-classified later must not change how a bill already issued is filed.
+    """
+    if customer is None:
+        return None
+    return effective_type(customer.gst_registration_type, customer.gst_number)
 
 
 @dataclass(frozen=True, slots=True)
@@ -392,6 +406,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                     # The invoice's own customer: one billed from its source
                     # documents names none in the request.
                     customer_id=response.customer_id,
+                    shipping_address_id=response.shipping_address_id,
                 )
                 == SALES_INTERSTATE
             )
@@ -500,9 +515,16 @@ class SalesInvoiceService(TransactionalDocumentService):
         # Read once for the two fields below; the customer's terms decide when
         # payment falls due and its billing address decides the place of supply.
         customer = self._session.get(Customer, customer_id)
+        shipping_address_id = self._ship_to(
+            data.shipping_address_id,
+            customer_id=customer_id,
+            source_rows=source_rows,
+        )
+        terms, terms_days = self._order_terms(source_rows)
         row = SalesInvoice(
             firm_id=firm_id,
             customer_id=customer_id,
+            shipping_address_id=shipping_address_id,
             salesman_id=salesman_id,
             territory_id=territory_id,
             route_id=route_id,
@@ -519,9 +541,13 @@ class SalesInvoiceService(TransactionalDocumentService):
                 data.currency_code.strip().upper() if data.currency_code else None
             ),
             exchange_rate=data.exchange_rate,
-            payment_terms=data.payment_terms,
-            due_date=data.due_date or self._due_date(customer, data.invoice_date),
-            place_of_supply=self._place_of_supply(customer),
+            payment_terms=data.payment_terms or terms,
+            due_date=data.due_date
+            or self._due_date(customer, data.invoice_date, days=terms_days),
+            place_of_supply=self._place_of_supply(
+                customer, shipping_address_id=shipping_address_id
+            ),
+            buyer_gst_registration_type=_buyer_gst_type(customer),
             reference_number=data.reference_number,
             remarks=data.remarks,
             received_now_amount=self._q(data.received_now_amount),
@@ -625,8 +651,25 @@ class SalesInvoiceService(TransactionalDocumentService):
         header, source_rows, line_specs = self._prepare_invoice_sources(
             data, firm_id, own_notes=own_notes
         )
+        customer_before = row.customer_id
         row.customer_id = data.customer_id or header["customer_id"]
         row.branch_id = data.branch_id or header["branch_id"]
+        # Absent keeps the bill's own ship-to while it still names the
+        # buyer's address; otherwise it is inherited again from what it bills.
+        if (
+            "shipping_address_id" in data.model_fields_set
+            or row.customer_id != customer_before
+            or not ship_to_is_valid(
+                self._session,
+                customer_id=row.customer_id,
+                address_id=row.shipping_address_id,
+            )
+        ):
+            row.shipping_address_id = self._ship_to(
+                data.shipping_address_id,
+                customer_id=row.customer_id,
+                source_rows=source_rows,
+            )
         row.business_profile_id = data.business_profile_id
         salesman_id, territory_id, route_id = self._fill_missing_scope(
             firm_id=firm_id,
@@ -656,13 +699,22 @@ class SalesInvoiceService(TransactionalDocumentService):
             data.currency_code.strip().upper() if data.currency_code else None
         )
         row.exchange_rate = data.exchange_rate
-        row.payment_terms = data.payment_terms
-        row.due_date = data.due_date
+        # What the bill leaves blank it inherits from the orders it continues
+        # (backlog 67 row 4), exactly as a new bill does.
+        terms, terms_days = self._order_terms(source_rows)
+        row.payment_terms = data.payment_terms or terms
+        row.due_date = data.due_date or self._due_date(
+            self._session.get(Customer, row.customer_id),
+            data.invoice_date,
+            days=terms_days,
+        )
         # A draft is re-priced on every save, against the buyer as they stand
         # now, so what it prints must follow the same answer (D-CMP-15).
+        buyer = self._session.get(Customer, row.customer_id)
         row.place_of_supply = self._place_of_supply(
-            self._session.get(Customer, row.customer_id)
+            buyer, shipping_address_id=row.shipping_address_id
         )
+        row.buyer_gst_registration_type = _buyer_gst_type(buyer)
         row.reference_number = data.reference_number
         row.remarks = data.remarks
         # Absent means leave alone: an editor that never showed the counter
@@ -909,11 +961,21 @@ class SalesInvoiceService(TransactionalDocumentService):
         discount_details = DiscountLimitService(self._session).enforce(
             firm_scope, actor_id, invoice_discounts(self._judged_discount_lines(row))
         )
+        # A supply to an SEZ under an LUT carries no tax; one that charges some
+        # is warned about rather than refused, because whether the LUT covers
+        # this supply is the firm's to know (backlog 75 row 2).
+        sez_remark, sez_details = sez_tax_warning(customer, row.tax_total)
         approval_remark = (
-            " ".join(part for part in (licence_remark, price_remark) if part) or None
+            " ".join(
+                part for part in (licence_remark, price_remark, sez_remark) if part
+            )
+            or None
         )
         approval_details = (
-            (licence_details or {}) | (price_details or {}) | (discount_details or {})
+            (licence_details or {})
+            | (price_details or {})
+            | (discount_details or {})
+            | (sez_details or {})
         ) or None
         # The goods leave now, not when the draft was saved: a draft is a
         # proposal, and it used to ship the stock and post cost of goods sold
@@ -985,6 +1047,23 @@ class SalesInvoiceService(TransactionalDocumentService):
             actor_id=actor_id,
             firm_id=firm_scope,
             after_data=approval_details,
+        )
+        # Messaging (backlog 51): staged in this transaction, so a rolled-back
+        # approval leaves no message; a firm with messaging off gets nothing.
+        stage_document_event(
+            self._session,
+            "SALES_INVOICE_APPROVED",
+            MessagingDocument(
+                document_type="SALES_INVOICE",
+                document_id=row.id,
+                document_number=row.invoice_number,
+                document_date=row.invoice_date,
+                customer_id=row.customer_id,
+                amount=row.grand_total,
+                due_date=row.due_date,
+            ),
+            firm_id=firm_scope,
+            actor_id=actor_id,
         )
         # Inside the staged approval, not after it: anything composing
         # approval then settles the counter payment too, which is the trap
@@ -1265,6 +1344,17 @@ class SalesInvoiceService(TransactionalDocumentService):
         ).all()
         if receipts:
             blockers.append("money applied from " + ", ".join(sorted(receipts)))
+        # A write-off or set-off naming the bill, drafted or approved: it would
+        # clear nothing once the bill was gone (backlog 74 row 2).
+        from app.party_adjustments.services.allocations import (
+            adjustment_numbers_against,
+        )
+
+        adjustments = adjustment_numbers_against(
+            self._session, column="sales_invoice_id", bill_id=row.id
+        )
+        if adjustments:
+            blockers.append("party adjustment " + ", ".join(adjustments))
         notes = self._session.scalars(
             select(CreditNote.credit_note_number).where(
                 CreditNote.sales_invoice_id == row.id,
@@ -1617,6 +1707,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             invoice_date=row.invoice_date,
             customer_invoice_number=row.customer_invoice_number,
             place_of_supply=row.place_of_supply,
+            shipping_address_id=row.shipping_address_id,
             currency_code=row.currency_code,
             exchange_rate=row.exchange_rate,
             payment_terms=row.payment_terms,
@@ -2322,6 +2413,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             line_tax = self._resolve_tax(
                 document_id=row.id,
                 line_number=index,
+                shipping_address_id=row.shipping_address_id,
                 invoice_date=invoice_date,
                 firm_id=firm_id,
                 business_profile_id=business_profile_id,
@@ -2692,18 +2784,95 @@ class SalesInvoiceService(TransactionalDocumentService):
         ).delete(synchronize_session=False)
 
     @staticmethod
-    def _due_date(customer: Customer | None, invoice_date: date) -> date | None:
-        """Return when payment falls due, from the customer's terms.
+    def _due_date(
+        customer: Customer | None, invoice_date: date, *, days: int | None = None
+    ) -> date | None:
+        """Return when payment falls due, from the order's terms or the customer's.
 
         A customer carries `payment_terms_days` and every traced invoice
         carried `due_date = NULL`, because nothing put the two together. The
-        caller's own date always wins -- this only fills the gap.
+        caller's own date always wins -- this only fills the gap. ``days`` are
+        the terms of the orders the bill continues (backlog 67 row 4), which
+        outrank the customer's: the deal was struck on the order. No days of
+        credit leaves the date blank, as it always has.
         """
-        if customer is None or not customer.payment_terms_days:
+        if days is None:
+            days = customer.payment_terms_days if customer is not None else None
+        if not days:
             return None
-        return invoice_date + timedelta(days=int(customer.payment_terms_days))
+        return invoice_date + timedelta(days=int(days))
 
-    def _place_of_supply(self, customer: Customer | None) -> str | None:
+    def _order_terms(
+        self, source_rows: list[dict[str, object]]
+    ) -> tuple[str | None, int | None]:
+        """Return the payment terms of the orders behind the notes a bill bills.
+
+        A bill continues its orders, so it inherits the terms they were agreed
+        on rather than re-reading the customer (backlog 67 row 4). Several
+        orders on one bill fall due at the earliest of their terms -- the
+        stricter promise is the one the customer made -- and the words are
+        the first order's that has any.
+        """
+        note_ids = [
+            note_id
+            for item in source_rows
+            if item["source_document_type"]
+            == SalesInvoiceSourceType.DELIVERY_NOTE.value
+            and (note_id := _optional_uuid(item["source_document_id"])) is not None
+        ]
+        if not note_ids:
+            return None, None
+        rows = self._session.execute(
+            select(SalesOrder.payment_terms, SalesOrder.payment_terms_days)
+            .join(DeliveryNote, DeliveryNote.sales_order_id == SalesOrder.id)
+            .where(DeliveryNote.id.in_(note_ids))
+            .order_by(SalesOrder.order_date.asc(), SalesOrder.order_number.asc())
+        ).all()
+        words = next((text for text, _ in rows if text), None)
+        days = [int(value) for _, value in rows if value is not None]
+        return words, (min(days) if days else None)
+
+    def _ship_to(
+        self,
+        requested: UUID | None,
+        *,
+        customer_id: UUID,
+        source_rows: list[dict[str, object]],
+    ) -> UUID | None:
+        """Return where a bill's goods went (backlog 67 row 3).
+
+        The address named, checked as the buyer's own; else the ship-to of the
+        delivery notes billed when they agree -- a bill continues them and
+        inherits what they said; else the customer's default shipping address.
+        Notes that went to different addresses leave the bill to the default
+        unless the person names one, since a bill prints one ship-to.
+        """
+        if requested is not None:
+            return resolve_ship_to(
+                self._session, customer_id=customer_id, address_id=requested
+            )
+        note_ids = [
+            note_id
+            for item in source_rows
+            if item["source_document_type"]
+            == SalesInvoiceSourceType.DELIVERY_NOTE.value
+            and (note_id := _optional_uuid(item["source_document_id"])) is not None
+        ]
+        if note_ids:
+            inherited = set(
+                self._session.scalars(
+                    select(DeliveryNote.shipping_address_id).where(
+                        DeliveryNote.id.in_(note_ids)
+                    )
+                ).all()
+            )
+            if len(inherited) == 1 and None not in inherited:
+                return inherited.pop()
+        return resolve_ship_to(self._session, customer_id=customer_id, address_id=None)
+
+    def _place_of_supply(
+        self, customer: Customer | None, *, shipping_address_id: UUID | None = None
+    ) -> str | None:
         """Return the state the supply is made in, as the invoice prints it.
 
         Copied onto the invoice rather than read through the customer at print
@@ -2718,7 +2887,9 @@ class SalesInvoiceService(TransactionalDocumentService):
         """
         if customer is None:
             return None
-        return self._tax.place_of_supply(customer.id)
+        return self._tax.place_of_supply(
+            customer.id, shipping_address_id=shipping_address_id
+        )
 
     def _resolve_tax(
         self,
@@ -2735,6 +2906,7 @@ class SalesInvoiceService(TransactionalDocumentService):
         invoice_value: Decimal,
         document_id: UUID | None = None,
         line_number: int | None = None,
+        shipping_address_id: UUID | None = None,
     ) -> _LineTax:
         """Work out the line's tax, and keep everything that decided it.
 
@@ -2774,6 +2946,7 @@ class SalesInvoiceService(TransactionalDocumentService):
                 firm_id=firm_id,
                 branch_id=branch_id,
                 customer_id=customer_id,
+                shipping_address_id=shipping_address_id,
             ),
             transaction_date=invoice_date,
             business_profile_id=business_profile_id,

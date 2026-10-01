@@ -1006,8 +1006,8 @@ extension _Phase2PurchaseOrderEditor on _PurchaseOrderEditorDialogState {
           documentMoney(companion.lastPrice),
         ),
         DocumentSideNote(
-          '${companion.lastInvoiceNumber} on '
-          '${DateTime.tryParse(companion.lastInvoiceDate) == null ? companion.lastInvoiceDate : documentDate(DateTime.parse(companion.lastInvoiceDate))}',
+          documentLastBilled(companion.lastInvoiceNumber,
+              companion.lastInvoiceDate, companion.lastDiscountPercent),
         ),
         if (!_locked && _number(companion.lastPrice) != _number(line.unitPrice))
           Align(

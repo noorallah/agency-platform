@@ -12,6 +12,9 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 from app.core.database.config import DatabaseDialect
 
 _DEVELOPMENT_JWT_SECRET = "development-only-change-this-secret-key-before-production"
+#: What a development server encrypts messaging credentials under when
+#: ``AGENCY_MESSAGING_KEY`` is unset. Never accepted outside development.
+DEVELOPMENT_MESSAGING_KEY = "development-only-messaging-key-change-before-production"
 _DATABASE_SLOT_PATTERN = re.compile(
     r"^AGENCY_DATABASE(\d+)_(HOST|PORT|USERNAME|PASSWORD|TYPE)$"
 )
@@ -164,6 +167,18 @@ class Settings(BaseSettings):
     tenancy_dedicated_schema_prefix: str = "firm_"
     tenancy_dedicated_database_prefix: str = "erp_"
     tenancy_connection_profiles: str | None = None
+    #: The key a firm's messaging credentials (SMTP password, WhatsApp access
+    #: token, SMS auth key) are encrypted under, held here rather than in the
+    #: database (backlog 51, decision 2). Unset in development reads a fixed
+    #: development key; unset in staging or production means no credential
+    #: can be saved at all -- the server still starts, because messaging is a
+    #: feature a firm turns on and most never will.
+    messaging_key: SecretStr | None = None
+    #: Run the messaging outbox in a background thread of the server process.
+    #: Off for a process that only serves a test client or a second worker.
+    messaging_worker_enabled: bool = True
+    #: Seconds between outbox passes.
+    messaging_worker_interval_seconds: int = Field(default=60, ge=5)
     #: Where `Back up now` writes (`manual/<stamp>`) and where the backups
     #: screen looks for the nightly (`daily/`) and pre-upgrade ones. Setup
     #: points it at `<data root>/backups` through the service definition.
@@ -209,6 +224,26 @@ class Settings(BaseSettings):
                     "AGENCY_BOOTSTRAP_ADMIN_PASSWORD is required outside development."
                 )
         return self
+
+    def messaging_secret(self) -> str | None:
+        """Return the key messaging credentials are encrypted under, if any.
+
+        The shape of the JWT key: development (and testing) fall back to a
+        fixed, published key; staging and production have no fallback, so a
+        firm there cannot store credentials until the operator sets
+        ``AGENCY_MESSAGING_KEY``. A value equal to the development key is
+        refused outside development for the same reason.
+        """
+        configured = (
+            None
+            if self.messaging_key is None
+            else self.messaging_key.get_secret_value()
+        )
+        if self.environment in {Environment.STAGING, Environment.PRODUCTION}:
+            if not configured or configured == DEVELOPMENT_MESSAGING_KEY:
+                return None
+            return configured
+        return configured or DEVELOPMENT_MESSAGING_KEY
 
     @property
     def app(self) -> ApplicationSettings:

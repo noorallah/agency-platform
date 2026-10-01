@@ -4,6 +4,8 @@ import 'package:agency_desktop/core/api/api_client.dart';
 import 'package:agency_desktop/core/security/permission_service.dart';
 import 'package:agency_desktop/models/finance.dart';
 import 'package:agency_desktop/ui/finance/trial_balance_page.dart';
+import 'package:agency_desktop/ui/workspace/desktop_framework.dart'
+    show Phase2Scope;
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -33,13 +35,20 @@ class _FinanceApi extends ApiClient {
   final TrialBalanceReport? report;
   final List<String> requestedPeriods = [];
 
+  /// The last month of each range asked for; null for one month (50 item 5).
+  final List<String?> requestedToPeriods = [];
+
   @override
   Future<List<AccountingPeriod>> accountingPeriods({String? financialYearId}) async =>
       periods;
 
   @override
-  Future<TrialBalanceReport> trialBalance(String accountingPeriodId) async {
+  Future<TrialBalanceReport> trialBalance(
+    String accountingPeriodId, {
+    String? toPeriodId,
+  }) async {
     requestedPeriods.add(accountingPeriodId);
+    requestedToPeriods.add(toPeriodId);
     return report ?? TrialBalanceReport.empty;
   }
 }
@@ -255,6 +264,44 @@ void main() {
       expect(find.textContaining('Nothing posted in this period'), findsOneWidget);
       // And it names what puts entries there, rather than leaving a blank grid.
       expect(find.textContaining('goods receipt'), findsOneWidget);
+    });
+
+    testWidgets('phase 2 reads a run of months, From to To (50 item 5)',
+        (tester) async {
+      tester.view.physicalSize = const Size(1400, 900);
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.reset);
+      final _FinanceApi api = _FinanceApi(periods: [
+        _period('p-apr', '2026-04-01'),
+        _period('p-may', '2026-05-01'),
+      ]);
+      await tester.pumpWidget(MaterialApp(
+        home: Scaffold(
+          body: Phase2Scope(
+            child: TrialBalancePage(
+              api: api,
+              permissions: _permissionsFor(const ['TRIAL_BALANCE_VIEW']),
+              hasActiveFirm: true,
+            ),
+          ),
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('period-line')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Period p-apr').last);
+      await tester.pumpAndSettle();
+      expect(api.requestedPeriods.last, 'p-apr');
+      expect(api.requestedToPeriods.last, isNull,
+          reason: 'a month chosen on its own reads that month alone');
+
+      await tester.tap(find.byKey(const ValueKey('period-line-to-p-apr')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Period p-may').last);
+      await tester.pumpAndSettle();
+      expect(api.requestedPeriods.last, 'p-apr');
+      expect(api.requestedToPeriods.last, 'p-may');
+      expect(tester.takeException(), isNull);
     });
 
     testWidgets('no periods at all is a different message', (tester) async {

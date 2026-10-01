@@ -72,7 +72,11 @@ operation; it never changes whether it succeeds.
 
 Keys are sorted so two runs of the same operation produce comparable lines, and
 recognised secret keys (`password`, `refresh_token`, `token`, `secret`,
-`api_key`, `authorization`, …) are redacted whatever a caller passes.
+`api_key`, `authorization`, …) are redacted whatever a caller passes. The
+messaging providers' own names are on the list too (`authkey` for MSG91,
+`access_token` for Meta, `credentials` for a channel's whole bundle), and a
+provider's error text has every saved secret value scrubbed out before it is
+stored or shown (`app/messaging/providers/base.py`, `scrub`).
 
 Use it for operations someone will be asked about later: posting, approving,
 provisioning, imports, retention runs.

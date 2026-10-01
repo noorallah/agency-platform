@@ -41,6 +41,7 @@ from app.delivery_note.schemas import (
     DeliveryNoteStatus,
     DeliveryNoteSummary,
     DeliveryNoteUpdate,
+    DeliveryProofWrite,
 )
 from app.delivery_note.services import DeliveryNoteService
 from app.delivery_note.services.challan_print_service import (
@@ -109,6 +110,7 @@ def _filters(
     delivery_from: date | None,
     delivery_to: date | None,
     include_deleted: bool,
+    awaiting_delivery_proof: bool = False,
 ) -> DeliveryNoteListFilters:
     try:
         return DeliveryNoteListFilters.model_validate(
@@ -121,6 +123,7 @@ def _filters(
                 "delivery_from": delivery_from,
                 "delivery_to": delivery_to,
                 "include_deleted": include_deleted,
+                "awaiting_delivery_proof": awaiting_delivery_proof,
             }
         )
     except ValueError as error:
@@ -145,9 +148,14 @@ def list_delivery_notes(
     delivery_from: date | None = None,
     delivery_to: date | None = None,
     include_deleted: bool = False,
+    awaiting_delivery_proof: bool = False,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[DeliveryNoteResponse]:
-    """List delivery notes for the visible firm scope."""
+    """List delivery notes for the visible firm scope.
+
+    ``awaiting_delivery_proof`` narrows it to notes whose goods have left
+    with no proof of delivery recorded (backlog 67 row 6).
+    """
     params = PaginationParams(page=page, page_size=page_size)
     service = DeliveryNoteService(db)
     rows, total = service.list_notes(
@@ -161,6 +169,7 @@ def list_delivery_notes(
             delivery_from=delivery_from,
             delivery_to=delivery_to,
             include_deleted=include_deleted,
+            awaiting_delivery_proof=awaiting_delivery_proof,
         ),
         page=params.page,
         page_size=params.page_size,
@@ -347,6 +356,29 @@ def complete_delivery_note(
     service = DeliveryNoteService(db)
     row = service.complete_note(
         note_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=service.note_response(row))
+
+
+@router.post(
+    "/{note_id}/proof-of-delivery",
+    response_model=ApiResponse[DeliveryNoteResponse],
+)
+def record_delivery_proof(
+    note_id: UUID,
+    data: DeliveryProofWrite,
+    scope: DeliveryNoteUpdateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[DeliveryNoteResponse]:
+    """Record that the customer received a dispatched note (backlog 67 row 6).
+
+    SALES_UPDATE, not SALES_APPROVE: a proof records a fact the paper
+    shows -- who signed for the goods, and when -- and the clerk who files
+    the signed challan is not the person who approves sales.
+    """
+    service = DeliveryNoteService(db)
+    row = service.record_delivery_proof(
+        note_id, data, firm_scope=scope.firm_id, actor_id=scope.actor_id
     )
     return ApiResponse(data=service.note_response(row))
 

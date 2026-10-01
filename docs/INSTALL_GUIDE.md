@@ -344,6 +344,15 @@ version, the environment and the folder it runs from. `.\agency-server.exe
 migrate-all --dry-run` lists every database the server uses and the revision
 each is at. Try both first when the server will not start.
 
+**Messaging key.** Firms that send bills by email, WhatsApp or SMS save their
+provider passwords and tokens encrypted under `AGENCY_MESSAGING_KEY` in
+`config\.env`. The installer writes one (and adds one to an older `.env` that
+lacks it). Back it up with the rest of `config\.env`, and **never change it** once
+a firm has saved an account -- every firm would have to enter its accounts
+again. Messages queued by firms go out from the running server; to push them
+out at once, run `.\agency-server.exe messaging-run-once`. Firms set messaging up
+themselves: `docs/MESSAGING_SETUP_GUIDE.md`.
+
 **Pruning old database rows.** The database keeps sign-in history, expired
 sign-in tokens, old password history, the tax engine's calculation log and
 error reports. Nothing removes them unless you run this:

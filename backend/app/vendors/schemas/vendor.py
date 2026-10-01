@@ -1,7 +1,9 @@
 """Validated request and response contracts for vendor management."""
 
+import re
 from datetime import date, datetime
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -17,6 +19,9 @@ class VendorStatus(StrEnum):
     ACTIVE = "ACTIVE"
     INACTIVE = "INACTIVE"
     ARCHIVED = "ARCHIVED"
+    #: No new orders or bills; what is already raised can still be received,
+    #: paid and returned (backlog 69 row 4). Needs a reason.
+    BLOCKED = "BLOCKED"
 
 
 class AddressType(StrEnum):
@@ -166,10 +171,33 @@ class VendorWrite(VendorSchema):
     category_id: UUID | None = None
     type_id: UUID | None = None
     status: VendorStatus = VendorStatus.ACTIVE
+    #: Why the supplier is BLOCKED; required with that status, cleared with it.
+    blocked_reason: str | None = Field(default=None, max_length=500)
     business_profile_id: UUID | None = None
     gst_registration: bool = False
     gstin: str | None = Field(default=None, max_length=32)
     pan: str | None = Field(default=None, max_length=32)
+    #: Days of credit; a bill's due date defaults from it (backlog 68 row 1).
+    payment_terms_days: int = Field(default=0, ge=0, le=3650)
+    #: Udyam registration and MSME category (backlog 68 row 2).
+    udyam_number: str | None = Field(default=None, max_length=30)
+    msme_category: Literal["MICRO", "SMALL", "MEDIUM"] | None = None
+    msme_written_agreement: bool = False
+
+    @field_validator("udyam_number", mode="before")
+    @classmethod
+    def _udyam(cls, value: str | None) -> str | None:
+        """Check a Udyam number's shape: UDYAM-XX-00-0000000; blank is none."""
+        if value is None or not str(value).strip():
+            return None
+        normalized = str(value).strip().upper()
+        if not re.fullmatch(r"UDYAM-[A-Z]{2}-\d{2}-\d{7}", normalized):
+            raise ValueError(
+                "A Udyam number reads UDYAM-XX-00-0000000: the state letters, "
+                "two digits and seven digits."
+            )
+        return normalized
+
     license_number: str | None = Field(default=None, max_length=64)
     registration_number: str | None = Field(default=None, max_length=64)
     website: str | None = Field(default=None, max_length=500)
@@ -411,10 +439,15 @@ class VendorResponse(VendorSchema):
     category_id: UUID | None
     type_id: UUID | None
     status: VendorStatus
+    blocked_reason: str | None = None
     business_profile_id: UUID | None
     gst_registration: bool
     gstin: str | None
     pan: str | None
+    payment_terms_days: int = 0
+    udyam_number: str | None = None
+    msme_category: str | None = None
+    msme_written_agreement: bool = False
     license_number: str | None
     registration_number: str | None
     website: str | None
