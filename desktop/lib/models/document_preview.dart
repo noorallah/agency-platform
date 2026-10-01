@@ -9,6 +9,7 @@ class DocumentPreviewLine {
     required this.lastPrice,
     required this.lastInvoiceNumber,
     required this.lastInvoiceDate,
+    this.lastDiscountPercent = '',
     required this.availableQuantity,
   });
 
@@ -19,6 +20,9 @@ class DocumentPreviewLine {
   final String lastPrice;
   final String lastInvoiceNumber;
   final String lastInvoiceDate;
+
+  /// The discount rate on that bill's line (backlog 55 G6); empty with no bill.
+  final String lastDiscountPercent;
   final String availableQuantity;
 
   factory DocumentPreviewLine.fromJson(Map<String, dynamic> json) =>
@@ -28,6 +32,9 @@ class DocumentPreviewLine {
         lastPrice: json['last_price'] == null ? '' : '${json['last_price']}',
         lastInvoiceNumber: '${json['last_invoice_number'] ?? ''}',
         lastInvoiceDate: '${json['last_invoice_date'] ?? ''}',
+        lastDiscountPercent: json['last_discount_percent'] == null
+            ? ''
+            : '${json['last_discount_percent']}',
         availableQuantity: '${json['available_quantity'] ?? '0'}',
       );
 }

@@ -578,9 +578,27 @@ extension _Phase2QuotationEditor on _QuotationEditorDialogState {
         DocumentSidePair(
             'Last to this customer', documentMoney(companion.lastPrice)),
         DocumentSideNote(
-          '${companion.lastInvoiceNumber} on '
-          '${DateTime.tryParse(companion.lastInvoiceDate) == null ? companion.lastInvoiceDate : documentDate(DateTime.parse(companion.lastInvoiceDate))}',
+          documentLastBilled(companion.lastInvoiceNumber,
+              companion.lastInvoiceDate, companion.lastDiscountPercent),
         ),
+        // One click, never automatic (backlog 55 G6): the rate only; the
+        // discount box stays blank so any arrangement on file still applies.
+        if (double.tryParse(companion.lastPrice) !=
+            double.tryParse(line.unitPrice.text.trim()))
+          Align(
+            alignment: Alignment.centerLeft,
+            child: TextButton(
+              key: const ValueKey('quotation-use-last-price'),
+              onPressed: () {
+                _setState(() {
+                  line.unitPrice.text = documentQuantity(companion.lastPrice);
+                  line.priceEdited = true;
+                });
+                _schedulePreview();
+              },
+              child: const Text('Use the last price'),
+            ),
+          ),
       ],
       DocumentSidePair(
         'Discount',

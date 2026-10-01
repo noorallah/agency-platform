@@ -23,4 +23,7 @@ class DocumentPreviewLine(BaseModel):
     last_price: Decimal | None = None
     last_invoice_number: str | None = None
     last_invoice_date: date | None = None
+    #: The discount rate that bill carried on the line (backlog 55 G6), so
+    #: the screen says what the customer last paid *net*, not only the rate.
+    last_discount_percent: Decimal | None = None
     available_quantity: Decimal = Decimal("0")

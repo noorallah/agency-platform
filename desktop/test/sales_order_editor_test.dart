@@ -216,6 +216,7 @@ class _OrderApi extends ApiClient {
                 'last_price': '98.0000',
                 'last_invoice_number': 'SI-2026-2027-000009',
                 'last_invoice_date': '2026-08-01',
+                'last_discount_percent': '5.0000',
                 'available_quantity': '40.0000',
               },
           ],
@@ -808,6 +809,18 @@ void main() {
     expect(find.text('590.00'), findsWidgets);
     expect(find.text('98.00'), findsOneWidget);
     expect(find.textContaining('Five hundred ninety only'), findsOneWidget);
+    // Backlog 55 G6: the last bill and its discount are said, and the rate
+    // is one click away -- never filled in, and the discount never is.
+    expect(find.text('SI-2026-2027-000009 on 01-08-2026 · 5% off'),
+        findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('sales-order-use-last-price')));
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    expect(api.previews.last['lines'][0]['unit_price'], '98');
+    expect(api.previews.last['lines'][0].containsKey('discount_percent'),
+        isFalse);
+    expect(find.byKey(const ValueKey('sales-order-use-last-price')),
+        findsNothing);
 
     await tester.tap(find.byKey(const ValueKey('sales-order-save')));
     await tester.pumpAndSettle();

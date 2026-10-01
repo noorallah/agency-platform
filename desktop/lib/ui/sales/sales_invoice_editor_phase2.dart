@@ -862,8 +862,8 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
         if (companion != null && companion.lastPrice.isNotEmpty) ...[
           DocumentSidePair(
               'Last to this customer', documentMoney(companion.lastPrice)),
-          DocumentSideNote(
-              '${companion.lastInvoiceNumber} on ${companion.lastInvoiceDate}'),
+          DocumentSideNote(documentLastBilled(companion.lastInvoiceNumber,
+              companion.lastInvoiceDate, companion.lastDiscountPercent)),
         ],
         DocumentSidePair(
           'Discount',
@@ -923,8 +923,8 @@ extension _Phase2SalesInvoiceEditor on _SalesInvoiceEditorDialogState {
         if (companion != null && companion.lastPrice.isNotEmpty) ...[
           DocumentSidePair(
               'Last to this customer', documentMoney(companion.lastPrice)),
-          DocumentSideNote(
-              '${companion.lastInvoiceNumber} on ${companion.lastInvoiceDate}'),
+          DocumentSideNote(documentLastBilled(companion.lastInvoiceNumber,
+              companion.lastInvoiceDate, companion.lastDiscountPercent)),
         ],
         DocumentSidePair(
           'Discount',
