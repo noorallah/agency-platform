@@ -458,6 +458,12 @@ class SalesOrderService(TransactionalDocumentService):
                 customer_id=data.customer_id,
                 address_id=data.shipping_address_id,
             ),
+            payment_terms=data.payment_terms,
+            payment_terms_days=(
+                data.payment_terms_days
+                if data.payment_terms_days is not None
+                else customer.payment_terms_days
+            ),
             reference_number=data.reference_number,
             currency_code=data.currency_code,
             exchange_rate=data.exchange_rate,
@@ -567,6 +573,18 @@ class SalesOrderService(TransactionalDocumentService):
             row.shipping_address_id = resolve_ship_to(
                 self._session, customer_id=data.customer_id, address_id=None
             )
+        # The terms, likewise: absent keeps what the order says, None on the
+        # days takes the customer's, and a new customer brings their own.
+        if "payment_terms" in data.model_fields_set:
+            row.payment_terms = data.payment_terms
+        if "payment_terms_days" in data.model_fields_set:
+            row.payment_terms_days = (
+                data.payment_terms_days
+                if data.payment_terms_days is not None
+                else customer.payment_terms_days
+            )
+        elif data.customer_id != row.customer_id:
+            row.payment_terms_days = customer.payment_terms_days
         self._delete_children(order_id)
         row.customer_id = data.customer_id
         row.salesman_id = scope.salesman_id
@@ -1310,6 +1328,8 @@ class SalesOrderService(TransactionalDocumentService):
             delivery_date=row.delivery_date,
             customer_reference=row.customer_reference,
             shipping_address_id=row.shipping_address_id,
+            payment_terms=row.payment_terms,
+            payment_terms_days=row.payment_terms_days,
             reference_number=row.reference_number,
             currency_code=row.currency_code,
             exchange_rate=row.exchange_rate,

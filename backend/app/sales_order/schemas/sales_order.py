@@ -104,6 +104,11 @@ class SalesOrderCreate(SalesOrderSchema):
     #: row 3). None takes the customer's default shipping address; on an
     #: update, leaving it out keeps the order's own.
     shipping_address_id: UUID | None = None
+    #: The agreed terms (backlog 67 row 4). The words as typed; the days of
+    #: credit, where None takes the customer's and 0 means payment on the
+    #: bill. On an update, leaving either out keeps the order's own.
+    payment_terms: str | None = Field(default=None, max_length=200)
+    payment_terms_days: int | None = Field(default=None, ge=0, le=3650)
     reference_number: str | None = Field(default=None, max_length=80)
     currency_code: str | None = Field(default=None, max_length=10)
     exchange_rate: Decimal | None = Field(
@@ -289,6 +294,9 @@ class SalesOrderResponse(SalesOrderSchema):
     customer_reference: str | None
     #: The ship-to address the order names (backlog 67 row 3).
     shipping_address_id: UUID | None = None
+    #: The terms the bill inherits (backlog 67 row 4).
+    payment_terms: str | None = None
+    payment_terms_days: int | None = None
     reference_number: str | None
     currency_code: str | None
     exchange_rate: Decimal | None

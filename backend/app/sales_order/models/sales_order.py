@@ -66,6 +66,12 @@ class SalesOrder(BaseEntity):
     order_date: Mapped[date] = mapped_column(Date, nullable=False)
     delivery_date: Mapped[date | None] = mapped_column(Date)
     customer_reference: Mapped[str | None] = mapped_column(String(80))
+    #: The terms the sale was agreed on (backlog 67 row 4): the words, and the
+    #: days of credit -- the customer's own unless the order says otherwise.
+    #: The invoice inherits them rather than re-reading the customer, so a
+    #: deal struck at 15 days stays 15 days when the bill is raised.
+    payment_terms: Mapped[str | None] = mapped_column(String(200))
+    payment_terms_days: Mapped[int | None] = mapped_column(Integer)
     #: Where the goods go: one of the customer's own addresses (backlog 67
     #: row 3). A bare id, validated by ``app/customers/services/ship_to.py``
     #: when it is set, so a document still prints the address it named after

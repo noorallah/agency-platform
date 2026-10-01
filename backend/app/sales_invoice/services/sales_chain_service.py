@@ -131,6 +131,9 @@ class SalesChainService:
                 # Where the bill says the goods go; the note and the bill
                 # inherit it from here (backlog 67 row 3).
                 shipping_address_id=data.shipping_address_id,
+                # The bill's own words; the days stay the customer's, so a
+                # counter bill falls due exactly as it always did.
+                payment_terms=data.payment_terms,
                 reference_number=data.reference_number,
                 currency_code=data.currency_code,
                 exchange_rate=data.exchange_rate,

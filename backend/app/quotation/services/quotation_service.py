@@ -726,6 +726,9 @@ class QuotationService(TransactionalDocumentService):
                 order_date=order_date or utc_now().date(),
                 delivery_date=delivery_date,
                 customer_reference=row.customer_reference,
+                # The terms quoted are the terms ordered (backlog 67 row 4);
+                # the days stay the customer's unless the order says more.
+                payment_terms=row.payment_terms,
                 reference_number=row.quotation_number,
                 currency_code=row.currency_code,
                 exchange_rate=row.exchange_rate,

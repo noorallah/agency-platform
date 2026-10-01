@@ -172,3 +172,20 @@ order, the delivery note and the invoice:
   can follow. SEZ and OVERSEAS buyers are unchanged. The invoice stamps
   `place_of_supply` as before, now from the same answer
   (`app/tax/services/place_of_supply.py`).
+
+## Payment terms are agreed on the order and the bill inherits them
+
+Backlog 67 row 4, 2026-10-01. `sales_orders.payment_terms` (the words) and
+`payment_terms_days` (the days of credit). A new order takes the customer's
+days unless it names its own -- 0 is an answer, payment on the bill -- and a
+converted quotation brings its words. On an update, leaving either out keeps
+the order's own.
+
+The invoice inherits rather than re-reading the customer, which is the same
+rule as prices and discounts: a deal struck at 7 days stays 7 days when the
+bill is raised, however the customer master has moved since. A bill that
+leaves `due_date` blank falls due on the orders' days (several orders: the
+earliest -- the stricter promise is the one made), and one that leaves
+`payment_terms` blank takes the first order's words. A typed date always
+wins. A counter bill is unchanged: the order the chain raises for it takes the
+customer's days, so it falls due exactly as it did before.

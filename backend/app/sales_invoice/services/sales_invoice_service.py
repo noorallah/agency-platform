@@ -520,6 +520,7 @@ class SalesInvoiceService(TransactionalDocumentService):
             customer_id=customer_id,
             source_rows=source_rows,
         )
+        terms, terms_days = self._order_terms(source_rows)
         row = SalesInvoice(
             firm_id=firm_id,
             customer_id=customer_id,
@@ -540,8 +541,9 @@ class SalesInvoiceService(TransactionalDocumentService):
                 data.currency_code.strip().upper() if data.currency_code else None
             ),
             exchange_rate=data.exchange_rate,
-            payment_terms=data.payment_terms,
-            due_date=data.due_date or self._due_date(customer, data.invoice_date),
+            payment_terms=data.payment_terms or terms,
+            due_date=data.due_date
+            or self._due_date(customer, data.invoice_date, days=terms_days),
             place_of_supply=self._place_of_supply(
                 customer, shipping_address_id=shipping_address_id
             ),
@@ -697,8 +699,15 @@ class SalesInvoiceService(TransactionalDocumentService):
             data.currency_code.strip().upper() if data.currency_code else None
         )
         row.exchange_rate = data.exchange_rate
-        row.payment_terms = data.payment_terms
-        row.due_date = data.due_date
+        # What the bill leaves blank it inherits from the orders it continues
+        # (backlog 67 row 4), exactly as a new bill does.
+        terms, terms_days = self._order_terms(source_rows)
+        row.payment_terms = data.payment_terms or terms
+        row.due_date = data.due_date or self._due_date(
+            self._session.get(Customer, row.customer_id),
+            data.invoice_date,
+            days=terms_days,
+        )
         # A draft is re-priced on every save, against the buyer as they stand
         # now, so what it prints must follow the same answer (D-CMP-15).
         buyer = self._session.get(Customer, row.customer_id)
@@ -2775,16 +2784,53 @@ class SalesInvoiceService(TransactionalDocumentService):
         ).delete(synchronize_session=False)
 
     @staticmethod
-    def _due_date(customer: Customer | None, invoice_date: date) -> date | None:
-        """Return when payment falls due, from the customer's terms.
+    def _due_date(
+        customer: Customer | None, invoice_date: date, *, days: int | None = None
+    ) -> date | None:
+        """Return when payment falls due, from the order's terms or the customer's.
 
         A customer carries `payment_terms_days` and every traced invoice
         carried `due_date = NULL`, because nothing put the two together. The
-        caller's own date always wins -- this only fills the gap.
+        caller's own date always wins -- this only fills the gap. ``days`` are
+        the terms of the orders the bill continues (backlog 67 row 4), which
+        outrank the customer's: the deal was struck on the order. No days of
+        credit leaves the date blank, as it always has.
         """
-        if customer is None or not customer.payment_terms_days:
+        if days is None:
+            days = customer.payment_terms_days if customer is not None else None
+        if not days:
             return None
-        return invoice_date + timedelta(days=int(customer.payment_terms_days))
+        return invoice_date + timedelta(days=int(days))
+
+    def _order_terms(
+        self, source_rows: list[dict[str, object]]
+    ) -> tuple[str | None, int | None]:
+        """Return the payment terms of the orders behind the notes a bill bills.
+
+        A bill continues its orders, so it inherits the terms they were agreed
+        on rather than re-reading the customer (backlog 67 row 4). Several
+        orders on one bill fall due at the earliest of their terms -- the
+        stricter promise is the one the customer made -- and the words are
+        the first order's that has any.
+        """
+        note_ids = [
+            note_id
+            for item in source_rows
+            if item["source_document_type"]
+            == SalesInvoiceSourceType.DELIVERY_NOTE.value
+            and (note_id := _optional_uuid(item["source_document_id"])) is not None
+        ]
+        if not note_ids:
+            return None, None
+        rows = self._session.execute(
+            select(SalesOrder.payment_terms, SalesOrder.payment_terms_days)
+            .join(DeliveryNote, DeliveryNote.sales_order_id == SalesOrder.id)
+            .where(DeliveryNote.id.in_(note_ids))
+            .order_by(SalesOrder.order_date.asc(), SalesOrder.order_number.asc())
+        ).all()
+        words = next((text for text, _ in rows if text), None)
+        days = [int(value) for _, value in rows if value is not None]
+        return words, (min(days) if days else None)
 
     def _ship_to(
         self,

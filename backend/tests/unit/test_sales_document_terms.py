@@ -319,3 +319,81 @@ def test_the_bill_stamps_the_place_of_supply_its_ship_to_decides() -> None:
     stamped = session.get(SalesInvoice, invoice.id)
     assert stamped is not None
     assert stamped.place_of_supply == "Tamil Nadu (33)"
+
+
+# ---- row 4: payment terms on the order ---------------------------------
+
+
+def test_an_order_takes_the_customers_credit_days_unless_it_names_its_own() -> None:
+    """None takes the customer's days; a typed figure, zero included, stands."""
+    session = _session_factory()()
+    setup = _Firm(session)
+    setup.customer.payment_terms_days = 30
+    session.commit()
+
+    assert _order(setup).payment_terms_days == 30
+    agreed = _order(setup, payment_terms="7 days net", payment_terms_days=7)
+    assert (agreed.payment_terms, agreed.payment_terms_days) == ("7 days net", 7)
+    assert _order(setup, payment_terms_days=0).payment_terms_days == 0
+
+
+def test_an_update_that_leaves_the_terms_out_keeps_them() -> None:
+    """Absent means leave alone, as for every field an older editor omits."""
+    session = _session_factory()()
+    setup = _Firm(session)
+    setup.customer.payment_terms_days = 30
+    session.commit()
+    order = _order(setup, payment_terms="7 days net", payment_terms_days=7)
+
+    kept = SalesOrderService(session).update_order(
+        order.id,
+        _order_payload(setup, order),
+        firm_scope=setup.firm.id,
+        actor_id=uuid4(),
+    )
+    assert (kept.payment_terms, kept.payment_terms_days) == ("7 days net", 7)
+
+
+def test_the_bill_falls_due_on_the_orders_terms_not_the_customers() -> None:
+    """The deal was struck on the order; re-reading the customer rewrites it."""
+    session = _session_factory()()
+    setup = _Firm(session)
+    setup.customer.payment_terms_days = 30
+    session.commit()
+    note = _persons_note(setup)
+    order = session.get(SalesOrder, note.sales_order_id)
+    assert order is not None
+    order.payment_terms = "7 days net"
+    order.payment_terms_days = 7
+    session.commit()
+    DeliveryNoteService(session).dispatch_note(
+        note.id, firm_scope=setup.firm.id, actor_id=uuid4()
+    )
+
+    invoice = SalesInvoiceService(session).create_invoice(
+        _bill_of(setup, note), firm_id=setup.firm.id, actor_id=uuid4()
+    )
+    assert invoice.due_date == date(2026, 8, 11)
+    assert invoice.payment_terms == "7 days net"
+
+    typed = SalesInvoiceService(session).update_invoice(
+        invoice.id,
+        _bill_of(setup, note).model_copy(update={"due_date": date(2026, 9, 1)}),
+        firm_id=setup.firm.id,
+        actor_id=uuid4(),
+    )
+    assert typed.due_date == date(2026, 9, 1), "a typed date always wins"
+
+
+def test_a_counter_bill_still_falls_due_on_the_customers_terms() -> None:
+    """The order the chain raises takes the customer's days, as the bill did."""
+    session = _session_factory()()
+    setup = _Firm(session)
+    setup.stages(quotation=False, sales_order=False, delivery_note=False)
+    setup.customer.payment_terms_days = 30
+    session.commit()
+
+    invoice = SalesInvoiceService(session).create_invoice(
+        setup.bare_bill(), firm_id=setup.firm.id, actor_id=uuid4()
+    )
+    assert invoice.due_date == date(2026, 9, 3)
