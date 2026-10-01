@@ -25,7 +25,7 @@ from app.core.openapi import STANDARD_ERROR_RESPONSES
 from app.core.pagination import PaginationParams
 from app.core.pagination.reports import ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
-from app.settlements.models import Settlement
+from app.settlements.models import Settlement, SettlementMethod
 from app.settlements.schemas import (
     OutstandingInvoiceRecord,
     SettlementAllocateRequest,
@@ -36,6 +36,9 @@ from app.settlements.schemas import (
     SettlementReverseRequest,
     SupplierCreditApplyRequest,
     SupplierCreditRecord,
+    SupplierRefundCreate,
+    SupplierRefundResponse,
+    SupplierRefundReverse,
 )
 from app.settlements.services import (
     PaymentService,
@@ -47,6 +50,9 @@ from app.settlements.services.collection_report import CollectionReportService
 from app.settlements.services.supplier_credits import (
     SupplierCredit,
     apply_supplier_credit,
+    live_refunds,
+    refund_supplier_credit,
+    reverse_supplier_refund,
     supplier_credits,
 )
 
@@ -641,6 +647,8 @@ def _credit_record(credit: SupplierCredit) -> SupplierCreditRecord:
         applied_amount=credit.applied_amount,
         available_amount=credit.available_amount,
         applied_to=credit.applied_to,
+        refunded_amount=credit.refunded_amount,
+        outcome=credit.outcome,
     )
 
 
@@ -696,6 +704,80 @@ def apply_vendor_supplier_credit(
     db.commit()
     return ApiResponse(
         data=_credit_record(credit), message="Supplier credit applied to the bill."
+    )
+
+
+@payments_router.get(
+    "/supplier-credits/{return_id}/refunds",
+    response_model=ApiResponse[list[SupplierRefundResponse]],
+)
+def list_supplier_refunds(
+    return_id: UUID,
+    scope: PaymentViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[SupplierRefundResponse]]:
+    """Return the money a supplier paid back against one return."""
+    return ApiResponse(
+        data=[
+            SupplierRefundResponse.model_validate(row)
+            for row in live_refunds(
+                db, firm_id=scope.firm_id, purchase_return_id=return_id
+            )
+        ]
+    )
+
+
+@payments_router.post(
+    "/supplier-credits/{return_id}/refunds",
+    response_model=ApiResponse[SupplierRefundResponse],
+)
+def record_supplier_refund(
+    return_id: UUID,
+    payload: SupplierRefundCreate,
+    scope: PaymentCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SupplierRefundResponse]:
+    """Receive money a supplier paid back against a return (69 row 7)."""
+    row = refund_supplier_credit(
+        db,
+        firm_id=scope.firm_id,
+        purchase_return_id=return_id,
+        amount=payload.amount,
+        refunded_on=payload.refunded_on,
+        method=SettlementMethod(payload.method.value),
+        reference=payload.reference,
+        remarks=payload.remarks,
+        actor_id=scope.actor_id,
+    )
+    db.commit()
+    return ApiResponse(
+        data=SupplierRefundResponse.model_validate(row),
+        message="Supplier refund received.",
+    )
+
+
+@payments_router.post(
+    "/supplier-credits/refunds/{refund_id}/reverse",
+    response_model=ApiResponse[SupplierRefundResponse],
+)
+def reverse_vendor_supplier_refund(
+    refund_id: UUID,
+    payload: SupplierRefundReverse,
+    scope: PaymentCreateScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[SupplierRefundResponse]:
+    """Take back a supplier refund recorded in error."""
+    row = reverse_supplier_refund(
+        db,
+        firm_id=scope.firm_id,
+        refund_id=refund_id,
+        reason=payload.reason,
+        actor_id=scope.actor_id,
+    )
+    db.commit()
+    return ApiResponse(
+        data=SupplierRefundResponse.model_validate(row),
+        message="Supplier refund reversed.",
     )
 
 

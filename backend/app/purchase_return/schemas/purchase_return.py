@@ -3,6 +3,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -129,6 +130,9 @@ class PurchaseReturnCreate(PurchaseReturnSchema):
     reference_grn_number: str | None = Field(default=None, max_length=80)
     reference_invoice_number: str | None = Field(default=None, max_length=80)
     return_reason: str | None = Field(default=None, max_length=80)
+    #: What the supplier gives for the goods (backlog 69 row 7). Absent on a
+    #: new return is CREDIT; absent on an update keeps the return's own.
+    outcome: Literal["CREDIT", "REPLACEMENT", "REFUND"] | None = None
     currency_code: str | None = Field(default=None, max_length=10)
     exchange_rate: Decimal | None = Field(
         default=None, gt=0, max_digits=18, decimal_places=6
@@ -298,6 +302,8 @@ class PurchaseReturnResponse(PurchaseReturnSchema):
     due_date: date | None
     reference_number: str | None
     remarks: str | None
+    #: CREDIT, REPLACEMENT or REFUND (backlog 69 row 7).
+    outcome: str = "CREDIT"
     status: PurchaseReturnStatus
     total_source_quantity: Decimal
     total_already_returned_quantity: Decimal
@@ -432,3 +438,9 @@ class PurchaseReturnPreview(PurchaseReturnSchema):
     purchase_return: PurchaseReturnResponse
     interstate: bool
     lines: list[DocumentPreviewLine]
+
+
+class PurchaseReturnOutcomeRequest(PurchaseReturnSchema):
+    """Say what a return comes back as (backlog 69 row 7)."""
+
+    outcome: Literal["CREDIT", "REPLACEMENT", "REFUND"]

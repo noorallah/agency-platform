@@ -255,7 +255,44 @@ class SupplierCreditRecord(SettlementSchema):
     credit_amount: Decimal
     applied_amount: Decimal
     available_amount: Decimal
+    #: Paid back by the supplier (backlog 69 row 7).
+    refunded_amount: Decimal = Decimal("0")
+    #: CREDIT, REPLACEMENT or REFUND: what the return comes back as.
+    outcome: str = "CREDIT"
     applied_to: list[str]
+
+
+class SupplierRefundCreate(SettlementSchema):
+    """Money a supplier paid back against a return's credit (69 row 7)."""
+
+    amount: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
+    refunded_on: date
+    method: SettlementMethodEnum
+    reference: str | None = Field(default=None, max_length=120)
+    remarks: str | None = Field(default=None, max_length=500)
+
+
+class SupplierRefundReverse(SettlementSchema):
+    """Why a supplier refund is being taken back."""
+
+    reason: str = Field(min_length=1, max_length=500)
+
+
+class SupplierRefundResponse(SettlementSchema):
+    """One supplier refund."""
+
+    id: UUID
+    purchase_return_id: UUID
+    vendor_id: UUID
+    refunded_on: date
+    amount: Decimal
+    method: str
+    reference: str | None = None
+    remarks: str | None = None
+    status: str
+    journal_entry_id: UUID
+    reversal_journal_entry_id: UUID | None = None
+    reversal_reason: str | None = None
 
 
 class SupplierCreditApplyRequest(SettlementSchema):
@@ -266,6 +303,9 @@ class SupplierCreditApplyRequest(SettlementSchema):
 
 
 __all__ = [
+    "SupplierRefundCreate",
+    "SupplierRefundResponse",
+    "SupplierRefundReverse",
     "SettlementAllocateRequest",
     "OutstandingInvoiceRecord",
     "SettlementPartyRecord",

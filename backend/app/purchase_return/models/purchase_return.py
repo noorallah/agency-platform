@@ -59,6 +59,14 @@ class PurchaseReturn(BaseEntity):
     reference_grn_number: Mapped[str | None] = mapped_column(String(80))
     reference_invoice_number: Mapped[str | None] = mapped_column(String(80))
     return_reason: Mapped[str | None] = mapped_column(String(80))
+    #: What the supplier gives for the goods (backlog 69 row 7): ``CREDIT``
+    #: (the default -- set against a later bill), ``REPLACEMENT`` (the goods
+    #: come again against the same order, which reopens the quantity, and the
+    #: supplier's new bill takes the credit) or ``REFUND`` (money back,
+    #: received against the credit). The return posts the same either way.
+    outcome: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="CREDIT", server_default="CREDIT"
+    )
     currency_code: Mapped[str | None] = mapped_column(String(10))
     exchange_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
     payment_terms: Mapped[str | None] = mapped_column(String(200))

@@ -69,6 +69,7 @@ from app.inventory.services import InventoryService, LineConversion
 from app.products.models import Product
 from app.purchase.models import PurchaseOrder, PurchaseOrderHistory, PurchaseOrderLine
 from app.purchase.schemas import PurchaseOrderStatus
+from app.purchase.services.line_quantities import order_line_quantities
 from app.purchase_invoice.models import (
     PurchaseInvoice,
     PurchaseInvoiceLine,
@@ -1603,6 +1604,16 @@ class GoodsReceiptService(TransactionalDocumentService):
             "approved order."
         )
 
+    def resync_order_status(
+        self, purchase_order: PurchaseOrder, *, firm_id: UUID, actor_id: UUID
+    ) -> None:
+        """Move the order to match what it holds; see `_resync_order_status`.
+
+        Public for the purchase return: a return whose goods are to be
+        replaced reopens what the order is owed (backlog 69 row 7).
+        """
+        self._resync_order_status(purchase_order, firm_id=firm_id, actor_id=actor_id)
+
     def _resync_order_status(
         self, purchase_order: PurchaseOrder, *, firm_id: UUID, actor_id: UUID
     ) -> None:
@@ -1731,10 +1742,23 @@ class GoodsReceiptService(TransactionalDocumentService):
         )
         if exclude_receipt_id is not None:
             statement = statement.where(GoodsReceipt.id != exclude_receipt_id)
-        return {
+        received = {
             row[0]: self._q(row[1] or 0)
             for row in self._session.execute(statement).all()
         }
+        # Goods sent back to be replaced are owed again: the order line takes
+        # in that much more, and reads as not fully received until it has
+        # (backlog 69 row 7).
+        lines = self._session.scalars(
+            select(PurchaseOrderLine).where(
+                PurchaseOrderLine.purchase_order_id == purchase_order_id,
+                PurchaseOrderLine.is_deleted.is_(False),
+            )
+        ).all()
+        for line_id, figures in order_line_quantities(self._session, lines).items():
+            if figures.replaced > ZERO and line_id in received:
+                received[line_id] = self._q(received[line_id] - figures.replaced)
+        return received
 
     def _duplicate_warnings(self, rows: Sequence[GoodsReceipt]) -> dict[UUID, str]:
         """Answer `_duplicate_warning` for a page of receipts in one query."""
