@@ -5237,7 +5237,7 @@ it.
 
 ## 74. Money against a full ERP checklist: what else to consider
 
-**Status, 2026-10-02:** row 2 built -- deductions (rounding, bank charges, discount allowed/received) on receipts and payments; a party adjustment document (customer write-off, supplier write-back, set-off) with approval above a per-firm threshold (`app/party_adjustments`). Defaults in `docs/OWNER_DECISIONS.md` A14-A16.
+**Status, 2026-10-02:** row 2 built -- deductions (rounding, bank charges, discount allowed/received) on receipts and payments; a party adjustment document (customer write-off, supplier write-back, set-off) with approval above a per-firm threshold (`app/party_adjustments`). Defaults in `docs/OWNER_DECISIONS.md` A14-A16. Rows 3-4 built: a contra voucher (deposit, withdrawal, bank and cash transfers, own CV series, printable; `app/contra`), a supplier statement of account (Purchases > Money > Supplier Statements) and balance confirmation letters for any customer or supplier, one PDF or a zip for everyone with a balance (`docs/OWNER_DECISIONS.md` A22-A24).
 
 Owner, 2026-09-28: after sales (§67), purchases (§68) and inventory (§70),
 review the money side the same way -- books, years, receipts and payments,

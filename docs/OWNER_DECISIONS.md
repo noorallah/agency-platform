@@ -30,6 +30,9 @@ a question only the owner, a go-live firm or its CA can answer.
 | A19 | Offer cap (§59 item 3) | Over the cap, the latest-applied offer gives back first | OK? |
 | A20 | Ship-to and place of supply (§67 row 3) | An unregistered buyer's place of supply follows the ship-to (IGST s.10(1)(a)); a registered buyer keeps its GSTIN's state even when goods go elsewhere (bill-to-ship-to, s.10(1)(b)) | Confirm with the CA |
 | A21 | Proof of delivery (§67 row 6) | "Delivered" is a flag set only by a proof, not a new status; recording it needs `SALES_UPDATE` | OK? |
+| A22 | Contra vouchers (§74 row 3) | Money accounts are the CASH and BANK control accounts plus any active asset account in their group; in the seeded chart cash and bank share Current Assets, so a firm's own asset accounts there are offered too; cash going below zero is warned, not refused | Give new firms a separate "Cash and Bank" group? |
+| A23 | Balance confirmation letters (§74 row 4) | The letter says silence for 15 days is taken as confirmation, as audit letters usually do | Keep that sentence? |
+| A24 | Supplier statement | Read from whichever account is set for Accounts Payable now; lines posted under an earlier mapping would not show | OK -- the mapping should never change once trading |
 
 ## B. Open questions the backlog already records
 
