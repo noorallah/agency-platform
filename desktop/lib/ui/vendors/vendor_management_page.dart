@@ -668,6 +668,12 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
       TextEditingController(text: widget.vendor?.gstin ?? '');
   late final TextEditingController _pan =
       TextEditingController(text: widget.vendor?.pan ?? '');
+  late final TextEditingController _creditDays = TextEditingController(
+      text: '${widget.vendor?.paymentTermsDays ?? 0}');
+  late final TextEditingController _udyam =
+      TextEditingController(text: widget.vendor?.udyamNumber ?? '');
+  late String _msmeCategory = widget.vendor?.msmeCategory ?? '';
+  late bool _msmeAgreement = widget.vendor?.msmeWrittenAgreement ?? false;
   late final TextEditingController _email =
       TextEditingController(text: widget.vendor?.email ?? '');
   late final TextEditingController _phone =
@@ -1038,6 +1044,8 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
     _displayName.dispose();
     _gstin.dispose();
     _pan.dispose();
+    _creditDays.dispose();
+    _udyam.dispose();
     _email.dispose();
     _phone.dispose();
     _mobile.dispose();
@@ -1200,6 +1208,44 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
             value: _gstRegistration,
             onChanged: (value) => setState(() => _gstRegistration = value),
           ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              Expanded(
+                child: _field(_creditDays, 'Credit days',
+                    helper: "A bill's due date defaults from this"),
+              ),
+              const SizedBox(width: 12),
+              Expanded(child: _field(_udyam, 'Udyam number')),
+              const SizedBox(width: 12),
+              Expanded(
+                child: DropdownButtonFormField<String>(
+                  isExpanded: true,
+                  initialValue: _msmeCategory,
+                  decoration: const InputDecoration(labelText: 'MSME'),
+                  items: const [
+                    DropdownMenuItem(value: '', child: Text('Not MSME')),
+                    DropdownMenuItem(value: 'MICRO', child: Text('Micro')),
+                    DropdownMenuItem(value: 'SMALL', child: Text('Small')),
+                    DropdownMenuItem(value: 'MEDIUM', child: Text('Medium')),
+                  ],
+                  onChanged: (value) =>
+                      setState(() => _msmeCategory = value ?? ''),
+                ),
+              ),
+            ],
+          ),
+          if (_msmeCategory == 'MICRO' || _msmeCategory == 'SMALL')
+            CheckboxListTile(
+              contentPadding: EdgeInsets.zero,
+              title: const Text('Written agreement allows up to 45 days'),
+              subtitle: const Text(
+                  'Without one the law allows 15 days (MSMED Act s.15); an '
+                  'unpaid bill past it is disallowed this year (s.43B(h)).'),
+              value: _msmeAgreement,
+              onChanged: (value) =>
+                  setState(() => _msmeAgreement = value ?? false),
+            ),
           const SizedBox(height: 12),
           _field(_remarks, 'Remarks', maxLines: 3),
         ],
@@ -1636,6 +1682,12 @@ class _VendorEditorDialogState extends State<_VendorEditorDialog>
         'gst_registration': _gstRegistration,
         'gstin': _gstin.text.trim().toUpperCase(),
         'pan': _pan.text.trim().toUpperCase(),
+        'payment_terms_days': int.tryParse(_creditDays.text.trim()) ?? 0,
+        'udyam_number': _udyam.text.trim().isEmpty
+            ? null
+            : _udyam.text.trim().toUpperCase(),
+        'msme_category': _msmeCategory.isEmpty ? null : _msmeCategory,
+        'msme_written_agreement': _msmeAgreement,
         'email': _email.text.trim(),
         'phone': _phone.text.trim(),
         'mobile': _mobile.text.trim(),

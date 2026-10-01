@@ -657,6 +657,30 @@ const List<ReportDefinition> reportCatalog = [
     ],
   ),
   ReportDefinition(
+    id: 'purchase-invoice-msme-dues',
+    label: 'MSME payments due',
+    description: 'Unpaid bills to micro and small suppliers against the '
+        'date the law sets: 45 days with a written agreement, 15 without. '
+        'One unpaid past it is an expense disallowed this year (s.43B(h)).',
+    path: '/api/v1/purchase-invoices/reports/msme-dues',
+    permission: 'PURCHASE_VIEW',
+    area: ReportArea.financial,
+    columns: [
+      ReportColumn(key: 'vendor_name', label: 'Supplier'),
+      ReportColumn(key: 'msme_category', label: 'MSME'),
+      ReportColumn(key: 'udyam_number', label: 'Udyam'),
+      ReportColumn(key: 'invoice_number', label: 'Invoice number'),
+      ReportColumn(
+          key: 'supplier_invoice_number', label: 'Supplier invoice number'),
+      ReportColumn(key: 'invoice_date', label: 'Invoice date'),
+      ReportColumn(key: 'pay_by', label: 'Pay by'),
+      ReportColumn(key: 'days_left', label: 'Days left', numeric: true),
+      ReportColumn(key: 'state', label: 'State'),
+      ReportColumn(
+          key: 'outstanding_amount', label: 'Still owed', numeric: true),
+    ],
+  ),
+  ReportDefinition(
     id: 'purchase-invoice-outstanding',
     label: 'Vendor outstanding',
     description: 'What is still owed to each supplier.',

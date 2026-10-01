@@ -42,6 +42,7 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceCreate,
     PurchaseInvoiceImportRequest,
     PurchaseInvoiceListFilters,
+    PurchaseInvoiceMsmeDueRecord,
     PurchaseInvoiceOverdueRecord,
     PurchaseInvoicePreview,
     PurchaseInvoiceReconciliationRecord,
@@ -521,6 +522,20 @@ def pending_purchase_invoices(
         data=PurchaseInvoiceService(db).register_report(
             firm_scope=scope.firm_id, statuses=(PurchaseInvoiceStatus.DRAFT.value,)
         )
+    )
+
+
+@router.get(
+    "/reports/msme-dues",
+    response_model=ApiResponse[list[PurchaseInvoiceMsmeDueRecord]],
+)
+def msme_purchase_invoice_dues(
+    scope: PurchaseInvoiceReportScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[list[PurchaseInvoiceMsmeDueRecord]]:
+    """List unpaid bills to micro and small suppliers against their legal date."""
+    return ApiResponse(
+        data=PurchaseInvoiceService(db).msme_dues_report(firm_scope=scope.firm_id)
     )
 
 

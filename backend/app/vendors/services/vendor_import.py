@@ -110,6 +110,35 @@ COLUMNS: tuple[Column, ...] = (
     ),
     Column("PAN", ("pannumber", "panno", "itpan"), False, "PAN.", "AAACA1234A"),
     Column(
+        "CreditDays",
+        ("paymentterms", "creditperiod", "termsdays"),
+        False,
+        "Days of credit the supplier gives; a bill's due date defaults from it.",
+        "30",
+    ),
+    Column(
+        "Udyam",
+        ("udyamnumber", "udyamregistration", "msmenumber"),
+        False,
+        "Udyam registration, UDYAM-XX-00-0000000.",
+        "",
+    ),
+    Column(
+        "MsmeCategory",
+        ("msme", "enterprisecategory"),
+        False,
+        "MICRO, SMALL or MEDIUM. Micro and small suppliers must be paid within "
+        "45 days (s.43B(h)).",
+        "",
+    ),
+    Column(
+        "MsmeAgreement",
+        ("writtenagreement",),
+        False,
+        "Yes if a written agreement allows up to 45 days; No means 15.",
+        "No",
+    ),
+    Column(
         "LicenseNumber",
         ("licenceno", "licenseno", "druglicense", "druglicence", "dlno"),
         False,
@@ -237,6 +266,10 @@ _FIELD_HEADINGS: dict[str, str] = {
     "type_id": "Type",
     "gstin": "GSTIN",
     "pan": "PAN",
+    "payment_terms_days": "CreditDays",
+    "udyam_number": "Udyam",
+    "msme_category": "MsmeCategory",
+    "msme_written_agreement": "MsmeAgreement",
     "license_number": "LicenseNumber",
     "registration_number": "RegistrationNumber",
     "email": "Email",
@@ -548,6 +581,17 @@ class VendorFileImporter(FileImporter[Vendor]):
                 values[target] = reader.text(heading)
         if reader.text("GSTIN"):
             values["gst_registration"] = True
+        days = reader.whole("CreditDays")
+        if days is not None:
+            values["payment_terms_days"] = days
+        if reader.text("Udyam"):
+            values["udyam_number"] = reader.text("Udyam")
+        category = reader.text("MsmeCategory").upper()
+        if category:
+            values["msme_category"] = category
+        agreement = reader.flag("MsmeAgreement")
+        if agreement is not None:
+            values["msme_written_agreement"] = agreement
         email = reader.email("Email")
         if email:
             values["email"] = email

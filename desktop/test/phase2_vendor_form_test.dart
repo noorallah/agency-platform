@@ -37,6 +37,10 @@ Json _vendorJson({
       'name': 'Supplier One',
       'display_name': 'Supplier One',
       'status': 'ACTIVE',
+      'payment_terms_days': 30,
+      'udyam_number': 'UDYAM-TN-01-1234567',
+      'msme_category': 'SMALL',
+      'msme_written_agreement': true,
       'addresses': addresses,
       'contacts': contacts,
       'bank_accounts': bankAccounts,
@@ -148,5 +152,10 @@ void main() {
     await tester.pumpAndSettle();
     expect(api.saved?['code'], 'V001');
     expect(api.saved?['banking'], hasLength(1));
+    // Terms and MSME standing go back as they came (backlog 68 rows 1-2).
+    expect(api.saved?['payment_terms_days'], 30);
+    expect(api.saved?['udyam_number'], 'UDYAM-TN-01-1234567');
+    expect(api.saved?['msme_category'], 'SMALL');
+    expect(api.saved?['msme_written_agreement'], isTrue);
   });
 }

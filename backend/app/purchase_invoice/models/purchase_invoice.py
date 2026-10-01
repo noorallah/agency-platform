@@ -57,6 +57,10 @@ class PurchaseInvoice(BaseEntity):
     exchange_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 6))
     payment_terms: Mapped[str | None] = mapped_column(String(200))
     due_date: Mapped[date | None] = mapped_column(Date)
+    #: The last day a bill to a micro or small supplier may be paid (backlog
+    #: 68 row 2, `app/purchase_invoice/services/msme.py`), stamped when the
+    #: bill is written so a supplier re-classified later does not move it.
+    msme_pay_by: Mapped[date | None] = mapped_column(Date)
     reference_number: Mapped[str | None] = mapped_column(String(120))
     remarks: Mapped[str | None] = mapped_column(Text)
     # Retired (D-BUY-14): a bill is raised against a goods receipt, and no
