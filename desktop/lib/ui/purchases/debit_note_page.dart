@@ -126,6 +126,40 @@ class _DebitNotePageState extends State<DebitNotePage> {
     if (saved == true) await _load();
   }
 
+  /// Change a draft: read it fresh first, so the editor opens on what the
+  /// server holds now and saves against that version.
+  Future<void> _edit(DebitNoteRecord note) async {
+    final DebitNoteRecord fresh;
+    try {
+      fresh = await widget.api.debitNote(note.id);
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        error.message,
+        kind: AppNotificationKind.error,
+      );
+      return;
+    }
+    if (!mounted) return;
+    if (!fresh.isDraft) {
+      NotificationService.show(
+        context,
+        '${fresh.debitNoteNumber} is ${fresh.status.toLowerCase()} and can '
+        'no longer be edited.',
+        kind: AppNotificationKind.error,
+      );
+      await _load();
+      return;
+    }
+    final bool? saved = await showDocument<bool>(
+      context,
+      title: 'Edit ${fresh.debitNoteNumber}',
+      builder: (_) => DebitNoteDialog(api: widget.api, existing: fresh),
+    );
+    if (saved == true) await _load();
+  }
+
   Future<void> _act(
     DebitNoteRecord note,
     Future<DebitNoteRecord> Function() action,
@@ -265,6 +299,14 @@ class _DebitNotePageState extends State<DebitNotePage> {
       },
       commands: [
         ToolbarCommand(
+          id: 'edit',
+          label: 'Edit',
+          icon: Icons.edit_outlined,
+          onPressed: selected != null && selected.isDraft && _mayManage
+              ? () => unawaited(_edit(selected))
+              : null,
+        ),
+        ToolbarCommand(
           id: 'approve',
           label: 'Approve',
           icon: Icons.check_circle_outline,
@@ -359,8 +401,22 @@ class _DebitNotePageState extends State<DebitNotePage> {
 
   /// Read one note: the bill it claims on, why, and each line's claim.
   /// Approve and Cancel stay on the bar above the grid, so this only reads.
-  Future<void> _openNote(DebitNoteRecord note) async {
-    setState(() => _selectedId = note.id);
+  Future<void> _openNote(DebitNoteRecord listed) async {
+    setState(() => _selectedId = listed.id);
+    // Read it fresh: the row is as old as the last list.
+    final DebitNoteRecord note;
+    try {
+      note = await widget.api.debitNote(listed.id);
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      NotificationService.show(
+        context,
+        error.message,
+        kind: AppNotificationKind.error,
+      );
+      return;
+    }
+    if (!mounted) return;
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {
@@ -383,13 +439,17 @@ class _DebitNotePageState extends State<DebitNotePage> {
                     '${note.debitNoteDate} · ${note.reasonLabel}',
                     style: small,
                   ),
+                  if (note.referenceNumber.isNotEmpty)
+                    Text('Reference ${note.referenceNumber}', style: small),
                   const SizedBox(height: AppSpacing.md),
                   for (final DebitNoteLineRecord line in note.lines)
                     Padding(
                       padding: const EdgeInsets.symmetric(vertical: 2),
                       child: Text(
                         '${line.productName.isEmpty ? line.description : line.productName}'
-                        ' — ${_money(line.taxableAmount)} before tax',
+                        ' — ${_money(line.taxableAmount)} + '
+                        '${_money(line.taxAmount)} tax '
+                        '(${_money(line.taxRatePercent)}%)',
                         style: small,
                       ),
                     ),
@@ -464,9 +524,12 @@ class DebitNoteNotice {
 
 /// Raise one debit note against an approved supplier bill.
 class DebitNoteDialog extends StatefulWidget {
-  const DebitNoteDialog({super.key, required this.api});
+  const DebitNoteDialog({super.key, required this.api, this.existing});
 
   final ApiClient api;
+
+  /// A draft being changed; null raises a new note.
+  final DebitNoteRecord? existing;
 
   @override
   State<DebitNoteDialog> createState() => _DebitNoteDialogState();
@@ -501,10 +564,60 @@ class _DebitNoteDialogState extends State<DebitNoteDialog> {
 
   void _setState(VoidCallback change) => setState(change);
 
+  bool get _editing => widget.existing != null;
+
   @override
   void initState() {
     super.initState();
-    unawaited(_loadVendors());
+    final DebitNoteRecord? note = widget.existing;
+    if (note != null) {
+      // The supplier and the bill are what the note is about, so an edit
+      // keeps them; only the claim, reason, reference and remarks change.
+      _vendorId = note.vendorId;
+      _billId = note.purchaseInvoiceId;
+      _reason = note.reason;
+      _reference.text = note.referenceNumber;
+      _remarks.text = note.remarks;
+      _bills = <Json>[
+        <String, dynamic>{
+          'id': note.purchaseInvoiceId,
+          'invoice_number': note.purchaseInvoiceNumber,
+          'supplier_invoice_number': note.supplierInvoiceNumber,
+        },
+      ];
+      for (final DebitNoteLineRecord line in note.lines) {
+        _amounts[line.purchaseInvoiceLineId] = line.taxableAmount;
+        if (_number(line.quantity) > 0) {
+          _quantities[line.purchaseInvoiceLineId] = line.quantity;
+        }
+      }
+      _preview = note;
+      unawaited(_loadVendors().then((_) => _loadExistingLines()));
+    } else {
+      unawaited(_loadVendors());
+    }
+  }
+
+  /// The bill's lines with this note's own claim not counted against them.
+  Future<void> _loadExistingLines() async {
+    if (!mounted) return;
+    setState(() => _loadingLines = true);
+    try {
+      final List<DebitNoteClaimableLine> lines = await widget.api
+          .debitNoteClaimableLines(_billId,
+              excludingNoteId: widget.existing!.id);
+      if (!mounted) return;
+      setState(() {
+        _lines = lines;
+        _loadingLines = false;
+      });
+    } on ApiException catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error.message;
+        _loadingLines = false;
+      });
+    }
   }
 
   @override
@@ -634,7 +747,8 @@ class _DebitNoteDialogState extends State<DebitNoteDialog> {
     });
   }
 
-  static String _today() {
+  String _today() {
+    if (_editing) return widget.existing!.debitNoteDate;
     final DateTime now = DateTime.now();
     return '${now.year.toString().padLeft(4, '0')}-'
         '${now.month.toString().padLeft(2, '0')}-'
@@ -643,7 +757,7 @@ class _DebitNoteDialogState extends State<DebitNoteDialog> {
 
   /// The note as the server is sent it: every line with an amount on it, and
   /// only the fields the server declares.
-  Json? _payload() {
+  Json? _payload({bool forUpdate = false}) {
     if (_billId.isEmpty) return null;
     final List<DebitNoteClaimableLine> claiming = [
       for (final DebitNoteClaimableLine line in _lines)
@@ -651,12 +765,15 @@ class _DebitNoteDialogState extends State<DebitNoteDialog> {
     ];
     if (claiming.isEmpty) return null;
     return <String, dynamic>{
-      'purchase_invoice_id': _billId,
+      // The update schema does not declare the bill: a note stays on its own.
+      if (!forUpdate) 'purchase_invoice_id': _billId,
       'debit_note_date': _today(),
       'reason': _reason,
-      if (_reference.text.trim().isNotEmpty)
+      // On an edit a cleared box must clear the field, so it is always sent.
+      if (forUpdate || _reference.text.trim().isNotEmpty)
         'reference_number': _reference.text.trim(),
-      if (_remarks.text.trim().isNotEmpty) 'remarks': _remarks.text.trim(),
+      if (forUpdate || _remarks.text.trim().isNotEmpty)
+        'remarks': _remarks.text.trim(),
       'lines': [
         for (int i = 0; i < claiming.length; i++)
           <String, dynamic>{
@@ -679,7 +796,7 @@ class _DebitNoteDialogState extends State<DebitNoteDialog> {
   /// Runs the save itself and stays open with the server's message on a
   /// refusal, so nothing typed is lost.
   Future<void> _save() async {
-    final Json? payload = _payload();
+    final Json? payload = _payload(forUpdate: _editing);
     if (payload == null) {
       setState(() => _error = 'Enter what is being claimed, before tax, on '
           'at least one line.');
@@ -690,7 +807,15 @@ class _DebitNoteDialogState extends State<DebitNoteDialog> {
       _error = null;
     });
     try {
-      await widget.api.createDebitNote(payload);
+      if (_editing) {
+        await widget.api.updateDebitNote(
+          widget.existing!.id,
+          payload,
+          expectedVersion: widget.existing!.version,
+        );
+      } else {
+        await widget.api.createDebitNote(payload);
+      }
       if (!mounted) return;
       Navigator.of(context).pop(true);
     } on ApiException catch (error) {

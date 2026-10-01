@@ -130,7 +130,35 @@ class _PartyAdjustmentPageState extends State<PartyAdjustmentPage> {
     if (saved == true) await _load();
   }
 
-  Future<void> _edit(PartyAdjustment row) async {
+  /// Read one adjustment as the server holds it now, or say why it could
+  /// not be read. The list row may be minutes old: an edit must start from
+  /// the current version, and a view should show what was approved since.
+  Future<PartyAdjustment?> _fresh(PartyAdjustment row) async {
+    try {
+      return await widget.api.partyAdjustment(row.id);
+    } on ApiException catch (error) {
+      if (!mounted) return null;
+      NotificationService.show(
+        context,
+        error.message,
+        kind: AppNotificationKind.error,
+      );
+      return null;
+    }
+  }
+
+  Future<void> _edit(PartyAdjustment listed) async {
+    final PartyAdjustment? row = await _fresh(listed);
+    if (row == null || !mounted) return;
+    if (row.status != 'DRAFT') {
+      NotificationService.show(
+        context,
+        '${row.adjustmentNumber} is no longer a draft, so it cannot be edited.',
+        kind: AppNotificationKind.error,
+      );
+      await _load();
+      return;
+    }
     final bool? saved = await showDocument<bool>(
       context,
       title: 'Edit ${row.adjustmentNumber}',
@@ -405,8 +433,10 @@ class _PartyAdjustmentPageState extends State<PartyAdjustmentPage> {
   );
 
   /// Read one adjustment: who, why, and the bills it clears.
-  Future<void> _open(PartyAdjustment row) async {
-    setState(() => _selectedId = row.id);
+  Future<void> _open(PartyAdjustment listed) async {
+    setState(() => _selectedId = listed.id);
+    final PartyAdjustment? row = await _fresh(listed);
+    if (row == null || !mounted) return;
     await showDialog<void>(
       context: context,
       builder: (dialogContext) {

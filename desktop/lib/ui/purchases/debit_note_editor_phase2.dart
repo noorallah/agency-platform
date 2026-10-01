@@ -71,7 +71,9 @@ extension _Phase2DebitNote on _DebitNoteDialogState {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               DocumentPageBand(
-                title: 'New debit note',
+                title: _editing
+                    ? 'Edit ${widget.existing!.debitNoteNumber}'
+                    : 'New debit note',
                 chips: [
                   if (number.isNotEmpty) '$number (new)',
                   if (_selectedBill != null)
@@ -88,7 +90,11 @@ extension _Phase2DebitNote on _DebitNoteDialogState {
                   FilledButton(
                     key: const ValueKey('debit-note-save'),
                     onPressed: _saving ? null : () => unawaited(_save()),
-                    child: Text(_saving ? 'Saving…' : 'Raise debit note'),
+                    child: Text(_saving
+                        ? 'Saving…'
+                        : _editing
+                            ? 'Save changes'
+                            : 'Raise debit note'),
                   ),
                 ],
               ),
@@ -177,7 +183,7 @@ extension _Phase2DebitNote on _DebitNoteDialogState {
           key: const ValueKey('debit-note-vendor'),
           initialSelection: _vendorId.isEmpty ? null : _vendorId,
           width: 240,
-          enabled: !_saving,
+          enabled: !_saving && !_editing,
           enableFilter: true,
           requestFocusOnTap: true,
           menuHeight: 320,
@@ -206,7 +212,7 @@ extension _Phase2DebitNote on _DebitNoteDialogState {
           key: ValueKey('debit-note-bill-$_vendorId'),
           initialSelection: _billId.isEmpty ? null : _billId,
           width: 340,
-          enabled: !_saving && _bills.isNotEmpty,
+          enabled: !_saving && !_editing && _bills.isNotEmpty,
           enableFilter: true,
           requestFocusOnTap: true,
           menuHeight: 320,
@@ -230,7 +236,9 @@ extension _Phase2DebitNote on _DebitNoteDialogState {
         width: 130,
         child: InputDecorator(
           decoration: documentBoxDecoration(context),
-          child: Text(documentDate(DateTime.now())),
+          child: Text(_editing
+              ? widget.existing!.debitNoteDate
+              : documentDate(DateTime.now())),
         ),
       ),
       DocumentField(

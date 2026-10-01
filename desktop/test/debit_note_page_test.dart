@@ -72,6 +72,12 @@ class _DebitNoteApi extends ApiClient {
   Json? cancelBody;
   final List<Json> previews = <Json>[];
   Json? raised;
+  Json? updated;
+  String? updatedId;
+  int? updatedVersion;
+
+  /// The status the server answers a fresh read of the note with.
+  String detailStatus = 'DRAFT';
 
   @override
   Future<Json> request(
@@ -163,6 +169,33 @@ class _DebitNoteApi extends ApiClient {
     }
     if (method == 'POST' && path == '/api/v1/debit-notes') {
       raised = body;
+      return <String, dynamic>{'data': _note()};
+    }
+    if (method == 'GET' && path == '/api/v1/debit-notes/dn-1') {
+      return <String, dynamic>{
+        'data': <String, dynamic>{
+          ..._note(status: detailStatus),
+          'remarks': 'Rate was 84, billed 91',
+          'lines': <Json>[
+            <String, dynamic>{
+              'id': 'dnl-1',
+              'line_number': 1,
+              'purchase_invoice_line_id': 'bill-1-line-1',
+              'product_name': 'Toothpaste 100g',
+              'quantity': '0.0000',
+              'taxable_amount': '100.0000',
+              'tax_amount': '18.0000',
+              'total_amount': '118.0000',
+              'tax_rate_percent': '18.00',
+            },
+          ],
+        },
+      };
+    }
+    if (method == 'PUT' && path == '/api/v1/debit-notes/dn-1') {
+      updated = body;
+      updatedId = 'dn-1';
+      updatedVersion = expectedVersion;
       return <String, dynamic>{'data': _note()};
     }
     if (path.contains('/debit-notes')) {
@@ -353,6 +386,98 @@ void main() {
         'debit_note_date',
         'reason',
         'debit_note_number',
+        'reference_number',
+        'remarks',
+        'lines',
+      }),
+      isEmpty,
+    );
+  });
+
+  testWidgets('opening a note reads it fresh and shows its detail',
+      (tester) async {
+    final _DebitNoteApi api = _DebitNoteApi(notes: <Json>[_note()]);
+    await _pump(tester, api);
+
+    await tester.tap(find.text('DN-2026-0001').first);
+    await tester.pump(const Duration(milliseconds: 50));
+    await tester.tap(find.text('DN-2026-0001').first);
+    await tester.pumpAndSettle();
+
+    expect(api.requested, contains('GET /api/v1/debit-notes/dn-1'));
+    expect(find.textContaining('Toothpaste 100g'), findsOneWidget);
+    expect(find.textContaining('18.00%'), findsOneWidget);
+    expect(find.text('Rate was 84, billed 91'), findsOneWidget);
+    expect(find.textContaining('118.00 claimed'), findsOneWidget);
+  });
+
+  testWidgets('Edit is offered only for a draft and needs the manage code',
+      (tester) async {
+    final _DebitNoteApi api = _DebitNoteApi(
+      notes: <Json>[_note(status: 'APPROVED')],
+    );
+    await _pump(tester, api);
+    await tester.tap(find.text('DN-2026-0001').first);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('selection-edit')), findsNothing);
+
+    final _DebitNoteApi draft = _DebitNoteApi(notes: <Json>[_note()]);
+    await _pump(
+      tester,
+      draft,
+      permissions: _permissions(
+        perms: const ['DEBIT_NOTE_VIEW', 'DEBIT_NOTE_APPROVE'],
+      ),
+    );
+    await tester.tap(find.text('DN-2026-0001').first);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('selection-edit')), findsNothing);
+  });
+
+  testWidgets('editing a draft prefills it and saves through the update',
+      (tester) async {
+    final _DebitNoteApi api = _DebitNoteApi(notes: <Json>[_note()]);
+    await _pump(tester, api, size: const Size(1366, 768));
+    await tester.tap(find.text('DN-2026-0001').first);
+    await tester.pump(const Duration(milliseconds: 500));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('selection-edit')));
+    await tester.pumpAndSettle();
+
+    expect(api.requested, contains('GET /api/v1/debit-notes/dn-1'));
+    // The note's own claim is not counted against the bill line.
+    expect(
+      api.queries.any((q) => q['excluding_note_id'] == 'dn-1'),
+      isTrue,
+    );
+    expect(find.text('Save changes'), findsOneWidget);
+    final TextFormField amount = tester.widget<TextFormField>(
+      find.byKey(const ValueKey<String>('debit-note-amount-bill-1-0')),
+    );
+    expect(amount.initialValue, '100.0000');
+
+    await tester.enterText(
+      find.byKey(const ValueKey<String>('debit-note-amount-bill-1-0')),
+      '50',
+    );
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('debit-note-save')));
+    await tester.pumpAndSettle();
+
+    expect(api.updatedId, 'dn-1');
+    expect(api.updatedVersion, 4);
+    expect(api.updated?['lines'][0]['purchase_invoice_line_id'], 'bill-1-line-1');
+    expect(api.updated?['lines'][0]['taxable_amount'], '50');
+    expect(api.updated?['reason'], 'PRICE_DIFFERENCE');
+    expect(api.raised, isNull);
+    // Only fields the update schema declares are sent.
+    expect(
+      api.updated!.keys.toSet().difference(const {
+        'debit_note_date',
+        'reason',
         'reference_number',
         'remarks',
         'lines',
