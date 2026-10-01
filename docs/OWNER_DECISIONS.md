@@ -28,6 +28,8 @@ a question only the owner, a go-live firm or its CA can answer.
 | A17 | Business profiles (§17) | A profile written at runtime -- including a seeded one's features -- is written to every store, each reported as written or failed; deleting one now answers per store | OK that editing a seeded profile changes it for every firm? |
 | A18 | Reorder (§42.9) | Draft orders are grouped per supplier per warehouse; the supplier is the one last billed (there is no preferred-supplier field); with no maximum level the suggestion is only the shortfall | Add a preferred supplier per product (§69 rows 1-3)? |
 | A19 | Offer cap (§59 item 3) | Over the cap, the latest-applied offer gives back first | OK? |
+| A20 | Ship-to and place of supply (§67 row 3) | An unregistered buyer's place of supply follows the ship-to (IGST s.10(1)(a)); a registered buyer keeps its GSTIN's state even when goods go elsewhere (bill-to-ship-to, s.10(1)(b)) | Confirm with the CA |
+| A21 | Proof of delivery (§67 row 6) | "Delivered" is a flag set only by a proof, not a new status; recording it needs `SALES_UPDATE` | OK? |
 
 ## B. Open questions the backlog already records
 
