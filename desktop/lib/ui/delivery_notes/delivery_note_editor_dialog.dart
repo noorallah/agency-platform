@@ -8,11 +8,13 @@ import '../../core/business/business_features.dart';
 import '../../core/design/design_tokens.dart';
 import '../../models/batch_serial.dart';
 import '../../models/branch_warehouse.dart';
+import '../../models/customer.dart';
 import '../../models/entities.dart';
 import '../../models/inventory.dart';
 import '../../models/product.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
+import '../sales/ship_to_field.dart';
 import '../workspace/desktop_framework.dart';
 
 part 'delivery_note_editor_phase2.dart';
@@ -221,6 +223,11 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
   String _vehicle = '';
   String _driver = '';
   String _remarks = '';
+
+  /// Where this note's goods go (backlog 67 row 3): the customer's addresses
+  /// as read for the chosen order, preselected with the order's own.
+  List<CustomerAddress> _addresses = const [];
+  String? _shippingAddressId;
   bool _saving = false;
   bool _loadingLines = false;
   String? _error;
@@ -246,7 +253,10 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
       _order = order;
       _loadingLines = true;
       _error = null;
+      _addresses = const [];
+      _shippingAddressId = null;
     });
+    unawaited(_loadAddresses(order));
     final List<Json> orderLines = [
       for (final dynamic line in (order['lines'] as List<dynamic>? ?? const []))
         if (line is Map) Map<String, dynamic>.from(line),
@@ -271,6 +281,30 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
       _stockByProduct = stock;
       _loadingLines = false;
     });
+  }
+
+  /// Read the order's customer for the addresses the note can ship to.
+  ///
+  /// A courtesy, like the stock preview: losing it leaves the picker out and
+  /// the note shipping to the order's address, which is what the server
+  /// does for a note that names none.
+  Future<void> _loadAddresses(Json order) async {
+    final String customerId = stringValue(order['customer_id']);
+    if (customerId.isEmpty) return;
+    try {
+      final Customer customer = await widget.api.customer(customerId);
+      if (!mounted || stringValue(_order?['id']) != stringValue(order['id'])) {
+        return;
+      }
+      setState(() {
+        _addresses = customer.addresses;
+        final String own = stringValue(order['shipping_address_id']);
+        _shippingAddressId =
+            own.isNotEmpty ? own : defaultShipToId(customer.addresses);
+      });
+    } on Object {
+      // No picker; the server inherits the order's address.
+    }
   }
 
   /// Sum what earlier notes already took off each order line.
@@ -438,6 +472,7 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
       setState(() => _error = problem);
       return;
     }
+    final bool phase2 = Phase2Scope.of(context);
     setState(() {
       _saving = true;
       _error = null;
@@ -447,6 +482,10 @@ class _DeliveryNoteEditorDialogState extends State<DeliveryNoteEditorDialog> {
       final Json payload = {
         'sales_order_id': stringValue(_order!['id']),
         'delivery_date': _deliveryDate,
+        // Phase 2 only, and only once the customer's addresses are in hand:
+        // null is what lets the server inherit the order's.
+        if (phase2 && _addresses.isNotEmpty)
+          'shipping_address_id': _shippingAddressId,
         if (_vehicle.trim().isNotEmpty) 'vehicle': _vehicle.trim(),
         if (_driver.trim().isNotEmpty) 'driver': _driver.trim(),
         if (_remarks.trim().isNotEmpty) 'remarks': _remarks.trim(),

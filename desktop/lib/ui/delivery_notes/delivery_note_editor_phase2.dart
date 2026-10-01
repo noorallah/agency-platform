@@ -197,6 +197,15 @@ extension _Phase2DeliveryNoteEditor on _DeliveryNoteEditorDialogState {
           },
         ),
       ),
+      if (_addresses.isNotEmpty)
+        ShipToField(
+          key: const ValueKey('delivery-note-ship-to'),
+          scope: stringValue(order?['id']),
+          addresses: _addresses,
+          value: _shippingAddressId,
+          enabled: !_saving,
+          onChanged: (value) => _setState(() => _shippingAddressId = value),
+        ),
       DocumentField(
         label: 'Delivery date',
         auto: true,

@@ -1077,6 +1077,11 @@ class ApiClient {
         additionalQuery: filters.toQuery(),
       );
 
+  /// One customer, with the addresses a document can ship to.
+  Future<Customer> customer(String id) async => Customer.fromJson(
+        _unwrapMap(await request('GET', '/api/v1/customers/$id')),
+      );
+
   Future<Customer> createCustomer(Json data) async =>
       Customer.fromJson(_unwrapMap(
         await request('POST', '/api/v1/customers', body: data),

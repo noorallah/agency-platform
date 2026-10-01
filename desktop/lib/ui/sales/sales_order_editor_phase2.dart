@@ -231,11 +231,26 @@ extension _Phase2SalesOrderEditor on _SalesOrderEditorDialogState {
               ),
           ],
           onSelected: (value) {
-            _setState(() => _customerId = value);
+            _setState(() {
+              _customerId = value;
+              _shippingAddressId = defaultShipToId(_customerAddresses);
+            });
             _schedulePreview();
           },
         ),
       ),
+      if (_customerAddresses.isNotEmpty)
+        ShipToField(
+          key: const ValueKey('sales-order-ship-to'),
+          scope: _customerId ?? '',
+          addresses: _customerAddresses,
+          value: _shippingAddressId,
+          enabled: !_locked,
+          onChanged: (value) {
+            _setState(() => _shippingAddressId = value);
+            _schedulePreview();
+          },
+        ),
       DocumentField(
         label: 'Order date',
         auto: !_editing,

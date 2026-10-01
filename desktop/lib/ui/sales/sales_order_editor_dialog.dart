@@ -15,6 +15,7 @@ import '../../models/document_preview.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
 import '../workspace/desktop_framework.dart';
+import 'ship_to_field.dart';
 
 part 'sales_order_editor_phase2.dart';
 
@@ -166,6 +167,11 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   List<WarehouseRecord> _warehouses = const [];
 
   String? _customerId;
+
+  /// Where the goods go: one of the customer's addresses (backlog 67 row 3).
+  /// Preselected with the default shipping address rather than left to the
+  /// server's silence once the customer's addresses are in hand.
+  String? _shippingAddressId;
 
   /// Who took the order.
   ///
@@ -374,6 +380,11 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
         ? 'DRAFT'
         : stringValue(order['status']);
     _customerId = _blankToNull(stringValue(order['customer_id']));
+    // The order's own address; the customer's default only for an order
+    // saved before it recorded one.
+    _shippingAddressId =
+        _blankToNull(stringValue(order['shipping_address_id'])) ??
+            defaultShipToId(_customerAddresses);
     _salesmanId = _blankToNull(stringValue(order['salesman_id']));
     _branchId = _blankToNull(stringValue(order['branch_id']));
     _warehouseId = _blankToNull(stringValue(order['warehouse_id']));
@@ -442,6 +453,14 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
   }
 
   String? _blankToNull(String value) => value.isEmpty ? null : value;
+
+  /// The chosen customer's addresses, empty until a customer is chosen.
+  List<CustomerAddress> get _customerAddresses {
+    for (final Customer item in _customers) {
+      if (item.id == _customerId) return item.addresses;
+    }
+    return const <CustomerAddress>[];
+  }
 
   /// A stored figure as the box should read it: blank when it is nothing.
   /// The delivery charge an order asked for, blank where it asked none.
@@ -595,6 +614,12 @@ class _SalesOrderEditorDialogState extends State<SalesOrderEditorDialog> {
     final DateTime? delivery = _deliveryDate;
     return <String, dynamic>{
       'customer_id': _customerId,
+      // Sent whenever the customer's addresses are in hand, so an update
+      // after the customer changed never leans on "absent keeps the order's
+      // own"; left out when the customer has none to choose from, and in
+      // phase 1, which has no picker to say anything.
+      if (_phase2 && _customerAddresses.isNotEmpty)
+        'shipping_address_id': _shippingAddressId,
       // Omitted when nobody was named rather than sent null: absent is what
       // the create schema reads as "no salesman", and this form has no reason
       // to distinguish that from clearing one.
