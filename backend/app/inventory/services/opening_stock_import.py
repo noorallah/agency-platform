@@ -28,7 +28,7 @@ opening stock:
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
-from datetime import date, timedelta
+from datetime import date
 from uuid import UUID
 
 from sqlalchemy import select
@@ -44,6 +44,7 @@ from app.common.file_import import (
     ImportReport,
     ImportRow,
     RowReader,
+    parse_date,
     read_rows,
 )
 from app.core.exceptions import ApplicationError
@@ -131,33 +132,6 @@ COLUMNS: tuple[Column, ...] = (
         "",
     ),
 )
-
-_EXCEL_EPOCH = date(1899, 12, 30)
-_DMY = re.compile(r"^(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})$")
-_YMD = re.compile(r"^(\d{4})-(\d{1,2})-(\d{1,2})")
-
-
-def parse_date(raw: str) -> date | None:
-    """Read a day the ways a spreadsheet writes one; None if it is not one.
-
-    dd-mm-yyyy and dd/mm/yyyy are read day first, as India writes them;
-    yyyy-mm-dd is what an Excel date cell reads as, with or without a time;
-    a bare number between 20000 and 80000 is an Excel serial day.
-    """
-    text = raw.strip()
-    try:
-        if matched := _DMY.match(text):
-            day, month, year = (int(part) for part in matched.groups())
-            return date(year, month, day)
-        if matched := _YMD.match(text):
-            year, month, day = (int(part) for part in matched.groups())
-            return date(year, month, day)
-        if text.isdigit() and 20000 <= int(text) <= 80000:
-            return _EXCEL_EPOCH + timedelta(days=int(text))
-    except ValueError:
-        return None
-    return None
-
 
 def _is_batch_tracked(product: Product) -> bool:
     """Say whether the product's stock is kept in batches.
