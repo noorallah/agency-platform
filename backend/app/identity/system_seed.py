@@ -311,6 +311,17 @@ PERMISSION_GROUPS = {
         "PROFIT_LOSS_VIEW",
         "BALANCE_SHEET_VIEW",
     ),
+    "expenses": (
+        "EXPENSE_VIEW",
+        # Recording an expense writes and posts its journal, so a manager can
+        # book rent or fuel without `JOURNAL_POST` -- which would let them
+        # post anything to any account. The journal it writes is always Dr an
+        # expense account, Cr a money account, and nothing else.
+        "EXPENSE_CREATE",
+        # Taking one back is separate from recording it, as reversing a
+        # journal is separate from posting one.
+        "EXPENSE_CANCEL",
+    ),
     "report": (
         "REPORT_VIEW",
         "REPORT_EXPORT",
@@ -449,6 +460,7 @@ _operational_permissions = _codes(
     "loyalty",
     "tcs",
     "accounting",
+    "expenses",
     "report",
     "financial_year",
 )
@@ -484,7 +496,7 @@ _SEEDED_ROLE_PERMISSION_CODES = {
     "FIRM_MANAGER": _operational_permissions
     - _firm_administration
     - frozenset({"LICENSE_MANAGE"}),
-    "ACCOUNTANT": _codes("accounting", "commission", "report")
+    "ACCOUNTANT": _codes("accounting", "commission", "expenses", "report")
     | frozenset(
         {
             "CUSTOMER_VIEW",

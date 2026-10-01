@@ -1343,6 +1343,75 @@ class DocumentPostingService:
         )
         return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
 
+    def post_expense(
+        self,
+        *,
+        firm_id: UUID,
+        expense_id: UUID,
+        expense_number: str,
+        expense_date: date,
+        amount: Decimal,
+        expense_account_id: UUID,
+        paid_from_account_id: UUID,
+        description: str,
+        actor_id: UUID,
+    ) -> JournalEntry:
+        """Book money spent on running the firm: Dr the expense, Cr the money.
+
+        Two legs and no control account: the caller has already chosen both
+        accounts and checked that one is an expense and the other holds money.
+        Nothing is flushed or committed here beyond what the journal engine
+        stages, so the expense row and its journal land together or not at all.
+
+        Args:
+            firm_id: The owning firm.
+            expense_id: The source expense.
+            expense_number: Its number, used as the journal reference.
+            expense_date: The day the money was spent.
+            amount: How much was spent.
+            expense_account_id: The expense account debited.
+            paid_from_account_id: The cash or bank account credited.
+            description: What the lines and the entry say it was for.
+            actor_id: The user recording the expense.
+
+        Returns:
+            The posted journal entry.
+
+        Raises:
+            ValidationError: If no open period covers the date.
+
+        """
+        context = self.context_for(firm_id, expense_date)
+        total = quantize_ledger(quantize_money(amount))
+        lines = [
+            JournalLineData(
+                ledger_account_id=expense_account_id,
+                debit_amount=total,
+                credit_amount=ZERO,
+                description=description,
+            ),
+            JournalLineData(
+                ledger_account_id=paid_from_account_id,
+                debit_amount=ZERO,
+                credit_amount=total,
+                description=description,
+            ),
+        ]
+        entry = self._journals.create_entry(
+            firm_id=firm_id,
+            journal_type_id=context.journal_type_id,
+            voucher_type_id=context.voucher_type_id,
+            accounting_period_id=context.accounting_period_id,
+            journal_date=expense_date,
+            reference_number=expense_number,
+            description=description,
+            lines=lines,
+            source_module="expenses",
+            source_id=expense_id,
+            actor_id=actor_id,
+        )
+        return self._journals.post_entry(entry.id, firm_id=firm_id, actor_id=actor_id)
+
     def post_goods_issue(
         self,
         *,

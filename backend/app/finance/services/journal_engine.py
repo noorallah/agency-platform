@@ -69,6 +69,7 @@ SOURCE_DOCUMENT_NAMES = {
     "commission": "commission payout",
     "tcs": "TCS collection",
     "loyalty": "loyalty entry",
+    "expenses": "business expense",
     "opening_balances": "opening trial balance",
 }
 
