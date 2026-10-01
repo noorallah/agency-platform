@@ -15,6 +15,11 @@ bill-sourced lines already took off their bills, less the live
 journal, for the reason applying a customer's advance posts none: the return
 already debited payables and the bill already credited them, so the only thing
 left to say is which bill the debit belongs to.
+
+A return off a bill that was already paid has nothing left on that bill to
+come off, so the part the bill cannot absorb is credit too (D-BUY-20); should
+the bill owe more again once that credit is used, the part used goes back on
+the bill (`drawn_back_onto_bills`).
 """
 
 from collections.abc import Sequence
@@ -83,9 +88,9 @@ def supplier_credits(
     """Return each standing return's supplier credit, oldest first.
 
     A return's credit is what its posting debited payables with, less what its
-    bill-sourced lines took off their own bills -- so a return raised wholly
-    from a bill gives none, and one raised from a goods receipt gives all of
-    it.
+    bill-sourced lines took off their own bills -- so a return raised from a
+    goods receipt gives all of it -- plus whatever of those lines the bill
+    could not absorb because it was already paid (D-BUY-20).
 
     Args:
         session: The firm's store.
@@ -95,6 +100,37 @@ def supplier_credits(
 
     Returns:
         One entry per return that gives any credit, applied or not.
+
+    """
+    return [
+        credit
+        for credit in _all_credits(
+            session,
+            firm_id=firm_id,
+            vendor_id=vendor_id,
+            purchase_return_ids=purchase_return_ids,
+        )
+        if credit.credit_amount > ZERO
+    ]
+
+
+def _all_credits(
+    session: Session,
+    *,
+    firm_id: UUID,
+    vendor_id: UUID | None = None,
+    purchase_return_ids: Sequence[UUID] | None = None,
+) -> list[SupplierCredit]:
+    """Return every standing return's credit figures, a credit of nothing too.
+
+    Args:
+        session: The firm's store.
+        firm_id: The firm.
+        vendor_id: Only this vendor's returns, where given.
+        purchase_return_ids: Only these returns, where given.
+
+    Returns:
+        One entry per completed return, whatever it gives.
 
     """
     # Imported here: the return module imports settlement-adjacent models.
@@ -169,13 +205,13 @@ def supplier_credits(
         refunded[return_id] = refunded.get(return_id, ZERO) + quantize_ledger(
             Decimal(str(amount))
         )
+    spilled = _spilled_over(session, firm_id=firm_id, purchase_return_ids=ids)
     credits: list[SupplierCredit] = []
     for row in returns:
         # What the posting debited payables with, at the ledger's scale.
         posted = quantize_ledger(quantize_money(row.grand_total))
-        credit = posted - quantize_ledger(billed.get(row.id, ZERO))
-        if credit <= ZERO:
-            continue
+        credit = max(posted - quantize_ledger(billed.get(row.id, ZERO)), ZERO)
+        credit += spilled.get(row.id, ZERO)
         credits.append(
             SupplierCredit(
                 purchase_return_id=row.id,
@@ -190,6 +226,170 @@ def supplier_credits(
             )
         )
     return credits
+
+
+def _bill_parts(
+    session: Session,
+    *,
+    firm_id: UUID,
+    purchase_return_ids: Sequence[UUID] | None = None,
+    invoice_ids: Sequence[UUID] | None = None,
+) -> list[tuple[UUID, UUID, Decimal]]:
+    """Return (return, bill, amount) for what standing returns took off bills.
+
+    Newest return first, the order in which a bill that cannot absorb them all
+    turns them into credit. Narrowed to some returns, some bills, or both.
+    """
+    from app.purchase_return.models import PurchaseReturn, PurchaseReturnLine
+
+    statement = (
+        select(
+            PurchaseReturnLine.purchase_return_id,
+            PurchaseReturnLine.source_document_id,
+            func.coalesce(func.sum(PurchaseReturnLine.net_amount), 0),
+        )
+        .join(
+            PurchaseReturn, PurchaseReturn.id == PurchaseReturnLine.purchase_return_id
+        )
+        .where(
+            PurchaseReturn.firm_id == firm_id,
+            PurchaseReturn.is_deleted.is_(False),
+            PurchaseReturn.status.in_(CREDITING_RETURN_STATES),
+            PurchaseReturnLine.source_document_type == "PURCHASE_INVOICE",
+            PurchaseReturnLine.is_deleted.is_(False),
+        )
+        .group_by(
+            PurchaseReturnLine.purchase_return_id,
+            PurchaseReturnLine.source_document_id,
+            PurchaseReturn.return_date,
+            PurchaseReturn.return_number,
+        )
+        .order_by(
+            PurchaseReturn.return_date.desc(),
+            PurchaseReturn.return_number.desc(),
+            PurchaseReturnLine.source_document_id.asc(),
+        )
+    )
+    if purchase_return_ids is not None:
+        statement = statement.where(
+            PurchaseReturnLine.purchase_return_id.in_(purchase_return_ids)
+        )
+    if invoice_ids is not None:
+        statement = statement.where(
+            PurchaseReturnLine.source_document_id.in_(invoice_ids)
+        )
+    return [
+        (return_id, bill_id, quantize_ledger(Decimal(str(amount))))
+        for return_id, bill_id, amount in session.execute(statement).all()
+    ]
+
+
+def _spilled_over(
+    session: Session, *, firm_id: UUID, purchase_return_ids: Sequence[UUID]
+) -> dict[UUID, Decimal]:
+    """Return what of each return its bills could not absorb (D-BUY-20).
+
+    A bill already paid has nothing left for a return off its lines to come
+    off, so the excess of everything taken off the bill over its total is the
+    supplier's to give back. It falls to the bill's returns newest first --
+    the earlier ones fitted when they were made -- each up to what it took off
+    that bill.
+    """
+    from app.settlements.services.settlement_service import PaymentService
+
+    bills = sorted(
+        {
+            bill_id
+            for _, bill_id, _ in _bill_parts(
+                session, firm_id=firm_id, purchase_return_ids=purchase_return_ids
+            )
+        }
+    )
+    if not bills:
+        return {}
+    positions = PaymentService(session).purchase_bill_positions(
+        firm_id=firm_id, invoice_ids=bills
+    )
+    left = {
+        bill_id: max(already - total, ZERO)
+        for bill_id, (total, already) in positions.items()
+    }
+    spilled: dict[UUID, Decimal] = {}
+    for return_id, bill_id, amount in _bill_parts(
+        session, firm_id=firm_id, invoice_ids=bills
+    ):
+        share = min(amount, left.get(bill_id, ZERO))
+        if share <= ZERO:
+            continue
+        left[bill_id] -= share
+        spilled[return_id] = spilled.get(return_id, ZERO) + share
+    return spilled
+
+
+@over_chunks("invoice_ids")
+def drawn_back_onto_bills(
+    session: Session, *, firm_id: UUID, invoice_ids: Sequence[UUID]
+) -> dict[UUID, Decimal]:
+    """Return what goes back on each bill from credit its returns no longer give.
+
+    The part of a return its paid bill could not absorb is credit (D-BUY-20).
+    Once that credit has been set against another bill or paid back, and the
+    first bill then owes more again -- its payment reversed -- the return gives
+    less credit than was used. The difference was taken off the first bill
+    twice, so it goes back on it, and the payables list and the ledger agree.
+    """
+    if not invoice_ids:
+        return {}
+    used = set(
+        session.scalars(
+            select(SupplierCreditApplication.purchase_return_id).where(
+                SupplierCreditApplication.firm_id == firm_id,
+                SupplierCreditApplication.is_deleted.is_(False),
+            )
+        ).all()
+    ) | set(
+        session.scalars(
+            select(SupplierCreditRefund.purchase_return_id).where(
+                SupplierCreditRefund.firm_id == firm_id,
+                SupplierCreditRefund.is_deleted.is_(False),
+                SupplierCreditRefund.status == "POSTED",
+            )
+        ).all()
+    )
+    if not used:
+        return {}
+    returns = sorted(
+        {
+            return_id
+            for return_id, _, _ in _bill_parts(
+                session, firm_id=firm_id, invoice_ids=invoice_ids
+            )
+            if return_id in used
+        }
+    )
+    if not returns:
+        return {}
+    short = {
+        credit.purchase_return_id: max(
+            credit.applied_amount + credit.refunded_amount - credit.credit_amount,
+            ZERO,
+        )
+        for credit in _all_credits(
+            session, firm_id=firm_id, purchase_return_ids=returns
+        )
+    }
+    wanted = set(invoice_ids)
+    drawn: dict[UUID, Decimal] = {}
+    for return_id, bill_id, amount in _bill_parts(
+        session, firm_id=firm_id, purchase_return_ids=returns
+    ):
+        share = min(amount, short.get(return_id, ZERO))
+        if share <= ZERO:
+            continue
+        short[return_id] -= share
+        if bill_id in wanted:
+            drawn[bill_id] = drawn.get(bill_id, ZERO) + share
+    return drawn
 
 
 @over_chunks("invoice_ids")

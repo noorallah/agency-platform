@@ -405,32 +405,13 @@ class SettlementService(TransactionalDocumentService):
         # raised from the bill's lines names the bill; one raised from a goods
         # receipt or an order stays a credit on the supplier, as a sales
         # return does on the customer.
-        returned: dict[UUID, Decimal] = {}
-        credited: dict[UUID, Decimal] = {}
+        taken: dict[UUID, Decimal] = {}
         if not is_receipt and rows:
-            returned = self._returned_against(
-                firm_id=firm_id, invoice_ids=[row.id for row in rows]
-            )
-            # And supplier credit from a return raised off the goods receipt,
-            # once somebody has set it against this bill (D-FIN-19).
-            credited = credit_applied_against(
-                self._session,
+            taken = self._purchase_bill_taken(
                 firm_id=firm_id,
                 invoice_ids=[row.id for row in rows],
+                firm_wide=party_id is None,
             )
-            # And what a supplier write-back or a set-off took off the bill
-            # (backlog 74 row 2), read beside the payments.
-            from app.party_adjustments.services.allocations import (
-                adjusted_against,
-            )
-
-            for invoice_id, amount in adjusted_against(
-                self._session,
-                firm_id=firm_id,
-                column="purchase_invoice_id",
-                bill_ids=None if party_id is None else [row.id for row in rows],
-            ).items():
-                credited[invoice_id] = credited.get(invoice_id, ZERO) + amount
         records: list[OutstandingInvoiceRecord] = []
         for row in rows:
             allocated_amount = row[-1]
@@ -438,8 +419,7 @@ class SettlementService(TransactionalDocumentService):
                 settled.get(row.id, ZERO)
                 if is_receipt
                 else quantize_ledger(Decimal(allocated_amount))
-                + quantize_ledger(returned.get(row.id, ZERO))
-                + credited.get(row.id, ZERO)
+                + taken.get(row.id, ZERO)
             )
             total = quantize_ledger(row.grand_total)
             outstanding = total - already
@@ -555,6 +535,109 @@ class SettlementService(TransactionalDocumentService):
         )
 
     @over_chunks("invoice_ids")
+    def _purchase_bill_taken(
+        self,
+        *,
+        firm_id: UUID,
+        invoice_ids: list[UUID],
+        firm_wide: bool = False,
+        draw_back: bool = True,
+    ) -> dict[UUID, Decimal]:
+        """Sum what came off each bill other than the money paid against it.
+
+        Goods sent back against a bill's own lines come off that bill (D-BUY-6,
+        decided by the owner on 2026-09-18), as do approved debit notes. Only a
+        return raised from the bill's lines names the bill; one raised from a
+        goods receipt stays a credit on the supplier until somebody sets it
+        against a bill (D-FIN-19). A supplier write-back or a set-off takes its
+        share too (backlog 74 row 2). And where the part of a return the bill
+        could not absorb was used as credit elsewhere and the bill now owes
+        more again, that part goes back on the bill (D-BUY-20).
+
+        ``firm_wide`` reads the write-backs for the whole firm in one grouped
+        statement rather than by the ids. ``draw_back`` False leaves out what
+        goes back on the bill, which is what a supplier credit asks to work
+        that out.
+        """
+        from app.party_adjustments.services.allocations import adjusted_against
+        from app.settlements.services.supplier_credits import drawn_back_onto_bills
+
+        taken: dict[UUID, Decimal] = {}
+        for invoice_id, amount in self._returned_against(
+            firm_id=firm_id, invoice_ids=invoice_ids
+        ).items():
+            taken[invoice_id] = taken.get(invoice_id, ZERO) + quantize_ledger(amount)
+        for source in (
+            credit_applied_against(
+                self._session, firm_id=firm_id, invoice_ids=invoice_ids
+            ),
+            adjusted_against(
+                self._session,
+                firm_id=firm_id,
+                column="purchase_invoice_id",
+                bill_ids=None if firm_wide else invoice_ids,
+            ),
+        ):
+            for invoice_id, amount in source.items():
+                taken[invoice_id] = taken.get(invoice_id, ZERO) + amount
+        if not draw_back:
+            return taken
+        for invoice_id, amount in drawn_back_onto_bills(
+            self._session, firm_id=firm_id, invoice_ids=invoice_ids
+        ).items():
+            taken[invoice_id] = taken.get(invoice_id, ZERO) - amount
+        return taken
+
+    def purchase_bill_positions(
+        self, *, firm_id: UUID, invoice_ids: list[UUID]
+    ) -> dict[UUID, tuple[Decimal, Decimal]]:
+        """Return each live bill's total and what came off it, money included.
+
+        The same figures `outstanding_invoices` subtracts, for the few bills a
+        supplier credit asks about (D-BUY-20) -- before anything is drawn back
+        onto them, which is the question that credit answers.
+        """
+        if not invoice_ids:
+            return {}
+        rows = self._session.execute(
+            select(PurchaseInvoice.id, PurchaseInvoice.grand_total).where(
+                PurchaseInvoice.firm_id == firm_id,
+                PurchaseInvoice.id.in_(invoice_ids),
+                PurchaseInvoice.is_deleted.is_(False),
+                PurchaseInvoice.status.in_(SETTLEABLE_INVOICE_STATES),
+            )
+        ).all()
+        ids = [row.id for row in rows]
+        if not ids:
+            return {}
+        paid = {
+            invoice_id: quantize_ledger(Decimal(str(total)))
+            for invoice_id, total in self._session.execute(
+                select(
+                    SettlementAllocation.purchase_invoice_id,
+                    func.coalesce(func.sum(SettlementAllocation.amount), 0),
+                )
+                .join(Settlement, Settlement.id == SettlementAllocation.settlement_id)
+                .where(
+                    SettlementAllocation.firm_id == firm_id,
+                    SettlementAllocation.is_deleted.is_(False),
+                    Settlement.status == SettlementStatus.POSTED.value,
+                    SettlementAllocation.purchase_invoice_id.in_(ids),
+                )
+                .group_by(SettlementAllocation.purchase_invoice_id)
+            ).all()
+        }
+        taken = self._purchase_bill_taken(
+            firm_id=firm_id, invoice_ids=ids, draw_back=False
+        )
+        return {
+            row.id: (
+                quantize_ledger(row.grand_total),
+                paid.get(row.id, ZERO) + taken.get(row.id, ZERO),
+            )
+            for row in rows
+        }
+
     def _returned_against(
         self, *, firm_id: UUID, invoice_ids: list[UUID]
     ) -> dict[UUID, Decimal]:
