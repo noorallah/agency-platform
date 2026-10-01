@@ -346,6 +346,14 @@ PERMISSION_GROUPS = {
         "FINANCIAL_YEAR_REOPEN",
         "FINANCIAL_YEAR_VIEW",
     ),
+    "messaging": (
+        # Send or resend a document to a customer by email, WhatsApp or SMS
+        # (backlog 51, decision 5). Not a `*_VIEW`: printing shows what the
+        # screen shows, sending acts for the firm towards somebody outside it.
+        # The firm's messaging *settings* are `SETTINGS_UPDATE`, like its
+        # numbering series and print templates.
+        "DOCUMENT_SEND",
+    ),
     "system_administration": (
         "AUDIT_LOG_VIEW",
         "DIAGNOSTICS_VIEW",
@@ -477,6 +485,7 @@ _operational_permissions = _codes(
     "expenses",
     "report",
     "financial_year",
+    "messaging",
 )
 _all_read_permissions = frozenset(
     code for code in SYSTEM_PERMISSION_CODES if code.endswith("_VIEW")
@@ -526,6 +535,8 @@ _SEEDED_ROLE_PERMISSION_CODES = {
             # Credit policy governs receivables, so it belongs to the role that
             # owns them rather than to the role it constrains.
             "CUSTOMER_MANAGE_SETTINGS",
+            # Chasing what is owed: resending a bill or a reminder.
+            "DOCUMENT_SEND",
         }
     ),
     "SALES_MANAGER": (
@@ -584,6 +595,8 @@ _SEEDED_ROLE_PERMISSION_CODES = {
             # running a sales desk; deciding what a point is worth is not.
             "LOYALTY_VIEW",
             "LOYALTY_MANAGE",
+            # Sending a customer their bill is sales-desk work.
+            "DOCUMENT_SEND",
         }
     ),
     "SALES_EXECUTIVE": frozenset(
@@ -623,7 +636,10 @@ _SEEDED_ROLE_PERMISSION_CODES = {
         # payments module that first enforced them.
         {"PAYMENT_CREATE", "PAYMENT_VIEW", "RECEIPT_CREATE", "RECEIPT_VIEW"}
     ),
-    "BILLING_EXECUTIVE": frozenset({"SALES_INVOICE_CREATE", "SALES_VIEW"}),
+    # Whoever raises the bill can send it to the customer (backlog 51).
+    "BILLING_EXECUTIVE": frozenset(
+        {"SALES_INVOICE_CREATE", "SALES_VIEW", "DOCUMENT_SEND"}
+    ),
     "CUSTOMER_SUPPORT": frozenset({"CUSTOMER_VIEW", "CUSTOMER_UPDATE", "PRODUCT_VIEW"}),
     "VIEWER": _all_read_permissions
     - frozenset(

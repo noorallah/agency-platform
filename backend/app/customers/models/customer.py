@@ -1,6 +1,6 @@
 """Firm-scoped customer, receivable, address, and contact persistence models."""
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from typing import ClassVar
 from uuid import UUID
@@ -22,7 +22,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.business.models import AttributeEntityType, AttributeValueBase
 from app.core.database.entity import BaseEntity
-from app.core.database.types import UUIDType
+from app.core.database.types import UTCDateTime, UUIDType
 
 
 class CustomerGroup(BaseEntity):
@@ -169,6 +169,20 @@ class Customer(BaseEntity):
     unapplied_advance_balance: Mapped[Decimal] = mapped_column(
         Numeric(18, 2), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: Messaging (backlog 51): skip PAYMENT_DUE_SOON and PAYMENT_OVERDUE for
+    #: this customer. Documents still go; only reminders stop.
+    no_reminders: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    #: EMAIL, WHATSAPP or SMS: tried first when an event offers it.
+    preferred_channel: Mapped[str | None] = mapped_column(String(20))
+    #: The customer agreed to be messaged on WhatsApp; nothing goes there
+    #: without it. ``whatsapp_opt_in_at`` is when it was recorded, set by the
+    #: server when the box is ticked and cleared when it is unticked.
+    whatsapp_opt_in: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
+    )
+    whatsapp_opt_in_at: Mapped[datetime | None] = mapped_column(UTCDateTime)
 
     addresses: Mapped[list["CustomerAddress"]] = relationship(
         back_populates="customer",

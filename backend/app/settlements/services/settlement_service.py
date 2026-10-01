@@ -62,6 +62,7 @@ from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.finance.services.journal_engine import quantize_money as quantize_ledger
 from app.loyalty.models import LoyaltyEntry, LoyaltyEntryKind
+from app.messaging.services import MessagingDocument, stage_document_event
 from app.purchase_invoice.models import PurchaseInvoice
 from app.sales_invoice.models import SalesInvoice
 from app.sales_order.models import SalesOrder
@@ -873,6 +874,21 @@ class SettlementService(TransactionalDocumentService):
             },
         )
         self._session.flush()
+        if is_receipt:
+            stage_document_event(
+                self._session,
+                "RECEIPT_POSTED",
+                MessagingDocument(
+                    document_type="RECEIPT",
+                    document_id=row.id,
+                    document_number=row.settlement_number,
+                    document_date=row.settlement_date,
+                    customer_id=row.customer_id,
+                    amount=row.amount,
+                ),
+                firm_id=firm_id,
+                actor_id=actor_id,
+            )
         return row
 
     def order_number_of(self, row: Settlement) -> str | None:

@@ -29,6 +29,13 @@ _REDACTED_KEYS = frozenset(
         "secret",
         "api_key",
         "authorization",
+        # Messaging providers' own names for their secrets (backlog 51): MSG91
+        # calls its key `authkey`, Meta its token `access_token` (above), and
+        # an SMTP account's `password` is above too. `credentials` is the
+        # whole bundle a channel stores.
+        "authkey",
+        "credentials",
+        "smtp_password",
     }
 )
 

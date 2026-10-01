@@ -62,6 +62,7 @@ from app.document_framework.services.transactional_document_service import (
 from app.identity.models import User
 from app.inventory.models import InventoryRecord
 from app.inventory.services import InventoryService, LineConversion
+from app.messaging.services import MessagingDocument, stage_document_event
 from app.pricing.services.price_list_service import PriceListResolver
 from app.products.models import Product
 from app.products.services.trading_status import assert_product_takes_new_lines
@@ -766,6 +767,20 @@ class SalesOrderService(TransactionalDocumentService):
                 | (discount_details or {})
             )
             or None,
+        )
+        stage_document_event(
+            self._session,
+            "SALES_ORDER_APPROVED",
+            MessagingDocument(
+                document_type="SALES_ORDER",
+                document_id=row.id,
+                document_number=row.order_number,
+                document_date=row.order_date,
+                customer_id=row.customer_id,
+                amount=row.grand_total,
+            ),
+            firm_id=firm_scope,
+            actor_id=actor_id,
         )
         approved: dict[str, object] = {
             "order_number": row.order_number,

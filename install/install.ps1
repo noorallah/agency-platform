@@ -518,8 +518,24 @@ if ($missing.Count -gt 0) {
 
 Write-Step 'Configuration'
 
+function New-MessagingKey {
+  # The key a firm's messaging credentials are encrypted under (backlog 51).
+  # Same generator as the signing key below, for the reason New-Secret gives.
+  $keyBytes = [byte[]]::new(48)
+  $keyRng = [System.Security.Cryptography.RandomNumberGenerator]::Create()
+  try { $keyRng.GetBytes($keyBytes) } finally { $keyRng.Dispose() }
+  [Convert]::ToBase64String($keyBytes)
+}
+
 if (Test-Path $script:EnvPath) {
   Write-Skip "config\.env exists -- left alone (it holds the signing key and database password)"
+  # An install from before messaging has no key, and without one a firm on a
+  # production server cannot save a provider account. Added, never replaced:
+  # replacing it would make every firm's saved credentials unreadable.
+  if (-not $DryRun -and -not (Select-String -Path $script:EnvPath -Pattern '^AGENCY_MESSAGING_KEY=.+' -Quiet)) {
+    Add-Content -Path $script:EnvPath -Value "AGENCY_MESSAGING_KEY=$(New-MessagingKey)" -Encoding utf8
+    Write-Done 'added a messaging key to config\.env'
+  }
 } elseif ($DryRun) {
   Write-Skip 'would write backend\config\.env with a generated signing key'
 } else {
@@ -556,6 +572,7 @@ if (Test-Path $script:EnvPath) {
     switch -Regex ($_) {
       '^AGENCY_ENVIRONMENT=' { 'AGENCY_ENVIRONMENT=production'; break }
       '^AGENCY_JWT_SECRET_KEY=' { "AGENCY_JWT_SECRET_KEY=$jwtKey"; break }
+      '^AGENCY_MESSAGING_KEY=' { "AGENCY_MESSAGING_KEY=$(New-MessagingKey)"; break }
       '^AGENCY_DATABASE_PASSWORD=' { "AGENCY_DATABASE_PASSWORD=$plainDb"; break }
       '^AGENCY_BOOTSTRAP_ADMIN_PASSWORD=' { "AGENCY_BOOTSTRAP_ADMIN_PASSWORD=$plainAdmin"; break }
       '^AGENCY_DATABASE_HOST=' { "AGENCY_DATABASE_HOST=$DatabaseHost"; break }

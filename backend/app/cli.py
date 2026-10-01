@@ -14,6 +14,7 @@ The subcommands are the things an installed copy actually does::
     agency-server firm-count
     agency-server purge-retention --dry-run
     agency-server check
+    agency-server messaging-run-once
     agency-server --version
 
 Each is thin. The work lives in ``app/core`` where the application can also
@@ -171,6 +172,52 @@ def _check(args: argparse.Namespace) -> int:
     return 0
 
 
+def _messaging_run_once(args: argparse.Namespace) -> int:
+    """Run one messaging pass over every firm: send, retry, remind, fetch status.
+
+    The server does this on a timer in its own process; this is the same pass
+    for an operator who wants it now, or a test that wants it once. Exits
+    non-zero when a firm's store could not be reached.
+    """
+    from app.core.database.engine import DatabaseManager
+    from app.core.tenancy import (
+        FirmConnectionResolver,
+        FirmRegistryTenantResolver,
+        FirmSchemaResolver,
+        MultiTenantDatabaseProvider,
+    )
+    from app.messaging.services.outbox_worker import process_every_firm
+    from app.messaging.services.runtime import live_firm_ids, store_opener
+
+    settings = Settings()
+    platform = DatabaseManager.from_settings(settings)
+    provider = MultiTenantDatabaseProvider(
+        platform,
+        FirmConnectionResolver(platform, settings.tenancy.connection_profiles),
+        FirmSchemaResolver(),
+    )
+    resolver = FirmRegistryTenantResolver(
+        platform,
+        shared_database_name=settings.tenancy.shared_database_name,
+        shared_schema_name=settings.tenancy.shared_schema_name,
+    )
+    try:
+        report = process_every_firm(
+            live_firm_ids(platform), store_opener(resolver, provider)
+        )
+    finally:
+        provider.dispose()
+        platform.dispose()
+    print(
+        f"sent: {report.sent}, failed: {report.failed}, retrying: "
+        f"{report.retried}, reminders queued: {report.reminders}, skipped: "
+        f"{report.skipped}, statuses: {report.statuses}"
+    )
+    for error in report.errors:
+        print(f"error:{error}", file=sys.stderr)
+    return 1 if report.errors else 0
+
+
 def _where(args: argparse.Namespace) -> int:
     """Print what this copy is and where it thinks its files are."""
     settings = Settings()
@@ -259,6 +306,12 @@ def build_parser() -> argparse.ArgumentParser:
         "check", help="Import the whole application; the build's start-up proof."
     )
     check.set_defaults(handler=_check)
+
+    messaging = subcommands.add_parser(
+        "messaging-run-once",
+        help="Send queued messages and reminders for every firm, once.",
+    )
+    messaging.set_defaults(handler=_messaging_run_once)
 
     return parser
 

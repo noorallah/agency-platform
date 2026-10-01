@@ -91,6 +91,7 @@ from app.finance.services.document_posting import DocumentPostingService
 from app.identity.models import User
 from app.inventory.models import InventoryRecord, StockLedgerEntry
 from app.inventory.services import InventoryService, LineConversion
+from app.messaging.services import MessagingDocument, stage_document_event
 from app.products.models import Product
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales_order.models import SalesOrder, SalesOrderLine
@@ -642,6 +643,20 @@ class DeliveryNoteService(TransactionalDocumentService):
             entity_id=row.id,
             actor_id=actor_id,
             firm_id=firm_scope,
+        )
+        stage_document_event(
+            self._session,
+            "DELIVERY_DISPATCHED",
+            MessagingDocument(
+                document_type="DELIVERY_NOTE",
+                document_id=row.id,
+                document_number=row.delivery_note_number,
+                document_date=row.delivery_date,
+                customer_id=row.customer_id,
+                amount=row.grand_total,
+            ),
+            firm_id=firm_scope,
+            actor_id=actor_id,
         )
         self._resync_order_status(
             self._sales_order(row.sales_order_id, firm_id=firm_scope),

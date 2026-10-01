@@ -153,6 +153,7 @@ class CustomerService:
             data = data.model_copy(update={"pan_number": pan})
         self._assert_unique(firm_id, data)
         values = self._customer_values(data)
+        values["whatsapp_opt_in_at"] = utc_now() if data.whatsapp_opt_in else None
         assert_master_references(
             self._session, values, _CUSTOMER_REFERENCES, firm_id=firm_id
         )
@@ -318,6 +319,15 @@ class CustomerService:
             # the display name alone leaves the customer named after itself.
             values["display_name"] = (
                 values.get("display_name") or values.get("name") or customer.name
+            )
+        if (
+            "whatsapp_opt_in" in values
+            and bool(values["whatsapp_opt_in"]) != customer.whatsapp_opt_in
+        ):
+            # When the customer agreed is the record, so it is the server's
+            # clock rather than anything a client sends.
+            values["whatsapp_opt_in_at"] = (
+                utc_now() if values["whatsapp_opt_in"] else None
             )
         for field, value in values.items():
             setattr(customer, field, value)
@@ -1035,6 +1045,10 @@ class CustomerService:
             "address_count": sum(not item.is_deleted for item in customer.addresses),
             "contact_count": sum(not item.is_deleted for item in customer.contacts),
             "is_deleted": customer.is_deleted,
+            # Consent is a record somebody may be asked for (backlog 51).
+            "no_reminders": customer.no_reminders,
+            "preferred_channel": customer.preferred_channel,
+            "whatsapp_opt_in": customer.whatsapp_opt_in,
         }
 
     @staticmethod

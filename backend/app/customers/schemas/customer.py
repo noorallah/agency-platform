@@ -3,6 +3,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
@@ -186,6 +187,12 @@ class CustomerWrite(CustomerSchema):
     currency_code: str = Field(min_length=3, max_length=3)
     status: CustomerStatus = CustomerStatus.ACTIVE
     notes: str | None = None
+    #: Messaging (backlog 51): no payment reminders to this customer.
+    no_reminders: bool = False
+    #: Tried first when an event offers it; blank follows the firm's order.
+    preferred_channel: Literal["EMAIL", "WHATSAPP", "SMS"] | None = None
+    #: The customer agreed to WhatsApp messages. The server records when.
+    whatsapp_opt_in: bool = False
     addresses: list[CustomerAddressInput] = Field(default_factory=list, max_length=50)
     contacts: list[CustomerContactInput] = Field(default_factory=list, max_length=50)
     #: The customer's custom fields, as the business profile defines them.
@@ -300,6 +307,10 @@ class CustomerResponse(CustomerSchema):
     unapplied_advance_balance: Decimal
     status: CustomerStatus
     notes: str | None
+    no_reminders: bool = False
+    preferred_channel: str | None = None
+    whatsapp_opt_in: bool = False
+    whatsapp_opt_in_at: datetime | None = None
     created_by: UUID | None
     created_at: datetime
     updated_by: UUID | None

@@ -68,6 +68,7 @@ from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.inventory.models import StockLedgerEntry
 from app.loyalty.services import LoyaltyService
+from app.messaging.services import MessagingDocument, stage_document_event
 from app.products.models import Product
 from app.sales.models import SalesTerritoryNode, TerritoryRouteProfile
 from app.sales.services.document_preview import line_companions
@@ -1008,6 +1009,23 @@ class SalesInvoiceService(TransactionalDocumentService):
             actor_id=actor_id,
             firm_id=firm_scope,
             after_data=approval_details,
+        )
+        # Messaging (backlog 51): staged in this transaction, so a rolled-back
+        # approval leaves no message; a firm with messaging off gets nothing.
+        stage_document_event(
+            self._session,
+            "SALES_INVOICE_APPROVED",
+            MessagingDocument(
+                document_type="SALES_INVOICE",
+                document_id=row.id,
+                document_number=row.invoice_number,
+                document_date=row.invoice_date,
+                customer_id=row.customer_id,
+                amount=row.grand_total,
+                due_date=row.due_date,
+            ),
+            firm_id=firm_scope,
+            actor_id=actor_id,
         )
         # Inside the staged approval, not after it: anything composing
         # approval then settles the counter payment too, which is the trap
