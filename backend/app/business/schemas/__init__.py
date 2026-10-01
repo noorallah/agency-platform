@@ -19,6 +19,7 @@ from app.business.schemas.framework import (
     BusinessProfileCreate,
     BusinessProfileResponse,
     BusinessProfileUpdate,
+    BusinessProfileWriteResponse,
     CategoryAttributeRuleCreate,
     CategoryAttributeRuleResponse,
     CategoryAttributeRuleUpdate,
@@ -26,6 +27,7 @@ from app.business.schemas.framework import (
     FirmBusinessProfileResponse,
     FirmProfileAssignmentRow,
     IdentifierList,
+    ProfileStoreOutcome,
 )
 
 __all__ = [
@@ -46,6 +48,7 @@ __all__ = [
     "BusinessProfileConfigurationResponse",
     "BusinessProfileCreate",
     "BusinessProfileResponse",
+    "BusinessProfileWriteResponse",
     "BusinessProfileUpdate",
     "CategoryAttributeRuleCreate",
     "CategoryAttributeRuleResponse",
@@ -54,4 +57,5 @@ __all__ = [
     "FirmBusinessProfileResponse",
     "FirmProfileAssignmentRow",
     "IdentifierList",
+    "ProfileStoreOutcome",
 ]

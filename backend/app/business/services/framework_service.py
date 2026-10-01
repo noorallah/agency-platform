@@ -176,6 +176,81 @@ class BusinessProfileFrameworkService:
         )
         self._session.commit()
 
+    #: The columns a profile carries from one store to the next (backlog 17).
+    MIRRORED_PROFILE_FIELDS = (
+        "code",
+        "name",
+        "description",
+        "industry_type",
+        "status",
+        "is_default",
+        "default_settings",
+    )
+
+    def mirror_profile(self, source: BusinessProfile, actor_id: UUID) -> str:
+        """Make this store's copy of a profile match ``source``, by id.
+
+        Backlog 17: the catalogue is duplicated in every store on purpose, and
+        the seeded profiles agree only because migrations insert the same ids.
+        A profile written at runtime is copied to every other store the same
+        way -- **same id** -- so an id read in one store means the same profile
+        in all of them. Returns what was done: ``created``, ``updated``,
+        ``deleted`` or ``unchanged``.
+
+        Raises:
+            ConflictError: If this store holds a different live profile under
+                the same code -- two ids for one code is the drift this exists
+                to prevent, so it is reported rather than overwritten.
+
+        """
+        row = self._session.get(BusinessProfile, source.id)
+        if source.is_deleted:
+            if row is None or row.is_deleted:
+                return "unchanged"
+            self.delete_profile(row.id, actor_id)
+            return "deleted"
+        self._assert_unique(BusinessProfile, source.code, current_id=source.id)
+        values = {name: getattr(source, name) for name in self.MIRRORED_PROFILE_FIELDS}
+        if values["is_default"]:
+            self._unset_default_profiles(except_id=source.id)
+        if row is None:
+            row = BusinessProfile(
+                id=source.id, **values, created_by=actor_id, updated_by=actor_id
+            )
+            self._session.add(row)
+            self._session.flush()
+            record_change(
+                self._session,
+                action="business_profile.created",
+                entity_type="business_profile",
+                row=row,
+                actor_id=actor_id,
+            )
+            self._session.commit()
+            return "created"
+        if not row.is_deleted and all(
+            getattr(row, name) == value for name, value in values.items()
+        ):
+            self._session.commit()
+            return "unchanged"
+        before = row_state(row)
+        for name, value in values.items():
+            setattr(row, name, value)
+        row.is_deleted = False
+        row.deleted_at = None
+        row.deleted_by = None
+        row.updated_by = actor_id
+        record_change(
+            self._session,
+            action="business_profile.updated",
+            entity_type="business_profile",
+            row=row,
+            actor_id=actor_id,
+            before=before,
+        )
+        self._session.commit()
+        return "updated"
+
     def list_features(
         self,
         page: int,

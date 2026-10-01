@@ -713,6 +713,21 @@ administration. Profiles, features and modules are editable from the desktop's
 administration workspace, which calls `setBusinessProfileFeatures` /
 `setBusinessProfileModules` on save.
 
+**A profile written at runtime reaches every store** (backlog 17, option 1,
+2026-10-01). Creating, changing or deleting a profile saves it in the caller's
+store, then writes the same row -- **the same id** -- to every other store the
+registry routes to (`app/business/services/profile_replication.py`), each store
+committed and audited on its own. The response's `stores` (a list for a delete)
+says per store `WRITTEN` with created, updated, deleted or unchanged, or
+`FAILED` with why: unprovisioned storage, an inactive firm, a store holding a
+different profile under the same code (reported, never overwritten), or a
+delete refused because a firm there is assigned the profile. `message` sums it
+up. Firms sharing a store are named together and the store is written once.
+Setting a profile's features or modules travels the same way, through the
+same service method in each store -- so a store whose catalogue lacks one of
+the features (one created at runtime in another store) reports `FAILED` by
+name. Features and modules created at runtime are not yet copied themselves.
+
 ## Status — what is not built
 
 Ordered by what blocks the most.

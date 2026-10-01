@@ -68,6 +68,22 @@ class BusinessProfileResponse(BusinessFrameworkSchema):
     updated_at: datetime
 
 
+class ProfileStoreOutcome(BusinessFrameworkSchema):
+    """What happened to a business profile in one other store (backlog 17)."""
+
+    store: str
+    #: WRITTEN (detail says created, updated, deleted or unchanged) or FAILED
+    #: (detail says why; the profile is not usable by firms in that store).
+    status: str
+    detail: str
+
+
+class BusinessProfileWriteResponse(BusinessProfileResponse):
+    """A saved profile, and how far it reached across the stores."""
+
+    stores: list[ProfileStoreOutcome] = Field(default_factory=list)
+
+
 class BusinessFeatureCreate(BusinessFrameworkSchema):
     """Payload for creating a feature definition."""
 
