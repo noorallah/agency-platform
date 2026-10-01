@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -35,6 +36,15 @@ class PurchaseInvoice(BaseEntity):
         Index("IX_purchase_invoices_firm_vendor", "firm_id", "vendor_id"),
         Index("IX_purchase_invoices_firm_branch", "firm_id", "branch_id"),
         Index("IX_purchase_invoices_firm_due_date", "firm_id", "due_date"),
+        # A self-invoice number is issued once, from its own series.
+        Index(
+            "UQ_purchase_invoices_firm_self_invoice_number",
+            "firm_id",
+            "self_invoice_number",
+            unique=True,
+            postgresql_where=text("self_invoice_number IS NOT NULL"),
+            sqlite_where=text("self_invoice_number IS NOT NULL"),
+        ),
     )
 
     firm_id: Mapped[UUID] = mapped_column(
@@ -108,6 +118,15 @@ class PurchaseInvoice(BaseEntity):
     grand_total: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: Tax the firm owes itself under reverse charge (backlog 68 row 8): the
+    #: supplier does not charge it, so it is outside `tax_total` and
+    #: `grand_total` and never part of the payable.
+    reverse_charge_tax_total: Mapped[Decimal] = mapped_column(
+        Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
+    )
+    #: The self-invoice the firm raises for a reverse-charge supply (rule
+    #: 47A), from its own series, issued when the bill is approved.
+    self_invoice_number: Mapped[str | None] = mapped_column(String(60))
     approved_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     closed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     cancel_reason: Mapped[str | None] = mapped_column(Text)
@@ -302,6 +321,12 @@ class PurchaseInvoiceLineTax(BaseEntity):
     #: Whether the firm may claim it as input credit.
     recoverable: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=True, server_default="true"
+    )
+    #: Owed by the firm itself under reverse charge rather than charged by
+    #: the supplier (backlog 68 row 8): reported in GSTR-3B 3.1(d) and
+    #: 4(A)(3), never in 4(A)(5), and never part of the payable.
+    reverse_charge: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="false"
     )
 
 
