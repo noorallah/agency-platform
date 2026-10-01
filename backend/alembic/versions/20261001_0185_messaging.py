@@ -21,7 +21,7 @@ from app.core.database.types import UUIDType
 from app.identity.system_seed import ROLE_PERMISSION_CODES, SYSTEM_PERMISSION_CODES
 
 revision: str = "20261001_0185"
-down_revision: str | Sequence[str] | None = "20261001_0184"
+down_revision: str | Sequence[str] | None = "20261001_0190"
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
