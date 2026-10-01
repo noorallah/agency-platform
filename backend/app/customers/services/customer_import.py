@@ -41,7 +41,7 @@ from app.common.file_import import (
     schema_issues,
     service_issue,
 )
-from app.common.firm_metadata import FirmMetadataReader
+from app.common.firm_metadata import FirmMember, FirmMetadataReader
 from app.core.exceptions import ApplicationError
 from app.customers.gst_registration import GstRegistrationType
 from app.customers.models import Customer, CustomerGroup
@@ -230,6 +230,14 @@ COLUMNS: tuple[Column, ...] = (
     ),
     Column("ContactEmail", ("contactemailid",), False, "Their email.", ""),
     Column("ContactDesignation", ("designation",), False, "Their role.", ""),
+    Column(
+        "AccountManager",
+        ("salesman", "salesperson", "accountmanager", "relationshipmanager"),
+        False,
+        "The firm member who looks after this customer, by email or full "
+        "name; documents raised for the customer default to them.",
+        "",
+    ),
     Column("Notes", ("remarks", "narration"), False, "Free text.", ""),
 )
 
@@ -254,6 +262,7 @@ _FIELD_HEADINGS: dict[str, str] = {
     "currency_code": "Currency",
     "opening_balance": "OpeningBalance",
     "status": "Status",
+    "salesman_id": "AccountManager",
     "notes": "Notes",
     "addresses": "Address1",
     "contacts": "ContactName",
@@ -310,12 +319,40 @@ class CustomerFileImporter(FileImporter[Customer]):
         self._may_manage_settings = may_manage_settings
         self._groups: list[CustomerGroup] = []
         self._currency = "INR"
+        self._members: list[FirmMember] = []
 
     def _prepare(self, firm_id: UUID) -> None:
         self._groups = firm_segments(self._session, firm_id)
-        self._currency = (
-            FirmMetadataReader(self._session).get(firm_id).currency_code or "INR"
+        reader = FirmMetadataReader(self._session)
+        self._currency = reader.get(firm_id).currency_code or "INR"
+        self._members = reader.active_members(firm_id)
+
+    def _member(self, reader: RowReader) -> UUID | None:
+        """Find the row's account manager among the firm's active members.
+
+        By email first, which is unique, then by full name -- refused by name
+        when two members share it rather than picking one.
+        """
+        given = reader.text("AccountManager")
+        if not given:
+            return None
+        wanted = given.casefold()
+        by_email = [m for m in self._members if m.email.casefold() == wanted]
+        if by_email:
+            return by_email[0].user_id
+        by_name = [m for m in self._members if m.full_name.casefold() == wanted]
+        if len(by_name) == 1:
+            return by_name[0].user_id
+        reader.fail(
+            "AccountManager",
+            f"'{given}' is "
+            + (
+                "the name of more than one member; give their email."
+                if by_name
+                else "not an active member of the firm."
+            ),
         )
+        return None
 
     def _stored(self, firm_id: UUID) -> dict[str, Customer]:
         return {
@@ -437,6 +474,9 @@ class CustomerFileImporter(FileImporter[Customer]):
         opening = self._opening_balance(reader)
         if opening is not None:
             values["opening_balance"] = opening
+        manager = self._member(reader)
+        if manager is not None:
+            values["salesman_id"] = manager
         segment = reader.text("Segment")
         if segment:
             group = find_segment(self._groups, segment)

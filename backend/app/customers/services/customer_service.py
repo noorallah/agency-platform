@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.business.schemas import AttributeValueInput, AttributeValueResponse
 from app.business.services import AttributeInput, AttributeService
 from app.common.audit.services import record_audit
+from app.common.firm_metadata import FirmMetadataReader
 from app.common.master_references import (
     MasterReferences,
     assert_master_references,
@@ -155,6 +156,7 @@ class CustomerService:
         assert_master_references(
             self._session, values, _CUSTOMER_REFERENCES, firm_id=firm_id
         )
+        self._assert_account_manager(firm_id, data.salesman_id, current=None)
         (
             values["current_outstanding"],
             values["unapplied_advance_balance"],
@@ -279,6 +281,13 @@ class CustomerService:
             firm_id=customer.firm_id,
             current=customer,
         )
+        if "salesman_id" in values:
+            sent = values["salesman_id"]
+            self._assert_account_manager(
+                customer.firm_id,
+                sent if isinstance(sent, UUID) else None,
+                current=customer.salesman_id,
+            )
         self._assert_may_change_credit_limit(
             customer, values, allowed=may_change_credit_limit
         )
@@ -713,6 +722,29 @@ class CustomerService:
             raise ConflictError(
                 "Customer code, GST number, or PAN number already exists "
                 "in this firm."
+            )
+
+    def _assert_account_manager(
+        self, firm_id: UUID, salesman_id: UUID | None, *, current: UUID | None
+    ) -> None:
+        """Refuse an account manager who is not an active member of the firm.
+
+        Asked only when the write *moves* it: a manager who has since left
+        stays on the record (and is skipped when documents are raised, see
+        `resolve_sales_scope`), so a full-form save that resends them does
+        not block an unrelated edit. Through `FirmMetadataReader`, because
+        `users` and `user_firms` live only in the platform store.
+        """
+        if salesman_id is None or salesman_id == current:
+            return
+        if (
+            FirmMetadataReader(self._session).active_member_count(
+                firm_id, [salesman_id]
+            )
+            != 1
+        ):
+            raise ValidationError(
+                "The account manager must be an active member of this firm."
             )
 
     def _settled_pan(

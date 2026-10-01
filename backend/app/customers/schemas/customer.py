@@ -164,6 +164,9 @@ class CustomerWrite(CustomerSchema):
     tan_number: str | None = Field(default=None, max_length=10)
     #: How the buyer stands under GST; blank is read off the GSTIN.
     gst_registration_type: GstRegistrationType | None = None
+    #: The account manager, a member of the firm; blank leaves documents to
+    #: the territory's salesperson (backlog 67 row 2).
+    salesman_id: UUID | None = None
     email: str | None = Field(default=None, max_length=320)
     phone: str | None = Field(default=None, max_length=20)
     alternate_phone: str | None = Field(default=None, max_length=20)
@@ -283,6 +286,7 @@ class CustomerResponse(CustomerSchema):
     pan_number: str | None
     tan_number: str | None = None
     gst_registration_type: str | None = None
+    salesman_id: UUID | None = None
     email: str | None
     phone: str | None
     alternate_phone: str | None

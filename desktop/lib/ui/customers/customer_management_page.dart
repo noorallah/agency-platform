@@ -11,6 +11,7 @@ import '../../models/customer.dart';
 import '../../models/customer_opening_bill.dart';
 import '../../models/entities.dart';
 import '../../models/file_import.dart';
+import '../../models/firm_member.dart';
 import '../../models/geography.dart';
 import '../../models/product.dart';
 import '../../models/sales_territory.dart';
@@ -268,6 +269,8 @@ class _CustomerManagementPageState extends State<CustomerManagementPage> {
           loadGroups: () => widget.api
               .customerGroups(pageSize: 100)
               .then((page) => page.items),
+          // The account manager picker (backlog 67 row 2), phase 2 only.
+          loadMembers: phase2 ? widget.api.firmMembers : null,
           // The server refuses a moved limit without it; the form says so first.
           mayChangeCreditLimit:
               widget.permissions.hasPermission('CUSTOMER_MANAGE_SETTINGS'),
@@ -874,6 +877,7 @@ class CustomerWorkspaceDialog extends StatefulWidget {
     this.loadRoutes,
     this.loadAttributes,
     this.loadGroups,
+    this.loadMembers,
     this.mayChangeCreditLimit = true,
     this.mayChangeStandingDiscount = true,
     this.loadLicences,
@@ -905,6 +909,10 @@ class CustomerWorkspaceDialog extends StatefulWidget {
   /// The firm's customer groups, for the Group dropdown. Null means the
   /// caller supplies none and the dropdown is omitted.
   final Future<List<CustomerGroup>> Function()? loadGroups;
+
+  /// The firm's people, for the account manager picker (backlog 67 row 2).
+  /// Null omits the picker; the stored manager is still sent back unchanged.
+  final Future<List<FirmMember>> Function()? loadMembers;
 
   /// Whether the user holds `CUSTOMER_MANAGE_SETTINGS`. A credit limit is a
   /// credit control, so moving an existing customer's limit takes the code
@@ -1004,6 +1012,9 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
   late String _customerGroupId = widget.customer?.customerGroupId ?? '';
   List<CustomerGroup> _groups = const [];
   bool _groupsRequested = false;
+  // Empty string is "nobody", sent as null.
+  late String _salesmanId = widget.customer?.salesmanId ?? '';
+  List<FirmMember> _members = const [];
   late final CustomFieldsController? _customFields =
       widget.loadAttributes == null
           ? null
@@ -1047,6 +1058,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
     super.initState();
     _customFields?.start();
     _loadGroups();
+    _loadMembers();
     for (final TextEditingController controller in _fields.values) {
       controller.addListener(_markDirty);
     }
@@ -1090,6 +1102,52 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
       // current value; it must not break the rest of the form.
       if (mounted) setState(() => _groups = const []);
     }
+  }
+
+  Future<void> _loadMembers() async {
+    if (widget.loadMembers == null) return;
+    try {
+      final List<FirmMember> members = await widget.loadMembers!();
+      if (mounted) setState(() => _members = members);
+    } on Object {
+      // Unreadable leaves the picker with just the stored manager.
+      if (mounted) setState(() => _members = const []);
+    }
+  }
+
+  /// The account manager picker (backlog 67 row 2). Values are user ids;
+  /// '' is nobody. A stored manager who has since left the firm is not in
+  /// the list and stays selectable as its own item, so a save does not
+  /// silently clear them.
+  Widget _managerDropdown() {
+    final List<DropdownMenuItem<String>> items = [
+      const DropdownMenuItem(value: '', child: Text('Nobody in particular')),
+      for (final FirmMember member in _members)
+        DropdownMenuItem(value: member.userId, child: Text(member.label)),
+    ];
+    if (_salesmanId.isNotEmpty &&
+        !_members.any((member) => member.userId == _salesmanId)) {
+      items.add(DropdownMenuItem(
+        value: _salesmanId,
+        child: const Text('Current manager (no longer a member)'),
+      ));
+    }
+    return DropdownButtonFormField<String>(
+      key: const ValueKey('customer-account-manager'),
+      isExpanded: true,
+      initialValue: _salesmanId,
+      decoration: const InputDecoration(
+        labelText: 'Account manager',
+        helperText: 'New sales documents for them default to this salesman',
+      ),
+      items: items,
+      onChanged: _readOnly
+          ? null
+          : (value) => setState(() {
+                _salesmanId = value ?? '';
+                _dirty = true;
+              }),
+    );
   }
 
   /// The Group dropdown. Values are group ids; '' is "No group". A stored id
@@ -1206,6 +1264,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
         'website': _nullable('website'),
         // Empty means "no group", sent as null so it clears any prior one.
         'customer_group_id': _customerGroupId.isEmpty ? null : _customerGroupId,
+        'salesman_id': _salesmanId.isEmpty ? null : _salesmanId,
         'credit_limit': _fields['credit_limit']!.text.trim(),
         'default_discount_percent':
             _fields['default_discount_percent']!.text.trim().isEmpty
@@ -1328,6 +1387,7 @@ class _CustomerWorkspaceDialogState extends State<CustomerWorkspaceDialog> {
                 _dirty = true;
               }),
             ),
+            if (widget.loadMembers != null) _managerDropdown(),
             _text('gst_number', 'GST number'),
             _gstTypePicker(),
             _text('pan_number', 'PAN number'),

@@ -145,6 +145,7 @@ class Customer {
     required this.panNumber,
     this.tanNumber = '',
     this.gstRegistrationType = '',
+    this.salesmanId = '',
     required this.email,
     required this.phone,
     required this.alternatePhone,
@@ -195,6 +196,10 @@ class Customer {
   /// How the buyer stands under GST (backlog 75 row 2): REGULAR, SEZ_... and
   /// so on; empty means the server reads it off the GSTIN.
   final String gstRegistrationType;
+  /// The account manager: the firm member who looks after this customer,
+  /// and the salesman a new sales document for them defaults to (backlog
+  /// 67 row 2). Empty when nobody is named.
+  final String salesmanId;
   final String email;
   final String phone;
   final String alternatePhone;
@@ -242,6 +247,7 @@ class Customer {
         panNumber: stringValue(json['pan_number']),
         tanNumber: stringValue(json['tan_number']),
         gstRegistrationType: stringValue(json['gst_registration_type']),
+        salesmanId: stringValue(json['salesman_id']),
         email: stringValue(json['email']),
         phone: stringValue(json['phone']),
         alternatePhone: stringValue(json['alternate_phone']),
