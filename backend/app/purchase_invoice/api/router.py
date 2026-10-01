@@ -16,7 +16,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.common.scope import (
@@ -32,6 +32,12 @@ from app.core.pagination import PaginationParams, ReportWindow
 from app.core.responses.models import ApiResponse, PaginatedResponse
 from app.core.utils.dates import utc_now
 from app.document_framework.schemas import DocumentLifecycleEventResponse
+from app.document_framework.schemas.bulk_actions import (
+    BulkActionResult,
+    BulkApproveRequest,
+    BulkCancelRequest,
+)
+from app.document_framework.services.bulk_actions import run_each
 from app.purchase_invoice.schemas import (
     PurchaseInvoiceCreate,
     PurchaseInvoiceImportRequest,
@@ -46,6 +52,7 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceVendorOutstandingRecord,
 )
 from app.purchase_invoice.services import PurchaseInvoiceService
+from app.purchase_invoice.services.price_variance import PriceVarianceService
 from app.purchase_invoice.services.purchase_analysis import (
     PurchaseAnalysisService,
 )
@@ -334,6 +341,71 @@ def purchase_analysis_bills(
     )
 
 
+@router.post("/bulk-approve", response_model=ApiResponse[BulkActionResult])
+def bulk_approve_purchase_invoices(
+    data: BulkApproveRequest,
+    scope: PurchaseInvoiceApproveScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BulkActionResult]:
+    """Approve the ticked purchase invoices, each on its own (backlog 56 A).
+
+    Each goes through the single approval's own service and commits on its
+    own: a refused one is reported with the reason and the rest go ahead.
+    One that needs a licence override is refused here -- the override is a
+    reason given for one document, on its own screen.
+    """
+    service = PurchaseInvoiceService(db)
+
+    def act(document_id: UUID) -> None:
+        service.approve_invoice(
+            document_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+        )
+        db.commit()
+
+    return ApiResponse(
+        data=run_each(
+            db,
+            data.items,
+            load=lambda document_id: service.get_invoice(
+                document_id, firm_scope=scope.firm_id
+            ),
+            act=act,
+            number=lambda row: row.invoice_number,
+        )
+    )
+
+
+@router.post("/bulk-cancel", response_model=ApiResponse[BulkActionResult])
+def bulk_cancel_purchase_invoices(
+    data: BulkCancelRequest,
+    scope: PurchaseInvoiceCancelScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BulkActionResult]:
+    """Cancel the ticked purchase invoices with one reason, each on its own (56 A)."""
+    service = PurchaseInvoiceService(db)
+
+    def act(document_id: UUID) -> None:
+        service.cancel_invoice(
+            document_id,
+            firm_scope=scope.firm_id,
+            actor_id=scope.actor_id,
+            reason=data.reason,
+        )
+        db.commit()
+
+    return ApiResponse(
+        data=run_each(
+            db,
+            data.items,
+            load=lambda document_id: service.get_invoice(
+                document_id, firm_scope=scope.firm_id
+            ),
+            act=act,
+            number=lambda row: row.invoice_number,
+        )
+    )
+
+
 @router.put("/{invoice_id}", response_model=ApiResponse[PurchaseInvoiceResponse])
 def update_purchase_invoice(
     invoice_id: UUID,
@@ -484,6 +556,43 @@ def purchase_invoice_register(
             firm_scope=scope.firm_id, window=window
         )
     )
+
+
+class PriceVarianceRecord(BaseModel):
+    """One bill line charged at a rate other than its receipt's (65.5)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    invoice_date: date
+    invoice_number: str
+    supplier_invoice_number: str
+    supplier_name: str
+    receipt_number: str
+    product_code: str
+    product_name: str
+    quantity: Decimal
+    receipt_rate: Decimal
+    bill_rate: Decimal
+    variance: Decimal
+    note: str
+
+
+@router.get(
+    "/reports/price-variance",
+    response_model=PaginatedResponse[PriceVarianceRecord],
+)
+def purchase_price_variance(
+    scope: PurchaseInvoiceReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[PriceVarianceRecord]:
+    """List bill lines charged at a rate other than the receipt's (65.5)."""
+    window = ReportWindow(from_date, to_date, page, page_size)
+    rows = PriceVarianceService(db).report(scope.firm_id, window)
+    return window.respond([PriceVarianceRecord.model_validate(row) for row in rows])
 
 
 @router.get(

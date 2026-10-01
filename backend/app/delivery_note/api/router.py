@@ -47,6 +47,12 @@ from app.delivery_note.services.challan_print_service import (
     DeliveryChallanPrintService,
 )
 from app.document_framework.schemas import DocumentLifecycleEventResponse
+from app.document_framework.schemas.bulk_actions import (
+    BulkActionResult,
+    BulkApproveRequest,
+    BulkCancelRequest,
+)
+from app.document_framework.services.bulk_actions import run_each
 from app.trade_licences.api.override import (
     LicenceOverrideReason,
     authorised_override,
@@ -210,6 +216,71 @@ def export_delivery_notes(
         iter([csv_content.encode("utf-8")]),
         media_type="text/csv",
         headers={"Content-Disposition": "attachment; filename=delivery_notes.csv"},
+    )
+
+
+@router.post("/bulk-approve", response_model=ApiResponse[BulkActionResult])
+def bulk_approve_delivery_notes(
+    data: BulkApproveRequest,
+    scope: DeliveryNoteApproveScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BulkActionResult]:
+    """Approve the ticked delivery notes, each on its own (backlog 56 A).
+
+    Each goes through the single approval's own service and commits on its
+    own: a refused one is reported with the reason and the rest go ahead.
+    One that needs a licence override is refused here -- the override is a
+    reason given for one document, on its own screen.
+    """
+    service = DeliveryNoteService(db)
+
+    def act(document_id: UUID) -> None:
+        service.approve_note(
+            document_id, firm_scope=scope.firm_id, actor_id=scope.actor_id
+        )
+        db.commit()
+
+    return ApiResponse(
+        data=run_each(
+            db,
+            data.items,
+            load=lambda document_id: service.get_note(
+                document_id, firm_scope=scope.firm_id
+            ),
+            act=act,
+            number=lambda row: row.delivery_note_number,
+        )
+    )
+
+
+@router.post("/bulk-cancel", response_model=ApiResponse[BulkActionResult])
+def bulk_cancel_delivery_notes(
+    data: BulkCancelRequest,
+    scope: DeliveryNoteCancelScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[BulkActionResult]:
+    """Cancel the ticked delivery notes with one reason, each on its own (56 A)."""
+    service = DeliveryNoteService(db)
+
+    def act(document_id: UUID) -> None:
+        service.cancel_note(
+            document_id,
+            firm_scope=scope.firm_id,
+            actor_id=scope.actor_id,
+            reason=data.reason,
+        )
+        db.commit()
+
+    return ApiResponse(
+        data=run_each(
+            db,
+            data.items,
+            load=lambda document_id: service.get_note(
+                document_id, firm_scope=scope.firm_id
+            ),
+            act=act,
+            number=lambda row: row.delivery_note_number,
+        )
     )
 
 

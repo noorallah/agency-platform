@@ -7,8 +7,11 @@ import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
+import '../../models/bulk_action.dart';
 import '../../models/entities.dart';
 import '../../models/finance.dart';
+import '../../phase2/indian_format.dart';
+import '../workspace/bulk_action.dart';
 import '../workspace/desktop_framework.dart';
 import '../workspace/reason_prompt.dart';
 import 'journal_entry_dialog.dart';
@@ -71,6 +74,10 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
   DatePeriod _period = const DatePeriod.all();
   List<JournalEntry> _entries = const [];
   JournalEntry? _selected;
+
+  /// The rows ticked for a bulk post (backlog 56 A). There is no bulk
+  /// cancel for journals; a posted one is reversed, one at a time.
+  Set<String> _ticked = <String>{};
   int _page = 1;
   int _total = 0;
   bool _loading = false;
@@ -128,6 +135,9 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
       setState(() {
         _entries = result.items;
         _total = result.total;
+        _ticked = _ticked
+            .where((id) => result.items.any((entry) => entry.id == id))
+            .toSet();
         final JournalEntry? kept = result.items
             .where((entry) => entry.id == _selected?.id)
             .firstOrNull;
@@ -426,6 +436,51 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
     );
   }
 
+  /// More than one row ticked: the bar names the batch and offers the bulk
+  /// post instead of the one entry's steps.
+  bool get _bulkMode => _ticked.length > 1;
+
+  List<JournalEntry> get _tickedRows =>
+      _entries.where((row) => _ticked.contains(row.id)).toList();
+
+  SelectionSummary _bulkSummary() {
+    double total = 0;
+    for (final JournalEntry row in _tickedRows) {
+      total += double.tryParse(row.totalDebit) ?? 0;
+    }
+    return SelectionSummary(
+      title: '${_ticked.length} selected',
+      detail: indianAmount(total, full: true),
+      onClear: () => setState(() => _ticked = <String>{}),
+    );
+  }
+
+  /// The one bulk action, behind the permission the single post takes.
+  List<ToolbarCommand> _bulkCommands() => [
+        ToolbarCommand(
+          id: 'bulk-post',
+          label: 'Post selected',
+          icon: Icons.post_add,
+          onPressed:
+              _loading || !_canPost ? null : () => unawaited(_bulkPost()),
+        ),
+      ];
+
+  Future<void> _bulkPost() async {
+    final List<BulkRow> rows = [
+      for (final JournalEntry row in _tickedRows) (id: row.id, version: null),
+    ];
+    await runBulkAction(
+      context,
+      verb: 'Posted',
+      rows: rows,
+      send: widget.api.bulkPostJournalEntries,
+    );
+    if (!mounted) return;
+    setState(() => _ticked = <String>{});
+    await _load();
+  }
+
   /// Phase 2 (owner, 2026-09-27): a full-width grid, as every list -- the
   /// Period after the search, "Posted by", Columns; option C's bar carries
   /// Post, Reverse and the draft's Edit, Delete and Reject; a double-click
@@ -458,10 +513,12 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
           isEnabled: (action) =>
               !_loading &&
               switch (action) {
-                ToolbarAction.view => selected != null,
+                ToolbarAction.view => selected != null && !_bulkMode,
                 // Only a hand-written draft; a document's entry is undone by
                 // undoing the document (D-FIN-2, D-FIN-15).
-                ToolbarAction.edit || ToolbarAction.delete => draft,
+                ToolbarAction.edit ||
+                ToolbarAction.delete =>
+                  draft && !_bulkMode,
                 ToolbarAction.refresh => true,
                 ToolbarAction.newItem => _canCreate,
                 _ => false,
@@ -512,7 +569,9 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
               },
             ),
           ],
-          commands: [
+          commands: _bulkMode
+              ? _bulkCommands()
+              : [
             ToolbarCommand(
               id: 'post',
               label: 'Post',
@@ -542,7 +601,9 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
           ],
         ),
         selectionBar: true,
-        selection: selected == null
+        selection: _bulkMode
+            ? _bulkSummary()
+            : selected == null
             ? null
             : SelectionSummary.document(
                 number: selected.referenceNumber,
@@ -591,6 +652,11 @@ class _JournalEntriesPageState extends State<JournalEntriesPage> {
                     items: _entries,
                     id: (item) => item.id,
                     selectedId: selected?.id,
+                    // Ticks, for a bulk post. A single row is still chosen by
+                    // clicking it.
+                    selectedIds: _ticked,
+                    onSelectionChanged: (ticked) =>
+                        setState(() => _ticked = ticked),
                     cells: _columns.cells,
                     onSelect: (item) => setState(() => _selected = item),
                     onOpen: _view,

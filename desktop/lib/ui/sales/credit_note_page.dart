@@ -17,9 +17,11 @@ import '../../core/design/design_tokens.dart';
 import '../../core/notifications/notification_service.dart';
 import '../../core/preferences/desktop_preferences_service.dart';
 import '../../core/security/permission_service.dart';
+import '../../models/bulk_action.dart';
 import '../../models/credit_note.dart';
 import '../../models/entities.dart';
 import '../../models/sales_return.dart';
+import '../workspace/bulk_action.dart';
 import '../workspace/desktop_framework.dart';
 import '../../phase2/document_page.dart';
 import '../../phase2/indian_format.dart';
@@ -52,6 +54,10 @@ class _CreditNotePageState extends State<CreditNotePage> {
   String? _error;
   String? _selectedId;
   bool _loading = true;
+
+  /// The rows ticked for a bulk approve (backlog 56 A). There is no bulk
+  /// cancel for credit notes.
+  Set<String> _ticked = <String>{};
 
   /// Search (number or customer) and the Period, on phase 2's page line
   /// (owner, 2026-09-27), as the other sales lists.
@@ -109,6 +115,8 @@ class _CreditNotePageState extends State<CreditNotePage> {
       if (!mounted) return;
       setState(() {
         _notes = rows;
+        _ticked =
+            _ticked.where((id) => rows.any((row) => row.id == id)).toSet();
         _loading = false;
       });
     } on ApiException catch (error) {
@@ -118,6 +126,53 @@ class _CreditNotePageState extends State<CreditNotePage> {
         _loading = false;
       });
     }
+  }
+
+  /// More than one row ticked: the bar names the batch and offers the bulk
+  /// approve instead of the one row's steps.
+  bool get _bulkMode => _ticked.length > 1;
+
+  List<CreditNoteRecord> get _tickedRows =>
+      _notes.where((row) => _ticked.contains(row.id)).toList();
+
+  SelectionSummary _bulkSummary() {
+    double total = 0;
+    for (final CreditNoteRecord row in _tickedRows) {
+      total += double.tryParse(row.totalAmount) ?? 0;
+    }
+    return SelectionSummary(
+      title: '${_ticked.length} selected',
+      detail: indianAmount(total, full: true),
+      onClear: () => setState(() => _ticked = <String>{}),
+    );
+  }
+
+  /// The one bulk action, behind the permission the single approve takes.
+  List<ToolbarCommand> _bulkCommands() => [
+        ToolbarCommand(
+          id: 'bulk-approve',
+          label: 'Approve selected',
+          icon: Icons.check_circle_outline,
+          onPressed: _loading || !_mayApprove
+              ? null
+              : () => unawaited(_bulkApprove()),
+        ),
+      ];
+
+  Future<void> _bulkApprove() async {
+    final List<BulkRow> rows = [
+      for (final CreditNoteRecord row in _tickedRows)
+        (id: row.id, version: row.version),
+    ];
+    await runBulkAction(
+      context,
+      verb: 'Approved',
+      rows: rows,
+      send: widget.api.bulkApproveCreditNotes,
+    );
+    if (!mounted) return;
+    setState(() => _ticked = <String>{});
+    await _load();
   }
 
   Future<void> _raise() async {
@@ -212,7 +267,9 @@ class _CreditNotePageState extends State<CreditNotePage> {
       // Option C (owner, 2026-09-27): the note's steps on a bar that names
       // it, above the grid.
       selectionBar: true,
-      selection: _selectedNote == null
+      selection: _bulkMode
+          ? _bulkSummary()
+          : _selectedNote == null
           ? null
           : SelectionSummary.document(
               number: _selectedNote!.creditNoteNumber,
@@ -269,7 +326,8 @@ class _CreditNotePageState extends State<CreditNotePage> {
         ToolbarAction.refresh,
         if (_mayManage) ToolbarAction.newItem,
       ],
-      isEnabled: (action) => action != ToolbarAction.view || selected != null,
+      isEnabled: (action) =>
+          action != ToolbarAction.view || (selected != null && !_bulkMode),
       onAction: (action) {
         switch (action) {
           case ToolbarAction.newItem:
@@ -280,7 +338,9 @@ class _CreditNotePageState extends State<CreditNotePage> {
             unawaited(_load());
         }
       },
-      commands: [
+      commands: _bulkMode
+          ? _bulkCommands()
+          : [
         ToolbarCommand(
           id: 'approve',
           label: 'Approve',
@@ -457,6 +517,10 @@ class _CreditNotePageState extends State<CreditNotePage> {
         rowsPerPage: _notes.length,
         availableRowsPerPage: [_notes.length],
         selectedId: _selectedId,
+        // Ticks, for a bulk approve. A single row is still chosen by
+        // clicking it.
+        selectedIds: _ticked,
+        onSelectionChanged: (ticked) => setState(() => _ticked = ticked),
         columns: _columns.gridColumns,
         id: (row) => row.id,
         cells: _columns.cells,

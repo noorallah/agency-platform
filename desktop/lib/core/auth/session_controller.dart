@@ -9,6 +9,7 @@ import '../logging/app_log.dart';
 import '../preferences/desktop_preferences_service.dart';
 import '../preferences/user_preferences.dart';
 import '../../models/entities.dart';
+import '../../models/branch_warehouse.dart';
 import 'refresh_token_store.dart';
 
 enum SessionStatus {
@@ -366,6 +367,7 @@ class SessionController extends ChangeNotifier {
     if (currentId != null && !firms.any((firm) => firm.id == currentId)) {
       _currentFirm = null;
       _firmContextVersion++;
+      UserWorkDefaults.clear();
     }
     notifyListeners();
   }
@@ -397,6 +399,7 @@ class SessionController extends ChangeNotifier {
       if (_currentFirm == null) return;
       _currentFirm = null;
       _firmContextVersion++;
+      UserWorkDefaults.clear();
       registerActivity();
       notifyListeners();
       return;
@@ -422,6 +425,7 @@ class SessionController extends ChangeNotifier {
     } on ApiException catch (error) {
       AppLog.warn('Last firm not saved on the server: ${error.message}');
     }
+    await _loadWorkDefaults();
     registerActivity();
     notifyListeners();
   }
@@ -468,6 +472,7 @@ class SessionController extends ChangeNotifier {
                 )
               : preferences;
       await _applyServerPreferences(synchronizedPreferences);
+      await _loadWorkDefaults();
       registerActivity();
       notifyListeners();
     } on ApiException catch (exception) {
@@ -476,6 +481,23 @@ class SessionController extends ChangeNotifier {
     } on FormatException catch (exception) {
       _notice = 'Signed in, but preferences could not be synchronized: '
           '${exception.message}';
+    }
+  }
+
+  /// Read the person's usual branch and warehouse for the firm just chosen.
+  ///
+  /// Cleared first, so a default from the previous firm can never survive a
+  /// switch, and left clear when the read fails: a default only fills a blank,
+  /// so losing it must never block anything.
+  Future<void> _loadWorkDefaults() async {
+    UserWorkDefaults.clear();
+    final String? firmId = _currentFirm?.id;
+    if (firmId == null) return;
+    try {
+      final WorkDefaults loaded = await api.myWorkDefaults();
+      if (_currentFirm?.id == firmId) UserWorkDefaults.set(loaded);
+    } on Object catch (error) {
+      AppLog.warn('Work defaults not loaded: $error');
     }
   }
 
@@ -488,6 +510,7 @@ class SessionController extends ChangeNotifier {
     _firms = const [];
     _currentFirm = null;
     _firmContextVersion++;
+    UserWorkDefaults.clear();
     _onAccessTokenChanged?.call(null);
     await _tokenStore.clear();
   }

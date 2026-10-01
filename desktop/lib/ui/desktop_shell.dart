@@ -53,6 +53,7 @@ import 'commission/commission_page.dart';
 import 'commission/sales_target_page.dart';
 import 'sales/credit_note_page.dart';
 import 'sales/einvoice_page.dart';
+import 'sales/gst_payment_page.dart';
 import 'sales/gst_return_page.dart';
 import 'sales/sales_analysis_page.dart';
 import 'sales/proforma_page.dart';
@@ -76,6 +77,7 @@ import 'uom/packaging_levels_page.dart';
 import 'uom/uom_management_page.dart';
 import 'vendors/vendor_management_page.dart';
 import 'branches/branch_warehouse_management_page.dart';
+import 'branches/work_defaults_dialog.dart';
 import 'firms/firm_settings_page.dart';
 import 'firms/firm_setup_dialog.dart';
 import 'dashboard_page.dart';
@@ -413,6 +415,11 @@ class _DesktopShellState extends State<DesktopShell> {
         );
       case MenuLayout.tcsSettingsRoute:
         await showTcsSettings(context, api);
+      case MenuLayout.workDefaultsRoute:
+        await showDialog<Object>(
+          context: context,
+          builder: (_) => WorkDefaultsDialog(api: api),
+        );
     }
   }
 
@@ -2740,6 +2747,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           permissions: widget.permissions,
           hasActiveFirm: widget.api.activeFirmId?.call() != null,
         ),
+      'gst-payment' => GstPaymentPage(
+          api: widget.api,
+          permissions: widget.permissions,
+          hasActiveFirm: widget.api.activeFirmId?.call() != null,
+        ),
       'tcs' => TcsPage(
           api: widget.api,
           permissions: widget.permissions,
@@ -2803,6 +2815,11 @@ class _SalesWorkspaceState extends State<_SalesWorkspace> {
           'Sales Analysis',
           'Billed sales by any one or two dimensions, net of returns. Click '
               'a figure to see the invoices behind it.',
+        ),
+      'gst-payment' => (
+          'GST Payment',
+          'What the month owes, what its input credit pays in the order the '
+              'law sets, and the challan for the rest, posted in one journal.',
         ),
       'gst-returns' => (
           'GST Returns',

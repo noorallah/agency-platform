@@ -703,6 +703,32 @@ const List<ReportDefinition> reportCatalog = [
       ReportColumn(key: 'value', label: 'Value', numeric: true),
     ],
   ),
+  // Where a supplier billed a rate other than the goods were received at
+  // (65 row 5): the difference posts to Purchase Price Variance, and this
+  // names it line by line so a buyer can take it up.
+  ReportDefinition(
+    id: 'purchase-price-variance',
+    label: 'Purchase price variance',
+    description: 'Bill lines charged at a rate other than the goods were '
+        'received at: supplier, product, both rates and the difference.',
+    path: '/api/v1/purchase-invoices/reports/price-variance',
+    permission: 'PURCHASE_VIEW',
+    area: ReportArea.financial,
+    needsPeriod: true,
+    columns: [
+      ReportColumn(key: 'invoice_date', label: 'Date'),
+      ReportColumn(key: 'invoice_number', label: 'Bill'),
+      ReportColumn(key: 'supplier_invoice_number', label: 'Supplier bill'),
+      ReportColumn(key: 'supplier_name', label: 'Supplier'),
+      ReportColumn(key: 'receipt_number', label: 'Receipt'),
+      ReportColumn(key: 'product_name', label: 'Product'),
+      ReportColumn(key: 'quantity', label: 'Quantity', numeric: true),
+      ReportColumn(key: 'receipt_rate', label: 'Receipt rate', numeric: true),
+      ReportColumn(key: 'bill_rate', label: 'Bill rate', numeric: true),
+      ReportColumn(key: 'variance', label: 'Variance', numeric: true),
+      ReportColumn(key: 'note', label: 'Note'),
+    ],
+  ),
   // A collection is never rewritten, so a reversed or back-dated receipt
   // leaves a buyer over- or under-collected until they pay again; this is
   // where that shows (D-CMP-21). The year today falls in: a snapshot.
