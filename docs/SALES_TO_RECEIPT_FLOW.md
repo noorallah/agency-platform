@@ -196,6 +196,17 @@ journal cancels it, the allocations stop clearing but still record what they had
 cleared, and the customer's balances are put back by the deltas stored on the
 original row rather than recomputed.
 
+**Money taken at the counter is entered on the bill** (backlog 64 row 5,
+migration `20261001_0179`). `received_now_amount`, `_method` (CASH or BANK)
+and `_reference` on the invoice; approving it creates this same receipt,
+allocated to the bill, through `ReceiptService.create` **inside**
+`stage_approval` -- so the bill, its stock and its payment commit together or
+not at all, and anything that composes approval settles the payment too (the
+loyalty trap, D-SELL-1). The receipt is an ordinary one: the same journal, the
+same reversal. More than the bill is refused rather than kept as an advance --
+change is handed back. `received_now_settlement_id` records the receipt, so a
+replay never takes the money twice.
+
 Handing an advance back is a **refund** (`POST /api/v1/refunds`), which posts
 `Dr Trade Receivables / Cr Bank` and, since 2026-08-22, can be reversed like any
 other settlement.

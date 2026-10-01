@@ -4037,6 +4037,13 @@ applies to what are configuration.
 Owner, 2026-09-27: customers in the market carry both a PAN and a TAN; the
 product should tell them apart and put each to work.
 
+**Status, 2026-10-01.** Items 1, 3 and 4 are built (see §53.1): TAN on the
+firm and customers, *TDS deducted* on payments, receipts and expenses, and both
+TDS registers. Of item 2 only the TAN format check (firm, customer) and the
+PAN format check on an expense's payee exist (`app/core/validation/common.py`);
+customer and vendor PANs, the vendor's TAN and the PAN-against-GSTIN match are
+not checked yet. Item 5 (194Q) is §42.4.
+
 **The difference.** **PAN** identifies a taxpayer (every business and person
 has one). **TAN** identifies somebody who **deducts or collects tax at
 source**; only a party that deducts TDS or collects TCS has one, and it is what
@@ -4461,7 +4468,7 @@ the buying screen only creates. Choosing a different primary document clears
 the added ones. It is a menu rather than the tick list of item 2, so the
 "choose the customer first" step and the salesman/territory/route refusal on
 screen (item 4) are not built -- the server still refuses those. Item 7 (the
-printed bill naming every note) is still to build.
+printed bill naming every note) was built later the same day (status above).
 
 ## 59. Promotions: a "best offer only" mode
 
@@ -4758,9 +4765,9 @@ supplier bill -> payment, with returns off the receipt or the bill.
 
 | # | Gap | What exists | The ask, by convention |
 | --- | --- | --- | --- |
-| 1 | **Stage switches** for a one-person firm: type the bill and let the order and receipt follow | Three screens for every purchase | §38 (recorded 2026-09-16) |
-| 2 | **Several receipts on one bill** on the screen | One receipt per bill | D-BUY-18, with §58 |
-| 3 | **Purchase order discount on the whole order** reaching tax, receipt and bill | Subtracted after tax, not carried on | D-BUY-19 |
+| 1 | **Stage switches** for a one-person firm: type the bill and let the order and receipt follow | Three screens for every purchase | **Built** -- §38, merged #836 2026-09-30 |
+| 2 | **Several receipts on one bill** on the screen | One receipt per bill | **Fixed** -- D-BUY-18, with §58 (#844) |
+| 3 | **Purchase order discount on the whole order** reaching tax, receipt and bill | Subtracted after tax, not carried on | **Fixed** -- D-BUY-19 |
 | 4 | **Supplier rates**: a vendor's standing discount, a supplier price list with quantity breaks, and the **last purchase rate** while typing | Only a typed discount; the product's one `purchase_price` | Mirror sales: vendor standing % and supplier price lists ranked in `app/core/utils/pricing.py`; last rate is §55 G6 |
 | 5 | **Purchase price variance** explained per bill | Posted to its account, seen only as a P&L line | **Report built 2026-10-01**: Reports > Financial > *Purchase price variance* lists every approved bill line charged at a rate other than its receipt's -- supplier, product, both rates, quantity, variance; a bill in another unit is flagged. Left: the same on the bill's own screen |
 | 6 | **Debit note** to a supplier for a price difference or a short-supply claim with no goods going back | Purchase return (goods back) only | §55 G8 |
@@ -4770,7 +4777,7 @@ supplier bill -> payment, with returns off the receipt or the bill.
 | 10 | **TDS on purchases (194Q)** above 50 lakh a year per supplier | Nothing | §42.4, §53 |
 | 11 | **Landed cost**: freight, loading and duty added to stock cost | Nothing | §42.12 |
 | 12 | **Reorder**: what to buy, from stock levels and sales | Nothing | §42.9 |
-| 13 | **Purchase analysis by any combination** | Fixed reports by vendor, buyer, product | §66 |
+| 13 | **Purchase analysis by any combination** | Fixed reports by vendor, buyer, product | **Built** -- §66, #886 |
 | 14 | **RFQ and supplier quotations** | Nothing (removed from the screens 2026-08-22) | Low for a distributor; validate |
 
 **Suggested order:** 2 and 3 (defects, small) -> 1 (§38) -> 4 -> 5 -> 6 ->

@@ -1,14 +1,14 @@
 # Agency Platform: application features guide
 
 What the application does, screen by screen, in the order of the menu bar of
-release 1.0.2. It explains what each screen is for, what has to be set up
+release 1.1.0. It explains what each screen is for, what has to be set up
 before it, and what it changes in stock, the books and GST.
 
 This is a **reference**, not a test script. To test the application step by
 step, use the *QA functional walkthrough*; to install it, the *Installation
 guide*.
 
-Written 2026-09-27 for release 1.0.2.
+Written 2026-09-27 for release 1.0.2; brought up to 1.1.0 on 2026-10-01.
 
 ## Contents
 
@@ -26,7 +26,7 @@ Written 2026-09-27 for release 1.0.2.
 12. Settings (the gear)
 13. How a sale and a purchase reach the books
 14. Roles: who can do what
-15. Not in 1.0.2
+15. Not in 1.1.0
 
 ---
 
@@ -156,6 +156,15 @@ Then the masters, in this order, because each needs the one before:
 5. Territories and routes, if the firm sells by beat
 6. Price lists and promotions
 
+**Coming over from another tool.** Under the steps, *Opening balances* on
+the Set up panel lists what to bring in, in order -- products, customers,
+suppliers, the customers' and suppliers' unpaid bills, the opening trial
+balance and opening stock -- ticks each as it fills, and names the screen for
+the rest. Each comes **from a file**: a template made from the firm's own
+records, *Check file* to list every problem by row and column, and an import
+that posts all of it or none. `docs/GO_LIVE_GUIDE.md` walks it for the
+firm's accountant.
+
 **Document numbers need no setup.** Each kind of document starts its own
 series on its first save (for example `SI/2026-2027/000001`), and the pattern
 can be changed under **Settings → Numbering Series**.
@@ -247,7 +256,22 @@ proportion. (Goods coming back are a *sales return*, not a credit note.)
 or UPI. A receipt is applied to one or more invoices; anything left over is
 held **on account** (an advance) and applied to a later invoice from the bar
 (*Apply to an invoice*). A receipt entered wrongly is **reversed**, never
-edited, and the reversal puts everything back as it was.
+edited, and the reversal puts everything back as it was. A receipt or a
+payment can record **TDS deducted** with its section: the bill is settled in
+full and the deduction is booked to TDS Receivable (or TDS Payable on the
+buying side).
+
+**Received now, on the bill.** Money taken at the counter is entered on the
+sales invoice itself -- the amount, Cash or Bank, and a reference. Approving
+the bill records it as a receipt against that bill, in the same step; more
+than the bill is refused, because change is handed back rather than kept on
+account.
+
+**Approve many at once.** Sales and purchase invoices, delivery notes, credit
+notes, sales and purchase returns: tick the rows and *Approve selected* or
+*Cancel selected*. Each document is approved on its own; one that is refused
+is listed with the reason while the rest go ahead, and *Retry the refused*
+tries those again. Journal entries have *Post selected*.
 
 **Refunds.** Money paid back to a customer, out of an advance or a credit.
 
@@ -319,6 +343,20 @@ line unless a promotion is marked as not combining with others. Each offer
 records what it has cost. *Reports: promotion performance, promotion claims,
 coupon performance.*
 
+When several offers match, the firm chooses (*Settings → Selling → Sales
+Stages → When several offers match*): **combine** them, or give **the best
+offer only** -- the single one worth most to the customer. A percentage offer
+can have a limit (**20% off, up to 500**). *Try offers* (under "..." on
+Promotions) shows what the offers do to any order on any date, before
+launch, and why each one applied or did not. The printed bill names the
+offers given and what the customer **saved**.
+
+**Sales Analysis** (*Sell → Insight*). Billed sales by any one or two of
+day, week, month, quarter, year, product, category, customer, customer
+group, salesman, territory, route and branch -- product by month, customer by
+quarter -- with totals both ways, net of returns, and a click on any cell
+for the invoices behind it.
+
 **Loyalty.** Points or cashback: customers earn on what they buy and spend
 the balance against a later bill. Points can expire. The scheme (earn rate,
 value of a point, expiry) is set per firm.
@@ -363,6 +401,13 @@ receipt.
 
 **Purchase Dashboard.** What is on order, what is waiting to be received,
 what is overdue, and spend by supplier.
+
+**Purchase Analysis** (*Buy → Insight*). The same as Sales Analysis, for the
+suppliers' bills: by supplier, supplier category, product, category, branch
+and period.
+
+**Purchase price variance** (*Reports → Financial*). A bill line charged at a
+different rate from its receipt, with both rates and the difference.
 
 Every buying list names the **supplier** in a column and on the bar, and is
 searched by supplier name.
@@ -450,8 +495,12 @@ Charges. Accounts can be added.
 *Posted by* (sales invoices, receipts, deliveries ... or by hand) and by
 period. A hand-written entry is a draft until it is **posted**; debits must
 equal credits. An entry a document made is reversed by reversing the
-document, not the entry. This is where expenses such as rent are recorded
-today (see the *Profit and loss guide*).
+document, not the entry. Several drafts can be posted at once with *Post
+selected*.
+
+**Expenses.** Rent, fuel, salaries and other running costs: the expense
+account, the amount, the cash or bank account it was paid from, and TDS where it was deducted. Saving
+posts it to the journal; an expense dated in a locked year is refused.
 
 **Ledgers.** One account's movements over a period, with the opening and
 closing balance.
@@ -459,7 +508,11 @@ closing balance.
 ## 8.2 Statements
 
 - **Trial Balance**: every account's balance at a date; debits equal credits.
-- **Profit & Loss**: income less expenses for a period.
+- **Profit & Loss**: income less expenses for a period -- a month, a quarter,
+  a year or any run of months, **month by month** in columns, and **compared
+  with last year**.
+- **Stock valuation**: every item's quantity, rate and value as on a date, with
+  the Inventory account's balance on the same day and the difference.
 - **Balance Sheet**: what the firm owns and owes at a date.
 
 Each chooses its period on the page line and opens a line to its ledger.
@@ -474,7 +527,7 @@ or a cancelled invoice is always reflected. The place of supply is decided by
 the tax charged on each document.
 
 **E-Invoice.** Registers an invoice with the government portal and records
-the IRN it returns, and raises the e-way bill for the goods. *In 1.0.2 only
+the IRN it returns, and raises the e-way bill for the goods. *In 1.1.0 only
 the portal's sandbox (test) connection exists*; every reference it returns is
 marked as a sandbox one and can never be mistaken for a real filing.
 
@@ -483,6 +536,16 @@ marked as a sandbox one and can never be mistaken for a real filing.
 The Finance Act 2025 **omitted this section from 1 April 2025**, so receipts
 from that date are charged nothing; the screen keeps the record of what was
 collected before it, by customer.
+
+**GST Payment.** The month's GST settled the way the law sets it off (section
+49(5) and rule 88A): what is owed head by head, what input credit pays, the
+cash payable, and the credit carried to next month. Recording the challan
+(CPIN, bank, interest) posts it in one journal; only the latest month can be
+reversed.
+
+**TDS.** Two registers: *TDS deducted* (by the firm, with PAN and section by
+quarter, for 26Q) and *TDS deducted by customers* (with their TAN, to check
+against 26AS).
 
 ## 8.4 Structure (configuration)
 
@@ -602,7 +665,7 @@ time is required, and a person whose access is removed is signed out at once.
   support.
 - **Platform Dashboard**: counts of firms, users and roles across the
   installation, for the platform administrator.
-- **Licensing**: a placeholder; licensing is not in use in 1.0.2.
+- **Licensing**: a placeholder; licensing is not in use in 1.1.0.
 
 ## 11.4 Backup
 
@@ -617,7 +680,7 @@ to restore one.
 
 | Group | Screens | What they set |
 | --- | --- | --- |
-| Firm | Firm Settings, Financial Years, Numbering Series | The firm's details; its years and accounting periods (open and close); the number pattern of each kind of document |
+| Firm | Firm Settings, Financial Years, Numbering Series, My Branch and Warehouse | The firm's details; its years and accounting periods (open and close); the number pattern of each kind of document; the branch and warehouse **each person's** new orders, quotations and purchase orders open with |
 | Buying | Purchase Settings | Purchasing defaults and approval |
 | Stock | Inventory Settings | The firm's stock defaults |
 | Tax | Tax Configuration, Tax Rules, Rule Simulator, Execution Log, Tax Settings | Tax systems, components and rates; the rules that choose the tax for a line (by product tax group, category, place of supply, customer type); trying a rule before relying on it; what each calculation decided |
@@ -654,9 +717,9 @@ What each approved document writes, in plain terms.
 | Payment recorded | Cash or bank down; the firm owes less |
 | Return approved | Stock down; the firm owes less |
 
-**Everything else by hand**: rent, salaries, electricity and other running
-costs are recorded as journal entries against the Indirect Expenses accounts
-(the *Profit and loss guide* shows how).
+**Running costs** -- rent, salaries, electricity -- are recorded under
+*Accounts → Expenses*, which posts each against its Indirect Expenses account.
+Anything else is a journal entry by hand.
 
 Because each step writes its own entry, the customer and supplier balances,
 the stock screens and the accounts agree with each other without any
@@ -690,18 +753,13 @@ A firm can add its own roles; the preset ones cannot be changed.
 
 ---
 
-# 15. Not in 1.0.2
+# 15. Not in 1.1.0
 
 Known and planned:
 
-- **An Expenses screen** (Accounts → Expenses) to record rent, fuel and
-  other running costs without writing a journal. Until then, use a journal
-  entry.
 - Gross profit shown above net profit on the Profit & Loss.
 - Sending documents by WhatsApp or email.
 - Bank reconciliation.
-- Importing customers and vendors from Excel (products, stock, branches,
-  warehouses, territories and purchase orders can be imported today).
 - A live connection to the e-invoice portal (the sandbox exists).
 - A signed installer (Windows warns when it is run).
 - Licensing.
