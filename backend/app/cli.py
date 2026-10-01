@@ -13,6 +13,7 @@ The subcommands are the things an installed copy actually does::
     agency-server migrate-all --yes
     agency-server firm-count
     agency-server purge-retention --dry-run
+    agency-server backup
     agency-server check
     agency-server messaging-run-once
     agency-server --version
@@ -145,6 +146,32 @@ def _purge_retention(args: argparse.Namespace) -> int:
             error_report_days=args.error_report_days,
         ),
     )
+
+
+def _backup(args: argparse.Namespace) -> int:
+    """Back up every store into the manual backups folder, as the button does."""
+    import getpass
+
+    from app.core.tenancy.backup import BackupError, back_up_every_store
+
+    try:
+        result = back_up_every_store(
+            Settings(),
+            requested_by=f"agency-server backup ({getpass.getuser()})",
+            report=print,
+        )
+    except BackupError as error:
+        print(f"Backup failed: {error}", file=sys.stderr)
+        return 1
+    if result.failed:
+        print(
+            f"\n{len(result.failed)} store(s) failed; {result.folder} is not a "
+            "complete backup.",
+            file=sys.stderr,
+        )
+        return 1
+    print(f"\nBackup written to {result.folder}")
+    return 0
 
 
 def _check(args: argparse.Namespace) -> int:
@@ -296,6 +323,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     purge_mode.add_argument("--yes", action="store_true", help="Apply the deletions.")
     purge.set_defaults(handler=_purge_retention)
+
+    backup = subcommands.add_parser(
+        "backup", help="Back up every store now, into <backup dir>/manual."
+    )
+    backup.set_defaults(handler=_backup)
 
     where = subcommands.add_parser(
         "where", help="Print the version, environment and install directory."

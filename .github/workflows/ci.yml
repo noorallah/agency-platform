@@ -151,6 +151,14 @@ jobs:
           print("pruned platform tables from firm_shared")
           PY
 
+      - name: PostgreSQL 17 client tools, for the backup restore drill
+        # The runner's own pg_dump is older than the postgres:17 service, and
+        # pg_dump refuses to dump a newer server.
+        run: |
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y
+          sudo apt-get install -y --no-install-recommends postgresql-client-17
+          echo "AGENCY_BACKUP_PG_BIN=/usr/lib/postgresql/17/bin" >> "$GITHUB_ENV"
+
       - name: Integration tests
         run: uv run pytest tests/integration -q
 

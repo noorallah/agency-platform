@@ -554,6 +554,15 @@ function Write-ServiceDefinition {
   $work = [System.Security.SecurityElement]::Escape($Backend)
   $logPath = [System.Security.SecurityElement]::Escape((Join-Path $Logs 'service'))
   $depend = if ($DependsOnDatabase) { "  <depend>$DbService</depend>" } else { '' }
+  # Where "Back up now" writes and where the backups screen looks, and the
+  # pg_dump it uses: the private PostgreSQL's when there is one, else the
+  # server finds one itself (app/core/tenancy/backup.py).
+  $backupDir = [System.Security.SecurityElement]::Escape((Join-Path $DataRoot 'backups'))
+  $environment = "  <env name=`"AGENCY_BACKUP_DIRECTORY`" value=`"$backupDir`"/>"
+  if (Test-Path -LiteralPath (Join-Path $PgBin 'pg_dump.exe')) {
+    $pgBinXml = [System.Security.SecurityElement]::Escape($PgBin)
+    $environment += "`r`n  <env name=`"AGENCY_BACKUP_PG_BIN`" value=`"$pgBinXml`"/>"
+  }
   $xml = @"
 <!-- Written by Setup. The service definition WinSW reads each time it starts. -->
 <service>
@@ -563,6 +572,7 @@ function Write-ServiceDefinition {
   <executable>$exe</executable>
   <arguments>serve --host $BindHost --port $ApiPort</arguments>
   <workingdirectory>$work</workingdirectory>
+$environment
   <startmode>Automatic</startmode>
 $depend
   <onfailure action="restart" delay="10 sec"/>
@@ -603,6 +613,12 @@ function Register-ServerService {
   Grant-Access -Path $Logs -Account $ServiceAccount -Rights '(OI)(CI)M'
   Grant-Access -Path (Join-Path $DataRoot 'storage') -Account $ServiceAccount -Rights '(OI)(CI)M'
   Grant-Access -Path $EnvPath -Account $ServiceAccount -Rights 'R'
+  # Backups: read every kind, so the backups screen can list them, and write
+  # only backups\manual, where "Back up now" puts its own.
+  $manual = Join-Path $DataRoot 'backups\manual'
+  New-Item -ItemType Directory -Force -Path $manual | Out-Null
+  Grant-Access -Path (Join-Path $DataRoot 'backups') -Account $ServiceAccount -Rights '(OI)(CI)RX'
+  Grant-Access -Path $manual -Account $ServiceAccount -Rights '(OI)(CI)M'
 }
 
 function Set-Firewall {
@@ -678,6 +694,9 @@ function Write-StoreDumps {
   param($Plan, [string]$Folder, [string]$FailureFix)
   New-Item -ItemType Directory -Force -Path $Folder | Out-Null
   Protect-AdminOnly $Folder
+  # Read-only for the server, so its backups screen can show this folder.
+  # Not fatal: before the first install the account does not exist yet.
+  Invoke-Native -File 'icacls.exe' -Quiet -Arguments @($Folder, '/grant', "${ServiceAccount}:(OI)(CI)RX") | Out-Null
   $env:PGPASSWORD = $Plan.Password
   try {
     foreach ($target in $Plan.Targets) {
@@ -685,7 +704,11 @@ function Write-StoreDumps {
       $file = Join-Path $Folder $name
       $arguments = @('-h', $Plan.Host, '-p', $Plan.Port, '-U', $Plan.User, '-d', $target.Database,
         '-Fc', '--no-password', '-f', $file)
-      if ($target.Schema) { $arguments += @('-n', $target.Schema) }
+      # -n takes a pattern and folds an unquoted one to lower case, so
+      # -n SNTEST01 matched nothing and wrote an empty file. Quoted, it
+      # matches exactly; \" is how Windows PowerShell 5.1 hands a native
+      # program a literal double quote.
+      if ($target.Schema) { $arguments += @('-n', ('\"' + $target.Schema.Replace('"', '""') + '\"')) }
       Write-Log "  pg_dump $($target.Database)/$(if ($target.Schema) { $target.Schema } else { '*' })"
       $code = Invoke-Native -File $Plan.PgDump -Arguments $arguments
       if ($code -ne 0 -or -not (Test-Path -LiteralPath $file) -or (Get-Item -LiteralPath $file).Length -eq 0) {
