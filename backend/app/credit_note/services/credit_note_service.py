@@ -48,6 +48,7 @@ from app.document_framework.services.transactional_document_service import (
 from app.finance.services.document_posting import DocumentPostingService
 from app.finance.services.journal_engine import JournalEntryEngine
 from app.sales_invoice.models import SalesInvoice, SalesInvoiceLine
+from app.sales_invoice.services.output_tax import credited_tax_by_component
 
 HUNDRED = Decimal("100")
 
@@ -392,6 +393,10 @@ class CreditNoteService(TransactionalDocumentService):
             taxable_amount=Decimal(str(row.taxable_amount)),
             tax_amount=Decimal(str(row.tax_amount)),
             actor_id=actor_id,
+            # Reversed per GST head the way the invoice was taxed (63.3).
+            tax_by_component=credited_tax_by_component(
+                self._session, row.sales_invoice_id, Decimal(str(row.tax_amount))
+            ),
         )
         row.journal_entry_id = None if entry is None else entry.id
         transaction = self._customers.post_receivable_transaction(

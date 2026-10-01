@@ -120,6 +120,7 @@ def _preview_response(preview: GstPaymentPreview) -> GstPaymentPreviewResponse:
                 cash=result.cash(head),
                 credit_used=result.used(head),
                 carried_forward=result.carried(head),
+                reverse_charge=preview.reverse_charge[head],
             )
             for head in HEADS
         ],
@@ -144,6 +145,7 @@ def _payment_response(row: GstPayment) -> GstPaymentResponse:
             cash=getattr(row, f"cash_{head}"),
             credit_used=getattr(row, f"used_{head}"),
             carried_forward=getattr(row, f"carried_{head}"),
+            reverse_charge=getattr(row, f"reverse_charge_{head}"),
         )
         for head in HEADS
     ]
@@ -156,7 +158,7 @@ def _payment_response(row: GstPayment) -> GstPaymentResponse:
         challan_cin=row.challan_cin,
         money_account_id=row.money_account_id,
         heads=heads,
-        cash_total=sum((h.cash for h in heads), Decimal("0")),
+        cash_total=sum((h.cash + h.reverse_charge for h in heads), Decimal("0")),
         interest_amount=row.interest_amount,
         late_fee_amount=row.late_fee_amount,
         narration=row.narration,

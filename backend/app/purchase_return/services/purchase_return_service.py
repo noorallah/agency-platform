@@ -2357,6 +2357,8 @@ def return_tax_by_component(session: Session, return_id: UUID) -> dict[str, Deci
             ),
             PurchaseInvoiceLineTax.is_deleted.is_(False),
             PurchaseInvoiceLineTax.included_in_price.is_(False),
+            # Reverse charge never sat in the bill's payable or its credit.
+            PurchaseInvoiceLineTax.reverse_charge.is_(False),
         )
     ).all():
         shares.setdefault(line_id, []).append((code, Decimal(str(amount))))

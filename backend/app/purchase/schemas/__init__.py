@@ -29,6 +29,9 @@ from app.purchase.schemas.purchase import (
     PurchaseType,
     PurchaseWorkflowSettingsResponse,
     PurchaseWorkflowSettingsWrite,
+    RolePurchaseApprovalLimitItem,
+    RolePurchaseApprovalLimitsResponse,
+    RolePurchaseApprovalLimitsWrite,
 )
 
 __all__ = [
@@ -60,4 +63,7 @@ __all__ = [
     "PurchaseType",
     "PurchaseWorkflowSettingsResponse",
     "PurchaseWorkflowSettingsWrite",
+    "RolePurchaseApprovalLimitItem",
+    "RolePurchaseApprovalLimitsResponse",
+    "RolePurchaseApprovalLimitsWrite",
 ]

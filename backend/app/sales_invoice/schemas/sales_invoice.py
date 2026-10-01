@@ -271,6 +271,13 @@ class SalesInvoiceCreate(SalesInvoiceSchema):
     )
     received_now_method: Literal["CASH", "BANK"] | None = None
     received_now_reference: str | None = Field(default=None, max_length=120)
+    #: Whether a ``unit_price`` (and a ``discount_amount``) typed on a bare
+    #: line includes GST (backlog 64 row 4). The line stores the pre-tax rate
+    #: it derives to; a line continuing an order or a note keeps the price it
+    #: inherited whatever this says. Absent on a new bill takes the firm's
+    #: default (``sales_workflow_settings.rate_includes_tax``); absent on an
+    #: update leaves the bill's own.
+    rate_includes_tax: bool | None = None
     lines: list[SalesInvoiceLineWrite] = Field(min_length=1, max_length=1000)
     attachments: list[SalesInvoiceAttachmentWrite] = Field(
         default_factory=list, max_length=500
@@ -393,6 +400,9 @@ class SalesInvoiceLineResponse(SalesInvoiceSchema):
     already_invoiced_quantity: Decimal
     current_invoice_quantity: Decimal
     unit_price: Decimal
+    #: The rate as typed, GST included, on a bill whose rates include GST;
+    #: ``unit_price`` is the pre-tax rate it derived to. Null otherwise.
+    entered_rate: Decimal | None = None
     discount_percent: Decimal
     discount_amount: Decimal
     charges_amount: Decimal
@@ -491,6 +501,8 @@ class SalesInvoiceResponse(SalesInvoiceSchema):
     received_now_method: str | None = None
     received_now_reference: str | None = None
     received_now_settlement_id: UUID | None = None
+    #: Whether the rates typed on this bill include GST (backlog 64 row 4).
+    rate_includes_tax: bool = False
     approved_at: datetime | None
     closed_at: datetime | None
     cancelled_at: datetime | None = None

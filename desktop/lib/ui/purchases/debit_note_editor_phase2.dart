@@ -21,6 +21,7 @@ extension _Phase2DebitNote on _DebitNoteDialogState {
   static const List<(String, String)> _reasons = [
     ('PRICE_DIFFERENCE', 'Price difference'),
     ('SHORT_SUPPLY', 'Short supply'),
+    ('DISCOUNT', 'Discount after billing'),
     ('OTHER', 'Other'),
   ];
 
@@ -275,6 +276,21 @@ extension _Phase2DebitNote on _DebitNoteDialogState {
         ),
       ),
       DocumentField(
+        label: "Supplier's credit note no.",
+        width: 170,
+        child: TextFormField(
+          key: const ValueKey('debit-note-supplier-credit-note'),
+          controller: _supplierNote,
+          readOnly: _saving,
+          decoration: documentBoxDecoration(context),
+        ),
+      ),
+      DocumentField(
+        label: 'Its date',
+        width: 150,
+        child: _supplierNoteDateBox(context),
+      ),
+      DocumentField(
         label: 'Remarks',
         width: 240,
         child: TextFormField(
@@ -284,6 +300,44 @@ extension _Phase2DebitNote on _DebitNoteDialogState {
         ),
       ),
     ]);
+  }
+
+  /// The supplier's credit note date: picked, and clearable.
+  Widget _supplierNoteDateBox(BuildContext context) {
+    final DateTime? day = DateTime.tryParse(_supplierNoteDate);
+    return InkWell(
+      key: const ValueKey('debit-note-supplier-credit-note-date'),
+      onTap: _saving
+          ? null
+          : () async {
+              final DateTime? picked = await showDatePicker(
+                context: context,
+                initialDate: day ?? DateTime.now(),
+                firstDate: DateTime(2000),
+                lastDate: DateTime(2100),
+              );
+              if (picked != null) {
+                _setState(() => _supplierNoteDate =
+                    picked.toIso8601String().split('T').first);
+              }
+            },
+      child: InputDecorator(
+        decoration: documentBoxDecoration(context).copyWith(
+          suffixIcon: day != null && !_saving
+              ? IconButton(
+                  tooltip: 'Clear',
+                  iconSize: 14,
+                  visualDensity: VisualDensity.compact,
+                  onPressed: () => _setState(() => _supplierNoteDate = ''),
+                  icon: const Icon(Icons.close),
+                )
+              : const Icon(Icons.event, size: 16),
+          suffixIconConstraints:
+              const BoxConstraints(minWidth: 28, minHeight: 20),
+        ),
+        child: Text(day == null ? '—' : documentDate(day)),
+      ),
+    );
   }
 
   DebitNoteLineRecord? _pricedLine(String lineId) {
@@ -445,6 +499,11 @@ extension _Phase2DebitNote on _DebitNoteDialogState {
       const DocumentSideNote(
         'a line cannot be claimed past what is left on it, counting other '
         'debit notes and returns against it',
+      ),
+      const DocumentSideNote(
+        "when the supplier sent their own credit note -- a rate difference "
+        'or a discount after billing -- record its number and date here; it '
+        'is the same claim seen from their side',
       ),
     ]);
   }

@@ -153,7 +153,10 @@ class PurchaseChainService:
             actor_id=actor_id,
         )
         orders.stage_submit(order.id, firm_scope=firm_id, actor_id=actor_id)
-        orders.stage_approval(order.id, firm_scope=firm_id, actor_id=actor_id)
+        # Nobody typed this order, so no approval limit governs it (68 row 4).
+        orders.stage_approval(
+            order.id, firm_scope=firm_id, actor_id=actor_id, enforce_limit=False
+        )
         self.raised_orders.append(order)
         order_lines = self._order_lines(order.id)
         # The order's lines were written one per bill line, in the bill's

@@ -238,6 +238,8 @@ class PurchaseInvoiceLineTaxResponse(PurchaseInvoiceSchema):
     amount: Decimal
     included_in_price: bool
     recoverable: bool
+    #: Owed by the firm under reverse charge, not charged by the supplier.
+    reverse_charge: bool = False
 
 
 class PurchaseInvoiceLineResponse(PurchaseInvoiceSchema):
@@ -314,6 +316,10 @@ class PurchaseInvoiceResponse(PurchaseInvoiceSchema):
     additional_charges: Decimal
     round_off: Decimal
     grand_total: Decimal
+    #: Tax owed by the firm under reverse charge, outside the payable
+    #: (backlog 68 row 8), and the self-invoice raised for it.
+    reverse_charge_tax_total: Decimal = Decimal("0")
+    self_invoice_number: str | None = None
     approved_at: datetime | None
     closed_at: datetime | None
     cancel_reason: str | None

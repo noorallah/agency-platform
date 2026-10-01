@@ -56,6 +56,8 @@ class DebitNoteReason(StrEnum):
 
     PRICE_DIFFERENCE = "PRICE_DIFFERENCE"
     SHORT_SUPPLY = "SHORT_SUPPLY"
+    #: A discount the supplier allowed after billing (backlog 68 row 10).
+    DISCOUNT = "DISCOUNT"
     OTHER = "OTHER"
 
 
@@ -112,6 +114,14 @@ class DebitNote(BaseEntity):
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
     reference_number: Mapped[str | None] = mapped_column(String(120))
+    #: The supplier's own credit note, when the claim is one the supplier
+    #: issued -- a rate difference or a discount after billing, no goods
+    #: back (backlog 68 row 10). The same economic event as our debit note,
+    #: seen from the supplier's side, so it is recorded here rather than as a
+    #: second document: the posting, the bill's outstanding and GSTR-3B's
+    #: reversal are the debit note's. Both or neither.
+    supplier_credit_note_number: Mapped[str | None] = mapped_column(String(80))
+    supplier_credit_note_date: Mapped[date | None] = mapped_column(Date)
     remarks: Mapped[str | None] = mapped_column(Text)
     cancel_reason: Mapped[str | None] = mapped_column(Text)
     #: The journal this note posted. Null while DRAFT.

@@ -68,6 +68,7 @@ def list_debit_notes(
     search: str | None = None,
     debit_note_from: date | None = None,
     debit_note_to: date | None = None,
+    supplier_credit_note: bool | None = None,
     db: Session = Depends(get_db),
 ) -> PaginatedResponse[DebitNoteResponse]:
     """Return a page of debit notes."""
@@ -82,6 +83,7 @@ def list_debit_notes(
         search=search,
         debit_note_from=debit_note_from,
         debit_note_to=debit_note_to,
+        supplier_credit_note=supplier_credit_note,
     )
     return PaginatedResponse(
         data=service.note_responses(rows),

@@ -10,6 +10,7 @@ approved invoice with no journal is the silent gap this is meant to close, so a
 missing control account or a closed period refuses the approval outright.
 """
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -32,6 +33,8 @@ from app.finance.services.control_accounts import (
     ControlAccountPurpose,
     ControlAccountService,
     input_tax_purpose,
+    output_tax_purpose,
+    rcm_payable_purpose,
 )
 from app.finance.services.journal_engine import (
     COVERING_PERIOD_ORDER,
@@ -42,10 +45,11 @@ from app.finance.services.journal_engine import (
     quantize_money as quantize_ledger,
 )
 
+#: The output-tax legs resolve their own purposes per GST head (backlog
+#: 63.3), as a purchase's input-tax legs do -- here and on the two below.
 SALES_INVOICE_PURPOSES = (
     ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
     ControlAccountPurpose.SALES_REVENUE,
-    ControlAccountPurpose.OUTPUT_TAX,
 )
 
 GOODS_ISSUE_PURPOSES = (
@@ -125,7 +129,6 @@ REFUND_PURPOSES = (ControlAccountPurpose.ACCOUNTS_RECEIVABLE,)
 SALES_RETURN_PURPOSES = (
     ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
     ControlAccountPurpose.SALES_RETURNS,
-    ControlAccountPurpose.OUTPUT_TAX,
 )
 
 #: A credit note raised as a document, which states its tax. The bare
@@ -134,7 +137,6 @@ SALES_RETURN_PURPOSES = (
 CREDIT_NOTE_DOCUMENT_PURPOSES = (
     ControlAccountPurpose.ACCOUNTS_RECEIVABLE,
     ControlAccountPurpose.SALES_RETURNS,
-    ControlAccountPurpose.OUTPUT_TAX,
 )
 
 #: A debit note to a supplier: the payable it reduces and the account the
@@ -177,6 +179,55 @@ GOODS_RECEIPT_PURPOSES = (
     ControlAccountPurpose.INVENTORY,
     ControlAccountPurpose.GOODS_RECEIVED_NOT_INVOICED,
 )
+
+
+def _split_by_purpose(
+    ledger_tax: Decimal,
+    tax_by_component: dict[str, Decimal] | None,
+    *,
+    purpose_of: Callable[[str | None], ControlAccountPurpose],
+    fallback: ControlAccountPurpose,
+) -> dict[ControlAccountPurpose, Decimal]:
+    """Split a ledger tax figure across the purposes its components name.
+
+    Each head is quantized to the ledger's two decimals and the residual
+    against ``ledger_tax`` goes on the largest, so the parts sum exactly.
+    Nothing named -- no map, or only zeros -- puts the whole on ``fallback``.
+    """
+    if ledger_tax == ZERO:
+        return {}
+    by_purpose: dict[ControlAccountPurpose, Decimal] = {}
+    for code, amount in (tax_by_component or {}).items():
+        purpose = purpose_of(code)
+        by_purpose[purpose] = by_purpose.get(purpose, ZERO) + quantize_ledger(
+            quantize_money(amount)
+        )
+    by_purpose = {p: a for p, a in by_purpose.items() if a != ZERO}
+    if not by_purpose:
+        return {fallback: ledger_tax}
+    residual = ledger_tax - sum(by_purpose.values(), ZERO)
+    if residual != ZERO:
+        largest = max(by_purpose, key=lambda p: by_purpose[p])
+        by_purpose[largest] += residual
+    return by_purpose
+
+
+def output_tax_purposes(
+    tax_amount: Decimal, tax_by_component: dict[str, Decimal] | None
+) -> tuple[ControlAccountPurpose, ...]:
+    """Return the output-tax purposes a document's tax will post to.
+
+    So a posting can name every unmapped account in one refusal, the tax
+    heads included, rather than failing on the first gap it reaches.
+    """
+    return tuple(
+        _split_by_purpose(
+            quantize_ledger(quantize_money(tax_amount)),
+            tax_by_component,
+            purpose_of=output_tax_purpose,
+            fallback=ControlAccountPurpose.OUTPUT_TAX,
+        )
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -294,27 +345,67 @@ class DocumentPostingService:
         (D-CMP-20). Without one -- a bill written before the rows existed, or
         a tax system this does not split -- the whole amount posts to
         `INPUT_TAX` as it always did.
+        """
+        return self._tax_legs(
+            firm_id=firm_id,
+            ledger_tax=ledger_tax,
+            tax_by_component=tax_by_component,
+            describe=describe,
+            purpose_of=input_tax_purpose,
+            fallback=ControlAccountPurpose.INPUT_TAX,
+            credit=credit,
+        )
+
+    def _output_tax_legs(
+        self,
+        *,
+        firm_id: UUID,
+        ledger_tax: Decimal,
+        tax_by_component: dict[str, Decimal] | None,
+        describe: str,
+        credit: bool = True,
+    ) -> list[JournalLineData]:
+        """Return the output-tax legs of a sales posting, one per GST head.
+
+        The mirror of :meth:`_input_tax_legs` (backlog 63.3): IGST, CGST and
+        SGST (UTGST with it) each to its own account, so the ledger answers
+        "how much CGST do we owe" without a report. Cess, another tax system,
+        or a document with no component map posts to `OUTPUT_TAX` -- where
+        every sale went before the split.
+        """
+        return self._tax_legs(
+            firm_id=firm_id,
+            ledger_tax=ledger_tax,
+            tax_by_component=tax_by_component,
+            describe=describe,
+            purpose_of=output_tax_purpose,
+            fallback=ControlAccountPurpose.OUTPUT_TAX,
+            credit=credit,
+        )
+
+    def _tax_legs(
+        self,
+        *,
+        firm_id: UUID,
+        ledger_tax: Decimal,
+        tax_by_component: dict[str, Decimal] | None,
+        describe: str,
+        purpose_of: Callable[[str | None], ControlAccountPurpose],
+        fallback: ControlAccountPurpose,
+        credit: bool,
+    ) -> list[JournalLineData]:
+        """Split one tax leg across the accounts its components belong to.
 
         Rounding the sum is not rounding the parts: each head is quantized to
         the ledger's two decimals and the residual against ``ledger_tax`` goes
         on the largest head, so the legs sum to exactly what the document's
         tax leg must be.
         """
-        if ledger_tax == ZERO:
-            return []
-        by_purpose: dict[ControlAccountPurpose, Decimal] = {}
-        for code, amount in (tax_by_component or {}).items():
-            purpose = input_tax_purpose(code)
-            by_purpose[purpose] = by_purpose.get(purpose, ZERO) + quantize_ledger(
-                quantize_money(amount)
-            )
-        by_purpose = {p: a for p, a in by_purpose.items() if a != ZERO}
+        by_purpose = _split_by_purpose(
+            ledger_tax, tax_by_component, purpose_of=purpose_of, fallback=fallback
+        )
         if not by_purpose:
-            by_purpose = {ControlAccountPurpose.INPUT_TAX: ledger_tax}
-        residual = ledger_tax - sum(by_purpose.values(), ZERO)
-        if residual != ZERO:
-            largest = max(by_purpose, key=lambda p: by_purpose[p])
-            by_purpose[largest] += residual
+            return []
         accounts = self._require_mapping(firm_id, tuple(by_purpose))
         return [
             JournalLineData(
@@ -352,6 +443,7 @@ class DocumentPostingService:
         tax_amount: Decimal,
         total_amount: Decimal,
         actor_id: UUID,
+        tax_by_component: dict[str, Decimal] | None = None,
     ) -> JournalEntry:
         """Post revenue, output tax and the receivable for an approved invoice.
 
@@ -368,6 +460,9 @@ class DocumentPostingService:
             tax_amount: Output tax charged.
             total_amount: What the customer owes.
             actor_id: The approving user.
+            tax_by_component: The tax per component code as the invoice's
+                lines recorded it, so each GST head is owed through its own
+                account (backlog 63.3). None posts the total to `OUTPUT_TAX`.
 
         Returns:
             The posted journal entry.
@@ -377,7 +472,10 @@ class DocumentPostingService:
                 amounts do not balance.
 
         """
-        accounts = self._require_mapping(firm_id, SALES_INVOICE_PURPOSES)
+        accounts = self._require_mapping(
+            firm_id,
+            SALES_INVOICE_PURPOSES + output_tax_purposes(tax_amount, tax_by_component),
+        )
         context = self.context_for(firm_id, invoice_date)
 
         taxable = quantize_money(taxable_amount)
@@ -410,14 +508,14 @@ class DocumentPostingService:
                 description=f"Invoice {invoice_number}",
             ),
         ]
-        if ledger_tax != ZERO:
-            lines.append(
-                JournalLineData(
-                    ledger_account_id=accounts[ControlAccountPurpose.OUTPUT_TAX],
-                    credit_amount=ledger_tax,
-                    description=f"Output tax on {invoice_number}",
-                )
+        lines.extend(
+            self._output_tax_legs(
+                firm_id=firm_id,
+                ledger_tax=ledger_tax,
+                tax_by_component=tax_by_component,
+                describe=f"on {invoice_number}",
             )
+        )
 
         entry = self._journals.create_entry(
             firm_id=firm_id,
@@ -1741,6 +1839,7 @@ class DocumentPostingService:
         tax_amount: Decimal,
         total_amount: Decimal,
         actor_id: UUID,
+        tax_by_component: dict[str, Decimal] | None = None,
     ) -> JournalEntry | None:
         """Post what a customer is credited for goods they sent back.
 
@@ -1765,6 +1864,9 @@ class DocumentPostingService:
             tax_amount: Output tax being reversed.
             total_amount: What the customer no longer owes, tax included.
             actor_id: The user completing the return.
+            tax_by_component: The tax per component as the return's lines
+                recorded it, so each GST head is reversed through its own
+                account (backlog 63.3). None reverses `OUTPUT_TAX` as a whole.
 
         Returns:
             The posted entry, or None when the credit rounds to nothing at the
@@ -1794,7 +1896,10 @@ class DocumentPostingService:
         ledger_taxable = ledger_total - ledger_tax
         if ledger_total == ZERO:
             return None
-        accounts = self._require_mapping(firm_id, SALES_RETURN_PURPOSES)
+        accounts = self._require_mapping(
+            firm_id,
+            SALES_RETURN_PURPOSES + output_tax_purposes(tax, tax_by_component),
+        )
         context = self.context_for(firm_id, return_date)
 
         lines = [
@@ -1809,15 +1914,17 @@ class DocumentPostingService:
                 description=f"Credit for sales return {return_number}",
             ),
         ]
-        if ledger_tax != ZERO:
-            lines.insert(
-                1,
-                JournalLineData(
-                    ledger_account_id=accounts[ControlAccountPurpose.OUTPUT_TAX],
-                    debit_amount=ledger_tax,
-                    description=f"Output tax reversed on {return_number}",
-                ),
-            )
+        for offset, leg in enumerate(
+            self._output_tax_legs(
+                firm_id=firm_id,
+                ledger_tax=ledger_tax,
+                tax_by_component=tax_by_component,
+                describe=f"reversed on {return_number}",
+                credit=False,
+            ),
+            start=1,
+        ):
+            lines.insert(offset, leg)
         entry = self._journals.create_entry(
             firm_id=firm_id,
             journal_type_id=context.journal_type_id,
@@ -1843,6 +1950,7 @@ class DocumentPostingService:
         taxable_amount: Decimal,
         tax_amount: Decimal,
         actor_id: UUID,
+        tax_by_component: dict[str, Decimal] | None = None,
     ) -> JournalEntry | None:
         """Post a credit note that states the tax it reverses.
 
@@ -1867,6 +1975,9 @@ class DocumentPostingService:
             taxable_amount: What is credited before tax.
             tax_amount: The tax reversed with it.
             actor_id: The user approving it.
+            tax_by_component: The tax per GST head the way the invoice it
+                credits was taxed (backlog 63.3); None reverses `OUTPUT_TAX`
+                as a whole.
 
         Returns:
             The posted journal entry, or None where there is nothing to post.
@@ -1880,7 +1991,11 @@ class DocumentPostingService:
         ledger_total = ledger_taxable + ledger_tax
         if ledger_total == ZERO:
             return None
-        accounts = self._require_mapping(firm_id, CREDIT_NOTE_DOCUMENT_PURPOSES)
+        accounts = self._require_mapping(
+            firm_id,
+            CREDIT_NOTE_DOCUMENT_PURPOSES
+            + output_tax_purposes(ledger_tax, tax_by_component),
+        )
         context = self.context_for(firm_id, note_date)
         lines = [
             JournalLineData(
@@ -1894,15 +2009,17 @@ class DocumentPostingService:
                 description=f"Credit note {credit_note_number}",
             ),
         ]
-        if ledger_tax != ZERO:
-            lines.insert(
-                1,
-                JournalLineData(
-                    ledger_account_id=accounts[ControlAccountPurpose.OUTPUT_TAX],
-                    debit_amount=ledger_tax,
-                    description=f"Output tax reversed on {credit_note_number}",
-                ),
-            )
+        for offset, leg in enumerate(
+            self._output_tax_legs(
+                firm_id=firm_id,
+                ledger_tax=ledger_tax,
+                tax_by_component=tax_by_component,
+                describe=f"reversed on {credit_note_number}",
+                credit=False,
+            ),
+            start=1,
+        ):
+            lines.insert(offset, leg)
         entry = self._journals.create_entry(
             firm_id=firm_id,
             journal_type_id=context.journal_type_id,
@@ -2299,6 +2416,7 @@ class DocumentPostingService:
         actor_id: UUID,
         accrued_amount: Decimal | None = None,
         tax_by_component: dict[str, Decimal] | None = None,
+        reverse_charge_by_component: dict[str, Decimal] | None = None,
     ) -> JournalEntry:
         """Turn a supplier invoice into a payable and clear the receipt accrual.
 
@@ -2328,6 +2446,12 @@ class DocumentPostingService:
             tax_by_component: The tax per component code as the bill's lines
                 recorded it, so each GST head is claimed through its own
                 account (D-CMP-20). None posts the total to `INPUT_TAX`.
+            reverse_charge_by_component: Tax the firm owes itself under
+                reverse charge, per component (backlog 68 row 8). Never part
+                of the payable: the supplier did not charge it. Each head is
+                credited to its reverse-charge payable account -- paid in
+                cash only -- and claimed back as input credit through the
+                same input-tax account an ordinary bill uses.
 
         Returns:
             The posted journal entry.
@@ -2398,6 +2522,33 @@ class DocumentPostingService:
                     debit_amount=variance if variance > ZERO else ZERO,
                     credit_amount=-variance if variance < ZERO else ZERO,
                     description=f"Price variance on {invoice_number}",
+                )
+            )
+        ledger_rcm = sum(
+            (
+                quantize_ledger(quantize_money(amount))
+                for amount in (reverse_charge_by_component or {}).values()
+            ),
+            ZERO,
+        )
+        if ledger_rcm > ZERO:
+            lines.extend(
+                self._input_tax_legs(
+                    firm_id=firm_id,
+                    ledger_tax=ledger_rcm,
+                    tax_by_component=reverse_charge_by_component,
+                    describe=f"under reverse charge on {invoice_number}",
+                )
+            )
+            lines.extend(
+                self._tax_legs(
+                    firm_id=firm_id,
+                    ledger_tax=ledger_rcm,
+                    tax_by_component=reverse_charge_by_component,
+                    describe=f"on {invoice_number}",
+                    purpose_of=rcm_payable_purpose,
+                    fallback=ControlAccountPurpose.RCM_PAYABLE,
+                    credit=True,
                 )
             )
 

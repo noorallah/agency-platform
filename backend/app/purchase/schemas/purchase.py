@@ -487,3 +487,23 @@ class PurchaseWorkflowSettingsWrite(PurchaseSchema):
     goods_receipt_stage: bool
     default_branch_id: UUID | None = None
     default_warehouse_id: UUID | None = None
+
+
+class RolePurchaseApprovalLimitItem(PurchaseSchema):
+    """The largest order one role may approve (backlog 68 row 4)."""
+
+    role_code: str = Field(min_length=1, max_length=100)
+    #: The order's grand total, tax included.
+    max_order_amount: Decimal = Field(ge=0, max_digits=18, decimal_places=2)
+
+
+class RolePurchaseApprovalLimitsWrite(PurchaseSchema):
+    """Replace the firm's whole list; a role left out has no limit."""
+
+    limits: list[RolePurchaseApprovalLimitItem]
+
+
+class RolePurchaseApprovalLimitsResponse(PurchaseSchema):
+    """The firm's approval limits, by role code."""
+
+    limits: list[RolePurchaseApprovalLimitItem]

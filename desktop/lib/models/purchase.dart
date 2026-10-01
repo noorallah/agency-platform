@@ -1,5 +1,30 @@
 import 'entities.dart';
 
+/// The largest purchase order one role may approve (backlog 68 row 4): the
+/// order's grand total, tax included.
+class RolePurchaseApprovalLimit {
+  const RolePurchaseApprovalLimit({
+    required this.roleCode,
+    required this.maxOrderAmount,
+  });
+
+  final String roleCode;
+
+  /// An amount, as the server states it.
+  final String maxOrderAmount;
+
+  factory RolePurchaseApprovalLimit.fromJson(Json json) =>
+      RolePurchaseApprovalLimit(
+        roleCode: stringValue(json['role_code']),
+        maxOrderAmount: stringValue(json['max_order_amount']),
+      );
+
+  Json toJson() => <String, dynamic>{
+        'role_code': roleCode,
+        'max_order_amount': maxOrderAmount,
+      };
+}
+
 class PurchaseOrderLine {
   const PurchaseOrderLine({
     required this.id,

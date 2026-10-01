@@ -37,6 +37,7 @@ DEFAULT_SETTINGS = SalesWorkflowSettings(
     default_warehouse_id=None,
     promotion_mode="COMBINE",
     max_line_discount_percent=None,
+    rate_includes_tax=False,
 )
 
 
@@ -77,6 +78,7 @@ class SalesWorkflowService:
             default_warehouse_id=policy.default_warehouse_id,
             promotion_mode=policy.promotion_mode or "COMBINE",
             max_line_discount_percent=policy.max_line_discount_percent,
+            rate_includes_tax=bool(policy.rate_includes_tax),
             is_configured=stored is not None,
         )
 
@@ -127,6 +129,10 @@ class SalesWorkflowService:
             row.promotion_mode = "COMBINE"
         if "max_line_discount_percent" in sent:
             row.max_line_discount_percent = data.max_line_discount_percent
+        # Omitted is left as it is: an editor that never showed it must not
+        # switch it off.
+        if data.rate_includes_tax is not None:
+            row.rate_includes_tax = data.rate_includes_tax
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -152,6 +158,7 @@ class SalesWorkflowService:
             default_warehouse_id=row.default_warehouse_id,
             promotion_mode=row.promotion_mode,
             max_line_discount_percent=row.max_line_discount_percent,
+            rate_includes_tax=row.rate_includes_tax,
             is_configured=True,
         )
 
@@ -217,6 +224,7 @@ class SalesWorkflowService:
                 if row.max_line_discount_percent is not None
                 else None
             ),
+            "rate_includes_tax": row.rate_includes_tax,
             "quotation_stage": row.quotation_stage,
             "sales_order_stage": row.sales_order_stage,
             "delivery_note_stage": row.delivery_note_stage,

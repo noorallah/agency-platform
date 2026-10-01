@@ -106,6 +106,7 @@ class DebitNoteService(TransactionalDocumentService):
         search: str | None = None,
         debit_note_from: date | None = None,
         debit_note_to: date | None = None,
+        supplier_credit_note: bool | None = None,
     ) -> tuple[Sequence[DebitNote], int]:
         """Return one page of debit notes, newest first.
 
@@ -119,6 +120,8 @@ class DebitNoteService(TransactionalDocumentService):
             search: Match the note's number or reference, or the supplier.
             debit_note_from: The first note date to include.
             debit_note_to: The last note date to include.
+            supplier_credit_note: True for the notes recording a supplier's
+                own credit note, False for the firm's own claims only.
 
         Returns:
             The page of notes and the total matching count.
@@ -139,6 +142,7 @@ class DebitNoteService(TransactionalDocumentService):
                 or_(
                     DebitNote.debit_note_number.ilike(token),
                     DebitNote.reference_number.ilike(token),
+                    DebitNote.supplier_credit_note_number.ilike(token),
                     DebitNote.vendor_id.in_(vendors_matching(token)),
                 )
             )
@@ -146,6 +150,11 @@ class DebitNoteService(TransactionalDocumentService):
             statement = statement.where(DebitNote.debit_note_date >= debit_note_from)
         if debit_note_to is not None:
             statement = statement.where(DebitNote.debit_note_date <= debit_note_to)
+        if supplier_credit_note is not None:
+            column = DebitNote.supplier_credit_note_number
+            statement = statement.where(
+                column.is_not(None) if supplier_credit_note else column.is_(None)
+            )
         total = self._session.scalar(
             select(func.count()).select_from(statement.subquery())
         )
@@ -288,10 +297,13 @@ class DebitNoteService(TransactionalDocumentService):
             reason=data.reason.value,
             status=DebitNoteStatus.DRAFT.value,
             reference_number=data.reference_number,
+            supplier_credit_note_number=_clean(data.supplier_credit_note_number),
+            supplier_credit_note_date=data.supplier_credit_note_date,
             remarks=data.remarks,
             created_by=actor_id,
             updated_by=actor_id,
         )
+        self._check_supplier_credit_note(row, invoice)
         self._session.add(row)
         self._flush_or_conflict("Debit note number already exists in this firm.")
         self._replace_lines(row, data.lines, invoice=invoice, actor_id=actor_id)
@@ -352,10 +364,15 @@ class DebitNoteService(TransactionalDocumentService):
             row.reference_number = values["reference_number"]
         if "remarks" in values:
             row.remarks = values["remarks"]
-        if data.lines is not None:
-            invoice = self._claimable_invoice(
-                row.purchase_invoice_id, firm_id=firm_scope
+        if "supplier_credit_note_number" in values:
+            row.supplier_credit_note_number = _clean(
+                values["supplier_credit_note_number"]
             )
+        if "supplier_credit_note_date" in values:
+            row.supplier_credit_note_date = values["supplier_credit_note_date"]
+        invoice = self._claimable_invoice(row.purchase_invoice_id, firm_id=firm_scope)
+        self._check_supplier_credit_note(row, invoice)
+        if data.lines is not None:
             self._replace_lines(row, data.lines, invoice=invoice, actor_id=actor_id)
         row.updated_by = actor_id
         self._session.flush()
@@ -541,6 +558,46 @@ class DebitNoteService(TransactionalDocumentService):
                 "bill raised a payable to claim against."
             )
         return invoice
+
+    def _check_supplier_credit_note(
+        self, row: DebitNote, invoice: PurchaseInvoice
+    ) -> None:
+        """Refuse a supplier's credit note recorded by halves, early or twice.
+
+        Its number and date are both stated or neither; it cannot be dated
+        before the supplier's own bill it credits; and one supplier's credit
+        note is recorded once -- a second live note naming it would take the
+        same money off the payable and the input credit twice.
+        """
+        number = row.supplier_credit_note_number
+        when = row.supplier_credit_note_date
+        if (number is None) != (when is None):
+            raise ValidationError(
+                "Record the supplier's credit note with both its number and "
+                "its date, or neither."
+            )
+        if number is None or when is None:
+            return
+        if when < invoice.supplier_invoice_date:
+            raise ValidationError(
+                f"The supplier's credit note is dated {when.isoformat()}, before "
+                f"the bill it credits ({invoice.supplier_invoice_date.isoformat()})."
+            )
+        statement = select(DebitNote.debit_note_number).where(
+            DebitNote.firm_id == row.firm_id,
+            DebitNote.vendor_id == row.vendor_id,
+            DebitNote.is_deleted.is_(False),
+            DebitNote.status != DebitNoteStatus.CANCELLED.value,
+            func.upper(DebitNote.supplier_credit_note_number) == number.upper(),
+        )
+        if row.id is not None:
+            statement = statement.where(DebitNote.id != row.id)
+        clash = self._session.scalar(statement.limit(1))
+        if clash is not None:
+            raise ValidationError(
+                f"The supplier's credit note {number} is already recorded on "
+                f"debit note {clash}."
+            )
 
     def _refuse_more_than_owed(self, row: DebitNote, invoice: PurchaseInvoice) -> None:
         """Refuse a claim larger than what the bill still owes.
@@ -835,6 +892,8 @@ class DebitNoteService(TransactionalDocumentService):
             tax_amount=row.tax_amount,
             total_amount=row.total_amount,
             reference_number=row.reference_number,
+            supplier_credit_note_number=row.supplier_credit_note_number,
+            supplier_credit_note_date=row.supplier_credit_note_date,
             remarks=row.remarks,
             cancel_reason=row.cancel_reason,
             journal_entry_id=row.journal_entry_id,
@@ -879,6 +938,12 @@ class DebitNoteService(TransactionalDocumentService):
             "debit_note_date": row.debit_note_date.isoformat(),
             "purchase_invoice_id": str(row.purchase_invoice_id),
             "reason": row.reason,
+            "supplier_credit_note_number": row.supplier_credit_note_number,
+            "supplier_credit_note_date": (
+                row.supplier_credit_note_date.isoformat()
+                if row.supplier_credit_note_date
+                else None
+            ),
             "status": row.status,
             "taxable_amount": str(row.taxable_amount),
             "tax_amount": str(row.tax_amount),
@@ -923,6 +988,7 @@ class DebitNoteService(TransactionalDocumentService):
                     0
                 ],
                 reason=DebitNoteReasonEnum(row.reason),
+                supplier_credit_note_number=row.supplier_credit_note_number,
                 taxable_amount=row.taxable_amount,
                 tax_amount=row.tax_amount,
                 total_amount=row.total_amount,
@@ -931,6 +997,14 @@ class DebitNoteService(TransactionalDocumentService):
             for row in rows
         ]
         return mapped_like(rows, records)
+
+
+def _clean(value: str | None) -> str | None:
+    """Return a typed reference trimmed, or None for a blank one."""
+    if value is None:
+        return None
+    text = value.strip()
+    return text or None
 
 
 def debit_note_tax_by_component(session: Session, note_id: UUID) -> dict[str, Decimal]:
@@ -963,6 +1037,8 @@ def debit_note_tax_by_component(session: Session, note_id: UUID) -> dict[str, De
             ),
             PurchaseInvoiceLineTax.is_deleted.is_(False),
             PurchaseInvoiceLineTax.included_in_price.is_(False),
+            # Reverse charge never sat in the bill's payable or its credit.
+            PurchaseInvoiceLineTax.reverse_charge.is_(False),
         )
     ).all():
         shares.setdefault(line_id, []).append((code, Decimal(str(amount))))

@@ -267,6 +267,22 @@ class _SalesWorkflowSettingsDialogState
                       onChanged: (_) => setState(() {}),
                     ),
                   ],
+                  const SizedBox(height: AppSpacing.md),
+                  // Backlog 64 row 4: the default for a new bill's own switch.
+                  _StageSwitch(
+                    key: const ValueKey('sales-settings-rate-includes-tax'),
+                    label: 'Rates typed on a bill include GST',
+                    detail: 'A new bill starts with "Rate includes GST" on, '
+                        'so the counter can type the shelf price; the bill '
+                        'works out the taxable value. Each bill can still '
+                        'switch it.',
+                    value: _settings.rateIncludesTax,
+                    enabled: _mayManage && _read && !_saving,
+                    onChanged: (value) => setState(
+                      () => _settings =
+                          _settings.copyWith(rateIncludesTax: value),
+                    ),
+                  ),
                   if (!_settings.deliveryNoteStage) ...[
                     const SizedBox(height: AppSpacing.md),
                     _Notice(
@@ -319,6 +335,7 @@ class _SalesWorkflowSettingsDialogState
 
 class _StageSwitch extends StatelessWidget {
   const _StageSwitch({
+    super.key,
     required this.label,
     required this.detail,
     required this.value,

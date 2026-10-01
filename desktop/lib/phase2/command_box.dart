@@ -40,6 +40,11 @@ const Map<String, List<String>> _synonyms = {
     'max discount',
     'discount cap',
   ],
+  MenuLayout.approvalLimitsRoute: [
+    'approval limit',
+    'purchase limit',
+    'order approval',
+  ],
   MenuLayout.loyaltySchemeRoute: ['loyalty', 'reward points'],
   MenuLayout.workDefaultsRoute: ['usual branch', 'default warehouse', 'my defaults'],
   MenuLayout.tcsSettingsRoute: ['tcs', 'tax collected at source', '206c'],

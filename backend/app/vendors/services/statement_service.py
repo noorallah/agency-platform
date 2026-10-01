@@ -39,7 +39,17 @@ from decimal import Decimal
 from typing import Any
 from uuid import UUID
 
-from sqlalchemy import CompoundSelect, and_, func, literal, select, union_all
+from sqlalchemy import (
+    CompoundSelect,
+    String,
+    and_,
+    cast,
+    func,
+    literal,
+    null,
+    select,
+    union_all,
+)
 from sqlalchemy.orm import Session
 
 from app.core.exceptions import ResourceNotFoundError, ValidationError
@@ -113,6 +123,13 @@ class SupplierStatementService:
                     JournalEntry.reversal_of_id.label("reversal_of_id"),
                     JournalLine.debit_amount.label("debit"),
                     JournalLine.credit_amount.label("credit"),
+                    # The supplier's own credit note a debit note records
+                    # (backlog 68 row 10), so the statement names it.
+                    (
+                        DebitNote.supplier_credit_note_number
+                        if model is DebitNote
+                        else cast(null(), String(80))
+                    ).label("party_reference"),
                 )
                 .join(JournalEntry, JournalEntry.id == JournalLine.journal_entry_id)
                 .join(
@@ -211,7 +228,12 @@ class SupplierStatementService:
                     transaction_date=row.journal_date,
                     transaction_type=label,
                     reference_number=row.reference_number,
-                    remarks=row.description,
+                    remarks=(
+                        f"{row.description} -- supplier's credit note "
+                        f"{row.party_reference}"
+                        if row.party_reference
+                        else row.description
+                    ),
                     debit=debit,
                     credit=credit,
                     balance=quantize_ledger(running),

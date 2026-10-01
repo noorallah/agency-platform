@@ -25,6 +25,9 @@ class GstHeadRow(GstSchema):
     cash: Decimal
     credit_used: Decimal
     carried_forward: Decimal
+    #: Reverse charge on inward supplies (3.1(d)): paid in cash only, never
+    #: by credit, on top of `cash` (backlog 68 row 8).
+    reverse_charge: Decimal = Decimal("0")
 
 
 class GstUtilisationRow(GstSchema):

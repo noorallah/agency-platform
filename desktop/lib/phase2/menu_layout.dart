@@ -135,6 +135,10 @@ abstract final class MenuLayout {
   static const String loyaltySchemeRoute = 'settings/loyalty-scheme';
   static const String tcsSettingsRoute = 'settings/tcs';
 
+  /// The Buying setting behind the gear: the largest order each role may
+  /// approve (backlog 68 row 4). A dialog, like the Selling ones.
+  static const String approvalLimitsRoute = 'settings/purchase-approval-limits';
+
   /// Messaging (backlog 51): the firm's switch, accounts, events and log.
   static const String messagingRoute = 'settings/messaging';
 
@@ -416,6 +420,8 @@ abstract final class MenuLayout {
     MenuGroupSpec('Buying', [
       MenuItemSpec(
           AppModule.purchases, 'purchase-settings', 'Purchase Settings'),
+      MenuItemSpec.setting(approvalLimitsRoute, 'Approval Limits',
+          permission: 'PURCHASE_VIEW'),
     ]),
     MenuGroupSpec('Stock', [
       MenuItemSpec(
