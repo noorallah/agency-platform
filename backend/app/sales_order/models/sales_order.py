@@ -15,6 +15,7 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.orm import Mapped, mapped_column
 
@@ -376,3 +377,70 @@ class SalesWorkflowSettings(BaseEntity):
     default_warehouse_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("warehouses.id", ondelete="RESTRICT")
     )
+
+
+class PriceFloorSettings(BaseEntity):
+    """One firm's policy on selling below cost or below a minimum price.
+
+    BACKLOG 64 row 2. The shape of ``trade_licence_settings``: one row per
+    firm, and a firm with no row warns and never blocks -- a check that stops
+    trade on the day it ships is a check nobody switches on.
+    """
+
+    __tablename__ = "price_floor_settings"
+    __table_args__ = (
+        Index(
+            "UQ_price_floor_settings_firm_active",
+            "firm_id",
+            unique=True,
+            postgresql_where=text("NOT is_deleted"),
+            sqlite_where=text("NOT is_deleted"),
+        ),
+    )
+
+    #: No foreign key: `firms` lives only in the platform schema.
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    #: OFF, WARN or BLOCK, judged when a sales order or a bill is approved.
+    enforcement: Mapped[str] = mapped_column(
+        String(10), nullable=False, default="WARN", server_default="WARN"
+    )
+    #: Whether cost is a floor as well as the product's minimum price. Off for
+    #: a firm that clears old stock below cost on purpose and only wants the
+    #: minimum it set.
+    include_cost: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="true"
+    )
+
+
+class RoleDiscountLimit(BaseEntity):
+    """The largest discount one role may give on its own, in one firm.
+
+    BACKLOG 64 row 3. Anybody who could edit an order could type any discount.
+    A document whose **typed** discount -- not a price list's, a promotion's or
+    the customer's standing rate, which are arrangements the firm made -- is
+    above the approver's limit is refused at approval, naming the limit it
+    needs, and the approval that clears it records who allowed it.
+
+    Keyed by role **code**, which is how a role is named everywhere a person
+    reads it, and per firm, because one firm's salesman may give 5% and
+    another's 10%. A role with no row has no limit of its own; a person's limit
+    is the largest among their roles that have one, and somebody none of whose
+    roles has one is not limited.
+    """
+
+    __tablename__ = "role_discount_limits"
+    __table_args__ = (
+        Index(
+            "UQ_role_discount_limits_firm_role_active",
+            "firm_id",
+            "role_code",
+            unique=True,
+            postgresql_where=text("NOT is_deleted"),
+            sqlite_where=text("NOT is_deleted"),
+        ),
+    )
+
+    #: No foreign key: `firms` and `roles` live only in the platform schema.
+    firm_id: Mapped[UUID] = mapped_column(UUIDType(), nullable=False, index=True)
+    role_code: Mapped[str] = mapped_column(String(100), nullable=False)
+    max_discount_percent: Mapped[Decimal] = mapped_column(Numeric(5, 2), nullable=False)

@@ -258,6 +258,12 @@ class SalesInvoiceLine(BaseEntity):
     discount_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )
+    #: ``percent`` or ``amount`` when the bill itself said so, ``inherited``
+    #: when it took the order's or the note's, ``none`` when nothing applied.
+    #: Only a typed discount is judged against the approver's limit (backlog
+    #: 64 row 3): an inherited one was judged when its order was approved.
+    #: NULL on lines written before it existed.
+    discount_source: Mapped[str | None] = mapped_column(String(20))
     charges_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )

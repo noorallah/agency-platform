@@ -48,6 +48,8 @@ import 'sales/route_builder_page.dart';
 import 'sales/territory_coverage_page.dart';
 import 'sales/route_type_management_page.dart';
 import 'sales/sales_invoice_management_page.dart';
+import 'sales/discount_limits_dialog.dart';
+import 'sales/price_floor_settings_dialog.dart';
 import 'sales/sales_workflow_settings_dialog.dart';
 import 'commission/commission_page.dart';
 import 'commission/sales_target_page.dart';
@@ -401,6 +403,22 @@ class _DesktopShellState extends State<DesktopShell> {
         await showDialog<bool>(
           context: context,
           builder: (_) => CreditSettingsDialog(
+            api: api,
+            permissions: widget.permissions,
+          ),
+        );
+      case MenuLayout.priceFloorRoute:
+        await showDialog<bool>(
+          context: context,
+          builder: (_) => PriceFloorSettingsDialog(
+            api: api,
+            permissions: widget.permissions,
+          ),
+        );
+      case MenuLayout.discountLimitsRoute:
+        await showDialog<bool>(
+          context: context,
+          builder: (_) => DiscountLimitsDialog(
             api: api,
             permissions: widget.permissions,
           ),

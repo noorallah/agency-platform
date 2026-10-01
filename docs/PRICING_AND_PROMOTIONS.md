@@ -401,3 +401,39 @@ document's `subtotal` carry its freight share on every sales document, so
 it out of all three until D-SELL-37 (2026-09-24), taxing a delivery it never
 charged for. It is credited to sales revenue with the goods, and the
 commission base leaves it out.
+
+## A sale below cost or below a minimum price warns, and blocks only if a firm asks
+
+BACKLOG 64 row 2, built 2026-10-01 (`app/sales_order/services/price_floor.py`).
+A line's **net** value -- gross less its own discount and its share of the
+bill discount -- is compared with a floor for the stock it moves: the
+product's `minimum_selling_price` and, unless the firm turned it off, its
+cost (the moving average, else the purchase price). Both are **per stock
+unit**, the unit cost is kept in, so a line sold by the box is judged on the
+box's share. Free goods charge nothing and are never judged.
+
+It is judged at **approval** -- a sales order, and a bill, which may have no
+order or re-price the one it bills; the order a counter bill raises for itself
+is not judged twice. `price_floor_settings` holds OFF, WARN (the default, and
+what a firm with no row gets) or BLOCK, and whether cost counts. Under BLOCK
+the approval is refused unless the caller holds `SALES_PRICE_OVERRIDE` and
+gives `price_override_reason`, which the APPROVED event keeps -- the licence
+check's shape. `SALES_MANAGER` does not hold the override, for the reason it
+does not hold the credit policy: it is a control over the role. A message
+names a minimum price but **never the cost**, because whoever sells may not
+be allowed to see it. `GET .../{id}/price-check` answers the same question
+before approving.
+
+## A typed discount above the approver's limit waits for somebody allowed more
+
+BACKLOG 64 row 3 (`app/sales_order/services/discount_limit.py`). Only a
+discount somebody **typed** is judged -- a line whose source is `percent` or
+`amount`, plus a typed bill discount's share -- because a price list, a
+promotion and a standing rate are arrangements the firm already made. It is
+judged per line at approval against the **approver's** limit: the largest
+among their roles with a row in `role_discount_limits`; nobody is limited
+until a row exists, and a platform administrator never is. Above it the
+document stays a draft and the refusal names the percentage it needs. A bill
+line records `discount_source`, `inherited` when it took its order's, so an
+order's discount is judged once; a counter bill reads the source from the
+order it raised for itself.

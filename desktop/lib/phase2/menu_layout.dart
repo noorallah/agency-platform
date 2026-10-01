@@ -118,6 +118,8 @@ abstract final class MenuLayout {
   /// The Selling settings behind the gear: dialogs, not screens.
   static const String salesStagesRoute = 'settings/sales-stages';
   static const String creditControlRoute = 'settings/credit-control';
+  static const String priceFloorRoute = 'settings/price-floor';
+  static const String discountLimitsRoute = 'settings/discount-limits';
   static const String loyaltySchemeRoute = 'settings/loyalty-scheme';
   static const String tcsSettingsRoute = 'settings/tcs';
 
@@ -374,6 +376,10 @@ abstract final class MenuLayout {
           permission: 'SALES_VIEW'),
       MenuItemSpec.setting(creditControlRoute, 'Credit Control',
           permission: 'CUSTOMER_VIEW'),
+      MenuItemSpec.setting(priceFloorRoute, 'Price Floor',
+          permission: 'SALES_VIEW'),
+      MenuItemSpec.setting(discountLimitsRoute, 'Discount Limits',
+          permission: 'SALES_VIEW'),
       MenuItemSpec.setting(loyaltySchemeRoute, 'Loyalty Scheme',
           permission: 'LOYALTY_VIEW'),
       MenuItemSpec.setting(tcsSettingsRoute, 'TCS Settings',

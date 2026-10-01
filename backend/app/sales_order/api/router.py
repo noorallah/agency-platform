@@ -16,6 +16,7 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.common.scope import (
@@ -37,7 +38,18 @@ from app.document_framework.schemas.bulk_actions import (
     BulkCancelRequest,
 )
 from app.document_framework.services.bulk_actions import run_each
+from app.sales_order.api.price_override import (
+    PriceOverrideReason,
+    authorised_price_override,
+)
+from app.sales_order.models import RoleDiscountLimit, SalesOrderLine
 from app.sales_order.schemas import (
+    PriceFloorCheckResponse,
+    PriceFloorSettingsResponse,
+    PriceFloorSettingsWrite,
+    RoleDiscountLimitItem,
+    RoleDiscountLimitsResponse,
+    RoleDiscountLimitsWrite,
     SalesOrderAdvanceSummary,
     SalesOrderBackOrderRecord,
     SalesOrderByCustomerRecord,
@@ -56,6 +68,8 @@ from app.sales_order.schemas import (
     SalesWorkflowSettingsWrite,
 )
 from app.sales_order.services import SalesOrderService, SalesWorkflowService
+from app.sales_order.services.discount_limit import DiscountLimitService
+from app.sales_order.services.price_floor import PriceFloorService, order_lines
 from app.trade_licences.api.override import (
     LicenceOverrideReason,
     authorised_override,
@@ -283,6 +297,78 @@ def update_sales_workflow_settings(
     return ApiResponse(data=settings)
 
 
+@router.get(
+    "/price-floor-settings",
+    response_model=ApiResponse[PriceFloorSettingsResponse],
+)
+def get_price_floor_settings(
+    scope: SalesOrderViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PriceFloorSettingsResponse]:
+    """Report whether a sale below cost or minimum price warns or is refused."""
+    return ApiResponse(data=PriceFloorService(db).settings_response(scope.firm_id))
+
+
+@router.put(
+    "/price-floor-settings",
+    response_model=ApiResponse[PriceFloorSettingsResponse],
+)
+def update_price_floor_settings(
+    data: PriceFloorSettingsWrite,
+    scope: SalesWorkflowSettingsScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PriceFloorSettingsResponse]:
+    """Replace the firm's price-floor policy (backlog 64 row 2)."""
+    settings = PriceFloorService(db).update_settings(
+        data, firm_id=scope.firm_id, actor_id=scope.actor_id
+    )
+    return ApiResponse(data=settings)
+
+
+@router.get(
+    "/discount-limits",
+    response_model=ApiResponse[RoleDiscountLimitsResponse],
+)
+def get_role_discount_limits(
+    scope: SalesOrderViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[RoleDiscountLimitsResponse]:
+    """List the largest discount each role may give on its own (backlog 64)."""
+    rows = DiscountLimitService(db).limits(scope.firm_id)
+    return ApiResponse(data=_limits_response(rows))
+
+
+@router.put(
+    "/discount-limits",
+    response_model=ApiResponse[RoleDiscountLimitsResponse],
+)
+def replace_role_discount_limits(
+    data: RoleDiscountLimitsWrite,
+    scope: SalesWorkflowSettingsScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[RoleDiscountLimitsResponse]:
+    """Replace the whole list; a role left out has no limit afterwards."""
+    rows = DiscountLimitService(db).replace_limits(
+        [(item.role_code, item.max_discount_percent) for item in data.limits],
+        firm_id=scope.firm_id,
+        actor_id=scope.actor_id,
+    )
+    return ApiResponse(data=_limits_response(rows))
+
+
+def _limits_response(rows: list[RoleDiscountLimit]) -> RoleDiscountLimitsResponse:
+    """Describe the firm's limits."""
+    return RoleDiscountLimitsResponse(
+        limits=[
+            RoleDiscountLimitItem(
+                role_code=row.role_code,
+                max_discount_percent=row.max_discount_percent,
+            )
+            for row in rows
+        ]
+    )
+
+
 @router.post("/bulk-approve", response_model=ApiResponse[BulkActionResult])
 def bulk_approve_sales_orders(
     data: BulkApproveRequest,
@@ -362,6 +448,7 @@ def approve_sales_order(
     scope: SalesOrderApproveScope,
     db: Session = Depends(get_db),
     licence_override_reason: LicenceOverrideReason = None,
+    price_override_reason: PriceOverrideReason = None,
 ) -> ApiResponse[SalesOrderResponse]:
     """Approve one sales order."""
     service = SalesOrderService(db)
@@ -370,8 +457,30 @@ def approve_sales_order(
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
         licence_override_reason=authorised_override(scope, licence_override_reason),
+        price_override_reason=authorised_price_override(scope, price_override_reason),
     )
     return ApiResponse(data=service.order_response(row))
+
+
+@router.get(
+    "/{order_id}/price-check", response_model=ApiResponse[PriceFloorCheckResponse]
+)
+def check_sales_order_prices(
+    order_id: UUID,
+    scope: SalesOrderViewScope,
+    db: Session = Depends(get_db),
+) -> ApiResponse[PriceFloorCheckResponse]:
+    """Say which lines are sold below cost or minimum price, before approving."""
+    row = SalesOrderService(db).get_order(order_id, firm_scope=scope.firm_id)
+    lines = db.scalars(
+        select(SalesOrderLine).where(
+            SalesOrderLine.sales_order_id == row.id,
+            SalesOrderLine.is_deleted.is_(False),
+        )
+    ).all()
+    return ApiResponse(
+        data=PriceFloorService(db).check(scope.firm_id, order_lines(lines))
+    )
 
 
 @router.post("/{order_id}/cancel", response_model=ApiResponse[SalesOrderResponse])

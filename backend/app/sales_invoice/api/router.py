@@ -14,6 +14,7 @@ from fastapi import (
 )
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel, Field
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.common.scope import (
@@ -35,6 +36,7 @@ from app.document_framework.schemas.bulk_actions import (
     BulkCancelRequest,
 )
 from app.document_framework.services.bulk_actions import run_each
+from app.sales_invoice.models import SalesInvoiceLine
 from app.sales_invoice.schemas import (
     BillableDocument,
     SalesInvoiceCreate,
@@ -59,6 +61,12 @@ from app.sales_invoice.services.sales_analysis import (
     SalesAnalysis,
     SalesAnalysisService,
 )
+from app.sales_order.api.price_override import (
+    PriceOverrideReason,
+    authorised_price_override,
+)
+from app.sales_order.schemas import PriceFloorCheckResponse
+from app.sales_order.services.price_floor import PriceFloorService, invoice_lines
 from app.trade_licences.api.override import (
     LicenceOverrideReason,
     authorised_override,
@@ -342,6 +350,7 @@ def approve_sales_invoice(
     db: Annotated[Session, Depends(get_db)],
     invoice_id: UUID,
     licence_override_reason: LicenceOverrideReason = None,
+    price_override_reason: PriceOverrideReason = None,
 ) -> ApiResponse[SalesInvoiceResponse]:
     """Approve a sales invoice."""
     service = SalesInvoiceService(db)
@@ -350,8 +359,31 @@ def approve_sales_invoice(
         firm_scope=scope.firm_id,
         actor_id=scope.actor_id,
         licence_override_reason=authorised_override(scope, licence_override_reason),
+        price_override_reason=authorised_price_override(scope, price_override_reason),
     )
     return ApiResponse(data=service.invoice_response(row))
+
+
+@router.get(
+    "/{invoice_id}/price-check",
+    response_model=ApiResponse[PriceFloorCheckResponse],
+)
+def check_sales_invoice_prices(
+    scope: SalesInvoiceViewScope,
+    db: Annotated[Session, Depends(get_db)],
+    invoice_id: UUID,
+) -> ApiResponse[PriceFloorCheckResponse]:
+    """Say which lines are sold below cost or minimum price, before approving."""
+    row = SalesInvoiceService(db).get_invoice(invoice_id, firm_scope=scope.firm_id)
+    lines = db.scalars(
+        select(SalesInvoiceLine).where(
+            SalesInvoiceLine.sales_invoice_id == row.id,
+            SalesInvoiceLine.is_deleted.is_(False),
+        )
+    ).all()
+    return ApiResponse(
+        data=PriceFloorService(db).check(scope.firm_id, invoice_lines(lines))
+    )
 
 
 @router.post(

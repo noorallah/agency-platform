@@ -33,6 +33,12 @@ const Map<String, List<String>> _synonyms = {
   'dashboard': ['home', 'dashboard'],
   MenuLayout.salesStagesRoute: ['sales workflow', 'stages', 'quotation stage'],
   MenuLayout.creditControlRoute: ['credit limit', 'credit policy'],
+  MenuLayout.priceFloorRoute: ['price floor', 'minimum price', 'below cost'],
+  MenuLayout.discountLimitsRoute: [
+    'discount limit',
+    'max discount',
+    'discount cap',
+  ],
   MenuLayout.loyaltySchemeRoute: ['loyalty', 'reward points'],
   MenuLayout.workDefaultsRoute: ['usual branch', 'default warehouse', 'my defaults'],
   MenuLayout.tcsSettingsRoute: ['tcs', 'tax collected at source', '206c'],

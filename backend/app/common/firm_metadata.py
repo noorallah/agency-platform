@@ -18,13 +18,13 @@ from dataclasses import dataclass
 from datetime import date
 from uuid import UUID
 
-from sqlalchemy import Row, func, select
+from sqlalchemy import Row, func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.config.settings import Settings
 from app.core.database.engine import DatabaseManager
 from app.firms.models import Firm
-from app.identity.models import User, UserFirm
+from app.identity.models import PlatformAdmin, Role, User, UserFirm, UserRole
 
 _platform: DatabaseManager | None = None
 
@@ -151,6 +151,41 @@ class FirmMetadataReader:
     def exists(self, firm_id: UUID) -> bool:
         """Return whether the firm is present and not soft-deleted."""
         return self.get(firm_id).code is not None
+
+    def role_codes(self, firm_id: UUID, user_id: UUID) -> frozenset[str]:
+        """Return the codes of the roles a user holds in a firm.
+
+        A role assigned with no firm counts everywhere, as it does when the
+        token is issued. A platform administrator is reported as the reserved
+        ``platform_admin`` code, so a caller can tell the designation apart
+        from a role -- no role code can spell it (``create_role`` refuses it).
+        ``roles``, ``user_roles`` and ``platform_admins`` are platform tables.
+        """
+        roles = (
+            select(Role.code)
+            .join(UserRole, UserRole.role_id == Role.id)
+            .where(
+                UserRole.user_id == user_id,
+                or_(UserRole.firm_id == firm_id, UserRole.firm_id.is_(None)),
+                UserRole.is_deleted.is_(False),
+                Role.is_deleted.is_(False),
+                Role.is_active.is_(True),
+            )
+        )
+        admin = select(PlatformAdmin.id).where(
+            PlatformAdmin.user_id == user_id, PlatformAdmin.is_deleted.is_(False)
+        )
+        bind = self._session.get_bind()
+        if bind.dialect.name != "postgresql":
+            codes = set(self._session.scalars(roles))
+            is_admin = self._session.scalar(admin) is not None
+        else:
+            with platform_reader() as reader:
+                codes = set(reader.scalars(roles))
+                is_admin = reader.scalar(admin) is not None
+        if is_admin:
+            codes.add("platform_admin")
+        return frozenset(codes)
 
     def active_members(self, firm_id: UUID) -> list["FirmMember"]:
         """List a firm's active members, in name order.

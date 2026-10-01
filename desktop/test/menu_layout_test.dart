@@ -182,10 +182,12 @@ void main() {
     MenuGroupSpec selling() => MenuLayout.settings.groups
         .singleWhere((group) => group.label == 'Selling');
 
-    test('holds the four settings that were only behind a screen', () {
+    test('holds the six settings that were only behind a screen', () {
       expect(selling().items.map((item) => item.label), [
         'Sales Stages',
         'Credit Control',
+        'Price Floor',
+        'Discount Limits',
         'Loyalty Scheme',
         'TCS Settings',
       ]);
@@ -193,6 +195,8 @@ void main() {
       expect(selling().items.map((item) => item.path), [
         MenuLayout.salesStagesRoute,
         MenuLayout.creditControlRoute,
+        MenuLayout.priceFloorRoute,
+        MenuLayout.discountLimitsRoute,
         MenuLayout.loyaltySchemeRoute,
         MenuLayout.tcsSettingsRoute,
       ]);
@@ -202,6 +206,8 @@ void main() {
       expect(selling().items.map((item) => item.permission), [
         'SALES_VIEW',
         'CUSTOMER_VIEW',
+        'SALES_VIEW',
+        'SALES_VIEW',
         'LOYALTY_VIEW',
         'TCS_MANAGE',
       ]);
@@ -225,7 +231,8 @@ void main() {
 
     test('an item appears only for whoever holds its code', () {
       expect(offered(const []), isEmpty);
-      expect(offered(['SALES_VIEW']), ['Sales Stages']);
+      expect(offered(['SALES_VIEW']),
+          ['Sales Stages', 'Price Floor', 'Discount Limits']);
       expect(offered(['CUSTOMER_VIEW']), ['Credit Control']);
       expect(offered(['LOYALTY_VIEW']), ['Loyalty Scheme']);
       expect(offered(['TCS_MANAGE']), ['TCS Settings']);
@@ -234,7 +241,7 @@ void main() {
       expect(
         offered(
             ['SALES_VIEW', 'CUSTOMER_VIEW', 'LOYALTY_VIEW', 'TCS_MANAGE']),
-        hasLength(4),
+        hasLength(6),
       );
     });
 
