@@ -151,6 +151,35 @@ _RETURNABLE_INVOICE_STATES = frozenset(
 )
 
 
+def _return_tax_by_component(session: Session, return_id: UUID) -> dict[str, Decimal]:
+    """Sum a return's reversed tax per component code (backlog 63.3).
+
+    Tax inside a price is left out, as the return's own tax total leaves it
+    out. Empty when the lines recorded no components, and the posting then
+    reverses `OUTPUT_TAX` whole.
+    """
+    totals: dict[str, Decimal] = {}
+    for code, amount in session.execute(
+        select(
+            SalesReturnLineTax.component_code,
+            func.coalesce(func.sum(SalesReturnLineTax.amount), 0),
+        )
+        .join(
+            SalesReturnLine,
+            SalesReturnLine.id == SalesReturnLineTax.sales_return_line_id,
+        )
+        .where(
+            SalesReturnLine.sales_return_id == return_id,
+            SalesReturnLine.is_deleted.is_(False),
+            SalesReturnLineTax.is_deleted.is_(False),
+            SalesReturnLineTax.included_in_price.is_(False),
+        )
+        .group_by(SalesReturnLineTax.component_code)
+    ).all():
+        totals[code] = Decimal(str(amount))
+    return totals
+
+
 def _refuse_unreturnable(document: DeliveryNote | SalesInvoice) -> None:
     """Refuse a source document whose goods never reached the customer.
 
@@ -783,6 +812,9 @@ class SalesReturnService(TransactionalDocumentService):
             tax_amount=row.tax_total,
             total_amount=row.grand_total,
             actor_id=actor_id,
+            # Reversed per GST head, off the components the lines recorded
+            # (backlog 63.3) -- the split 3B's credit-note rows read.
+            tax_by_component=_return_tax_by_component(self._session, row.id),
         )
         row.journal_entry_id = None if credit is None else credit.id
         cost_entry = self._posting.post_goods_return_to_stock(

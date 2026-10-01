@@ -118,6 +118,7 @@ from app.sales_invoice.services.inclusive_rate import (
     billed_rate,
     derive_pre_tax,
 )
+from app.sales_invoice.services.output_tax import invoice_tax_by_component
 from app.sales_invoice.services.sales_chain_service import (
     SalesChainService,
     refuse_coupon_on_documents,
@@ -1088,6 +1089,9 @@ class SalesInvoiceService(TransactionalDocumentService):
             tax_amount=self._q(row.tax_total),
             total_amount=self._q(row.grand_total),
             actor_id=actor_id,
+            # Owed per GST head (backlog 63.3), off the components the lines
+            # recorded -- the figures GSTR-1 and 3B read.
+            tax_by_component=invoice_tax_by_component(self._session, row.id),
         )
         # Credit the customer for the sale, in the approval's own transaction:
         # it posts, because a scheme costs the firm money the moment it
