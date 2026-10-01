@@ -542,6 +542,20 @@ class _GstReturnPageState extends State<GstReturnPage> {
       ]);
     }
     if (rows.isEmpty) return const SizedBox.shrink();
+    // Credit held back until the supplier files it (backlog 78 row 3); only
+    // nonzero when the firm claims on 2B-matched bills only.
+    final Object? held = data['itc_awaiting_2b'];
+    if (held is Map &&
+        <String>['integrated_tax', 'central_tax', 'state_tax', 'cess']
+            .any((key) => (double.tryParse('${held[key] ?? 0}') ?? 0) != 0)) {
+      rows.add([
+        'Held back — not yet in GSTR-2B',
+        _money(held['integrated_tax']),
+        _money(held['central_tax']),
+        _money(held['state_tax']),
+        _money(held['cess']),
+      ]);
+    }
     return _Section(
       title: '4 — eligible input tax credit',
       headers: const ['Line', 'IGST', 'CGST', 'SGST', 'Cess'],

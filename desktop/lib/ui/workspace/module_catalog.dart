@@ -575,6 +575,13 @@ abstract final class ModuleCatalog {
           label: 'GST Returns',
           requiredPermissions: ['SALES_VIEW'],
         ),
+        // What suppliers filed against what the books hold (backlog 78 row 3).
+        ModuleTabDefinition(
+          id: 'gstr2b',
+          label: 'GSTR-2B Reconciliation',
+          requiredPermissions: ['ACCOUNT_VIEW', 'SALES_VIEW'],
+          requiresAnyPermission: true,
+        ),
         // Paying the month's GST: set-off and challan (backlog 63).
         ModuleTabDefinition(
           id: 'gst-payment',

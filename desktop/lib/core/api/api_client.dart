@@ -5376,6 +5376,44 @@ class ApiClient {
         query: {'from_date': fromDate, 'to_date': toDate},
       ));
 
+  // ---- GSTR-2B matching (backlog 78 row 3) -----------------------------
+
+  /// Read a GSTR-2B file the portal produced; re-importing a month replaces it.
+  Future<Json> importGstr2b({
+    required String returnPeriod,
+    required String content,
+    String? sourceName,
+  }) async =>
+      _unwrapMap(await request(
+        'POST',
+        '/api/v1/gst-returns/gstr2b/imports',
+        body: {
+          'return_period': returnPeriod,
+          'content': content,
+          'source_name': sourceName,
+        },
+      ));
+
+  /// The month's 2B documents against the supplier bills, and the bills 2B
+  /// lacks.
+  Future<Json> gstr2bReconciliation(String returnPeriod) async =>
+      _unwrapMap(await request(
+        'GET',
+        '/api/v1/gst-returns/gstr2b/reconciliation',
+        query: {'return_period': returnPeriod},
+      ));
+
+  /// Match one 2B invoice row to a bill by hand, or undo it with null.
+  Future<Json> matchGstr2bDocument(
+    String documentId,
+    String? purchaseInvoiceId,
+  ) async =>
+      _unwrapMap(await request(
+        'POST',
+        '/api/v1/gst-returns/gstr2b/documents/$documentId/match',
+        body: {'purchase_invoice_id': purchaseInvoiceId},
+      ));
+
   // ---- paying the tax (backlog 63) -------------------------------------
 
   /// A month's set-off and cash payable, by the statutory order; writes

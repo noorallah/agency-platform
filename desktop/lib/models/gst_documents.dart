@@ -56,6 +56,8 @@ class GstComplianceSettings {
     required this.dispatchWithoutInvoice,
     required this.routeSaleNeedsInvoice,
     this.isConfigured = false,
+    this.itcClaimBasis = 'ALL',
+    this.gstr2bTolerance = '1.00',
   });
 
   /// ISO dates (`2026-04-01`), or null when not set.
@@ -69,6 +71,12 @@ class GstComplianceSettings {
   /// False while the firm is still on the platform default.
   final bool isConfigured;
 
+  /// ALL, or MATCHED_ONLY: claim only bills GSTR-2B shows (backlog 78 row 3).
+  final String itcClaimBasis;
+
+  /// Rupees a bill may differ from 2B and still count as matched.
+  final String gstr2bTolerance;
+
   factory GstComplianceSettings.fromJson(Json json) {
     String? date(dynamic value) {
       final String text = stringValue(value);
@@ -81,14 +89,22 @@ class GstComplianceSettings {
       dispatchWithoutInvoice: stringValue(json['dispatch_without_invoice']),
       routeSaleNeedsInvoice: boolValue(json['route_sale_needs_invoice']),
       isConfigured: boolValue(json['is_configured']),
+      itcClaimBasis: stringValue(json['itc_claim_basis']).isEmpty
+          ? 'ALL'
+          : stringValue(json['itc_claim_basis']),
+      gstr2bTolerance: stringValue(json['gstr2b_tolerance']).isEmpty
+          ? '1.00'
+          : stringValue(json['gstr2b_tolerance']),
     );
   }
 
-  /// Exactly the four keys the server declares; it refuses any other.
+  /// Exactly the six keys the server declares; it refuses any other.
   Json toJson() => <String, dynamic>{
         'einvoice_applicable_from': einvoiceApplicableFrom,
         'thirty_day_rule_from': thirtyDayRuleFrom,
         'dispatch_without_invoice': dispatchWithoutInvoice,
         'route_sale_needs_invoice': routeSaleNeedsInvoice,
+        'itc_claim_basis': itcClaimBasis,
+        'gstr2b_tolerance': gstr2bTolerance,
       };
 }
