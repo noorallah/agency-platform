@@ -1,6 +1,7 @@
 """Firm-scoped REST endpoints for enterprise purchase invoices."""
 
 from datetime import date
+from decimal import Decimal
 from typing import Annotated, Literal
 from uuid import UUID
 
@@ -15,7 +16,7 @@ from fastapi import (
     status,
 )
 from fastapi.responses import StreamingResponse
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from sqlalchemy.orm import Session
 
 from app.common.scope import (
@@ -50,6 +51,7 @@ from app.purchase_invoice.schemas import (
     PurchaseInvoiceVendorOutstandingRecord,
 )
 from app.purchase_invoice.services import PurchaseInvoiceService
+from app.purchase_invoice.services.price_variance import PriceVarianceService
 
 router = APIRouter(
     prefix="/api/v1/purchase-invoices",
@@ -453,6 +455,43 @@ def purchase_invoice_register(
             firm_scope=scope.firm_id, window=window
         )
     )
+
+
+class PriceVarianceRecord(BaseModel):
+    """One bill line charged at a rate other than its receipt's (65.5)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    invoice_date: date
+    invoice_number: str
+    supplier_invoice_number: str
+    supplier_name: str
+    receipt_number: str
+    product_code: str
+    product_name: str
+    quantity: Decimal
+    receipt_rate: Decimal
+    bill_rate: Decimal
+    variance: Decimal
+    note: str
+
+
+@router.get(
+    "/reports/price-variance",
+    response_model=PaginatedResponse[PriceVarianceRecord],
+)
+def purchase_price_variance(
+    scope: PurchaseInvoiceReportScope,
+    from_date: date | None = None,
+    to_date: date | None = None,
+    page: Annotated[int, Query(ge=1)] = 1,
+    page_size: Annotated[int, Query(ge=1, le=MAX_PAGE_SIZE)] = MAX_PAGE_SIZE,
+    db: Session = Depends(get_db),
+) -> PaginatedResponse[PriceVarianceRecord]:
+    """List bill lines charged at a rate other than the receipt's (65.5)."""
+    window = ReportWindow(from_date, to_date, page, page_size)
+    rows = PriceVarianceService(db).report(scope.firm_id, window)
+    return window.respond([PriceVarianceRecord.model_validate(row) for row in rows])
 
 
 @router.get(
