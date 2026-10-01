@@ -171,6 +171,12 @@ class PromotionActionWrite(PromotionSchema):
     #: products the offer matches on -- the whole point is that it is
     #: something else, and the document need never have mentioned it.
     free_product_id: UUID | None = None
+    #: For the two percent actions: the most the offer may take off the
+    #: whole document -- "20% off, up to 500" (backlog 60 item 1). Blank is
+    #: no cap.
+    max_amount: Decimal | None = Field(
+        default=None, gt=0, max_digits=18, decimal_places=4
+    )
 
     @model_validator(mode="after")
     def _parameters_match_the_action(self) -> "PromotionActionWrite":
@@ -185,6 +191,8 @@ class PromotionActionWrite(PromotionSchema):
         }
         if self.action_type in percent_actions and self.percent is None:
             raise ValueError("A percentage benefit needs a percent.")
+        if self.max_amount is not None and self.action_type not in percent_actions:
+            raise ValueError("Only a percentage benefit can have a cap.")
         if self.action_type in amount_actions and self.amount is None:
             raise ValueError("An amount benefit needs an amount.")
         if self.action_type is PromotionActionType.FREE_QUANTITY and (

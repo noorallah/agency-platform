@@ -576,6 +576,22 @@ class _PromotionDialogState extends State<PromotionDialog> {
                     : null,
               ),
             ),
+          // "20% off, up to 500": the cap on the whole document (60 item 1).
+          if (isPercent) ...[
+            const SizedBox(width: AppSpacing.sm),
+            SizedBox(
+              width: 120,
+              child: TextFormField(
+                key: ValueKey('promotion-action-cap-$index'),
+                controller: action.maxAmount,
+                decoration: const InputDecoration(
+                  labelText: 'Up to',
+                  helperText: 'Blank: no cap',
+                ),
+                keyboardType: TextInputType.number,
+              ),
+            ),
+          ],
           IconButton(
             tooltip: 'Remove benefit',
             onPressed: _actions.length == 1
@@ -1007,6 +1023,7 @@ class _ActionDraft {
     draft.buyQuantity.text = record.buyQuantity;
     draft.freeQuantity.text = record.freeQuantity;
     draft.freeProductId = record.freeProductId;
+    draft.maxAmount.text = record.maxAmount;
     // Nothing reads one product by id, so a saved gift is named generically
     // until somebody searches for another.
     draft.freeProductLabel =
@@ -1019,6 +1036,7 @@ class _ActionDraft {
   final TextEditingController amount = TextEditingController();
   final TextEditingController buyQuantity = TextEditingController();
   final TextEditingController freeQuantity = TextEditingController();
+  final TextEditingController maxAmount = TextEditingController();
   String freeProductId = '';
   String freeProductLabel = '';
 
@@ -1038,6 +1056,7 @@ class _ActionDraft {
                 ? freeQuantity.text
                 : '',
         freeProductId: actionType == 'FREE_PRODUCT' ? freeProductId : '',
+        maxAmount: actionType.endsWith('_PERCENT') ? maxAmount.text : '',
       ).toJson();
 }
 

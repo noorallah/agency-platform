@@ -35,6 +35,7 @@ DEFAULT_SETTINGS = SalesWorkflowSettings(
     delivery_note_stage=True,
     default_branch_id=None,
     default_warehouse_id=None,
+    promotion_mode="COMBINE",
 )
 
 
@@ -73,6 +74,7 @@ class SalesWorkflowService:
             delivery_note_stage=policy.delivery_note_stage,
             default_branch_id=policy.default_branch_id,
             default_warehouse_id=policy.default_warehouse_id,
+            promotion_mode=policy.promotion_mode or "COMBINE",
             is_configured=stored is not None,
         )
 
@@ -117,6 +119,10 @@ class SalesWorkflowService:
         row.delivery_note_stage = data.delivery_note_stage
         row.default_branch_id = branch_id
         row.default_warehouse_id = warehouse_id
+        if data.promotion_mode is not None:
+            row.promotion_mode = data.promotion_mode
+        elif not row.promotion_mode:
+            row.promotion_mode = "COMBINE"
         row.updated_by = actor_id
         self._session.flush()
         record_audit(
@@ -140,6 +146,7 @@ class SalesWorkflowService:
             delivery_note_stage=row.delivery_note_stage,
             default_branch_id=row.default_branch_id,
             default_warehouse_id=row.default_warehouse_id,
+            promotion_mode=row.promotion_mode,
             is_configured=True,
         )
 
@@ -199,6 +206,7 @@ class SalesWorkflowService:
     def _snapshot(row: SalesWorkflowSettings) -> dict[str, object]:
         """Describe the configuration for the audit trail."""
         return {
+            "promotion_mode": row.promotion_mode,
             "quotation_stage": row.quotation_stage,
             "sales_order_stage": row.sales_order_stage,
             "delivery_note_stage": row.delivery_note_stage,

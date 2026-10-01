@@ -130,6 +130,7 @@ class SalesWorkflowSettings {
     required this.isConfigured,
     this.defaultBranchId,
     this.defaultWarehouseId,
+    this.promotionMode = 'COMBINE',
   });
 
   final bool quotationStage;
@@ -140,6 +141,10 @@ class SalesWorkflowSettings {
 
   /// False while the firm is still on the platform default: the whole chain.
   final bool isConfigured;
+
+  /// How matching offers meet (backlog 59): COMBINE applies each in order,
+  /// BEST_OFFER gives only the single offer worth most.
+  final String promotionMode;
 
   /// What a firm gets before anybody configures anything, and what the client
   /// falls back to when the settings cannot be read. Failing open matters: an
@@ -161,6 +166,9 @@ class SalesWorkflowSettings {
         defaultBranchId: _orNull(json['default_branch_id']),
         defaultWarehouseId: _orNull(json['default_warehouse_id']),
         isConfigured: boolValue(json['is_configured']),
+        promotionMode: stringValue(json['promotion_mode']).isEmpty
+            ? 'COMBINE'
+            : stringValue(json['promotion_mode']),
       );
 
   /// The three switches only. No screen here edits the default branch or
@@ -170,12 +178,14 @@ class SalesWorkflowSettings {
         'quotation_stage': quotationStage,
         'sales_order_stage': salesOrderStage,
         'delivery_note_stage': deliveryNoteStage,
+        'promotion_mode': promotionMode,
       };
 
   SalesWorkflowSettings copyWith({
     bool? quotationStage,
     bool? salesOrderStage,
     bool? deliveryNoteStage,
+    String? promotionMode,
   }) =>
       SalesWorkflowSettings(
         quotationStage: quotationStage ?? this.quotationStage,
@@ -184,6 +194,7 @@ class SalesWorkflowSettings {
         defaultBranchId: defaultBranchId,
         defaultWarehouseId: defaultWarehouseId,
         isConfigured: isConfigured,
+        promotionMode: promotionMode ?? this.promotionMode,
       );
 }
 
