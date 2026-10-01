@@ -106,6 +106,9 @@ class PurchaseInvoiceLineWrite(PurchaseInvoiceSchema):
         default=Decimal("0"), ge=0, max_digits=18, decimal_places=4
     )
     tax_profile_id: UUID | None = None
+    #: Whether this line's tax is claimable (backlog 78 row 1). None takes the
+    #: product's setting, then a tax rule's *Input credit blocked*.
+    itc_eligibility: Literal["ELIGIBLE", "BLOCKED", "INELIGIBLE"] | None = None
     packaging_type_id: UUID | None = None
     purchase_uom_id: UUID | None = None
     invoice_uom_id: UUID | None = None
@@ -265,6 +268,7 @@ class PurchaseInvoiceLineResponse(PurchaseInvoiceSchema):
     charges_amount: Decimal
     gross_amount: Decimal
     tax_profile_id: UUID | None
+    itc_eligibility: str = "ELIGIBLE"
     tax_amount: Decimal
     net_amount: Decimal
     packaging_type_id: UUID | None

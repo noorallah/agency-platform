@@ -732,12 +732,19 @@ class GstReturnService:
         )
 
         claimed = GstBuckets()
+        # Blocked credit (s.17(5)) is reported in 4(A) and reversed in 4(B)(1)
+        # (CBIC circular 170/02/2022); credit ineligible for any other reason
+        # never enters 4(A) and is shown in 4(D)(2). Backlog 78 row 1.
+        blocked = GstBuckets()
+        ineligible = GstBuckets()
         billed_ids: set[UUID] = set()
-        for invoice_id, code, amount in self._session.execute(
+        for invoice_id, code, amount, recoverable, eligibility in self._session.execute(
             select(
                 PurchaseInvoice.id,
                 PurchaseInvoiceLineTax.component_code,
                 PurchaseInvoiceLineTax.amount,
+                PurchaseInvoiceLineTax.recoverable,
+                PurchaseInvoiceLine.itc_eligibility,
             )
             .join(
                 PurchaseInvoiceLine,
@@ -756,14 +763,25 @@ class GstReturnService:
                 PurchaseInvoice.invoice_date <= to_date,
                 PurchaseInvoiceLine.is_deleted.is_(False),
                 PurchaseInvoiceLineTax.is_deleted.is_(False),
-                PurchaseInvoiceLineTax.recoverable.is_(True),
                 PurchaseInvoiceLineTax.included_in_price.is_(False),
                 # Reverse charge is claimed in 4(A)(3), never in 4(A)(5).
                 PurchaseInvoiceLineTax.reverse_charge.is_(False),
             )
         ).all():
+            share = _bucket(code, Decimal(str(amount)))
+            if eligibility == "INELIGIBLE":
+                ineligible = ineligible.plus(share)
+                continue
+            if eligibility == "BLOCKED":
+                billed_ids.add(invoice_id)
+                claimed = claimed.plus(share)
+                blocked = blocked.plus(share)
+                continue
+            if not recoverable:
+                # A component that is never credit, whatever the line says.
+                continue
             billed_ids.add(invoice_id)
-            claimed = claimed.plus(_bucket(code, Decimal(str(amount))))
+            claimed = claimed.plus(share)
         inward_rcm, rcm_credit = self._reverse_charge_inward(
             firm_scope=firm_scope, from_date=from_date, to_date=to_date
         )
@@ -794,7 +812,14 @@ class GstReturnService:
             )
         ).all():
             split = return_tax_by_component(self._session, purchase_return.id)
-            placed = ZERO
+            # The share its bill could not claim was never credit, so it is
+            # placed, not reversed (backlog 78 row 1).
+            placed = sum(
+                return_tax_by_component(
+                    self._session, purchase_return.id, claimable=False
+                ).values(),
+                ZERO,
+            )
             for code, amount in split.items():
                 reversed_ = reversed_.plus(_bucket(code, amount))
                 placed += amount
@@ -816,7 +841,12 @@ class GstReturnService:
             )
         ).all():
             split = debit_note_tax_by_component(self._session, note.id)
-            placed = ZERO
+            placed = sum(
+                debit_note_tax_by_component(
+                    self._session, note.id, claimable=False
+                ).values(),
+                ZERO,
+            )
             for code, amount in split.items():
                 reversed_ = reversed_.plus(_bucket(code, amount))
                 placed += amount
@@ -849,6 +879,20 @@ class GstReturnService:
                 "bill_count": len(billed_ids),
                 "bills_without_components": int(without_rows or 0),
             },
+            # 4(B)(1): blocked credit, reversed for good (s.17(5)).
+            "itc_reversed_blocked": {
+                "integrated_tax": _filed(blocked.igst),
+                "central_tax": _filed(blocked.cgst),
+                "state_tax": _filed(blocked.sgst),
+                "cess": _filed(blocked.cess),
+            },
+            # 4(D)(2): ineligible credit, never claimed in 4(A).
+            "itc_ineligible": {
+                "integrated_tax": _filed(ineligible.igst),
+                "central_tax": _filed(ineligible.cgst),
+                "state_tax": _filed(ineligible.sgst),
+                "cess": _filed(ineligible.cess),
+            },
             "itc_reversed": {
                 "integrated_tax": _filed(reversed_.igst),
                 "central_tax": _filed(reversed_.cgst),
@@ -857,14 +901,20 @@ class GstReturnService:
                 "unplaced_reversals": _filed(unplaced),
                 "unplaced_return_count": unplaced_count,
             },
-            # Table 4(C): 4(A)(3) plus 4(A)(5), less 4(B).
+            # Table 4(C): 4(A)(3) plus 4(A)(5), less 4(B)(1) and 4(B)(2).
             "net_itc": {
                 "integrated_tax": _filed(
-                    claimed.igst + rcm_credit.igst - reversed_.igst
+                    claimed.igst + rcm_credit.igst - blocked.igst - reversed_.igst
                 ),
-                "central_tax": _filed(claimed.cgst + rcm_credit.cgst - reversed_.cgst),
-                "state_tax": _filed(claimed.sgst + rcm_credit.sgst - reversed_.sgst),
-                "cess": _filed(claimed.cess + rcm_credit.cess - reversed_.cess),
+                "central_tax": _filed(
+                    claimed.cgst + rcm_credit.cgst - blocked.cgst - reversed_.cgst
+                ),
+                "state_tax": _filed(
+                    claimed.sgst + rcm_credit.sgst - blocked.sgst - reversed_.sgst
+                ),
+                "cess": _filed(
+                    claimed.cess + rcm_credit.cess - blocked.cess - reversed_.cess
+                ),
             },
         }
 

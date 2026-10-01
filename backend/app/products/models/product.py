@@ -136,6 +136,12 @@ class Product(BaseEntity):
     model: Mapped[str | None] = mapped_column(String(120))
     hsn_sac: Mapped[str | None] = mapped_column(String(20))
     tax_profile_group_code: Mapped[str | None] = mapped_column(String(50), index=True)
+    #: Whether tax paid buying it may be claimed as input credit (backlog 78
+    #: row 1): ELIGIBLE, BLOCKED (s.17(5)) or INELIGIBLE. The default a
+    #: purchase bill line takes; the line can say otherwise.
+    itc_eligibility: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="ELIGIBLE", server_default="ELIGIBLE"
+    )
     base_uom_id: Mapped[UUID | None] = mapped_column(
         UUIDType(),
         ForeignKey("uoms.id", name="FK_products_base_uoms", ondelete="RESTRICT"),

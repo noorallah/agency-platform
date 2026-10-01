@@ -86,6 +86,7 @@ class DocumentLineSnapshot {
     this.amount = '',
     this.netAmount = '',
     this.remarks = '',
+    this.itcEligibility = '',
   });
 
   final int lineNumber;
@@ -105,6 +106,10 @@ class DocumentLineSnapshot {
   final String amount;
   final String netAmount;
   final String remarks;
+
+  /// A purchase bill line's resolved input credit status; empty on every
+  /// document that has none. Only a line that is not ELIGIBLE is flagged.
+  final String itcEligibility;
 
   factory DocumentLineSnapshot.fromJson(Json json) => DocumentLineSnapshot(
         lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,

@@ -430,6 +430,12 @@ class DebitNoteService(TransactionalDocumentService):
             taxable_amount=Decimal(str(row.taxable_amount)),
             tax_amount=Decimal(str(row.tax_amount)),
             tax_by_component=debit_note_tax_by_component(self._session, row.id),
+            blocked_tax_amount=sum(
+                debit_note_tax_by_component(
+                    self._session, row.id, claimable=False
+                ).values(),
+                ZERO,
+            ),
             reverse_charge_by_component=debit_note_reverse_charge(
                 self._session, row.id
             ).owed,
@@ -1014,7 +1020,9 @@ def _clean(value: str | None) -> str | None:
     return text or None
 
 
-def debit_note_tax_by_component(session: Session, note_id: UUID) -> dict[str, Decimal]:
+def debit_note_tax_by_component(
+    session: Session, note_id: UUID, *, claimable: bool = True
+) -> dict[str, Decimal]:
     """Split a debit note's tax by GST head, as its bill charged it.
 
     Each note line's tax is split in the proportions of its bill line's
@@ -1023,6 +1031,10 @@ def debit_note_tax_by_component(session: Session, note_id: UUID) -> dict[str, De
     both read this, so the books and the return reverse the same heads. A
     bill written before the rows existed gives nothing, and the posting then
     reverses `INPUT_TAX` as a whole.
+
+    ``claimable`` False returns the other part instead: the share of tax the
+    bill could not claim (backlog 78 row 1), which goes back to the cost
+    account rather than coming off input tax.
     """
     lines = session.scalars(
         select(DebitNoteLine).where(
@@ -1032,12 +1044,13 @@ def debit_note_tax_by_component(session: Session, note_id: UUID) -> dict[str, De
     ).all()
     if not lines:
         return {}
-    shares: dict[UUID, list[tuple[str, Decimal]]] = {}
-    for line_id, code, amount in session.execute(
+    shares: dict[UUID, list[tuple[str, Decimal, bool]]] = {}
+    for line_id, code, amount, recoverable in session.execute(
         select(
             PurchaseInvoiceLineTax.purchase_invoice_line_id,
             PurchaseInvoiceLineTax.component_code,
             PurchaseInvoiceLineTax.amount,
+            PurchaseInvoiceLineTax.recoverable,
         ).where(
             PurchaseInvoiceLineTax.purchase_invoice_line_id.in_(
                 [line.purchase_invoice_line_id for line in lines]
@@ -1048,14 +1061,20 @@ def debit_note_tax_by_component(session: Session, note_id: UUID) -> dict[str, De
             PurchaseInvoiceLineTax.reverse_charge.is_(False),
         )
     ).all():
-        shares.setdefault(line_id, []).append((code, Decimal(str(amount))))
+        shares.setdefault(line_id, []).append(
+            (code, Decimal(str(amount)), bool(recoverable))
+        )
     totals: dict[str, Decimal] = {}
     for line in lines:
         parts = shares.get(line.purchase_invoice_line_id, [])
-        charged = sum((amount for _, amount in parts), ZERO)
+        # Shared out over everything the bill line charged; only the part
+        # asked for -- claimed, or blocked (backlog 78 row 1) -- is returned.
+        charged = sum((amount for _, amount, _ in parts), ZERO)
         if charged <= ZERO:
             continue
-        for code, amount in parts:
+        for code, amount, recoverable in parts:
+            if recoverable is not claimable:
+                continue
             totals[code] = totals.get(code, ZERO) + quantize_money(
                 Decimal(str(line.tax_amount)) * amount / charged
             )

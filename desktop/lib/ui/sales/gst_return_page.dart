@@ -503,6 +503,7 @@ class _GstReturnPageState extends State<GstReturnPage> {
             ([_money(credited['taxable_value']), _money(credited['tax'])]),
           ],
         ),
+        _inputCredit(data),
         Padding(
           padding: const EdgeInsets.all(AppSpacing.md),
           child: Text(
@@ -513,6 +514,38 @@ class _GstReturnPageState extends State<GstReturnPage> {
           ),
         ),
       ],
+    );
+  }
+
+  /// Table 4: the credit claimed and what is taken off it. A block the server
+  /// did not send is left out rather than shown as zero, so an older server
+  /// never reads as "no blocked credit".
+  Widget _inputCredit(Json data) {
+    const List<(String, String)> lines = [
+      ('eligible_itc', '4(A)(5) All other ITC (includes blocked credit)'),
+      ('itc_reverse_charge', '4(A)(3) Reverse charge'),
+      ('itc_reversed_blocked', '4(B)(1) ITC reversed — blocked (s.17(5))'),
+      ('itc_reversed', '4(B)(2) ITC reversed — returns and others'),
+      ('net_itc', '4(C) Net ITC available'),
+      ('itc_ineligible', '4(D)(2) Ineligible ITC'),
+    ];
+    final List<List<String>> rows = [];
+    for (final (String key, String label) in lines) {
+      final Object? block = data[key];
+      if (block is! Map) continue;
+      rows.add([
+        label,
+        _money(block['integrated_tax']),
+        _money(block['central_tax']),
+        _money(block['state_tax']),
+        _money(block['cess']),
+      ]);
+    }
+    if (rows.isEmpty) return const SizedBox.shrink();
+    return _Section(
+      title: '4 — eligible input tax credit',
+      headers: const ['Line', 'IGST', 'CGST', 'SGST', 'Cess'],
+      rows: rows,
     );
   }
 

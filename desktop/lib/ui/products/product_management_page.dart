@@ -725,6 +725,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         'tax_profile_group_code': product.taxProfileGroupCode.isEmpty
             ? null
             : product.taxProfileGroupCode,
+        'itc_eligibility': product.itcEligibility,
         'base_uom_id': product.baseUomId.isEmpty ? null : product.baseUomId,
         'inventory_uom_id':
             product.inventoryUomId.isEmpty ? null : product.inventoryUomId,
@@ -828,6 +829,7 @@ class _ProductManagementPageState extends State<ProductManagementPage> {
         uoms: _controller.uoms,
         licenceTypes: _controller.licenceTypes,
         profileUomDefaults: _controller.profileUomDefaults,
+        canManageTax: widget.permissions.hasPermission('PRODUCT_TAX_MANAGE'),
         definitions: _controller.attributeDefinitions,
         metadata: _controller.metadata,
         initialTab: _dialogTab,
@@ -1680,7 +1682,12 @@ class ProductWorkspaceDialog extends StatefulWidget {
     required this.onSave,
     required this.onTabChanged,
     this.profileUomDefaults,
+    this.canManageTax = true,
   });
+
+  /// Whether the signed-in user holds PRODUCT_TAX_MANAGE; without it the
+  /// input credit setting is shown but cannot be changed.
+  final bool canManageTax;
 
   final ProductDialogMode mode;
   final Product? product;
@@ -1738,6 +1745,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
   late String _categoryId;
   late String _requiredLicenceTypeId;
   late String _taxProfileGroupCode;
+  late String _itcEligibility;
   late String _baseUomId;
   late String _inventoryUomId;
   late String _purchaseUomId;
@@ -1830,6 +1838,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
     _categoryId = product?.categoryId ?? '';
     _requiredLicenceTypeId = product?.requiredLicenceTypeId ?? '';
     _taxProfileGroupCode = product?.taxProfileGroupCode ?? '';
+    _itcEligibility = product?.itcEligibility ?? 'ELIGIBLE';
     // A new product starts on the firm's industry defaults; an existing one
     // keeps exactly what it was saved with. Defaulting an edit would silently
     // rewrite units a user had deliberately cleared.
@@ -2572,8 +2581,45 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
                       setState(() => _taxProfileGroupCode = value ?? ''),
             ),
           ),
+          SizedBox(
+            width: 320,
+            child: DropdownButtonFormField<String>(
+              key: const ValueKey('product-itc-eligibility'),
+              isExpanded: true,
+              initialValue: _itcEligibility,
+              decoration: InputDecoration(
+                labelText: 'Input credit',
+                helperText: widget.canManageTax
+                    ? _itcHelp[_itcEligibility]
+                    : 'Needs the product tax permission to change',
+                helperMaxLines: 2,
+              ),
+              items: [
+                for (final entry in _itcLabels.entries)
+                  DropdownMenuItem<String>(
+                    value: entry.key,
+                    child: Text(entry.value, overflow: TextOverflow.ellipsis),
+                  ),
+              ],
+              onChanged: _readOnly || !widget.canManageTax
+                  ? null
+                  : (value) =>
+                      setState(() => _itcEligibility = value ?? 'ELIGIBLE'),
+            ),
+          ),
         ],
       );
+
+  static const Map<String, String> _itcLabels = {
+    'ELIGIBLE': 'Eligible',
+    'BLOCKED': 'Blocked (s.17(5))',
+    'INELIGIBLE': 'Ineligible',
+  };
+  static const Map<String, String> _itcHelp = {
+    'ELIGIBLE': 'Input credit can be claimed',
+    'BLOCKED': 'Cars, food and catering, personal use, gifts',
+    'INELIGIBLE': 'Any other reason the credit is lost',
+  };
 
   Widget _attributesSection() {
     final List<String> requiredIds = _metadata.requiredAttributeDefinitionIds;
@@ -2964,6 +3010,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
           _requiredLicenceTypeId.isEmpty ? null : _requiredLicenceTypeId,
       'tax_profile_group_code':
           _taxProfileGroupCode.isEmpty ? null : _taxProfileGroupCode,
+      'itc_eligibility': _itcEligibility,
       'base_uom_id': _baseUomId.isEmpty ? null : _baseUomId,
       'inventory_uom_id': _inventoryUomId.isEmpty ? null : _inventoryUomId,
       'purchase_uom_id': _purchaseUomId.isEmpty ? null : _purchaseUomId,
@@ -3051,6 +3098,7 @@ class _ProductWorkspaceDialogState extends State<ProductWorkspaceDialog> {
       _requireSerialOnReceipt = false;
       _requireSerialOnIssue = false;
       _taxProfileGroupCode = '';
+      _itcEligibility = 'ELIGIBLE';
       _purchasePrice.clear();
       _sellingPrice.clear();
       _mrp.clear();

@@ -236,6 +236,12 @@ class PurchaseInvoiceLine(BaseEntity):
     tax_profile_id: Mapped[UUID | None] = mapped_column(
         UUIDType(), ForeignKey("tax_profiles.id", ondelete="RESTRICT")
     )
+    #: Whether this line's tax is claimable credit (backlog 78 row 1):
+    #: ELIGIBLE, BLOCKED (s.17(5)) or INELIGIBLE. Decides `recoverable` on its
+    #: tax rows; blocked tax posts to the cost account, not to input tax.
+    itc_eligibility: Mapped[str] = mapped_column(
+        String(20), nullable=False, default="ELIGIBLE", server_default="ELIGIBLE"
+    )
     tax_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 4), nullable=False, default=Decimal("0"), server_default="0"
     )

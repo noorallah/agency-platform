@@ -124,6 +124,10 @@ class ControlAccountPurpose(StrEnum):
     #: What the firm owed a supplier and will not pay -- a balance written
     #: back. Other income, beside the trading accounts rather than in them.
     BALANCES_WRITTEN_BACK = "BALANCES_WRITTEN_BACK"
+    #: Tax on a purchase the firm may not claim as credit (backlog 78 row 1:
+    #: s.17(5) blocked credit, or ineligible): a cost of the purchase, kept
+    #: on its own account so the books show what credit was given up.
+    INELIGIBLE_INPUT_TAX = "INELIGIBLE_INPUT_TAX"
 
 
 INPUT_TAX_PURPOSE_BY_COMPONENT.update(
@@ -241,6 +245,7 @@ EXPECTED_TYPE: dict[ControlAccountPurpose, frozenset[str]] = {
     ControlAccountPurpose.BANK_CHARGES: frozenset({"EXPENSE"}),
     ControlAccountPurpose.BAD_DEBTS: frozenset({"EXPENSE"}),
     ControlAccountPurpose.BALANCES_WRITTEN_BACK: frozenset({"INCOME"}),
+    ControlAccountPurpose.INELIGIBLE_INPUT_TAX: frozenset({"EXPENSE"}),
 }
 
 
@@ -302,6 +307,7 @@ PURPOSE_LABELS: dict[ControlAccountPurpose, str] = {
     ControlAccountPurpose.BANK_CHARGES: "Bank charges",
     ControlAccountPurpose.BAD_DEBTS: "Bad debts",
     ControlAccountPurpose.BALANCES_WRITTEN_BACK: "Balances written back",
+    ControlAccountPurpose.INELIGIBLE_INPUT_TAX: "Input tax not claimable",
 }
 
 

@@ -617,6 +617,28 @@ Cancelling an approved bill mirrors its journal leg for leg, so the split
 reverses itself. Nothing on the sales side changed: output tax has always
 carried its components and 3B's outward half has always read them.
 
+## Tax the firm may not claim is a cost, not input tax
+
+Backlog 78 row 1, D-TAX-1, decision A36. Tax a supplier charged on a purchase
+that gives no credit -- blocked under s.17(5) (a car, catering, personal use,
+gifts) or ineligible for another reason -- is part of the payable but not input
+credit. Each purchase bill line carries `itc_eligibility`: the line's own, else
+the product's, else a tax rule's *Input credit blocked*, else ELIGIBLE. Its tax
+rows are `recoverable` only when the line is ELIGIBLE.
+
+| Document | Claimable tax | Tax not claimable |
+| --- | --- | --- |
+| Bill | Dr input tax, head by head | Dr *Input Tax Not Claimable* (5450, `INELIGIBLE_INPUT_TAX`) |
+| Return off the bill | Cr input tax, its share | Cr 5450, its share |
+| Debit note off the bill | Cr input tax, its share | Cr 5450, its share |
+
+Reverse charge keeps the component's own `recoverable`: the liability is owed
+whether or not the credit is. GSTR-3B reports blocked credit in 4(A)(5) and
+reverses it in 4(B)(1) (`itc_reversed_blocked`, CBIC circular 170/02/2022);
+ineligible credit never enters 4(A) and is shown in 4(D)(2) (`itc_ineligible`).
+A return's or a debit note's blocked share is never a 4(B)(2) reversal --
+nothing was claimed.
+
 ## The opening trial balance is one journal, replaced whole
 
 Built 2026-09-30 (`docs/BACKLOG.md` §36, the second cutover gap). Cash, bank,

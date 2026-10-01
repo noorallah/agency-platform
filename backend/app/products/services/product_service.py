@@ -88,8 +88,14 @@ PRODUCT_DUTY_FIELDS: dict[str, dict[str, str]] = {
         "minimum_selling_price": "minimum selling price",
         "mrp": "MRP",
     },
-    "PRODUCT_TAX_MANAGE": {"tax_profile_group_code": "tax group"},
+    "PRODUCT_TAX_MANAGE": {
+        "tax_profile_group_code": "tax group",
+        "itc_eligibility": "input credit eligibility",
+    },
 }
+#: What a new product holds for a duty field nobody set: sending it is not a
+#: decision, so it needs no duty. Every other such field is empty by default.
+_CREATE_DEFAULTS: dict[str, object] = {"itc_eligibility": "ELIGIBLE"}
 #: The custom fields are the third duty, over a collection rather than a
 #: column, so it is judged by ``_assert_attribute_duty_held`` instead.
 ATTRIBUTE_DUTY = "PRODUCT_ATTRIBUTE_MANAGE"
@@ -706,7 +712,11 @@ class ProductService:
             for field, label in PRODUCT_DUTY_FIELDS.get(duty, {}).items():
                 if field not in values:
                     continue
-                stored = None if product is None else getattr(product, field)
+                stored = (
+                    _CREATE_DEFAULTS.get(field)
+                    if product is None
+                    else getattr(product, field)
+                )
                 if values[field] == stored:
                     continue
                 raise AuthorizationError(
@@ -1757,6 +1767,7 @@ class ProductService:
             "model": product.model,
             "hsn_sac": product.hsn_sac,
             "tax_profile_group_code": product.tax_profile_group_code,
+            "itc_eligibility": product.itc_eligibility,
             "base_uom_id": product.base_uom_id,
             "inventory_uom_id": product.inventory_uom_id,
             "purchase_uom_id": product.purchase_uom_id,

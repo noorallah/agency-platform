@@ -193,6 +193,7 @@ class Product {
     required this.model,
     required this.hsnSac,
     this.taxProfileGroupCode = '',
+    this.itcEligibility = 'ELIGIBLE',
     String? taxProfileId,
     this.baseUomId = '',
     this.inventoryUomId = '',
@@ -260,6 +261,10 @@ class Product {
   final String model;
   final String hsnSac;
   final String taxProfileGroupCode;
+
+  /// Whether the GST on buying this can be claimed as input credit:
+  /// ELIGIBLE, BLOCKED (s.17(5)) or INELIGIBLE (backlog 78 row 1).
+  final String itcEligibility;
   final String baseUomId;
   final String inventoryUomId;
   final String purchaseUomId;
@@ -328,6 +333,9 @@ class Product {
             stringValue(json['tax_profile_group_code']).isNotEmpty
                 ? stringValue(json['tax_profile_group_code'])
                 : stringValue(json['tax_profile_id']),
+        itcEligibility: stringValue(json['itc_eligibility']).isNotEmpty
+            ? stringValue(json['itc_eligibility'])
+            : 'ELIGIBLE',
         baseUomId: stringValue(json['base_uom_id']),
         inventoryUomId: stringValue(json['inventory_uom_id']),
         purchaseUomId: stringValue(json['purchase_uom_id']),

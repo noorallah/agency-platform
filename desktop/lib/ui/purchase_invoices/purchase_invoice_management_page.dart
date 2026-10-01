@@ -802,6 +802,7 @@ class _PurchaseInvoiceManagementPageState
               amount: line.grossAmount,
               netAmount: line.netAmount,
               remarks: line.remarks,
+              itcEligibility: line.itcEligibility,
             ),
         ],
         totals: record.toTotals(),
@@ -1061,6 +1062,7 @@ class _PurchaseInvoiceLine {
     required this.grossAmount,
     required this.netAmount,
     required this.remarks,
+    this.itcEligibility = '',
   });
 
   final int lineNumber;
@@ -1076,6 +1078,9 @@ class _PurchaseInvoiceLine {
   final String netAmount;
   final String remarks;
 
+  /// The input credit status the server resolved for the line.
+  final String itcEligibility;
+
   factory _PurchaseInvoiceLine.fromJson(Map<String, dynamic> json) =>
       _PurchaseInvoiceLine(
         lineNumber: (json['line_number'] as num?)?.toInt() ?? 0,
@@ -1090,5 +1095,6 @@ class _PurchaseInvoiceLine {
         grossAmount: stringValue(json['gross_amount']),
         netAmount: stringValue(json['net_amount']),
         remarks: stringValue(json['remarks']),
+        itcEligibility: stringValue(json['itc_eligibility']),
       );
 }
