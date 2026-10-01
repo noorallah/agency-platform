@@ -180,3 +180,23 @@ def test_unknown_or_repeated_dimensions_are_refused() -> None:
         service.analyse(
             books.firm.id, rows="month", columns="month", from_date=FROM, to_date=TO
         )
+
+
+@pytest.mark.parametrize(
+    ("on", "label"),
+    [
+        (date(2026, 6, 30), "Q1 2026-27"),
+        (date(2026, 7, 1), "Q2 2026-27"),
+        (date(2026, 12, 15), "Q3 2026-27"),
+        (date(2027, 1, 5), "Q4 2026-27"),
+        (date(2027, 3, 31), "Q4 2026-27"),
+    ],
+)
+def test_every_month_lands_in_its_quarter(on: date, label: str) -> None:
+    """June was rounded into Q2 by true division (found on WHOLE01)."""
+    books = _Books(_session_factory()())
+    _second_invoice(books, on, books.product, "118")
+    result = SalesAnalysisService(books.session).analyse(
+        books.firm.id, rows="quarter", columns=None, from_date=on, to_date=on
+    )
+    assert [row.label for row in result.rows] == [label]
