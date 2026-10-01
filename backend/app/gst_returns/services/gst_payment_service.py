@@ -16,12 +16,26 @@ after the 20th of the next month, on the cash part only; the person recording
 the challan states what was actually paid. Filing on the portal is not done
 here (the sandbox rule in `docs/LEDGER_POSTING_RULES.md` stands).
 
-Recording the challan posts **one journal**: Dr Output tax for the whole
-liability; Cr Input tax, head by head, for the credit used; Cr the bank for the
-cash, interest and late fee; Dr the chosen expense accounts for interest and
-late fee. After it the month's output tax is cleared and the input tax holds
-only the credit carried forward -- the check that the books and the return
-agree.
+Reverse charge on inward supplies (3.1(d), backlog 68 row 8) is paid **in cash
+only** (section 49(4)): it never enters the set-off, so no credit of any head
+can pay it, and its cash is added to the challan on top of what the set-off
+leaves.
+
+Recording the challan posts **one journal**: Dr output tax for the whole
+liability, head by head (below); Dr reverse-charge payable per head; Cr Input
+tax, head by head, for the credit used; Cr the bank for the cash, interest and
+late fee; Dr the chosen expense accounts for interest and late fee. After it
+the month's output tax is cleared and the input tax holds only the credit
+carried forward -- the check that the books and the return agree.
+
+**Output tax per head, and the single account before it (backlog 63.3).**
+Sales posted to one `OUTPUT_TAX` account until the split; history is left
+where it was posted. So each head's account is debited by what the month's
+own documents credited to it (never more than that head's liability), and
+whatever is left of the liability -- a month posted before the split, cess,
+a component the split does not name -- is debited to `OUTPUT_TAX`. A month
+wholly before the split clears the single account exactly as it always did;
+a month wholly after clears the heads; a month straddling it clears both.
 """
 
 from dataclasses import dataclass, field
@@ -29,14 +43,20 @@ from datetime import date, timedelta
 from decimal import ROUND_HALF_UP, Decimal
 from uuid import UUID, uuid4
 
-from sqlalchemy import select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.common.audit.services import record_audit
 from app.core.exceptions import ResourceNotFoundError, ValidationError
 from app.core.utils.dates import utc_now
 from app.core.utils.money import quantize_ledger
-from app.finance.models import AccountType, LedgerAccount
+from app.finance.models import (
+    AccountType,
+    JournalEntry,
+    JournalLine,
+    JournalStatus,
+    LedgerAccount,
+)
 from app.finance.services.control_accounts import (
     ControlAccountPurpose,
     ControlAccountService,
@@ -54,6 +74,20 @@ CREDIT_PURPOSE: dict[str, ControlAccountPurpose] = {
     "cgst": ControlAccountPurpose.INPUT_TAX_CGST,
     "sgst": ControlAccountPurpose.INPUT_TAX_SGST,
     "cess": ControlAccountPurpose.INPUT_TAX,
+}
+#: The output-tax account each head is owed through since backlog 63.3.
+#: Cess has none of its own and stays on `OUTPUT_TAX`.
+OUTPUT_PURPOSE: dict[str, ControlAccountPurpose] = {
+    "igst": ControlAccountPurpose.OUTPUT_TAX_IGST,
+    "cgst": ControlAccountPurpose.OUTPUT_TAX_CGST,
+    "sgst": ControlAccountPurpose.OUTPUT_TAX_SGST,
+}
+#: The reverse-charge payable account each head is owed through (68 row 8).
+RCM_PURPOSE: dict[str, ControlAccountPurpose] = {
+    "igst": ControlAccountPurpose.RCM_PAYABLE_IGST,
+    "cgst": ControlAccountPurpose.RCM_PAYABLE_CGST,
+    "sgst": ControlAccountPurpose.RCM_PAYABLE_SGST,
+    "cess": ControlAccountPurpose.RCM_PAYABLE,
 }
 SOURCE_MODULE = "gst_payment"
 
@@ -157,11 +191,20 @@ class GstPaymentPreview:
     previous_settled: bool
     days_late: int
     suggested_interest: Decimal
+    #: Reverse charge on inward supplies per head (3.1(d)): cash only, never
+    #: set off -- outside `set_off` entirely, so no credit can reach it.
+    reverse_charge: dict[str, Decimal] = field(
+        default_factory=lambda: {head: ZERO for head in HEADS}
+    )
+
+    def cash(self, head: str) -> Decimal:
+        """Return the cash one head needs: what the set-off left, plus RCM."""
+        return self.set_off.cash(head) + max(self.reverse_charge[head], ZERO)
 
     @property
     def cash_total(self) -> Decimal:
         """Return all cash payable for tax, before interest and late fee."""
-        return sum((self.set_off.cash(head) for head in HEADS), ZERO)
+        return sum((self.cash(head) for head in HEADS), ZERO)
 
 
 class GstPaymentService:
@@ -199,6 +242,7 @@ class GstPaymentService:
         )
         outward = _heads(summary["outward_taxable_supplies"])
         net_itc = _heads(summary["net_itc"])
+        reverse_charge = _heads(summary.get("inward_reverse_charge"))
         previous = self._previous(firm_id, return_period)
         if previous is not None:
             brought = {head: getattr(previous, f"carried_{head}") for head in HEADS}
@@ -211,7 +255,10 @@ class GstPaymentService:
         result = set_off(outward, credit)
         paid_on = payment_date or utc_now().date()
         days_late = max((paid_on - due_date(return_period)).days, 0)
-        cash = sum((result.cash(head) for head in HEADS), ZERO)
+        cash = sum(
+            (result.cash(head) + max(reverse_charge[head], ZERO) for head in HEADS),
+            ZERO,
+        )
         interest = (cash * INTEREST_RATE * days_late / Decimal(365)).quantize(
             Decimal("1"), rounding=ROUND_HALF_UP
         )
@@ -223,6 +270,7 @@ class GstPaymentService:
             previous_settled=previous is not None,
             days_late=days_late,
             suggested_interest=quantize_ledger(interest),
+            reverse_charge=reverse_charge,
         )
 
     def record(
@@ -297,8 +345,14 @@ class GstPaymentService:
         )
         result = preview.set_off
         liability_total = sum((max(result.liability[h], ZERO) for h in HEADS), ZERO)
+        reverse_charge = {h: max(preview.reverse_charge[h], ZERO) for h in HEADS}
         cash_total = preview.cash_total
-        if liability_total == ZERO and interest == ZERO and late_fee == ZERO:
+        if (
+            liability_total == ZERO
+            and sum(reverse_charge.values(), ZERO) == ZERO
+            and interest == ZERO
+            and late_fee == ZERO
+        ):
             raise ValidationError(
                 f"{return_period} owes no GST and nothing else was paid, so "
                 "there is nothing to record."
@@ -306,16 +360,29 @@ class GstPaymentService:
 
         control = ControlAccountService(self._session)
         lines: list[JournalLineData] = []
-        if liability_total > ZERO:
+        first, last = period_bounds(return_period)
+        for account_id, amount in self._output_debits(
+            firm_id, result.liability, first=first, last=last
+        ).items():
             lines.append(
                 JournalLineData(
-                    ledger_account_id=control.resolve(
-                        firm_id, ControlAccountPurpose.OUTPUT_TAX
-                    ),
-                    debit_amount=liability_total,
+                    ledger_account_id=account_id,
+                    debit_amount=amount,
                     description=f"GST {return_period} settled",
                 )
             )
+        for head in HEADS:
+            if reverse_charge[head] > ZERO:
+                lines.append(
+                    JournalLineData(
+                        ledger_account_id=control.resolve(firm_id, RCM_PURPOSE[head]),
+                        debit_amount=reverse_charge[head],
+                        description=(
+                            f"{head.upper()} reverse charge paid in cash, "
+                            f"{return_period}"
+                        ),
+                    )
+                )
         for head in HEADS:
             used = result.used(head)
             if used > ZERO:
@@ -397,6 +464,7 @@ class GstPaymentService:
             setattr(row, f"used_{head}", result.used(head))
             setattr(row, f"cash_{head}", result.cash(head))
             setattr(row, f"carried_{head}", result.carried(head))
+            setattr(row, f"reverse_charge_{head}", reverse_charge[head])
         self._session.add(row)
         self._session.flush()
         record_audit(
@@ -499,6 +567,76 @@ class GstPaymentService:
         first, _ = period_bounds(return_period)
         before = first - timedelta(days=1)
         return self._standing(firm_id, f"{before.year:04d}-{before.month:02d}")
+
+    def _output_debits(
+        self,
+        firm_id: UUID,
+        liability: dict[str, Decimal],
+        *,
+        first: date,
+        last: date,
+    ) -> dict[UUID, Decimal]:
+        """Return what to debit on each output-tax account to clear the month.
+
+        Each head's account takes what the month's documents credited to it,
+        net of their reversals and never more than the head's liability; the
+        rest of the liability -- posted before the split, or cess -- goes to
+        `OUTPUT_TAX` (backlog 63.3). Amounts are merged by account, so a firm
+        that mapped a head to the single account gets one line.
+        """
+        control = ControlAccountService(self._session)
+        mapping = control.mapping(firm_id)
+        total = sum((max(liability[head], ZERO) for head in HEADS), ZERO)
+        debits: dict[UUID, Decimal] = {}
+        on_heads = ZERO
+        for head, purpose in OUTPUT_PURPOSE.items():
+            account_id = mapping.get(purpose.value)
+            owed = max(liability[head], ZERO)
+            if account_id is None or owed == ZERO:
+                continue
+            posted = max(
+                self._credited(firm_id, account_id, first=first, last=last), ZERO
+            )
+            amount = min(posted, owed)
+            if amount > ZERO:
+                debits[account_id] = debits.get(account_id, ZERO) + amount
+                on_heads += amount
+        rest = total - on_heads
+        if rest > ZERO:
+            legacy = control.resolve(firm_id, ControlAccountPurpose.OUTPUT_TAX)
+            debits[legacy] = debits.get(legacy, ZERO) + rest
+        return debits
+
+    def _credited(
+        self, firm_id: UUID, account_id: UUID, *, first: date, last: date
+    ) -> Decimal:
+        """Return the net credit the month's documents posted to one account.
+
+        Settlements are left out: they are what clears the account, and a
+        reversed one would otherwise read as tax owed again.
+        """
+        value = self._session.scalar(
+            select(
+                func.coalesce(
+                    func.sum(JournalLine.credit_amount - JournalLine.debit_amount), 0
+                )
+            )
+            .join(JournalEntry, JournalEntry.id == JournalLine.journal_entry_id)
+            .where(
+                JournalEntry.firm_id == firm_id,
+                JournalEntry.status == JournalStatus.POSTED.value,
+                JournalEntry.is_deleted.is_(False),
+                JournalEntry.journal_date >= first,
+                JournalEntry.journal_date <= last,
+                or_(
+                    JournalEntry.source_module.is_(None),
+                    JournalEntry.source_module != SOURCE_MODULE,
+                ),
+                JournalLine.ledger_account_id == account_id,
+                JournalLine.is_deleted.is_(False),
+            )
+        )
+        return quantize_ledger(Decimal(str(value or 0)))
 
     def _expense_account(
         self, firm_id: UUID, account_id: UUID | None, amount: Decimal, what: str

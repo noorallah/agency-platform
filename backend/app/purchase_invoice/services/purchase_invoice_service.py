@@ -144,6 +144,42 @@ class _LineTax:
     profile_id: UUID | None
     total: Decimal
     components: list[_LineTaxComponent]
+    #: The engine decided the firm owes this tax itself (backlog 68 row 8):
+    #: `total` is then nothing, and the components are what it owes.
+    reverse_charge: bool = False
+
+
+class SelfInvoiceNumbering(TransactionalDocumentService):
+    """Issue the next self-invoice number for a reverse-charge supply.
+
+    Its own series (prefix ``SI``), never the purchase bill's: a self-invoice
+    is a tax invoice the firm raises on itself, and GSTR-1's document summary
+    declares its series separately. Reserves under the series lock and
+    flushes; it never commits, so a refused approval takes the number back.
+    """
+
+    DOCUMENT = DocumentTypeSpec(
+        code="RCM_SELF_INVOICE",
+        name="Self Invoice (Reverse Charge)",
+        description="Self-invoice for an inward supply under reverse charge",
+        category="FINANCE",
+        module="purchase_invoice",
+        prefix="SI",
+        states=(DocumentStateSpec("ISSUED", "Issued", 1, is_terminal=True),),
+    )
+
+    def issue(self, *, firm_id: UUID, on: date, actor_id: UUID) -> str:
+        """Return the series' next number for a bill dated ``on``."""
+        _, rule = self._ensure_document_setup(firm_id=firm_id, actor_id=actor_id)
+        return self._issue_number(
+            rule,
+            typed=None,
+            number_column=PurchaseInvoice.self_invoice_number,  # type: ignore[arg-type]
+            firm_id=firm_id,
+            document_date=on,
+            actor_id=actor_id,
+            company_code=self._company_code(firm_id),
+        )
 
 
 class PurchaseInvoiceService(TransactionalDocumentService):
@@ -445,6 +481,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         row.line_discount_total = line_totals["line_discount_total"]
         row.subtotal = line_totals["subtotal"]
         row.tax_total = line_totals["tax_total"]
+        row.reverse_charge_tax_total = line_totals["reverse_charge_tax_total"]
         row.grand_total = self._q(
             row.subtotal
             + row.tax_total
@@ -575,6 +612,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         row.line_discount_total = line_totals["line_discount_total"]
         row.subtotal = line_totals["subtotal"]
         row.tax_total = line_totals["tax_total"]
+        row.reverse_charge_tax_total = line_totals["reverse_charge_tax_total"]
         row.grand_total = self._q(
             row.subtotal
             + row.tax_total
@@ -632,6 +670,17 @@ class PurchaseInvoiceService(TransactionalDocumentService):
         row.status = PurchaseInvoiceStatus.APPROVED.value
         row.approved_at = utc_now()
         row.updated_by = actor_id
+        # A supply under reverse charge needs a self-invoice (rule 47A), from
+        # its own series and never the bill's, issued as the liability is
+        # recorded (backlog 68 row 8). Kept on a cancelled bill, as a
+        # cancelled voucher keeps its number.
+        reverse_charge = self._tax_by_component(row.id, reverse_charge=True)
+        if row.self_invoice_number is None and any(
+            amount > ZERO for amount in reverse_charge.values()
+        ):
+            row.self_invoice_number = SelfInvoiceNumbering(self._session).issue(
+                firm_id=firm_scope, on=row.invoice_date, actor_id=actor_id
+            )
         # Posting runs before the commit and may fail the approval, matching the
         # sales side. Goods value clears the receipt accrual rather than touching
         # inventory, which was already valued at what the receipt cost.
@@ -646,6 +695,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             total_amount=self._q(row.grand_total),
             actor_id=actor_id,
             tax_by_component=self._tax_by_component(row.id),
+            reverse_charge_by_component=reverse_charge,
         )
         # Warned, not refused: the bill is owed whatever its terms say, and
         # paying it in time is what the warning is for (backlog 68 row 2).
@@ -937,6 +987,8 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             additional_charges=row.additional_charges,
             round_off=row.round_off,
             grand_total=row.grand_total,
+            reverse_charge_tax_total=row.reverse_charge_tax_total,
+            self_invoice_number=row.self_invoice_number,
             approved_at=row.approved_at,
             closed_at=row.closed_at,
             cancel_reason=row.cancel_reason,
@@ -1603,10 +1655,13 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                         amount=component.amount,
                         included_in_price=component.included_in_price,
                         recoverable=component.recoverable,
+                        reverse_charge=line_tax.reverse_charge,
                         created_by=actor_id,
                         updated_by=actor_id,
                     )
                 )
+                if line_tax.reverse_charge and not component.included_in_price:
+                    totals["reverse_charge_tax_total"] += component.amount
             totals["total_source_quantity"] += source_quantity
             totals["total_already_invoiced_quantity"] += already_invoiced
             totals["total_current_invoice_quantity"] += invoice_quantity
@@ -1618,6 +1673,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             totals["subtotal"] += self._q(gross_amount - discount_amount - bill_share)
             totals["line_charges_total"] += charges_amount
             totals["tax_total"] += tax_amount
+        totals["reverse_charge_tax_total"] += ZERO
         return {key: self._q(value) for key, value in totals.items()}
 
     def _replace_attachments(
@@ -1914,13 +1970,19 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                     "Every invoice line must reference a selected source document."
                 )
 
-    def _tax_by_component(self, invoice_id: UUID) -> dict[str, Decimal]:
+    def _tax_by_component(
+        self, invoice_id: UUID, *, reverse_charge: bool = False
+    ) -> dict[str, Decimal]:
         """Sum the bill's tax per component code, off the rows its lines keep.
 
         What the posting splits the input tax by, one account per GST head
         (D-CMP-20). Empty for a bill whose lines carry no rows -- one written
         before they existed -- and the posting then books the total as it
         always did.
+
+        With ``reverse_charge`` it sums the other half instead: the tax the
+        firm owes itself under reverse charge (backlog 68 row 8), which the
+        supplier did not charge and the payable never includes.
         """
         totals: dict[str, Decimal] = {}
         for code, amount in self._session.execute(
@@ -1938,6 +2000,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                 PurchaseInvoiceLine.is_deleted.is_(False),
                 PurchaseInvoiceLineTax.is_deleted.is_(False),
                 PurchaseInvoiceLineTax.included_in_price.is_(False),
+                PurchaseInvoiceLineTax.reverse_charge.is_(reverse_charge),
             )
             .group_by(PurchaseInvoiceLineTax.component_code)
         ).all():
@@ -2058,6 +2121,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
             # names none still gets the product's, and the line should say so.
             profile_id=response.applied_tax_profile_id or tax_profile_id,
             total=self._q(response.total_tax_amount),
+            reverse_charge=response.reverse_charge,
             components=[
                 _LineTaxComponent(
                     tax_component_id=component.tax_component_id,
@@ -2669,6 +2733,7 @@ class PurchaseInvoiceService(TransactionalDocumentService):
                     amount=component.amount,
                     included_in_price=component.included_in_price,
                     recoverable=component.recoverable,
+                    reverse_charge=component.reverse_charge,
                 )
                 for component in (taxes or [])
             ],

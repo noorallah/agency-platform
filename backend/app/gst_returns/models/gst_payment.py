@@ -90,6 +90,13 @@ class GstPayment(BaseEntity):
     cash_cgst: Mapped[Decimal] = _money()
     cash_sgst: Mapped[Decimal] = _money()
     cash_cess: Mapped[Decimal] = _money()
+    # Reverse charge on inward supplies (GSTR-3B 3.1(d), backlog 68 row 8):
+    # paid in cash only, section 49(4) -- no credit is ever set against it,
+    # so it is kept apart from the liability the set-off works on.
+    reverse_charge_igst: Mapped[Decimal] = _money()
+    reverse_charge_cgst: Mapped[Decimal] = _money()
+    reverse_charge_sgst: Mapped[Decimal] = _money()
+    reverse_charge_cess: Mapped[Decimal] = _money()
     # Credit left, carried to the next month.
     carried_igst: Mapped[Decimal] = _money()
     carried_cgst: Mapped[Decimal] = _money()

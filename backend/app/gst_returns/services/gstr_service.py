@@ -758,10 +758,15 @@ class GstReturnService:
                 PurchaseInvoiceLineTax.is_deleted.is_(False),
                 PurchaseInvoiceLineTax.recoverable.is_(True),
                 PurchaseInvoiceLineTax.included_in_price.is_(False),
+                # Reverse charge is claimed in 4(A)(3), never in 4(A)(5).
+                PurchaseInvoiceLineTax.reverse_charge.is_(False),
             )
         ).all():
             billed_ids.add(invoice_id)
             claimed = claimed.plus(_bucket(code, Decimal(str(amount))))
+        inward_rcm, rcm_credit = self._reverse_charge_inward(
+            firm_scope=firm_scope, from_date=from_date, to_date=to_date
+        )
         without_rows = self._session.scalar(
             select(func.count())
             .select_from(PurchaseInvoice)
@@ -821,6 +826,21 @@ class GstReturnService:
                 unplaced_count += 1
 
         return {
+            # 3.1(d): inward supplies on which the firm pays the tax itself.
+            "inward_reverse_charge": {
+                "taxable_value": _filed(inward_rcm[0]),
+                "integrated_tax": _filed(inward_rcm[1].igst),
+                "central_tax": _filed(inward_rcm[1].cgst),
+                "state_tax": _filed(inward_rcm[1].sgst),
+                "cess": _filed(inward_rcm[1].cess),
+            },
+            # 4(A)(3): the credit of that same tax.
+            "itc_reverse_charge": {
+                "integrated_tax": _filed(rcm_credit.igst),
+                "central_tax": _filed(rcm_credit.cgst),
+                "state_tax": _filed(rcm_credit.sgst),
+                "cess": _filed(rcm_credit.cess),
+            },
             "eligible_itc": {
                 "integrated_tax": _filed(claimed.igst),
                 "central_tax": _filed(claimed.cgst),
@@ -837,13 +857,88 @@ class GstReturnService:
                 "unplaced_reversals": _filed(unplaced),
                 "unplaced_return_count": unplaced_count,
             },
+            # Table 4(C): 4(A)(3) plus 4(A)(5), less 4(B).
             "net_itc": {
-                "integrated_tax": _filed(claimed.igst - reversed_.igst),
-                "central_tax": _filed(claimed.cgst - reversed_.cgst),
-                "state_tax": _filed(claimed.sgst - reversed_.sgst),
-                "cess": _filed(claimed.cess - reversed_.cess),
+                "integrated_tax": _filed(
+                    claimed.igst + rcm_credit.igst - reversed_.igst
+                ),
+                "central_tax": _filed(claimed.cgst + rcm_credit.cgst - reversed_.cgst),
+                "state_tax": _filed(claimed.sgst + rcm_credit.sgst - reversed_.sgst),
+                "cess": _filed(claimed.cess + rcm_credit.cess - reversed_.cess),
             },
         }
+
+    def _reverse_charge_inward(
+        self, *, firm_scope: UUID, from_date: date, to_date: date
+    ) -> tuple[tuple[Decimal, GstBuckets], GstBuckets]:
+        """Return 3.1(d) and 4(A)(3): reverse charge on the period's bills.
+
+        Read off the components each approved or closed bill recorded as
+        reverse charge (backlog 68 row 8), the same rows the posting credits
+        to reverse-charge payable. The taxable value is each such line's own,
+        counted once however many components it carries; the credit is the
+        recoverable part of the tax.
+
+        Returns:
+            ((taxable value, tax per head), credit per head).
+
+        """
+        from app.purchase_invoice.models import (
+            PurchaseInvoice,
+            PurchaseInvoiceLine,
+            PurchaseInvoiceLineTax,
+        )
+
+        taxable = ZERO
+        owed = GstBuckets()
+        credit = GstBuckets()
+        lines_counted: set[UUID] = set()
+        for (
+            line_id,
+            line_net,
+            line_tax,
+            code,
+            amount,
+            recoverable,
+        ) in self._session.execute(
+            select(
+                PurchaseInvoiceLine.id,
+                PurchaseInvoiceLine.net_amount,
+                PurchaseInvoiceLine.tax_amount,
+                PurchaseInvoiceLineTax.component_code,
+                PurchaseInvoiceLineTax.amount,
+                PurchaseInvoiceLineTax.recoverable,
+            )
+            .join(
+                PurchaseInvoiceLine,
+                PurchaseInvoiceLine.id
+                == PurchaseInvoiceLineTax.purchase_invoice_line_id,
+            )
+            .join(
+                PurchaseInvoice,
+                PurchaseInvoice.id == PurchaseInvoiceLine.purchase_invoice_id,
+            )
+            .where(
+                PurchaseInvoice.firm_id == firm_scope,
+                PurchaseInvoice.is_deleted.is_(False),
+                PurchaseInvoice.status.in_(("APPROVED", "CLOSED")),
+                PurchaseInvoice.invoice_date >= from_date,
+                PurchaseInvoice.invoice_date <= to_date,
+                PurchaseInvoiceLine.is_deleted.is_(False),
+                PurchaseInvoiceLineTax.is_deleted.is_(False),
+                PurchaseInvoiceLineTax.reverse_charge.is_(True),
+                PurchaseInvoiceLineTax.included_in_price.is_(False),
+            )
+        ).all():
+            if line_id not in lines_counted:
+                lines_counted.add(line_id)
+                # The supplier charged no tax, so the line's net is its value.
+                taxable += Decimal(str(line_net)) - Decimal(str(line_tax))
+            bucket = _bucket(code, Decimal(str(amount)))
+            owed = owed.plus(bucket)
+            if recoverable:
+                credit = credit.plus(bucket)
+        return (taxable, owed), credit
 
     # ---- reading -------------------------------------------------------
 

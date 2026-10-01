@@ -515,7 +515,57 @@ one implementation:
 
 Built 2026-10-01 (`docs/BACKLOG.md` §63, `app/gst_returns/services/gst_payment_service.py`). The month's liability per head is GSTR-3B 3.1(a) after credit notes, and its credit is table 4's net input credit plus what the month before carried. The set-off follows section 49(5) and rule 88A: IGST credit first and wholly, split across CGST and SGST in whichever way leaves the least cash; CGST credit never against SGST, nor SGST against CGST; cess only against cess.
 
-Recording the challan posts **one journal**: Dr Output tax for the whole liability; Cr each head's input-tax account (`INPUT_TAX_IGST/CGST/SGST`, cess to `INPUT_TAX`) for the credit it gave; Cr the bank for cash, interest and late fee; Dr the expense accounts the user chose for interest and late fee -- never the tax accounts, which must clear. Output tax is one account today (item 3 would split it), so the per-head figures live on the `gst_payments` row, never as JSON. The next month's brought-forward credit is the row's `carried_*`, so only the latest settled month can be reversed, and one standing settlement per month is held by `UQ_gst_payments_firm_period_posted`.
+Recording the challan posts **one journal**: Dr output tax for the whole liability, per head (below); Dr reverse-charge payable per head for 3.1(d); Cr each head's input-tax account (`INPUT_TAX_IGST/CGST/SGST`, cess to `INPUT_TAX`) for the credit it gave; Cr the bank for cash, interest and late fee; Dr the expense accounts the user chose for interest and late fee -- never the tax accounts, which must clear. The per-head figures live on the `gst_payments` row, never as JSON.
+
+**Reverse charge is paid in cash only** (section 49(4)): it never enters the set-off, so no credit of any head can reach it, and it is added to the challan on top of what the set-off leaves (`reverse_charge_*` on the row). Its credit, claimed in 4(A)(3), is part of the month's net ITC and so may pay forward-charge tax like any other credit.
+
+**Output tax is cleared head by head, and the single account with them.** Each head's account (`OUTPUT_TAX_IGST/CGST/SGST`) is debited by what the month's own journals credited to it -- settlements excluded -- never more than the head's liability; whatever is left of the liability (a month posted before the split, cess, a component the split does not name) is debited to `OUTPUT_TAX`. So a month before the split clears 2200 exactly as before, a month after clears the heads, and a month straddling it clears both. The next month's brought-forward credit is the row's `carried_*`, so only the latest settled month can be reversed, and one standing settlement per month is held by `UQ_gst_payments_firm_period_posted`.
+
+## Output tax is owed head by head
+
+Built 2026-10-01 (`docs/BACKLOG.md` §63 item 3). **Every sales document credits
+output tax one leg per GST head, and every reversal debits the same heads.**
+`OUTPUT_TAX_IGST` (2210), `OUTPUT_TAX_CGST` (2220) and `OUTPUT_TAX_SGST` (2230)
+join `OUTPUT_TAX` (2200), seeded with the chart for a new firm and by
+`20261001_0201` for every existing one. `output_tax_purpose(component_code)`
+names the account; UTGST goes with the state head; cess and anything else go
+to 2200.
+
+- **A sales invoice** splits by the components its lines recorded
+  (`invoice_tax_by_component`, `app/sales_invoice/services/output_tax.py`),
+  tax inside a price left out; **a sales return** by its own lines'
+  components; **a credit note**, which stores one tax figure, the way the
+  invoice it credits was taxed -- all IGST, or CGST and SGST halves
+  (`credited_tax_by_component`, the rule GSTR-1's credit-note rows use).
+- Each head is quantized to the ledger and the residual goes on the largest,
+  so the legs sum to exactly the document's tax leg (`_tax_legs`, shared with
+  input tax). With no component map the whole posts to 2200, as before.
+- **History is left as posted**: no balance moves out of 2200. The GST
+  payment clears both (above; `docs/OWNER_DECISIONS.md` A28).
+- An unmapped head is named in the same refusal as every other gap.
+
+## Reverse charge on a purchase bill
+
+Built 2026-10-01 (`docs/BACKLOG.md` §68 row 8). Where the tax engine resolves a
+bill line as reverse charge (a rule with the *Reverse charge* action), the
+supplier charges nothing and the firm owes the tax itself:
+
+- The line's components are kept with `reverse_charge` set and summed in
+  `purchase_invoices.reverse_charge_tax_total`; `tax_total`, `grand_total` and
+  **the payable exclude it**.
+- Approval posts, beside the ordinary legs: **Dr input tax per head** (the
+  same `INPUT_TAX_*` accounts) and **Cr reverse-charge payable per head**
+  (`RCM_PAYABLE_IGST` 2260, `_CGST` 2270, `_SGST` 2280; cess to `RCM_PAYABLE`
+  2250). Its own liability rather than output tax, because it is paid in cash
+  only.
+- Approval issues the **self-invoice number** (rule 47A) from its own series,
+  `RCM_SELF_INVOICE` (prefix SI) -- never the bill's -- and a cancelled bill
+  keeps it.
+- Cancelling mirrors the journal, so the liability and the credit go with it.
+- GSTR-3B: 3.1(d) `inward_reverse_charge`, 4(A)(3) `itc_reverse_charge`; the
+  rows are left out of 4(A)(5), and returns and debit notes off the bill
+  ignore them. A return off a reverse-charge bill does not yet reverse the
+  liability (open).
 
 ## Input tax is claimed head by head
 
